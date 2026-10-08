@@ -146,12 +146,11 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
     let output_path = scratch.join("report.json");
     fs::write(&grammar_path, xml).expect("write synthetic fixture");
 
-    let error = run_grammar_health(&[
+    run_grammar_health(&[
         grammar_path.to_string_lossy().into_owned(),
         output_path.to_string_lossy().into_owned(),
     ])
-    .expect_err("the fixture's error-level import issues fail the command");
-    assert!(error.contains("error(s)"), "{error}");
+    .expect("provisional letters keep the fixture runnable");
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("the report is still written");
@@ -163,10 +162,26 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         .iter()
         .filter(|diagnostic| diagnostic["level"] == "error")
         .count();
-    assert!(
-        error.starts_with(&format!("{error_count} error(s)")),
-        "{error}"
-    );
+    assert_eq!(error_count, 0);
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 5);
+    let letters: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == "provisional.letter")
+        .collect();
+    assert_eq!(letters.len(), 4);
+    for letter in ["k", "r", "n", "s"] {
+        let finding = letters
+            .iter()
+            .find(|finding| {
+                finding["description"]
+                    .as_str()
+                    .unwrap()
+                    .contains(&format!("letter '{letter}'"))
+            })
+            .expect("each missing letter has a finding");
+        assert_eq!(finding["level"], "info");
+    }
     assert_eq!(report["fieldworks_project"]["name"], "fixture");
     assert_eq!(report["fieldworks_project"]["source"], "fwdata_path");
     let warning = report["diagnostics"]
@@ -202,12 +217,48 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         "--fw-project".to_string(),
         "  Chosen Project  ".to_string(),
     ])
-    .expect_err("the same error-level issues fail the command with an explicit project name");
+    .expect("provisional letters also work with an explicit project name");
     let named_report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&named_output_path).expect("read named output"))
             .expect("structured JSON");
     assert_eq!(named_report["fieldworks_project"]["name"], "Chosen Project");
     assert_eq!(named_report["fieldworks_project"]["source"], "argument");
+
+    let (mut snapshot, _) = pg_fwdata::import_file(&grammar_path).unwrap();
+    let allomorph = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .flat_map(|entry| &mut entry.allomorphs)
+        .find(|allomorph| allomorph.forms.iter().any(|form| form.form == "kat"))
+        .expect("the fixture contains the selected kat stem");
+    let allomorph_guid = allomorph.guid.clone();
+    allomorph.forms[0].form = "ka\u{0001}t".into();
+    let control_path = scratch.join("control.json");
+    let control_output = scratch.join("control-report.json");
+    fs::write(&control_path, snapshot.to_json()).unwrap();
+    let error = run_grammar_health(&[
+        control_path.to_string_lossy().into_owned(),
+        control_output.to_string_lossy().into_owned(),
+    ])
+    .expect_err("an unclassifiable control still refuses the grammar");
+    assert!(error.contains("error(s)"), "{error}");
+    let control_report: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(control_output).unwrap()).unwrap();
+    let refusal = control_report["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|finding| finding["code"] == "substrate.classification-ambiguous")
+        .expect("the named refusal remains in the report");
+    assert_eq!(refusal["level"], "error");
+    assert!(refusal["subjects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|subject| {
+            subject["fieldworks"]["guid"].as_str() == Some(allomorph_guid.as_str())
+        }));
 
     let _ = fs::remove_dir_all(scratch);
 }

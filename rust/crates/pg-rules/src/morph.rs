@@ -33,7 +33,7 @@ use pg_grammar_model::model::{
     NaturalClassKind, OutputAction, PartRef, Pattern, PatternNode, RealizationalRuleDef,
     ReduplicationHint, SimpleContext, StratumId, TableId,
 };
-use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
+use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge};
 use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
@@ -849,11 +849,11 @@ pub(crate) fn seed_from_entry(g: &Grammar, le: LexEntryId, real_fs: FeatureStruc
 // Feature / lane helpers.
 
 fn feat_width(g: &Grammar) -> usize {
-    g.phon_features.len()
+    pg_grammar_model::membership::width(&g.phon_features)
 }
 
 fn full_mask(g: &Grammar, f: usize) -> u64 {
-    g.phon_features.mask(FlatIndex(f as u32))
+    pg_grammar_model::membership::mask(&g.phon_features, f)
 }
 
 /// Driver full-mask lane vector (width `W`, unconstrained everywhere).
@@ -879,7 +879,7 @@ fn cd_lanes(g: &Grammar, table: TableId, cd_raw: u32) -> Vec<u64> {
         return full_lanes(g);
     }
     let t = &g.char_tables[table.0 as usize];
-    fit(g, t.get(CharDefId(cd_raw)).feature_lanes())
+    fit(g, &t.get(CharDefId(cd_raw)).matching_lanes())
 }
 
 /// The `(feature, symbol-bits)` a `SimpleContext` pins; alpha-variable features are left unconstrained.
@@ -888,7 +888,7 @@ fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64
     let t = &g.char_tables[table.0 as usize];
     let nc = &g.natural_classes[ctx.nat_class.0 as usize];
     let alpha: HashSet<usize> = ctx.vars.iter().map(|v| v.feature.0 as usize).collect();
-    match &nc.kind {
+    let mut pins: Vec<(usize, u64)> = match &nc.kind {
         NaturalClassKind::Feature(pairs) => pairs
             .iter()
             .filter(|(f, _)| !alpha.contains(&(f.0 as usize)))
@@ -896,13 +896,19 @@ fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64
             .collect(),
         NaturalClassKind::Segments(segs) => (0..w)
             .filter_map(|f| {
-                let bits = segs
-                    .iter()
-                    .fold(0u64, |acc, cd| acc | fit(g, t.get(*cd).feature_lanes())[f]);
+                let bits = segs.iter().fold(0u64, |acc, cd| {
+                    acc | fit(g, &t.get(*cd).matching_lanes())[f]
+                });
                 (bits != full_mask(g, f)).then_some((f, bits))
             })
             .collect(),
-    }
+    };
+    pins.retain(|(f, _)| *f < g.phon_features.len());
+    pins.push((
+        g.phon_features.len(),
+        pg_grammar_model::membership::class_bits(nc, g.phon_features.type_flat()),
+    ));
+    pins
 }
 
 /// Driver lanes for a `SimpleContext` (width `W`).
@@ -917,37 +923,15 @@ fn ctx_lanes(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<u64> {
 /// The char-def-set a `SimpleContext`'s natural class carries; `Unrestricted` rather than a full-table bitset when the class means "any segment".
 fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
     let nc = &g.natural_classes[ctx.nat_class.0 as usize];
-    match &nc.kind {
-        NaturalClassKind::Segments(segs) => {
-            CdSet::Members(CdBits::from_ids(segs.iter().map(|cd| cd.0)))
-        }
-        NaturalClassKind::Feature(_) => {
-            let pins = ctx_pins(g, table, ctx);
-            if pins.is_empty() {
-                // Nothing pinned means every feature is alpha-variable-governed, so the class matches every segment.
-                return CdSet::Unrestricted;
-            }
-            let t = &g.char_tables[table.0 as usize];
-            let mut members = Vec::new();
-            let mut all = true;
-            for (id, cd) in t.iter() {
-                if cd.kind() != pg_grammar_model::chardef::CharDefKind::Segment {
-                    continue;
-                }
-                let lanes = fit(g, cd.feature_lanes());
-                if pins.iter().all(|&(f, bits)| lanes[f] & bits != 0) {
-                    members.push(id.0);
-                } else {
-                    all = false;
-                }
-            }
-            if all {
-                CdSet::Unrestricted
-            } else {
-                CdSet::Members(CdBits::from_ids(members))
-            }
-        }
-    }
+    let pins: Vec<_> = ctx_pins(g, table, ctx)
+        .into_iter()
+        .map(|(lane, bits)| (FlatIndex(lane as u32), pg_featstruct::SymbolBits(bits)))
+        .collect();
+    pg_grammar_model::segment::nat_class_cd_set_with_constraints(
+        &g.char_tables[table.0 as usize],
+        nc,
+        &pins,
+    )
 }
 
 /// The owned `CdSet` for a copied `OutNode`: harmlessly `Unrestricted` for a concrete source (its `char_def` already carries identity), real propagation only when the source was itself `NO_CHAR_DEF`.

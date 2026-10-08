@@ -132,9 +132,17 @@ fn cached_synthesis_resolves_natural_classes_against_the_rules_own_table_not_tab
         .collect();
     assert_eq!(interior.len(), 1, "exactly one segment node");
     assert_eq!(
-        out[0].node_lanes(interior[0]).to_vec(),
+        &out[0].node_lanes(interior[0])[..p_lanes.len()],
         p_lanes,
         "the rewritten node must carry ncP's (t1's \"p\") own lanes"
+    );
+    assert_eq!(out[0].node_lanes(interior[0]).len(), p_lanes.len() + 1);
+    assert_eq!(
+        out[0].node_lanes(interior[0])[p_lanes.len()],
+        pg_grammar_model::membership::DEFINED
+            | pg_grammar_model::membership::FEATURELESS
+            | pg_grammar_model::membership::BOUNDARY,
+        "ncP is an explicit segment list: it admits authored members, including featureless ones and boundaries, but no provisional letter"
     );
 }
 
@@ -273,14 +281,26 @@ fn cached_affix_synthesis_resolves_the_allomorphs_own_lhs_rhs_pattern_against_it
         .feature_lanes()
         .to_vec();
     assert_eq!(
-        w.shape.node_lanes(interior[0]).to_vec(),
+        &w.shape.node_lanes(interior[0])[..q_lanes.len()],
         q_lanes,
         "the copied root node must keep t1's own \"q\" lanes"
     );
+    assert_eq!(w.shape.node_lanes(interior[0]).len(), q_lanes.len() + 1);
     assert_eq!(
-        w.shape.node_lanes(interior[1]).to_vec(),
+        w.shape.node_lanes(interior[0])[q_lanes.len()],
+        pg_grammar_model::membership::DEFINED,
+        "the copied q retains its authored feature-valued definition's eligibility"
+    );
+    assert_eq!(
+        &w.shape.node_lanes(interior[1])[..p_lanes.len()],
         p_lanes,
         "the inserted node must carry t1's own \"p\" lanes (cd_lanes resolved against t1), \
          not t0's"
+    );
+    assert_eq!(w.shape.node_lanes(interior[1]).len(), p_lanes.len() + 1);
+    assert_eq!(
+        w.shape.node_lanes(interior[1])[p_lanes.len()],
+        pg_grammar_model::membership::DEFINED,
+        "literal insertion gives p its own authored feature-valued definition's eligibility"
     );
 }

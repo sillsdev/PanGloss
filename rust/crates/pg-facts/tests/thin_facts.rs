@@ -2680,12 +2680,7 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
     cache.checkpoint_and_close().unwrap();
 
     let compile_options = pg_grammar::compile::CompileOptions::default();
-    let parameters = &snapshot.morphology.parser_parameters;
-    let resolved = compile_options.substrate.resolve(
-        parameters.active_parser,
-        parameters.accept_unspecified_graphemes,
-    );
-    let compile_options_json = compile_options.canonical_projection_json(resolved);
+    let compile_options_json = compile_options.canonical_projection_json();
     let fingerprint = pg_assess::model_fingerprint(
         pg_assess::SourceKind::Snapshot,
         std::str::from_utf8(&source).unwrap(),

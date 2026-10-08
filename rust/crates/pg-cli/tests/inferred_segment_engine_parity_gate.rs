@@ -1,6 +1,6 @@
 //! An inferred substrate segment must behave exactly like an authored featureless one, and differently from an explicitly feature-valued one, on the real HC-Rust and foma-propose+HC-confirm engines -- not just in the compiled char-def artifact. Lives here (not in `pg-grammar`'s own tests) because `pg-parse`/`pg-foma` both depend on `pg-grammar`, so calling their APIs from inside `pg-grammar`'s own test binary splits `Grammar`'s type identity across the dev-dependency boundary (`error[E0308]: mismatched types ... multiple different versions of crate pg_grammar`); `pg-cli` already depends on all three normally, with no cycle.
 
-use pg_grammar::compile::{CompileOptions, SubstratePolicy};
+use pg_grammar::compile::CompileOptions;
 use pg_grammar::compile_project_with;
 use pg_snapshot::feature::{
     ClosedFeature, FeatureStructure, FeatureValue, FeatureValueKind, FeatureValueSymbol,
@@ -235,15 +235,9 @@ fn base_snapshot() -> Snapshot {
 }
 
 fn compile(snapshot: &Snapshot) -> pg_grammar::model::Grammar {
-    compile_project_with(
-        snapshot,
-        CompileOptions {
-            substrate: SubstratePolicy::Auto,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("fixture must compile")
-    .grammar
+    compile_project_with(snapshot, CompileOptions::default())
+        .expect("fixture must compile")
+        .grammar
 }
 
 fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {

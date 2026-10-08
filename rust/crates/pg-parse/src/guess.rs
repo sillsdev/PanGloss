@@ -67,7 +67,7 @@ fn table_lanes(table: &CharDefTable, cd: u32, feat_width: usize) -> Vec<u64> {
     if cd == NO_CHAR_DEF || feat_width == 0 {
         return Vec::new();
     }
-    table.get(CharDefId(cd)).feature_lanes().to_vec()
+    table.get(CharDefId(cd)).matching_lanes()
 }
 
 /// Build the full node-view sequence of `shape`'s interior (§1.3 step 2: "inputNodes = ALL of the
@@ -78,7 +78,9 @@ fn table_lanes(table: &CharDefTable, cd: u32, feat_width: usize) -> Vec<u64> {
 /// lanes) falls back to resolving lanes from `table` by `char_def` — exactly like a root
 /// allomorph's stored shape.
 pub fn nodes_of(shape: &Shape, table: &CharDefTable, feat_width: usize) -> Vec<GuessNode> {
-    let use_shape_lanes = feat_width > 0 && shape.feat_width() as usize == feat_width;
+    let use_shape_lanes = feat_width > 0
+        && (shape.feat_width() as usize == feat_width
+            || shape.feat_width() as usize == feat_width + 1);
     let mut out = Vec::with_capacity(shape.len());
     for i in 0..shape.len() {
         let kind = shape.kind(i);

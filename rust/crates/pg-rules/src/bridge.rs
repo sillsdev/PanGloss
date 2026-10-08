@@ -147,11 +147,11 @@ pub struct PatternBridge<'g> {
 /// The P10 identity lane's index for `table`, or `None` when the table cannot be represented
 /// exactly in one `u64` (> 64 char-defs — Amharic's 422-def table): identity discrimination is
 /// then disabled wholesale (constraints and inputs both omit the lane), preserving the pre-P10
-/// over-approximation rather than silently truncating membership. The lane sits immediately after
-/// the phonological feature lanes (index = `phon_features.len()`), so it can never collide with a
-/// real `FlatIndex`.
+/// over-approximation rather than silently truncating membership. The lane follows the shared
+/// matching lanes (`membership::width`), so it cannot collide with phonological or eligibility lanes.
 pub(crate) fn id_lane_width(grammar: &Grammar, table: TableId) -> Option<usize> {
-    (grammar.char_tables[table.0 as usize].len() <= 64).then(|| grammar.phon_features.len())
+    (grammar.char_tables[table.0 as usize].len() <= 64)
+        .then(|| pg_grammar_model::membership::width(&grammar.phon_features))
 }
 
 /// Pad `lanes` with `UNCONSTRAINED` up to the identity-lane index `w`, then push the membership
@@ -200,7 +200,7 @@ impl<'g> PatternBridge<'g> {
     }
 
     fn feature_width(&self) -> usize {
-        self.grammar.phon_features.len()
+        pg_grammar_model::membership::width(&self.grammar.phon_features)
     }
 
     /// Resolve a natural-class constraint to canonical `u64` lanes. `Segments`-kind lanes are a union over members and so over-approximate real membership on id-lane-off paths; P10's identity lane closes most of this, and P7 censused the rest as inert on every reference grammar.
@@ -215,6 +215,10 @@ impl<'g> PatternBridge<'g> {
         match &nc.kind {
             NaturalClassKind::Feature(pairs) => {
                 let mut lanes = vec![UNCONSTRAINED; w];
+                lanes[w - 1] = pg_grammar_model::membership::class_bits(
+                    nc,
+                    self.grammar.phon_features.type_flat(),
+                );
                 for (flat, bits) in pairs {
                     lanes[flat.0 as usize] = bits.0;
                 }
@@ -229,11 +233,15 @@ impl<'g> PatternBridge<'g> {
                 let table = &self.grammar.char_tables[self.table.0 as usize];
                 let mut lanes = vec![0u64; w];
                 for cd in segs {
-                    let member = table.get(*cd).feature_lanes();
+                    let member = table.get(*cd).matching_lanes();
                     for (i, &l) in member.iter().enumerate() {
                         lanes[i] |= l;
                     }
                 }
+                lanes[w - 1] &= pg_grammar_model::membership::class_bits(
+                    nc,
+                    self.grammar.phon_features.type_flat(),
+                );
                 // P10 `StrRep` identity lane (see the `id_lane` field doc): the member-set bitset makes membership exact where the lane union alone over-approximates.
                 if self.id_lane {
                     if let Some(idw) = id_lane_width(self.grammar, self.table) {
@@ -264,7 +272,7 @@ impl<'g> PatternBridge<'g> {
         if cd.0 as usize >= table.len() {
             return Err(BridgeError::BadCharDef(cd));
         }
-        let mut lanes = table.get(cd).feature_lanes().to_vec();
+        let mut lanes = table.get(cd).literal_constraint_lanes();
         // P10 `StrRep` identity lane (see the `id_lane` doc): a concrete char-def constraint matches only that char-def in C#, not any feature-unifiable segment.
         if self.id_lane {
             if let Some(idw) = id_lane_width(self.grammar, self.table) {
@@ -308,7 +316,9 @@ impl<'g> PatternBridge<'g> {
                     let seg_table = &self.grammar.char_tables[table.0 as usize];
                     for (i, _kind, char_def, _flags) in shape.shape.interior() {
                         let _ = i;
-                        let mut lanes = seg_table.get(CharDefId(char_def)).feature_lanes().to_vec();
+                        let mut lanes = seg_table
+                            .get(CharDefId(char_def))
+                            .literal_constraint_lanes();
                         // P10 `StrRep` identity lane, same rationale as `char_def_lanes`, only when the node's table IS the bridge's table: id bits live in one table's char-def id space.
                         if self.id_lane && *table == self.table {
                             if let Some(idw) = id_lane_width(self.grammar, *table) {

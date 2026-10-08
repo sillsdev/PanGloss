@@ -111,7 +111,7 @@ fn matching_cd_ids(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<Ch
         } else {
             feature_bearing_table || id.0 == char_def
         };
-        if member && flat_unifiable(lanes, cd.feature_lanes()) {
+        if member && flat_unifiable(lanes, &cd.matching_lanes()) {
             out.push(id);
         }
     }

@@ -120,7 +120,6 @@ pub(crate) fn build(
         }
     }
 
-    // Synthetic "Any" natural class: matches any segment, no constraint beyond the mandatory Type=Segment every FeatureNaturalClass carries.
     let any_key = InventoryKey::synthetic(InventoryKind::NaturalClass, "__any__");
     recorder.synthesized(any_key.clone());
     recorder.considered(any_key.clone());

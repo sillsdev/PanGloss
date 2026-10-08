@@ -641,10 +641,17 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             Some(ALLOMORPHS_HELP),
         ),
         SubstrateClassificationAmbiguous => advice(
-            "Allomorph character is ambiguous",
-            "PanGloss lacks evidence to classify an allomorph character and skips the form instead of guessing.",
-            "In Lexicon > Lexicon Edit, inspect the form. Correct an unintended character; if it is a genuine phoneme, define it in Grammar > Phonemes > In Orthography as. If spelling and inventory are correct, inspect the vernacular writing system and report missing classification evidence.",
+            "Allomorph contains an unclassifiable character",
+            "PanGloss cannot give the named character a provisional definition and refuses this grammar with a named error.",
+            "In Lexicon > Lexicon Edit, check the named allomorph's spelling and remove any unintended control character. If a letter still cannot be segmented, check its representations in Grammar > Phonemes.",
             &[("lexiconEdit", "Allomorphs > Form"), ("phonemeEdit", "In Orthography as")],
+            Some(MODELLING_HELP),
+        ),
+        ProvisionalLetter | ProvisionalBoundary => advice(
+            "Provisional letter or boundary definition",
+            "A used letter or boundary has no authored definition. PanGloss supplies a provisional definition and reports its assumption.",
+            "Define the named letter in Grammar > Phonemes > In Orthography as, or the named boundary in Grammar > Boundary Markers, to replace its provisional definition.",
+            &[("phonemeEdit", "In Orthography as")],
             Some(MODELLING_HELP),
         ),
         MigrationInferredSegmentWithFeatureRule => advice(
@@ -850,7 +857,10 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::NaturalClassUnreferencedCompacted => DiagnosticLevel::Info,
         ImportWarningCode::SourceProvenanceUnknown => DiagnosticLevel::Warning,
         ImportWarningCode::SubstrateUnsegmentableForm => DiagnosticLevel::Warning,
-        ImportWarningCode::SubstrateClassificationAmbiguous => DiagnosticLevel::Warning,
+        ImportWarningCode::SubstrateClassificationAmbiguous => DiagnosticLevel::Error,
+        ImportWarningCode::ProvisionalLetter | ImportWarningCode::ProvisionalBoundary => {
+            DiagnosticLevel::Info
+        }
         ImportWarningCode::MigrationInferredSegmentWithFeatureRule => DiagnosticLevel::Error,
         ImportWarningCode::UnsupportedConstruct => DiagnosticLevel::Warning,
         ImportWarningCode::SubstratePositionUnmapped => DiagnosticLevel::Warning,

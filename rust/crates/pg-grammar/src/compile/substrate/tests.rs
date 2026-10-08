@@ -1,48 +1,55 @@
 use super::*;
 
 #[test]
-fn inferred_segment_has_no_authored_feature_values() {
-    let q = inferred_raw_def("q", CharDefKind::Segment);
-    assert!(q.feature_values.is_empty());
+fn provisional_definition_has_no_authored_feature_values() {
+    assert!(inferred_raw_def("q", CharDefKind::Segment)
+        .feature_values
+        .is_empty());
 }
 
 #[test]
-fn inferred_id_is_deterministic_from_nfd_scalars() {
-    assert_eq!(inferred_id("q"), "inferred:71");
-    assert_eq!(inferred_id(&nfd("q")), inferred_id("q"));
+fn provisional_id_is_deterministic_from_nfd_scalars() {
+    assert_eq!(inferred_id(&nfd("ã")), "inferred:61-303");
+    assert_eq!(inferred_id("👩‍💻"), "inferred:1f469-200d-1f4bb");
 }
 
 #[test]
-fn ascii_space_is_in_the_safe_boundary_table_but_common_punctuation_is_not() {
+fn controls_refuse_even_when_listed_as_exemplars() {
+    assert!(classify("\u{1}", InferenceEvidence::LdmlExemplar, &HashSet::new()).is_none());
+}
+
+#[test]
+fn ascii_space_is_a_boundary_and_common_punctuation_is_a_provisional_letter() {
     let empty = HashSet::new();
-    assert!(matches!(
-        classify(' ', &empty, &empty),
-        Classification::Boundary(InferenceEvidence::SafeBoundaryTable { version: 1 })
-    ));
-    for ch in ['\'', '\u{02BC}', '-', '\u{2011}', '§'] {
-        assert!(
-            matches!(classify(ch, &empty, &empty), Classification::Ambiguous),
-            "{ch:?} must not be classifiable without authored/LDML evidence"
+    assert_eq!(
+        classify(" ", InferenceEvidence::GraphemeCluster, &empty),
+        Some((
+            CharDefKind::Boundary,
+            InferenceEvidence::SafeBoundaryTable { version: 1 }
+        ))
+    );
+    for letter in ["'", "\u{02BC}", "-", "\u{2011}", "§"] {
+        assert_eq!(
+            classify(letter, InferenceEvidence::GraphemeCluster, &empty),
+            Some((CharDefKind::Segment, InferenceEvidence::GraphemeCluster))
         );
     }
 }
 
 #[test]
-fn an_exemplar_character_classifies_as_a_segment_even_if_it_would_otherwise_be_ambiguous() {
-    let exemplar: HashSet<String> = ["q".to_string()].into_iter().collect();
-    let empty = HashSet::new();
-    assert!(matches!(
-        classify('q', &exemplar, &empty),
-        Classification::Segment(InferenceEvidence::LdmlExemplar)
-    ));
+fn an_exemplar_letter_retains_its_evidence() {
+    assert_eq!(exemplar_letter("quma", &["q".into()]), Some("q"));
+    assert_eq!(
+        classify("q", InferenceEvidence::LdmlExemplar, &HashSet::new()),
+        Some((CharDefKind::Segment, InferenceEvidence::LdmlExemplar))
+    );
 }
 
 #[test]
-fn an_authored_boundary_representation_classifies_as_a_boundary() {
-    let empty = HashSet::new();
-    let authored: HashSet<String> = ["\u{2011}".to_string()].into_iter().collect();
-    assert!(matches!(
-        classify('\u{2011}', &empty, &authored),
-        Classification::Boundary(InferenceEvidence::AuthoredBoundary)
-    ));
+fn an_authored_boundary_retains_its_classification() {
+    let authored = HashSet::from(["\u{2011}".to_string()]);
+    assert_eq!(
+        classify("\u{2011}", InferenceEvidence::GraphemeCluster, &authored),
+        Some((CharDefKind::Boundary, InferenceEvidence::AuthoredBoundary))
+    );
 }

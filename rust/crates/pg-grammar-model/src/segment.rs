@@ -266,45 +266,64 @@ pub fn segment_with_patterns(
 
 /// The char-def-set a `[ClassName]` pattern reference carries: a `Segments`-kind class is exactly its member list; a `Feature`-kind class is every segment whose lanes satisfy every pinned constraint.
 pub fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
-    let members = nat_class_member_ids(table, nc);
+    let pairs = match &nc.kind {
+        NaturalClassKind::Feature(pairs) => pairs.as_slice(),
+        NaturalClassKind::Segments(_) => &[],
+    };
+    nat_class_cd_set_with_constraints(table, nc, pairs)
+}
+
+/// Resolves membership using the owner's eligibility decision and effective feature constraints.
+/// Callers may omit alpha-variable-governed constraints without widening eligibility.
+pub fn nat_class_cd_set_with_constraints(
+    table: &CharDefTable,
+    nc: &NaturalClass,
+    pairs: &[(crate::featsys::FlatIndex, pg_featstruct::SymbolBits)],
+) -> CdSet {
+    let eligible = crate::membership::class_bits(nc, table.type_feature());
     match &nc.kind {
-        NaturalClassKind::Segments(_) => {
-            CdSet::Members(CdBits::from_ids(members.iter().map(|cd| cd.0)))
-        }
-        NaturalClassKind::Feature(_) if members.len() == segment_count(table) => {
-            CdSet::Unrestricted
-        }
+        NaturalClassKind::Segments(segs) => CdSet::Members(CdBits::from_ids(
+            segs.iter()
+                .filter(|id| table.get(**id).membership_bits() & eligible != 0)
+                .map(|cd| cd.0),
+        )),
         NaturalClassKind::Feature(_) => {
-            CdSet::Members(CdBits::from_ids(members.iter().map(|cd| cd.0)))
+            let mut members = Vec::new();
+            let mut all = true;
+            for (id, cd) in table.iter() {
+                if cd.kind() != CharDefKind::Segment {
+                    continue;
+                }
+                let lanes = cd.matching_lanes();
+                if cd.membership_bits() & eligible != 0
+                    && pairs
+                        .iter()
+                        .all(|&(f, bits)| lanes[f.0 as usize] & bits.0 != 0)
+                {
+                    members.push(id.0);
+                } else {
+                    all = false;
+                }
+            }
+            if all {
+                CdSet::Unrestricted
+            } else {
+                CdSet::Members(CdBits::from_ids(members))
+            }
         }
     }
 }
 
 /// Character definitions included by the same compiled-class decision used by pattern matching.
 pub fn nat_class_member_ids(table: &CharDefTable, nc: &NaturalClass) -> Vec<CharDefId> {
-    match &nc.kind {
-        NaturalClassKind::Segments(segments) => segments.clone(),
-        NaturalClassKind::Feature(pairs) => table
-            .iter()
-            .filter_map(|(id, definition)| {
-                if definition.kind() != CharDefKind::Segment {
-                    return None;
-                }
-                let lanes = definition.feature_lanes();
-                pairs
-                    .iter()
-                    .all(|&(feature, bits)| lanes[feature.0 as usize] & bits.0 != 0)
-                    .then_some(id)
-            })
-            .collect(),
-    }
-}
-
-fn segment_count(table: &CharDefTable) -> usize {
+    let members = nat_class_cd_set(table, nc);
     table
         .iter()
-        .filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
-        .count()
+        .filter_map(|(id, definition)| match &members {
+            CdSet::Unrestricted => (definition.kind() == CharDefKind::Segment).then_some(id),
+            CdSet::Members(bits) => bits.contains(id.0).then_some(id),
+        })
+        .collect()
 }
 
 /// Port of `GetShapeNodes`' `errorPos` remap (see `segment`'s doc comment for the rationale).

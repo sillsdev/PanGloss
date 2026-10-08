@@ -40,30 +40,31 @@ use pg_grammar::model::{Grammar, NaturalClassKind, Pattern, PatternNode, TableId
 
 use crate::replace::SegAlphabet;
 
-// Natural-class member resolution, exact, from the model's own NaturalClassKind — never re-derived through a matcher-oriented helper tuned for a different job.
-
-/// One class's members, resolved from `NaturalClassKind` with a set of alpha-bound feature lanes excluded from the `Feature`-kind pin test, since an alpha-bound feature is resolved per tuple, not a fixed pin.
+/// Resolves exact class membership while leaving alpha-bound feature lanes for tuple binding.
 fn class_members(
     g: &Grammar,
     table: &CharDefTable,
     nat_class: pg_grammar::model::NatClassId,
     exclude_lanes: &HashSet<usize>,
 ) -> Vec<CharDefId> {
-    match &g.natural_classes[nat_class.0 as usize].kind {
-        // Explicit segment list: verbatim, exact, never re-derived via a feature reconstruction that could silently diverge from the authored list.
-        NaturalClassKind::Segments(ids) => ids.clone(),
-        NaturalClassKind::Feature(pairs) => table
+    let class = &g.natural_classes[nat_class.0 as usize];
+    let pairs = match &class.kind {
+        NaturalClassKind::Feature(pairs) => pairs
             .iter()
-            .filter(|(_, cd)| cd.kind() == CharDefKind::Segment)
-            .filter(|(_, cd)| {
-                pairs.iter().all(|(f, bits)| {
-                    exclude_lanes.contains(&(f.0 as usize))
-                        || (cd.feature_lanes()[f.0 as usize] & bits.0 != 0)
-                })
-            })
-            .map(|(id, _)| id)
+            .copied()
+            .filter(|(feature, _)| !exclude_lanes.contains(&(feature.0 as usize)))
             .collect(),
-    }
+        NaturalClassKind::Segments(_) => Vec::new(),
+    };
+    let members = pg_grammar::segment::nat_class_cd_set_with_constraints(table, class, &pairs);
+    table
+        .iter()
+        .filter(|(id, cd)| match &members {
+            pg_shape::CdSet::Unrestricted => cd.kind() == CharDefKind::Segment,
+            pg_shape::CdSet::Members(bits) => bits.contains(id.0),
+        })
+        .map(|(id, _)| id)
+        .collect()
 }
 
 // Pattern -> slot list (one slot per PatternNode, in document order); `None` on any construct this prototype doesn't render.

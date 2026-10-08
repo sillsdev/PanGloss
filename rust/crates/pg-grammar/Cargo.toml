@@ -24,6 +24,7 @@ pg-shape.workspace = true
 pg-snapshot.workspace = true
 quick-xml.workspace = true
 unicode-normalization.workspace = true
+unicode-segmentation.workspace = true
 smallvec.workspace = true
 hashbrown.workspace = true
 thiserror.workspace = true

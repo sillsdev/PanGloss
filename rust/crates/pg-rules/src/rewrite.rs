@@ -153,15 +153,15 @@ impl MutShape {
 // Feature-constraint helpers (the "which features does this node pin, and to what" resolution).
 
 fn full_mask(g: &Grammar, f: usize) -> u64 {
-    g.phon_features.mask(FlatIndex(f as u32))
+    pg_grammar_model::membership::mask(&g.phon_features, f)
 }
 
 /// The `(feature, symbol-bits)` pairs a `Context` or `CharDef` pattern node **pins**. A feature is
 /// pinned iff the node constrains it to a proper subset of its symbols; alpha-variable features
 /// count as unpinned, since the compiled FST cannot bind them.
 pub fn node_pins(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<(usize, u64)> {
-    let w = g.phon_features.len();
-    match node {
+    let w = pg_grammar_model::membership::width(&g.phon_features);
+    let mut pins: Vec<(usize, u64)> = match node {
         PatternNode::Context(sc) => {
             let alpha: HashSet<usize> = sc.vars.iter().map(|v| v.feature.0 as usize).collect();
             match &g.natural_classes[sc.nat_class.0 as usize].kind {
@@ -174,27 +174,38 @@ pub fn node_pins(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<(
                     .filter_map(|f| {
                         let bits = segs
                             .iter()
-                            .fold(0u64, |acc, cd| acc | table.get(*cd).feature_lanes()[f]);
+                            .fold(0u64, |acc, cd| acc | table.get(*cd).matching_lanes()[f]);
                         (bits != full_mask(g, f)).then_some((f, bits))
                     })
                     .collect(),
             }
         }
         PatternNode::CharDef(cd) => {
-            let lanes = table.get(*cd).feature_lanes();
+            let lanes = table.get(*cd).literal_constraint_lanes();
             (0..w)
                 .filter(|&f| lanes[f] != full_mask(g, f))
                 .map(|f| (f, lanes[f]))
                 .collect()
         }
         _ => Vec::new(),
+    };
+    if let PatternNode::Context(context) = node {
+        pins.retain(|(lane, _)| *lane < g.phon_features.len());
+        pins.push((
+            g.phon_features.len(),
+            pg_grammar_model::membership::class_bits(
+                &g.natural_classes[context.nat_class.0 as usize],
+                g.phon_features.type_flat(),
+            ),
+        ));
     }
+    pins
 }
 
 /// Full `W`-lane vector for a pattern node, unconstrained lanes being `full_mask` — the driver's
 /// feature-math representation, distinct from the FST-facing `UNCONSTRAINED`.
 pub fn node_full_lanes(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<u64> {
-    let w = g.phon_features.len();
+    let w = pg_grammar_model::membership::width(&g.phon_features);
     let mut lanes: Vec<u64> = (0..w).map(|f| full_mask(g, f)).collect();
     for (f, bits) in node_pins(g, table, node) {
         lanes[f] = bits;
@@ -632,7 +643,7 @@ fn pattern_defaults_ok(
             if bits == mask {
                 continue; // unpinned at this position -- nothing for UseDefaults to confirm
             }
-            if ms.nodes[node].lanes[f] == mask {
+            if f < g.phon_features.len() && ms.nodes[node].lanes[f] == mask {
                 if let Some(default_bits) = g.phon_features.default_bits(FlatIndex(f as u32)) {
                     if default_bits & bits == 0 {
                         return false;

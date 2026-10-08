@@ -1,4 +1,4 @@
-//! Owner-effect tests for `pg_grammar::compile`'s fatal-vs-recall-gap classification: a construct whose loss changes what the compiled grammar MEANS must refuse, while one allomorph's own unrepresentability is a recall gap, never a whole-project refusal.
+//! Pins fatal conversion issues and per-allomorph owner decisions.
 
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Lexicon, Msa, Sense};
 use pg_snapshot::morphology::{AdhocProhibition, Adjacency, Morphology, PartOfSpeech};
@@ -251,29 +251,72 @@ fn a_representable_cooccurrence_rule_between_two_active_allomorphs_compiles() {
     );
 }
 
-// --- family: substrate-unresolved literal text (per-allomorph recall gap) --------------------
-
-/// An allomorph whose literal text cannot be segmented is a recall gap for that allomorph alone: it must not refuse the rest of the project, which is exactly the granularity decision this test module documents (see `pg_grammar::compile::substrate`'s module doc).
 #[test]
-fn unsegmentable_allomorph_text_is_a_recall_gap_not_a_project_refusal() {
+fn provisional_letter_keeps_the_stem_and_control_preserves_the_owner_drop() {
     let mut snapshot = two_stem_fixture();
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "kuqa")]; // "q" is not declared anywhere in this fixture's phonology
 
     let out = compile_project_with(&snapshot, CompileOptions::default())
-        .expect("one unrepresentable allomorph must not refuse the whole project");
+        .expect("a provisional letter keeps the stem runnable");
+    assert_eq!(out.grammar.entries.len(), 2, "kuqa and sipi both survive");
+    let kept = out
+        .grammar
+        .entries
+        .iter()
+        .find(|entry| entry.source_guid.as_deref() == Some("entry-a"))
+        .expect("the authored kuqa entry remains");
+    assert_eq!(kept.allomorphs[0].shape.text, "kuqa");
+    let finding = out
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "provisional.letter" && warning.message.contains("'q'"))
+        .expect("the provisional q has a finding");
     assert_eq!(
-        out.grammar.entries.len(),
-        1,
-        "only the unsegmentable stem is dropped"
+        pg_snapshot::import_warning_metadata(pg_snapshot::ImportWarningCode::ProvisionalLetter)
+            .level,
+        pg_snapshot::DiagnosticLevel::Info
     );
+    assert!(finding.message.contains("FieldWorks"));
     assert!(out
         .inventory
         .issues
         .iter()
-        .any(|i| i.code == pg_snapshot::ImportWarningCode::AllomorphUnsegmentable && !i.fatal));
+        .all(|issue| { issue.code != pg_snapshot::ImportWarningCode::AllomorphUnsegmentable }));
+
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku\u{0001}a")];
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+        },
+    )
+    .expect("measurement exposes the owner's control-character drop");
+    assert_eq!(
+        out.grammar.entries.len(),
+        1,
+        "only the control-containing stem is dropped"
+    );
+    assert_eq!(
+        out.grammar.entries[0].source_guid.as_deref(),
+        Some("entry-b")
+    );
+    assert_eq!(out.grammar.entries[0].allomorphs[0].shape.text, "sipi");
+    assert!(out.inventory.issues.iter().any(|i| i.code
+        == pg_snapshot::ImportWarningCode::AllomorphUnsegmentable
+        && !i.fatal
+        && i.source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-a")));
+    assert!(out.issues.iter().any(|issue| {
+        issue.code == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+            && issue.fatal
+            && issue
+                .source
+                .as_ref()
+                .is_some_and(|source| source.id == "allo-a")
+    }));
 }
 
-/// Paired control: with no unrepresentable text, both stems compile -- the drop above is exact to the one bad allomorph, not a side effect of some broader change.
 #[test]
 fn both_stems_compile_when_nothing_is_unrepresentable() {
     let snapshot = two_stem_fixture();
@@ -299,7 +342,6 @@ fn measure_only_still_reports_the_fatal_cooccurrence_issue() {
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("MeasureOnly never refuses");

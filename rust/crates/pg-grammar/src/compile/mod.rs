@@ -72,7 +72,7 @@ pub use environment::{EnvironmentResolution, EnvironmentResolutionStatus};
 use inventory::{Lineage, LineageTarget};
 pub use issues::{CompileOutput, CompiledAllomorphOrder, CompiledMapping};
 use issues::{ConversionError, SubstrateReport};
-pub use options::{CompileOptions, ResolvedSubstratePolicy, SemanticLossPolicy, SubstratePolicy};
+pub use options::{CompileOptions, SemanticLossPolicy};
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
@@ -91,9 +91,7 @@ pub fn compile_project(
 /// recorder -- a violated recorder invariant is a bug in this compiler's own bookkeeping, so it
 /// panics naming the violation rather than returning a measurement that cannot be trusted.
 ///
-/// Resolves substrate policy the same way [`CompileOptions::default`] would (`Auto`, discarding
-/// the [`SubstrateReport`]/substrate-only issues) -- structural inventory measurement predates
-/// substrate completion and no caller of this API has asked for either. It uses
+/// Discards the provisional-definition report and uses
 /// [`SemanticLossPolicy::MeasureOnly`] so fatal conversion issues remain visible in the measured
 /// result without refusing the compilation.
 pub fn compile_project_measured(
@@ -110,7 +108,6 @@ pub fn compile_project_measured(
         snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )?;
     Ok((out.grammar, out.warnings, out.inventory))
@@ -118,7 +115,7 @@ pub fn compile_project_measured(
 
 /// Compiles under an explicit [`CompileOptions`], returning every conversion issue (import-stage,
 /// every owner's own recorder issue, and this compile's substrate issues) alongside the `Grammar`.
-/// `options.substrate` resolves and drives `substrate::complete`; every warning producer records
+/// Provisional definitions apply to every project; every warning producer records
 /// its own coded issue at the point where it decides to warn.
 ///
 /// The issue collector starts from `snapshot.conversion_provenance` (import-stage issues, plus a
@@ -179,7 +176,7 @@ pub fn compile_project_with_options_and_import_warnings(
     let mut issues = external_issues.clone();
 
     let (grammar, recorder, substrate, substrate_issues, owner_warnings, environment_resolutions) =
-        compile_project_recording(snapshot, options.substrate)?;
+        compile_project_recording(snapshot)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
@@ -253,7 +250,6 @@ pub(crate) type CompiledProject = (
 /// compaction.
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
-    substrate_policy: SubstratePolicy,
 ) -> Result<CompiledProject, GrammarError> {
     let mut recorder = SelectionRecorder::for_stage(pg_snapshot::LoadPipelineStage::Compile);
     let mut lineage = Lineage::default();
@@ -273,15 +269,8 @@ pub(crate) fn compile_project_recording(
     lexicon::collect_text_uses(snapshot, &mut recorder);
     affixes::collect_text_uses(snapshot, &mut recorder, &mut substrate_issues);
 
-    // --- character-definition table, completed from usage under a resolved CompleteFromUsage ---
+    // Authored definitions take precedence over provisional definitions.
     let raw = chardef::build_raw(snapshot, &phon_features, &mut recorder)?;
-    let resolved_substrate = substrate_policy.resolve(
-        snapshot.morphology.parser_parameters.active_parser,
-        snapshot
-            .morphology
-            .parser_parameters
-            .accept_unspecified_graphemes,
-    );
     let authored_boundary_reps: hashbrown::HashSet<String> = snapshot
         .phonology
         .boundary_markers
@@ -308,17 +297,26 @@ pub(crate) fn compile_project_recording(
         &authored_boundary_reps,
         raw,
         &phon_features,
-        resolved_substrate,
     );
     substrate_issues.extend(complete_issues);
     let chardef::CharDefBuild {
-        table: char_table,
+        table: mut char_table,
         phoneme_of,
         boundary_of,
         null_bdry,
         morph_bdry,
     } = chardef::finalize(snapshot, completed_raw, &phon_features, &mut recorder)?;
     let table_id = TableId(0);
+    for definition in substrate_report
+        .inferred_segments
+        .iter()
+        .chain(&substrate_report.inferred_boundaries)
+    {
+        let id = char_table
+            .lookup_nfd(&crate::nfd::nfd(&definition.representation))
+            .expect("provisional definition was finalized");
+        char_table.mark_provisional(id);
+    }
 
     // --- natural classes (+ synthetic "Any") ----------------------------------------------------
     let natclass::NatClassBuild {
@@ -334,13 +332,6 @@ pub(crate) fn compile_project_recording(
         &mut recorder,
         &mut lineage,
     );
-
-    // A migration difference, never fatal: see `substrate::feature_rule_migration_issues`'s own doc.
-    substrate_issues.extend(substrate::feature_rule_migration_issues(
-        &char_table,
-        &substrate_report.inferred_segments,
-        &natural_classes,
-    ));
 
     // --- grammar-tier FS interner: the empty FS is interned first (FsId 0) ---------------------
     let mut fs_interner: Interner<FeatureStruct> = Interner::with_capacity(64);

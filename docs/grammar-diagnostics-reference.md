@@ -4,7 +4,7 @@ Every registered `pangloss grammar-health` finding has a page generated from Pan
 
 Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/docs/diagnostics/<code>.md`. Each page's first heading is its code; GitHub also renders an anchor from that heading. The file path is stable even for dotted codes.
 
-## Errors (28)
+## Errors (29)
 
 | Code | Title | What to do |
 |---|---|---|
@@ -35,9 +35,10 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [grammar.rule.feature-constraint-unresolved](diagnostics/grammar.rule.feature-constraint-unresolved.md) | Unresolved rule feature constraint | In Grammar > Phonological Rules, inspect the named rule part. Correct a stale constraint reference; if FieldWorks displays a valid constraint, report the rule and missing-object details. |
 | [grammar.rule.feature-constraint-phon-feature-unresolved](diagnostics/grammar.rule.feature-constraint-phon-feature-unresolved.md) | Unresolved phonological feature constraint | In Grammar > Phonological Rules, inspect the named constraint; in Grammar > Phonological Features, check the intended feature and reselect it in the rule. |
 | [grammar.rule.rule-feature-unresolved](diagnostics/grammar.rule.rule-feature-unresolved.md) | Unresolved phonological rule feature | In Grammar > Phonological Rules, inspect Required Properties and Excluded Properties on the named rule. Reselect an intended existing property if the reference is stale; if FieldWorks shows a valid selection, report the loading failure. |
+| [substrate.classification-ambiguous](diagnostics/substrate.classification-ambiguous.md) | Allomorph contains an unclassifiable character | In Lexicon > Lexicon Edit, check the named allomorph's spelling and remove any unintended control character. If a letter still cannot be segmented, check its representations in Grammar > Phonemes. |
 | [migration.inferred-segment-with-feature-rule](diagnostics/migration.inferred-segment-with-feature-rule.md) | Unlisted character matches a feature class | If the character is a language phoneme, define its In Orthography as and Phonological Features in Grammar > Phonemes. Otherwise correct the unintended allomorph spelling in Lexicon > Lexicon Edit. |
 
-## Warnings (56)
+## Warnings (55)
 
 | Code | Title | What to do |
 |---|---|---|
@@ -94,16 +95,18 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [grammar.adhoc-prohibition.unresolved](diagnostics/grammar.adhoc-prohibition.unresolved.md) | Unresolved ad hoc prohibition | In Grammar > Ad hoc Rules, inspect Key Morpheme and Other Morpheme(s), or Key Allomorph and Other Allomorph(s), as named in the finding. Reselect the intended existing items. If the items exist but were skipped during loading, resolve their individual findings first; report a valid rule that still cannot be loaded. |
 | [conversion.source-provenance-unknown](diagnostics/conversion.source-provenance-unknown.md) | Conversion provenance is unavailable | Report the project and diagnostic details to PanGloss. No FieldWorks identity field can repair this finding; preserve source provenance when regenerating an intermediate grammar. |
 | [conversion.unsegmentable-form](diagnostics/conversion.unsegmentable-form.md) | Allomorph form cannot be segmented | In Lexicon > Lexicon Edit, check the named Lexeme Form or Allomorphs > Form. Use the finding's character position to locate unintended spelling. If the spelling is intended, check Grammar > Phonemes > In Orthography as for its phonemes; report a valid form that still cannot be loaded. |
-| [substrate.classification-ambiguous](diagnostics/substrate.classification-ambiguous.md) | Allomorph character is ambiguous | In Lexicon > Lexicon Edit, inspect the form. Correct an unintended character; if it is a genuine phoneme, define it in Grammar > Phonemes > In Orthography as. If spelling and inventory are correct, inspect the vernacular writing system and report missing classification evidence. |
 | [conversion.unsupported-construct](diagnostics/conversion.unsupported-construct.md) | Reduplication inventory check is unsupported | In Lexicon > Lexicon Edit, inspect the allomorph form. Keep an accurate pattern and report it; change it only if an equivalent supported representation is known. |
 | [substrate.position-unmapped](diagnostics/substrate.position-unmapped.md) | Allomorph character position is unmapped | In Lexicon > Lexicon Edit, inspect the named position in the form. Correct an unintended character; if FieldWorks displays the intended spelling, report the mapping problem and diagnostic details. |
 
-## Information (5)
+## Information (8)
 
 | Code | Title | What to do |
 |---|---|---|
+| [provisional.phoneme-features](diagnostics/provisional.phoneme-features.md) | Phoneme has no features | In Grammar > Phonemes, select the named phoneme and assign its Phonological Features to replace this provisional definition. |
 | [fwdata.only-first-used](diagnostics/fwdata.only-first-used.md) | Only the first phoneme set is used | In Grammar > Phonemes, check that the intended inventory appears in the first set. If it does, no change is needed; otherwise report the limitation before reorganizing the project. |
 | [grammar.allomorph.morph-type-unsupported-as-rule-form](diagnostics/grammar.allomorph.morph-type-unsupported-as-rule-form.md) | Loaded through separate parts | In Lexicon > Lexicon Edit, no change is needed when the separate parts are the intended parser representation. |
 | [grammar.mrule.unreachable-compacted](diagnostics/grammar.mrule.unreachable-compacted.md) | Unreachable affix omitted | No change is needed if the affix is intentionally unused. Otherwise inspect its category's Affix Templates in Grammar > Category Edit and its Grammatical Info. in Lexicon > Lexicon Edit. |
 | [grammar.cooccurrence.target-unreachable](diagnostics/grammar.cooccurrence.target-unreachable.md) | Unused ad hoc rule omitted | No change is needed if the rule is intentionally unused. Otherwise check its target affix's Grammatical Info. in Lexicon > Lexicon Edit and Affix Templates in Grammar > Category Edit, then review Grammar > Ad hoc Rules. |
 | [grammar.natclass.unreferenced-compacted](diagnostics/grammar.natclass.unreferenced-compacted.md) | Unused natural class omitted | No change is needed if the class is intentionally unused. If it should be used, inspect the relevant rule in Grammar > Phonological Rules or String Representation in Grammar > Environments. |
+| [provisional.letter](diagnostics/provisional.letter.md) | Provisional letter or boundary definition | Define the named letter in Grammar > Phonemes > In Orthography as, or the named boundary in Grammar > Boundary Markers, to replace its provisional definition. |
+| [provisional.boundary](diagnostics/provisional.boundary.md) | Provisional letter or boundary definition | Define the named letter in Grammar > Phonemes > In Orthography as, or the named boundary in Grammar > Boundary Markers, to replace its provisional definition. |

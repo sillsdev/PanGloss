@@ -426,7 +426,7 @@ fn encode_shape_variants(alphabet: &SegAlphabet<'_>, shape: &pg_shape::Shape) ->
         let lanes = shape.node_lanes(i);
         let fast_path = if char_def != pg_shape::NO_CHAR_DEF {
             let cd = table.get(pg_grammar::chardef::CharDefId(char_def));
-            if pg_featstruct::flat_unifiable(lanes, cd.feature_lanes()) {
+            if pg_featstruct::flat_unifiable(lanes, &cd.matching_lanes()) {
                 Some(alphabet.token(pg_grammar::chardef::CharDefId(char_def)))
             } else {
                 None
@@ -442,7 +442,7 @@ fn encode_shape_variants(alphabet: &SegAlphabet<'_>, shape: &pg_shape::Shape) ->
                     if cd.kind() != pg_grammar::chardef::CharDefKind::Segment {
                         continue;
                     }
-                    if pg_featstruct::flat_unifiable(lanes, cd.feature_lanes()) {
+                    if pg_featstruct::flat_unifiable(lanes, &cd.matching_lanes()) {
                         ts.push(alphabet.token(id));
                     }
                 }

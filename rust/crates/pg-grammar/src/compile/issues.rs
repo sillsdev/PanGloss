@@ -14,40 +14,11 @@ use crate::model::Grammar;
 pub(crate) const SOURCE_PROVENANCE_UNKNOWN: ImportWarningCode =
     ImportWarningCode::SourceProvenanceUnknown;
 
-/// `substrate::complete`'s `Strict`-policy code: a recorded usage cannot segment and the project
-/// declared no closed-inventory-completion policy to fix it. Non-fatal and per-allomorph -- see
-/// `substrate`'s module doc.
-pub(crate) const SUBSTRATE_UNSEGMENTABLE_FORM: ImportWarningCode =
-    ImportWarningCode::SubstrateUnsegmentableForm;
-
-/// `substrate::complete`'s ambiguous-classification code: a failing character is neither an
-/// exemplar, an authored boundary, nor in the versioned safe-boundary table. Non-fatal and
-/// per-allomorph -- see `substrate`'s module doc.
-pub(crate) const SUBSTRATE_CLASSIFICATION_AMBIGUOUS: ImportWarningCode =
-    ImportWarningCode::SubstrateClassificationAmbiguous;
-
-/// `substrate::feature_rule_migration_issues`'s code: an inferred (featureless) segment satisfies
-/// a `Feature`-kind natural class purely via HC's unspecified-lane-matches-anything default.
-pub(crate) const SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE: ImportWarningCode =
-    ImportWarningCode::MigrationInferredSegmentWithFeatureRule;
-
 /// A text-use collector's code: the owner selected a construct (a bracket-pattern/reduplication
 /// affix form) but that construct is not literal text, so it cannot publish a usage for it.
 pub(crate) const UNSUPPORTED_CONSTRUCT: ImportWarningCode = ImportWarningCode::UnsupportedConstruct;
 
-/// `substrate::complete`'s code when a failure position remaps to an already-registered character
-/// (a decomposed-diacritic artifact of `segment::remap_error_position`'s own documented heuristic).
-/// Non-fatal and per-allomorph -- see `substrate`'s module doc.
-pub(crate) const SUBSTRATE_POSITION_UNMAPPED: ImportWarningCode =
-    ImportWarningCode::SubstratePositionUnmapped;
-
-/// What the compiler had to infer about the phonological substrate rather than read off a closed
-/// declaration, plus what it could not resolve at all. Populated by `substrate::complete` under
-/// [`ResolvedSubstratePolicy::CompleteFromUsage`]; always empty under
-/// [`ResolvedSubstratePolicy::Strict`], which never infers.
-///
-/// [`ResolvedSubstratePolicy::CompleteFromUsage`]: super::options::ResolvedSubstratePolicy::CompleteFromUsage
-/// [`ResolvedSubstratePolicy::Strict`]: super::options::ResolvedSubstratePolicy::Strict
+/// Provisional definitions supplied for selected usage, and usage that cannot be classified.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SubstrateReport {
     pub inferred_segments: Vec<InferredChar>,
@@ -71,6 +42,7 @@ pub struct InferredChar {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InferenceEvidence {
     LdmlExemplar,
+    GraphemeCluster,
     AuthoredBoundary,
     SafeBoundaryTable { version: u16 },
 }

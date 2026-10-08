@@ -32,7 +32,7 @@ impl SourceIdentity {
             source_sha256: source_sha256(source.as_bytes()),
             grammar_hash: snapshot.grammar_hash(),
             model_fingerprint: fingerprint,
-            compile_options_json: Some(production_compile_options_json(snapshot)),
+            compile_options_json: Some(production_compile_options_json()),
         })
     }
 
@@ -52,7 +52,7 @@ impl SourceIdentity {
             source_sha256: source_sha256(source_bytes),
             grammar_hash: snapshot.grammar_hash(),
             model_fingerprint: fingerprint,
-            compile_options_json: Some(production_compile_options_json(snapshot)),
+            compile_options_json: Some(production_compile_options_json()),
         })
     }
 
@@ -74,14 +74,9 @@ impl SourceIdentity {
     }
 }
 
-fn production_compile_options_json(snapshot: &Snapshot) -> String {
+fn production_compile_options_json() -> String {
     let options = pg_grammar::compile::CompileOptions::default();
-    let parameters = &snapshot.morphology.parser_parameters;
-    let resolved = options.substrate.resolve(
-        parameters.active_parser,
-        parameters.accept_unspecified_graphemes,
-    );
-    options.canonical_projection_json(resolved)
+    options.canonical_projection_json()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -258,15 +253,10 @@ mod tests {
         );
         let identity = SourceIdentity::from_snapshot_source("{}", &snapshot).unwrap();
         let options = pg_grammar::compile::CompileOptions::default();
-        let parameters = &snapshot.morphology.parser_parameters;
-        let resolved = options.substrate.resolve(
-            parameters.active_parser,
-            parameters.accept_unspecified_graphemes,
-        );
 
         assert_eq!(
             identity.compile_options_json.as_deref(),
-            Some(options.canonical_projection_json(resolved).as_str())
+            Some(options.canonical_projection_json().as_str())
         );
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(

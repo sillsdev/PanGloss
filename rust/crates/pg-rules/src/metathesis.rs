@@ -309,7 +309,7 @@ fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize], table: 
                 // Reset a relocated segment's `char_def` when re-interpreting it against the rule's own owning `table` no longer denotes a meaning-consistent entry (see docs/research/pg-rules-metathesis-design-notes.md for the single- vs multi-table argument this makes safe either way).
                 let still_valid = n.char_def != pg_shape::NO_CHAR_DEF
                     && (n.char_def as usize) < table.len()
-                    && flat_unifiable(&n.lanes, table.get(CharDefId(n.char_def)).feature_lanes());
+                    && flat_unifiable(&n.lanes, &table.get(CharDefId(n.char_def)).matching_lanes());
                 if !still_valid {
                     n.char_def = pg_shape::NO_CHAR_DEF;
                 }

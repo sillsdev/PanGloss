@@ -141,7 +141,7 @@ pub(crate) fn matching_reps_for_node(
         if !member {
             continue;
         }
-        if flat_unifiable(lanes, cd.feature_lanes()) {
+        if flat_unifiable(lanes, &cd.matching_lanes()) {
             out.extend(reps_of(cd));
         }
     }

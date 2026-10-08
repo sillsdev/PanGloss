@@ -1,25 +1,11 @@
-//! Feature-bearing shape construction (plan §5.2/§5.3).
-//!
-//! `pg_grammar_model::segment` returns width-0 shapes (segmentation gate only). The phonological-rule
-//! engine matches on **phonological feature lanes**, so this module builds the feature-bearing
-//! shape the matcher needs: segment the word, then set each node's `W = grammar.phon_features.len()`
-//! lanes from its char-def's `feature_lanes()` (C#'s `CharacterDefinitionTable.Segment` attaching a
-//! `FeatureStruct` per node when the phonological feature system is non-empty). Boundaries are
-//! `OPTIONAL` and, as of plan §13.1 Tier-1 #1, carry their **real** char-def lanes (`Type=Boundary`
-//! plus full-mask on every other lane) rather than a hardcoded fully-unconstrained row — see
-//! `lanes_for`'s doc comment. Anchors bracket the shape with unconstrained lanes.
+//! Constructs shapes with phonological lanes and the shared natural-class eligibility lane.
 
 use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::model::Grammar;
 use pg_grammar_model::segment::InvalidShape;
 use pg_shape::{Shape, ShapeBuilder};
 
-/// Segment `word` against `table` and attach per-node phonological feature lanes (`W` lanes each,
-/// `W = grammar.phon_features.len()`, always >= 1 — see `pg_grammar_model::featsys` module docs on the
-/// always-present synthetic `Type` feature). Boundaries become optional nodes carrying their real
-/// char-def lanes (plan §13.1 Tier-1 #1 — previously hardcoded to fully unconstrained, which
-/// silently discarded the boundary's own `Type` identity and let boundary-marker pattern nodes
-/// match any segment; see `lanes_for`).
+/// Segments text and attaches the model-owned matching lanes.
 pub fn segment_with_features(
     grammar: &Grammar,
     table: &CharDefTable,
@@ -27,7 +13,7 @@ pub fn segment_with_features(
 ) -> Result<Shape, InvalidShape> {
     // Reuses the vetted greedy longest-match segmentation for the node/char-def sequence, then re-emits it with feature lanes; segmenting twice is fine since that segmenter is the single source of truth for which char-defs a word decomposes into.
     let bare = pg_grammar_model::segment::segment(table, word)?;
-    let w = grammar.phon_features.len() as u32;
+    let w = pg_grammar_model::membership::width(&grammar.phon_features) as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, bare.len());
     for (_, kind, char_def, _flags) in bare.interior() {
         let lanes = lanes_for(table, CharDefId(char_def), w as usize);
@@ -46,7 +32,7 @@ pub fn segment_with_features(
 
 /// A char-def's feature lanes, padded/truncated to exactly `w`; the pad-with-full-mask fallback exists only in case `w` doesn't match the table's own grammar (never true in production, kept for robustness — mirrors `morph.rs`'s `fit`).
 fn lanes_for(table: &CharDefTable, cd: CharDefId, w: usize) -> Vec<u64> {
-    let raw = table.get(cd).feature_lanes();
+    let raw = table.get(cd).matching_lanes();
     if raw.len() == w {
         raw.to_vec()
     } else {

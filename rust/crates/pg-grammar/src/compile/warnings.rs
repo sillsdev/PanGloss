@@ -168,8 +168,10 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
         warning.subjects.push(subject);
     }
     if let Some(source) = issue.source.as_ref() {
-        let inferred_segment =
-            issue.code == super::issues::SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE;
+        let inferred_segment = matches!(
+            issue.code,
+            ImportWarningCode::ProvisionalLetter | ImportWarningCode::ProvisionalBoundary
+        );
         let name = if inferred_segment {
             source.id.strip_prefix("inferred:").map(str::to_string)
         } else {
@@ -413,11 +415,6 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                 ImportWarningCode::SubstrateUnsegmentableForm => {
                     warning.message = format!(
                         "Allomorph '{name}' contains a character that is not defined as a phoneme or boundary marker."
-                    );
-                }
-                ImportWarningCode::SubstrateClassificationAmbiguous => {
-                    warning.message = format!(
-                        "Allomorph '{name}' contains a character that cannot be classified as a phoneme or word boundary."
                     );
                 }
                 ImportWarningCode::SubstratePositionUnmapped => {

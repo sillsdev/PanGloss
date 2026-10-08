@@ -1384,7 +1384,7 @@ fn an_empty_report_remains_valid() {
 
 #[test]
 fn every_code_variant_occurs_once_in_all() {
-    assert_eq!(GrammarHealthCode::ALL.len(), 6);
+    assert_eq!(GrammarHealthCode::ALL.len(), 7);
     for code in [
         GrammarHealthCode::UndeclaredSegment,
         GrammarHealthCode::DuplicateFeatureBundle,
@@ -1392,6 +1392,7 @@ fn every_code_variant_occurs_once_in_all() {
         GrammarHealthCode::InflectionalAffixWithoutTemplateSlot,
         GrammarHealthCode::UnclassifiedAffix,
         GrammarHealthCode::PartialReasonUnspecified,
+        GrammarHealthCode::ProvisionalPhonemeFeatures,
     ] {
         assert_eq!(
             GrammarHealthCode::ALL

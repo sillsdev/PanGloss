@@ -266,14 +266,13 @@ fn lanes(
     table: &pg_grammar_model::chardef::CharDefTable,
     width: usize,
 ) -> Vec<u64> {
-    if width > 0 && shape.feat_width() as usize == width {
+    if width > 0
+        && (shape.feat_width() as usize == width || shape.feat_width() as usize == width + 1)
+    {
         shape.node_lanes(i).to_vec()
     } else if shape.char_def(i) == NO_CHAR_DEF || width == 0 {
         Vec::new()
     } else {
-        table
-            .get(CharDefId(shape.char_def(i)))
-            .feature_lanes()
-            .to_vec()
+        table.get(CharDefId(shape.char_def(i))).matching_lanes()
     }
 }

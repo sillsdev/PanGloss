@@ -70,9 +70,45 @@ pub struct CharDef {
     representations_nfd: Vec<String>,
     /// Per-`FlatIndex` symbolic-feature lane, `pg_featstruct::SymbolBits` bits packed into `u64`; always `feat_sys.len()` wide for every char def, defaulting to `full_mask` unless an explicit `FeatureValue` overrides it. The `Type` lane is always pinned to Segment-only or Boundary-only bits regardless of authored `FeatureValue`s -- an empty `Vec` here previously let `flat_unifiable` read a boundary as matching any segment.
     feature_lanes: Vec<u64>,
+    has_authored_features: bool,
+    provisional: bool,
 }
 
 impl CharDef {
+    pub fn has_authored_features(&self) -> bool {
+        self.has_authored_features
+    }
+
+    pub fn is_provisional(&self) -> bool {
+        self.provisional
+    }
+
+    pub fn membership_bits(&self) -> u64 {
+        if self.kind == CharDefKind::Boundary {
+            crate::membership::BOUNDARY
+        } else if self.provisional {
+            crate::membership::PROVISIONAL
+        } else if self.has_authored_features {
+            crate::membership::DEFINED
+        } else {
+            crate::membership::FEATURELESS
+        }
+    }
+
+    /// Phonological lanes followed by the independent natural-class eligibility lane.
+    pub fn matching_lanes(&self) -> Vec<u64> {
+        let mut lanes = self.feature_lanes.clone();
+        lanes.push(self.membership_bits());
+        lanes
+    }
+
+    /// A literal constraint pins phonological values without imposing natural-class eligibility.
+    pub fn literal_constraint_lanes(&self) -> Vec<u64> {
+        let mut lanes = self.feature_lanes.clone();
+        lanes.push(crate::membership::ALL);
+        lanes
+    }
+
     #[inline]
     pub fn source_guid(&self) -> Option<&str> {
         self.source_guid.as_deref()
@@ -113,6 +149,7 @@ impl CharDef {
 pub struct CharDefTable {
     xml_id: String,
     name: Option<String>,
+    type_feature: FlatIndex,
     /// ← the `PhPhonemeSet` this table was compiled from; `None` for a table loaded from HC XML.
     source_guid: Option<String>,
     defs: Vec<CharDef>,
@@ -123,6 +160,20 @@ pub struct CharDefTable {
 }
 
 impl CharDefTable {
+    pub fn type_feature(&self) -> FlatIndex {
+        self.type_feature
+    }
+
+    /// Marks a compiler-supplied definition without inferring provenance from its identifier.
+    pub fn mark_provisional(&mut self, id: CharDefId) {
+        let definition = &mut self.defs[id.0 as usize];
+        assert!(
+            definition.source_guid.is_none(),
+            "an authored phoneme cannot become provisional"
+        );
+        definition.provisional = true;
+    }
+
     #[doc(hidden)]
     pub fn from_raw(
         xml_id: String,
@@ -167,6 +218,8 @@ impl CharDefTable {
                 lookup.insert(norm.clone(), id);
             }
             defs.push(CharDef {
+                has_authored_features: !raw.feature_values.is_empty(),
+                provisional: false,
                 xml_id: raw.xml_id,
                 source_guid: raw.source_guid,
                 kind: raw.kind,
@@ -202,6 +255,7 @@ impl CharDefTable {
         Ok(CharDefTable {
             xml_id,
             name,
+            type_feature: feat_sys.type_flat(),
             source_guid: None,
             defs,
             lookup,

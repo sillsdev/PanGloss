@@ -1,22 +1,21 @@
-# substrate.classification-ambiguous
+# provisional.letter
 
-Allomorph contains an unclassifiable character
+Provisional letter or boundary definition
 
-Level: **error**
+Level: **info**
 
 ## Explanation
 
-PanGloss cannot give the named character a provisional definition and refuses this grammar with a named error.
+A used letter or boundary has no authored definition. PanGloss supplies a provisional definition and reports its assumption.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, check the named allomorph's spelling and remove any unintended control character. If a letter still cannot be segmented, check its representations in Grammar > Phonemes.
+Define the named letter in Grammar > Phonemes > In Orthography as, or the named boundary in Grammar > Boundary Markers, to replace its provisional definition.
 
 ## FieldWorks places
 
 | Tool | Field |
 |---|---|
-| `lexiconEdit` | Allomorphs > Form |
 | `phonemeEdit` | In Orthography as |
 
 ## Background

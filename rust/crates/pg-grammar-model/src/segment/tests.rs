@@ -84,6 +84,66 @@ fn natural_class_membership_uses_the_compiled_character_set() {
 }
 
 #[test]
+fn natural_class_member_ids_excludes_provisional_named_letters() {
+    let mut t = table(vec![seg("authored", &["a"]), seg("provisional", &["b"])]);
+    let a = t.lookup_nfd("a").unwrap();
+    let b = t.lookup_nfd("b").unwrap();
+    t.mark_provisional(b);
+    let nc = segments_class("nc", "Letters", vec![a, b]);
+
+    assert_eq!(nat_class_member_ids(&t, &nc), vec![a]);
+}
+
+#[test]
+fn natural_class_member_ids_respects_feature_eligibility_and_wildcards() {
+    use crate::featsys::RawFeature;
+    use pg_featstruct::SymbolBits;
+
+    let phon = PhonFeatureSystem::from_raw(vec![RawFeature {
+        xml_id: "voice".into(),
+        name: "voice".into(),
+        symbols: vec![
+            ("voiced".into(), "+".into()),
+            ("unvoiced".into(), "-".into()),
+        ],
+        default_symbol: None,
+    }])
+    .unwrap();
+    let mut defined = seg("defined", &["a"]);
+    defined.feature_values.push(RawFeatureValue {
+        feature_xml_id: "voice".into(),
+        symbol_xml_ids: vec!["voiced".into()],
+    });
+    let mut t = CharDefTable::from_raw(
+        "t".into(),
+        None,
+        vec![
+            defined,
+            seg("featureless", &["b"]),
+            seg("provisional", &["c"]),
+        ],
+        &phon,
+    )
+    .unwrap();
+    let a = t.lookup_nfd("a").unwrap();
+    let b = t.lookup_nfd("b").unwrap();
+    let c = t.lookup_nfd("c").unwrap();
+    t.mark_provisional(c);
+    let nc = NaturalClass {
+        xml_id: "nc".into(),
+        name: Some("Voiced".into()),
+        kind: NaturalClassKind::Feature(vec![(phon.flat_index("voice").unwrap(), SymbolBits(1))]),
+    };
+
+    assert_eq!(nat_class_member_ids(&t, &nc), vec![a]);
+    let wildcard = NaturalClass {
+        kind: NaturalClassKind::Feature(vec![]),
+        ..nc
+    };
+    assert_eq!(nat_class_member_ids(&t, &wildcard), vec![a, b, c]);
+}
+
+#[test]
 fn bracket_class_lookup_is_by_name_not_by_xml_id() {
     // Lookup is keyed by `Name` ("Vowel"), never by the `id` attribute ("vwl") (XmlLanguageLoader.cs:704,719).
     let t = table(vec![seg("c_b", &["b"]), seg("c_a", &["a"])]);

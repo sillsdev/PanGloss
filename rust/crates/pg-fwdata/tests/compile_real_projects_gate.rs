@@ -27,7 +27,6 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
         &snap,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("MeasureOnly never refuses");

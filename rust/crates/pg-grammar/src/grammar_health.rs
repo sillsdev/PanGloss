@@ -30,6 +30,7 @@ pub enum GrammarHealthCode {
     InflectionalAffixWithoutTemplateSlot,
     UnclassifiedAffix,
     PartialReasonUnspecified,
+    ProvisionalPhonemeFeatures,
     ImportWarning(String),
 }
 
@@ -42,9 +43,10 @@ impl GrammarHealthCode {
         Self::InflectionalAffixWithoutTemplateSlot,
         Self::UnclassifiedAffix,
         Self::PartialReasonUnspecified,
+        Self::ProvisionalPhonemeFeatures,
     ];
 
-    /// The stable C# wire string this code shares with `GrammarHealthCodes`.
+    /// The stable wire string for this diagnostic code.
     pub fn wire(&self) -> &str {
         match self {
             Self::UndeclaredSegment => "hc-undeclared-segment",
@@ -55,6 +57,7 @@ impl GrammarHealthCode {
             }
             Self::UnclassifiedAffix => "hc-unclassified-affix",
             Self::PartialReasonUnspecified => "hc-partial-reason-unspecified",
+            Self::ProvisionalPhonemeFeatures => "provisional.phoneme-features",
             Self::ImportWarning(code) => code,
         }
     }
@@ -97,7 +100,7 @@ struct CheckDiagnosticMetadata {
 /// Each level's rationale is in docs/grammar-diagnostics.md.
 fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnosticMetadata> {
     use pg_snapshot::warning_metadata::{ALLOMORPHS_HELP, MODELLING_HELP, STEMS_HELP};
-    use DiagnosticLevel::{Error, Warning};
+    use DiagnosticLevel::{Error, Info, Warning};
     let (title, level, explanation, guidance, places, help) = match code {
         GrammarHealthCode::UndeclaredSegment => (
             "Missing segment definition", Warning,
@@ -134,6 +137,12 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
             "The grammar marks this morpheme partial but records no reason. PanGloss cannot identify a specific missing FieldWorks field from this finding.",
             "Inspect the named morpheme and its grammatical analysis in Lexicon > Lexicon Edit. If the analysis is complete, report the finding with its description and PanGloss version; no specific correction has been verified.",
             vec![], MODELLING_HELP,
+        ),
+        GrammarHealthCode::ProvisionalPhonemeFeatures => (
+            "Phoneme has no features", Info,
+            "This grammar uses a natural class requiring a phonological feature value. An authored phoneme has no features, so PanGloss excludes it from such classes while keeping its explicit segment-list memberships. Unconstrained classes still match it.",
+            "In Grammar > Phonemes, select the named phoneme and assign its Phonological Features to replace this provisional definition.",
+            vec![place("phonemeEdit", "Phonological Features")], ALLOMORPHS_HELP,
         ),
         GrammarHealthCode::ImportWarning(_) => return None,
     };
@@ -200,6 +209,7 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
             }
             "hc-unclassified-affix" => Self::UnclassifiedAffix,
             "hc-partial-reason-unspecified" => Self::PartialReasonUnspecified,
+            "provisional.phoneme-features" => Self::ProvisionalPhonemeFeatures,
             _ => Self::ImportWarning(wire),
         })
     }
@@ -1258,6 +1268,27 @@ pub fn check_grammar_health_diagnostics(
     check_duplicate_feature_bundles(grammar, None, &mut diagnostics)?;
     check_undeclared_segments(grammar, None, &mut diagnostics)?;
     check_partial_morphemes(grammar, None, &partial_facts, &mut diagnostics)?;
+    let feature_class_affects_membership = grammar.natural_classes.iter().any(|class| {
+        pg_grammar_model::membership::requires_feature_value(
+            class,
+            grammar.phon_features.type_flat(),
+        )
+    });
+    for (table_index, table) in grammar.char_tables.iter().enumerate() {
+        for (id, definition) in table.iter() {
+            if feature_class_affects_membership
+                && definition.kind() == CharDefKind::Segment
+                && !definition.is_provisional()
+                && !definition.has_authored_features()
+            {
+                diagnostics.push(GrammarHealthDiagnostic::checked(
+                    GrammarHealthCode::ProvisionalPhonemeFeatures,
+                    format!("The phoneme '{}' has no phonological features. PanGloss keeps it in segment-list natural classes that name it and excludes it from natural classes requiring a feature value. Unconstrained classes still match it. Assign its phonological features in FieldWorks to replace this provisional definition.", first_representation(definition)),
+                    vec![char_def_subject(grammar, None, TableId(table_index as u16), id, definition, table)],
+                ));
+            }
+        }
+    }
     Ok(diagnostics)
 }
 

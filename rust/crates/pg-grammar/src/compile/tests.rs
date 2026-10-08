@@ -28,13 +28,366 @@ use crate::GrammarError;
 use super::test_support::assert_grammars_equal;
 use super::{
     compile_project, compile_project_measured, compile_project_recording, compile_project_with,
-    environment, CompileOptions, CompileOutput, ResolvedSubstratePolicy, SemanticLossPolicy,
-    SubstratePolicy,
+    environment, CompileOptions, CompileOutput, SemanticLossPolicy,
 };
 
 fn warning_metadata(warning: &pg_snapshot::Warning) -> pg_snapshot::ImportWarningMetadata {
     let code = pg_snapshot::ImportWarningCode::from_wire_or_unregistered(&warning.code);
     pg_snapshot::import_warning_metadata(code)
+}
+
+#[test]
+fn featureless_phoneme_info_requires_a_feature_condition() {
+    for class_count in [0, 1, 2] {
+        let (mut snapshot, _) = fixture();
+        snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+        add_front_feature_class_and_rewrite_rule(&mut snapshot);
+        snapshot.phonology.rules.clear();
+        if class_count == 0 {
+            let SnapNaturalClass::Features { features, .. } =
+                &mut snapshot.phonology.natural_classes[0]
+            else {
+                panic!("feature-class fixture");
+            };
+            features.values.clear();
+        } else if class_count == 2 {
+            let mut second = snapshot.phonology.natural_classes[0].clone();
+            let SnapNaturalClass::Features { guid, name, .. } = &mut second else {
+                panic!("feature-class fixture");
+            };
+            *guid = "nc-front-second".into();
+            *name = "Second".into();
+            snapshot.phonology.natural_classes.push(second);
+        }
+        let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        let report = crate::grammar_health::check_grammar_health(&output.grammar, None).unwrap();
+        let findings: Vec<_> = report
+            .diagnostics()
+            .iter()
+            .filter(|finding| finding.code.wire() == "provisional.phoneme-features")
+            .collect();
+        assert_eq!(findings.len(), if class_count == 0 { 0 } else { 7 });
+        if class_count > 0 {
+            for letter in ["k", "t", "m", "s", "a", "i", "u"] {
+                assert_eq!(
+                    findings
+                        .iter()
+                        .filter(|finding| finding.message.contains(&format!("phoneme '{letter}'")))
+                        .count(),
+                    1
+                );
+            }
+            assert!(findings
+                .iter()
+                .all(|finding| finding.level == pg_snapshot::DiagnosticLevel::Info));
+        }
+        let encoded = serde_json::to_string(&report).unwrap();
+        let decoded = crate::grammar_health::GrammarHealthReport::from_json(&encoded).unwrap();
+        assert_eq!(decoded, report);
+    }
+}
+
+#[test]
+fn unconstrained_feature_classes_match_provisional_and_featureless_stems() {
+    for authored in [false, true] {
+        let (mut snapshot, _) = fixture();
+        snapshot.morphology.parts_of_speech[0].affix_slots[0].optional = true;
+        snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "kumaq")];
+        if authored {
+            add_explicit_featureless_segment(&mut snapshot, "q");
+        }
+        snapshot
+            .phonology
+            .natural_classes
+            .push(SnapNaturalClass::Features {
+                guid: "nc-wildcard".into(),
+                name: "Wildcard".into(),
+                display_name: Some("Wildcard".into()),
+                features: FeatureStructure::default(),
+            });
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: "env-wildcard".into(),
+                name: String::new(),
+                representation: "/[Wildcard]_".into(),
+            });
+        snapshot.lexicon.entries[1].allomorphs[0]
+            .environments
+            .push("env-wildcard".into());
+        let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        let wildcard = output
+            .grammar
+            .natural_classes
+            .iter()
+            .find(|class| class.name.as_deref() == Some("Wildcard"))
+            .unwrap();
+        assert_eq!(
+            crate::segment::nat_class_cd_set(&output.grammar.char_tables[0], wildcard),
+            pg_shape::CdSet::Unrestricted
+        );
+        assert!(
+            !pg_parse::Morpher::new(&output.grammar, usize::MAX)
+                .parse_word("kumaqta")
+                .analyses
+                .is_empty(),
+            "authored={authored}"
+        );
+    }
+}
+
+#[test]
+fn provisional_letters_are_enabled_for_every_project_without_parser_policy() {
+    for active_parser in [ActiveParser::Hc, ActiveParser::XAmple] {
+        for accept in [false, true] {
+            let (mut snapshot, _) = fixture();
+            snapshot.morphology.parser_parameters.active_parser = active_parser;
+            snapshot
+                .morphology
+                .parser_parameters
+                .accept_unspecified_graphemes = accept;
+            snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+            let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+            assert_eq!(output.substrate.inferred_segments[0].representation, "q");
+            assert_eq!(output.grammar.entries[0].allomorphs.len(), 1);
+            let warning = output
+                .warnings
+                .iter()
+                .find(|warning| warning.code == "provisional.letter")
+                .unwrap();
+            let finding =
+                crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(warning);
+            assert_eq!(finding.level, pg_snapshot::DiagnosticLevel::Info);
+            assert!(finding.message.contains("'q'"));
+            assert!(finding.message.contains("no natural class"));
+        }
+    }
+}
+
+#[test]
+fn provisional_multigraph_exemplars_preserve_root_and_prefix_analyses() {
+    let (mut snapshot, fixture) = fixture();
+    snapshot.project.exemplar_characters = vec!["ch".into()];
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "chuma")];
+    let mut root = snapshot.lexicon.entries[0].clone();
+    root.guid = "entry-huma".into();
+    root.allomorphs[0].guid = "allo-huma".into();
+    root.allomorphs[0].forms = vec![ws("sen", "huma")];
+    if let Msa::Stem { guid, .. } = &mut root.msas[0] {
+        *guid = "msa-huma".into();
+    }
+    root.senses[0].guid = "sense-huma".into();
+    root.senses[0].msa = Some("msa-huma".into());
+    snapshot.lexicon.entries.push(root);
+    let prefix = &mut snapshot.lexicon.entries[1];
+    prefix.lexeme_morph_type = MorphType::Prefix;
+    prefix.allomorphs[0].morph_type = MorphType::Prefix;
+    prefix.allomorphs[0].forms = vec![ws("sen", "c")];
+    let noun = &mut snapshot.morphology.parts_of_speech[0];
+    noun.affix_slots[0].optional = true;
+    noun.affix_templates[0].suffix_slots.clear();
+    noun.affix_templates[0].prefix_slots = vec![fixture.slot];
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let result = pg_parse::Morpher::new(&output.grammar, usize::MAX).parse_word("chuma");
+    assert_eq!(result.structured.len(), 2, "{}", result.signature());
+    assert!(output.grammar.char_tables[0].lookup_nfd("ch").is_none());
+    assert!(output.grammar.char_tables[0].lookup_nfd("c").is_some());
+    assert!(output.grammar.char_tables[0].lookup_nfd("h").is_some());
+}
+
+#[test]
+fn provisional_letter_units_keep_a_composed_or_decomposed_grapheme_together() {
+    for letter in ["ã", "a\u{0303}"] {
+        let (mut snapshot, _) = fixture();
+        snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", &format!("s{letter}m"))];
+        snapshot.project.exemplar_characters = vec!["a".into()];
+        let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        assert_eq!(output.substrate.inferred_segments.len(), 1);
+        assert_eq!(
+            output.substrate.inferred_segments[0].representation,
+            "a\u{0303}"
+        );
+        assert_eq!(
+            output.grammar.entries[0].allomorphs[0]
+                .shape
+                .shape
+                .interior()
+                .count(),
+            3
+        );
+        assert!(output.grammar.char_tables[0]
+            .lookup_nfd("\u{0303}")
+            .is_none());
+    }
+}
+
+#[test]
+fn provisional_letter_control_refusal_names_the_owners_allomorph() {
+    let (mut snapshot, _) = fixture();
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku\u{0001}ma")];
+    let error = compile_project_with(&snapshot, CompileOptions::default()).unwrap_err();
+    assert!(error.issues().iter().any(|issue| issue.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && issue.fatal
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-stem")));
+    assert!(error.issues().iter().any(|issue| issue.code
+        == super::issue_codes::ALLOMORPH_UNSEGMENTABLE
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-stem")));
+}
+
+#[test]
+fn provisional_letter_overlap_with_an_authored_multigraph_refuses_by_name() {
+    let (mut snapshot, _) = fixture();
+    snapshot.phonology.phonemes.push(phoneme("ph-ch", "ch"));
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ch\u{0301}uma")];
+    let error = compile_project_with(&snapshot, CompileOptions::default()).unwrap_err();
+    assert!(error.issues().iter().any(|issue| issue.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && issue.fatal
+        && issue.message.contains("still cannot be segmented")
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-stem")));
+}
+
+#[test]
+fn provisional_letter_has_no_membership_in_feature_or_segment_classes() {
+    let (mut snapshot, _) = fixture();
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+    add_front_feature_class_and_rewrite_rule(&mut snapshot);
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let table = &output.grammar.char_tables[0];
+    let q = table.lookup_nfd("q").unwrap();
+    let feature = output
+        .grammar
+        .natural_classes
+        .iter()
+        .find(|class| class.name.as_deref() == Some("Front"))
+        .unwrap();
+    let listed = crate::model::NaturalClass {
+        xml_id: "listed-q".into(),
+        name: Some("Listed q".into()),
+        kind: crate::model::NaturalClassKind::Segments(vec![q]),
+    };
+    for class in [feature, &listed] {
+        let pg_shape::CdSet::Members(bits) = crate::segment::nat_class_cd_set(table, class) else {
+            panic!("a class containing no provisional letters cannot be unrestricted");
+        };
+        assert!(!bits.contains(q.0));
+    }
+}
+
+#[test]
+fn featureless_authored_phoneme_keeps_list_membership_but_no_feature_class_membership() {
+    let (mut snapshot, _) = fixture();
+    add_explicit_featureless_segment(&mut snapshot, "q");
+    add_front_feature_class_and_rewrite_rule(&mut snapshot);
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let table = &output.grammar.char_tables[0];
+    let q = table.lookup_nfd("q").unwrap();
+    let feature = output
+        .grammar
+        .natural_classes
+        .iter()
+        .find(|class| class.name.as_deref() == Some("Front"))
+        .unwrap();
+    let pg_shape::CdSet::Members(bits) = crate::segment::nat_class_cd_set(table, feature) else {
+        panic!("featureless phonemes must be excluded");
+    };
+    assert!(!bits.contains(q.0));
+    let listed = crate::model::NaturalClass {
+        xml_id: "listed-q".into(),
+        name: Some("Listed q".into()),
+        kind: crate::model::NaturalClassKind::Segments(vec![q]),
+    };
+    let pg_shape::CdSet::Members(bits) = crate::segment::nat_class_cd_set(table, &listed) else {
+        panic!("listed membership is explicit");
+    };
+    assert!(bits.contains(q.0));
+    let finding = crate::grammar_health::check_grammar_health_diagnostics(&output.grammar)
+        .unwrap()
+        .into_iter()
+        .find(|finding| {
+            finding.code.wire() == "provisional.phoneme-features" && finding.message.contains("'q'")
+        })
+        .unwrap();
+    assert_eq!(finding.level, pg_snapshot::DiagnosticLevel::Info);
+    assert!(finding.message.contains("segment-list"));
+    assert!(finding.message.contains("FieldWorks"));
+}
+
+#[test]
+fn provisional_and_featureless_letters_do_not_match_a_runtime_feature_environment() {
+    for (authored, extra) in [(false, 0), (true, 0), (false, 70)] {
+        let (mut snapshot, _) = fixture();
+        snapshot.morphology.parts_of_speech[0].affix_slots[0].optional = true;
+        snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "kumaq")];
+        add_front_feature_class_and_rewrite_rule(&mut snapshot);
+        snapshot.phonology.rules.clear();
+        if authored {
+            add_explicit_featureless_segment(&mut snapshot, "q");
+        }
+        for index in 0..extra {
+            snapshot
+                .phonology
+                .phonemes
+                .push(phoneme(&format!("extra-{index}"), &format!("z{index}")));
+        }
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: "env-front-final".into(),
+                name: String::new(),
+                representation: "/[Front]_".into(),
+            });
+        snapshot.lexicon.entries[1].allomorphs[0]
+            .environments
+            .push("env-front-final".into());
+        let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        let parser = pg_parse::Morpher::new(&output.grammar, usize::MAX);
+        assert!(
+            !parser.parse_word("kumaq").analyses.is_empty(),
+            "bare stem: authored={authored}, extra={extra}"
+        );
+        assert!(
+            parser.parse_word("kumaqta").analyses.is_empty(),
+            "authored={authored}, extra={extra}"
+        );
+        let mut valued = snapshot;
+        if authored {
+            valued
+                .phonology
+                .phonemes
+                .retain(|phoneme| phoneme.name != "q");
+        }
+        add_explicit_feature_valued_segment(&mut valued, "q", "feat-frontness");
+        valued
+            .phonology
+            .phonemes
+            .last_mut()
+            .unwrap()
+            .features
+            .as_mut()
+            .unwrap()
+            .values[0]
+            .value = FeatureValueKind::Closed {
+            value: "val-front".into(),
+        };
+        let valued = compile_project_with(&valued, CompileOptions::default()).unwrap();
+        assert!(!pg_parse::Morpher::new(&valued.grammar, usize::MAX)
+            .parse_word("kumaqta")
+            .analyses
+            .is_empty());
+    }
 }
 
 #[test]
@@ -234,7 +587,17 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
         },
     ]);
 
-    let (_, warnings) = compile_project(&snapshot).expect("snapshot compiles");
+    let (grammar, warnings) = compile_project(&snapshot).expect("snapshot compiles");
+    assert_eq!(grammar.entries[0].allomorphs.len(), 1);
+    let provisional = warnings
+        .iter()
+        .find(|warning| warning.code == "provisional.letter")
+        .unwrap();
+    assert!(provisional.message.contains("'?'"));
+    assert_eq!(
+        warning_metadata(provisional).level,
+        pg_snapshot::DiagnosticLevel::Info
+    );
     let report = crate::grammar_health::GrammarHealthReport::new(
         warnings
             .iter()
@@ -244,14 +607,9 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
     .expect("compiler warnings form a grammar-health report");
 
     let findings = report.diagnostics();
-    let msa_without_allomorphs = findings
+    assert!(findings
         .iter()
-        .find(|finding| finding.code.wire() == "grammar.msa.no-allomorphs")
-        .expect("an MSA with no usable allomorphs reaches grammar-health");
-    assert_eq!(
-        msa_without_allomorphs.level,
-        pg_snapshot::DiagnosticLevel::Error
-    );
+        .all(|finding| finding.code.wire() != "grammar.msa.no-allomorphs"));
 
     let compacted_natural_class = findings
         .iter()
@@ -265,6 +623,26 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
         compacted_natural_class.subjects[0].guid.as_deref(),
         Some("nc-unreferenced-compacted")
     );
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "\u{0001}")];
+    let refused = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+        },
+    )
+    .unwrap();
+    assert!(refused.issues.iter().any(|issue| issue.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && issue.fatal));
+    let msa_without_allomorphs = refused
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "grammar.msa.no-allomorphs")
+        .unwrap();
+    assert_eq!(
+        warning_metadata(msa_without_allomorphs).level,
+        pg_snapshot::DiagnosticLevel::Error
+    );
 }
 
 /// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
@@ -277,7 +655,7 @@ fn compile_recording_ok(
     Vec<pg_snapshot::ConversionIssue>,
 ) {
     let (grammar, recorder, _substrate, substrate_issues, owner_warnings, _) =
-        compile_project_recording(snapshot, SubstratePolicy::default()).expect("must compile");
+        compile_project_recording(snapshot).expect("must compile");
     recorder
         .check_invariants()
         .expect("recorder invariants must hold");
@@ -965,7 +1343,6 @@ fn unresolved_affix_environment_keeps_identifier_out_of_linguist_warning() {
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("an unresolved affix environment remains inspectable in measurement");
@@ -1177,7 +1554,7 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
     }
 
     let (grammar, recorder, _, _, warnings, _) =
-        compile_project_recording(&snapshot, SubstratePolicy::default()).expect("must compile");
+        compile_project_recording(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     let class_bit = grammar
         .mpr_names
@@ -1237,7 +1614,7 @@ fn unsupported_affix_process_arity_is_published_without_changing_compilation_war
     });
 
     let (_, recorder, _, _, warnings, _) =
-        compile_project_recording(&snapshot, SubstratePolicy::default()).expect("must compile");
+        compile_project_recording(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     let (_, _, decisions) = recorder.finish_with_load_decisions();
     let decision = decisions
@@ -1647,7 +2024,6 @@ fn unsupported_active_metathesis_refuses_and_remains_measurable() {
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("measure-only records unsupported metathesis");
@@ -2800,6 +3176,33 @@ fn unsegmentable_allomorph_is_rejected_with_a_structured_warning() {
     let (mut snapshot, _f) = fixture();
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "xyz")];
 
+    let (grammar, warnings, inventory, _) = compile_recording_ok(&snapshot);
+    assert_eq!(grammar.entries[0].allomorphs.len(), 1);
+    let key = InventoryKey::object(InventoryKind::Allomorph, "allo-stem");
+    assert!(inventory.represented.contains(&key));
+    assert!(!inventory.rejected.contains(&key));
+    for letter in ["x", "y", "z"] {
+        let warning = warnings
+            .iter()
+            .find(|warning| {
+                warning.code == "provisional.letter"
+                    && warning.message.contains(&format!("'{letter}'"))
+            })
+            .unwrap();
+        assert_eq!(
+            warning_metadata(warning).level,
+            pg_snapshot::DiagnosticLevel::Info
+        );
+    }
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "xy\u{0001}z")];
+    let error = compile_project_with(&snapshot, CompileOptions::default()).unwrap_err();
+    assert!(error.issues().iter().any(|issue| issue.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && issue.fatal
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-stem")));
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(warnings.iter().any(|warning| {
         warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE.wire()
@@ -2832,16 +3235,23 @@ fn unsegmentable_warning_names_the_fieldworks_form_and_action() {
     let (mut snapshot, _f) = fixture();
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "xyz")];
 
-    let (_, warnings) =
-        compile_project(&snapshot).expect("fixture must compile with a dropped form");
+    let (grammar, warnings) = compile_project(&snapshot).unwrap();
+    assert_eq!(grammar.entries[0].allomorphs.len(), 1);
+    assert!(warnings
+        .iter()
+        .any(|warning| warning.code == "provisional.letter"
+            && warning_metadata(warning).level == pg_snapshot::DiagnosticLevel::Info));
+    let form = "xy\u{0001}z";
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", form)];
+    let (_, warnings, _, _) = compile_recording_ok(&snapshot);
     let warning = warnings
         .iter()
         .find(|warning| warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE.wire())
         .expect("the unsegmentable allomorph must produce a warning");
 
-    assert!(warning
-        .message
-        .starts_with("Allomorph 'xyz' could not be segmented with this project's phonemes:"));
+    assert!(warning.message.starts_with(&format!(
+        "Allomorph '{form}' could not be segmented with this project's phonemes:"
+    )));
     assert!(warning.message.contains("skipped"));
     assert_eq!(
         warnings
@@ -2854,7 +3264,7 @@ fn unsegmentable_warning_names_the_fieldworks_form_and_action() {
     assert_eq!(warning.subjects.len(), 1);
     assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::MoForm);
     assert_eq!(warning.subjects[0].guid.as_deref(), Some("allo-stem"));
-    assert_eq!(warning.subjects[0].name.as_deref(), Some("xyz"));
+    assert_eq!(warning.subjects[0].name.as_deref(), Some(form));
     let advice = warning_guidance(warning).expect("owned advice");
     assert!(advice.contains(pg_snapshot::fieldworks_paths::LEXICON_EDIT));
     assert!(advice.contains("named in the finding"));
@@ -3431,10 +3841,44 @@ fn template_only_mrule_orphaned_by_no_template_is_revoked_unreachable_after_comp
 #[test]
 fn affix_allomorph_unsegmentable_text_is_a_recall_gap_not_a_project_refusal() {
     let (mut snapshot, _f) = fixture();
-    snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "qa")]; // "q" is not declared anywhere in this fixture's phonology
+    snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "qa")];
 
     let out = compile_project_with(&snapshot, CompileOptions::default())
-        .expect("one unrepresentable affix allomorph must not refuse the whole project");
+        .expect("a provisional letter keeps the affix allomorph");
+    assert!(out.grammar.mrules.iter().any(|rule| matches!(rule, MorphRuleDef::AffixProcess(definition) if !definition.allomorphs.is_empty())));
+    let warning = out
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "provisional.letter" && warning.message.contains("'q'"))
+        .unwrap();
+    assert_eq!(
+        warning_metadata(warning).level,
+        pg_snapshot::DiagnosticLevel::Info
+    );
+    assert!(!out
+        .inventory
+        .inventory
+        .rejected
+        .contains(&InventoryKey::object(
+            InventoryKind::Allomorph,
+            "allo-suffix"
+        )));
+    snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "q\u{0001}a")];
+    let error = compile_project_with(&snapshot, CompileOptions::default()).unwrap_err();
+    assert!(error.issues().iter().any(|issue| issue.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && issue.fatal
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-suffix")));
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+        },
+    )
+    .unwrap();
     assert!(out
         .issues
         .iter()
@@ -3537,7 +3981,6 @@ fn active_phonological_rule_build_failure_refuses_and_remains_measurable() {
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("must still compile");
@@ -4163,11 +4606,7 @@ fn compile_project_measured_changes_no_behaviour_versus_compile_project() {
 /// No `..` rest pattern: a new field on either type fails to compile until named here too.
 #[test]
 fn compile_options_and_output_carry_exactly_their_declared_fields() {
-    let CompileOptions {
-        substrate,
-        semantic_loss,
-    } = CompileOptions::default();
-    assert_eq!(substrate, SubstratePolicy::Auto);
+    let CompileOptions { semantic_loss } = CompileOptions::default();
     assert_eq!(semantic_loss, SemanticLossPolicy::Refuse);
 
     let (snapshot, _f) = fixture();
@@ -4355,7 +4794,6 @@ fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("MeasureOnly must never refuse");
@@ -4382,7 +4820,6 @@ fn refuse_rejects_unknown_source_provenance_but_measure_only_retains_it() {
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("MeasureOnly must never refuse");
@@ -4397,14 +4834,6 @@ fn refuse_rejects_unknown_source_provenance_but_measure_only_retains_it() {
 fn grammar_error_issues_is_empty_for_non_conversion_variants() {
     let err = GrammarError::Semantic("test".to_string());
     assert!(err.issues().is_empty());
-}
-
-/// `resolve` takes only `ActiveParser`; no `ParserProfile`/XAMPLE cap type is even in scope here.
-#[test]
-fn options_and_output_types_never_carry_parser_profile_or_xample_cap_state() {
-    let _ = ActiveParser::XAmple;
-    let resolved = SubstratePolicy::Auto.resolve(ActiveParser::XAmple, false);
-    assert_eq!(resolved, ResolvedSubstratePolicy::CompleteFromUsage);
 }
 
 // --- substrate completion from owner-published usage -------------------------------------------
@@ -4423,84 +4852,62 @@ fn xample_authored_project_infers_missing_exemplar_segment() {
     assert!(out.grammar.char_tables[0].lookup_nfd("q").is_some());
 }
 
-/// A single unsegmentable allomorph is a recall gap for that one entry, not a meaning change to the rest of the grammar -- see `substrate`'s module doc.
 #[test]
-fn strict_hc_project_drops_only_the_allomorph_with_the_missing_segment() {
+fn provisional_letter_keeps_the_missing_segment_allomorph() {
     let (mut snapshot, _) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
-
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            substrate: SubstratePolicy::Strict,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("a single unrepresentable allomorph must not refuse the whole project");
-    assert!(out.issues.iter().any(|i| {
-        i.code == pg_snapshot::ImportWarningCode::SubstrateUnsegmentableForm
-            && !i.fatal
-            && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
-    }));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert_eq!(output.grammar.entries[0].allomorphs.len(), 1);
+    assert_eq!(output.substrate.inferred_segments[0].representation, "q");
+    let warning = output
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "provisional.letter")
+        .unwrap();
     assert_eq!(
-        out.grammar.entries.len(),
-        0,
-        "the fixture's only entry (the stem) has zero loadable allomorphs and is dropped -- the suffix, which never used this text, is unaffected (it just carries no LexEntryDef of its own)"
+        warning_metadata(warning).level,
+        pg_snapshot::DiagnosticLevel::Info
     );
+    assert!(warning.message.contains("'q'"));
 }
 
-/// As the segment-decl case above, but for a genuinely ambiguous character: still a recall gap, not a whole-project refusal.
 #[test]
-fn ambiguous_symbol_without_ldml_drops_only_that_allomorph() {
+fn provisional_grapheme_keeps_a_symbol_without_ldml() {
     let (mut snapshot, _) = fixture();
-    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku§ma")];
-
-    let out = compile_project_with(&snapshot, CompileOptions::default())
-        .expect("symbol role is not authoritative without LDML, but that drops one allomorph, not the project");
-    assert!(out.issues.iter().any(|i| i.code
-        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
-        && !i.fatal));
-    assert_eq!(
-        out.grammar.entries.len(),
-        0,
-        "the fixture's only entry (the stem) is dropped"
-    );
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert_eq!(output.grammar.entries.len(), 1);
+    assert_eq!(output.substrate.inferred_segments[0].representation, "§");
 }
 
-/// Pins the claim `substrate`'s module doc makes (rather than leaving it an unlinked prose claim): a substrate-unresolved literal and the real owner's independent segmentation failure land on the SAME allomorph, both non-fatal -- refusing at the substrate layer would duplicate, not add to, the owner's own decision.
 #[test]
-fn substrate_issue_and_the_real_owners_drop_agree_on_the_same_allomorph() {
+fn provisional_letter_keeps_the_allomorph_and_control_refusal_agrees_with_owner() {
     let (mut snapshot, _) = fixture();
-    snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
-
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            substrate: SubstratePolicy::Strict,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("must compile");
-    let substrate_hit = out.issues.iter().any(|i| {
-        i.code == pg_snapshot::ImportWarningCode::SubstrateUnsegmentableForm
-            && !i.fatal
-            && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
-    });
-    let owner_key = InventoryKey::object(InventoryKind::Allomorph, "allo-stem".to_string());
-    let owner_hit =
-        out.inventory.inventory.rejected.contains(&owner_key)
-            && out.inventory.issues.iter().any(|i| {
-                i.code == pg_snapshot::ImportWarningCode::AllomorphUnsegmentable && !i.fatal
-            });
-    assert!(
-        substrate_hit && owner_hit,
-        "expected both the substrate issue and the owner's own drop on allo-stem; top-level={:?} inventory={:?}",
-        out.issues,
-        out.inventory.issues
-    );
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let owner = InventoryKey::object(InventoryKind::Allomorph, "allo-stem");
+    assert!(output.inventory.inventory.represented.contains(&owner));
+    assert!(!output.inventory.inventory.rejected.contains(&owner));
+    assert!(output
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "provisional.letter" && warning.message.contains("'q'")));
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku\u{0001}ma")];
+    let error = compile_project_with(&snapshot, CompileOptions::default()).unwrap_err();
+    assert!(error.issues().iter().any(|issue| issue.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && issue.fatal
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-stem")));
+    assert!(error.issues().iter().any(|issue| issue.code
+        == super::issue_codes::ALLOMORPH_UNSEGMENTABLE
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-stem")));
 }
 
 /// Regression pin for a probe/builder segmenter mismatch: `substrate::complete`'s probe used to consult `segment_phonemes_only` (built for environment-string validation, which deliberately SKIPS Boundary-kind char defs), while the real owner (`lexicon::build_root_allomorph`) uses `segment_with_patterns`, whose literal-match loop accepts Segment AND Boundary. A literal authored boundary marker inside an ordinary root form used to misfire a false `substrate.position-unmapped`; the probe now shares `segment` (both kinds, no patterns) with the owners.
@@ -4510,14 +4917,8 @@ fn a_literal_authored_boundary_marker_inside_a_root_form_is_not_a_false_substrat
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku+ma")];
 
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            substrate: SubstratePolicy::Strict,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("a literal authored boundary marker must segment, not misfire a substrate refusal");
+    let out = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("a literal authored boundary marker must segment, not misfire a substrate refusal");
     assert!(
         out.issues.iter().all(|i| i.code
             != pg_snapshot::ImportWarningCode::SubstratePositionUnmapped
@@ -4549,7 +4950,7 @@ fn accept_unspecified_graphemes_changes_the_effect_not_just_the_message() {
 }
 
 /// A closed feature, a `Feature`-kind natural class over it, and a rewrite rule referencing that class; returns the feature's guid.
-fn add_feature_based_rule_that_can_match_unspecified_q(snapshot: &mut Snapshot) -> String {
+fn add_front_feature_class_and_rewrite_rule(snapshot: &mut Snapshot) -> String {
     let feature_guid = "feat-frontness".to_string();
     let front_guid = "val-front".to_string();
     let back_guid = "val-back".to_string();
@@ -4610,7 +5011,7 @@ fn add_feature_based_rule_that_can_match_unspecified_q(snapshot: &mut Snapshot) 
     feature_guid
 }
 
-/// The ordinary HC "featureless segment" shape an inferred segment's `RawCharDef` must compile identically to.
+/// Adds an authored phoneme with no phonological values.
 fn add_explicit_featureless_segment(snapshot: &mut Snapshot, rep: &str) {
     snapshot.phonology.phonemes.push(Phoneme {
         guid: format!("ph-explicit-{rep}"),
@@ -4641,22 +5042,19 @@ fn add_explicit_feature_valued_segment(snapshot: &mut Snapshot, rep: &str, featu
 
 /// Checks the fact `pg-grammar` itself owns -- compiled `feature_lanes` -- rather than running a parser or FST engine, since both live in crates that depend on `pg-grammar` itself.
 #[test]
-fn inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment() {
+fn provisional_and_authored_featureless_segments_keep_unspecified_phonological_lanes() {
     let (mut snapshot, _) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.project.exemplar_characters.push("q".to_string());
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
-    let feature_guid = add_feature_based_rule_that_can_match_unspecified_q(&mut snapshot);
+    let feature_guid = add_front_feature_class_and_rewrite_rule(&mut snapshot);
 
     let inferred = compile_project_with(&snapshot, CompileOptions::default())
         .expect("ordinary HC unspecified-feature semantics is defined");
-    assert!(
-        inferred
-            .issues
-            .iter()
-            .any(|i| i.code
-                == pg_snapshot::ImportWarningCode::MigrationInferredSegmentWithFeatureRule)
-    );
+    assert!(inferred
+        .issues
+        .iter()
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::ProvisionalLetter));
 
     let q_id = inferred.grammar.char_tables[0]
         .lookup_nfd("q")
@@ -4691,25 +5089,25 @@ fn inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment()
 }
 
 #[test]
-fn import_warning_migration_names_the_inferred_phoneme_and_has_guidance() {
+fn provisional_letter_finding_names_the_letter_and_has_guidance() {
     let (mut snapshot, _) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.project.exemplar_characters.push("q".to_string());
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
-    add_feature_based_rule_that_can_match_unspecified_q(&mut snapshot);
+    add_front_feature_class_and_rewrite_rule(&mut snapshot);
 
     let output = compile_project_with(&snapshot, CompileOptions::default())
         .expect("the inferred segment remains representable");
     let warning = output
         .warnings
         .iter()
-        .find(|warning| warning.code == "migration.inferred-segment-with-feature-rule")
-        .expect("the migration difference is reported");
+        .find(|warning| warning.code == "provisional.letter")
+        .expect("the provisional definition is reported");
     let finding = crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(warning);
-
+    assert_eq!(finding.level, pg_snapshot::DiagnosticLevel::Info);
     assert!(finding.message.contains("'q'"), "{}", finding.message);
     assert!(
-        finding.message.contains("not a project phoneme"),
+        finding.message.contains("isn't defined"),
         "{}",
         finding.message
     );
@@ -4753,14 +5151,13 @@ fn phoneme_collision_warning_names_the_other_phoneme() {
 #[test]
 fn empty_stem_bucket_is_reported_with_a_linguist_warning() {
     let (mut snapshot, _) = fixture();
-    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "?")];
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "\u{0001}")];
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
 
     let output = compile_project_with(
         &snapshot,
         CompileOptions {
-            substrate: SubstratePolicy::Strict,
-            ..CompileOptions::default()
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
         },
     )
     .expect("an entry with no loadable allomorph is dropped with a warning");
@@ -4916,106 +5313,62 @@ fn text_use_collection_covers_every_represented_allomorph() {
 
 // --- position-remap mismap regression (a real corpus went from compiling to refusing) -----------
 
-/// Mid-word sub-case: the mismapped position lands on the NEXT, already-registered character -- the real-Sena-3 "b" duplicate-representation panic, reproduced synthetically.
 #[test]
-fn precomposed_diacritic_mid_word_never_reselects_the_next_already_registered_character() {
-    let (mut snapshot, _f) = fixture();
-    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+fn provisional_diacritic_mid_word_keeps_the_whole_grapheme() {
+    let (mut snapshot, _) = fixture();
     snapshot.phonology.phonemes.push(phoneme("ph-b", "b"));
-    snapshot.project.exemplar_characters.push("b".to_string());
-    // "a"/"b" are registered, precomposed "\u{e1}" is not: greedy matching stalls on its own mark.
-    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "s\u{e1}b")];
-
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("must not panic; the mismap must be reported as an issue, never as a duplicate registration");
-    assert!(
-        out.issues.iter().any(|i| i.code == pg_snapshot::ImportWarningCode::SubstratePositionUnmapped && !i.fatal),
-        "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
-        out.issues
-    );
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "sáb")];
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert_eq!(output.grammar.entries[0].allomorphs.len(), 1);
+    assert_eq!(output.substrate.inferred_segments.len(), 1);
     assert_eq!(
-        out.substrate.inferred_segments.len(),
-        0,
-        "\"b\" must not be re-inferred"
+        output.substrate.inferred_segments[0].representation,
+        crate::nfd::nfd("á")
     );
-    assert_eq!(out.substrate.ambiguous_uses.len(), 1);
-
-    let refused = compile_project_with(&snapshot, CompileOptions::default());
-    assert!(
-        refused.is_ok(),
-        "production Refuse must accept this: one unmapped allomorph is a recall gap, not a meaning change"
-    );
+    assert!(output.substrate.ambiguous_uses.is_empty());
+    assert!(output
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "provisional.letter"));
 }
 
-/// Word-final sub-case: the mismapped position lands PAST THE END of the word, with no "next" character to land on at all -- previously an unconditional panic in `failing_char` itself, not caught by any duplicate-registration guard.
 #[test]
-fn precomposed_diacritic_word_final_refuses_instead_of_panicking_past_the_end() {
-    let (mut snapshot, _f) = fixture();
-    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
-    // "s"/"a" are registered, "\u{e1}" is not, and the word ends right after it: no next character.
-    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "s\u{e1}")];
-
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("must not panic; a mismapped word-final position must be reported as an issue");
-    assert!(
-        out.issues.iter().any(|i| i.code == pg_snapshot::ImportWarningCode::SubstratePositionUnmapped && !i.fatal),
-        "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
-        out.issues
+fn provisional_diacritic_word_final_keeps_the_whole_grapheme() {
+    let (mut snapshot, _) = fixture();
+    snapshot.phonology.phonemes.push(phoneme("ph-b", "b"));
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "sá")];
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert_eq!(output.grammar.entries[0].allomorphs.len(), 1);
+    assert_eq!(output.substrate.inferred_segments.len(), 1);
+    assert_eq!(
+        output.substrate.inferred_segments[0].representation,
+        crate::nfd::nfd("á")
     );
-    assert_eq!(out.substrate.inferred_segments.len(), 0);
-    assert_eq!(out.substrate.ambiguous_uses.len(), 1);
-
-    let refused = compile_project_with(&snapshot, CompileOptions::default());
-    assert!(
-        refused.is_ok(),
-        "production Refuse must accept this: one unmapped allomorph is a recall gap, not a meaning change"
-    );
+    assert!(output.substrate.ambiguous_uses.is_empty());
+    assert!(output
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "provisional.letter"));
 }
 
-/// The same word-final mismap under `Strict` -- `Strict`'s single pass and `CompleteFromUsage`'s loop share `position_mismap`, so both call sites must refuse, never panic.
 #[test]
-fn precomposed_diacritic_word_final_refuses_under_strict_too() {
-    let (mut snapshot, _f) = fixture();
+fn provisional_diacritic_word_final_is_enabled_for_hc_projects() {
+    let (mut snapshot, _) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
-    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "s\u{e1}")];
-
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            substrate: SubstratePolicy::Strict,
-            semantic_loss: SemanticLossPolicy::MeasureOnly,
-        },
-    )
-    .expect("must not panic under Strict either");
-    assert!(
-        out.issues.iter().any(|i| i.code == pg_snapshot::ImportWarningCode::SubstratePositionUnmapped && !i.fatal),
-        "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
-        out.issues
+    snapshot.phonology.phonemes.push(phoneme("ph-b", "b"));
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "sá")];
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert_eq!(output.grammar.entries[0].allomorphs.len(), 1);
+    assert_eq!(output.substrate.inferred_segments.len(), 1);
+    assert_eq!(
+        output.substrate.inferred_segments[0].representation,
+        crate::nfd::nfd("á")
     );
-
-    let refused = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            substrate: SubstratePolicy::Strict,
-            ..CompileOptions::default()
-        },
-    );
-    assert!(
-        refused.is_ok(),
-        "production Refuse must accept this: one unmapped allomorph is a recall gap, not a meaning change"
-    );
+    assert!(output.substrate.ambiguous_uses.is_empty());
+    assert!(output
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "provisional.letter"));
 }
 
 /// Selected environment literals participate in substrate completion before pattern compilation.
@@ -5083,7 +5436,6 @@ fn unsupported_provenance_never_claims_clean_conversion() {
             &snapshot,
             CompileOptions {
                 semantic_loss: SemanticLossPolicy::MeasureOnly,
-                ..CompileOptions::default()
             },
         )
         .expect("measurement remains explicit");
@@ -5178,13 +5530,55 @@ fn discarded_affix_environment_does_not_refuse_a_surviving_sibling() {
     assert!(out.issues.iter().any(
         |issue| issue.code == super::issue_codes::ENVIRONMENT_INVALID
             && !issue.fatal
-            && issue.class == IssueClass::UnreachableInGrammar
+            && issue.class == IssueClass::InvalidSource
     ));
+    let warning = out
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "provisional.letter" && warning.message.contains("'q'"))
+        .unwrap();
+    assert_eq!(
+        warning_metadata(warning).level,
+        pg_snapshot::DiagnosticLevel::Info
+    );
+    let affix = out
+        .grammar
+        .mrules
+        .iter()
+        .find_map(|rule| match rule {
+            MorphRuleDef::AffixProcess(definition) => Some(definition),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(affix.allomorphs.len(), 2);
+    assert!(affix
+        .allomorphs
+        .iter()
+        .all(|allomorph| allomorph.environments.is_empty()));
     let parsed = pg_parse::Morpher::new(&out.grammar, 100_000).parse_word("kumata");
     assert!(
         !parsed.analyses.is_empty(),
         "valid sibling must remain executable"
     );
+    snapshot.lexicon.entries[1].allomorphs[1].forms = vec![ws("sen", "q\u{0001}a")];
+    let refused = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+        },
+    )
+    .unwrap();
+    assert!(refused.issues.iter().any(|issue| issue.code
+        == super::issue_codes::ENVIRONMENT_INVALID
+        && !issue.fatal
+        && issue.class == IssueClass::UnreachableInGrammar));
+    assert!(refused.issues.iter().any(|issue| issue.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && issue.fatal
+        && issue
+            .source
+            .as_ref()
+            .is_some_and(|source| source.id == "allo-unsegmentable")));
 }
 
 #[test]
@@ -5198,7 +5592,6 @@ fn imported_validated_and_compiled_fixture_warnings_have_reportable_subjects() {
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
         inputs,
     )

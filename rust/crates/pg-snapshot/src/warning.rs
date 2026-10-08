@@ -218,6 +218,8 @@ import_warning_codes! {
     SourceProvenanceUnknown => "conversion.source-provenance-unknown",
     SubstrateUnsegmentableForm => "conversion.unsegmentable-form",
     SubstrateClassificationAmbiguous => "substrate.classification-ambiguous",
+    ProvisionalLetter => "provisional.letter",
+    ProvisionalBoundary => "provisional.boundary",
     MigrationInferredSegmentWithFeatureRule => "migration.inferred-segment-with-feature-rule",
     UnsupportedConstruct => "conversion.unsupported-construct",
     SubstratePositionUnmapped => "substrate.position-unmapped",

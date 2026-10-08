@@ -120,14 +120,7 @@ fn write_facts_inner(
     }
 
     let options = CompileOptions::default();
-    let resolved_substrate = options.substrate.resolve(
-        snapshot.morphology.parser_parameters.active_parser,
-        snapshot
-            .morphology
-            .parser_parameters
-            .accept_unspecified_graphemes,
-    );
-    let options_json = options.canonical_projection_json(resolved_substrate);
+    let options_json = options.canonical_projection_json();
     let options_sha256 = pg_assess::sha256_bytes(options_json.as_bytes());
     let (
         compile_status,

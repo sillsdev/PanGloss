@@ -8,6 +8,44 @@ fn load(xml: &str) -> pg_grammar::model::Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
+#[test]
+fn provisional_class_membership_reuses_the_model_decision() {
+    let xml = OVERLAP_LOWER_PROBE_XML
+        .replacen(
+            "<FeatureValue feature=\"featPlace\" symbolValues=\"symFront\" />",
+            "",
+            1,
+        )
+        .replace("</SegmentDefinitions>", "<SegmentDefinition id=\"cQ\"><Representations><Representation>q</Representation></Representations></SegmentDefinition></SegmentDefinitions>")
+        .replace("</NaturalClasses>", "<SegmentNaturalClass id=\"ncListed\"><Name>Listed</Name><Segment segment=\"cStop\" /><Segment segment=\"cFront\" /><Segment segment=\"cQ\" /></SegmentNaturalClass></NaturalClasses>");
+    let mut grammar = load(&xml);
+    let q = grammar.char_tables[0].lookup_nfd("q").unwrap();
+    grammar.char_tables[0].mark_provisional(q);
+    let table = &grammar.char_tables[0];
+    let front = grammar
+        .natural_classes
+        .iter()
+        .position(|class| class.xml_id == "ncFront")
+        .unwrap();
+    let listed = grammar
+        .natural_classes
+        .iter()
+        .position(|class| class.xml_id == "ncListed")
+        .unwrap();
+    let front = pg_grammar::model::NatClassId(front as u32);
+    let listed = pg_grammar::model::NatClassId(listed as u32);
+    assert!(class_members(&grammar, table, front, &HashSet::new()).is_empty());
+    let place = grammar.phon_features.flat_index("featPlace").unwrap();
+    let members = class_members(&grammar, table, front, &HashSet::from([place.0 as usize]));
+    assert!(members.contains(&table.lookup_nfd("p").unwrap()));
+    assert!(members.contains(&table.lookup_nfd("u").unwrap()));
+    assert!(!members.contains(&table.lookup_nfd("i").unwrap()));
+    assert!(!members.contains(&q));
+    let members = class_members(&grammar, table, listed, &HashSet::new());
+    assert!(members.contains(&table.lookup_nfd("i").unwrap()));
+    assert!(!members.contains(&q));
+}
+
 const OVERLAP_LOWER_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>OverlapLowerProbe</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <PhonologicalFeatureSystem>

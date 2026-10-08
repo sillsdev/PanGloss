@@ -2,6 +2,7 @@
 
 pub mod chardef;
 pub mod featsys;
+pub mod membership;
 pub mod model;
 pub mod nfd;
 pub mod segment;

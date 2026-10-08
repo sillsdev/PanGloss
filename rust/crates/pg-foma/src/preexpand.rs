@@ -345,7 +345,7 @@ pub(crate) fn reachable_via_ordinary_emission(
 fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
     if char_def != NO_CHAR_DEF {
         let cd = table.get(CharDefId(char_def));
-        if flat_unifiable(lanes, cd.feature_lanes()) {
+        if flat_unifiable(lanes, &cd.matching_lanes()) {
             return cd.representations().to_vec();
         }
     }
@@ -365,7 +365,7 @@ fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Ve
         if !member {
             continue;
         }
-        if flat_unifiable(lanes, cd.feature_lanes()) {
+        if flat_unifiable(lanes, &cd.matching_lanes()) {
             out.extend(cd.representations().iter().cloned());
         }
     }

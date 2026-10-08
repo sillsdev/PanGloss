@@ -181,14 +181,12 @@ fn real_corpus_refusal_baseline_gate() {
     );
 }
 
-/// Pins the import/compile cross-layer severity disagreement over the fixture's dangling environment reference.
 #[test]
-fn import_and_compile_layers_disagree_about_the_dangling_environment_reference() {
+fn import_and_compile_layers_agree_that_the_dangling_environment_reference_is_fatal() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../pg-fwdata/tests/data/fixture.fwdata");
     let (snapshot, _report) =
         pg_fwdata::import_file(&path).expect("checked-in fixture must import");
 
-    // The import stage marks this guid's dangling PhEnvironment reference fatal; that is what makes compile_project refuse it.
     let dangling_guid = "00000000-0000-0000-0000-0000000000ff";
     let import_verdict = snapshot
         .conversion_provenance
@@ -206,26 +204,32 @@ fn import_and_compile_layers_disagree_about_the_dangling_environment_reference()
     );
     assert_eq!(import_verdict.class, IssueClass::InvalidSource);
 
-    // The compile stage (affixes::resolve_environments, for this affix allomorph) independently downgrades the SAME guid to a non-fatal warning; MeasureOnly bypasses Refuse so that downgrade stays observable rather than being masked by the refusal.
     let measure_only = compile_project_with(
         &snapshot,
         CompileOptions {
             semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
         },
     )
     .expect("MeasureOnly must never refuse, so the compile layer's own verdict stays observable");
     let compile_verdict = measure_only
         .issues
         .iter()
-        .find(|issue| issue.message.contains(dangling_guid) && issue.code != pg_snapshot::ImportWarningCode::FwdataDanglingReference)
-        .expect("compile layer must still surface a warning about the identical guid, distinct from the carried-over import issue");
+        .find(|issue| {
+            issue.message.contains(dangling_guid)
+                && issue.code == pg_snapshot::ImportWarningCode::EnvironmentUnresolved
+        })
+        .expect("compile layer must surface its own refusal about the identical guid");
     assert!(
-        !compile_verdict.fatal,
-        "compile layer's verdict on this guid must be non-fatal today -- if this fails, the \
-         compile-side site started agreeing with import's fatal verdict and this test's \
-         expectations need revisiting, not just the assertion: {compile_verdict:?}"
+        compile_verdict.fatal,
+        "both layers must refuse a corrupt environment reference: {compile_verdict:?}"
     );
+    assert_eq!(compile_verdict.class, IssueClass::InvalidSource);
+    let source = compile_verdict
+        .source
+        .as_ref()
+        .expect("the owning allomorph is named");
+    assert_eq!(source.kind, pg_snapshot::FwClass::MoForm);
+    assert_eq!(source.id, "00000000-0000-0000-0000-000000000051");
 
     let refuse = compile_project(&snapshot);
     assert!(

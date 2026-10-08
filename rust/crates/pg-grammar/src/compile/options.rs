@@ -1,53 +1,4 @@
-//! Policies `compile_project_with` resolves once, up front, instead of threading FieldWorks-shaped
-//! parser/cap state through the compiler (see [`SubstratePolicy::resolve`]'s own doc for why no
-//! `ActiveParser`/XAMPLE cap value survives past that one call).
-
-use pg_snapshot::ActiveParser;
-
-/// How the compiler should treat a phonological substrate the source project never declared as a
-/// closed inventory.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum SubstratePolicy {
-    /// Resolves to [`ResolvedSubstratePolicy::CompleteFromUsage`] for an XAmple-configured project
-    /// or one that explicitly accepted unspecified graphemes; [`ResolvedSubstratePolicy::Strict`]
-    /// otherwise. See [`SubstratePolicy::resolve`].
-    #[default]
-    Auto,
-    Strict,
-    CompleteFromUsage,
-}
-
-/// [`SubstratePolicy::Auto`]'s resolved reading for one project -- never itself carries `Auto`, so
-/// every later compiler stage matches on exactly two cases.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ResolvedSubstratePolicy {
-    Strict,
-    CompleteFromUsage,
-}
-
-impl SubstratePolicy {
-    /// Resolves `Auto` against the two facts that decide it, then discards both: an XAmple-shaped
-    /// project never required a closed grapheme declaration, and an HC project that authored
-    /// `AcceptUnspecifiedGraphemes` said the same thing about its own inventory. Neither fact is
-    /// retained anywhere past this call -- see [`CompileOptions`].
-    pub fn resolve(
-        self,
-        active_parser: ActiveParser,
-        accept_unspecified_graphemes: bool,
-    ) -> ResolvedSubstratePolicy {
-        match self {
-            SubstratePolicy::Strict => ResolvedSubstratePolicy::Strict,
-            SubstratePolicy::CompleteFromUsage => ResolvedSubstratePolicy::CompleteFromUsage,
-            SubstratePolicy::Auto => {
-                if matches!(active_parser, ActiveParser::XAmple) || accept_unspecified_graphemes {
-                    ResolvedSubstratePolicy::CompleteFromUsage
-                } else {
-                    ResolvedSubstratePolicy::Strict
-                }
-            }
-        }
-    }
-}
+//! Controls whether a semantically lossy conversion may return a measurement grammar.
 
 /// Whether an incomplete (semantically lossy) conversion may still produce a `Grammar`, for
 /// measurement, or must be refused outright. `MeasureOnly` exists only for the structural
@@ -59,12 +10,9 @@ pub enum SemanticLossPolicy {
     MeasureOnly,
 }
 
-/// Every policy [`super::compile_project_with`] resolves before compiling. Production CLI/worker
-/// and XAMPLE result-comparator HC callers use `Refuse`. Deliberately carries no `ActiveParser`/
-/// XAMPLE cap state -- see [`SubstratePolicy::resolve`].
+/// Conversion policy for `compile_project_with`; provisional definitions are unconditional.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CompileOptions {
-    pub substrate: SubstratePolicy,
     pub semantic_loss: SemanticLossPolicy,
 }
 
@@ -72,23 +20,12 @@ impl CompileOptions {
     /// Return the stable JSON projection used to identify these options in a facts artifact.
     /// Keeping policy tags here lets production consumers record the compiler configuration
     /// without depending on measurement-only policy details.
-    pub fn canonical_projection_json(self, resolved_substrate: ResolvedSubstratePolicy) -> String {
+    pub fn canonical_projection_json(self) -> String {
         let semantic_loss = match self.semantic_loss {
             SemanticLossPolicy::Refuse => "refuse",
             SemanticLossPolicy::MeasureOnly => "measureOnly",
         };
-        let requested = match self.substrate {
-            SubstratePolicy::Auto => "auto",
-            SubstratePolicy::Strict => "strict",
-            SubstratePolicy::CompleteFromUsage => "completeFromUsage",
-        };
-        let resolved = match resolved_substrate {
-            ResolvedSubstratePolicy::Strict => "strict",
-            ResolvedSubstratePolicy::CompleteFromUsage => "completeFromUsage",
-        };
-        format!(
-            "{{\"semanticLossPolicy\":\"{semantic_loss}\",\"substratePolicy\":{{\"requested\":\"{requested}\",\"resolved\":\"{resolved}\"}}}}"
-        )
+        format!("{{\"semanticLossPolicy\":\"{semantic_loss}\"}}")
     }
 }
 

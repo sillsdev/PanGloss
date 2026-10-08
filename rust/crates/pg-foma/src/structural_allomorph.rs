@@ -2497,21 +2497,15 @@ fn context_members(g: &Grammar, table: TableId, context: &SimpleContext) -> Opti
     validate_context_features(g, context).ok()?;
     let class = g.natural_classes.get(context.nat_class.0 as usize)?;
     let table_ref = g.char_tables.get(table.0 as usize)?;
-    let members = match &class.kind {
-        NaturalClassKind::Segments(ids) => ids.clone(),
-        NaturalClassKind::Feature(pairs) => table_ref
-            .iter()
-            .filter(|(_, def)| def.kind() == CharDefKind::Segment)
-            .filter(|(_, def)| {
-                pairs.iter().all(|(feature, values)| {
-                    def.feature_lanes()
-                        .get(feature.0 as usize)
-                        .is_some_and(|lane| lane & values.0 != 0)
-                })
-            })
-            .map(|(id, _)| id)
-            .collect(),
-    };
+    let set = pg_grammar::segment::nat_class_cd_set(table_ref, class);
+    let members: Vec<_> = table_ref
+        .iter()
+        .filter(|(id, def)| match &set {
+            pg_shape::CdSet::Unrestricted => def.kind() == CharDefKind::Segment,
+            pg_shape::CdSet::Members(bits) => bits.contains(id.0),
+        })
+        .map(|(id, _)| id)
+        .collect();
     let mut out = Vec::new();
     for id in members {
         let def = lookup_char_def(table_ref, id)?;
@@ -2917,24 +2911,11 @@ fn class_members(g: &Grammar, table: TableId, node: &PatternNode) -> Option<Vec<
             .then(|| class_members(g, table, only))
             .flatten();
     }
-    let table_ref = g.char_tables.get(table.0 as usize)?;
+    g.char_tables.get(table.0 as usize)?;
     let mut members = match node {
         PatternNode::CharDef(id) => vec![*id],
         PatternNode::Context(context) if context.vars.is_empty() => {
-            validate_context_features(g, context).ok()?;
-            match &g.natural_classes.get(context.nat_class.0 as usize)?.kind {
-                NaturalClassKind::Segments(ids) => ids.clone(),
-                NaturalClassKind::Feature(pairs) => table_ref
-                    .iter()
-                    .filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
-                    .filter(|(_, definition)| {
-                        pairs.iter().all(|(feature, values)| {
-                            definition.feature_lanes()[feature.0 as usize] & values.0 != 0
-                        })
-                    })
-                    .map(|(id, _)| id)
-                    .collect(),
-            }
+            context_members(g, table, context)?
         }
         PatternNode::Segments {
             table: node_table,

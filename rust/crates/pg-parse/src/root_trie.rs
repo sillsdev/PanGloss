@@ -304,7 +304,9 @@ fn shape_search_segments(
     table: &CharDefTable,
     feat_width: usize,
 ) -> Vec<(u32, Vec<u64>, bool)> {
-    let use_shape_lanes = feat_width > 0 && shape.feat_width() as usize == feat_width;
+    let use_shape_lanes = feat_width > 0
+        && (shape.feat_width() as usize == feat_width
+            || shape.feat_width() as usize == feat_width + 1);
     let mut out = Vec::new();
     for i in 0..shape.len() {
         if shape.kind(i) == NodeKind::Segment {
@@ -325,7 +327,7 @@ fn char_def_lanes(table: &CharDefTable, cd: u32, feat_width: usize) -> Vec<u64> 
     if cd == NO_CHAR_DEF || feat_width == 0 {
         return Vec::new();
     }
-    table.get(CharDefId(cd)).feature_lanes().to_vec()
+    table.get(CharDefId(cd)).matching_lanes()
 }
 
 /// All strata's root-allomorph tries, built once (C# `Morpher._allomorphTries`, `Morpher.cs:35-48`).
