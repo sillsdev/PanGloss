@@ -48,8 +48,6 @@ use pg_grammar_model::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
 use unicode_normalization::UnicodeNormalization;
 
-// The module doc above predates the `cd_set` fix and still describes the pre-fix mechanism (lanes + type only); `matching_str_reps` now additionally consults `Shape::node_cd_set` -- see that function's inline comment for the corrected mechanism.
-
 /// Whether a char-def's kind matches a shape node's kind, the segment/boundary type discriminator that is part of the C# feature-struct unification.
 fn kind_matches(node: NodeKind, cd: &CharDef) -> bool {
     match node {
@@ -87,7 +85,7 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
     matching_reps_for_node(table, node_kind, char_def, &cd_set, node_lanes, nfd)
 }
 
-/// The node-view-generalized core of `matching_str_reps`'s identity+lane predicate (P11 §4.3):
+/// The node-view-generalized core of `matching_str_reps`'s identity+lane predicate:
 /// takes a node's kind/identity/lanes directly rather than `(shape, i)`, so the guess matcher
 /// (`pg-parse/src/guess.rs::render_match`) can reuse the *exact* rendering rule
 /// `MatchNodesWithPattern`'s caller needs (`match.ToString(table, false)`,
@@ -141,7 +139,7 @@ pub(crate) fn matching_reps_for_node(
         if !member {
             continue;
         }
-        if flat_unifiable(lanes, &cd.matching_lanes()) {
+        if flat_unifiable(lanes, &cd.literal_constraint_lanes()) {
             out.extend(reps_of(cd));
         }
     }

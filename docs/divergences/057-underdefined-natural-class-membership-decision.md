@@ -97,6 +97,31 @@ pathological/crash fixtures are outside generic replay. The complete census and 
 command results are in `/tmp/pangloss-lanes/udp-core.md` and its referenced logs/CSV.
 This replay does not include the separate branch's two reported staged witnesses.
 
+## Literal surface matching and engine parity
+
+`pg-parse/src/surface.rs::matching_reps_for_node` selects literal representations using
+`CharDef::literal_constraint_lanes`, whose eligibility lane is owned by
+`pg-grammar-model/src/membership.rs::literal_lanes`. Natural-class eligibility remains enforced
+by the class's model-owned character-definition set; literal representation selection preserves
+phonological constraints without treating a segment's definition status as a class condition.
+
+Comparing representation candidates with `CharDef::matching_lanes` instead made a provisional
+`qtu` render `+|q+?[ktmau][ktmau]`, while an authored featureless `qtu` rendered
+`+|[ktmauq]+?[ktmauq][ktmauq]`. This was a Rust implementation bug within the approved wildcard
+contract, not an additional deliberate divergence. The focused surface test
+`literal_surface_matching_preserves_provisional_and_featureless_wildcards` fails with that call
+restored and passes with literal constraints. It also verifies that a feature-constrained class
+still excludes both provisional and featureless phonemes while admitting a valued control.
+
+`pg-cli/tests/inferred_segment_engine_parity_gate.rs` compares complete HC-Rust and actual
+foma-propose+HC-confirm signatures for seven words across provisional, featureless, and
+Front-valued `q` grammars. Provisional and featureless signatures agree on every word;
+`qtu`/`kumatu` supply wildcard positives, and only valued `q` satisfies the constrained `qta`
+environment. Restoring the surface implementation makes this gate fail on `qtu` again.
+These are synthetic Rust regressions, not new exported conformance fixtures or C#/XAMPLE
+measurements. Exact runs, feature activation, and the unchanged full conformance census are
+recorded in `/tmp/pangloss-lanes/udp-parity.md`.
+
 ## Upstream status and evidence limits
 
 This is an owner-authorized deliberate divergence under amended ADR 0008, not a claim

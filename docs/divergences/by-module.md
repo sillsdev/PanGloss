@@ -132,6 +132,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-grammar/src/compile/tests.rs` provisional-definition snapshot regressions | 053, 054, 055, 056 |
 | `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision` | 054, 055 |
 | `pg-grammar/src/compile/tests.rs` membership and unconstrained wildcard regressions; `machine/conformance/edge-cases/chained-output-feature-override-loss`; separate-lane `underdefined/07-featureless-phoneme`, `underdefined/12-featureless-rule-class` on `feat/xample-measure` | 057 |
+| `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 057 |
 
 ## Provisional-definition seams
 
@@ -141,6 +142,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `CharacterDefinitionTable.Add`, feature unification | `pg-grammar-model/src/chardef.rs`, `membership.rs`, `segment.rs`; `pg-rules/src/bridge.rs`, `morph.rs`, `rewrite.rs` | [054](054-provisional-letter-no-natural-class.md), [055](055-featureless-phoneme-no-feature-class.md) |
 | `CharacterDefinitionTable.Add`, feature unification | `pg-foma/src/lower.rs::class_members`, `structural_allomorph.rs::context_members` | [054](054-provisional-letter-no-natural-class.md), [055](055-featureless-phoneme-no-feature-class.md) |
 | constrained-class subsumption / analysis-side unification | `pg-grammar-model/src/membership.rs::class_bits`, `segment.rs::nat_class_cd_set_with_constraints`; `pg-rules` matching and Foma owner calls | [057](057-underdefined-natural-class-membership-decision.md) |
+| literal representation unification | `pg-parse/src/surface.rs::matching_reps_for_node`; `pg-grammar-model/src/membership.rs::literal_lanes`, `chardef.rs::literal_constraint_lanes` | [057](057-underdefined-natural-class-membership-decision.md) |
 
 XAMPLE/C# measurements and staged fixtures for these entries come from a separate lane.
 

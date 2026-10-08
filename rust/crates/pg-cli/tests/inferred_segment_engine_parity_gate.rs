@@ -1,4 +1,4 @@
-//! An inferred substrate segment must behave exactly like an authored featureless one, and differently from an explicitly feature-valued one, on the real HC-Rust and foma-propose+HC-confirm engines -- not just in the compiled char-def artifact. Lives here (not in `pg-grammar`'s own tests) because `pg-parse`/`pg-foma` both depend on `pg-grammar`, so calling their APIs from inside `pg-grammar`'s own test binary splits `Grammar`'s type identity across the dev-dependency boundary (`error[E0308]: mismatched types ... multiple different versions of crate pg_grammar`); `pg-cli` already depends on all three normally, with no cycle.
+//! Checks provisional segment engine parity, CLI diagnostics, and parse completion status.
 
 use pg_grammar::compile::CompileOptions;
 use pg_grammar::compile_project_with;
@@ -9,7 +9,9 @@ use pg_snapshot::lexicon::{Allomorph, LexEntry, Lexicon, Msa, Sense};
 use pg_snapshot::morphology::{AffixSlot, AffixTemplate, MorphType, Morphology, PartOfSpeech};
 use pg_snapshot::phonology::{BoundaryMarker, Environment, NaturalClass, Phoneme, Phonology};
 use pg_snapshot::project::Project;
-use pg_snapshot::{ActiveParser, FeatureSystems, Snapshot, WsForm};
+use pg_snapshot::{
+    ActiveParser, DiagnosticLevel, FeatureSystems, ImportWarningCode, Snapshot, WsForm,
+};
 
 fn ws(ws: &str, form: &str) -> WsForm {
     WsForm {
@@ -44,7 +46,7 @@ fn stem_allomorph(guid: &str, form: &str) -> Allomorph {
     }
 }
 
-/// One noun POS/slot/template, a `kuma` stem (no `q`), a `q` stem, and a `-ta` suffix gated by a `[Front]`-referencing environment.
+// The wildcard allomorph keeps provisional-letter parses positive beside the constrained-class negatives.
 fn base_snapshot() -> Snapshot {
     let noun_pos = "pos-noun".to_string();
     let slot = "slot-pl".to_string();
@@ -229,6 +231,25 @@ fn base_snapshot() -> Snapshot {
         name: String::new(),
         representation: "/[Front]_".to_string(),
     });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(NaturalClass::Features {
+            guid: "nc-any".to_string(),
+            name: "Any".to_string(),
+            display_name: None,
+            features: FeatureStructure { values: Vec::new() },
+        });
+    snapshot.phonology.environments.push(Environment {
+        guid: "env-any".to_string(),
+        name: String::new(),
+        representation: "/[Any]_".to_string(),
+    });
+    let mut wildcard_suffix = snapshot.lexicon.entries[2].allomorphs[0].clone();
+    wildcard_suffix.guid = "allo-suffix-any".to_string();
+    wildcard_suffix.forms = vec![ws("sen", "tu")];
+    wildcard_suffix.environments = vec!["env-any".to_string()];
+    snapshot.lexicon.entries[2].allomorphs.push(wildcard_suffix);
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.project.exemplar_characters.push("q".to_string());
     snapshot
@@ -241,9 +262,12 @@ fn compile(snapshot: &Snapshot) -> pg_grammar::model::Grammar {
 }
 
 fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
-    pg_parse::Morpher::new(grammar, usize::MAX)
-        .parse_word(word)
-        .signature()
+    let outcome = pg_parse::Morpher::new(grammar, usize::MAX).parse_word(word);
+    assert!(
+        !outcome.capped && !outcome.timed_out && !outcome.invalid_shape,
+        "HC analysis of {word:?} must complete"
+    );
+    outcome.signature()
 }
 
 #[cfg(feature = "foma-tools")]
@@ -251,6 +275,10 @@ fn analyze_fst_confirm(grammar: &pg_grammar::model::Grammar, word: &str) -> Stri
     let mut analyzer =
         pg_foma::composite::compile_analyzer(grammar).expect("fixture grammar must foma-compile");
     let outcome = analyzer.analyze_word(word);
+    assert!(
+        outcome.peel_chain_depth_error.is_none(),
+        "FST analysis of {word:?} must complete"
+    );
     pg_parse::result_signature(&outcome.analyses)
 }
 
@@ -279,7 +307,7 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
             values: vec![FeatureValue {
                 feature: "feat-frontness".to_string(),
                 value: FeatureValueKind::Closed {
-                    value: "val-back".to_string(),
+                    value: "val-front".to_string(),
                 },
             }],
         }),
@@ -287,51 +315,69 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
     });
     let valued = compile(&valued_snapshot);
 
-    for word in ["qta", "kumata"] {
+    for (word, unvalued_has_analysis, valued_has_analysis) in [
+        ("qta", false, true),
+        ("kumata", false, false),
+        ("qtu", true, true),
+        ("kumatu", true, true),
+        ("q", false, false),
+        ("kuma", false, false),
+        ("taku", false, false),
+    ] {
         let inferred_direct = analyze_direct(&inferred, word);
         let explicit_direct = analyze_direct(&explicit, word);
+        let valued_direct = analyze_direct(&valued, word);
         assert_eq!(
             inferred_direct, explicit_direct,
             "direct-HC analysis of {word:?} must match between the inferred and \
              explicit-featureless grammars"
         );
-        assert_ne!(
-            inferred_direct, "-",
-            "expected {word:?} to have at least one analysis"
-        );
-
-        #[cfg(feature = "foma-tools")]
-        let inferred_fst = analyze_fst_confirm(&inferred, word);
-        #[cfg(feature = "foma-tools")]
-        let explicit_fst = analyze_fst_confirm(&explicit, word);
-        #[cfg(feature = "foma-tools")]
         assert_eq!(
-            inferred_fst, explicit_fst,
-            "FST-confirm analysis of {word:?} must match between the inferred and \
-             explicit-featureless grammars"
+            inferred_direct != "-",
+            unvalued_has_analysis,
+            "provisional and featureless analysis presence for {word:?}"
+        );
+        assert_eq!(
+            valued_direct != "-",
+            valued_has_analysis,
+            "feature-valued analysis presence for {word:?}"
+        );
+        assert_eq!(
+            inferred_direct == valued_direct,
+            unvalued_has_analysis == valued_has_analysis,
+            "only the constrained q environment must distinguish the valued grammar for {word:?}"
         );
         #[cfg(feature = "foma-tools")]
-        assert_ne!(
-            inferred_fst, "-",
-            "expected {word:?} to have at least one FST-confirmed analysis"
-        );
+        {
+            let inferred_fst = analyze_fst_confirm(&inferred, word);
+            let explicit_fst = analyze_fst_confirm(&explicit, word);
+            let valued_fst = analyze_fst_confirm(&valued, word);
+            assert_eq!(
+                inferred_fst, inferred_direct,
+                "provisional engine parity for {word:?}"
+            );
+            assert_eq!(
+                explicit_fst, explicit_direct,
+                "featureless engine parity for {word:?}"
+            );
+            assert_eq!(
+                valued_fst, valued_direct,
+                "feature-valued engine parity for {word:?}"
+            );
+            assert_eq!(
+                inferred_fst, explicit_fst,
+                "provisional/featureless FST parity for {word:?}"
+            );
+            assert_eq!(
+                inferred_fst == valued_fst,
+                unvalued_has_analysis == valued_has_analysis,
+                "feature-valued FST contrast for {word:?}"
+            );
+            eprintln!(
+                "{word}: HC/foma agree; provisional={inferred_fst:?}; featureless={explicit_fst:?}; valued={valued_fst:?}"
+            );
+        }
     }
-
-    let inferred_qta_direct = analyze_direct(&inferred, "qta");
-    let valued_qta_direct = analyze_direct(&valued, "qta");
-    assert_ne!(
-        inferred_qta_direct, valued_qta_direct,
-        "an explicitly feature-valued q must change qta's direct-HC analysis"
-    );
-    #[cfg(feature = "foma-tools")]
-    let inferred_qta_fst = analyze_fst_confirm(&inferred, "qta");
-    #[cfg(feature = "foma-tools")]
-    let valued_qta_fst = analyze_fst_confirm(&valued, "qta");
-    #[cfg(feature = "foma-tools")]
-    assert_ne!(
-        inferred_qta_fst, valued_qta_fst,
-        "an explicitly feature-valued q must change qta's FST-confirm analysis"
-    );
 }
 
 #[test]
@@ -393,7 +439,7 @@ fn cli_reports_successful_inference_without_polluting_parse_stdout() {
 }
 
 #[test]
-fn cli_reports_boundary_inference_even_when_compilation_has_no_warnings() {
+fn cli_reports_provisional_boundary_info_without_polluting_parse_stdout() {
     let mut snapshot = base_snapshot();
     snapshot.phonology.natural_classes.clear();
     snapshot.phonology.environments.clear();
@@ -405,7 +451,15 @@ fn cli_reports_boundary_inference_even_when_compilation_has_no_warnings() {
     }
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku\u{00a0}ma")];
     let inferred = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-    assert!(inferred.warnings.is_empty(), "{:?}", inferred.warnings);
+    assert_eq!(inferred.warnings.len(), 1, "{:?}", inferred.warnings);
+    let finding = &inferred.warnings[0];
+    let code =
+        ImportWarningCode::from_wire(&finding.code).expect("finding code must be registered");
+    assert_eq!(code, ImportWarningCode::ProvisionalBoundary);
+    assert_eq!(
+        pg_snapshot::warning_metadata::import_warning_metadata(code).level,
+        DiagnosticLevel::Info
+    );
     assert_eq!(inferred.substrate.inferred_boundaries.len(), 1);
     let directory = std::env::temp_dir().join(format!(
         "pangloss-boundary-inference-{}-{}",
@@ -456,12 +510,14 @@ fn cli_plain_and_ordinary_trace_report_owner_completion_status() {
     let trace_path = directory.join("trace.json");
     std::fs::write(&grammar_path, snapshot.to_json()).unwrap();
     for (word, flags, cap, timeout, expected_flag) in [
+        ("qtu", vec![], usize::MAX, None, None),
         ("qta", vec![], usize::MAX, None, None),
+        ("kumata", vec![], usize::MAX, None, None),
         ("taku", vec![], usize::MAX, None, None),
         ("q?", vec![], usize::MAX, None, Some("invalid_shape")),
-        ("qta", vec!["--step-cap", "1"], 1, None, Some("capped")),
+        ("qtu", vec!["--step-cap", "1"], 1, None, Some("capped")),
         (
-            "qta",
+            "qtu",
             vec!["--word-timeout-ms", "0"],
             usize::MAX,
             Some(std::time::Duration::ZERO),
@@ -476,13 +532,13 @@ fn cli_plain_and_ordinary_trace_report_owner_completion_status() {
             expected_flag.is_some(),
             "fixture must exercise {expected_flag:?}"
         );
-        if word == "qta" && expected_flag.is_none() {
+        if word == "qtu" && expected_flag.is_none() {
             assert!(
                 !expected.structured.is_empty(),
                 "complete positive control must have an analysis"
             );
         }
-        if word == "taku" {
+        if matches!(word, "qta" | "kumata" | "taku") {
             assert!(expected.structured.is_empty());
         }
         for trace in [false, true] {

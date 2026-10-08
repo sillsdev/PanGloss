@@ -9,6 +9,13 @@ pub const PROVISIONAL: u64 = 4;
 pub const BOUNDARY: u64 = 8;
 pub const ALL: u64 = DEFINED | FEATURELESS | PROVISIONAL | BOUNDARY;
 
+/// Literal constraints preserve phonological values without restricting natural-class eligibility.
+pub fn literal_lanes(feature_lanes: &[u64]) -> Vec<u64> {
+    let mut lanes = feature_lanes.to_vec();
+    lanes.push(ALL);
+    lanes
+}
+
 /// The synthetic Type tag does not require an authored phonological feature value.
 pub fn requires_feature_value(class: &NaturalClass, type_feature: FlatIndex) -> bool {
     match &class.kind {

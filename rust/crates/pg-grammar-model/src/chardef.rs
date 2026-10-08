@@ -1,13 +1,4 @@
-//! `CharacterDefinitionTable` — segment/boundary inventory and the NFD segmentation lookup
-//! (plan §5.2, §8 layer 1).
-//!
-//! Ports C# `CharacterDefinitionTable.Add` (`CharacterDefinitionTable.cs:59-84`): every
-//! representation is NFD-normalized before it is used as a lookup key, and it is an error for
-//! two character definitions in the same table to claim the same normalized representation
-//! (`_charDefLookup.ContainsKey` check). Multiple `<Representation>` elements on one
-//! `SegmentDefinition`/`BoundaryDefinition` (e.g. Sena's `char4` = `m`/`n`, or its boundary
-//! `char42` = `^0`/`*0`) all resolve to the *same* `CharDefId` — this is exercised by the
-//! module tests and by the real Sena grammar.
+//! Owns segment and boundary definitions, NFD representation lookup, and feature-unifiability closures.
 
 use hashbrown::HashMap;
 
@@ -68,7 +59,7 @@ pub struct CharDef {
     representations: Vec<String>,
     /// NFD-normalized representations, parallel to `representations`.
     representations_nfd: Vec<String>,
-    /// Per-`FlatIndex` symbolic-feature lane, `pg_featstruct::SymbolBits` bits packed into `u64`; always `feat_sys.len()` wide for every char def, defaulting to `full_mask` unless an explicit `FeatureValue` overrides it. The `Type` lane is always pinned to Segment-only or Boundary-only bits regardless of authored `FeatureValue`s -- an empty `Vec` here previously let `flat_unifiable` read a boundary as matching any segment.
+    /// Per-feature symbolic bits; absent values use full masks, with Type pinned to segment or boundary.
     feature_lanes: Vec<u64>,
     has_authored_features: bool,
     provisional: bool,
@@ -104,9 +95,7 @@ impl CharDef {
 
     /// A literal constraint pins phonological values without imposing natural-class eligibility.
     pub fn literal_constraint_lanes(&self) -> Vec<u64> {
-        let mut lanes = self.feature_lanes.clone();
-        lanes.push(crate::membership::ALL);
-        lanes
+        crate::membership::literal_lanes(&self.feature_lanes)
     }
 
     #[inline]
@@ -155,7 +144,7 @@ pub struct CharDefTable {
     defs: Vec<CharDef>,
     /// NFD-normalized representation -> owning char def, the exact lookup `CharacterDefinitionTable._charDefLookup` performs.
     lookup: HashMap<String, CharDefId>,
-    /// Static unifiability closure over segment char-defs. `None` when the grammar declared zero authored phonological features, so identity gating stays bit-for-bit today's behavior; `Some(v)`: `v[i].contains(j)` iff `flat_unifiable(lanes_i, lanes_j)`. Boundary rows are left empty since C# boundaries always carry `StrRep`.
+    /// Static segment unifiability closure; absent for zero-feature grammars, with boundary rows empty.
     unif_closure: Option<Vec<CdBits>>,
 }
 
@@ -336,7 +325,7 @@ impl CharDefTable {
         self.lookup.get(nfd_rep).copied()
     }
 
-    /// Iterate char defs in table order, for the layer-1 loader dump (plan §8).
+    /// Iterates character definitions in table order.
     pub fn iter(&self) -> impl Iterator<Item = (CharDefId, &CharDef)> {
         self.defs
             .iter()
@@ -352,7 +341,7 @@ impl CharDefTable {
             .flat_map(|representation| representation.chars())
     }
 
-    /// The static unifiability closure of `cd` (Design A, P5 — see `unif_closure`'s field doc).
+    /// The static unifiability closure of `cd`.
     /// `O(1)`. `None` when the closure is disabled (zero-feature grammar) or `cd` names a
     /// boundary (boundaries stay identity-gated in every grammar, mirroring C#'s `StrRep`-always
     /// regime for `AddBoundary`).
@@ -366,7 +355,7 @@ impl CharDefTable {
     }
 
     /// The full per-cd closure rows, indexed by `CharDefId`, `None` when disabled. Threaded
-    /// through `pg_parse::root_trie::RootAllomorphTrie::search_segs_opt` (P5), whose edges are
+    /// through `pg_parse::root_trie::RootAllomorphTrie::search_segs_opt`, whose edges are
     /// already known to be `Segment`-kind (the trie's own `Segment`-only filter), so the direct
     /// row lookup there doesn't need `Self::unifiable_cds`'s per-call boundary re-check.
     #[inline]

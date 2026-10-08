@@ -56,6 +56,90 @@ fn find_cd(table: &CharDefTable, xml_id: &str) -> CharDefId {
         .unwrap_or_else(|| panic!("no char def {xml_id}"))
 }
 
+#[test]
+fn literal_surface_matching_preserves_provisional_and_featureless_wildcards() {
+    use pg_featstruct::SymbolBits;
+    use pg_grammar_model::chardef::{RawCharDef, RawFeatureValue};
+    use pg_grammar_model::model::{NaturalClass, NaturalClassKind};
+
+    let grammar = pg_grammar::load(FEATURE_XML).unwrap();
+    let mut displays = Vec::new();
+    for provisional in [false, true] {
+        let mut table = CharDefTable::from_raw(
+            "wildcard".into(),
+            None,
+            ["t", "q", "v"]
+                .into_iter()
+                .map(|rep| RawCharDef {
+                    xml_id: rep.into(),
+                    source_guid: None,
+                    kind: CharDefKind::Segment,
+                    representations: vec![rep.into()],
+                    feature_values: if rep == "v" {
+                        vec![RawFeatureValue {
+                            feature_xml_id: "feat_voi".into(),
+                            symbol_xml_ids: vec!["sym_vp".into()],
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                })
+                .collect(),
+            &grammar.phon_features,
+        )
+        .unwrap();
+        let q = find_cd(&table, "q");
+        if provisional {
+            table.mark_provisional(q);
+        }
+        let mut literal = ShapeBuilder::with_features(pg_grammar_model::membership::width(
+            &grammar.phon_features,
+        ) as u32);
+        literal.push_segment_with_lanes(q.0, &table.get(q).matching_lanes());
+        let literal = literal.finish();
+        displays.push(to_regex_display(&table, &literal));
+        assert!(is_match(&table, &literal, "t"), "provisional={provisional}");
+
+        for constrained in [false, true] {
+            let mut pairs = vec![(
+                table.type_feature(),
+                SymbolBits(pg_grammar_model::featsys::TYPE_SEGMENT_BITS),
+            )];
+            if constrained {
+                pairs.push((
+                    grammar.phon_features.flat_index("feat_voi").unwrap(),
+                    SymbolBits(1),
+                ));
+            }
+            let class = NaturalClass {
+                xml_id: "class".into(),
+                name: None,
+                kind: NaturalClassKind::Feature(pairs.clone()),
+            };
+            let mut lanes =
+                vec![u64::MAX; pg_grammar_model::membership::width(&grammar.phon_features)];
+            for (feature, bits) in pairs {
+                lanes[feature.0 as usize] = bits.0;
+            }
+            let membership_lane = grammar.phon_features.len();
+            lanes[membership_lane] =
+                pg_grammar_model::membership::class_bits(&class, table.type_feature());
+            let members = pg_grammar_model::segment::nat_class_cd_set(&table, &class);
+            let mut wildcard = ShapeBuilder::with_features(lanes.len() as u32);
+            wildcard.push_segment_with_lanes_and_set(&lanes, members);
+            let wildcard = wildcard.finish();
+            assert_eq!(
+                to_regex_display(&table, &wildcard),
+                if constrained { "v" } else { "[tqv]" }
+            );
+            assert_eq!(is_match(&table, &wildcard, "q"), !constrained);
+            assert_eq!(is_match(&table, &wildcard, "t"), !constrained);
+            assert!(is_match(&table, &wildcard, "v"));
+        }
+    }
+    assert_eq!(displays, ["[tqv]", "[tqv]"]);
+}
+
 /// A single concrete `Segment` node whose lanes are exactly `cd`'s own, mimicking real segmentation which stamps a node's lanes from its char-def.
 fn one_segment_shape(table: &CharDefTable, cd: CharDefId) -> Shape {
     let lanes = table.get(cd).feature_lanes().to_vec();
