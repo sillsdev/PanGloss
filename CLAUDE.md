@@ -25,6 +25,11 @@ never keep a behavioural improvement unreported in Rust alone. Every divergence 
 The one escape hatch: an independently justified divergence documented in the ledger, pinned by a
 fixture, and reported upstream. An issue is not a fix PR and neither alone proves correctness.
 
+The standing instance: an **underdefined project** (`CONTEXT.md`) runs on provisional definitions
+that C# lacks, by design (`docs/adr/0008-provisional-definitions.md`). That is not a parity bug,
+but each behaviour it introduces is still its own ledger entry and gated fixture. A fully defined
+project gets exact parity.
+
 A fixture authored against HC-Rust instead of the oracle records HC-Rust's behaviour, not
 correctness, and must say so in its `words.yaml` (`# oracle-provenance:`) — silence reads as
 "verified against hc.dll" and is the bug. *Scar: HC-Rust once accepted `xpitz`/`muat`, which the

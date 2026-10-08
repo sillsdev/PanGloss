@@ -127,8 +127,8 @@ One of compiled, safely overapproximated, peeled outside the FST, confirm-only, 
 _Avoid_: Done, covered
 
 **Supported construct variant**:
-A variant whose disposition is not detected unsupported and whose disposition-specific oracle gates pass.
-_Avoid_: Detected construct
+A variant whose disposition is not detected unsupported and whose disposition-specific oracle gates pass. A construct variant is one concrete form of a construct kind (non-recursive versus recursive compounding are two variants of compounding); it is the unit that is admitted or refused, witnessed by fixtures, and counted for coverage.
+_Avoid_: Detected construct, configuration (for a variant)
 
 **Construct witness**:
 A positive and negative oracle-backed pair proving that a semantic variant is exercised and distinguished. For detected unsupported variants, it proves reliable detection and rejection, not compilation support.
@@ -348,6 +348,26 @@ _Avoid_: Morpheme index, dense id, HVO
 **Analysis annotation**:
 A property reported alongside a structured analysis that is not part of its identity, such as `guessed`. Two analyses whose identities match but whose annotations differ are the same analysis observed differently, never an addition paired with a removal.
 _Avoid_: Identity field, analysis flag
+
+**Underdefined project**:
+A project whose authored phonology leaves something a parse depends on undefined: a letter with no segment definition, a phoneme with no features, or an environment naming a class that does not exist. PanGloss runs an underdefined project anyway, supplying provisional definitions, whatever parser FieldWorks has selected. An underdefined project is a normal starting point on the way to a fully defined one, not an error.
+_Avoid_: Incomplete grammar, invalid grammar, XAMPLE project (as if the selected parser mattered)
+
+**Provisional definition**:
+A definition PanGloss supplies for something an underdefined project leaves undefined, chosen to match or exceed what XAMPLE does with the same project, and reported to the author as information naming what was undefined and what was assumed. A provisional letter is one of the language's own exemplar letters, longest first (so `ch` is one letter), and otherwise one visible character (so `ã` is one letter however it is typed). A provisional letter, like an authored phoneme with no features, belongs to no natural class. The author replaces a provisional definition by defining the thing; PanGloss never silently keeps one.
+_Avoid_: Guess, guessed segment (guessing is root guessing), inferred definition, substrate completion (in user-facing text)
+
+**Divergence**:
+Any deliberate or discovered difference between PanGloss's analyses and C# HermitCrab's for the same grammar and word, including every behaviour that provisional definitions introduce. Every divergence is recorded in the divergence ledger and checked by an oracle gate.
+_Avoid_: Deviation, extension (as if exempt from the ledger)
+
+**Readiness verdict**:
+A human-facing summary of one grammar and pack against a threshold policy: thresholds met, not yet, or not supported. It reports only what it measured; meeting every threshold is not a correctness verdict and does not make a supported language.
+_Avoid_: Certified, certification
+
+**Stored-analysis key**:
+What FieldWorks records for a stored analysis of a wordform: for each morph in order, its allomorph, MSA and inflection type. It omits root position and category, so analyses that differ only in those are one stored analysis. Comparing PanGloss's analyses with a project's stored analyses uses this key; comparing PanGloss with C# HermitCrab uses the full structured analysis identity.
+_Avoid_: Analysis identity (for stored analyses), WfiAnalysis match
 
 **Reproducible assessment**:
 An assessment whose case outcomes were decided only by deterministic logical budgets, so re-running it anywhere yields the same outcome digest. A wall-clock word timeout or compile execution limit firing makes the assessment unreproducible, which is recorded on the report rather than hidden, since the same run on another machine could have completed.
