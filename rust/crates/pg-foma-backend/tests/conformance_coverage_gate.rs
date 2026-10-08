@@ -1,61 +1,26 @@
-//! THE conformance-coverage cross-check (ADR 0001, honest capability boundary), BUILD-BREAKING: for every `CharacteristicKind` (not just the `Proven` subset), asserts a covering, PASSING conformance fixture exists, re-deriving its own oracle replay independently of `conformance_fixtures_gate.rs` rather than depending on that test's internals.
+//! Gates generic kind evidence and concrete variant obligations against passing fixtures.
 
 use std::collections::HashSet;
 
 use pg_conformance_fixtures::discover;
 use pg_foma_backend::conformance_coverage::{supported_coverage_report, CoverageStatus};
-use pg_parse::Morpher;
+use pg_foma_backend::fixture_coverage::passing_covered_constructs;
 
-/// Replays every discovered fixture against `pg_parse::Morpher` and collects `exercises:` construct identifiers only from words whose engine output CURRENTLY MATCHES the fixture's ground-truth signature -- the "passing" qualifier ADR 0001's cross-check requires.
-fn passing_covered_constructs() -> HashSet<String> {
-    let mut covered = HashSet::new();
-
-    for f in discover() {
-        let words_yaml = f.load_words_yaml();
-        if words_yaml.skip_in_generic_replay().is_some() {
-            continue; // expect_crash / budget_ms fixtures: no signature ground truth to replay
-        }
-
-        let xml = f.load_grammar_xml();
-        let Ok(grammar) = pg_grammar::load(&xml) else {
-            // A fixture this preview can't even load contributes no coverage either way -- `conformance_fixtures_gate.rs` already gates load failures for real.
-            continue;
-        };
-        let morpher = Morpher::new(&grammar, usize::MAX);
-
-        for w in &words_yaml.words {
-            if !w.adapter_visible() {
-                continue; // self-check-only (guess:true parse), PROTOCOL.md section 3
-            }
-            let outcome = morpher.parse_word(&w.word);
-            if w.expect_skip {
-                continue; // SKIPPED words carry no meaningful "matched ground truth" signal here
-            }
-            if outcome.invalid_shape {
-                continue; // unexpectedly SKIPPED -> not passing
-            }
-            if outcome.signature() != w.expected_signature() {
-                continue; // mismatch -> not passing; this word's exercises: tags don't count
-            }
-            for c in &w.exercises {
-                covered.insert(c.clone());
-            }
-            for p in &w.parses {
-                for c in &p.exercises {
-                    covered.insert(c.clone());
-                }
-            }
-        }
-    }
-
-    covered
-}
-
-/// The ledger-wide cross-check: zero `Uncovered` and zero `Unmappable` rows across all `CharacteristicKind`s, each graded against a covering, passing conformance fixture -- but row-level coverage is not configuration-level completeness, and `Covered` is not `Admit`.
-/// See `docs/research/pg-foma-conformance-coverage-gate-notes.md` for what had to be true before this gate could be build-breaking and for what it still does not assert.
+/// Retains the generic kind contract independently of the concrete variant ratchet.
 #[test]
 fn supported_construct_conformance_coverage_has_no_gaps() {
-    let covered = passing_covered_constructs();
+    let replay = passing_covered_constructs(&discover());
+    assert!(
+        replay.load_failures.is_empty(),
+        "fixture load failures: {:?}",
+        replay.load_failures
+    );
+    assert!(
+        replay.invalid_variant_tags.is_empty(),
+        "invalid variant tags: {:?}",
+        replay.invalid_variant_tags
+    );
+    let covered = replay.passing_constructs;
     let covered_refs: HashSet<&str> = covered.iter().map(String::as_str).collect();
     let report = supported_coverage_report(&covered_refs);
 
@@ -93,7 +58,7 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
     }
 
     eprintln!(
-        "=== conformance-coverage cross-check (ADR 0001; ledger-wide per G8, remapped per G9) \
+        "=== conformance-coverage cross-check (ADR 0001; generic kind mapping) \
          BUILD-BREAKING ===\n\
          CharacteristicKinds: {} total | {covered_n} covered | {} uncovered | {} unmappable",
         report.len(),
@@ -111,7 +76,7 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
         unmappable.is_empty(),
         "MAPPING-CONTRACT REGRESSION: {} CharacteristicKind(s) have no constructs.txt row at all: \
          {unmappable:?}\n\
-         This is a vocabulary gap, not a fixture gap -- a row must be added upstream (see G9 / \
+         This is a vocabulary gap, not a fixture gap -- a row must be added upstream (see \
          sillsdev/machine#465 for the precedent) and mapped in \
          `conformance_coverage::construct_ids_for`. Full report above.",
         unmappable.len()
@@ -140,4 +105,100 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
          empty -- the status/disposition split in this test has drifted from CoverageStatus",
         report.len()
     );
+}
+
+#[test]
+fn reachable_variant_coverage_does_not_regress() {
+    use pg_foma_backend::coverage_ledger::{build_ledger, obligation_met};
+    let replay = passing_covered_constructs(&discover());
+    assert!(
+        replay.load_failures.is_empty(),
+        "load failures: {:?}",
+        replay.load_failures
+    );
+    assert!(
+        replay.invalid_variant_tags.is_empty(),
+        "invalid tags: {:?}",
+        replay.invalid_variant_tags
+    );
+    let refs = replay
+        .passing_constructs
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let ledger = build_ledger(&pg_foma::capability::default_registry(), &refs);
+    let mut missing_fixture = 0;
+    let mut missing_containment = 0;
+    let mut unmet = 0;
+    for row in &ledger.rows {
+        if !obligation_met(row) {
+            unmet += 1;
+            eprintln!(
+                "unmet {:?} {:?}: fixture={:?} containment={:?}",
+                row.kind,
+                row.variant,
+                row.conformance_status,
+                row.containment.as_ref().map(|c| &c.citation)
+            );
+        }
+
+        missing_fixture += usize::from(row.conformance_status != CoverageStatus::Covered);
+        missing_containment += usize::from(row.containment.is_none());
+    }
+    eprintln!("variant obligations: {} total; {unmet} unmet; {missing_fixture} without fixture; {missing_containment} without containment", ledger.rows.len());
+    assert_eq!(
+        ledger.rows.len(),
+        37,
+        "variant inventory changed; review the new obligations"
+    );
+    assert!(
+        missing_fixture <= 7,
+        "{missing_fixture} obligations lack passing fixtures, exceeding 7"
+    );
+    assert!(
+        missing_containment <= 11,
+        "{missing_containment} obligations lack containment citations, exceeding 11"
+    );
+    assert!(
+        unmet <= 10,
+        "{unmet} variant obligations unmet, exceeding 10"
+    );
+}
+
+#[test]
+fn declared_supported_variants_are_observed_by_the_fixture_inventory() {
+    use pg_foma::capability::{default_registry, observed_variants};
+    let registry = default_registry();
+    let declared: HashSet<_> = registry
+        .predicates()
+        .iter()
+        .flat_map(|p| p.variants().iter().copied())
+        .collect();
+    assert_eq!(declared.len(), 24);
+    let mut all_observed = HashSet::new();
+    for fixture in discover() {
+        let words = fixture.load_words_yaml();
+        if words.skip_in_generic_replay().is_some() {
+            continue;
+        }
+        let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+        let observed = observed_variants(&grammar, &registry);
+        assert!(observed.is_subset(&declared));
+        all_observed.extend(observed.iter().copied());
+        let mut variants: Vec<_> = observed.into_iter().map(|v| v.id()).collect();
+        variants.sort_unstable();
+        if !variants.is_empty() {
+            eprintln!("VARIANTS {}: {variants:?}", fixture.label());
+        }
+    }
+    for variant in declared
+        .iter()
+        .filter(|v| v.disposition() != pg_foma::capability::VariantDisposition::Refuse)
+    {
+        assert!(
+            all_observed.contains(variant),
+            "declared supported variant {} has no structural witness",
+            variant.id()
+        );
+    }
 }

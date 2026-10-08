@@ -1,117 +1,20 @@
-//! The one-time, audited coverage LEDGER over the frozen `pg-grammar/src/model.rs` construct set.
-//! It is evidence that feeds *into* the capability gate
-//! (`crate::capability::compose_envelope`) — it is **not itself a gate**. See "Evidence, not a
-//! gate" below for what that means concretely in this file.
-//!
-//! HermitCrab and the Rust model are assumed complete apart from bug fixes, so this module
-//! implements a one-time REVIEWED ledger over the current model rather than source-AST/reflection
-//! infrastructure that would try to stay in sync automatically. The pre-existing coverage ledger
-//! supplies evidence into the capability gate; it is not itself the gate.
-//!
-//! # What this module owns, and what it reuses rather than re-deriving
-//! - The INVENTORY of every frozen `model.rs` variant already exists as
-//!   `crate::capability::CharacteristicKind` (its own `ALL` constant) and
-//!   `crate::capability::characterize` (the exhaustive, no-catch-all per-`model.rs`-variant
-//!   walk) — this module does not re-inventory `model.rs`. What it adds is the SCHEMA half: a
-//!   consolidated, queryable, *serializable* row-per-construct VIEW over that existing inventory,
-//!   via `LedgerRow`/`CoverageLedger`/`build_ledger`.
-//! - The disposition mapping is not duplicated here either — `LedgerRow::disposition` always
-//!   reads `crate::capability::CharacteristicKind::default_disposition`, never a second,
-//!   hardcoded copy (pinned by this file's own
-//!   `ledger_disposition_never_diverges_from_default_disposition` test).
-//! - `containment_evidence_for` is a curated, hand-reviewed table naming, for every construct,
-//!   which REAL already-merged test file (`tests/cover_*.rs`, `tests/phase_c_*.rs`, `tests/
-//!   epenthesis_structural_route_containment.rs`, `tests/two_table_symbol_divergence.rs`, `tests/
-//!   f6_reduplication_peel_chain_depth.rs`, `tests/p6_gate_parity.rs`) is a witness for it — a
-//!   one-time REVIEWED table, not a mechanically-derived one.
-//! - `CoverageLedger::to_json` is the machine-readable source artifact (mirrors `crate::health`'s
-//!   own "canonical JSON is the source artifact" convention); no Markdown/prose renderer exists
-//!   here.
-//! - Every ledger row's disposition and evidence owner is validated exhaustively by this module's
-//!   own `tests` submodule (`every_characteristic_kind_appears_exactly_once`,
-//!   `every_config_predicate_row_names_a_discharging_predicate`, and this file's
-//!   own "A future model-shape change" note below), hand-maintained because Rust has no enum
-//!   reflection (the same reason `crate::capability::CharacteristicKind::ALL`'s own doc gives).
-//!
-//! # Coverage is claimed PER STRATEGY, never for "the compiler"
-//! This crate has three compilers (`crate::enumerate::EmissionStrategy`), and until
-//! `crate::strategy_coverage` existed this ledger's rows silently spoke for all of them at once.
-//! The `Compounding` row cited `tests/cover_compounding.rs`, which exercises `FomaAnalyzer::new`
-//! and therefore `crate::enumerate::EmissionStrategy::TunedSurfaceProbed` only -- while
-//! `crate::uflexc`, the sole lexicon emitter
-//! `crate::enumerate::EmissionStrategy::PlanComposed` has, could not propose a compound at all.
-//! One compiler's coverage was read as three compilers' coverage. That is this repo's own
-//! coverage-gate inheritance trap recurring on a per-strategy axis rather than a per-construct one.
-//!
-//! Three things follow, all enforced in this file's own `tests` submodule:
-//! - Every `ContainmentEvidence` NAMES the strategies its citation was demonstrated on
-//!   (`ContainmentEvidence::strategies`); `ev` panics on an unattributed one.
-//! - A citation may not name a strategy `crate::strategy_coverage` says cannot represent the
-//!   construct (`no_citation_claims_a_strategy_that_cannot_represent_the_construct`).
-//! - Each row reports the strategies that CAN represent the construct but have no witness
-//!   (`LedgerRow::strategies_unwitnessed`) and the ones that cannot represent it at all
-//!   (`LedgerRow::strategies_cannot_represent`). Both are DERIVED from the strategy table, so a
-//!   fourth compiler cannot inherit the incumbents' evidence by being added quietly.
-//!
-//! Reported, not gated -- consistent with this module's "Evidence, not a gate" section below. A
-//! non-empty `strategies_unwitnessed` is today's honest reading of the test suite, not a failure;
-//! notably no row names `crate::enumerate::EmissionStrategy::TemplatedUnderlyingTokens` at all.
-//!
-//! # A future model-shape change
-//! Adding a new `pg-grammar/src/model.rs` construct or behavior-bearing field is OUTSIDE this
-//! ledger's standing frozen-model assumption and must explicitly reopen and revise this coverage
-//! contract before merge — concretely, that means updating `crate::capability`
-//! first (`CharacteristicKind`, `CharacteristicKind::ALL`, `default_disposition`, `characterize`,
-//! per that module's own exhaustiveness discipline), which breaks THIS module's build the moment a
-//! new `CharacteristicKind::ALL` entry appears (every exhaustive match in this file has no
-//! catch-all arm), forcing a reviewed update to `containment_evidence_for` too.
-//!
-//! # Evidence, not a gate
-//! Nothing in this module is consulted by any compile path. `build_ledger` is a pure function;
-//! `CoverageLedger` is inert data. The load-bearing, hard-failing artifact remains
-//! `crate::capability::compose_envelope` — this ledger's rows are read BY a human/CI
-//! reviewer and by that gate's own predicate authors as evidence when they write or review a
-//! `crate::capability::CapabilityPredicate`, never consulted at compile time to admit or refuse a
-//! grammar. No test in this file asserts `gaps.is_empty()` for conformance/containment coverage —
-//! same non-blocking-first discipline `crate::conformance_coverage`/`crate::
-//! plan_interaction_coverage` already established for their own advisory reports.
-//!
-//! # The four rows this ledger fills in per `CharacteristicKind`
-//! `LedgerRow`: the `crate::capability::CharacteristicKind` itself; its
-//! `crate::capability::Disposition` (ALWAYS [`crate::capability::CharacteristicKind::
-//! default_disposition`] — never a second, divergent copy); every [`crate::capability::
-//! CapabilityPredicate`] in the caller-supplied registry that discharges it, alongside that
-//! predicate's own `crate::capability::EvidenceProvenance`; the mapped `machine/conformance/
-//! constructs.txt` construct id(s) (reused verbatim from [`crate::conformance_coverage::
-//! construct_ids_for`], never re-derived) plus the resulting [`crate::conformance_coverage::
-//! CoverageStatus`] against a caller-supplied passing-construct set; and the curated
-//! `ContainmentEvidence` naming which (if any) already-merged test is this construct's
-//! proposer-to-confirm containment witness.
-//!
-//! # Canonical JSON
-//! `CoverageLedger::to_json`/`CoverageLedger::from_json` follow `crate::health`'s own
-//! established convention exactly: pretty-printed, two-space indent, fields in Rust declaration
-//! order (serde's unmodified default), a `schema_version` constant
-//! (`COVERAGE_LEDGER_SCHEMA_VERSION`) bumped only on a wire-incompatible change. CLI/AI/FieldWorks
-//! tooling consumes this one artifact rather than re-deriving the same facts from `capability.rs`'s
-//! Rust types directly.
-//!
-//! # Wire-format ownership
-//! Hand-written serde impls for capability types live with those types; this module owns
-//! `CoverageStatus`'s wire format.
+//! Versioned fixture and containment evidence for construct variant obligations.
 
 use std::collections::HashSet;
 
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::capability::{CharacteristicKind, Disposition, EvidenceProvenance, PredicateRegistry};
-use crate::conformance_coverage::{construct_ids_for, CoverageStatus};
+use crate::capability::{
+    CharacteristicKind, ConstructVariant, Disposition, EvidenceProvenance, PredicateRegistry,
+    VariantDisposition,
+};
+use crate::conformance_coverage::{construct_ids_for, coverage_status_for_ids, CoverageStatus};
 use crate::enumerate::EmissionStrategy;
 use crate::strategy_coverage::{representation_of, strategies_that_represent};
 
 /// This schema's own version (mirrors `crate::health::HEALTH_SCHEMA_VERSION`'s convention).
-pub const COVERAGE_LEDGER_SCHEMA_VERSION: u32 = 1;
+pub const COVERAGE_LEDGER_SCHEMA_VERSION: u32 = 2;
 
 fn coverage_status_wire_name(status: CoverageStatus) -> &'static str {
     match status {
@@ -158,20 +61,8 @@ pub enum ContainmentEvidenceKind {
     GeneralPervasive,
 }
 
-/// One curated, hand-reviewed containment-evidence citation. Every field is a
-/// `String` (not `&'static str`) so `LedgerRow` round-trips through `CoverageLedger::from_json`
-/// losslessly, matching `crate::health::HealthFinding`'s own `String`-field convention.
-///
-/// # Evidence NAMES ITS STRATEGIES
-/// Every citation must say which compiler(s) it was demonstrated on. Before that requirement, this
-/// table's `Compounding` row cited `tests/cover_compounding.rs`, which exercises `FomaAnalyzer::new`
-/// -- i.e. `crate::enumerate::EmissionStrategy::TunedSurfaceProbed` -- and nothing else, while the
-/// row read as evidence that the construct was covered, full stop. It was then silently inherited by
-/// `crate::enumerate::EmissionStrategy::PlanComposed`, whose emitter (`crate::uflexc`) could not
-/// propose a compound at all. That is the coverage-gate inheritance trap on a per-STRATEGY axis, and
-/// `ContainmentEvidence::strategies` is what makes it impossible to repeat silently: the ledger
-/// now reports, per row, both the strategies a witness exists for and the ones that can represent
-/// the construct but have NO witness (`LedgerRow::strategies_unwitnessed`).
+/// Curated evidence with the compiler strategies actually exercised by its citation.
+/// A strategy with no witness stays explicitly unwitnessed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContainmentEvidence {
     pub kind: ContainmentEvidenceKind,
@@ -245,7 +136,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              head_c_excluded_by_rule_level_gate_like_confirm)",
             &[EmissionStrategy::TunedSurfaceProbed],
             "License-gated head/non-head cross-product containment for the non-recursive case, \
-             plus the (un)group-awareness witness design.md D4 names.",
+             plus rule-level and subrule-level group-awareness witnesses.",
         ),
         OrderedMorphRuleApplication => ev(
             GeneralPervasive,
@@ -267,7 +158,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              (+ append_output_is_order_invariant_overwrite_output_is_not)",
             &[EmissionStrategy::TunedSurfaceProbed],
             "Non-tracking-baseline containment for MprGroupOutput::Append, plus the \
-             order-invariance witness design.md D4 names.",
+             order-invariance witness.",
         ),
         MprGroupOverwrite => ev(
             Dedicated,
@@ -429,16 +320,17 @@ pub struct DischargingPredicate {
     pub provenance: EvidenceProvenance,
 }
 
-/// One row of the coverage ledger: everything this crate can say
-/// today about one `CharacteristicKind` — the frozen-model construct(s) it represents (see that
-/// type's own per-variant doc in `capability.rs` for the exact `model.rs` citation), its
-/// disposition, which predicates (if any) discharge it, which `constructs.txt` id(s) it maps to and
-/// whether a passing fixture is known to cover them, and its curated containment-test citation.
+/// One reachable variant obligation, or the sole obligation of a kind without variants.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LedgerRow {
     pub kind: CharacteristicKind,
-    /// ALWAYS `kind.default_disposition()` — never a second, independently-maintained copy. See
-    /// this file's own `ledger_disposition_never_diverges_from_default_disposition` test.
+    /// Stable concrete variant identity; absent only for a kind without predicate variants.
+    pub variant: Option<String>,
+    /// Concrete outcome from the owning predicate's variant inventory.
+    pub variant_disposition: Option<VariantDisposition>,
+    /// An explicit permanent refusal justification, when one has been ratified.
+    pub permanent_refusal: Option<String>,
+    /// The kind's default predicate requirement, distinct from this variant's concrete outcome.
     pub disposition: Disposition,
     /// Every registered `crate::capability::CapabilityPredicate` whose [`crate::capability::
     /// CapabilityPredicate::discharges`] names this row's `kind`. Empty for every [`Disposition::
@@ -447,19 +339,16 @@ pub struct LedgerRow {
     /// `crate::capability::undischarged_kinds`).
     #[serde(default)]
     pub discharging_predicates: Vec<DischargingPredicate>,
-    /// `machine/conformance/constructs.txt` identifier(s) this kind maps to (reused verbatim from
-    /// `construct_ids_for` — never re-derived). Empty iff `Self::conformance_status` is
-    /// `CoverageStatus::Unmappable`.
+    /// Fixture tags for this obligation: a concrete variant id, or generic ids for a kind without variants.
     pub construct_ids: Vec<String>,
-    /// This row's conformance-coverage cross-check outcome against the ledger's own build-time
-    /// passing-construct set (see `build_ledger`'s own doc: this ledger reuses [`construct_ids_
-    /// for`]/`CoverageStatus` rather than re-deriving the classification rule).
+    /// Coverage of this obligation's tags, classified by the shared coverage helper.
     pub conformance_status: CoverageStatus,
     /// The curated proposer-to-confirm containment witness, if this crate's test
     /// suite has one for this construct (`None` only for a genuine, honestly-reported gap).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub containment: Option<ContainmentEvidence>,
-    /// Every `EmissionStrategy` whose proposer emits nothing at all for this construct
+    /// Kind-level representation gaps, independent of this row's `variant_disposition`.
+    /// Every `EmissionStrategy` whose proposer emits nothing at all for this kind
     /// (`crate::strategy_coverage::StrategyRepresentation::CannotRepresent`), as
     /// `EmissionStrategy::label` strings. A whole-construct recall hole for that compiler --
     /// a candidate realized by one is a typed refusal, pinned by
@@ -474,20 +363,20 @@ pub struct LedgerRow {
     pub strategies_unwitnessed: Vec<String>,
 }
 
-/// The full, versioned, one-time-audited coverage ledger. See this module's own top-doc "Evidence,
-/// not a gate" section: this type is inert data, consulted by no compile path.
+/// Versioned evidence data for coverage claims, independent of compile-time admission.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CoverageLedger {
     pub schema_version: u32,
-    /// One row per `CharacteristicKind::ALL` entry, in that constant's own declaration order.
+    /// Kind order, then the owning predicates' declared variant order.
     pub rows: Vec<LedgerRow>,
 }
 
 impl CoverageLedger {
-    /// This ledger's row for `kind`, if present (always present in any ledger built by
-    /// `build_ledger` — see `every_characteristic_kind_appears_exactly_once`).
-    pub fn row(&self, kind: CharacteristicKind) -> Option<&LedgerRow> {
-        self.rows.iter().find(|r| r.kind == kind)
+    /// Looks up one obligation by kind and concrete variant identity.
+    pub fn row(&self, kind: CharacteristicKind, variant: Option<&str>) -> Option<&LedgerRow> {
+        self.rows
+            .iter()
+            .find(|r| r.kind == kind && r.variant.as_deref() == variant)
     }
 
     /// Canonical machine-readable form (mirrors `crate::health::HealthReport::to_json` exactly:
@@ -498,30 +387,19 @@ impl CoverageLedger {
 
     /// Parses a ledger from its canonical JSON form.
     pub fn from_json(json: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(json)
+        let ledger: Self = serde_json::from_str(json)?;
+        if ledger.schema_version != COVERAGE_LEDGER_SCHEMA_VERSION {
+            return Err(serde_json::Error::custom(format!(
+                "unsupported coverage ledger schema version: {}",
+                ledger.schema_version
+            )));
+        }
+        Ok(ledger)
     }
 }
 
-/// Builds the coverage ledger: one `LedgerRow` per `CharacteristicKind::ALL` entry, in that
-/// constant's own order. A pure function over a caller-supplied `registry` (whose predicates
-/// determine `LedgerRow::discharging_predicates`) and `passing_covered_constructs` (the same
-/// "set of `constructs.txt` identifiers exercised by at least one currently-passing fixture" shape
-/// `crate::conformance_coverage::supported_coverage_report` itself takes) — mirroring that
-/// module's own "pure core, wired-up glue lives at the edge" split: nothing here calls
-/// `pg_conformance_fixtures::discover` or replays any fixture itself; a caller (e.g. a
-/// `tests/coverage_ledger_gate.rs`, mirroring `tests/conformance_coverage_gate.rs`) supplies that
-/// set by actually replaying fixtures, or a caller wanting a static, no-dynamic-dependency snapshot
-/// may pass an empty set or a fixed hand-built one (as this crate's own golden-JSON test does, for
-/// reproducibility independent of fixture churn elsewhere in the repo).
-///
-/// `conformance_status`'s classification is the identical three-way rule
-/// `crate::conformance_coverage::supported_coverage_report`'s own inner closure uses
-/// (`construct_ids.is_empty()` -> `CoverageStatus::Unmappable`; at least one of the row's
-/// construct ids in `passing_covered_constructs` -> `CoverageStatus::Covered`; otherwise
-/// `CoverageStatus::Uncovered`) — re-stated here rather than called, because the two callers
-/// thread their evidence sets differently, not because the two scopes differ. The underlying
-/// contract (`construct_ids_for` plus `CoverageStatus` itself) is reused unchanged, never
-/// re-derived.
+/// Builds one evidence obligation per registered variant, retaining one row for other kinds.
+/// Generic kind tags cannot satisfy a concrete variant's fixture obligation.
 pub fn build_ledger(
     registry: &PredicateRegistry,
     passing_covered_constructs: &HashSet<&str>,
@@ -529,72 +407,163 @@ pub fn build_ledger(
     let rows = CharacteristicKind::ALL
         .iter()
         .copied()
-        .map(|kind| {
-            let disposition = kind.default_disposition();
-
-            let discharging_predicates: Vec<DischargingPredicate> = registry
+        .flat_map(|kind| {
+            let variants: Vec<_> = registry
                 .predicates()
                 .iter()
                 .filter(|p| p.discharges().contains(&kind))
-                .map(|p| DischargingPredicate {
-                    id: p.id().to_string(),
-                    provenance: p.provenance(),
-                })
+                .flat_map(|p| p.variants().iter().copied())
                 .collect();
-
-            let construct_ids_static = construct_ids_for(kind);
-            let construct_ids: Vec<String> =
-                construct_ids_static.iter().map(|s| s.to_string()).collect();
-            let containment = containment_evidence_for(kind);
-
-            let conformance_status = if construct_ids_static.is_empty() {
-                CoverageStatus::Unmappable
-            } else if construct_ids_static
-                .iter()
-                .any(|c| passing_covered_constructs.contains(c))
-            {
-                CoverageStatus::Covered
+            assert!(
+                variants.iter().all(|v| v.kind() == kind),
+                "predicate catalog names a variant of another kind: {kind:?}"
+            );
+            let unique: HashSet<_> = variants.iter().copied().collect();
+            assert_eq!(
+                unique.len(),
+                variants.len(),
+                "duplicate variant obligations for {kind:?}"
+            );
+            assert!(
+                kind.default_disposition() != Disposition::ConfigPredicate || !variants.is_empty(),
+                "coverage cannot enumerate variants for {kind:?}"
+            );
+            let obligations: Vec<Option<ConstructVariant>> = if variants.is_empty() {
+                vec![None]
             } else {
-                CoverageStatus::Uncovered
+                variants.into_iter().map(Some).collect()
             };
+            obligations.into_iter().map(move |variant| {
+                let disposition = kind.default_disposition();
 
-            // Both lists are derived from crate::strategy_coverage, never hand-maintained.
-            let strategies_cannot_represent: Vec<String> = crate::strategy_coverage::ALL_STRATEGIES
-                .iter()
-                .copied()
-                .filter(|&s| {
-                    representation_of(s, kind).representation
-                        == crate::strategy_coverage::StrategyRepresentation::CannotRepresent
-                })
-                .map(|s| s.label().to_string())
-                .collect();
+                let discharging_predicates: Vec<DischargingPredicate> = registry
+                    .predicates()
+                    .iter()
+                    .filter(|p| p.discharges().contains(&kind))
+                    .map(|p| DischargingPredicate {
+                        id: p.id().to_string(),
+                        provenance: p.provenance(),
+                    })
+                    .collect();
 
-            let witnessed: Vec<String> = containment
-                .as_ref()
-                .map(|ev| ev.strategies.clone())
-                .unwrap_or_default();
-            let strategies_unwitnessed: Vec<String> = strategies_that_represent(kind)
-                .into_iter()
-                .map(|s| s.label().to_string())
-                .filter(|label| !witnessed.contains(label))
-                .collect();
+                let ids: Vec<&str> = match variant {
+                    Some(v) => vec![v.id()],
+                    None => construct_ids_for(kind).to_vec(),
+                };
+                let conformance_status = coverage_status_for_ids(&ids, passing_covered_constructs);
+                let construct_ids = ids.into_iter().map(str::to_string).collect();
+                let containment = match variant {
+                    Some(v) => containment_evidence_for_variant(v),
+                    None => containment_evidence_for(kind),
+                };
 
-            LedgerRow {
-                kind,
-                disposition,
-                discharging_predicates,
-                construct_ids,
-                conformance_status,
-                containment,
-                strategies_cannot_represent,
-                strategies_unwitnessed,
-            }
+                // Both lists are derived from crate::strategy_coverage, never hand-maintained.
+                let strategies_cannot_represent: Vec<String> =
+                    crate::strategy_coverage::ALL_STRATEGIES
+                        .iter()
+                        .copied()
+                        .filter(|&s| {
+                            representation_of(s, kind).representation
+                                == crate::strategy_coverage::StrategyRepresentation::CannotRepresent
+                        })
+                        .map(|s| s.label().to_string())
+                        .collect();
+
+                let witnessed: Vec<String> = containment
+                    .as_ref()
+                    .map(|ev| ev.strategies.clone())
+                    .unwrap_or_default();
+                let strategies_unwitnessed: Vec<String> = strategies_that_represent(kind)
+                    .into_iter()
+                    .map(|s| s.label().to_string())
+                    .filter(|label| !witnessed.contains(label))
+                    .collect();
+
+                LedgerRow {
+                    kind,
+                    variant: variant.map(|v| v.id().to_string()),
+                    variant_disposition: variant.map(ConstructVariant::disposition),
+                    permanent_refusal: None,
+                    disposition,
+                    discharging_predicates,
+                    construct_ids,
+                    conformance_status,
+                    containment,
+                    strategies_cannot_represent,
+                    strategies_unwitnessed,
+                }
+            })
         })
         .collect();
 
     CoverageLedger {
         schema_version: COVERAGE_LEDGER_SCHEMA_VERSION,
         rows,
+    }
+}
+
+/// Whether an obligation meets its disposition's evidence requirements.
+/// Proven kinds require a passing fixture; concrete supported variants and ConfirmOnly kinds
+/// also require containment. An unresolved Refuse stays open even if detection is witnessed.
+pub fn obligation_met(row: &LedgerRow) -> bool {
+    if row.variant_disposition == Some(VariantDisposition::Refuse) {
+        return row
+            .permanent_refusal
+            .as_ref()
+            .is_some_and(|reason| !reason.trim().is_empty());
+    }
+    row.conformance_status == CoverageStatus::Covered
+        && (row.disposition == Disposition::Proven || row.containment.is_some())
+}
+
+/// Variant-specific citations never inherit a supported sibling's evidence for a refusal.
+pub fn containment_evidence_for_variant(variant: ConstructVariant) -> Option<ContainmentEvidence> {
+    use ConstructVariant::*;
+    use ContainmentEvidenceKind::Dedicated;
+    use EmissionStrategy::{PlanComposed, TemplatedUnderlyingTokens, TunedSurfaceProbed};
+    let specific = match variant {
+        CompoundingRecursive => Some((
+            "pg-foma-backend/tests/cover_compounding_recursive_depth_bound.rs::depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis",
+            TunedSurfaceProbed,
+        )),
+        MprOverwrite => Some((
+            "pg-foma-backend/tests/templated_conformance_proposal_pins.rs::mpr_overwrite_order_dependence_proposes_both_relative_orders",
+            TemplatedUnderlyingTokens,
+        )),
+        MetathesisLtrSwap => Some((
+            "pg-foma/tests/phase_c_metathesis.rs::metathesis_adjacent_singleton_swap_matches_oracle_exactly",
+            PlanComposed,
+        )),
+        MetathesisRtlSwap => Some((
+            "pg-foma/tests/phase_c_metathesis.rs::metathesis_right_to_left_reversal_matches_oracle_exactly",
+            PlanComposed,
+        )),
+        QuantifierBounded => Some((
+            "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle",
+            PlanComposed,
+        )),
+        QuantifierUnbounded => Some((
+            "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle",
+            PlanComposed,
+        )),
+        ReduplicationStructural => Some((
+            "pg-foma-backend/tests/circumfix_candidate_selection.rs::circumfix_reduplication_recall_parity",
+            TunedSurfaceProbed,
+        )),
+        MultiTableShared => Some((
+            "pg-foma-backend/tests/two_table_shared_representation_recall.rs::fst_propose_confirm_matches_oracle_across_the_table_boundary",
+            PlanComposed,
+        )),
+        SimultaneousUnproven | RtlUnlowerable | MetathesisLtrUnlowerable
+        | MetathesisRtlUnlowerable | CircumfixUnrouted | ReduplicationUnrouted
+        | QuantifierBoundedUnlowerable | QuantifierUnboundedUnlowerable => return None,
+        CompoundingNonRecursive | UnorderedOrderUnion | SimultaneousDisjoint
+        | RtlReversal | EpenthesisStructural | CircumfixStructural | ReduplicationPeel
+        | MultiTableDisjoint => None,
+    };
+    match specific {
+        Some((citation, strategy)) => Some(ev(Dedicated, citation, &[strategy], variant.id())),
+        None => containment_evidence_for(variant.kind()),
     }
 }
 

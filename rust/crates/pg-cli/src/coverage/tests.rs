@@ -15,12 +15,14 @@ fn coverage_summary_json_round_trips_and_counts_match_the_ledger() {
         recount.confirm_only,
         summary.disposition_counts.confirm_only
     );
+    assert_eq!(recount.admit, summary.disposition_counts.admit);
+    assert_eq!(recount.refuse, summary.disposition_counts.refuse);
     assert_eq!(
-        recount.config_predicate,
-        summary.disposition_counts.config_predicate
+        recount.proven + recount.admit + recount.confirm_only + recount.refuse,
+        recount.total
     );
     assert_eq!(recount.total, summary.disposition_counts.total);
-    assert_eq!(recount.total, CharacteristicKind::ALL.len());
+    assert!(recount.total > CharacteristicKind::ALL.len());
 
     let recount_evidence = compute_evidence_counts(ledger);
     assert_eq!(
@@ -116,5 +118,44 @@ fn plan_interaction_is_included_with_a_grammar_and_omitted_without() {
     assert_eq!(
         pi.required_total, 7,
         "must report all 7 documented legal adjacency tuples"
+    );
+}
+
+#[test]
+fn full_headline_depends_on_variant_obligations_not_config_predicate_kinds() {
+    let covered = default_registry()
+        .predicates()
+        .iter()
+        .flat_map(|p| p.variants().iter().map(|v| v.id()))
+        .collect();
+    let mut ledger = build_ledger(&default_registry(), &covered);
+    ledger
+        .rows
+        .retain(|r| r.kind == CharacteristicKind::Compounding);
+    assert_eq!(ledger.rows.len(), 2);
+    assert!(build_headline(&ledger).starts_with("FULL HC coverage"));
+    ledger.rows[1].conformance_status = CoverageStatus::Uncovered;
+    assert!(build_headline(&ledger).starts_with("NOT full HC coverage"));
+    ledger.rows[1].conformance_status = CoverageStatus::Covered;
+    ledger.rows[1].containment = None;
+    assert!(build_headline(&ledger).starts_with("NOT full HC coverage"));
+}
+
+#[test]
+fn coverage_output_names_fixture_grammar_load_failures() {
+    let mut summary = build_summary(None);
+    summary.fixture_load_failures = vec![FixtureLoadFailure {
+        fixture: "staging:edge-cases/broken-coverage-grammar".to_string(),
+        error: "invalid grammar".to_string(),
+    }];
+    summary.fixture_load_failure_count = 1;
+    let text = render_human(&summary);
+    assert!(text.contains("Fixture grammar load failures: 1"));
+    assert!(text.contains("staging:edge-cases/broken-coverage-grammar: invalid grammar"));
+    let json = serde_json::to_value(&summary).unwrap();
+    assert_eq!(json["fixture_load_failure_count"], 1);
+    assert_eq!(
+        json["fixture_load_failures"][0]["fixture"],
+        "staging:edge-cases/broken-coverage-grammar"
     );
 }

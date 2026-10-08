@@ -9,19 +9,32 @@ fn fully_covered_constructs() -> HashSet<&'static str> {
             set.insert(id);
         }
     }
+    for predicate in default_registry().predicates() {
+        set.extend(predicate.variants().iter().map(|v| v.id()));
+    }
     set
 }
 
 // Exhaustiveness / no-drift
 
-/// Every `CharacteristicKind` appears in the built ledger exactly once.
+/// Every kind contributes its declared variants, or one obligation when it has no variants.
 #[test]
-fn every_characteristic_kind_appears_exactly_once() {
+fn every_characteristic_kind_has_its_declared_variant_rows() {
     let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
-    assert_eq!(ledger.rows.len(), CharacteristicKind::ALL.len());
+    assert!(ledger.rows.len() > CharacteristicKind::ALL.len());
     for &kind in CharacteristicKind::ALL {
         let count = ledger.rows.iter().filter(|r| r.kind == kind).count();
-        assert_eq!(count, 1, "{kind:?} must appear exactly once in the ledger");
+        let expected: usize = default_registry()
+            .predicates()
+            .iter()
+            .filter(|p| p.discharges().contains(&kind))
+            .map(|p| p.variants().len())
+            .sum();
+        assert_eq!(
+            count,
+            expected.max(1),
+            "{kind:?} must enumerate every declared variant"
+        );
     }
 }
 
@@ -152,7 +165,7 @@ fn unwitnessed_strategies_are_derived_and_the_gap_is_reported_not_hidden() {
 fn the_ledger_reports_the_live_whole_construct_hole() {
     let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
     let row = ledger
-        .row(CharacteristicKind::ProcessMorphology)
+        .row(CharacteristicKind::ProcessMorphology, None)
         .expect("row must exist");
     assert_eq!(
         row.strategies_cannot_represent,
@@ -165,7 +178,7 @@ fn the_ledger_reports_the_live_whole_construct_hole() {
     );
     assert!(
         ledger
-            .row(CharacteristicKind::Affixation)
+            .row(CharacteristicKind::Affixation, None)
             .expect("row must exist")
             .strategies_cannot_represent
             .is_empty(),
@@ -256,12 +269,14 @@ fn zero_unmappable_rows_after_g9() {
 }
 
 #[test]
-fn row_accessor_finds_every_kind_exactly_once() {
+fn row_accessor_finds_every_variant_by_its_identity() {
     let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
-    for &kind in CharacteristicKind::ALL {
+    for row in &ledger.rows {
         assert!(
-            ledger.row(kind).is_some(),
-            "{kind:?} must be findable via row()"
+            ledger.row(row.kind, row.variant.as_deref()).is_some(),
+            "{:?} {:?} must be findable via row()",
+            row.kind,
+            row.variant
         );
     }
 }
@@ -361,3 +376,79 @@ fn coverage_ledger_golden_json() {
 }
 
 const GOLDEN_JSON: &str = include_str!("../coverage_ledger_golden.json");
+
+#[test]
+fn generic_compounding_tag_cannot_cover_either_concrete_variant() {
+    let covered = HashSet::from(["CompoundingRule"]);
+    let ledger = build_ledger(&default_registry(), &covered);
+    let rows: Vec<_> = ledger
+        .rows
+        .iter()
+        .filter(|r| r.kind == CharacteristicKind::Compounding)
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows
+        .iter()
+        .all(|r| r.conformance_status == CoverageStatus::Uncovered));
+}
+
+#[test]
+fn nonrecursive_fixture_does_not_cover_recursive_compounding() {
+    let covered = HashSet::from(["compounding.non-recursive"]);
+    let ledger = build_ledger(&default_registry(), &covered);
+    let nonrecursive = ledger
+        .rows
+        .iter()
+        .find(|r| r.variant.as_deref() == Some("compounding.non-recursive"))
+        .unwrap();
+    let recursive = ledger
+        .rows
+        .iter()
+        .find(|r| r.variant.as_deref() == Some("compounding.recursive"))
+        .unwrap();
+    assert_eq!(nonrecursive.conformance_status, CoverageStatus::Covered);
+    assert_eq!(recursive.conformance_status, CoverageStatus::Uncovered);
+    assert_ne!(nonrecursive.containment, recursive.containment);
+}
+
+#[test]
+fn ledger_rejects_an_unsupported_schema_version() {
+    let mut ledger = golden_ledger();
+    ledger.schema_version = 1;
+    assert!(CoverageLedger::from_json(&ledger.to_json().unwrap()).is_err());
+}
+
+#[test]
+fn refused_variant_requires_a_documented_permanent_refusal() {
+    let mut ledger = golden_ledger();
+    let evidence = containment_evidence_for_variant(ConstructVariant::CompoundingRecursive);
+    let row = ledger
+        .rows
+        .iter_mut()
+        .find(|r| r.variant_disposition == Some(VariantDisposition::Refuse))
+        .unwrap();
+    row.conformance_status = CoverageStatus::Covered;
+    row.containment = evidence;
+    assert!(!obligation_met(row));
+    row.permanent_refusal = Some(String::new());
+    assert!(!obligation_met(row));
+    row.permanent_refusal = Some("permanent representability boundary".to_string());
+    assert!(obligation_met(row));
+}
+
+#[test]
+fn refused_variant_does_not_inherit_supported_containment() {
+    let ledger = golden_ledger();
+    for row in ledger
+        .rows
+        .iter()
+        .filter(|r| r.variant_disposition == Some(VariantDisposition::Refuse))
+    {
+        assert!(
+            row.containment.is_none(),
+            "{:?} {:?} inherited a supported sibling's evidence",
+            row.kind,
+            row.variant
+        );
+    }
+}

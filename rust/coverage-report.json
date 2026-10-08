@@ -1,19 +1,106 @@
 {
-  "schema_version": 1,
-  "headline": "NOT full HC coverage: 6/23 constructs Proven, 6 ConfirmOnly (recall-preserving via confirm, not admission-proven), 11 ConfigPredicate (compiles only when a registered predicate proves the specific configuration observed). Conformance mapping: 23/23 constructs Covered by a passing fixture, 0 constructs Unmappable (no constructs.txt id exists for them at all).",
+  "schema_version": 2,
+  "headline": "NOT full HC coverage: 27/37 reachable variant obligations met; 10 lack required fixture or containment evidence or have an unresolved refusal. ConfirmOnly is a valid final disposition.",
+  "fixture_load_failure_count": 0,
+  "fixture_load_failures": [],
+  "invalid_variant_tags": [],
+  "producibility": {
+    "producible": [
+      "machine:edge-cases/alpha-variable-name-collision",
+      "machine:edge-cases/compounding-breadth",
+      "machine:edge-cases/deep-optional-affix-nesting",
+      "machine:edge-cases/diacritic-segments",
+      "machine:edge-cases/discontinuous-morph-environment",
+      "machine:edge-cases/disjunctive-recheck",
+      "machine:edge-cases/free-fluctuating-allomorph-pair",
+      "machine:edge-cases/iterative-epenthesis-cascade",
+      "machine:edge-cases/loader-pattern-shapes",
+      "machine:edge-cases/morphotactic-attribute-breadth",
+      "machine:edge-cases/mpr-gated-exception",
+      "machine:edge-cases/process-morphology-in-place-mutation",
+      "machine:edge-cases/right-to-left-anchor-environment",
+      "machine:edge-cases/shared-template-unconstrained-suffix",
+      "machine:edge-cases/simultaneous-epenthesis-cascade",
+      "machine:edge-cases/simultaneous-feeding",
+      "machine:edge-cases/simultaneous-feeding-control-iterative",
+      "machine:edge-cases/stem-name-restricted-root-allomorph",
+      "machine:edge-cases/strrep-identity",
+      "machine:edge-cases/subrule-morphosyntactic-gating",
+      "machine:edge-cases/truncate-morphotactic",
+      "machine:languages/metathesis-phase-isolation",
+      "machine:languages/polysynthetic-stratal-derivation-chain",
+      "machine:languages/templatic-root-modification",
+      "staging:edge-cases/backend-gated-generic",
+      "staging:edge-cases/backend-ordered-generic",
+      "staging:edge-cases/backend-strata-generic",
+      "staging:edge-cases/backend-template-generic",
+      "staging:edge-cases/circumfix-conditioned-halves",
+      "staging:edge-cases/circumfix-cross-product-and-infix-drop",
+      "staging:edge-cases/circumfix-in-template-slot",
+      "staging:edge-cases/circumfix-infix-interior-action-precedence",
+      "staging:edge-cases/circumfix-non-first-allomorph-selection",
+      "staging:edge-cases/circumfix-reduplication-precedence",
+      "staging:edge-cases/compounding-non-recursive",
+      "staging:edge-cases/cross-stem-material-determination",
+      "staging:edge-cases/deletion-reduplication-exception-composite",
+      "staging:edge-cases/guesser-pattern-root-fallback",
+      "staging:edge-cases/head-ambiguous-compounding",
+      "staging:edge-cases/infix-interdigitation",
+      "staging:edge-cases/optional-template-composite",
+      "staging:edge-cases/pattern-root-required-environment",
+      "staging:edge-cases/recursive-endocentric-compounding",
+      "staging:edge-cases/right-to-left-bounded-quantifier-rewrite",
+      "staging:edge-cases/right-to-left-metathesis-reversal",
+      "staging:edge-cases/simultaneous-subrule-genuine-overlap",
+      "staging:edge-cases/standalone-combining-mark",
+      "staging:edge-cases/unbounded-iterative-quantifier-expansion",
+      "staging:edge-cases/zero-width-morpheme-identity-stability"
+    ],
+    "engine_only": [
+      "machine:edge-cases/bistratal-overlapping-segment-representation",
+      "machine:edge-cases/chained-output-feature-override-loss",
+      "machine:edge-cases/cross-table-root-respelling",
+      "machine:edge-cases/feature-gating-breadth",
+      "machine:edge-cases/feature-system-breadth",
+      "machine:edge-cases/final-template-partial-discriminators",
+      "machine:edge-cases/loader-default-symbol",
+      "machine:edge-cases/loader-isactive",
+      "machine:edge-cases/loader-isactive-breadth",
+      "machine:edge-cases/metathesis-comparison-crash",
+      "machine:edge-cases/mpr-group-overwrite-without-realizational",
+      "machine:edge-cases/mpr-overwrite-order-dependence",
+      "machine:edge-cases/rewrite-analysis-feature-neutralization",
+      "machine:edge-cases/synthesis-stratum-render-stale-table",
+      "machine:edge-cases/template-category-sharing",
+      "machine:languages/fusional-realizational-morphology",
+      "machine:languages/prefixal-discontinuous-slot-dependency",
+      "machine:languages/suffixing-evidential-adjacency-chain",
+      "machine:languages/suffixing-extension-slot-ordering",
+      "machine:languages/suffixing-vowel-harmony",
+      "staging:edge-cases/multi-table-metathesis-shared-representation",
+      "staging:edge-cases/right-to-left-cross-table-segments-environment",
+      "staging:edge-cases/right-to-left-segments-environment",
+      "staging:edge-cases/segment-natural-class-table-binding",
+      "staging:edge-cases/two-table-shared-representation-recall"
+    ],
+    "unmarked": []
+  },
   "disposition_counts": {
     "proven": 6,
-    "confirm_only": 6,
-    "config_predicate": 11,
-    "total": 23
+    "confirm_only": 22,
+    "admit": 1,
+    "refuse": 8,
+    "total": 37
   },
   "evidence_counts": {
-    "rows_with_discharging_predicate": 12,
-    "rows_with_containment_evidence": 20,
-    "rows_mapped_to_conformance_construct": 23,
-    "rows_conformance_covered": 23,
+    "rows_with_discharging_predicate": 25,
+    "rows_with_containment_evidence": 26,
+    "rows_mapped_to_conformance_construct": 37,
+    "rows_conformance_covered": 30,
     "rows_unmappable": 0,
-    "total_rows": 23
+    "total_rows": 37,
+    "variant_obligations_met": 27,
+    "variant_obligations_unmet": 10
   },
   "supported_conformance_cross_check": [
     {
@@ -61,10 +148,13 @@
     }
   ],
   "ledger": {
-    "schema_version": 1,
+    "schema_version": 2,
     "rows": [
       {
         "kind": "affixation",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "proven",
         "discharging_predicates": [],
         "construct_ids": [
@@ -74,7 +164,7 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "general_pervasive",
-          "citation": "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/f4_composite_gate.rs",
+          "citation": "pg-foma/tests/f1_large_lexicon_gate.rs, pg-foma/tests/f2_junction_gate.rs, pg-foma/tests/f4_composite_gate.rs",
           "strategies": [
             "tuned-surface-probed"
           ],
@@ -88,6 +178,9 @@
       },
       {
         "kind": "realizational_morphology",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "confirm_only",
         "discharging_predicates": [],
         "construct_ids": [
@@ -96,21 +189,23 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/cover_realizational_morphology_constraints.rs::realizational_rule_presence_blocking_over_propose_confirm_prune",
+          "citation": "pg-foma-backend/tests/cover_realizational_morphology_constraints.rs::realizational_rule_presence_blocking_over_propose_confirm_prune",
           "strategies": [
             "tuned-surface-probed"
           ],
           "note": "Proposer-to-confirm containment for MorphRuleDef::Realizational's real_fs head-wrapped presence-blocking."
         },
-        "strategies_cannot_represent": [
-          "plan-composed"
-        ],
+        "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
+          "plan-composed",
           "templated-underlying-tokens"
         ]
       },
       {
         "kind": "compounding",
+        "variant": "compounding.non-recursive",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -119,16 +214,46 @@
           }
         ],
         "construct_ids": [
-          "CompoundingRule"
+          "compounding.non-recursive"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune (+ subrule_group_gate_excludes_partial_match_like_confirm, head_c_excluded_by_rule_level_gate_like_confirm); budget refusal: tests/cover_compounding_budget.rs",
+          "citation": "pg-foma-backend/tests/cover_compounding.rs::head_a_word_over_propose_confirm_prune (+ subrule_group_gate_excludes_partial_match_like_confirm, head_c_excluded_by_rule_level_gate_like_confirm)",
           "strategies": [
             "tuned-surface-probed"
           ],
-          "note": "License-gated head/non-head cross-product containment for the non-recursive case, plus the (un)group-awareness witness design.md D4 names."
+          "note": "License-gated head/non-head cross-product containment for the non-recursive case, plus rule-level and subrule-level group-awareness witnesses."
+        },
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
+        "kind": "compounding",
+        "variant": "compounding.recursive",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "compounding.non-recursive",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "compounding.recursive"
+        ],
+        "conformance_status": "covered",
+        "containment": {
+          "kind": "dedicated",
+          "citation": "pg-foma-backend/tests/cover_compounding_recursive_depth_bound.rs::depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis",
+          "strategies": [
+            "tuned-surface-probed"
+          ],
+          "note": "compounding.recursive"
         },
         "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
@@ -138,6 +263,9 @@
       },
       {
         "kind": "ordered_morph_rule_application",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "proven",
         "discharging_predicates": [],
         "construct_ids": [
@@ -146,7 +274,7 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "general_pervasive",
-          "citation": "tests/phase_c_strata_depth.rs (multi-stratum cascade recall-parity), tests/f1_large_lexicon_gate.rs, tests/f4_composite_gate.rs",
+          "citation": "pg-foma/tests/phase_c_strata_depth.rs (multi-stratum cascade recall-parity), pg-foma/tests/f1_large_lexicon_gate.rs, pg-foma/tests/f4_composite_gate.rs",
           "strategies": [
             "tuned-surface-probed"
           ],
@@ -160,6 +288,9 @@
       },
       {
         "kind": "unordered_morph_rule_application",
+        "variant": "unordered-application.order-union",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -168,16 +299,16 @@
           }
         ],
         "construct_ids": [
-          "Stratum (Linear/Unordered rule order)"
+          "unordered-application.order-union"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/cover_unordered_morph_rules.rs::non_document_order_analysis_is_proposed_and_confirmed (+ unbounded_unordered_stratum_deterministically_refuses_to_compile for the Refuse split)",
+          "citation": "pg-foma-backend/tests/cover_unordered_morph_rules.rs::non_document_order_analysis_is_proposed_and_confirmed",
           "strategies": [
             "tuned-surface-probed"
           ],
-          "note": "Chain-depth-bounded any-order proposal containment, plus the deterministic over-budget refusal witness."
+          "note": "Chain-depth-bounded any-order proposal containment."
         },
         "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
@@ -187,6 +318,9 @@
       },
       {
         "kind": "mpr_group_append",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "confirm_only",
         "discharging_predicates": [
           {
@@ -200,11 +334,11 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/cover_mpr_groups.rs::out_mpr_accumulation_then_gate_over_propose_confirm_prune (+ append_output_is_order_invariant_overwrite_output_is_not)",
+          "citation": "pg-foma-backend/tests/cover_mpr_groups.rs::out_mpr_accumulation_then_gate_over_propose_confirm_prune (+ append_output_is_order_invariant_overwrite_output_is_not)",
           "strategies": [
             "tuned-surface-probed"
           ],
-          "note": "Non-tracking-baseline containment for MprGroupOutput::Append, plus the order-invariance witness design.md D4 names."
+          "note": "Non-tracking-baseline containment for MprGroupOutput::Append, plus the order-invariance witness."
         },
         "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
@@ -214,6 +348,9 @@
       },
       {
         "kind": "mpr_group_overwrite",
+        "variant": "mpr-group.overwrite",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -222,25 +359,28 @@
           }
         ],
         "construct_ids": [
-          "MPR features/groups"
+          "mpr-group.overwrite"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only",
+          "citation": "pg-foma-backend/tests/templated_conformance_proposal_pins.rs::mpr_overwrite_order_dependence_proposes_both_relative_orders",
           "strategies": [
-            "tuned-surface-probed"
+            "templated-underlying-tokens"
           ],
-          "note": "Non-narrowing-baseline containment for MprGroupOutput::Overwrite: this witness proves compose_envelope resolves an observed Overwrite group to ConfirmOnly, never Admit."
+          "note": "mpr-group.overwrite"
         },
         "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
           "plan-composed",
-          "templated-underlying-tokens"
+          "tuned-surface-probed"
         ]
       },
       {
         "kind": "iterative_rewrite",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "proven",
         "discharging_predicates": [],
         "construct_ids": [
@@ -249,7 +389,7 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "general_pervasive",
-          "citation": "tests/f1_large_lexicon_gate.rs, tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs (iterative baseline contrast)",
+          "citation": "pg-foma/tests/f1_large_lexicon_gate.rs, pg-foma/tests/f2_junction_gate.rs, pg-foma/tests/phase_c_right_to_left.rs (iterative baseline contrast)",
           "strategies": [
             "plan-composed",
             "tuned-surface-probed"
@@ -263,6 +403,9 @@
       },
       {
         "kind": "simultaneous_rewrite",
+        "variant": "simultaneous.proven-disjoint",
+        "variant_disposition": "admit",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -271,12 +414,12 @@
           }
         ],
         "construct_ids": [
-          "RewriteRule Simultaneous"
+          "simultaneous.proven-disjoint"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/phase_c_simultaneous.rs::sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly (+ sim_overlap_env_stays_honest_unsupported for the Refuse split)",
+          "citation": "pg-foma/tests/phase_c_simultaneous.rs::sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly (+ sim_overlap_env_stays_honest_unsupported for the Refuse split)",
           "strategies": [
             "plan-composed"
           ],
@@ -289,7 +432,33 @@
         ]
       },
       {
+        "kind": "simultaneous_rewrite",
+        "variant": "simultaneous.unproven-pair",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "simultaneous.subrule-overlap",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "simultaneous.unproven-pair"
+        ],
+        "conformance_status": "covered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
         "kind": "left_to_right_rewrite",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "proven",
         "discharging_predicates": [],
         "construct_ids": [
@@ -298,7 +467,7 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "general_pervasive",
-          "citation": "tests/f2_junction_gate.rs, tests/phase_c_right_to_left.rs (LTR is the implicit contrast baseline for every rtl_* case)",
+          "citation": "pg-foma/tests/f2_junction_gate.rs, pg-foma/tests/phase_c_right_to_left.rs (LTR is the implicit contrast baseline for every rtl_* case)",
           "strategies": [
             "plan-composed",
             "tuned-surface-probed"
@@ -312,6 +481,9 @@
       },
       {
         "kind": "right_to_left_rewrite",
+        "variant": "right-to-left-rewrite.reversal",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -320,12 +492,12 @@
           }
         ],
         "construct_ids": [
-          "RewriteRule direction (Dir): right-to-left"
+          "right-to-left-rewrite.reversal"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, rtl_cross_table_segments_environment_matches_oracle)",
+          "citation": "pg-foma/tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, rtl_cross_table_segments_environment_matches_oracle)",
           "strategies": [
             "plan-composed"
           ],
@@ -338,7 +510,33 @@
         ]
       },
       {
+        "kind": "right_to_left_rewrite",
+        "variant": "right-to-left-rewrite.unlowerable",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "right-to-left-rewrite.faithful-reversal-construction",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "right-to-left-rewrite.unlowerable"
+        ],
+        "conformance_status": "uncovered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
         "kind": "metathesis",
+        "variant": "metathesis.left-to-right-swap",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -347,16 +545,16 @@
           }
         ],
         "construct_ids": [
-          "MetathesisRule"
+          "metathesis.left-to-right-swap"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/phase_c_metathesis.rs::metathesis_adjacent_singleton_swap_matches_oracle_exactly (+ metathesis_right_to_left_reversal_matches_oracle_exactly for the Dir::RightToLeft mirror construction, and metathesis_right_to_left_differs_from_compiling_as_left_to_right for the direction-blindness guard)",
+          "citation": "pg-foma/tests/phase_c_metathesis.rs::metathesis_adjacent_singleton_swap_matches_oracle_exactly",
           "strategies": [
             "plan-composed"
           ],
-          "note": "Dedicated swap-relation containment against the real oracle in BOTH directions -- Dir::RightToLeft is no longer a scope boundary: it compiles via the same mirror-and-reverse construction compile_rtl_branch_net uses, so the union is a superset the oracle prunes. The remaining refusals are pattern-shape ones (Anchor, and any Slot::Repeat -- slot_candidates enumerates concrete alternatives), never the direction itself."
+          "note": "metathesis.left-to-right-swap"
         },
         "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
@@ -365,7 +563,86 @@
         ]
       },
       {
+        "kind": "metathesis",
+        "variant": "metathesis.right-to-left-swap",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "metathesis.faithful-swap-construction",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "metathesis.right-to-left-swap"
+        ],
+        "conformance_status": "covered",
+        "containment": {
+          "kind": "dedicated",
+          "citation": "pg-foma/tests/phase_c_metathesis.rs::metathesis_right_to_left_reversal_matches_oracle_exactly",
+          "strategies": [
+            "plan-composed"
+          ],
+          "note": "metathesis.right-to-left-swap"
+        },
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
+        "kind": "metathesis",
+        "variant": "metathesis.left-to-right-unlowerable",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "metathesis.faithful-swap-construction",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "metathesis.left-to-right-unlowerable"
+        ],
+        "conformance_status": "uncovered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
+        "kind": "metathesis",
+        "variant": "metathesis.right-to-left-unlowerable",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "metathesis.faithful-swap-construction",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "metathesis.right-to-left-unlowerable"
+        ],
+        "conformance_status": "uncovered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
         "kind": "epenthesis",
+        "variant": "epenthesis.structural-route",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -374,12 +651,12 @@
           }
         ],
         "construct_ids": [
-          "RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"
+          "epenthesis.structural-route"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/epenthesis_structural_route_containment.rs::epenthesis_over_propose_confirm_prune_matches_oracle_exactly",
+          "citation": "pg-foma-backend/tests/epenthesis_structural_route_containment.rs::epenthesis_over_propose_confirm_prune_matches_oracle_exactly",
           "strategies": [
             "tuned-surface-probed"
           ],
@@ -393,6 +670,9 @@
       },
       {
         "kind": "subrule_gating",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "proven",
         "discharging_predicates": [],
         "construct_ids": [
@@ -401,7 +681,7 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/p6_gate_parity.rs::synthetic_pos_gate_matches_oracle (+ ungated_cascade_would_have_missed_the_noun_entry); scale: tests/phase_c_partition_k.rs::partition_k_recall_parity_via_generator_and_oracle",
+          "citation": "pg-foma/tests/p6_gate_parity.rs::synthetic_pos_gate_matches_oracle (+ ungated_cascade_would_have_missed_the_noun_entry); scale: pg-foma/tests/phase_c_partition_k.rs::partition_k_recall_parity_via_generator_and_oracle",
           "strategies": [
             "plan-composed"
           ],
@@ -415,6 +695,9 @@
       },
       {
         "kind": "circumfix_output_action",
+        "variant": "circumfix.structural-route",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -423,16 +706,16 @@
           }
         ],
         "construct_ids": [
-          "AffixProcessRule: prefix/suffix/circumfix/infix"
+          "circumfix.structural-route"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/phase_c_circumfix.rs::circumfix_recall_parity_via_generator_and_oracle (+ ordered_multi_insert_no_first_insert_shortcut_recall_parity, null_role_structural_drop_recall_parity)",
+          "citation": "pg-foma/tests/phase_c_circumfix.rs::circumfix_recall_parity_via_generator_and_oracle (+ ordered_multi_insert_no_first_insert_shortcut_recall_parity, null_role_structural_drop_recall_parity, infix_with_drop_structural_recall_parity, redup_first_allomorph_then_dropping_prefix_allomorph_structural_recall_parity)",
           "strategies": [
             "tuned-surface-probed"
           ],
-          "note": "Structural-composite containment for circumfix-shaped (discontinuous/dropped-material) allomorphs against the real oracle."
+          "note": "Structural-composite containment for circumfix-shaped (discontinuous/dropped-material) allomorphs against the real oracle, including a genuinely Infix-classified allomorph that drops LHS material (census C4) and a dropping allomorph hidden behind a Role::Reduplication-classified allomorph 0 (census C5)."
         },
         "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
@@ -441,7 +724,33 @@
         ]
       },
       {
+        "kind": "circumfix_output_action",
+        "variant": "circumfix.no-structural-route",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "circumfix-output-action.faithful-structural-composite",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "circumfix.no-structural-route"
+        ],
+        "conformance_status": "uncovered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
         "kind": "reduplication",
+        "variant": "reduplication.peel-route",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -450,12 +759,12 @@
           }
         ],
         "construct_ids": [
-          "AffixProcessRule: reduplication (ReduplicationHint)"
+          "reduplication.peel-route"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/f6_reduplication_peel_chain_depth.rs::kimbiakimbia_reduplication_is_recovered_with_oracle_containment (+ deep_self_similar_chain_is_refused_deterministically for the chain-depth budget); tests/f4_composite_gate.rs case (c)",
+          "citation": "pg-foma-backend/tests/f6_reduplication_peel_chain_depth.rs::kimbiakimbia_reduplication_is_recovered_with_oracle_containment (+ deep_self_similar_chain_is_refused_deterministically for the chain-depth budget); pg-foma/tests/f4_composite_gate.rs case (c)",
           "strategies": [
             "tuned-surface-probed"
           ],
@@ -468,7 +777,63 @@
         ]
       },
       {
+        "kind": "reduplication",
+        "variant": "reduplication.structural-route",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "reduplication.peel-eligible-rule-kind",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "reduplication.structural-route"
+        ],
+        "conformance_status": "covered",
+        "containment": {
+          "kind": "dedicated",
+          "citation": "pg-foma-backend/tests/circumfix_candidate_selection.rs::circumfix_reduplication_recall_parity",
+          "strategies": [
+            "tuned-surface-probed"
+          ],
+          "note": "reduplication.structural-route"
+        },
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
+        "kind": "reduplication",
+        "variant": "reduplication.no-proposal-route",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "reduplication.peel-eligible-rule-kind",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "reduplication.no-proposal-route"
+        ],
+        "conformance_status": "uncovered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
         "kind": "co_occurrence_constraint",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "confirm_only",
         "discharging_predicates": [],
         "construct_ids": [
@@ -477,7 +842,7 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/cover_realizational_morphology_constraints.rs::morpheme_co_occurrence_exclude_anywhere_over_propose_confirm_prune",
+          "citation": "pg-foma-backend/tests/cover_realizational_morphology_constraints.rs::morpheme_co_occurrence_exclude_anywhere_over_propose_confirm_prune",
           "strategies": [
             "tuned-surface-probed"
           ],
@@ -491,6 +856,9 @@
       },
       {
         "kind": "natural_class_definition",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "proven",
         "discharging_predicates": [],
         "construct_ids": [
@@ -506,6 +874,9 @@
       },
       {
         "kind": "multi_table",
+        "variant": "multi-table.disjoint-representations",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
@@ -514,12 +885,12 @@
           }
         ],
         "construct_ids": [
-          "CharacterDefinitionTable: more than one table, one per stratum"
+          "multi-table.disjoint-representations"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/phase_c_multi_table.rs::multi_table_rewrite_compiles_correctly_against_its_owning_table; stronger claim: tests/two_table_symbol_divergence.rs::stratum_1_devoice_rewrite_proposer_confirm_matches_oracle",
+          "citation": "pg-foma/tests/phase_c_multi_table.rs::multi_table_rewrite_compiles_correctly_against_its_owning_table; stronger claim: pg-foma-backend/tests/two_table_symbol_divergence.rs::stratum_1_devoice_rewrite_proposer_confirm_matches_oracle",
           "strategies": [
             "plan-composed"
           ],
@@ -532,25 +903,28 @@
         ]
       },
       {
-        "kind": "quantifier_pattern",
+        "kind": "multi_table",
+        "variant": "multi-table.shared-representations",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
         "disposition": "config_predicate",
         "discharging_predicates": [
           {
-            "id": "quantifier.bounded-expansion",
+            "id": "multi-table.faithful-table-threading",
             "provenance": "structural"
           }
         ],
         "construct_ids": [
-          "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          "multi-table.shared-representations"
         ],
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the genuinely-unbounded case)",
+          "citation": "pg-foma-backend/tests/two_table_shared_representation_recall.rs::fst_propose_confirm_matches_oracle_across_the_table_boundary",
           "strategies": [
             "plan-composed"
           ],
-          "note": "Bounded- AND unbounded-quantifier containment against the real oracle, both at min-boundary occurrence counts; an inverted/alpha-nested/empty-children quantifier stays honestly unsupported."
+          "note": "multi-table.shared-representations"
         },
         "strategies_cannot_represent": [],
         "strategies_unwitnessed": [
@@ -559,7 +933,142 @@
         ]
       },
       {
+        "kind": "cross_table_respelling",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
+        "disposition": "confirm_only",
+        "discharging_predicates": [],
+        "construct_ids": [
+          "CharacterDefinitionTable: cross-table respelling (an inner-stratum root surfaces spelled by the final stratum's table)"
+        ],
+        "conformance_status": "covered",
+        "containment": {
+          "kind": "dedicated",
+          "citation": "pg-foma-backend/tests/cross_table_root_respelling_gate.rs::every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere",
+          "strategies": [
+            "tuned-surface-probed"
+          ],
+          "note": "Propose-then-confirm containment for a root entered on an inner stratum and spelled by the final stratum's table, over every conformance fixture that exhibits it; the plan-composed backend is exact where it builds at all and the templated one refuses typed rather than misses."
+        },
+        "strategies_cannot_represent": [
+          "templated-underlying-tokens"
+        ],
+        "strategies_unwitnessed": [
+          "plan-composed"
+        ]
+      },
+      {
+        "kind": "quantifier_pattern",
+        "variant": "quantifier.bounded-compilable",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "quantifier.bounded-expansion",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "quantifier.bounded-compilable"
+        ],
+        "conformance_status": "covered",
+        "containment": {
+          "kind": "dedicated",
+          "citation": "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle",
+          "strategies": [
+            "plan-composed"
+          ],
+          "note": "quantifier.bounded-compilable"
+        },
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
+        "kind": "quantifier_pattern",
+        "variant": "quantifier.unbounded-compilable",
+        "variant_disposition": "confirm_only",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "quantifier.bounded-expansion",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "quantifier.unbounded-compilable"
+        ],
+        "conformance_status": "covered",
+        "containment": {
+          "kind": "dedicated",
+          "citation": "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle",
+          "strategies": [
+            "plan-composed"
+          ],
+          "note": "quantifier.unbounded-compilable"
+        },
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
+        "kind": "quantifier_pattern",
+        "variant": "quantifier.bounded-unlowerable",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "quantifier.bounded-expansion",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "quantifier.bounded-unlowerable"
+        ],
+        "conformance_status": "uncovered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
+        "kind": "quantifier_pattern",
+        "variant": "quantifier.unbounded-unlowerable",
+        "variant_disposition": "refuse",
+        "permanent_refusal": null,
+        "disposition": "config_predicate",
+        "discharging_predicates": [
+          {
+            "id": "quantifier.bounded-expansion",
+            "provenance": "structural"
+          }
+        ],
+        "construct_ids": [
+          "quantifier.unbounded-unlowerable"
+        ],
+        "conformance_status": "uncovered",
+        "strategies_cannot_represent": [],
+        "strategies_unwitnessed": [
+          "plan-composed",
+          "tuned-surface-probed",
+          "templated-underlying-tokens"
+        ]
+      },
+      {
         "kind": "stem_name",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "confirm_only",
         "discharging_predicates": [],
         "construct_ids": [
@@ -568,7 +1077,7 @@
         "conformance_status": "covered",
         "containment": {
           "kind": "dedicated",
-          "citation": "tests/cover_realizational_morphology_constraints.rs::stem_name_gating_over_propose_confirm_prune",
+          "citation": "pg-foma-backend/tests/cover_realizational_morphology_constraints.rs::stem_name_gating_over_propose_confirm_prune",
           "strategies": [
             "tuned-surface-probed"
           ],
@@ -582,6 +1091,9 @@
       },
       {
         "kind": "free_fluctuation",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "confirm_only",
         "discharging_predicates": [],
         "construct_ids": [
@@ -597,6 +1109,9 @@
       },
       {
         "kind": "process_morphology",
+        "variant": null,
+        "variant_disposition": null,
+        "permanent_refusal": null,
         "disposition": "confirm_only",
         "discharging_predicates": [],
         "construct_ids": [

@@ -6,68 +6,25 @@ use std::fs;
 use pg_conformance_fixtures::{
     discover_scoped, producibility_census, ConformanceScope, ProducibilityCensus,
 };
-use pg_foma::capability::{default_registry, CharacteristicKind, Disposition};
+use pg_foma::capability::{default_registry, CharacteristicKind, Disposition, VariantDisposition};
 use pg_foma_backend::conformance_coverage::CoverageStatus;
-use pg_foma_backend::coverage_ledger::{build_ledger, CoverageLedger};
+use pg_foma_backend::coverage_ledger::{build_ledger, obligation_met, CoverageLedger};
+use pg_foma_backend::fixture_coverage::{passing_covered_constructs, FixtureLoadFailure};
 use pg_foma_backend::plan_interaction_coverage::{
     compute_interaction_coverage, plan_and_profile, TupleStatus,
 };
 use pg_grammar::model::Grammar;
-use pg_parse::Morpher;
 use serde::Serialize;
 
 /// This CLI report's own schema version, independent of `pg_foma_backend::coverage_ledger::COVERAGE_LEDGER_SCHEMA_VERSION`, which the embedded `ledger` field carries in its own right.
-pub const COVERAGE_CLI_SCHEMA_VERSION: u32 = 1;
-
-/// Mirrors `pg-foma/tests/conformance_coverage_gate.rs::passing_covered_constructs` exactly, restated rather than imported since that helper is private to a dev-only test file.
-fn passing_covered_constructs(fixtures: &[pg_conformance_fixtures::FixtureRef]) -> HashSet<String> {
-    let mut covered = HashSet::new();
-
-    for f in fixtures {
-        let words_yaml = f.load_words_yaml();
-        if words_yaml.skip_in_generic_replay().is_some() {
-            continue;
-        }
-
-        let xml = f.load_grammar_xml();
-        let Ok(grammar) = pg_grammar::load(&xml) else {
-            continue;
-        };
-        let morpher = Morpher::new(&grammar, usize::MAX);
-
-        for w in &words_yaml.words {
-            if !w.adapter_visible() {
-                continue;
-            }
-            let outcome = morpher.parse_word(&w.word);
-            if w.expect_skip {
-                continue;
-            }
-            if outcome.invalid_shape {
-                continue;
-            }
-            if outcome.signature() != w.expected_signature() {
-                continue;
-            }
-            for c in &w.exercises {
-                covered.insert(c.clone());
-            }
-            for p in &w.parses {
-                for c in &p.exercises {
-                    covered.insert(c.clone());
-                }
-            }
-        }
-    }
-
-    covered
-}
+pub const COVERAGE_CLI_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Serialize)]
 struct DispositionCounts {
     proven: usize,
     confirm_only: usize,
-    config_predicate: usize,
+    admit: usize,
+    refuse: usize,
     total: usize,
 }
 
@@ -75,14 +32,22 @@ fn compute_disposition_counts(ledger: &CoverageLedger) -> DispositionCounts {
     let mut c = DispositionCounts {
         proven: 0,
         confirm_only: 0,
-        config_predicate: 0,
+        admit: 0,
+        refuse: 0,
         total: ledger.rows.len(),
     };
     for row in &ledger.rows {
-        match row.disposition {
-            Disposition::Proven => c.proven += 1,
-            Disposition::ConfirmOnly => c.confirm_only += 1,
-            Disposition::ConfigPredicate => c.config_predicate += 1,
+        match row.variant_disposition {
+            Some(VariantDisposition::Admit) => c.admit += 1,
+            Some(VariantDisposition::ConfirmOnly) => c.confirm_only += 1,
+            Some(VariantDisposition::Refuse) => c.refuse += 1,
+            None => match row.disposition {
+                Disposition::Proven => c.proven += 1,
+                Disposition::ConfirmOnly => c.confirm_only += 1,
+                Disposition::ConfigPredicate => {
+                    panic!("predicate obligation has no concrete variant")
+                }
+            },
         }
     }
     c
@@ -96,6 +61,8 @@ struct EvidenceCounts {
     rows_conformance_covered: usize,
     rows_unmappable: usize,
     total_rows: usize,
+    variant_obligations_met: usize,
+    variant_obligations_unmet: usize,
 }
 
 fn compute_evidence_counts(ledger: &CoverageLedger) -> EvidenceCounts {
@@ -126,6 +93,8 @@ fn compute_evidence_counts(ledger: &CoverageLedger) -> EvidenceCounts {
             .filter(|r| r.conformance_status == CoverageStatus::Unmappable)
             .count(),
         total_rows: ledger.rows.len(),
+        variant_obligations_met: ledger.rows.iter().filter(|r| obligation_met(r)).count(),
+        variant_obligations_unmet: ledger.rows.iter().filter(|r| !obligation_met(r)).count(),
     }
 }
 
@@ -205,40 +174,13 @@ fn plan_interaction_summary(grammar_path: &str, g: &Grammar) -> PlanInteractionS
     }
 }
 
-fn build_headline(ledger: &CoverageLedger, disp: &DispositionCounts) -> String {
-    let mappable = ledger
-        .rows
-        .iter()
-        .filter(|r| r.conformance_status != CoverageStatus::Unmappable)
-        .count();
-    let covered = ledger
-        .rows
-        .iter()
-        .filter(|r| r.conformance_status == CoverageStatus::Covered)
-        .count();
-    let unmappable = disp.total - mappable;
-
-    if disp.config_predicate == 0 && covered == mappable && unmappable == 0 {
-        format!(
-            "FULL HC coverage: all {} constructs are Proven/ConfirmOnly (no ConfigPredicate \
-             gap), and every construct maps to a conformance construct id covered by a passing fixture.",
-            disp.total
-        )
+fn build_headline(ledger: &CoverageLedger) -> String {
+    let met = ledger.rows.iter().filter(|r| obligation_met(r)).count();
+    let total = ledger.rows.len();
+    if total > 0 && met == total {
+        format!("FULL HC coverage: all {total} reachable variant obligations meet their disposition-specific fixture and containment requirements or have a documented permanent refusal.")
     } else {
-        format!(
-            "NOT full HC coverage: {}/{} constructs Proven, {} ConfirmOnly (recall-preserving via \
-             confirm, not admission-proven), {} ConfigPredicate (compiles only when a registered \
-             predicate proves the specific configuration observed). Conformance mapping: {}/{} \
-             constructs Covered by a passing fixture, {} constructs Unmappable (no constructs.txt \
-             id exists for them at all).",
-            disp.proven,
-            disp.total,
-            disp.confirm_only,
-            disp.config_predicate,
-            covered,
-            mappable,
-            unmappable,
-        )
+        format!("NOT full HC coverage: {met}/{total} reachable variant obligations met; {} lack required fixture or containment evidence or have an unresolved refusal. ConfirmOnly is a valid final disposition.", total - met)
     }
 }
 
@@ -246,6 +188,9 @@ fn build_headline(ledger: &CoverageLedger, disp: &DispositionCounts) -> String {
 struct CoverageSummary {
     schema_version: u32,
     headline: String,
+    fixture_load_failure_count: usize,
+    fixture_load_failures: Vec<FixtureLoadFailure>,
+    invalid_variant_tags: Vec<String>,
     /// Fixture population, not a claim about the ledger below: only `producible` names FieldWorks-facing coverage.
     producibility: ProducibilityCensus,
     disposition_counts: DispositionCounts,
@@ -261,19 +206,26 @@ fn build_summary(grammar: Option<(&str, &Grammar)>) -> CoverageSummary {
     // Claims its scope: a user running the CLI has no environment claim to inherit.
     let fixtures = discover_scoped(ConformanceScope::All);
     let producibility = producibility_census(&fixtures);
-    let covered = passing_covered_constructs(&fixtures);
-    let covered_refs: HashSet<&str> = covered.iter().map(String::as_str).collect();
+    let replay = passing_covered_constructs(&fixtures);
+    let covered_refs: HashSet<&str> = replay
+        .passing_constructs
+        .iter()
+        .map(String::as_str)
+        .collect();
     let ledger = build_ledger(&registry, &covered_refs);
 
     let disposition_counts = compute_disposition_counts(&ledger);
     let evidence_counts = compute_evidence_counts(&ledger);
     let supported_conformance_cross_check = supported_conformance_cross_check(&ledger);
-    let headline = build_headline(&ledger, &disposition_counts);
+    let headline = build_headline(&ledger);
     let plan_interaction = grammar.map(|(path, g)| plan_interaction_summary(path, g));
 
     CoverageSummary {
         schema_version: COVERAGE_CLI_SCHEMA_VERSION,
         headline,
+        fixture_load_failure_count: replay.load_failures.len(),
+        fixture_load_failures: replay.load_failures,
+        invalid_variant_tags: replay.invalid_variant_tags,
         producibility,
         disposition_counts,
         evidence_counts,
@@ -290,6 +242,18 @@ fn render_human(summary: &CoverageSummary) -> String {
         summary.schema_version, summary.headline
     ));
 
+    out.push_str(&format!(
+        "Fixture grammar load failures: {}\n",
+        summary.fixture_load_failure_count
+    ));
+    for failure in &summary.fixture_load_failures {
+        out.push_str(&format!("  {}: {}\n", failure.fixture, failure.error));
+    }
+    for error in &summary.invalid_variant_tags {
+        out.push_str(&format!("Invalid variant tag: {error}\n"));
+    }
+    out.push('\n');
+
     let p = &summary.producibility;
     out.push_str("FieldWorks producibility census (this is NOT the ledger below -- only the \"producible\" bucket is FieldWorks-facing coverage):\n");
     out.push_str(&format!("  producible:  {}\n", p.producible.len()));
@@ -300,7 +264,8 @@ fn render_human(summary: &CoverageSummary) -> String {
     out.push_str("Disposition counts:\n");
     out.push_str(&format!("  Proven:          {}\n", d.proven));
     out.push_str(&format!("  ConfirmOnly:     {}\n", d.confirm_only));
-    out.push_str(&format!("  ConfigPredicate: {}\n", d.config_predicate));
+    out.push_str(&format!("  Admit:           {}\n", d.admit));
+    out.push_str(&format!("  Refuse:          {}\n", d.refuse));
     out.push_str(&format!("  Total:           {}\n\n", d.total));
 
     let e = &summary.evidence_counts;
@@ -335,7 +300,7 @@ fn render_human(summary: &CoverageSummary) -> String {
     }
     out.push('\n');
 
-    out.push_str("Full per-construct ledger:\n");
+    out.push_str("Full variant obligation ledger:\n");
     for row in &summary.ledger.rows {
         let preds: Vec<&str> = row
             .discharging_predicates
@@ -348,10 +313,12 @@ fn render_human(summary: &CoverageSummary) -> String {
             .map(|c| c.citation.as_str())
             .unwrap_or("(none -- honest gap)");
         out.push_str(&format!(
-            "  {:?}: disposition={:?} predicates={:?} conformance={:?} construct_ids={:?}\n    \
-             containment: {}\n",
+            "  {:?} variant={:?}: disposition={:?} variant_disposition={:?} permanent_refusal={:?} predicates={:?} conformance={:?} construct_ids={:?}\n    containment: {}\n",
             row.kind,
+            row.variant,
             row.disposition,
+            row.variant_disposition,
+            row.permanent_refusal,
             preds,
             row.conformance_status,
             row.construct_ids,
@@ -436,7 +403,7 @@ pub fn run_coverage(args: &[String]) -> Result<(), String> {
                 .map_err(|e| format!("serialize coverage summary: {e}"))?;
             fs::write(path, &json_str).map_err(|e| format!("write {path}: {e}"))?;
             eprintln!(
-                "coverage: wrote {path} ({} construct rows, {} conformance-covered)",
+                "coverage: wrote {path} ({} variant obligation rows, {} conformance-covered)",
                 summary.disposition_counts.total, summary.evidence_counts.rows_conformance_covered
             );
         }
