@@ -15,11 +15,11 @@ namespace XampleProjector
 	{
 		internal static readonly IReadOnlyDictionary<string, string> ExpectedFileVersions = new Dictionary<string, string>
 		{
-			["ParserCore.dll"] = "9.3.10.26161",
-			["SIL.LCModel.dll"] = "11.0.0.55167",
+			["ParserCore.dll"] = "9.3.10.1452",
+			["SIL.LCModel.dll"] = "11.0.0.55173",
 			["SIL.Machine.dll"] = "3.8.2.0",
-			["SIL.Machine.Morphology.HermitCrab.dll"] = "3.7.4.0",
-			["XAmpleManagedWrapper.dll"] = "9.3.10.26161",
+			["SIL.Machine.Morphology.HermitCrab.dll"] = "3.8.2.0",
+			["XAmpleManagedWrapper.dll"] = "9.3.10.1452",
 			["xample64.dll"] = "3.12.23.21",
 		};
 
@@ -98,6 +98,29 @@ namespace XampleProjector
 			var loadedVersion = FileVersionInfo.GetVersionInfo(loadedPath).FileVersion;
 			if (loadedVersion != expectedVersion)
 				mismatches.Add(new PinMismatch(pinnedFileName, expectedVersion, loadedVersion));
+		}
+
+		internal static void VerifyXampleLoaded(string fieldWorksDir)
+		{
+			var mismatches = new List<PinMismatch>();
+			CheckLoadedAssembly(mismatches, fieldWorksDir, "XAmpleManagedWrapper.dll", typeof(XAmpleManagedWrapper.XAmpleWrapper).Assembly);
+			var expected = Path.GetFullPath(Path.Combine(fieldWorksDir, "xample.dll"));
+			var found = false;
+			using (var process = Process.GetCurrentProcess())
+			{
+				foreach (ProcessModule module in process.Modules)
+				{
+					if (!string.Equals(module.ModuleName, "xample.dll", StringComparison.OrdinalIgnoreCase)) continue;
+					found = true;
+					if (!string.Equals(expected, module.FileName, StringComparison.OrdinalIgnoreCase) ||
+						module.FileVersionInfo.FileVersion != ExpectedFileVersions["xample64.dll"])
+						throw new InvalidOperationException("XAMPLE loaded an unpinned native module: " + module.FileName);
+					if (Sha256.OfFile(module.FileName) != Sha256.OfFile(Path.Combine(fieldWorksDir, "xample64.dll")))
+						throw new InvalidOperationException("loaded xample.dll differs from pinned xample64.dll");
+				}
+			}
+			if (!found || mismatches.Count != 0)
+				throw new InvalidOperationException("XAMPLE native module absent or managed wrapper loaded outside pinned install");
 		}
 	}
 }

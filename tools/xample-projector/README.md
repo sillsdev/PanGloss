@@ -7,7 +7,7 @@ grammar files (the same XSL transforms and GAFAWS step `M3ToXAmpleTransformer`/`
 drive internally, replicated here because that class is `internal`). Both sides read the same
 opened `LcmCache`, so they can never diverge on which project state they saw.
 
-The tool exposes six subcommands. `inspect` (read-only phonology survey), `project` (full HC +
+The tool exposes projection, authoring, mutation, and measurement subcommands. `inspect` (read-only phonology survey), `project` (full HC +
 XAMPLE projection), and `--validate-capture` (portable, FieldWorks-free schema check) are the core
 projection path. `author` backs a HermitCrab conformance fixture (`grammar.xml`) out into a
 brand-new FieldWorks project via LibLCM, refusing every construct outside a documented supported
@@ -43,7 +43,7 @@ Every producing mode writes a JSON response with `schemaVersion: 1`.
 ```
 {
   "schemaVersion": 1,
-  "fieldWorksVersion": "9.3.10.26161",
+  "fieldWorksVersion": "9.3.10.1452",
   "sourcePath": "...", "sourceSha256": "<64 hex>",
   "projectName": "...", "activeParser": "HC" | "XAmple",
   "phonemes": [{ "guid", "representations": ["..."], "inboundReferences": [{ "guid", "class" }] }],
@@ -617,11 +617,11 @@ directory and refuses (exit 3) on any mismatch, printing both versions:
 
 | File | Expected file version |
 |---|---|
-| `ParserCore.dll` | 9.3.10.26161 |
-| `SIL.LCModel.dll` | 11.0.0.55167 |
+| `ParserCore.dll` | 9.3.10.1452 |
+| `SIL.LCModel.dll` | 11.0.0.55173 |
 | `SIL.Machine.dll` | 3.8.2.0 |
-| `SIL.Machine.Morphology.HermitCrab.dll` | 3.7.4.0 |
-| `XAmpleManagedWrapper.dll` | 9.3.10.26161 |
+| `SIL.Machine.Morphology.HermitCrab.dll` | 3.8.2.0 |
+| `XAmpleManagedWrapper.dll` | 9.3.10.1452 |
 | `xample64.dll` | 3.12.23.21 |
 
 ## Runtime probing
@@ -679,3 +679,82 @@ checked-in `fieldworks/` witness described above) and `build.ps1`'s consumption 
 `ConvertFrom-PhonologyMutationsYaml` is a bespoke parser for that one manifest shape, not a general
 YAML reader -- a real YAML dependency, if this grows past one manifest per fixture, is follow-on
 work, not something this pass reaches for.
+
+## Underdefined-project measurements
+
+`configure-probe --project <fwdata> --request <json> --out-dir <fresh directory>`
+clones a synthetic project and applies LibLCM operations in a saved unit of work. A request
+contains `schemaVersion: 1`, the source file's `baseSha256`, and nonempty `operations`.
+It refuses an existing output, a source hash mismatch, and output inside the source project.
+The source remains unchanged; the clone is reopened and every operation is checked before
+`probe-response.json` records its relative path, hash, parser parameters, classes, environments,
+and persisted wordforming graphemes. Errors name the failing operation/setup and return 9;
+integrity refusals return 10. Supported research operations are:
+
+- `accept-unspecified`: boolean `value`, FieldWorks HC parser parameter.
+- `wordforming`: `representations` added using `ValidCharacters`, saved in the vernacular LDML.
+- `environment`: `text` attached to the project's single affix allomorph; refuses ambiguous owners.
+- `segment-class`: `members` phoneme representations; creates segment class `V`.
+- `feature-class`: creates closed `voc` (+/-), feature class `V` (+), and phoneme feature values
+  from `assignments` (representation to +/-). Unassigned phonemes stay featureless. Optional
+  `distinct: true` also gives assigned phonemes a contrast feature `identity` with unique values.
+- `clear-features`: `representation` whose authored phoneme feature structure is removed.
+- `rewrite`: phoneme representations `input`, `output`, and either `left` (literal phoneme)
+  or `leftClass` (natural-class abbreviation), creating a regular left-to-right rewrite.
+
+These deliberately bounded operations supplement `author`; they do not expand its supported XML
+subset. All project edits use factories and owned properties, never handwritten `.fwdata` XML.
+
+`parse-hc --project <fwdata> --hc-xml <projected XML> --words <text file> --out <JSON>`
+runs Machine's C# `Morpher` on both the live FieldWorks `HCLoader` language and the XML projection.
+The live language retains source-object IDs which the XML writer omits; these resolve through
+LibLCM to ordered `(allomorphGuid, msaGuid, inflectionTypeGuid)` triples. Paired circumfixes and
+unresolvable identities fail loudly instead of inventing keys. A per-word `engineError` records
+live parsing exceptions; `projectedEngineError`, `projectedAnalysisCount`, and `projectionAgrees`
+record the XML engine independently. Agreement means counts or identical error strings, not a
+proof of identity equality. `segmentCount` counts segmented nodes excluding anchors.
+`characterDefinitions` and `naturalClassCompatibility` expose real engine feature structures and
+its unification/subsumption predicates; these are observations, not proposed PanGloss semantics.
+
+`parse` additionally records raw native XML, a native load/parse log (`<out>.xample.log`),
+`sourceSha256`, and verified loaded engine pins. The actual native `xample.dll` must match the
+pinned `xample64.dll` byte for byte and load from the configured FieldWorks directory. Ordinary
+morphs expose `allomorphGuid`, `storedMsaGuid`, `inflectionTypeGuid: null`, and
+`storedKeyComplete: true`. Variant/unsupported MSI forms report `storedKeyComplete: false`:
+this extension does not claim their inflection-type keys are complete. Existing `msaGuid`
+(composite variant identity) remains compatible. Empty native `<WfiAnalysis/>` is the
+zero-analysis sentinel and no longer contributes an empty analysis to the multiset.
+
+Build with the required process settings and keep synthetic scratch inside this worktree:
+
+```powershell
+$env:MSBUILDDISABLENODEREUSE = '1'
+$env:UseSharedCompilation = 'false'
+$env:TEMP = "$PWD\_lane\scratch"
+$env:TMP = $env:TEMP
+& tools/xample-projector/build.ps1 -Mode test
+python tools/xample-projector/measure-underdefined.py
+```
+
+The measurement script runs author/configure/mutate/project/parse/parse-hc for every probe.
+`--scratch <directory inside this worktree>` selects a fresh evidence location; `--case <name>`
+selects a probe (repeatable). Existing authored/configured clones are reused; engine captures are
+always rerun. Failed or timed-out invocations retain stderr/stdout and are never expected rejections.
+Stage those measurements, or replay the staged witnesses through both real engines:
+
+```powershell
+python tools/xample-projector/stage-underdefined.py
+python tools/xample-projector/stage-underdefined.py --replay --scratch _lane/scratch/fresh-replay
+```
+
+Staging refuses an existing output directory. It preserves `.fwdata` bytes and compacts LDML to
+identity, characters, layout, and special elements, retaining all grapheme settings. Source and
+staged LDML hashes document the omitted CLDR display/calendar metadata; UI equivalence is not
+claimed. Replay verifies complete stored-key multisets, errors, HC diagnostics, and segment counts.
+The ordered-key schema is explicitly staged for a future PanGloss gate; it is not legacy fixture
+discovery, and an empty minimum does not require PanGloss rejection.
+
+`PANGLOSS_CONFORMANCE_DIR` lets `build.ps1` read a separately available conformance tree without
+initializing a worktree submodule; `PANGLOSS_FW_PROJECTS_DIR` can point to synthetic scratch to avoid
+opening personal projects. FieldWorks source HEAD and the installed assembly versions are separate
+provenance: these measurements use the installed pinned engines, not a build from the source HEAD.
