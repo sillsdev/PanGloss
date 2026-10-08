@@ -16,17 +16,26 @@ on:
         required: false
         default: ''
         type: string
+      source_sha:
+        description: Exact release source commit. Defaults to the caller's commit for Rust CI.
+        required: false
+        default: ''
+        type: string
+      source_tag:
+        description: Existing tag naming the release source, if the source ref is a tag.
+        required: false
+        default: ''
+        type: string
+      require_annotated_tag:
+        description: Require source_tag to be an annotated tag naming source_sha.
+        required: false
+        default: false
+        type: boolean
       timeout_minutes:
         description: Maximum time allowed for the test job.
         required: false
         default: 360
         type: number
-      require_main:
-        description: Require the current main tip as the source. Only a build-only dry run passes false.
-        required: false
-        default: true
-        type: boolean
-
 env:
   CARGO_TERM_COLOR: always
 
@@ -36,9 +45,11 @@ jobs:
     name: release preflight
     if: ${{ inputs.include_release_gates }}
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 0
       - name: Refuse a version that is not x.y.z
         env:
@@ -49,7 +60,7 @@ jobs:
             exit 1
           fi
           echo "version $RELEASE_VERSION"
-      - name: Refuse a version CHANGELOG.md has no section for
+      - name: Verify the changelog section
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -57,61 +68,94 @@ jobs:
             echo "::error::CHANGELOG.md has no '## $RELEASE_VERSION' section. Release notes are authored, not generated."
             exit 1
           fi
-      # A dry run publishes nothing, so it may prove a branch before that branch reaches main.
-      - name: Require the current main tip as the release source
-        if: ${{ inputs.require_main }}
-        env:
-          SOURCE_REF: ${{ github.ref }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          if [[ "$SOURCE_REF" != refs/heads/main ]]; then
-            echo "::error::dispatch the Release workflow from main (got $SOURCE_REF)"
-            exit 1
-          fi
-          main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-          if [[ -z "$main_sha" || "$main_sha" != "$SOURCE_SHA" ]]; then
-            echo "::error::workflow source $SOURCE_SHA is not the current main tip ($main_sha)"
-            exit 1
-          fi
-      - name: Refuse a tag that already exists
+      - name: Verify main ancestry, workspace version, and tag annotation
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          REQUIRE_ANNOTATED_TAG: ${{ inputs.require_annotated_tag }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/v$RELEASE_VERSION" >/dev/null 2>&1; then
-            echo "::error::tag v$RELEASE_VERSION already exists on origin"
+          set -euo pipefail
+          if ! git fetch --quiet origin refs/heads/main:refs/remotes/origin/main; then
+            echo '::error::could not fetch origin/main to verify release ancestry'
             exit 1
           fi
-      # Rust CI already runs fmt, clippy and the tests on every push; releasing past a red run is how
-      # v0.5.0 needed three attempts. The bot's own `release: v*` stamp commits never trigger Rust CI,
-      # so walk back past them to the commit CI actually judged.
-      - name: Refuse a commit whose Rust CI run is not green
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" refs/remotes/origin/main; then
+            echo "::error::release source $SOURCE_SHA is not reachable from origin/main"
+            exit 1
+          fi
+
+          current_version="$(awk '
+            /^\[workspace\.package\]/ { in_workspace=1; next }
+            /^\[/ { if (in_workspace) exit; in_workspace=0 }
+            in_workspace && /^version[[:space:]]*=/ { gsub(/"/, "", $3); print $3; exit }
+          ' rust/Cargo.toml)"
+          if [[ "$current_version" != "$RELEASE_VERSION" ]]; then
+            echo "::error::workspace version is $current_version; expected $RELEASE_VERSION from the release ref"
+            exit 1
+          fi
+
+          if [[ "$REQUIRE_ANNOTATED_TAG" == true ]]; then
+            if [[ -z "$SOURCE_TAG" || "$SOURCE_TAG" != "v$RELEASE_VERSION" ]]; then
+              echo "::error::release tag must be v$RELEASE_VERSION"
+              exit 1
+            fi
+            if ! git fetch --quiet --no-tags origin "refs/tags/$SOURCE_TAG:refs/tags/$SOURCE_TAG"; then
+              echo "::error::could not fetch release tag $SOURCE_TAG from origin"
+              exit 1
+            fi
+            if [[ "$(git cat-file -t "refs/tags/$SOURCE_TAG")" != tag ]]; then
+              echo "::error::$SOURCE_TAG is not an annotated tag"
+              exit 1
+            fi
+            if ! tag_sha="$(git rev-parse "refs/tags/$SOURCE_TAG^{commit}")"; then
+              echo "::error::$SOURCE_TAG does not point to a commit"
+              exit 1
+            fi
+            if [[ "$tag_sha" != "$SOURCE_SHA" ]]; then
+              echo "::error::$SOURCE_TAG points to $tag_sha; expected $SOURCE_SHA"
+              exit 1
+            fi
+          fi
+      - name: Set up Rust for locked metadata verification
+        uses: dtolnay/rust-toolchain@stable
+      - name: Refuse a stale or inconsistent Cargo.lock
+        working-directory: rust
+        run: |
+          if ! cargo metadata --locked --format-version 1 >/dev/null; then
+            echo '::error::Cargo.lock is inconsistent with the release workspace; refresh and commit it before tagging'
+            exit 1
+          fi
+      - name: Wait for green Rust CI on the release source
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.sha }}
-          # A release is judged by main's push run; a dry run on a branch has only its pull-request run.
-          RUST_CI_EVENT: ${{ inputs.require_main && 'push' || 'pull_request' }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
-          sha="$SOURCE_SHA"
-          while [ "$(git log -1 --format=%an "$sha")" = "github-actions[bot]" ] \
-                && git log -1 --format=%s "$sha" | grep -qE '^release: v[0-9]+\.[0-9]+\.[0-9]+$'; do
-            sha="$(git rev-parse "$sha^")"
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            if ! run="$(gh run list -R "${{ github.repository }}" --workflow rust-ci.yml --commit "$SOURCE_SHA" --event push \
+              --limit 1 --json status,conclusion,url --jq 'if length == 0 then "" else .[0] | "\(.status) \(.conclusion) \(.url)" end')"; then
+              echo "::error::could not query Rust CI for release source $SOURCE_SHA"
+              exit 1
+            fi
+            if [[ -n "$run" ]]; then
+              read -r status conclusion url <<<"$run"
+              if [[ "$status" == completed ]]; then
+                if [[ "$conclusion" == success ]]; then
+                  echo "Rust CI green for $SOURCE_SHA: $url"
+                  exit 0
+                fi
+                echo "::error::Rust CI for $SOURCE_SHA concluded '$conclusion' ($url)"
+                exit 1
+              fi
+              echo "Rust CI for $SOURCE_SHA is $status; waiting ($url)"
+            else
+              echo "Rust CI run for $SOURCE_SHA is not visible yet; waiting"
+            fi
+            sleep 30
           done
-          run="$(gh run list -R "${{ github.repository }}" --workflow rust-ci.yml --commit "$sha" --event "$RUST_CI_EVENT" \
-                 --limit 1 --json status,conclusion,url --jq '.[0] | "\(.status) \(.conclusion) \(.url)"')"
-          if [ -z "$run" ]; then
-            echo "::error::no Rust CI run exists for $sha; push it to main and let Rust CI finish before releasing"
-            exit 1
-          fi
-          read -r status conclusion url <<<"$run"
-          if [ "$status" != "completed" ]; then
-            echo "::error::Rust CI for $sha is still $status ($url); wait for it to go green, then dispatch again"
-            exit 1
-          fi
-          if [ "$conclusion" != "success" ]; then
-            echo "::error::Rust CI for $sha concluded '$conclusion' ($url); fix main before releasing"
-            exit 1
-          fi
-          echo "Rust CI green for $sha: $url"
+          echo "::error::Rust CI for $SOURCE_SHA did not complete successfully within 60 minutes"
+          exit 1
 
   fmt:
     name: fmt --check
@@ -120,6 +164,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -134,7 +181,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -143,7 +192,7 @@ jobs:
           workspaces: rust
       # Examples are behind each crate's `examples` feature so test builds skip them; lint them anyway.
       - working-directory: rust
-        run: cargo clippy --all-targets --features pg-cli/examples -- -D warnings
+        run: cargo clippy --all-targets --features pg-cli/examples --locked -- -D warnings
 
   test:
     name: build + test
@@ -157,13 +206,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
       - working-directory: rust
-        run: cargo test --profile pg-test-opt --no-fail-fast
+        run: cargo test --profile pg-test-opt --no-fail-fast --locked
 
   release-extras:
     name: release gates (hygiene, rustdoc, conformance)
@@ -176,7 +227,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -188,7 +241,7 @@ jobs:
         working-directory: rust
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps
+        run: cargo doc --no-deps --locked
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:

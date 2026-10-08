@@ -1,5 +1,8 @@
 # Multiplatform Release Assets Implementation Plan
 
+> Historical implementation plan. The former dispatch-and-stamp release flow described below was
+> superseded by the tag-triggered flow in `docs/development/releasing.md`.
+
 > **For agentic workers:** This plan is being carried out inline under the user's explicit request.
 
 **Goal:** Every GitHub release contains smoke-checked PanGloss CLI assets for Windows x64, Linux x64, macOS x64, and macOS arm64, each with a SHA-256 sidecar, while preserving the legacy Windows download.

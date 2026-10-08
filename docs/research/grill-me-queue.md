@@ -163,10 +163,10 @@ The tools tree is not identical, and for that part I re-ran what the release gat
 oracle and rustdoc gates were not re-run; both read only Rust source and fixtures, which did not
 change. **Falsified if** `git diff --stat ea604151..2d93dc52 -- rust/crates` is non-empty.
 
-**To grill:** should `release.ps1` refuse to tag unless the branch is already a descendant of
-`origin/main`, so this situation cannot arise? It would have forced the rebase BEFORE the gates ran
-rather than after, at the cost of a network round-trip in a script that otherwise never touches the
-remote.
+**Resolved (2026-10-08):** `rust/tools/release.ps1` now requires a clean local `main` whose HEAD
+exactly matches `origin/main` before stamping. It runs the managed check before creating the release
+commit and tag; the atomic main-plus-tag push starts CI, which verifies the tag commit's ancestry and
+waits for Rust CI on that exact commit. See `docs/development/releasing.md`.
 
 ## G8. Mbugwe drops two circumfix entries at grammar-compile time
 

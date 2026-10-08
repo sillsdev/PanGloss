@@ -1,5 +1,8 @@
 # HC review follow-up and Machine PR 480 repair
 
+> Historical 0.5.2 handoff. Future releases follow `docs/development/releasing.md`: the local
+> script stamps and tags, and pushing the annotated version tag starts CI publication.
+
 The user authorizes a new commit on Machine PR 480, updating the PanGloss submodule link, and fixing the remaining HC review findings. Foma/FST work is deliberately deferred. This follows the completed architecture assurance review at df697c7c and its evidence ledger.
 
 ## Ownership and sequence

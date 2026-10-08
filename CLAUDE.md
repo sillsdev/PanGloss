@@ -41,7 +41,7 @@ Each is enforced. The enforcement explains itself when it fires, so this is a ta
 |---|---|
 | Bare `cargo build`, `cargo test`, `cargo check`, `cargo clippy`, `cargo run` and `cargo nextest run` are PROHIBITED — use `rust/tools/pg.ps1` | `.claude/hooks/block-bare-cargo.py` |
 | Every compile mode refuses a tree CI would refuse, before tests or a build start: rustfmt is applied, comment hygiene is fatal, clippy runs with `-D warnings` | `pg.ps1`: exit 41 (hygiene), exit 40 (clippy); `rust/tools/tests/lint-gate.tests.ps1` |
-| No release from a commit whose `Rust CI` run is not green | `release preflight` in `.github/workflows/rust-gates.yml` |
+| No release from a commit whose `Rust CI` run is not green | `release preflight` waits for the exact tagged source commit in `.github/workflows/rust-gates.yml` |
 | A managed build runs in the foreground, never `run_in_background` | `.claude/hooks/block-backgrounded-build.py` |
 | Never scan from a filesystem root | `.claude/hooks/block-root-find.py` |
 | `-Mode conformance-test` must claim `-Scope local\|all`; no default | exit 20, and `pg_conformance_fixtures::discover` panics on an unset `PANGLOSS_CONFORMANCE_SCOPE` |
@@ -108,15 +108,29 @@ touching a `developer-tools`-gated flag must be verified twice: rerun with
 Never run `git submodule update` by hand; `pg.ps1` initializes `machine/conformance` sparsely on its
 own.
 
-## Releases are cut by CI, never from a workstation
+## Releases start with a pushed version tag
 
-`.github/workflows/release.yml` (Actions -> Release -> Run workflow, with the version) is the only
-thing that tags a version. `rust/tools/release.ps1` refuses outside CI and exits 37; run it with
-`-DryRun` to check a tree before dispatching, which is what it is for now.
+Author the `CHANGELOG.md` section, then run `pwsh -NoProfile -File rust/tools/release.ps1
+-Version x.y.z` from a clean, up-to-date `main`. The script stamps `[workspace.package].version`,
+refreshes `Cargo.lock` through managed `pg.ps1 -Mode check`, commits `release: vX.Y.Z`, creates an
+annotated `vX.Y.Z` tag, and prints `git push --atomic origin main vX.Y.Z`. It never pushes. `-DryRun` checks
+the branch, tree, version, tag, and changelog without changing files.
 
-Dispatch only once `Rust CI` is green for the commit at the tip of `main`
-(`gh run list --workflow rust-ci.yml --limit 1`). The release preflight refuses otherwise, in
-seconds. A red `main` is fixed on `main`, not discovered by a release.
+Pushing main and the tag starts Rust CI and `.github/workflows/release.yml`. The tag must be
+annotated, match the workspace version and changelog, and point to a commit reachable from
+`origin/main`; the workflow verifies `Cargo.lock` with locked metadata and waits for Rust CI on that
+commit. It then runs the shared Rust and release gates, builds and smoke-checks Windows x64, Linux
+x64, macOS arm64, and macOS x64, verifies all ten assets and checksums, and publishes a GitHub
+release on the existing tag. CI never commits to main or creates or moves tags.
+
+`workflow_dispatch` takes a version and an explicit source ref and runs the same preflight, gates,
+and builds without publishing. Prerelease tags are not supported. Coverage and the real-language
+corpus exclusion are recorded in the GitHub release notes body.
+
+For the pending 0.7.0 cut, `main` currently has workspace version 0.6.2. After this change merges,
+run `pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.7.0` on `main`, then run the exact
+`git push --atomic origin main v0.7.0` command it prints. The tag workflow waits for Rust CI before building
+and publishing. See `docs/development/releasing.md` for the complete procedure and rehearsal path.
 
 **The contract gate is `machine/conformance`** -- engine-agnostic, all-synthetic, diffed against
 committed ground truth, and available to CI through the submodule. The real-language corpora (Sena,
@@ -124,9 +138,9 @@ Amharic, Aweti, Indonesian) are gitignored local files: they exist for speed wor
 issues that then become conformance fixtures. They are the sampling tool, not the contract, and
 their absence from a release gate is deliberate rather than a gap.
 
-*Scar: a release was refused because six roots of unrelated local scratch made one laptop's tree
-dirty, and a second attempt because a FieldWorks checkout had drifted on that same laptop. Both were
-facts about a machine, neither about PanGloss. A release nobody else can reproduce is not a release.*
+*Historical note: the former release process was tied to one workstation. One attempt refused six
+roots of unrelated local scratch, and another found a drifted FieldWorks checkout. The tag flow now
+checks this worktree's clean, current `main` and validates the pushed source commit in CI.*
 
 ## Merging into main
 
@@ -139,7 +153,8 @@ When `pg.ps1` prints `rustfmt: applied`, commit that reflow with your change. Ne
 reverting leaves `main` unformatted, so every later build in every worktree redoes the same
 reflow, and a build that follows a revert recompiles everything. *Scar: one release run rebuilt all
 ~105 test targets twice for this reason, 50 minutes instead of 11.* `release.ps1` refuses an
-unformatted tree before it starts.
+unformatted tree before it commits: its managed check runs after the stamp, and the script refuses
+to commit if rustfmt or another check leaves changes outside `rust/Cargo.toml` and `rust/Cargo.lock`.
 
 ## Where to look
 

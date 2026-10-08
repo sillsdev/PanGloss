@@ -1,26 +1,31 @@
 name: Release
 
-# Releases are cut only in CI: a local cut is reproducible only from the machine that cut it.
-# Unrelated scratch roots can dirty its tree, and a FieldWorks checkout can drift between machines.
+# Pushing an annotated vX.Y.Z tag from main is the release action. The tag commit already contains
+# the stamped workspace version and lockfile; this workflow verifies both before running gates.
+# workflow_dispatch is a rehearsal for an explicit ref and version and never publishes.
+# Prereleases are unsupported: only numeric vX.Y.Z tags trigger this workflow.
 #
 # The conformance gate is machine/conformance: all-synthetic fixtures diffed against committed
 # ground truth. Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files
-# and deliberately absent; they help harvest fixtures but are not release gates.
-# The local release.ps1 -DryRun checks workstation gates; CI also builds and smoke-checks all four
-# supported targets before publishing.
+# and deliberately absent from release gates. Coverage and corpus details are appended to release
+# notes because CI no longer writes them into a tag annotation.
 
 on:
+  push:
+    # GitHub filters use globs, not regular expressions. Resolve v* tags here and enforce the
+    # numeric vX.Y.Z format in the first job before any gates or builds run.
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, x.y.z (CHANGELOG.md must already have its section)'
+        description: 'Version to rehearse, x.y.z (CHANGELOG.md must already have its section)'
         required: true
         type: string
-      publish:
-        description: 'Commit the version stamp and publish the release after all build checks pass'
-        required: false
-        default: true
-        type: boolean
+      ref:
+        description: 'Branch, tag, or commit to rehearse (must be reachable from origin/main)'
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
@@ -30,72 +35,129 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  gates:
-    name: gates
-    uses: ./.github/workflows/rust-gates.yml
-    with:
-      include_release_gates: true
-      version: ${{ inputs.version }}
-      timeout_minutes: 120
-      require_main: ${{ inputs.publish }}
-
-  stamp:
-    name: prepare version stamp
-    needs: gates
-    runs-on: windows-latest
-    timeout-minutes: 30
+  resolve:
+    name: resolve source and version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+      require_annotated_tag: ${{ steps.resolve.outputs.require_annotated_tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          submodules: true
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-
-      - name: Stamp the workspace version
-        shell: pwsh
+          fetch-depth: 0
+      - name: Resolve the release source
+        id: resolve
+        shell: bash
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          PUSHED_TAG: ${{ github.ref_name }}
         run: |
-          $path = 'rust/Cargo.toml'
-          $text = Get-Content $path -Raw
-          $sectionMatch = [regex]::Match($text, '(?ms)^\[workspace\.package\]\r?\n(?<section>.*?)(?=^\[|\z)')
-          if (-not $sectionMatch.Success) { Write-Host '::error::[workspace.package] is missing'; exit 1 }
-          $sectionGroup = $sectionMatch.Groups['section']
-          $section = $sectionGroup.Value
-          $versionLine = [regex]::new('(?m)^(version\s*=\s*)"[^"]+"')
-          if (-not $versionLine.IsMatch($section)) { Write-Host '::error::workspace version is missing'; exit 1 }
-          $replacement = '${1}"' + $env:RELEASE_VERSION + '"'
-          $stampedSection = $versionLine.Replace($section, $replacement, 1)
-          if ($stampedSection -eq $section) { Write-Host '::error::workspace version stamp changed nothing'; exit 1 }
-          # Splice at the body group, not the whole match, so the [workspace.package] header survives.
-          $stamped = $text.Substring(0, $sectionGroup.Index) + $stampedSection + $text.Substring($sectionGroup.Index + $sectionGroup.Length)
-          [System.IO.File]::WriteAllText($path, $stamped, [System.Text.UTF8Encoding]::new($false))
+          set -euo pipefail
+          tag_name=""
+          require_annotated_tag=false
 
-      # Update local workspace package versions directly. A separate locked metadata pass proves
-      # the generated lockfile is usable; no unrelated resolution failure is treated as a stamp retry.
-      - name: Regenerate and validate Cargo.lock
-        working-directory: rust
-        run: |
-          cargo update --workspace
-          cargo metadata --locked --format-version 1 > $null
+          if [[ "$EVENT_NAME" == push ]]; then
+            tag_name="$PUSHED_TAG"
+            if [[ ! "$tag_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::release tags must be numeric vX.Y.Z; prereleases are unsupported"
+              exit 1
+            fi
+            version="${tag_name#v}"
+            source_sha="$GITHUB_SHA"
+            require_annotated_tag=true
+          else
+            version="$REQUESTED_VERSION"
+            source_ref="$REQUESTED_REF"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo '::error::rehearsal version must be exactly x.y.z with numeric components'
+              exit 1
+            fi
+            if [[ -z "$source_ref" ]]; then
+              echo '::error::rehearsal requires an explicit source ref'
+              exit 1
+            fi
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-stamp
-          path: |
-            rust/Cargo.toml
-            rust/Cargo.lock
-          if-no-files-found: error
-          overwrite: true
+            if [[ "$source_ref" == refs/tags/* ]]; then
+              tag_name="${source_ref#refs/tags/}"
+            elif [[ "$source_ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              tag_name="$source_ref"
+              source_ref="refs/tags/$tag_name"
+            elif [[ "$source_ref" == refs/heads/* ]]; then
+              source_ref="${source_ref#refs/heads/}"
+            fi
+
+            if [[ -n "$tag_name" ]]; then
+              if [[ "$tag_name" != "v$version" ]]; then
+                echo "::error::rehearsal ref $tag_name does not match requested version v$version"
+                exit 1
+              fi
+              if ! git fetch --quiet origin "$source_ref:$source_ref"; then
+                echo "::error::could not fetch rehearsal tag $tag_name from origin"
+                exit 1
+              fi
+              if ! source_sha="$(git rev-parse "$source_ref^{commit}")"; then
+                echo "::error::rehearsal tag $tag_name does not resolve to a commit"
+                exit 1
+              fi
+              require_annotated_tag=true
+            elif [[ "$source_ref" =~ ^[0-9a-f]{40}$ ]]; then
+              if ! git fetch --quiet --no-tags origin "$source_ref"; then
+                echo "::error::could not fetch rehearsal commit $source_ref from origin"
+                exit 1
+              fi
+              if ! source_sha="$(git rev-parse 'FETCH_HEAD^{commit}')"; then
+                echo "::error::rehearsal ref $source_ref does not resolve to a commit"
+                exit 1
+              fi
+            else
+              if [[ "$source_ref" == refs/* ]] || ! git check-ref-format "refs/heads/$source_ref"; then
+                echo "::error::invalid rehearsal ref '$REQUESTED_REF'"
+                exit 1
+              fi
+              if ! git fetch --quiet --no-tags origin "refs/heads/$source_ref:refs/remotes/origin/rehearsal"; then
+                echo "::error::could not fetch rehearsal branch '$source_ref' from origin"
+                exit 1
+              fi
+              if ! source_sha="$(git rev-parse 'refs/remotes/origin/rehearsal^{commit}')"; then
+                echo "::error::rehearsal branch '$source_ref' does not resolve to a commit"
+                exit 1
+              fi
+            fi
+          fi
+
+          if [[ -n "$tag_name" && "$tag_name" != "v$version" ]]; then
+            echo "::error::tag $tag_name does not match version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "require_annotated_tag=$require_annotated_tag" >> "$GITHUB_OUTPUT"
+          echo "resolved $source_sha for v$version${tag_name:+ ($tag_name)}"
+
+  gates:
+    name: gates
+    needs: resolve
+    uses: ./.github/workflows/rust-gates.yml
+    permissions:
+      actions: read
+      contents: read
+    with:
+      include_release_gates: true
+      version: ${{ needs.resolve.outputs.version }}
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+      source_tag: ${{ needs.resolve.outputs.tag_name }}
+      require_annotated_tag: ${{ needs.resolve.outputs.require_annotated_tag == 'true' }}
+      timeout_minutes: 120
 
   build:
     name: ${{ matrix.asset }} (${{ matrix.target }})
-    needs: [gates, stamp]
+    needs: [resolve, gates]
     strategy:
       fail-fast: false
       matrix:
@@ -125,20 +187,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.resolve.outputs.source_sha }}
           submodules: true
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-stamp
-          path: release-stamp
-
-      - name: Apply the shared version stamp
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp release-stamp/Cargo.toml rust/Cargo.toml
-          cp release-stamp/Cargo.lock rust/Cargo.lock
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -160,7 +210,7 @@ jobs:
         shell: pwsh
         env:
           TARGET: ${{ matrix.target }}
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           $source = Join-Path 'rust/target' "$env:TARGET/release/pangloss.exe"
           if (-not (Test-Path -LiteralPath $source)) { Write-Host "::error::missing target binary $source"; exit 1 }
@@ -179,7 +229,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           BINARY: ${{ matrix.binary }}
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           source="rust/target/$TARGET/release/$BINARY"
@@ -254,7 +304,7 @@ jobs:
 
   publish:
     name: verify and publish release
-    needs: [gates, stamp, build]
+    needs: [resolve, gates, build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -263,13 +313,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ needs.resolve.outputs.source_sha }}
           fetch-depth: 0
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-stamp
-          path: release-stamp
 
       - uses: actions/download-artifact@v4
         with:
@@ -280,12 +325,10 @@ jobs:
       - name: Verify all ten local release files and notes
         shell: bash
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::invalid release version'; exit 1; }
-          cp release-stamp/Cargo.toml rust/Cargo.toml
-          cp release-stamp/Cargo.lock rust/Cargo.lock
 
           expected_files=(
             pangloss-win-x64.exe pangloss-win-x64.exe.sha256
@@ -327,76 +370,19 @@ jobs:
             exit 1
           fi
 
-      # Tagging happens only after every build and local inventory check has succeeded. Re-run
-      # failed jobs in this workflow run to resume publication; a full new run refuses the tag.
-      - name: Commit the stamp and atomically push main plus tag
-        if: ${{ inputs.publish }}
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          tag="v$RELEASE_VERSION"
-          remote_tag="$(git ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}")"
+          cat >> release-notes.md <<'EOF'
 
-          if [[ -z "$remote_tag" ]]; then
-            remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-            if [[ "$remote_main" != "$GITHUB_SHA" ]]; then
-              echo "::error::main moved after preflight (expected $GITHUB_SHA, found $remote_main)"
-              exit 1
-            fi
-            git config user.name 'github-actions[bot]'
-            git config user.email 'github-actions[bot]@users.noreply.github.com'
-            git add -- rust/Cargo.toml rust/Cargo.lock
-            git diff --cached --quiet && { echo '::error::version stamp produced no changes'; exit 1; }
-            git commit -m "release: $tag"
-            # The annotation records checked coverage so this tag never implies more than it passed.
-            coverage='Coverage: Rust CI (fmt, clippy, cargo test), release gates (comment hygiene, rustdoc, machine/conformance: all-synthetic fixtures diffed against committed ground truth), and smoke-checked Windows x64, Linux x64, macOS arm64, and macOS x64 builds.'
-            corpora='Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are deliberately absent from release gates.'
-            git tag -a "$tag" -m "PanGloss $tag" -m "$coverage" -m "$corpora"
-            commit="$(git rev-parse HEAD)"
-            remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
-            if [[ "$remote_main" != "$GITHUB_SHA" ]]; then
-              echo "::error::main moved before the atomic push (expected $GITHUB_SHA, found $remote_main)"
-              exit 1
-            fi
-            git push --atomic origin "$commit:refs/heads/main" "refs/tags/$tag"
-          else
-            git fetch --quiet origin "refs/tags/$tag:refs/tags/$tag" \
-              refs/heads/main:refs/remotes/origin/main
-            if [[ "$(git cat-file -t "refs/tags/$tag")" != tag ]]; then
-              echo "::error::existing $tag is not an annotated tag"
-              exit 1
-            fi
-            commit="$(git rev-parse "$tag^{commit}")"
-            parent="$(git rev-parse "$commit^")"
-            if [[ "$parent" != "$GITHUB_SHA" ]]; then
-              echo "::error::$tag does not stamp the source commit from this workflow run"
-              exit 1
-            fi
-            mapfile -t changed < <(git diff-tree --no-commit-id --name-only -r "$commit" | sort)
-            if [[ "${changed[*]}" != 'rust/Cargo.lock rust/Cargo.toml' ]]; then
-              echo "::error::$tag changes files outside the expected version stamp"
-              exit 1
-            fi
-            git show "$commit:rust/Cargo.toml" | cmp --silent - release-stamp/Cargo.toml || {
-              echo "::error::$tag Cargo.toml differs from this run's stamp"; exit 1;
-            }
-            git show "$commit:rust/Cargo.lock" | cmp --silent - release-stamp/Cargo.lock || {
-              echo "::error::$tag Cargo.lock differs from this run's stamp"; exit 1;
-            }
-            git merge-base --is-ancestor "$commit" origin/main || {
-              echo "::error::$tag is not present on current origin/main"; exit 1;
-            }
-            echo "resuming the verified $tag stamp commit $commit"
-          fi
+          Coverage: Rust CI (fmt, clippy, cargo test), release gates (comment hygiene, rustdoc, machine/conformance: all-synthetic fixtures diffed against committed ground truth), and smoke-checked Windows x64, Linux x64, macOS arm64, and macOS x64 builds.
+
+          Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are deliberately absent from release gates.
+          EOF
 
       - name: Create or resume the draft and publish verified assets
-        if: ${{ inputs.publish }}
+        if: ${{ github.event_name == 'push' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           tag="v$RELEASE_VERSION"
@@ -405,7 +391,7 @@ jobs:
           release_create_endpoint="repos/$GITHUB_REPOSITORY/releases"
           release_id_script="$GITHUB_WORKSPACE/.github/scripts/release_id.py"
           export RELEASE_TITLE="PanGloss $tag"
-          export RELEASE_TAG="$tag"
+          export RELEASE_TAG="${{ needs.resolve.outputs.tag_name }}"
           export RELEASE_NOTES_PATH=release-notes.md
           export RELEASE_ASSETS_DIR=release-assets
 
@@ -423,7 +409,7 @@ jobs:
           if release.get("name") != os.environ["RELEASE_TITLE"]:
               sys.exit("release title does not match this workflow run")
           if release.get("body") != notes:
-              sys.exit("release notes do not match CHANGELOG.md")
+              sys.exit("release body does not match the changelog and release coverage notes")
 
           expected = {
               "pangloss-win-x64.exe", "pangloss-win-x64.exe.sha256",

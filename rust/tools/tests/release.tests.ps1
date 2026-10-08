@@ -1,0 +1,263 @@
+. "$PSScriptRoot\_test-harness.ps1"
+
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+$releaseSource = Join-Path $repoRoot 'rust\tools\release.ps1'
+$pwsh = (Get-Process -Id $PID).Path
+
+function Invoke-TestGit {
+    param([Parameter(Mandatory)][string]$Repository, [Parameter(Mandatory)][string[]]$Arguments)
+    $output = & git -C $Repository @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) { throw "git $($Arguments -join ' ') failed with $exitCode`: $($output -join ' ')" }
+    return ($output -join "`n").Trim()
+}
+
+function New-ReleaseFixture {
+    param([switch]$MissingChangelog)
+    $root = New-TestTempDir 'pg-release-test'
+    $repository = Join-Path $root 'checkout'
+    $remote = Join-Path $root 'origin.git'
+    New-Item -ItemType Directory -Force -Path (Join-Path $repository 'rust\tools') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $repository 'rust') | Out-Null
+    Invoke-TestGit -Repository $root -Arguments @('init', '--bare', $remote) | Out-Null
+    Invoke-TestGit -Repository $root -Arguments @('init', '--initial-branch=main', $repository) | Out-Null
+    Invoke-TestGit -Repository $repository -Arguments @('config', 'user.name', 'Release Test') | Out-Null
+    Invoke-TestGit -Repository $repository -Arguments @('config', 'user.email', 'release-test@example.invalid') | Out-Null
+    Invoke-TestGit -Repository $repository -Arguments @('remote', 'add', 'origin', $remote) | Out-Null
+
+    $manifest = @'
+[workspace]
+members = ["crates/pg-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.6.2"
+edition = "2021"
+'@
+    $lock = @'
+version = 4
+
+[[package]]
+name = "pg-cli"
+version = "0.6.2"
+'@
+    $changelog = if ($MissingChangelog) { "# Changelog`n`n## 0.6.2`nEarlier release`n" } else { "# Changelog`n`n## 0.7.0`nRelease notes`n" }
+    [System.IO.File]::WriteAllText((Join-Path $repository 'rust\Cargo.toml'), $manifest, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $repository 'rust\Cargo.lock'), $lock, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $repository 'CHANGELOG.md'), $changelog, [System.Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath $releaseSource -Destination (Join-Path $repository 'rust\tools\release.ps1')
+
+    $managedStub = @'
+param([string]$Mode, [int]$MaxConcurrent)
+$manifest = Get-Content (Join-Path $PSScriptRoot '..\Cargo.toml') -Raw
+if ($env:PG_RELEASE_TEST_FAIL -eq '1') { Write-Host 'synthetic managed check failure'; exit 6 }
+$version = [regex]::Match($manifest, '(?m)^version\s*=\s*"(?<version>[^"]+)"').Groups['version'].Value
+$lockPath = Join-Path $PSScriptRoot '..\Cargo.lock'
+$lock = Get-Content $lockPath -Raw
+if ($env:PG_RELEASE_TEST_NO_LOCK_UPDATE -ne '1') {
+    $lock = [regex]::Replace($lock, '(?m)(name = "pg-cli"\r?\nversion = ")[^"]+("?)', ('${1}' + $version + '${2}'), 1)
+    [System.IO.File]::WriteAllText($lockPath, $lock, [System.Text.UTF8Encoding]::new($false))
+}
+if ($env:PG_RELEASE_TEST_BAD_LOCK_VERSION -eq '1') {
+    $lock = [regex]::Replace($lock, '(?m)(name = "pg-cli"\r?\nversion = ")[^"]+("?)', '${1}9.9.9${2}', 1)
+    [System.IO.File]::WriteAllText($lockPath, $lock, [System.Text.UTF8Encoding]::new($false))
+}
+Write-Host "Finished ``dev`` profile [unoptimized + debuginfo] target(s) in 0.01s"
+exit 0
+'@
+    [System.IO.File]::WriteAllText((Join-Path $repository 'rust\tools\pg.ps1'), $managedStub, [System.Text.UTF8Encoding]::new($false))
+
+    Invoke-TestGit -Repository $repository -Arguments @('add', 'rust/Cargo.toml', 'rust/Cargo.lock', 'CHANGELOG.md', 'rust/tools/release.ps1', 'rust/tools/pg.ps1') | Out-Null
+    Invoke-TestGit -Repository $repository -Arguments @('commit', '-m', 'base') | Out-Null
+    $base = Invoke-TestGit -Repository $repository -Arguments @('rev-parse', 'HEAD')
+    Invoke-TestGit -Repository $repository -Arguments @('push', '-u', 'origin', 'main') | Out-Null
+    return [PSCustomObject]@{ Root = $root; Repository = $repository; Remote = $remote; Base = $base }
+}
+
+function Invoke-ReleaseScript {
+    param([Parameter(Mandatory)][string]$Repository, [string]$Version = '0.7.0', [switch]$DryRun)
+    $scriptPath = Join-Path $Repository 'rust\tools\release.ps1'
+    Push-Location $Repository
+    try {
+        $launchArgs = @('-NoProfile', '-NonInteractive', '-File', $scriptPath, '-Version', $Version)
+        if ($DryRun) { $launchArgs += '-DryRun' }
+        $output = & $pwsh @launchArgs 2>&1 | ForEach-Object { "$_" }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    return [PSCustomObject]@{ ExitCode = $exitCode; Output = $output -join "`n" }
+}
+
+function Remove-ReleaseFixture {
+    param([Parameter(Mandatory)]$Fixture)
+    Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+Test-Case 'release cut stamps workspace and lock, commits, and creates an annotated tag without pushing' {
+    $fixture = New-ReleaseFixture
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 0 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'git push --atomic origin main v0\.7\.0') 'script must print the exact atomic push command'
+        Assert-Equal 'main' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('branch', '--show-current'))
+        Assert-Equal 'release: v0.7.0' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('log', '-1', '--format=%s'))
+        Assert-Equal 'tag' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('cat-file', '-t', 'refs/tags/v0.7.0'))
+        $tagMessage = Invoke-TestGit -Repository $fixture.Repository -Arguments @('for-each-ref', '--format=%(contents)', 'refs/tags/v0.7.0')
+        Assert-Equal 'PanGloss v0.7.0' $tagMessage 'annotation should identify the release without claiming build coverage'
+        Assert-True ((Get-Content (Join-Path $fixture.Repository 'rust\Cargo.toml') -Raw) -match 'version = "0\.7\.0"') 'workspace package version must be stamped'
+        $updatedLock = Get-Content (Join-Path $fixture.Repository 'rust\Cargo.lock') -Raw
+        Assert-True ($updatedLock -match 'name = "pg-cli"\r?\nversion = "?0\.7\.0') "managed check must refresh the lockfile package version: $updatedLock"
+        Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('ls-remote', 'origin', 'refs/heads/main') | ForEach-Object { ($_ -split '\s+')[0] }) 'script must not push main'
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('ls-remote', 'origin', 'refs/tags/v0.7.0')) 'script must not push the tag'
+        $committedPaths = Invoke-TestGit -Repository $fixture.Repository -Arguments @('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD')
+        Assert-Equal 'rust/Cargo.lock`nrust/Cargo.toml' ($committedPaths -replace "`r", '' -replace "`n", '`n') 'commit should contain only the version stamp and refreshed lockfile'
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('status', '--porcelain')) 'release commit must leave the tree clean'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'dry run checks preconditions and changes no files, commit, or tag' {
+    $fixture = New-ReleaseFixture
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository -DryRun
+        Assert-Equal 0 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'DRY RUN') 'dry run must identify itself'
+        Assert-True ($result.Output -match 'git push --atomic origin main v0\.7\.0') 'dry run must print the eventual atomic push command'
+        Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', 'HEAD'))
+        Assert-Equal '0.6.2' ([regex]::Match((Get-Content (Join-Path $fixture.Repository 'rust\Cargo.toml') -Raw), '(?m)^version\s*=\s*"(?<v>[^"]+)"').Groups['v'].Value)
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '--list', 'v0.7.0'))
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('status', '--porcelain'))
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'dirty working tree is refused' {
+    $fixture = New-ReleaseFixture
+    try {
+        [System.IO.File]::WriteAllText((Join-Path $fixture.Repository 'untracked.txt'), 'dirty')
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 30 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'working tree has uncommitted changes') 'refusal must name the dirty tree'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'release cut is refused outside main' {
+    $fixture = New-ReleaseFixture
+    try {
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('switch', '-c', 'release-test') | Out-Null
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 31 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'run this cut from main') 'refusal must name main'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'stale local main is refused' {
+    $fixture = New-ReleaseFixture
+    try {
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('commit', '--allow-empty', '-m', 'advance origin') | Out-Null
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('push', 'origin', 'main') | Out-Null
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('reset', '--hard', $fixture.Base) | Out-Null
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 31 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'not up to date with origin/main') 'refusal must name the remote main mismatch'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'existing version tag is refused' {
+    $fixture = New-ReleaseFixture
+    try {
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '-a', 'v0.7.0', '-m', 'existing') | Out-Null
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 34 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'v0\.7\.0 already exists locally') 'refusal must name the existing tag'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'version tag created remotely after the local clone is refused' {
+    $fixture = New-ReleaseFixture
+    try {
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '-a', 'v0.7.0', '-m', 'existing') | Out-Null
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('push', 'origin', 'v0.7.0') | Out-Null
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '-d', 'v0.7.0') | Out-Null
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 34 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'v0\.7\.0 already exists on origin') 'refusal must name the remote tag'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'workspace version cannot be cut twice' {
+    $fixture = New-ReleaseFixture
+    try {
+        $manifestPath = Join-Path $fixture.Repository 'rust\Cargo.toml'
+        $manifest = (Get-Content $manifestPath -Raw) -replace 'version = "0\.6\.2"', 'version = "0.7.0"'
+        [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('add', 'rust/Cargo.toml') | Out-Null
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('commit', '-m', 'already stamped') | Out-Null
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('push', 'origin', 'main') | Out-Null
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 33 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'workspace version is already 0\.7\.0') 'refusal must name the already stamped version'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'missing changelog section is refused' {
+    $fixture = New-ReleaseFixture -MissingChangelog
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 33 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match "CHANGELOG\.md has no '## 0\.7\.0' section") 'refusal must name the missing section'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'managed check failure prevents the commit and tag' {
+    $fixture = New-ReleaseFixture
+    try {
+        $prior = $env:PG_RELEASE_TEST_FAIL
+        $env:PG_RELEASE_TEST_FAIL = '1'
+        try { $result = Invoke-ReleaseScript -Repository $fixture.Repository }
+        finally { $env:PG_RELEASE_TEST_FAIL = $prior }
+        Assert-Equal 32 $result.ExitCode $result.Output
+        Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', 'HEAD'))
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '--list', 'v0.7.0'))
+        Assert-True ((Get-Content (Join-Path $fixture.Repository 'rust\Cargo.toml') -Raw) -match 'version = "0\.7\.0"') 'failed managed check should leave the attempted stamp for inspection'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'managed check that leaves Cargo.lock unchanged is refused' {
+    $fixture = New-ReleaseFixture
+    try {
+        $prior = $env:PG_RELEASE_TEST_NO_LOCK_UPDATE
+        $env:PG_RELEASE_TEST_NO_LOCK_UPDATE = '1'
+        try { $result = Invoke-ReleaseScript -Repository $fixture.Repository }
+        finally { $env:PG_RELEASE_TEST_NO_LOCK_UPDATE = $prior }
+        Assert-Equal 32 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'did not refresh Cargo\.lock') 'refusal must name the ineffective lock refresh'
+        Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', 'HEAD'))
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '--list', 'v0.7.0'))
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'managed check that refreshes the wrong pg-cli lock version is refused' {
+    $fixture = New-ReleaseFixture
+    try {
+        $prior = $env:PG_RELEASE_TEST_BAD_LOCK_VERSION
+        $env:PG_RELEASE_TEST_BAD_LOCK_VERSION = '1'
+        try { $result = Invoke-ReleaseScript -Repository $fixture.Repository }
+        finally { $env:PG_RELEASE_TEST_BAD_LOCK_VERSION = $prior }
+        Assert-Equal 32 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'Cargo\.lock records pg-cli version ''9\.9\.9''; expected ''0\.7\.0''') 'refusal must name the ineffective lock version refresh'
+        Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', 'HEAD'))
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '--list', 'v0.7.0'))
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'a non-numeric prerelease version is rejected by parameter validation' {
+    $fixture = New-ReleaseFixture
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository -Version '0.7.0-rc.1'
+        Assert-False ($result.ExitCode -eq 0) 'prerelease version must not be accepted'
+        Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', 'HEAD'))
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('status', '--porcelain'))
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Write-TestSummary
