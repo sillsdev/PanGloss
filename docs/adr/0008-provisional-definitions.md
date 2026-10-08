@@ -35,6 +35,11 @@ defined one definition at a time, with no cliff.
   because XAMPLE's classes are explicit letter lists. A class with no conditions (a wildcard) still
   matches both. For constrained classes this is what C# HermitCrab already does in environments and
   forward rules; only its analysis-side unification differs.
+- Phonological rules the author wrote apply, even though XAMPLE never ran them. A project tuned on
+  XAMPLE may therefore parse some words differently; those differences are reported to the author
+  (which stored analyses no longer parse, and which rule causes it), never hidden by also trying
+  each word without its rules. "Match or exceed XAMPLE" covers phonology left undefined, not rules
+  the author defined.
 - Comparisons against analyses stored in a FieldWorks project use FieldWorks' own key (allomorph,
   MSA and inflection type per morph), because FieldWorks does not store root position or category.
 - The proposal is raised with `sillsdev/machine` as an issue to start the discussion; the staged
