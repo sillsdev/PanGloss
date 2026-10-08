@@ -82,10 +82,13 @@ pub fn capability_shape_key_for_test(diagnostic: &CapabilityDiagnostic) -> &'sta
 /// builds, plus the embedded advice catalog's shapes and remedies for every declined diagnostic —
 /// the half of `refused` that needs the capability registry and catalog `pg-health` cannot depend
 /// on. The only production caller of `BackendReport::refused` should go through this function.
-pub fn refused(strategy: EmissionStrategy, decision: CompileDecision) -> BackendReport {
-    let report = BackendReport::refused(strategy, decision);
+pub fn refused(
+    strategy: EmissionStrategy,
+    decision: CompileDecision,
+) -> Result<BackendReport, &'static str> {
+    let report = BackendReport::refused(strategy, decision)?;
     let CompileDecision::Refuse(diagnostics) = report.decision() else {
-        return report;
+        return Err("a refused backend report must retain a Refuse decision");
     };
     let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
     let mut shapes = Vec::new();
@@ -104,7 +107,7 @@ pub fn refused(strategy: EmissionStrategy, decision: CompileDecision) -> Backend
             )
         }));
     }
-    report.with_capability_advice(shapes, advice_references)
+    Ok(report.with_capability_advice(shapes, advice_references))
 }
 
 /// One report per backend in [`crate::strategy_coverage::ALL_STRATEGIES`] declaration order.
@@ -117,6 +120,7 @@ fn build_backend_selection(envelope: &StrategyEnvelope) -> BackendSelection {
             };
             if matches!(decision, CompileDecision::Refuse(_)) {
                 refused(strategy, decision.clone())
+                    .expect("refused backend selection requires a Refuse decision")
             } else {
                 BackendReport::accepted(strategy, decision.clone(), Vec::new())
                     .expect("a non-refusing decision is always accepted")

@@ -20,19 +20,45 @@
 //! `caseId`, followed through declared `supersedes` links, and two cases may share an input.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::digest::identity_digest;
 use crate::identity::AnalysisIdentity;
-use crate::jcs::JcsError;
 use crate::outcome::CaseOutcome;
 use crate::report::{AssessmentReport, CaseRecord, Diagnostic};
 use crate::set::AnalysisSet;
 
 pub const DELTA_SCHEMA: &str = "pangloss.grammar-delta";
 pub const DELTA_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeltaError {
+    AmbiguousSupersession {
+        baseline_case_id: String,
+        first_candidate_case_id: String,
+        second_candidate_case_id: String,
+    },
+}
+
+impl fmt::Display for DeltaError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AmbiguousSupersession {
+                baseline_case_id,
+                first_candidate_case_id,
+                second_candidate_case_id,
+            } => write!(
+                f,
+                "candidate cases {first_candidate_case_id} and {second_candidate_case_id} both supersede baseline case {baseline_case_id}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DeltaError {}
 
 /// What happened to one case between baseline and candidate.
 ///
@@ -262,7 +288,7 @@ fn case_value(case: &CaseDelta) -> Value {
 pub fn compare(
     baseline: &AssessmentReport,
     candidate: &AssessmentReport,
-) -> Result<GrammarDelta, JcsError> {
+) -> Result<GrammarDelta, DeltaError> {
     let context_differences = context_differences(baseline, candidate);
 
     let profiles_agree = baseline.draft().suite.analysis_identity_profile
@@ -275,14 +301,19 @@ pub fn compare(
         .map(|c| (c.case_id.as_str(), c))
         .collect();
     let declared_lineage = candidate.supersedes();
-    let supersedes: BTreeMap<&str, &CaseRecord> = declared_lineage
-        .iter()
-        .filter_map(|(superseded, case_id)| {
-            candidate_by_id
-                .get(case_id.as_str())
-                .map(|case| (superseded.as_str(), *case))
-        })
-        .collect();
+    let mut supersedes = BTreeMap::<&str, &CaseRecord>::new();
+    for (superseded, case_id) in &declared_lineage {
+        let Some(case) = candidate_by_id.get(case_id.as_str()).copied() else {
+            continue;
+        };
+        if let Some(previous) = supersedes.insert(superseded.as_str(), case) {
+            return Err(DeltaError::AmbiguousSupersession {
+                baseline_case_id: superseded.clone(),
+                first_candidate_case_id: previous.case_id.clone(),
+                second_candidate_case_id: case.case_id.clone(),
+            });
+        }
+    }
 
     let mut cases = Vec::new();
     let mut matched_candidates: BTreeSet<&str> = BTreeSet::new();

@@ -16,7 +16,8 @@
 
 use crate::capability::{CapabilityDiagnostic, CompileDecision};
 use crate::health::{
-    FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
+    maximum_severity, FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity,
+    ValueProvenance,
 };
 use crate::strategy::EmissionStrategy;
 
@@ -122,7 +123,8 @@ impl BackendReport {
     /// It answers the representability axis and says nothing about readiness or containment,
     /// which is why it is not named for whether the backend was picked.
     pub fn can_represent(&self) -> bool {
-        !matches!(self.decision, CompileDecision::Refuse(_))
+        self.status == BackendStatus::Accepted
+            && !matches!(self.decision, CompileDecision::Refuse(_))
     }
 
     pub fn status_detail(&self) -> Option<&str> {
@@ -131,11 +133,7 @@ impl BackendReport {
 
     /// The worst health finding for this backend.
     pub fn worst_severity(&self) -> Severity {
-        self.findings
-            .iter()
-            .map(|finding| finding.severity)
-            .max()
-            .unwrap_or(Severity::WithinLimits)
+        maximum_severity(self.findings.iter().map(|finding| finding.severity))
     }
 
     fn base(strategy: EmissionStrategy, decision: CompileDecision, status: BackendStatus) -> Self {
@@ -182,44 +180,48 @@ impl BackendReport {
     /// A refusal's `HealthFinding` and failed-predicate list, from data alone — no advice
     /// catalog. `pg_foma::backend_selection::refused` is the production entry point: it calls
     /// this, then attaches catalog-derived shapes/remedies via `Self::with_capability_advice`.
-    pub fn refused(strategy: EmissionStrategy, decision: CompileDecision) -> Self {
-        let mut report = Self::base(strategy, decision, BackendStatus::Refused);
-        report.failed_predicates = Self::predicates_from_decision(&report.decision);
-        if let CompileDecision::Refuse(diagnostics) = &report.decision {
-            let explanation = diagnostics
-                .iter()
-                .map(|diagnostic| {
-                    format!(
-                        "predicate={} construct={} witness={}",
-                        diagnostic.predicate, diagnostic.construct, diagnostic.witness
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
-            report.findings.push(
-                HealthFinding::new(
-                    FindingCode::BackendCoverageIncomplete,
-                    Severity::CannotRepresent,
-                    Phase::Characterization,
-                    Metric::BackendCoverageGapCount,
-                    MetricValue::Count(diagnostics.len() as u64),
-                    ValueProvenance::Observed,
-                    format!(
-                        "{:?} cannot prove a complete FST relation for {} characterized \
-                         construct(s): {explanation}",
-                        report.strategy,
-                        diagnostics.len()
-                    ),
+    pub fn refused(
+        strategy: EmissionStrategy,
+        decision: CompileDecision,
+    ) -> Result<Self, &'static str> {
+        let CompileDecision::Refuse(diagnostics) = &decision else {
+            return Err("a refused backend report requires a Refuse decision");
+        };
+        let failed_predicates = Self::predicates_from_decision(&decision);
+        let explanation = diagnostics
+            .iter()
+            .map(|diagnostic| {
+                format!(
+                    "predicate={} construct={} witness={}",
+                    diagnostic.predicate, diagnostic.construct, diagnostic.witness
                 )
-                .affecting(
-                    diagnostics
-                        .iter()
-                        .map(|diagnostic| diagnostic.construct.clone())
-                        .collect(),
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let constructs = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.construct.clone())
+            .collect();
+        let diagnostic_count = diagnostics.len() as u64;
+        let mut report = Self::base(strategy, decision, BackendStatus::Refused);
+        report.failed_predicates = failed_predicates;
+        report.findings.push(
+            HealthFinding::new(
+                FindingCode::BackendCoverageIncomplete,
+                Severity::CannotRepresent,
+                Phase::Characterization,
+                Metric::BackendCoverageGapCount,
+                MetricValue::Count(diagnostic_count),
+                ValueProvenance::Observed,
+                format!(
+                    "{:?} cannot prove a complete FST relation for {} characterized \
+                     construct(s): {explanation}",
+                    report.strategy, diagnostic_count
                 ),
-            );
-        }
-        report
+            )
+            .affecting(constructs),
+        );
+        Ok(report)
     }
 
     /// Attaches catalog-derived shapes and deduplicated remedy references to a refusal. A no-op
@@ -346,5 +348,30 @@ mod tests {
             selection.decision_for(EmissionStrategy::TunedSurfaceProbed),
             CompileDecision::Refuse(_)
         ));
+    }
+
+    #[test]
+    fn refused_reports_require_a_refusal_decision_and_never_represent() {
+        for decision in [CompileDecision::Admit, CompileDecision::ConfirmOnly] {
+            assert_eq!(
+                BackendReport::refused(EmissionStrategy::TunedSurfaceProbed, decision).unwrap_err(),
+                "a refused backend report requires a Refuse decision"
+            );
+        }
+
+        let report = BackendReport::refused(
+            EmissionStrategy::TunedSurfaceProbed,
+            CompileDecision::Refuse(Vec::new()),
+        )
+        .unwrap();
+        assert_eq!(report.status(), BackendStatus::Refused);
+        assert!(!report.can_represent());
+
+        let inconsistent = BackendReport::base(
+            EmissionStrategy::TunedSurfaceProbed,
+            CompileDecision::Refuse(Vec::new()),
+            BackendStatus::Accepted,
+        );
+        assert!(!inconsistent.can_represent());
     }
 }

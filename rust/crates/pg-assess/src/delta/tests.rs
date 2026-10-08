@@ -92,6 +92,25 @@ fn discovery_order_does_not_change_any_category() {
 }
 
 #[test]
+fn two_candidate_cases_cannot_supersede_the_same_baseline_case() {
+    let baseline = report(vec![complete("old", "w", &[id(&["a"])])]);
+    let mut first = complete("new-a", "w", &[id(&["a"])]);
+    first.supersedes = vec!["old".into()];
+    let mut second = complete("new-b", "w", &[id(&["b"])]);
+    second.supersedes = vec!["old".into()];
+    let candidate = report(vec![first, second]);
+
+    assert_eq!(
+        compare(&baseline, &candidate).unwrap_err(),
+        DeltaError::AmbiguousSupersession {
+            baseline_case_id: "old".into(),
+            first_candidate_case_id: "new-a".into(),
+            second_candidate_case_id: "new-b".into(),
+        }
+    );
+}
+
+#[test]
 fn a_guessed_flip_on_a_retained_identity_is_a_changed_case() {
     // The morpheme sequence and category are identical, but the root stopped being found in the lexicon and the parser fabricated one; burying that as unchanged would hide a real regression.
     let base = report(vec![CaseRecord {

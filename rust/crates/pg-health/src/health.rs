@@ -146,6 +146,13 @@ pub enum Severity {
     CannotRepresent,
 }
 
+pub(crate) fn maximum_severity(severities: impl IntoIterator<Item = Severity>) -> Severity {
+    severities
+        .into_iter()
+        .max()
+        .unwrap_or(Severity::WithinLimits)
+}
+
 /// The single payload-size threshold `severity_for_size_bytes` applies.
 ///
 /// **The warning this threshold raises is real; the exact number is provisional.** A compiled
@@ -615,11 +622,7 @@ impl HealthReport {
 
     /// The worst raw severity among this report's findings.
     pub fn admission(&self) -> Severity {
-        self.findings
-            .iter()
-            .map(|finding| finding.severity)
-            .max()
-            .unwrap_or(Severity::WithinLimits)
+        maximum_severity(self.findings.iter().map(|finding| finding.severity))
     }
 
     /// The worst severity among this report's findings of `class`, or `Severity::WithinLimits`
@@ -627,12 +630,12 @@ impl HealthReport {
     /// `admission`: it answers one of the three independent admission questions in isolation,
     /// never combined with the others.
     pub fn worst_by_class(&self, class: FindingClass) -> Severity {
-        self.findings
-            .iter()
-            .filter(|finding| finding.class() == class)
-            .map(|finding| finding.severity)
-            .max()
-            .unwrap_or(Severity::WithinLimits)
+        maximum_severity(
+            self.findings
+                .iter()
+                .filter(|finding| finding.class() == class)
+                .map(|finding| finding.severity),
+        )
     }
 
     /// The three independent admission questions (plus `Process`) answered separately, never

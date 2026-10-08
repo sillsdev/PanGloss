@@ -31,8 +31,8 @@ pub use certification::{
 };
 
 pub use delta::{
-    compare, AnnotationChange, CaseDelta, ContextDifference, DeltaCategory, DuplicateCountChange,
-    GrammarDelta, NotComparableReason, DELTA_SCHEMA, DELTA_SCHEMA_VERSION,
+    compare, AnnotationChange, CaseDelta, ContextDifference, DeltaCategory, DeltaError,
+    DuplicateCountChange, GrammarDelta, NotComparableReason, DELTA_SCHEMA, DELTA_SCHEMA_VERSION,
 };
 pub use digest::{
     digest_projection, identity_digest, sha256_bytes, OUTCOME_PROJECTION, SEMANTIC_PROJECTION,
