@@ -10,7 +10,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 
 use crate::error::StatsError;
 use crate::model::{
-    FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator, WordRecord,
+    FactRecord, FrozenRunSnapshot, FrozenWordSummary, IdentityQuality, ObjectKind, RunMetadata,
+    StructuralLocator, WordRecord,
 };
 use crate::schema;
 use crate::step_cap::StepCap;
@@ -303,6 +304,185 @@ impl StatsCache {
 
         tx.commit()?;
         Ok(run_id)
+    }
+
+    pub fn checkpoint_and_close(self) -> Result<(), StatsError> {
+        let Self { conn, .. } = self;
+        let (busy, log_frames, checkpointed_frames) =
+            conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+        if busy != 0 || log_frames > 0 || (log_frames >= 0 && checkpointed_frames != log_frames) {
+            return Err(StatsError::CheckpointIncomplete {
+                busy,
+                log_frames,
+                checkpointed_frames,
+            });
+        }
+        conn.close().map_err(|(_, error)| error.into())
+    }
+
+    pub fn read_frozen_run(
+        cache_path: &Path,
+        expected_run_id: i64,
+    ) -> Result<FrozenRunSnapshot, StatsError> {
+        let mut conn = Connection::open_with_flags(
+            cache_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
+        let run_count: i64 = tx.query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))?;
+        if run_count != 1 {
+            return Err(StatsError::FrozenRunCount { actual: run_count });
+        }
+        let (
+            run_id,
+            schema_version,
+            counter_semantics,
+            build_info,
+            grammar_hash,
+            engine,
+            options_hash,
+            options_json,
+            word_count,
+            step_cap,
+        ) = tx
+            .query_row(
+                "SELECT run_id, schema_version, counter_semantics, build_info, grammar_hash, \
+                        engine, options_hash, options_json, word_count, step_cap \
+                 FROM run",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, i64>(8)?,
+                        row.get::<_, Option<i64>>(9)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or(StatsError::FrozenRunIdMismatch {
+                requested: expected_run_id,
+            })?;
+        if run_id != expected_run_id {
+            return Err(StatsError::FrozenRunIdMismatch {
+                requested: expected_run_id,
+            });
+        }
+        if schema_version != schema::SCHEMA_VERSION {
+            return Err(StatsError::SchemaMismatch {
+                existing: schema_version,
+                requested: schema::SCHEMA_VERSION,
+            });
+        }
+        let Some((_, identity_schema, identity_grammar, identity_engine)) =
+            schema::cache_identity(&tx)?
+        else {
+            return Err(StatsError::CacheIdentityMissing);
+        };
+        if identity_schema != schema_version {
+            return Err(StatsError::SchemaMismatch {
+                existing: identity_schema,
+                requested: schema_version,
+            });
+        }
+        if identity_grammar != grammar_hash {
+            return Err(StatsError::GrammarMismatch {
+                existing: identity_grammar,
+                requested: grammar_hash,
+            });
+        }
+        if identity_engine.as_deref() != Some(engine.as_str()) {
+            return Err(StatsError::EngineMismatch {
+                existing: identity_engine.unwrap_or_else(|| "unclaimed".to_string()),
+                requested: engine,
+            });
+        }
+        let other_word_owners: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM word WHERE run_id <> ?1",
+            params![run_id],
+            |row| row.get(0),
+        )?;
+        if other_word_owners != 0 {
+            return Err(StatsError::FrozenWordOwnershipMismatch {
+                actual: other_word_owners,
+            });
+        }
+        let raw_words = {
+            let mut statement = tx.prepare(
+                "SELECT form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape \
+                 FROM word WHERE run_id = ?1 ORDER BY form",
+            )?;
+            let rows = statement.query_map(params![run_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u64>(1)?,
+                    row.get::<_, u64>(2)?,
+                    row.get::<_, u64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        if i64::try_from(raw_words.len()).unwrap_or(i64::MAX) != word_count {
+            return Err(StatsError::FrozenWordCountMismatch {
+                declared: word_count,
+                actual: i64::try_from(raw_words.len()).unwrap_or(i64::MAX),
+            });
+        }
+        let words = raw_words
+            .into_iter()
+            .map(
+                |(form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape)| {
+                    Ok(FrozenWordSummary {
+                        form,
+                        elapsed_ns,
+                        attempts,
+                        passes,
+                        capped: read_frozen_bool("capped", capped)?,
+                        timed_out: read_frozen_bool("timed_out", timed_out)?,
+                        invalid_shape: read_frozen_bool("invalid_shape", invalid_shape)?,
+                    })
+                },
+            )
+            .collect::<Result<Vec<_>, StatsError>>()?;
+        let word_count =
+            u64::try_from(word_count).map_err(|_| StatsError::FrozenWordCountMismatch {
+                declared: word_count,
+                actual: words.len() as i64,
+            })?;
+        tx.commit()?;
+        conn.close().map_err(|(_, error)| error)?;
+        Ok(FrozenRunSnapshot {
+            run_id,
+            schema_version,
+            counter_semantics,
+            build_info,
+            grammar_hash,
+            engine,
+            options_hash,
+            options_json,
+            word_count,
+            step_cap: step_cap.map(crate::StepCap::from_storage),
+            words,
+        })
+    }
+}
+
+fn read_frozen_bool(field: &'static str, value: i64) -> Result<bool, StatsError> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(StatsError::InvalidFrozenBoolean { field, value }),
     }
 }
 

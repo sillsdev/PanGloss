@@ -2009,6 +2009,7 @@ fn load_affix_template(
     }
 
     Ok(AffixTemplateDef {
+        source_guid: None,
         name: temp.text_of("Name").map(str::to_string),
         is_final: parse_bool(temp.attr("final"), true),
         required_syn_fs,

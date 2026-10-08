@@ -7,6 +7,12 @@ to investigate, make one grammar change, and then rerun the grammar's correctnes
 The workflow uses the default HermitCrab engine. Do not pass `--engine=foma`: that path records word
 timings but cannot collect the per-object counters needed for grammar optimization.
 
+For a frozen, manifest-bound cache projected into the immutable grammar facts database, see the
+[`grammar-facts-format.md`](grammar-facts-format.md) v7 stats contract and
+[`batch-stats-manifest.md`](../rust/docs/batch-stats-manifest.md). The facts artifact records
+collector support and word completion separately so a stored zero, an absent row, and an
+unsupported counter remain distinguishable.
+
 ## 1. Collect statistics
 
 Start with a representative UTF-8 word list containing one form per line. Use an explicit cache so

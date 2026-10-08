@@ -74,6 +74,17 @@ pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, Grammar
     Ok((prules, morphology_prules, clitic_prules))
 }
 
+pub(crate) fn record_unreferenced_feature_constraints(snapshot: &Snapshot, ctx: &Ctx) {
+    for constraint in &snapshot.phonology.feature_constraints {
+        let key = InventoryKey::object(InventoryKind::FeatureConstraint, constraint.guid.clone());
+        if ctx.has_load_decision(&key) {
+            continue;
+        }
+        ctx.considered(key.clone());
+        ctx.not_considered(key, pg_snapshot::LoadReasonCode::Unreferenced);
+    }
+}
+
 fn dir_mode(d: pg_snapshot::phonology::RuleDirection) -> (Dir, RewriteMode) {
     use pg_snapshot::phonology::RuleDirection as D;
     match d {

@@ -693,27 +693,27 @@ fn build_circumfix_lhs(
     if prefix_env.is_none() && suffix_env.is_none() {
         nodes.extend(environment::any_plus(ctx));
     } else {
-        if let Some(ResolvedEnvironmentPass {
-            split: (left_str, right_str),
-            ..
-        }) = prefix_env
-        {
+        if let Some(ResolvedEnvironmentPass { resolution, .. }) = prefix_env {
             nodes.push(environment::prefix_null(ctx));
-            nodes.extend(environment::pattern_nodes(right_str, ctx)?);
-            if !left_str.is_empty() {
-                left_env_pattern = environment::load_environment_pattern(left_str, true, ctx)?;
+            nodes.extend(raw_pattern_nodes(resolution.right.as_ref()));
+            if resolution
+                .left_text
+                .as_deref()
+                .is_some_and(|text| !text.is_empty())
+            {
+                left_env_pattern = resolution.left.clone();
             }
         }
         nodes.extend(environment::any_star(ctx));
-        if let Some(ResolvedEnvironmentPass {
-            split: (left_str, right_str),
-            ..
-        }) = suffix_env
-        {
-            nodes.extend(environment::pattern_nodes(left_str, ctx)?);
+        if let Some(ResolvedEnvironmentPass { resolution, .. }) = suffix_env {
+            nodes.extend(raw_pattern_nodes(resolution.left.as_ref()));
             nodes.push(environment::suffix_null(ctx));
-            if !right_str.is_empty() {
-                right_env_pattern = environment::load_environment_pattern(right_str, false, ctx)?;
+            if resolution
+                .right_text
+                .as_deref()
+                .is_some_and(|text| !text.is_empty())
+            {
+                right_env_pattern = resolution.right.clone();
             }
         }
     }
@@ -727,6 +727,15 @@ fn build_circumfix_lhs(
         });
     }
     Ok((nodes, environments))
+}
+
+fn raw_pattern_nodes(pattern: Option<&Pattern>) -> Vec<PatternNode> {
+    pattern
+        .into_iter()
+        .flat_map(|pattern| pattern.nodes.iter())
+        .filter(|node| !matches!(node, PatternNode::Anchor(_)))
+        .cloned()
+        .collect()
 }
 
 /// Whether `form` is a reduplication/bracket-pattern affix shape rather than literal text -- shared by `is_valid_rule_form`'s rejection and by `collect_text_uses`'s substrate-usage collection, so the two classify the same shape identically.
@@ -806,7 +815,27 @@ pub(crate) fn collect_text_uses(
 /// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity. Records the allomorph rejected only where this filter is the allomorph's one plausible route to a rule form (infix/prefix/suffix-shaped); a morph type that structurally can never be a rule form (bare stem/clitic/particle/phrase) is left considered-but-not-selected, mirroring a disabled compound rule rather than a failure.
 fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
     if let Some(process) = &allo.process {
-        return process.input.len() > 1 || process.output.len() > 1;
+        if process.input.len() > 1 || process.output.len() > 1 {
+            return true;
+        }
+        let key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
+        ctx.record_load_decision(pg_snapshot::LoadDecisionDraft {
+            subject: key,
+            pipeline_stage: pg_snapshot::LoadPipelineStage::Compile,
+            context_key: "affixProcessArity".into(),
+            disposition: pg_snapshot::LoadDisposition::Rejected,
+            loaded: Some(false),
+            reason_code: pg_snapshot::LoadReasonCode::ConversionIssue(
+                "affixProcessUnsupportedArity".into(),
+            ),
+            effective_value_json: Some(format!(
+                "{{\"inputParts\":{},\"outputParts\":{}}}",
+                process.input.len(),
+                process.output.len()
+            )),
+            issue_code: None,
+        });
+        return false;
     }
     if allo.is_abstract {
         return false;
@@ -816,7 +845,8 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
         MorphType::Infix | MorphType::InfixingInterfix => {
             if !allo.positions.iter().any(|guid| {
                 ctx.env_by_guid.get(guid.as_str()).is_some_and(|env| {
-                    environment::validate_environment(&env.representation, ctx).is_ok()
+                    ctx.environment_resolution(env).status
+                        == environment::EnvironmentResolutionStatus::Valid
                 })
             }) {
                 // HCLoader's IsValidRuleForm requires a usable insertion position.
@@ -963,12 +993,7 @@ fn build_affix_allomorphs_for(
     let pending_start = ctx.pending_rule_refusals.borrow().len();
     let mut out = Vec::new();
     for pass in resolve_environments(&combined_env_guids, &allo.guid, mrule_id, ctx) {
-        let (left_str, right_str) = pass
-            .as_ref()
-            .map(|pass| pass.split.clone())
-            .unwrap_or_default();
-        let source = pass.and_then(|pass| pass.source);
-        match build_concatenative(&form, &left_str, &right_str, shape, source, ctx) {
+        match build_concatenative(&form, pass.as_ref(), shape, ctx) {
             Ok((lhs, rhs, environments)) => {
                 let required_syn_fs = match &allo.ms_env_features {
                     Some(fs) => match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
@@ -1044,18 +1069,24 @@ fn build_affix_allomorphs_for(
 type ConcatBuild = (Vec<Pattern>, Vec<OutputAction>, Vec<EnvironmentDef>);
 
 struct ResolvedEnvironmentPass {
-    split: (String, String),
+    resolution: environment::EnvironmentResolution,
     source: Option<EnvironmentSource>,
 }
 
 fn build_concatenative(
     form: &str,
-    left_str: &str,
-    right_str: &str,
+    pass: Option<&ResolvedEnvironmentPass>,
     shape: Shape,
-    source: Option<EnvironmentSource>,
     ctx: &Ctx,
 ) -> Result<ConcatBuild, String> {
+    let resolution = pass.map(|pass| &pass.resolution);
+    let left_str = resolution
+        .and_then(|resolved| resolved.left_text.as_deref())
+        .unwrap_or("");
+    let right_str = resolution
+        .and_then(|resolved| resolved.right_text.as_deref())
+        .unwrap_or("");
+    let source = pass.and_then(|pass| pass.source.clone());
     match shape {
         Shape::Suffix => {
             let mut nodes = Vec::new();
@@ -1067,7 +1098,9 @@ fn build_concatenative(
                 } else {
                     nodes.extend(environment::any_star(ctx));
                 }
-                nodes.extend(environment::pattern_nodes(left_str, ctx)?);
+                nodes.extend(raw_pattern_nodes(
+                    resolution.and_then(|resolved| resolved.left.as_ref()),
+                ));
                 nodes.push(environment::suffix_null(ctx));
             }
             let lhs = vec![Pattern { nodes }];
@@ -1078,7 +1111,7 @@ fn build_concatenative(
             ];
             let mut environments = Vec::new();
             if !right_str.is_empty() {
-                if let Some(p) = environment::load_environment_pattern(right_str, false, ctx)? {
+                if let Some(p) = resolution.and_then(|resolved| resolved.right.clone()) {
                     environments.push(EnvironmentDef {
                         require: true,
                         left: None,
@@ -1095,7 +1128,9 @@ fn build_concatenative(
                 nodes.extend(environment::any_plus(ctx));
             } else {
                 nodes.push(environment::prefix_null(ctx));
-                nodes.extend(environment::pattern_nodes(right_str, ctx)?);
+                nodes.extend(raw_pattern_nodes(
+                    resolution.and_then(|resolved| resolved.right.as_ref()),
+                ));
                 if right_str.ends_with('#') {
                     nodes.push(environment::suffix_null(ctx));
                 } else {
@@ -1110,7 +1145,7 @@ fn build_concatenative(
             ];
             let mut environments = Vec::new();
             if !left_str.is_empty() {
-                if let Some(p) = environment::load_environment_pattern(left_str, true, ctx)? {
+                if let Some(p) = resolution.and_then(|resolved| resolved.left.clone()) {
                     environments.push(EnvironmentDef {
                         require: true,
                         left: Some(p),
@@ -1127,8 +1162,11 @@ fn build_concatenative(
             } else {
                 environment::any_star(ctx)
             };
-            left_nodes.extend(environment::pattern_nodes(left_str, ctx)?);
-            let mut right_nodes = environment::pattern_nodes(right_str, ctx)?;
+            left_nodes.extend(raw_pattern_nodes(
+                resolution.and_then(|resolved| resolved.left.as_ref()),
+            ));
+            let mut right_nodes =
+                raw_pattern_nodes(resolution.and_then(|resolved| resolved.right.as_ref()));
             if right_str.ends_with('#') {
                 right_nodes.push(environment::suffix_null(ctx));
             } else {
@@ -1222,8 +1260,12 @@ fn resolve_environments(
         let env_object = InventoryKey::object(InventoryKind::Environment, env.guid.clone());
         ctx.considered(env_object.clone());
         ctx.selected(env_object.clone());
-        // A failing environment is invalid as a whole and lands in the same blank-fallback bucket as a malformed split, rather than being discovered later.
-        if let Err(cause) = environment::validate_environment(&env.representation, ctx) {
+        let resolution = ctx.environment_resolution(env);
+        if resolution.status == environment::EnvironmentResolutionStatus::Invalid {
+            let cause = resolution
+                .error
+                .clone()
+                .unwrap_or_else(|| "invalid environment".into());
             let source = Some(SourceRef {
                 kind: pg_snapshot::FwClass::PhEnvironment,
                 id: env.guid.clone(),
@@ -1249,41 +1291,12 @@ fn resolve_environments(
             has_blank = true;
             continue;
         }
-        match environment::split_environment_string(&env.representation) {
-            Ok(pair) => {
-                out.push(Some(ResolvedEnvironmentPass {
-                    split: pair,
-                    source: Some(environment::snapshot_environment_source(env)),
-                }));
-                ctx.represented(attachment);
-                ctx.represented(env_object);
-            }
-            Err(cause) => {
-                let source = Some(SourceRef {
-                    kind: pg_snapshot::FwClass::PhEnvironment,
-                    id: env.guid.clone(),
-                });
-                defer_environment_issue(
-                    ctx,
-                    mrule_id,
-                    attachment,
-                    issue_codes::ENVIRONMENT_INVALID,
-                    IssueClass::InvalidSource,
-                    source.clone(),
-                    format!("environment validation failed: {cause}"),
-                );
-                defer_environment_issue(
-                    ctx,
-                    mrule_id,
-                    env_object,
-                    issue_codes::ENVIRONMENT_INVALID,
-                    IssueClass::InvalidSource,
-                    source,
-                    "environment representation failed to split",
-                );
-                has_blank = true;
-            }
-        }
+        out.push(Some(ResolvedEnvironmentPass {
+            resolution,
+            source: Some(environment::snapshot_environment_source(env)),
+        }));
+        ctx.represented(attachment);
+        ctx.represented(env_object);
     }
     if has_blank {
         out.push(None);

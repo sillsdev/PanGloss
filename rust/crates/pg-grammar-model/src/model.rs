@@ -830,6 +830,8 @@ pub struct CompoundingSubruleDef {
 /// `<AffixTemplate>` → C# `AffixTemplate`.
 #[derive(Debug)]
 pub struct AffixTemplateDef {
+    /// Original FieldWorks `MoInflAffixTemplate.Guid` for snapshot compilation.
+    pub source_guid: Option<String>,
     pub name: Option<String>,
     pub is_final: bool,
     /// POS-only requirement FS (empty FS if attribute absent).

@@ -308,6 +308,7 @@ fn template_stratum_with_optionality(
     let b = push_mrule(&mut g, rb); // slot 1
     let tid = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: None,
         is_final: true,
         required_syn_fs: pg_featstruct::FsId(0),
@@ -468,6 +469,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     let template_rule = push_mrule(&mut g, template_rule);
     let tid = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: None,
         is_final: true,
         required_syn_fs: pg_featstruct::FsId(0),
@@ -662,6 +664,7 @@ fn final_template_state_resets_between_outer_and_inner_strata() {
     let final_rule = push_mrule(&mut g, final_rule);
     let template = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: None,
         is_final: true,
         required_syn_fs: pg_featstruct::FsId(0),
@@ -751,6 +754,7 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
     let final_rule = push_mrule(&mut g, final_rule);
     let template = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: None,
         is_final: true,
         required_syn_fs: pg_featstruct::FsId(0),
@@ -833,6 +837,7 @@ fn synthesis_template_optional_slot_yields_filled_and_skipped() {
     let b = push_mrule(&mut g, rb);
     let tid = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: None,
         is_final: true,
         required_syn_fs: pg_featstruct::FsId(0),

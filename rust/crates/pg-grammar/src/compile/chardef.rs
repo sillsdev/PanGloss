@@ -235,7 +235,7 @@ fn push_synthetic_boundary(
     reps: &[&str],
     recorder: &mut SelectionRecorder,
 ) {
-    let key = InventoryKey::object(InventoryKind::BoundaryMarker, xml_id.to_string());
+    let key = InventoryKey::synthetic(InventoryKind::BoundaryMarker, xml_id);
     recorder.synthesized(key.clone());
     recorder.considered(key.clone());
     let norm: Vec<String> = reps.iter().map(|r| nfd(r)).collect();

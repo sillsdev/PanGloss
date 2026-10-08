@@ -70,7 +70,7 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     };
 
     let project = fieldworks_project_for_path(grammar_path, fieldworks_project);
-    let diagnostics = match crate::load_grammar_impl(grammar_path, false) {
+    let diagnostics = match crate::load_grammar_impl(grammar_path, false, false) {
         Ok(loaded) => {
             crate::print_substrate_report(&loaded.substrate);
             let mut diagnostics = check_grammar_health_diagnostics(&loaded.grammar)

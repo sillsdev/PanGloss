@@ -200,6 +200,9 @@ See [Optimize a grammar with PanGloss stats](docs/optimize-grammar-with-stats.md
 human- and AI-readable workflow, report semantics, drill-down filters, machine-readable output, and
 interpretation cautions.
 
+The immutable SQLite contract is documented in
+[Grammar facts format](docs/grammar-facts-format.md); schema v7 can attach one validated frozen batch run.
+
 ## Discovering the CLI's own surface
 
 `pangloss --describe` (or `pangloss describe`) prints every subcommand and flag `main.rs` actually

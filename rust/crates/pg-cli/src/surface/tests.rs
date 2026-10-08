@@ -75,10 +75,19 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(spec.flag("--threads").is_some());
     assert!(spec.flag("--word-timeout-ms").is_some());
     assert!(spec.flag("--analyses").is_some());
+    assert!(spec.flag("--stats-manifest").is_some());
 
     let value: serde_json::Value = serde_json::to_value(&Describe {
         schema_version: 1,
         binary: "pangloss",
+        facts: super::FactsDescribe {
+            format: pg_facts::FACT_FORMAT,
+            schema_version: pg_facts::FACT_SCHEMA_VERSION,
+            application_id: pg_facts::APPLICATION_ID,
+            context_format: pg_facts::FACTS_CONTEXT_FORMAT,
+            context_version: pg_facts::FACTS_CONTEXT_VERSION,
+            stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
+        },
         commands: COMMANDS,
     })
     .expect("Describe must serialize");
@@ -97,6 +106,32 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(flag_names.contains(&"--threads"));
     assert!(flag_names.contains(&"--word-timeout-ms"));
     assert!(flag_names.contains(&"--analyses"));
+    assert!(flag_names.contains(&"--stats-manifest"));
+}
+
+#[test]
+fn describe_json_publishes_the_facts_identity_contract() {
+    let value: serde_json::Value = serde_json::to_value(&Describe {
+        schema_version: 1,
+        binary: "pangloss",
+        facts: super::FactsDescribe {
+            format: pg_facts::FACT_FORMAT,
+            schema_version: pg_facts::FACT_SCHEMA_VERSION,
+            application_id: pg_facts::APPLICATION_ID,
+            context_format: pg_facts::FACTS_CONTEXT_FORMAT,
+            context_version: pg_facts::FACTS_CONTEXT_VERSION,
+            stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
+        },
+        commands: COMMANDS,
+    })
+    .unwrap();
+    assert_eq!(value["facts"]["format"], "pangloss-grammar-facts");
+    assert_eq!(value["facts"]["schemaVersion"], 7);
+    assert_eq!(value["facts"]["statsManifestVersion"], 1);
+    assert_eq!(value["facts"]["applicationId"], 1_346_848_321);
+    assert_eq!(value["facts"]["contextFormat"], "pangloss-facts-context");
+    assert_eq!(value["facts"]["contextVersion"], 1);
+    assert!(find_command("facts").is_some());
 }
 
 #[test]
@@ -113,6 +148,14 @@ fn hidden_commands_are_marked_hidden_in_the_described_json() {
     let value: serde_json::Value = serde_json::to_value(&Describe {
         schema_version: 1,
         binary: "pangloss",
+        facts: super::FactsDescribe {
+            format: pg_facts::FACT_FORMAT,
+            schema_version: pg_facts::FACT_SCHEMA_VERSION,
+            application_id: pg_facts::APPLICATION_ID,
+            context_format: pg_facts::FACTS_CONTEXT_FORMAT,
+            context_version: pg_facts::FACTS_CONTEXT_VERSION,
+            stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
+        },
         commands: COMMANDS,
     })
     .expect("Describe must serialize");

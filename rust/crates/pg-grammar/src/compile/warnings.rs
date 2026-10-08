@@ -455,7 +455,9 @@ pub(super) fn source_for_key(
         | InventoryIdentity::Expansion { owner_guid, .. } => {
             return Some(source_for_owner_guid(snapshot, owner_guid));
         }
-        InventoryIdentity::Setting { .. } => return None,
+        InventoryIdentity::Synthetic { .. }
+        | InventoryIdentity::Setting { .. }
+        | InventoryIdentity::SourceOccurrence { .. } => return None,
     };
     let kind = match key.kind {
         InventoryKind::Entry | InventoryKind::EntryReference => pg_snapshot::FwClass::LexEntry,

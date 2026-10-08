@@ -35,6 +35,57 @@ pub(crate) fn build(
     Ok(out)
 }
 
+pub(crate) fn record_unconsidered_slots(snapshot: &Snapshot, ctx: &Ctx) {
+    fn walk<'a>(
+        items: &'a [PartOfSpeech],
+        slots: &mut Vec<&'a AffixSlot>,
+        disabled_refs: &mut Vec<(String, String)>,
+    ) {
+        for pos in items {
+            slots.extend(&pos.affix_slots);
+            for template in &pos.affix_templates {
+                if template.disabled {
+                    disabled_refs.extend(
+                        template
+                            .prefix_slots
+                            .iter()
+                            .chain(&template.suffix_slots)
+                            .map(|slot| (slot.clone(), template.guid.clone())),
+                    );
+                }
+            }
+            walk(&pos.children, slots, disabled_refs);
+        }
+    }
+
+    let mut slots = Vec::new();
+    let mut disabled_refs = Vec::new();
+    walk(
+        &snapshot.morphology.parts_of_speech,
+        &mut slots,
+        &mut disabled_refs,
+    );
+    disabled_refs.sort();
+    disabled_refs.dedup();
+    for (slot_guid, template_guid) in disabled_refs {
+        let key = InventoryKey::object(InventoryKind::TemplateSlot, slot_guid);
+        ctx.considered(key.clone());
+        ctx.not_considered_in_context(
+            key,
+            format!("template:{template_guid}"),
+            pg_snapshot::LoadReasonCode::Disabled,
+        );
+    }
+    for slot in slots {
+        let key = InventoryKey::object(InventoryKind::TemplateSlot, slot.guid.clone());
+        if ctx.has_load_decision(&key) {
+            continue;
+        }
+        ctx.considered(key.clone());
+        ctx.not_considered(key, pg_snapshot::LoadReasonCode::Unreferenced);
+    }
+}
+
 fn collect_slots<'a>(items: &'a [PartOfSpeech], out: &mut HashMap<&'a str, &'a AffixSlot>) {
     for pos in items {
         for s in &pos.affix_slots {
@@ -57,6 +108,16 @@ fn build_pos(
             let key = InventoryKey::object(InventoryKind::Template, tmpl.guid.clone());
             ctx.considered(key);
             if tmpl.disabled {
+                ctx.record_load_decision(pg_snapshot::LoadDecisionDraft {
+                    subject: InventoryKey::object(InventoryKind::Template, tmpl.guid.clone()),
+                    pipeline_stage: pg_snapshot::LoadPipelineStage::Compile,
+                    context_key: String::new(),
+                    disposition: pg_snapshot::LoadDisposition::NotConsidered,
+                    loaded: None,
+                    reason_code: pg_snapshot::LoadReasonCode::Disabled,
+                    effective_value_json: None,
+                    issue_code: None,
+                });
                 continue;
             }
             if let Some(id) = build_template(pos, tmpl, snapshot, ctx, acc, slot_registry)? {
@@ -77,18 +138,26 @@ fn build_template(
     slot_registry: &HashMap<&str, &AffixSlot>,
 ) -> Result<Option<TemplateId>, GrammarError> {
     // Combined slot order: suffix slots as declared, then prefix slots reversed.
-    let mut combined: Vec<(&str, bool)> = tmpl
+    let mut combined: Vec<(&str, bool, &str, usize)> = tmpl
         .suffix_slots
         .iter()
-        .map(|g| (g.as_str(), false))
+        .enumerate()
+        .map(|(ordinal, guid)| (guid.as_str(), false, "suffix", ordinal))
         .collect();
-    combined.extend(tmpl.prefix_slots.iter().rev().map(|g| (g.as_str(), true)));
+    combined.extend(
+        tmpl.prefix_slots
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(ordinal, guid)| (guid.as_str(), true, "prefix", ordinal)),
+    );
 
     let template_key = InventoryKey::object(InventoryKind::Template, tmpl.guid.clone());
     ctx.selected(template_key.clone());
 
     let mut slot_defs = Vec::new();
-    for (slot_guid, is_prefix) in combined {
+    let mut represented_slots = Vec::new();
+    for (slot_guid, is_prefix, side, authored_ordinal) in combined {
         let slot_key = InventoryKey::object(InventoryKind::TemplateSlot, slot_guid.to_string());
         let attachment = InventoryKey::attachment(
             InventoryKind::TemplateSlot,
@@ -159,9 +228,6 @@ fn build_template(
             );
             continue;
         }
-        ctx.represented(slot_key);
-        ctx.represented(attachment);
-
         let infl_types_for_slot: Vec<&LexEntryInflType> = snapshot
             .morphology
             .lex_entry_infl_types
@@ -189,6 +255,15 @@ fn build_template(
             }
         }
 
+        let compiled_order = slot_defs.len();
+        represented_slots.push((
+            slot_key,
+            attachment,
+            side,
+            authored_ordinal,
+            slot_guid,
+            compiled_order,
+        ));
         slot_defs.push(SlotDef {
             name: Some(affix_slot.name.clone()),
             optional: affix_slot.optional,
@@ -229,11 +304,27 @@ fn build_template(
 
     let id = TemplateId(acc.templates.len() as u32);
     acc.templates.push(AffixTemplateDef {
+        source_guid: Some(tmpl.guid.clone()),
         name: Some(tmpl.name.clone()),
         is_final: tmpl.is_final,
         required_syn_fs,
         slots: slot_defs,
     });
+    for (slot_key, attachment, side, authored_ordinal, slot_guid, compiled_order) in
+        represented_slots
+    {
+        ctx.represented(slot_key);
+        ctx.represented_with_effective_value(
+            attachment,
+            serde_json::json!({
+                "compiledOrder": compiled_order,
+                "ordinal": authored_ordinal,
+                "side": side,
+                "slotGuid": slot_guid,
+            })
+            .to_string(),
+        );
+    }
     ctx.represented(template_key);
     Ok(Some(id))
 }
@@ -255,7 +346,7 @@ fn build_null_affix_rule(
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Option<MRuleId> {
-    let key = InventoryKey::object(InventoryKind::Msa, format!("null-affix#{}", it.guid));
+    let key = InventoryKey::synthetic(InventoryKind::Msa, format!("null-affix#{}", it.guid));
     ctx.synthesized(key.clone());
     ctx.considered(key.clone());
     let Some(required_mpr) = ctx.mpr.lex_entry_infl_type(&it.guid) else {

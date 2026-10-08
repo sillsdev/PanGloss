@@ -72,6 +72,18 @@ fn bracket_class_reference_inserts_an_abstract_node_with_the_class_members() {
 }
 
 #[test]
+fn natural_class_membership_uses_the_compiled_character_set() {
+    let t = table(vec![seg("c_b", &["b"]), seg("c_a", &["a"])]);
+    let a = t.lookup_nfd("a").unwrap();
+    let b = t.lookup_nfd("b").unwrap();
+    let nc = segments_class("nc1", "Vowel", vec![a]);
+
+    let members = nat_class_member_ids(&t, &nc);
+    assert!(members.contains(&a));
+    assert!(!members.contains(&b));
+}
+
+#[test]
 fn bracket_class_lookup_is_by_name_not_by_xml_id() {
     // Lookup is keyed by `Name` ("Vowel"), never by the `id` attribute ("vwl") (XmlLanguageLoader.cs:704,719).
     let t = table(vec![seg("c_b", &["b"]), seg("c_a", &["a"])]);

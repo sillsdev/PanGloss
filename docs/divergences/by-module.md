@@ -39,6 +39,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `HermitCrabExtensions.cs` | 027 |
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
 | FieldWorks `HCLoader.cs` (`LoadCircumfixAffixProcessAllomorph`) | 039 |
+| FieldWorks `HCLoader.cs` (adhoc repositories, lines 340-350) | 053 |
 | FieldWorks `HCLoader.cs` (`LoadRootAllomorph`, `GetValidEnvironments`, `IsValidRuleForm`) | 051 |
 | `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
 | `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
@@ -52,6 +53,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | Rust file | Entry ids |
 |---|---|
 | `pg-grammar/src/compile/environment.rs`, `affixes.rs`, `warnings.rs`; `pg-cli/src/compile_failure.rs` | 051 |
+| `pg-fwdata/src/xml.rs` (`ALLOWED_CLASSES`), `pg-fwdata/src/extract/inventory.rs` (`class_role`), `pg-fwdata/src/extract/morphology.rs` (`extract_adhoc_prohibitions`) | 053 |
 | `pg-rules/src/morph.rs` (`ana_syn_fs`) | 001, 002 |
 | `pg-rules/src/morph.rs` (`synth_compound_subrule`) | 003 |
 | `pg-rules/src/word.rs` (`current_non_head`) | 004 |
@@ -126,6 +128,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
 | `pg-parse/tests/csharp_port_affix_process.rs` (copy-agreement tests), `pg-rules/tests/stratum_gate.rs` (`copy_agreement_pruning_is_on_by_default`), `machine/conformance` `metathesis-phase-isolation` / `suffixing-extension-slot-ordering` reduplication words | 049 |
 | `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/step_cap_work_gate.rs` | 052 |
+| `pg-cli/tests/fwdata_conformance_gate.rs` (`grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics`) | 053 |
 
 ## Optimization and shared-correctness follow-up
 

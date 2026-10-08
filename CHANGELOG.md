@@ -3,6 +3,38 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.7.0
+
+### `pangloss facts` publishes what the parser actually loaded
+
+- **New command.** `pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--json]`
+  writes one immutable SQLite artifact describing the grammar exactly as PanGloss loaded it: project,
+  categories, entries, senses and MSAs; templates, slots and allomorphs with the compiler's effective order;
+  ad hoc prohibitions and their groups; phonemes, features, natural classes, environments, phonological rules
+  and pattern trees; and the source census. Every object carries a typed load decision with a reason, and
+  compiler-made objects carry typed synthetic keys rather than invented GUIDs. Each section states whether it
+  is complete, partial, unavailable or not requested; an absent table never means an empty grammar. The
+  contract is `docs/grammar-facts-format.md` (schema version 7); ADR 0008 explains why facts are derived
+  parser evidence and hold no design opinions.
+- **Stats can be frozen and joined.** `batch --stats --stats-manifest <path>` freezes one stats run with its
+  exact source, compiler and counter identities, and `facts --stats <cache> --stats-manifest <manifest>`
+  projects those counters into the facts artifact, bridged to source objects. Counter semantics are version 3,
+  so caches made under the old attribution are refused rather than reused. The manifest format is
+  `rust/docs/batch-stats-manifest.md`.
+- Motif's Parsimony review reads this artifact; PanGloss itself makes no recommendations.
+
+### Grouped ad hoc rules in `.fwdata` projects are enforced
+
+- The `.fwdata` importer dropped every `MoAdhocProhibGr`, so a prohibition placed inside a group never blocked
+  a parse. It now reads every concrete morpheme and allomorph prohibition however the rules are grouped, as
+  FieldWorks' HermitCrab loader does. Divergence 053 records the fix and why conformance missed it.
+
+### Compound side MSAs are accounted for
+
+- An MSA reached only through a compound rule's side was recorded as represented but never as considered or
+  selected, which tripped the import accounting invariant in debug builds (the Amharic sample grammar). It is
+  now recorded consistently; parse output is unchanged.
+
 ## 0.6.2
 
 ### Analysis attempts and inner search have separate limits

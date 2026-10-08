@@ -39,6 +39,32 @@ pub enum StatsError {
     #[error("stats cache has no cache identity row")]
     CacheIdentityMissing,
 
+    #[error("frozen stats cache must contain exactly one run, found {actual}")]
+    FrozenRunCount { actual: i64 },
+
+    #[error("frozen stats cache does not contain the declared run {requested}")]
+    FrozenRunIdMismatch { requested: i64 },
+
+    #[error(
+        "frozen stats run declares {declared} words but its cache contains {actual} owned rows"
+    )]
+    FrozenWordCountMismatch { declared: i64, actual: i64 },
+
+    #[error("frozen stats cache contains {actual} word rows owned by another run")]
+    FrozenWordOwnershipMismatch { actual: i64 },
+
+    #[error(
+        "stats cache checkpoint incomplete: busy={busy}, log_frames={log_frames}, checkpointed_frames={checkpointed_frames}"
+    )]
+    CheckpointIncomplete {
+        busy: i64,
+        log_frames: i64,
+        checkpointed_frames: i64,
+    },
+
+    #[error("frozen stats cache has an invalid boolean value for {field}: {value}")]
+    InvalidFrozenBoolean { field: &'static str, value: i64 },
+
     #[error(
         "could not determine a user-data directory for the stats cache (checked LOCALAPPDATA / \
          XDG_DATA_HOME / HOME)"

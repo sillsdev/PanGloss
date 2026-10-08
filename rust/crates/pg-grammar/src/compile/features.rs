@@ -155,7 +155,7 @@ pub(crate) fn build_syn_features(
     }
     collect(&snapshot.morphology.parts_of_speech, &mut pos_symbols);
 
-    let pos_key = InventoryKey::object(InventoryKind::FeatureDefinition, "__pos__");
+    let pos_key = InventoryKey::synthetic(InventoryKind::FeatureDefinition, "__pos__");
     recorder.synthesized(pos_key.clone());
     recorder.considered(pos_key.clone());
     recorder.selected(pos_key.clone());
@@ -169,7 +169,7 @@ pub(crate) fn build_syn_features(
         },
     }];
     let head = FeatId(features.len() as u16);
-    let head_key = InventoryKey::object(InventoryKind::FeatureDefinition, "__head__");
+    let head_key = InventoryKey::synthetic(InventoryKind::FeatureDefinition, "__head__");
     recorder.synthesized(head_key.clone());
     recorder.considered(head_key.clone());
     recorder.selected(head_key.clone());

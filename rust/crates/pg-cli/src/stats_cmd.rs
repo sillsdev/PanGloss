@@ -1,10 +1,11 @@
 //! The HC `batch --stats` cache-writing path and the `stats` subcommand's cache-reading/reporting side of `pg_stats::StatsCache`, including synthetic Foma-cache report semantics.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MRuleId, PRuleId};
+use pg_grammar::stats_identity::StatsIdentityCatalog;
 use pg_stats::StepCap;
 use serde::Serialize;
 use serde_json::Value;
@@ -97,17 +98,18 @@ fn to_stats_quality(q: pg_grammar::stats_identity::IdentityQuality) -> pg_stats:
 /// Maps one collector row's runtime ids to durable identities via `pg_grammar::stats_identity`, treating `row` as opaque otherwise.
 fn fact_record_from_stats_row(
     grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
     row: &pg_rules::stats::StatsRow,
 ) -> pg_stats::FactRecord {
     let identity = match row.kind {
         pg_rules::stats::ObjectKind::MorphRule => {
-            pg_grammar::stats_identity::morph_rule_identity(grammar, MRuleId(row.object_index))
+            identities.morph_rule(MRuleId(row.object_index)).clone()
         }
         pg_rules::stats::ObjectKind::PhonRule => {
             pg_grammar::stats_identity::phon_rule_identity(grammar, PRuleId(row.object_index))
         }
         pg_rules::stats::ObjectKind::LexEntry => {
-            pg_grammar::stats_identity::lex_entry_identity(grammar, LexEntryId(row.object_index))
+            identities.lex_entry(LexEntryId(row.object_index)).clone()
         }
         pg_rules::stats::ObjectKind::RootIndex => {
             pg_grammar::stats_identity::root_index_identity(grammar, row.stratum)
@@ -124,7 +126,7 @@ fn fact_record_from_stats_row(
     let allomorph = if row.allomorph == pg_rules::stats::ALLOMORPH_NONE {
         None
     } else {
-        let a = pg_grammar::stats_identity::allomorph_identity(grammar, AllomorphId(row.allomorph));
+        let a = identities.allomorph(AllomorphId(row.allomorph));
         Some(pg_stats::StructuralLocator::new(a.key, a.label))
     };
     // Only a `lex_entry` object realizes a single morpheme; every other kind carries no locator.
@@ -196,7 +198,7 @@ fn refuse_if_cache_engine_differs(
     Ok(())
 }
 
-const SEARCH_BUDGET_SEMANTICS: u32 = 2;
+pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 2;
 
 fn prior_options(
     cache: &pg_stats::StatsCache,
@@ -303,15 +305,29 @@ fn final_template_stats_line(counters: pg_rules::stats::PruneCounters) -> String
 }
 
 /// Flushes HC `batch --stats` records in batches and prints the one summary line it promises.
-fn finish_stats_flush(
-    cache: &mut pg_stats::StatsCache,
-    grammar_path: &str,
-    grammar_hash: &str,
-    options: &StatsOptionsRecord,
+struct StatsFlushRequest<'a> {
+    grammar_path: &'a str,
+    grammar_hash: &'a str,
+    options: &'a StatsOptionsRecord,
     records: Vec<pg_stats::WordRecord>,
     skipped: usize,
     elapsed: Duration,
-) -> Result<(), String> {
+    single_run: bool,
+}
+
+fn finish_stats_flush(
+    cache: &mut pg_stats::StatsCache,
+    request: StatsFlushRequest<'_>,
+) -> Result<i64, String> {
+    let StatsFlushRequest {
+        grammar_path,
+        grammar_hash,
+        options,
+        records,
+        skipped,
+        elapsed,
+        single_run,
+    } = request;
     let identity = stats_options_identity(options)?;
     let run = pg_stats::RunMetadata {
         build_info: crate::build_info::embedded_build_info().to_string(),
@@ -325,19 +341,24 @@ fn finish_stats_flush(
     };
 
     let analyzed = records.len();
-    let mut chunks: Vec<&[pg_stats::WordRecord]> = records.chunks(STATS_FLUSH_BATCH).collect();
+    let mut chunks: Vec<&[pg_stats::WordRecord]> = if single_run {
+        vec![&records]
+    } else {
+        records.chunks(STATS_FLUSH_BATCH).collect()
+    };
     if chunks.is_empty() {
         chunks.push(&[]);
     }
+    let mut run_id = None;
     for chunk in chunks {
-        cache.flush(&run, chunk).map_err(|e| e.to_string())?;
+        run_id = Some(cache.flush(&run, chunk).map_err(|e| e.to_string())?);
     }
 
     println!(
         "stats: analyzed={analyzed} skipped={skipped} summed_word_ms={:.3}",
         elapsed.as_secs_f64() * 1e3
     );
-    Ok(())
+    run_id.ok_or_else(|| "stats flush did not create a run".to_string())
 }
 
 struct StatsOptionsIdentity {
@@ -359,6 +380,7 @@ pub(crate) struct BatchStatsWord {
 
 pub(crate) fn batch_stats_word(
     grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
     word: &str,
     outcome: &pg_parse::BatchWordOutcome,
     rows: &[pg_rules::stats::StatsRow],
@@ -372,7 +394,7 @@ pub(crate) fn batch_stats_word(
     }
     let facts = rows
         .iter()
-        .map(|row| fact_record_from_stats_row(grammar, row))
+        .map(|row| fact_record_from_stats_row(grammar, identities, row))
         .collect();
     BatchStatsWord {
         record: pg_stats::WordRecord {
@@ -396,6 +418,15 @@ pub(crate) struct BatchStatsCache {
     existing_words: HashSet<String>,
     skipped: usize,
     options: StatsOptionsRecord,
+    mode: BatchStatsCacheMode,
+}
+
+enum BatchStatsCacheMode {
+    Reusable,
+    Frozen {
+        cache_path: PathBuf,
+        input_words: Vec<String>,
+    },
 }
 
 impl BatchStatsCache {
@@ -419,10 +450,84 @@ pub(crate) fn prepare_batch_stats_hc(
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
 ) -> Result<BatchStatsCache, String> {
-    let grammar_hash = grammar_hash_for(grammar_path)?;
+    prepare_batch_stats_hc_inner(
+        grammar_path,
+        words,
+        step_cap,
+        work_cap,
+        word_timeout_ms,
+        guess,
+        always_enforce_final_templates,
+        cache_override,
+        None,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_frozen_batch_stats_hc(
+    grammar_path: &str,
+    words: &[String],
+    step_cap: StepCap,
+    work_cap: usize,
+    word_timeout_ms: Option<u64>,
+    guess: bool,
+    always_enforce_final_templates: bool,
+    cache_path: &str,
+    grammar_hash: &str,
+) -> Result<BatchStatsCache, String> {
+    prepare_batch_stats_hc_inner(
+        grammar_path,
+        words,
+        step_cap,
+        work_cap,
+        word_timeout_ms,
+        guess,
+        always_enforce_final_templates,
+        Some(cache_path),
+        Some(grammar_hash),
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_batch_stats_hc_inner(
+    grammar_path: &str,
+    words: &[String],
+    step_cap: StepCap,
+    work_cap: usize,
+    word_timeout_ms: Option<u64>,
+    guess: bool,
+    always_enforce_final_templates: bool,
+    cache_override: Option<&str>,
+    grammar_hash_override: Option<&str>,
+    frozen: bool,
+) -> Result<BatchStatsCache, String> {
+    if frozen {
+        let mut seen = HashSet::with_capacity(words.len());
+        if words.iter().any(|word| !seen.insert(word.as_str())) {
+            return Err(
+                "stats manifest: duplicate word forms would overwrite rows in the stats cache"
+                    .into(),
+            );
+        }
+    }
+    let grammar_hash = match grammar_hash_override {
+        Some(hash) => hash.to_string(),
+        None => grammar_hash_for(grammar_path)?,
+    };
     let cache_path = resolve_cache_path(grammar_path, cache_override)?;
+    if frozen {
+        refuse_nonempty_frozen_cache(&cache_path)?;
+    }
     let outcome =
         pg_stats::StatsCache::open(&cache_path, &grammar_hash).map_err(|e| e.to_string())?;
+    if frozen && outcome.wiped {
+        return Err(format!(
+            "stats manifest requires an initially empty cache: {}",
+            cache_path.display()
+        ));
+    }
     if outcome.wiped {
         println!(
             "stats: cache wiped (grammar changed): {}",
@@ -460,6 +565,12 @@ pub(crate) fn prepare_batch_stats_hc(
         .iter()
         .filter(|word| existing.contains(word.as_str()))
         .count();
+    if frozen && !existing.is_empty() {
+        return Err(format!(
+            "stats manifest requires an initially empty cache: {}",
+            cache_path.display()
+        ));
+    }
 
     Ok(BatchStatsCache {
         cache: outcome.cache,
@@ -468,13 +579,39 @@ pub(crate) fn prepare_batch_stats_hc(
         existing_words: existing,
         skipped,
         options,
+        mode: if frozen {
+            BatchStatsCacheMode::Frozen {
+                cache_path,
+                input_words: words.to_vec(),
+            }
+        } else {
+            BatchStatsCacheMode::Reusable
+        },
     })
+}
+
+fn refuse_nonempty_frozen_cache(cache_path: &Path) -> Result<(), String> {
+    match std::fs::metadata(cache_path) {
+        Ok(metadata) if metadata.is_file() && metadata.len() == 0 => Ok(()),
+        Ok(_) => Err(format!(
+            "stats manifest requires an initially empty cache: {}",
+            cache_path.display()
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "inspect frozen stats cache {}: {error}",
+            cache_path.display()
+        )),
+    }
 }
 
 pub(crate) fn finish_batch_stats_hc(
     mut prepared: BatchStatsCache,
     stats_words: Vec<BatchStatsWord>,
 ) -> Result<pg_rules::stats::PruneCounters, String> {
+    if matches!(prepared.mode, BatchStatsCacheMode::Frozen { .. }) {
+        return Err("frozen stats cache requires the manifest finalizer".into());
+    }
     let mut prune_totals = pg_rules::stats::PruneCounters::default();
     let mut total_elapsed_ns = 0u128;
     let records: Vec<_> = stats_words
@@ -495,15 +632,242 @@ pub(crate) fn finish_batch_stats_hc(
     let total_elapsed = Duration::from_nanos(total_elapsed_ns.min(u128::from(u64::MAX)) as u64);
     finish_stats_flush(
         &mut prepared.cache,
-        &prepared.grammar_path,
-        &prepared.grammar_hash,
-        &prepared.options,
-        records,
-        prepared.skipped,
-        total_elapsed,
+        StatsFlushRequest {
+            grammar_path: &prepared.grammar_path,
+            grammar_hash: &prepared.grammar_hash,
+            options: &prepared.options,
+            records,
+            skipped: prepared.skipped,
+            elapsed: total_elapsed,
+            single_run: false,
+        },
     )?;
     println!("{}", final_template_stats_line(prune_totals));
     Ok(prune_totals)
+}
+
+pub(crate) fn finish_frozen_batch_stats_hc(
+    prepared: BatchStatsCache,
+    stats_words: Vec<BatchStatsWord>,
+    manifest_path: &Path,
+    source: crate::stats_manifest::SourceIdentity,
+    batch: crate::stats_manifest::BatchOptions,
+) -> Result<pg_rules::stats::PruneCounters, String> {
+    let BatchStatsCache {
+        mut cache,
+        grammar_path,
+        grammar_hash,
+        existing_words,
+        skipped,
+        options,
+        mode,
+    } = prepared;
+    let BatchStatsCacheMode::Frozen {
+        cache_path,
+        input_words,
+    } = mode
+    else {
+        return Err("stats manifest requires a frozen stats cache".into());
+    };
+    if skipped != 0 || !existing_words.is_empty() {
+        return Err("stats manifest requires an initially empty cache".into());
+    }
+
+    let completion = frozen_completion(&input_words, &stats_words)?;
+    let input = crate::stats_manifest::input_identity(&input_words)?;
+    let mut prune_totals = pg_rules::stats::PruneCounters::default();
+    let mut total_elapsed_ns = 0u128;
+    let records: Vec<_> = stats_words
+        .into_iter()
+        .map(|stats_word| {
+            prune_totals.template_entries += stats_word.prunes.template_entries;
+            prune_totals.template_batteries_skipped += stats_word.prunes.template_batteries_skipped;
+            prune_totals.final_templates_skipped += stats_word.prunes.final_templates_skipped;
+            total_elapsed_ns += u128::from(stats_word.record.elapsed_ns);
+            stats_word.record
+        })
+        .collect();
+    let total_elapsed = Duration::from_nanos(total_elapsed_ns.min(u128::from(u64::MAX)) as u64);
+    let options_identity = stats_options_identity(&options)?;
+    let run_id = finish_stats_flush(
+        &mut cache,
+        StatsFlushRequest {
+            grammar_path: &grammar_path,
+            grammar_hash: &grammar_hash,
+            options: &options,
+            records,
+            skipped,
+            elapsed: total_elapsed,
+            single_run: true,
+        },
+    )?;
+    cache
+        .checkpoint_and_close()
+        .map_err(|error| format!("close frozen stats cache: {error}"))?;
+
+    let cache_snapshot = pg_stats::StatsCache::read_frozen_run(&cache_path, run_id)
+        .map_err(|error| format!("inspect frozen stats cache: {error}"))?;
+    validate_frozen_cache(
+        &cache_snapshot,
+        run_id,
+        &grammar_hash,
+        &options_identity.hash,
+        &options_identity.json,
+        &completion,
+    )?;
+    refuse_uncheckpointed_wal(&cache_path)?;
+    let cache_bytes =
+        std::fs::read(&cache_path).map_err(|error| format!("read frozen stats cache: {error}"))?;
+    let manifest = crate::stats_manifest::StatsRunManifest {
+        format: crate::stats_manifest::FORMAT,
+        version: crate::stats_manifest::VERSION,
+        source,
+        compiler: crate::stats_manifest::CompilerIdentity {
+            version: env!("CARGO_PKG_VERSION"),
+            build_identity: crate::build_info::embedded_build_info(),
+        },
+        cache: crate::stats_manifest::CacheIdentity {
+            sha256: crate::stats_manifest::sha256_digest(&cache_bytes),
+            bytes: cache_bytes.len() as u64,
+            schema_version: cache_snapshot.schema_version,
+            counter_semantics_version: cache_snapshot.counter_semantics,
+        },
+        run: crate::stats_manifest::RunIdentity {
+            id: cache_snapshot.run_id,
+            engine: cache_snapshot.engine,
+            grammar_hash: cache_snapshot.grammar_hash,
+            options_hash: cache_snapshot.options_hash,
+            options_json: cache_snapshot.options_json,
+        },
+        batch,
+        input,
+        completion,
+    };
+    let published = crate::stats_manifest::publish_noclobber(manifest_path, &manifest)?;
+    eprintln!(
+        "stats manifest: published {} ({} bytes, sha256={})",
+        published.path.display(),
+        published.bytes,
+        published.sha256
+    );
+    println!("{}", final_template_stats_line(prune_totals));
+    Ok(prune_totals)
+}
+
+fn frozen_completion(
+    expected: &[String],
+    observations: &[BatchStatsWord],
+) -> Result<crate::stats_manifest::CompletionCensus, String> {
+    if observations.len() != expected.len() {
+        return Err(format!(
+            "stats manifest missing stats record: expected {} words, received {}",
+            expected.len(),
+            observations.len()
+        ));
+    }
+    let mut complete = 0;
+    let mut incomplete = 0;
+    let mut invalid_shape = 0;
+    let mut words = Vec::with_capacity(expected.len());
+    for (index, (form, observation)) in expected.iter().zip(observations).enumerate() {
+        if observation.record.form != *form {
+            return Err(format!(
+                "stats manifest word order mismatch at index {index}: expected {form:?}, found {:?}",
+                observation.record.form
+            ));
+        }
+        let status = if observation.record.invalid_shape {
+            invalid_shape += 1;
+            "invalid_shape"
+        } else if observation.record.capped || observation.record.timed_out {
+            incomplete += 1;
+            "incomplete"
+        } else {
+            complete += 1;
+            "complete"
+        };
+        words.push(crate::stats_manifest::WordCompletion {
+            index,
+            form: form.clone(),
+            status,
+            capped: observation.record.capped,
+            timed_out: observation.record.timed_out,
+            invalid_shape: observation.record.invalid_shape,
+        });
+    }
+    Ok(crate::stats_manifest::CompletionCensus {
+        requested: expected.len(),
+        complete,
+        incomplete,
+        invalid_shape,
+        missing: 0,
+        words,
+    })
+}
+
+fn validate_frozen_cache(
+    snapshot: &pg_stats::FrozenRunSnapshot,
+    run_id: i64,
+    grammar_hash: &str,
+    options_hash: &str,
+    options_json: &str,
+    completion: &crate::stats_manifest::CompletionCensus,
+) -> Result<(), String> {
+    if snapshot.run_id != run_id
+        || snapshot.schema_version != pg_stats::SCHEMA_VERSION
+        || snapshot.counter_semantics != pg_stats::COUNTER_SEMANTICS_VERSION
+        || snapshot.grammar_hash != grammar_hash
+        || snapshot.engine != "hc"
+        || snapshot.options_hash != options_hash
+        || snapshot.options_json != options_json
+        || snapshot.word_count as usize != completion.requested
+        || snapshot.words.len() != completion.requested
+    {
+        return Err(
+            "frozen stats cache run identity does not match the requested measurement".into(),
+        );
+    }
+    let expected: HashMap<&str, &crate::stats_manifest::WordCompletion> = completion
+        .words
+        .iter()
+        .map(|word| (word.form.as_str(), word))
+        .collect();
+    for word in &snapshot.words {
+        let Some(expected) = expected.get(word.form.as_str()) else {
+            return Err(format!(
+                "frozen stats cache contains an unexpected word {:?}",
+                word.form
+            ));
+        };
+        if word.capped != expected.capped
+            || word.timed_out != expected.timed_out
+            || word.invalid_shape != expected.invalid_shape
+        {
+            return Err(format!(
+                "frozen stats cache completion flags differ for {:?}",
+                word.form
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn refuse_uncheckpointed_wal(cache_path: &Path) -> Result<(), String> {
+    let mut wal_name = cache_path.as_os_str().to_os_string();
+    wal_name.push("-wal");
+    let wal_path = PathBuf::from(wal_name);
+    match std::fs::metadata(&wal_path) {
+        Ok(metadata) if metadata.len() != 0 => Err(format!(
+            "frozen stats cache still has unpublished WAL bytes at {}",
+            wal_path.display()
+        )),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "inspect frozen stats WAL {}: {error}",
+            wal_path.display()
+        )),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

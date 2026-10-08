@@ -28,6 +28,7 @@ members = [
     "crates/pg-worker-containment",
     "crates/pg-assess",
     "crates/pg-stats",
+    "crates/pg-facts",
     "crates/pg-xample-oracle",
 ]
 # Keep the native runtime as the workspace's default build; compiler research crates remain explicit.
@@ -54,6 +55,7 @@ default-members = [
     "crates/pg-worker-containment",
     "crates/pg-assess",
     "crates/pg-stats",
+    "crates/pg-facts",
     "crates/pg-xample-oracle",
 ]
 
@@ -153,6 +155,7 @@ pg-snapshot = { path = "crates/pg-snapshot" }
 pg-fwdata = { path = "crates/pg-fwdata" }
 pg-assess = { path = "crates/pg-assess" }
 pg-stats = { path = "crates/pg-stats" }
+pg-facts = { path = "crates/pg-facts" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
 pg-xample-oracle = { path = "crates/pg-xample-oracle" }
 pg-grammar-gen = { path = "crates/pg-grammar-gen" }

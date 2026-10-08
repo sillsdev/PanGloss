@@ -61,6 +61,14 @@ pub(crate) fn build(
     morphology_entries: &mut Vec<LexEntryId>,
     clitic_entries: &mut Vec<LexEntryId>,
 ) -> Result<(), GrammarError> {
+    let morphology_forms = lex_entry_form_eligibility(
+        &snapshot.lexicon.entries,
+        false,
+        "lexEntryForm:morphology",
+        ctx,
+    );
+    let clitic_forms =
+        lex_entry_form_eligibility(&snapshot.lexicon.entries, true, "lexEntryForm:clitics", ctx);
     let infl_type_by_guid: HashMap<&str, &LexEntryInflType> = snapshot
         .morphology
         .lex_entry_infl_types
@@ -119,19 +127,41 @@ pub(crate) fn build(
         let affix_allos: Vec<&Allomorph> = entry.allomorphs.iter().filter(|a| !clitic(a)).collect();
         let clitic_affix_allos: Vec<&Allomorph> =
             entry.allomorphs.iter().filter(|a| clitic(a)).collect();
-        let has_clitic_stem_form = entry.allomorphs.iter().any(|a| is_lex_entry_form(a, true));
-        let has_stem_form = entry.allomorphs.iter().any(|a| is_lex_entry_form(a, false));
+        let stem_form_eligibility = morphology_forms
+            .get(entry.guid.as_str())
+            .expect("every entry has morphology-form decisions");
+        let clitic_form_eligibility = clitic_forms
+            .get(entry.guid.as_str())
+            .expect("every entry has clitic-form decisions");
+        let has_clitic_stem_form = clitic_form_eligibility.iter().any(|eligible| *eligible);
+        let has_stem_form = stem_form_eligibility.iter().any(|eligible| *eligible);
 
         // --- stems: one Grammar LexEntryDef per (entry, Msa::Stem, stratum-bucket) --------------
         for msa in &entry.msas {
             if let Msa::Stem { .. } = msa {
                 if has_stem_form {
-                    if let Some(id) = build_stem_entry(entry, msa, None, StratumId(0), ctx, acc) {
+                    if let Some(id) = build_stem_entry(
+                        entry,
+                        msa,
+                        None,
+                        StratumId(0),
+                        stem_form_eligibility,
+                        ctx,
+                        acc,
+                    ) {
                         morphology_entries.push(id);
                     }
                 }
                 if has_clitic_stem_form {
-                    if let Some(id) = build_stem_entry(entry, msa, None, StratumId(1), ctx, acc) {
+                    if let Some(id) = build_stem_entry(
+                        entry,
+                        msa,
+                        None,
+                        StratumId(1),
+                        clitic_form_eligibility,
+                        ctx,
+                        acc,
+                    ) {
                         clitic_entries.push(id);
                     }
                 }
@@ -184,12 +214,24 @@ pub(crate) fn build(
                         &sense_owner,
                         &infl_type_by_guid,
                         &affix_allos,
+                        &morphology_forms,
                         ctx,
                         acc,
                         morphology_entries,
                         &mut *morphology_mrules,
                     );
                 }
+            }
+        }
+
+        for msa in &entry.msas {
+            let msa_key = InventoryKey::object(InventoryKind::Msa, msa.guid().to_string());
+            if !ctx.has_load_decision(&msa_key) {
+                ctx.not_considered_in_context(
+                    msa_key,
+                    format!("entry:{}", entry.guid),
+                    pg_snapshot::LoadReasonCode::NoEligibleAllomorph,
+                );
             }
         }
     }
@@ -211,14 +253,54 @@ fn sense_gloss<'a>(entry: &'a LexEntry, msa: &str, ctx: &Ctx) -> Option<&'a str>
 
 /// Whether an allomorph is a valid "lex entry form" for the given stratum bucket: non-abstract, non-empty, and stem-typed or clitic-typed matching the caller's bucket.
 fn is_lex_entry_form(allo: &Allomorph, clitic: bool) -> bool {
+    lex_entry_form_reason(allo, clitic).is_none()
+}
+
+fn lex_entry_form_eligibility<'a>(
+    entries: &'a [LexEntry],
+    clitic: bool,
+    context_key: &str,
+    ctx: &Ctx,
+) -> HashMap<&'a str, Vec<bool>> {
+    entries
+        .iter()
+        .map(|entry| {
+            let eligible = entry
+                .allomorphs
+                .iter()
+                .map(|allo| match lex_entry_form_reason(allo, clitic) {
+                    None => true,
+                    Some(reason_code) => {
+                        ctx.record_load_decision(pg_snapshot::LoadDecisionDraft {
+                            subject: InventoryKey::object(
+                                InventoryKind::Allomorph,
+                                allo.guid.clone(),
+                            ),
+                            pipeline_stage: pg_snapshot::LoadPipelineStage::Compile,
+                            context_key: context_key.into(),
+                            disposition: pg_snapshot::LoadDisposition::NotConsidered,
+                            loaded: None,
+                            reason_code,
+                            effective_value_json: None,
+                            issue_code: None,
+                        });
+                        false
+                    }
+                })
+                .collect();
+            (entry.guid.as_str(), eligible)
+        })
+        .collect()
+}
+
+fn lex_entry_form_reason(allo: &Allomorph, clitic: bool) -> Option<pg_snapshot::LoadReasonCode> {
     if allo.is_abstract {
-        return false;
+        return Some(pg_snapshot::LoadReasonCode::Abstract);
     }
-    let has_form = !allo.forms.is_empty() && allo.forms.iter().any(|f| !f.form.trim().is_empty());
-    if !has_form {
-        return false;
+    if allo.forms.is_empty() || !allo.forms.iter().any(|form| !form.form.trim().is_empty()) {
+        return Some(pg_snapshot::LoadReasonCode::EmptyForm);
     }
-    if clitic {
+    let eligible = if clitic {
         matches!(
             allo.morph_type,
             MorphType::Clitic | MorphType::Enclitic | MorphType::Proclitic | MorphType::Particle
@@ -232,7 +314,8 @@ fn is_lex_entry_form(allo: &Allomorph, clitic: bool) -> bool {
                 | MorphType::BoundStem
                 | MorphType::Phrase
         )
-    }
+    };
+    (!eligible).then_some(pg_snapshot::LoadReasonCode::MorphTypeNotInBucket)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -241,6 +324,7 @@ fn build_stem_entry(
     msa: &Msa,
     infl_type: Option<&LexEntryInflType>,
     stratum: StratumId,
+    eligible_allomorphs: &[bool],
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Option<LexEntryId> {
@@ -278,11 +362,7 @@ fn build_stem_entry(
         .then_some(PartialMorphemeReason::StemWithoutCategory);
 
     // Explicit inflection class, else the owning POS's default walked up the ownership chain.
-    let infl_class_guid = inflection_class.clone().or_else(|| {
-        part_of_speech
-            .as_deref()
-            .and_then(|p| ctx.pos.default_inflection_class(p))
-    });
+    let infl_class_guid = effective_inflection_class(guid, inflection_class, part_of_speech, ctx);
     let mut mpr = crate::model::MprSet::EMPTY;
     if let Some(ic) = &infl_class_guid {
         let attachment = InventoryKey::attachment(
@@ -347,12 +427,10 @@ fn build_stem_entry(
 
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
-    let clitic = stratum == StratumId(1);
-    for allo in entry
-        .allomorphs
-        .iter()
-        .filter(|a| is_lex_entry_form(a, clitic))
-    {
+    for (allo, eligible) in entry.allomorphs.iter().zip(eligible_allomorphs) {
+        if !eligible {
+            continue;
+        }
         let allo_key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
         ctx.selected(allo_key.clone());
         match build_root_allomorph(allo, ctx) {
@@ -479,6 +557,7 @@ fn build_variant(
     sense_owner: &HashMap<&str, (&LexEntry, &Sense)>,
     infl_type_by_guid: &HashMap<&str, &LexEntryInflType>,
     variant_affix_allos: &[&Allomorph],
+    morphology_forms: &HashMap<&str, Vec<bool>>,
     ctx: &Ctx,
     acc: &mut Acc,
     morphology_entries: &mut Vec<LexEntryId>,
@@ -528,9 +607,18 @@ fn build_variant(
                 if !matches!(msa, Msa::Stem { .. }) {
                     continue;
                 }
-                if let Some(id) =
-                    build_variant_stem_entry(variant_entry, main_entry, msa, infl_type, ctx, acc)
-                {
+                let eligible_allomorphs = morphology_forms
+                    .get(variant_entry.guid.as_str())
+                    .expect("every variant entry has morphology-form decisions");
+                if let Some(id) = build_variant_stem_entry(
+                    variant_entry,
+                    main_entry,
+                    msa,
+                    infl_type,
+                    eligible_allomorphs,
+                    ctx,
+                    acc,
+                ) {
                     morphology_entries.push(id);
                 }
             }
@@ -609,6 +697,7 @@ fn build_variant_stem_entry(
     main_entry: &LexEntry,
     msa: &Msa,
     infl_type: Option<&LexEntryInflType>,
+    eligible_allomorphs: &[bool],
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Option<LexEntryId> {
@@ -666,11 +755,7 @@ fn build_variant_stem_entry(
         .is_none()
         .then_some(PartialMorphemeReason::StemWithoutCategory);
 
-    let infl_class_guid = inflection_class.clone().or_else(|| {
-        part_of_speech
-            .as_deref()
-            .and_then(|p| ctx.pos.default_inflection_class(p))
-    });
+    let infl_class_guid = effective_inflection_class(guid, inflection_class, part_of_speech, ctx);
     let mut mpr = crate::model::MprSet::EMPTY;
     if let Some(ic) = &infl_class_guid {
         if let Some(s) = ctx.mpr.infl_class_single(ic) {
@@ -691,11 +776,10 @@ fn build_variant_stem_entry(
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
     // Variants are built for the Morphology bucket only; clitic-typed variant forms are a known gap that no reference corpus exercises.
-    for allo in variant_entry
-        .allomorphs
-        .iter()
-        .filter(|a| is_lex_entry_form(a, false))
-    {
+    for (allo, eligible) in variant_entry.allomorphs.iter().zip(eligible_allomorphs) {
+        if !eligible {
+            continue;
+        }
         let allo_key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
         ctx.selected(allo_key.clone());
         match build_root_allomorph(allo, ctx) {
@@ -740,6 +824,7 @@ fn build_variant_stem_entry(
         return None;
     }
     ctx.represented(variant_key);
+    ctx.represented(InventoryKey::object(InventoryKind::Msa, guid.clone()));
 
     // Gloss: `inflType.GlossPrepend` (unless the literal "***" sentinel) + base gloss + `GlossAppend`.
     let base_gloss = sense_gloss(main_entry, guid, ctx).unwrap_or("");
@@ -778,4 +863,31 @@ fn build_variant_stem_entry(
         co_occurrence: Vec::new(),
     });
     Some(lex_id)
+}
+
+fn effective_inflection_class(
+    msa_guid: &str,
+    explicit: &Option<String>,
+    part_of_speech: &Option<String>,
+    ctx: &Ctx,
+) -> Option<String> {
+    if let Some(guid) = explicit {
+        return Some(guid.clone());
+    }
+    let guid = part_of_speech
+        .as_deref()
+        .and_then(|pos| ctx.pos.default_inflection_class(pos));
+    if let Some(class_guid) = &guid {
+        ctx.record_load_decision(pg_snapshot::LoadDecisionDraft {
+            subject: InventoryKey::object(InventoryKind::Msa, msa_guid.to_string()),
+            pipeline_stage: pg_snapshot::LoadPipelineStage::Compile,
+            context_key: "ancestorDefaultInflectionClass".into(),
+            disposition: pg_snapshot::LoadDisposition::Defaulted,
+            loaded: Some(true),
+            reason_code: pg_snapshot::LoadReasonCode::AncestorDefaultInflectionClass,
+            effective_value_json: Some(format!("{{\"classGuid\":\"{class_guid}\"}}")),
+            issue_code: None,
+        });
+    }
+    guid
 }

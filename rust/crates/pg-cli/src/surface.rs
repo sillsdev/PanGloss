@@ -78,6 +78,9 @@ fn dispatch_parse(args: &[String]) -> ExitCode {
 fn dispatch_import(args: &[String]) -> ExitCode {
     dispatch("import", args, crate::run_import)
 }
+fn dispatch_facts(args: &[String]) -> ExitCode {
+    crate::facts_cmd::run_facts(args)
+}
 #[cfg(feature = "foma-tools")]
 fn dispatch_fst_health(args: &[String]) -> ExitCode {
     dispatch("fst-health", args, crate::fst_health::run_fst_health)
@@ -146,12 +149,24 @@ fn dispatch_compile_worker_child(_args: &[String]) -> ExitCode {
     }
 }
 
-/// The top-level `{ schema_version, binary, commands }` document `pangloss --describe` prints.
+/// The top-level identity and command document printed by `pangloss --describe`.
 #[derive(Serialize)]
 struct Describe {
     schema_version: u32,
     binary: &'static str,
+    facts: FactsDescribe,
     commands: &'static [CommandSpec],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FactsDescribe {
+    format: &'static str,
+    schema_version: u32,
+    application_id: i64,
+    context_format: &'static str,
+    context_version: u32,
+    stats_manifest_version: u32,
 }
 
 /// Prints `COMMANDS` as JSON, hidden rows marked `"hidden": true` rather than omitted.
@@ -159,6 +174,14 @@ pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
     let doc = Describe {
         schema_version: 1,
         binary: "pangloss",
+        facts: FactsDescribe {
+            format: pg_facts::FACT_FORMAT,
+            schema_version: pg_facts::FACT_SCHEMA_VERSION,
+            application_id: pg_facts::APPLICATION_ID,
+            context_format: pg_facts::FACTS_CONTEXT_FORMAT,
+            context_version: pg_facts::FACTS_CONTEXT_VERSION,
+            stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
+        },
         commands: COMMANDS,
     };
     match serde_json::to_string_pretty(&doc) {
@@ -218,6 +241,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         name: "--cache",
         takes_value: true,
         summary: "stats cache path override (with --stats)",
+    },
+    FlagSpec {
+        name: "--stats-manifest",
+        takes_value: true,
+        summary: "publish a frozen stats-run manifest after the stats cache commits",
     },
     FlagSpec {
         name: "--always-enforce-final-templates",
@@ -282,6 +310,34 @@ const PARSE_FLAGS: &[FlagSpec] = &[
 ];
 
 const IMPORT_FLAGS: &[FlagSpec] = &[];
+
+const FACTS_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--out",
+        takes_value: true,
+        summary: "new SQLite facts artifact path; existing files are never replaced",
+    },
+    FlagSpec {
+        name: "--context",
+        takes_value: true,
+        summary: "versioned facts identity context JSON",
+    },
+    FlagSpec {
+        name: "--stats",
+        takes_value: true,
+        summary: "frozen statistics cache path (requires --stats-manifest)",
+    },
+    FlagSpec {
+        name: "--stats-manifest",
+        takes_value: true,
+        summary: "manifest for the exact frozen batch stats run (requires --stats)",
+    },
+    FlagSpec {
+        name: "--json",
+        takes_value: false,
+        summary: "write one machine-readable result object to stdout",
+    },
+];
 
 const COMPARE_FLAGS: &[FlagSpec] = &[FlagSpec {
     name: "--report",
@@ -571,6 +627,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["project.fwdata", "out.json"],
         flags: IMPORT_FLAGS,
         handler: dispatch_import,
+    },
+    CommandSpec {
+        name: "facts",
+        summary: "Build an immutable SQLite facts artifact from a pg-snapshot JSON file.",
+        hidden: false,
+        positionals: &["snapshot.json"],
+        flags: FACTS_FLAGS,
+        handler: dispatch_facts,
     },
     CommandSpec {
         name: "compare",

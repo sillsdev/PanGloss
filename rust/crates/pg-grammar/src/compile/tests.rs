@@ -4,7 +4,9 @@ use pg_snapshot::feature::{
     ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind,
     FeatureValueSymbol,
 };
-use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Lexicon, Msa, Sense};
+use pg_snapshot::lexicon::{
+    AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense,
+};
 use pg_snapshot::morphology::{
     AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
     CompoundOutcome, CompoundRule, InflectionClass, LexEntryInflType, MorphType, Morphology,
@@ -209,7 +211,7 @@ fn compile_recording_ok(
     pg_snapshot::ConversionInventory,
     Vec<pg_snapshot::ConversionIssue>,
 ) {
-    let (grammar, recorder, _substrate, substrate_issues, owner_warnings) =
+    let (grammar, recorder, _substrate, substrate_issues, owner_warnings, _) =
         compile_project_recording(snapshot, SubstratePolicy::default()).expect("must compile");
     recorder
         .check_invariants()
@@ -938,9 +940,22 @@ fn compile_project_returns_structured_warnings() {
         .environments
         .push("env-bad".to_string());
 
-    let warnings = compile_project_with(&snapshot, CompileOptions::default())
-        .expect("FieldWorks ignores invalid root restrictions with a warning")
-        .warnings;
+    let output = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("FieldWorks ignores invalid root restrictions with a warning");
+    let resolution = output
+        .environment_resolutions
+        .iter()
+        .find(|resolution| resolution.environment_guid == "env-bad")
+        .expect("the owner-published whole-expression result is exposed");
+    assert_eq!(
+        resolution.status,
+        super::EnvironmentResolutionStatus::Invalid
+    );
+    assert!(resolution
+        .error
+        .as_deref()
+        .is_some_and(|error| error.contains("Nas")));
+    let warnings = output.warnings;
     let environment_warnings: Vec<_> = warnings
         .iter()
         .filter(|warning| warning.code == super::issue_codes::ENVIRONMENT_INVALID.wire())
@@ -1017,7 +1032,19 @@ fn valid_bracket_environment_compiles_without_warnings() {
         .environments
         .push("env-v".to_string());
 
-    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let resolution = output
+        .environment_resolutions
+        .iter()
+        .find(|resolution| resolution.environment_guid == "env-v")
+        .expect("the owner-published environment result is exposed");
+    assert_eq!(resolution.status, super::EnvironmentResolutionStatus::Valid);
+    assert_eq!(
+        resolution.class_tokens[0].natural_class_guid.as_deref(),
+        Some("nc-vowel")
+    );
+    let grammar = output.grammar;
+    let warnings = output.warnings;
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     let affix_rules: Vec<_> = grammar
         .mrules
@@ -1029,6 +1056,26 @@ fn valid_bracket_environment_compiles_without_warnings() {
         .collect();
     assert_eq!(affix_rules.len(), 1);
     assert_eq!(affix_rules[0].allomorphs[0].environments.len(), 1);
+    let compiled_pattern = affix_rules[0].allomorphs[0].environments[0]
+        .right
+        .as_ref()
+        .expect("the authored right side reaches the compiled environment");
+    let compiled_class_guid = compiled_pattern
+        .nodes
+        .iter()
+        .find_map(|node| match node {
+            crate::model::PatternNode::Context(context) => grammar
+                .natural_classes
+                .get(context.nat_class.0 as usize)
+                .map(|class| class.xml_id.as_str()),
+            _ => None,
+        })
+        .expect("the compiled pattern contains its resolved natural class");
+    assert_eq!(
+        Some(compiled_class_guid),
+        resolution.class_tokens[0].natural_class_guid.as_deref(),
+        "published winner and compiled pattern must identify the same source class"
+    );
     let _ = f;
 }
 
@@ -1064,7 +1111,8 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
         _ => panic!("expected the fixture's stem MSA"),
     }
 
-    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    let (grammar, recorder, _, _, warnings, _) =
+        compile_project_recording(&snapshot, SubstratePolicy::default()).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     let class_bit = grammar
         .mpr_names
@@ -1091,6 +1139,64 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
             .mpr
             .contains(crate::model::MprId(class_bit as u8)),
         "the stem entry's MPR set must carry the POS's defaulted inflection class"
+    );
+    let (_, _, decisions) = recorder.finish_with_load_decisions();
+    let msa_key = InventoryKey::object(InventoryKind::Msa, f.stem_msa.clone());
+    assert!(decisions.iter().any(|decision| {
+        decision.subject == msa_key
+            && decision.pipeline_stage == pg_snapshot::LoadPipelineStage::Compile
+            && decision.context_key == "ancestorDefaultInflectionClass"
+            && decision.disposition == pg_snapshot::LoadDisposition::Defaulted
+            && decision.loaded == Some(true)
+            && decision.reason_code == pg_snapshot::LoadReasonCode::AncestorDefaultInflectionClass
+            && decision.effective_value_json.as_deref() == Some(r#"{"classGuid":"class-default"}"#)
+    }));
+    assert!(
+        decisions.iter().any(|decision| {
+            decision.subject == msa_key
+                && decision.pipeline_stage == pg_snapshot::LoadPipelineStage::Compile
+                && decision.disposition == pg_snapshot::LoadDisposition::Represented
+        }),
+        "defaulting and final representation must coexist for the MSA"
+    );
+    let _ = f;
+}
+
+#[test]
+fn unsupported_affix_process_arity_is_published_without_changing_compilation_warnings() {
+    let (mut snapshot, f) = fixture();
+    let allomorph = &mut snapshot.lexicon.entries[1].allomorphs[0];
+    allomorph.process = Some(AffixProcess {
+        input: vec![PhonContext::Variable],
+        output: vec![RuleMapping::CopyFromInput { part: 1 }],
+    });
+
+    let (_, recorder, _, _, warnings, _) =
+        compile_project_recording(&snapshot, SubstratePolicy::default()).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let (_, _, decisions) = recorder.finish_with_load_decisions();
+    let decision = decisions
+        .iter()
+        .find(|decision| {
+            decision.subject
+                == InventoryKey::object(InventoryKind::Allomorph, "allo-suffix".to_string())
+                && decision.pipeline_stage == pg_snapshot::LoadPipelineStage::Compile
+                && decision.reason_code
+                    == pg_snapshot::LoadReasonCode::ConversionIssue(
+                        "affixProcessUnsupportedArity".into(),
+                    )
+        })
+        .expect("unsupported process arity must have a typed owner decision");
+    assert_eq!(decision.context_key, "affixProcessArity");
+    assert_eq!(decision.disposition, pg_snapshot::LoadDisposition::Rejected);
+    assert_eq!(decision.loaded, Some(false));
+    assert_eq!(
+        decision.reason_code,
+        pg_snapshot::LoadReasonCode::ConversionIssue("affixProcessUnsupportedArity".into())
+    );
+    assert_eq!(
+        decision.effective_value_json.as_deref(),
+        Some(r#"{"inputParts":1,"outputParts":1}"#)
     );
     let _ = f;
 }
@@ -1129,8 +1235,13 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
     };
     snapshot.lexicon.entries.push(variant_entry);
 
-    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let grammar = &output.grammar;
+    assert!(
+        output.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        output.warnings
+    );
     assert_eq!(
         grammar.entries.len(),
         2,
@@ -1164,6 +1275,72 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
         grammar.allomorph_sources[variant_allomorph_id].form_guids,
         vec![Some("allo-variant".to_string())]
     );
+
+    let variant_entry_mapping = output
+        .compiled_mappings
+        .iter()
+        .find(|mapping| {
+            mapping.source_kind == "entry"
+                && mapping.source_guid.as_deref() == Some("entry-variant")
+                && mapping.output_kind == "lexEntry"
+        })
+        .expect("the variant entry must map to its final lexical entry");
+    let msa_mapping = output
+        .compiled_mappings
+        .iter()
+        .find(|mapping| {
+            mapping.source_kind == "msa"
+                && mapping.source_guid.as_deref() == Some(f.stem_msa.as_str())
+                && mapping.output_kind == "lexEntry"
+                && mapping.output_key == variant_entry_mapping.output_key
+        })
+        .expect("variant output must preserve its borrowed main-entry MSA association");
+    assert_eq!(msa_mapping.output_key, variant_entry_mapping.output_key);
+    assert!(output.compiled_mappings.iter().any(|mapping| {
+        mapping.source_kind == "allomorph"
+            && mapping.source_guid.as_deref() == Some("allo-variant")
+            && mapping.output_kind == "allomorph"
+            && mapping.identity_quality == "structural"
+    }));
+    assert!(output.compiled_allomorph_order.iter().any(|row| {
+        row.source_entry_guid.as_deref() == Some("entry-variant")
+            && row.source_msa_guid.as_deref() == Some(f.stem_msa.as_str())
+            && row.source_allomorph_guid.as_deref() == Some("allo-variant")
+            && row.bucket == "Morphology"
+            && row.compiled_order == Some(0)
+    }));
+}
+
+#[test]
+fn variant_affix_order_joins_variant_entry_to_the_main_entry_msa() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-variant-affix".to_string(),
+        citation_form: vec![ws("sen", "-ku")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph(
+            "allo-variant-affix",
+            MorphType::Suffix,
+            "ku",
+        )],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant-affix".to_string(),
+            component_lexemes: vec![f.suffix_entry],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+
+    let output = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("variant affix must compile through its main MSA");
+    assert!(output.compiled_allomorph_order.iter().any(|row| {
+        row.source_entry_guid.as_deref() == Some("entry-variant-affix")
+            && row.source_msa_guid.as_deref() == Some("msa-suffix")
+            && row.source_allomorph_guid.as_deref() == Some("allo-variant-affix")
+            && row.bucket == "Morphology"
+            && row.compiled_order == Some(0)
+    }));
 }
 
 // --- 5. partial entry (MSA without POS) -------------------------------------------------------
@@ -1396,6 +1573,10 @@ fn unsupported_active_metathesis_refuses_and_remains_measurable() {
         == super::issue_codes::RULE_METATHESIS_UNSUPPORTED
         && issue.fatal
         && issue.source.is_some()));
+    assert!(!refused.compiled_mappings.iter().any(|mapping| {
+        mapping.source_kind == "phonologicalRule"
+            && mapping.source_guid.as_deref() == Some("meta-1")
+    }));
 
     let out = compile_project_with(
         &snapshot,
@@ -2059,13 +2240,15 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
     };
     snapshot.lexicon.entries.push(clitic_entry);
 
-    let (grammar, warnings) =
-        compile_project(&snapshot).expect("clitic entries must not be a hard error");
+    let output = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("clitic entries must not be a hard error");
+    let grammar = &output.grammar;
     assert!(
-        warnings.iter().all(|warning| {
+        output.warnings.iter().all(|warning| {
             warning.code != super::issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM.wire()
         }),
-        "clitics are implemented; no clitic warning expected, got {warnings:?}"
+        "clitics are implemented; no clitic warning expected, got {:?}",
+        output.warnings
     );
     // The fixture's own stem entry + the clitic entry's stem role.
     assert_eq!(grammar.entries.len(), 2);
@@ -2097,6 +2280,30 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
             .as_deref(),
         Some("TOP")
     );
+    let clitic_orders: Vec<_> = output
+        .compiled_allomorph_order
+        .iter()
+        .filter(|row| {
+            row.source_entry_guid.as_deref() == Some("entry-clitic")
+                && row.source_msa_guid.as_deref() == Some("msa-clitic")
+                && row.source_allomorph_guid.as_deref() == Some("allo-clitic")
+                && row.bucket == "Clitics"
+        })
+        .collect();
+    assert_eq!(clitic_orders.len(), 2);
+    assert!(clitic_orders
+        .iter()
+        .all(|row| row.compiled_order == Some(0)));
+    assert!(clitic_orders.iter().any(|row| {
+        row.output_key
+            .as_deref()
+            .is_some_and(|key| key.starts_with("lex_entry:"))
+    }));
+    assert!(clitic_orders.iter().any(|row| {
+        row.output_key
+            .as_deref()
+            .is_some_and(|key| key.starts_with("morph_rule:"))
+    }));
 }
 
 // --- snapshot-to-grammar selection recording ---------------------------------------------------
@@ -2713,12 +2920,39 @@ fn circumfix_suffix_half_is_not_silently_omitted() {
 fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_none_are_authored() {
     let (snapshot, _f) = fixture();
     let (_grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    let output = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("default compounds must compile");
     let synthesized_compound_rules = inventory
         .synthesized
         .iter()
         .filter(|k| k.kind == InventoryKind::CompoundRule)
         .count();
     assert_eq!(synthesized_compound_rules, 2);
+    let default_mappings: Vec<_> = output
+        .compiled_mappings
+        .iter()
+        .filter(|mapping| {
+            mapping.source_kind == "synthetic"
+                && mapping.output_kind == "morphRule"
+                && mapping.identity_quality == "synthetic"
+        })
+        .collect();
+    assert_eq!(default_mappings.len(), 2);
+    assert!(default_mappings
+        .iter()
+        .all(|mapping| mapping.source_guid.is_none()));
+    assert_eq!(
+        default_mappings
+            .iter()
+            .map(|mapping| mapping.output_key.as_str())
+            .collect::<std::collections::BTreeSet<_>>(),
+        [
+            "morph_rule:Default Left Head Compounding",
+            "morph_rule:Default Right Head Compounding",
+        ]
+        .into_iter()
+        .collect()
+    );
 
     let (mut snapshot_with_authored, _f2) = fixture();
     snapshot_with_authored
@@ -2754,6 +2988,104 @@ fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_non
         .filter(|k| k.kind == InventoryKind::CompoundRule)
         .count();
     assert_eq!(synthesized_compound_rules_2, 0);
+}
+
+#[test]
+fn exocentric_compound_outputs_each_map_to_the_authored_rule() {
+    let (mut snapshot, f) = fixture();
+    snapshot
+        .morphology
+        .compound_rules
+        .push(CompoundRule::Exocentric {
+            guid: "compound-exocentric".to_string(),
+            name: "Exocentric".to_string(),
+            disabled: false,
+            left: CompoundConstituentRequirement::default(),
+            right: CompoundConstituentRequirement::default(),
+            to: CompoundOutcome {
+                part_of_speech: Some(f.noun_pos),
+                ..CompoundOutcome::default()
+            },
+        });
+
+    let output = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("the exocentric compound must compile");
+    let mappings: Vec<_> = output
+        .compiled_mappings
+        .iter()
+        .filter(|mapping| {
+            mapping.source_kind == "compoundRule"
+                && mapping.source_guid.as_deref() == Some("compound-exocentric")
+                && mapping.output_kind == "morphRule"
+        })
+        .collect();
+
+    assert_eq!(mappings.len(), 2);
+    assert!(mappings
+        .iter()
+        .all(|mapping| mapping.identity_quality == "structural"));
+    assert!(mappings
+        .iter()
+        .any(|mapping| mapping.output_key == "morph_rule:exo-right#Exocentric"));
+    assert!(mappings
+        .iter()
+        .any(|mapping| mapping.output_key == "morph_rule:exo-left#Exocentric"));
+}
+
+#[test]
+fn null_affix_output_has_synthetic_order_and_optional_slots_omit_it() {
+    for optional in [false, true] {
+        let (mut snapshot, f) = fixture();
+        snapshot.morphology.parts_of_speech[0].affix_slots[0].optional = optional;
+        snapshot
+            .morphology
+            .lex_entry_infl_types
+            .push(LexEntryInflType {
+                guid: "infl-null".to_string(),
+                name: "Irregular plural".to_string(),
+                abbreviation: "irr.pl".to_string(),
+                gloss_prepend: String::new(),
+                gloss_append: String::new(),
+                slots: vec![f.slot],
+                inflection_features: None,
+            });
+
+        let output = compile_project_with(&snapshot, CompileOptions::default())
+            .expect("null-affix fixture must compile");
+        let null_mappings: Vec<_> = output
+            .compiled_mappings
+            .iter()
+            .filter(|mapping| {
+                mapping.source_kind == "ruleFeature"
+                    && mapping.source_guid.as_deref() == Some("infl-null")
+                    && mapping.output_kind == "allomorph"
+            })
+            .collect();
+        let null_orders: Vec<_> = output
+            .compiled_allomorph_order
+            .iter()
+            .filter(|row| {
+                row.output_key
+                    .as_deref()
+                    .is_some_and(|key| key.contains("null-affix#infl-null"))
+            })
+            .collect();
+
+        if optional {
+            assert!(null_mappings.is_empty());
+            assert!(null_orders.is_empty());
+        } else {
+            assert_eq!(null_mappings.len(), 1);
+            assert_eq!(null_mappings[0].identity_quality, "structural");
+            assert_eq!(null_orders.len(), 1);
+            assert!(null_orders[0].source_entry_guid.is_none());
+            assert!(null_orders[0].source_msa_guid.is_none());
+            assert_eq!(null_orders[0].source_allomorph_guid, None);
+            assert_eq!(null_orders[0].bucket, "Morphology");
+            assert_eq!(null_orders[0].compiled_order, Some(0));
+            assert!(null_orders[0].is_final_elsewhere_case);
+        }
+    }
 }
 
 #[test]
@@ -3017,6 +3349,17 @@ fn template_only_mrule_orphaned_by_no_template_is_revoked_unreachable_after_comp
         "the orphaned mrule must not survive compaction: {:?}",
         grammar.mrules
     );
+    let output = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("the compacted rule fixture must compile");
+    assert!(!output.compiled_mappings.iter().any(|mapping| {
+        mapping.source_kind == "msa"
+            && mapping.source_guid.as_deref() == Some("msa-orphan")
+            && mapping.output_kind == "morphRule"
+    }));
+    assert!(!output
+        .compiled_allomorph_order
+        .iter()
+        .any(|row| { row.source_allomorph_guid.as_deref() == Some("allo-orphan") }));
 }
 
 /// An affix (not root) allomorph whose literal text cannot be segmented is a recall gap for that one allomorph, matching the root case pinned elsewhere.
@@ -3291,8 +3634,19 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
     let referenced_key = InventoryKey::object(InventoryKind::NaturalClass, "nc-vowel".to_string());
     assert!(inventory.represented.contains(&referenced_key));
 
-    let any_key = InventoryKey::object(InventoryKind::NaturalClass, "__any__".to_string());
+    let any_key = InventoryKey::synthetic(InventoryKind::NaturalClass, "__any__");
     assert!(inventory.represented.contains(&any_key));
+
+    let output = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("the compacted class fixture must compile");
+    assert!(!output.compiled_mappings.iter().any(|mapping| {
+        mapping.source_kind == "naturalClass" && mapping.source_guid.as_deref() == Some("nc-orphan")
+    }));
+    assert!(output.compiled_mappings.iter().any(|mapping| {
+        mapping.source_kind == "naturalClass"
+            && mapping.source_guid.as_deref() == Some("nc-vowel")
+            && mapping.identity_quality == "authored"
+    }));
 }
 
 /// A morpheme co-occurrence rule targeting an orphaned-away morpheme is revoked; one whose targets all survive stays represented, even sharing the same primary.
@@ -3359,16 +3713,17 @@ fn morpheme_coocurrence_rule_targeting_a_compacted_away_morpheme_is_revoked_but_
     assert!(inventory.represented.contains(&survives_key));
 }
 
-/// Every `represented` `Msa`/`NaturalClass` object atom must match an object in the compiled `Grammar`.
+/// Every represented `Msa`/`NaturalClass` key, synthetic ones too, matches a compiled atom.
 #[test]
 fn fixture_represented_msa_and_natural_class_atoms_match_the_final_grammar_exactly() {
     let (snapshot, _f) = fixture();
     let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
 
-    fn object_guid(k: &InventoryKey) -> Option<String> {
+    fn grammar_atom_key(k: &InventoryKey) -> Option<String> {
         match &k.identity {
             pg_snapshot::InventoryIdentity::Object { guid } => Some(guid.clone()),
+            pg_snapshot::InventoryIdentity::Synthetic { key } => Some(key.clone()),
             _ => None,
         }
     }
@@ -3377,7 +3732,7 @@ fn fixture_represented_msa_and_natural_class_atoms_match_the_final_grammar_exact
         .represented
         .iter()
         .filter(|k| k.kind == InventoryKind::Msa)
-        .filter_map(object_guid)
+        .filter_map(grammar_atom_key)
         .collect();
     let grammar_msas: std::collections::BTreeSet<String> = grammar
         .morphemes
@@ -3390,7 +3745,7 @@ fn fixture_represented_msa_and_natural_class_atoms_match_the_final_grammar_exact
         .represented
         .iter()
         .filter(|k| k.kind == InventoryKind::NaturalClass)
-        .filter_map(object_guid)
+        .filter_map(grammar_atom_key)
         .collect();
     let grammar_natclasses: std::collections::BTreeSet<String> = grammar
         .natural_classes
@@ -3758,11 +4113,105 @@ fn compile_options_and_output_carry_exactly_their_declared_fields() {
         warnings,
         substrate: _substrate,
         inventory,
+        load_decisions: _,
+        environment_resolutions: _,
+        compiled_mappings: _,
+        compiled_allomorph_order: _,
     } = out;
     assert_eq!(grammar.entries.len(), 1);
     assert!(issues.is_empty());
     assert!(warnings.is_empty());
     assert!(inventory.inventory.rejected.is_empty());
+}
+
+#[test]
+fn compiled_lineage_and_order_follow_final_root_allomorphs() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries[0]
+        .allomorphs
+        .push(simple_allomorph("allo-stem-alt", MorphType::Stem, "kita"));
+
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let entry = output
+        .grammar
+        .entries
+        .iter()
+        .find(|entry| entry.source_guid.as_deref() == Some(f.stem_entry.as_str()))
+        .expect("the stem entry is represented");
+    let order: Vec<_> = output
+        .compiled_allomorph_order
+        .iter()
+        .filter(|row| {
+            row.source_entry_guid.as_deref() == Some(f.stem_entry.as_str())
+                && row.source_msa_guid.as_deref() == Some(f.stem_msa.as_str())
+                && row.bucket == "Morphology"
+        })
+        .collect();
+
+    assert_eq!(entry.allomorphs.len(), 2);
+    assert_eq!(order.len(), 2);
+    assert_eq!(order[0].compiled_order, Some(0));
+    assert_eq!(order[1].compiled_order, Some(1));
+    assert!(!order[0].is_final_elsewhere_case);
+    assert!(order[1].is_final_elsewhere_case);
+    for guid in ["allo-stem", "allo-stem-alt"] {
+        assert!(output.compiled_mappings.iter().any(|mapping| {
+            mapping.source_kind == "allomorph"
+                && mapping.source_guid.as_deref() == Some(guid)
+                && mapping.output_kind == "allomorph"
+        }));
+    }
+}
+
+#[test]
+fn circumfix_source_halves_map_only_to_final_compiled_products() {
+    let (snapshot, _f) = circumfix_snapshot(&[], &[]);
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let product_keys: std::collections::BTreeSet<_> = output
+        .compiled_mappings
+        .iter()
+        .filter(|mapping| {
+            mapping.source_kind == "allomorph"
+                && matches!(
+                    mapping.source_guid.as_deref(),
+                    Some("allo-circ-prefix" | "allo-circ-suffix")
+                )
+                && mapping.output_kind == "allomorph"
+        })
+        .map(|mapping| mapping.output_key.as_str())
+        .collect();
+
+    assert_eq!(
+        product_keys.len(),
+        1,
+        "one prefix/suffix pair makes one product"
+    );
+    assert_eq!(
+        output
+            .compiled_mappings
+            .iter()
+            .filter(|mapping| {
+                mapping.source_kind == "allomorph"
+                    && matches!(
+                        mapping.source_guid.as_deref(),
+                        Some("allo-circ-prefix" | "allo-circ-suffix")
+                    )
+                    && mapping.output_kind == "allomorph"
+            })
+            .count(),
+        2,
+        "both source halves map to the final product"
+    );
+    for mapping in output.compiled_mappings.iter().filter(|mapping| {
+        mapping.source_kind == "allomorph"
+            && matches!(
+                mapping.source_guid.as_deref(),
+                Some("allo-circ-prefix" | "allo-circ-suffix")
+            )
+            && mapping.output_kind == "allomorph"
+    }) {
+        assert!(mapping.output_key.contains("#allo"));
+    }
 }
 
 /// `compile_project_with` under default options must match `compile_project` message-for-message.
@@ -4549,7 +4998,7 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
 #[test]
 fn unsupported_provenance_never_claims_clean_conversion() {
     for (version, status) in [
-        (2, SourceInventoryStatus::Synthetic),
+        (3, SourceInventoryStatus::Synthetic),
         (0, SourceInventoryStatus::ImportedComplete),
         (1, SourceInventoryStatus::Unknown),
     ] {

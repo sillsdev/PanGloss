@@ -84,6 +84,7 @@ fn sample_snapshot() -> Snapshot {
         }],
         compound_rules: vec![],
         adhoc_prohibitions: vec![],
+        adhoc_prohibition_groups: None,
         exception_features: vec![],
         lex_entry_infl_types: vec![],
         parser_parameters: ParserParameters::default(),

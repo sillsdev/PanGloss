@@ -36,6 +36,7 @@ pub(crate) mod inventory;
 pub(crate) mod issue_codes;
 pub mod issues;
 mod lexicon;
+mod lineage;
 mod mpr;
 mod natclass;
 pub mod options;
@@ -51,6 +52,7 @@ mod tests;
 mod warnings;
 
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 use hashbrown::HashMap;
 
@@ -66,8 +68,9 @@ use pg_snapshot::{
     SelectionRecorder, Snapshot, SourceInventoryStatus, SourceRef,
 };
 
+pub use environment::{EnvironmentResolution, EnvironmentResolutionStatus};
 use inventory::{Lineage, LineageTarget};
-pub use issues::CompileOutput;
+pub use issues::{CompileOutput, CompiledAllomorphOrder, CompiledMapping};
 use issues::{ConversionError, SubstrateReport};
 pub use options::{CompileOptions, ResolvedSubstratePolicy, SemanticLossPolicy, SubstratePolicy};
 
@@ -175,12 +178,15 @@ pub fn compile_project_with_options_and_import_warnings(
     }
     let mut issues = external_issues.clone();
 
-    let (grammar, recorder, substrate, substrate_issues, owner_warnings) =
+    let (grammar, recorder, substrate, substrate_issues, owner_warnings, environment_resolutions) =
         compile_project_recording(snapshot, options.substrate)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
-    let (recorded_inventory, recorded_issues) = recorder.finish();
+    let (recorded_inventory, recorded_issues, load_decisions) =
+        recorder.finish_with_load_decisions();
+    let (compiled_mappings, compiled_allomorph_order) =
+        lineage::publish(snapshot, &grammar, &load_decisions);
     issues.extend(recorded_issues.iter().cloned());
     issues.extend(substrate_issues.iter().cloned());
     let mut warnings: Vec<_> = import_warnings.into_iter().collect();
@@ -207,6 +213,11 @@ pub fn compile_project_with_options_and_import_warnings(
             issues,
             warnings,
             substrate,
+            inventory,
+            load_decisions,
+            environment_resolutions,
+            compiled_mappings,
+            compiled_allomorph_order,
         }
         .into());
     }
@@ -217,6 +228,10 @@ pub fn compile_project_with_options_and_import_warnings(
         warnings,
         substrate,
         inventory,
+        load_decisions,
+        environment_resolutions,
+        compiled_mappings,
+        compiled_allomorph_order,
     })
 }
 
@@ -227,6 +242,7 @@ pub(crate) type CompiledProject = (
     SubstrateReport,
     Vec<ConversionIssue>,
     Vec<pg_snapshot::Warning>,
+    Vec<EnvironmentResolution>,
 );
 
 /// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
@@ -239,7 +255,7 @@ pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
     substrate_policy: SubstratePolicy,
 ) -> Result<CompiledProject, GrammarError> {
-    let mut recorder = SelectionRecorder::default();
+    let mut recorder = SelectionRecorder::for_stage(pg_snapshot::LoadPipelineStage::Compile);
     let mut lineage = Lineage::default();
     inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
 
@@ -351,6 +367,7 @@ pub(crate) fn compile_project_recording(
         default_vernacular_ws: snapshot.project.vernacular_writing_systems.first().cloned(),
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
         recorder: RefCell::new(recorder),
+        environment_resolutions: RefCell::new(BTreeMap::new()),
         owner_warnings: RefCell::new(Vec::new()),
         lineage: RefCell::new(lineage),
         pending_rule_refusals: RefCell::new(Vec::new()),
@@ -426,9 +443,11 @@ pub(crate) fn compile_project_recording(
 
     // --- affix templates (+ null-affix synthesis for irregular-form slots) ---------------------
     let morphology_templates = templates::build(snapshot, &ctx, &mut acc)?;
+    templates::record_unconsidered_slots(snapshot, &ctx);
 
     // --- phonological rules ----------------------------------------------------------------------
     let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx)?;
+    rules::record_unreferenced_feature_constraints(snapshot, &ctx);
 
     // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated; `xml_key` doubles as the MSA/entry guid this morpheme was built from.
     for (i, m) in acc.morphemes.iter().enumerate() {
@@ -436,8 +455,14 @@ pub(crate) fn compile_project_recording(
             .insert(m.xml_key.clone(), MorphemeId(i as u32));
     }
     strata_assign_co_occurrence(snapshot, &ctx, &mut acc);
+    environment::record_unattempted(snapshot, &ctx);
     // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
     let owner_warnings = ctx.owner_warnings.into_inner();
+    let environment_resolutions = ctx
+        .environment_resolutions
+        .into_inner()
+        .into_values()
+        .collect();
     let mut recorder = ctx.recorder.into_inner();
     let lineage = ctx.lineage.into_inner();
     let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
@@ -539,6 +564,7 @@ pub(crate) fn compile_project_recording(
         substrate_report,
         substrate_issues,
         owner_warnings,
+        environment_resolutions,
     ))
 }
 
@@ -581,6 +607,16 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                 let key = InventoryKey::object(AllomorphCoOccurrence, guid.clone());
                 ctx.considered(key.clone());
                 if *disabled {
+                    ctx.record_load_decision(pg_snapshot::LoadDecisionDraft {
+                        subject: key,
+                        pipeline_stage: pg_snapshot::LoadPipelineStage::Compile,
+                        context_key: String::new(),
+                        disposition: pg_snapshot::LoadDisposition::NotConsidered,
+                        loaded: None,
+                        reason_code: pg_snapshot::LoadReasonCode::Disabled,
+                        effective_value_json: None,
+                        issue_code: None,
+                    });
                     continue;
                 }
                 ctx.selected(key.clone());
@@ -676,6 +712,16 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                 let key = InventoryKey::object(MorphemeCoOccurrence, guid.clone());
                 ctx.considered(key.clone());
                 if *disabled {
+                    ctx.record_load_decision(pg_snapshot::LoadDecisionDraft {
+                        subject: key,
+                        pipeline_stage: pg_snapshot::LoadPipelineStage::Compile,
+                        context_key: String::new(),
+                        disposition: pg_snapshot::LoadDisposition::NotConsidered,
+                        loaded: None,
+                        reason_code: pg_snapshot::LoadReasonCode::Disabled,
+                        effective_value_json: None,
+                        issue_code: None,
+                    });
                     continue;
                 }
                 ctx.selected(key.clone());
@@ -803,6 +849,7 @@ pub(crate) struct Ctx<'a> {
     pub mpr: &'a mpr::MprTables,
     /// Every declared environment, by guid — resolved lazily wherever an allomorph/MSA references one.
     pub env_by_guid: &'a HashMap<&'a str, &'a pg_snapshot::phonology::Environment>,
+    pub environment_resolutions: RefCell<BTreeMap<String, EnvironmentResolution>>,
     pub default_vernacular_ws: Option<String>,
     pub default_analysis_ws: Option<String>,
     /// The snapshot-to-grammar selection recorder every owner below writes its considered/selected/represented/rejected/synthesized calls into; behind a `RefCell` since `Ctx` itself is shared by shared reference everywhere.
@@ -835,6 +882,21 @@ impl PendingRuleRefusal {
 }
 
 impl Ctx<'_> {
+    pub(crate) fn environment_resolution(
+        &self,
+        env: &pg_snapshot::phonology::Environment,
+    ) -> EnvironmentResolution {
+        if let Some(result) = self.environment_resolutions.borrow().get(&env.guid) {
+            return result.clone();
+        }
+        let result =
+            environment::resolve_environment_expression(&env.guid, &env.representation, self);
+        self.environment_resolutions
+            .borrow_mut()
+            .insert(env.guid.clone(), result.clone());
+        result
+    }
+
     fn abandon_rule_refusals_since(&self, start: usize, reason: &str) {
         let pending: Vec<_> = self
             .pending_rule_refusals
@@ -865,8 +927,43 @@ impl Ctx<'_> {
         self.recorder.borrow_mut().represented(key);
     }
 
+    pub(crate) fn represented_with_effective_value(
+        &self,
+        key: InventoryKey,
+        effective_value_json: String,
+    ) {
+        self.recorder
+            .borrow_mut()
+            .represented_with_effective_value(key, effective_value_json);
+    }
+
     pub(crate) fn synthesized(&self, key: InventoryKey) {
         self.recorder.borrow_mut().synthesized(key);
+    }
+
+    pub(crate) fn record_load_decision(&self, draft: pg_snapshot::LoadDecisionDraft) {
+        self.recorder.borrow_mut().record_load_decision(draft);
+    }
+
+    pub(crate) fn has_load_decision(&self, key: &InventoryKey) -> bool {
+        self.recorder
+            .borrow()
+            .has_load_decision(key, pg_snapshot::LoadPipelineStage::Compile)
+    }
+
+    pub(crate) fn not_considered(&self, key: InventoryKey, reason: pg_snapshot::LoadReasonCode) {
+        self.not_considered_in_context(key, String::new(), reason);
+    }
+
+    pub(crate) fn not_considered_in_context(
+        &self,
+        key: InventoryKey,
+        context: String,
+        reason: pg_snapshot::LoadReasonCode,
+    ) {
+        self.recorder
+            .borrow_mut()
+            .not_considered(key, context, reason);
     }
 
     /// As [`Ctx::represented`], but also publishes `key` into the lineage under `target`, so a

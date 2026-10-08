@@ -19,7 +19,7 @@ use pg_shape::{CdBits, CdSet, Shape, ShapeBuilder};
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
 
-use crate::chardef::{CharDefKind, CharDefTable};
+use crate::chardef::{CharDefId, CharDefKind, CharDefTable};
 use crate::model::{NaturalClass, NaturalClassKind};
 use crate::nfd::{is_nfd, nfd};
 
@@ -266,34 +266,45 @@ pub fn segment_with_patterns(
 
 /// The char-def-set a `[ClassName]` pattern reference carries: a `Segments`-kind class is exactly its member list; a `Feature`-kind class is every segment whose lanes satisfy every pinned constraint.
 pub fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
+    let members = nat_class_member_ids(table, nc);
     match &nc.kind {
-        NaturalClassKind::Segments(segs) => {
-            CdSet::Members(CdBits::from_ids(segs.iter().map(|cd| cd.0)))
+        NaturalClassKind::Segments(_) => {
+            CdSet::Members(CdBits::from_ids(members.iter().map(|cd| cd.0)))
         }
-        NaturalClassKind::Feature(pairs) => {
-            let mut members = Vec::new();
-            let mut all = true;
-            for (id, cd) in table.iter() {
-                if cd.kind() != CharDefKind::Segment {
-                    continue;
-                }
-                let lanes = cd.feature_lanes();
-                if pairs
-                    .iter()
-                    .all(|&(f, bits)| lanes[f.0 as usize] & bits.0 != 0)
-                {
-                    members.push(id.0);
-                } else {
-                    all = false;
-                }
-            }
-            if all {
-                CdSet::Unrestricted
-            } else {
-                CdSet::Members(CdBits::from_ids(members))
-            }
+        NaturalClassKind::Feature(_) if members.len() == segment_count(table) => {
+            CdSet::Unrestricted
+        }
+        NaturalClassKind::Feature(_) => {
+            CdSet::Members(CdBits::from_ids(members.iter().map(|cd| cd.0)))
         }
     }
+}
+
+/// Character definitions included by the same compiled-class decision used by pattern matching.
+pub fn nat_class_member_ids(table: &CharDefTable, nc: &NaturalClass) -> Vec<CharDefId> {
+    match &nc.kind {
+        NaturalClassKind::Segments(segments) => segments.clone(),
+        NaturalClassKind::Feature(pairs) => table
+            .iter()
+            .filter_map(|(id, definition)| {
+                if definition.kind() != CharDefKind::Segment {
+                    return None;
+                }
+                let lanes = definition.feature_lanes();
+                pairs
+                    .iter()
+                    .all(|&(feature, bits)| lanes[feature.0 as usize] & bits.0 != 0)
+                    .then_some(id)
+            })
+            .collect(),
+    }
+}
+
+fn segment_count(table: &CharDefTable) -> usize {
+    table
+        .iter()
+        .filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
+        .count()
 }
 
 /// Port of `GetShapeNodes`' `errorPos` remap (see `segment`'s doc comment for the rationale).

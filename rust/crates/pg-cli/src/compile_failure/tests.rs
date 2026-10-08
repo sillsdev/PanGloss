@@ -24,6 +24,14 @@ fn compiler_errors_are_json_and_keep_codes_subjects_fields_and_advice() {
             issues: vec![issue],
             warnings: vec![warning],
             substrate: Default::default(),
+            inventory: pg_snapshot::InventoryDelta::from_stage(
+                pg_snapshot::ConversionInventory::default(),
+                Vec::new(),
+            ),
+            load_decisions: Vec::new(),
+            environment_resolutions: Vec::new(),
+            compiled_mappings: Vec::new(),
+            compiled_allomorph_order: Vec::new(),
         }
         .into(),
         None,

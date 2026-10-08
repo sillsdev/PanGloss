@@ -1,0 +1,26 @@
+[package]
+name = "pg-facts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pg-assess.workspace = true
+pg-grammar.workspace = true
+pg-rules.workspace = true
+pg-stats.workspace = true
+pg-snapshot.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+pg-fwdata.workspace = true
+pg-parse.workspace = true
+
+[lints]
+workspace = true

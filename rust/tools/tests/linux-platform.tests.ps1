@@ -554,6 +554,22 @@ $code = Invoke-ManagedProcess -Exe 'pwsh' -CmdArgs @('-NoProfile', '-Command', "
         Assert-True ($output -match '(?m)^RESULT=23\s*$') 'the scalar result must preserve the child failure exit code'
     }
 
+    Test-Case 'pg.ps1 -Mode run binds and forwards its live HostCgroupProof to the Linux process seam' {
+        if (-not $IsLinux) { return }
+        $pgPath = Join-Path $toolRoot 'pg.ps1'
+        $capture = Join-Path $fixtureRoot 'pg-run-proof-child.out'
+        $wrapperOutput = Join-Path $fixtureRoot 'pg-run-proof-wrapper.out'
+        $wrapperError = Join-Path $fixtureRoot 'pg-run-proof-wrapper.err'
+        $process = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -Wait `
+            -RedirectStandardOutput $wrapperOutput -RedirectStandardError $wrapperError `
+            -ArgumentList @('-NoProfile', '-File', $pgPath, '-Mode', 'run', '-Exe', '/bin/echo',
+                '-RunCaptureStdout', $capture, 'linux-wrapper-proof-marker')
+        $output = (Get-Content -LiteralPath $wrapperOutput -Raw) + (Get-Content -LiteralPath $wrapperError -Raw)
+        Assert-Equal 0 $process.ExitCode "the actual pg.ps1 run wrapper must complete without a parameter-binding failure: $output"
+        Assert-True ($output -match 'host cgroup preflight:') 'the wrapper must pass its validated HostCgroupProof into the Linux managed-process seam'
+        Assert-Equal "linux-wrapper-proof-marker`n" (Get-Content -LiteralPath $capture -Raw) 'the child must receive the positional argument and run'
+    }
+
     Test-Case 'Linux resource-slot exclusion is shared with an independent pwsh process' {
         Assert-LinuxAdapterReady
         $prefix = "Global\PanGlossLinuxCrossProcessSlot$PID-"

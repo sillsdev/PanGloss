@@ -244,6 +244,7 @@ fn legacy_stats_words(
     opts: &pg_parse::ParseOptions,
     words: &[String],
 ) -> Vec<BatchStatsWord> {
+    let identities = pg_grammar::stats_identity::StatsIdentityCatalog::new(grammar);
     words
         .iter()
         .map(|word| {
@@ -253,7 +254,7 @@ fn legacy_stats_words(
                 outcome,
                 elapsed: start.elapsed(),
             };
-            batch_stats_word(grammar, word, &result, &rows, &prune_rows)
+            batch_stats_word(grammar, &identities, word, &result, &rows, &prune_rows)
         })
         .collect()
 }
@@ -2175,4 +2176,440 @@ fn work_budget_cache_reuses_equal_limits_and_refuses_before_truncating_tsv() {
     let err = crate::run_batch(&args).unwrap_err();
     assert!(err.contains("search-budget semantics"), "{err}");
     assert_eq!(fs::read_to_string(&out_path).unwrap(), before);
+}
+
+#[test]
+fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
+    let dir = scratch_dir("frozen-manifest");
+    let (grammar_xml, word) = primary_fixture();
+    let cache_path = dir.join("frozen-cache.sqlite3");
+    let manifest_path = dir.join("stats-run.json");
+    let words = vec![word.clone(), format!("{word}x")];
+    let words_text = format!("{}\n", words.join("\n"));
+    let cache = cache_path.to_string_lossy().into_owned();
+    let manifest = manifest_path.to_string_lossy().into_owned();
+    let (args, out_path) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &words_text,
+        &[
+            "--stats",
+            "--cache",
+            &cache,
+            "--stats-manifest",
+            &manifest,
+            "--threads",
+            "1",
+            "--step-cap",
+            "unbounded",
+        ],
+    );
+
+    crate::run_batch(&args).expect("frozen batch stats run");
+    let value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).expect("manifest JSON");
+    assert_eq!(value["format"], "pangloss-batch-stats-manifest");
+    assert_eq!(value["version"], 1);
+    assert_eq!(value["source"]["kind"], "hc-xml");
+    assert!(value["source"]["compile_options_json"].is_null());
+    assert_eq!(
+        value["source"]["source_sha256"],
+        pg_assess::source_sha256(grammar_xml.as_bytes())
+    );
+    assert_eq!(
+        value["source"]["grammar_hash"],
+        sha256_hex(grammar_xml.as_bytes())
+    );
+    assert_eq!(
+        value["source"]["model_fingerprint"].as_str().unwrap().len(),
+        "sha256:".len() + 64
+    );
+    assert_eq!(value["compiler"]["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(value["cache"]["schema_version"], pg_stats::SCHEMA_VERSION);
+    assert_eq!(
+        value["cache"]["counter_semantics_version"],
+        pg_stats::COUNTER_SEMANTICS_VERSION
+    );
+    assert_eq!(value["run"]["engine"], "hc");
+    assert!(value["run"]["id"].as_i64().unwrap() > 0);
+    assert_eq!(value["batch"]["threads"], 1);
+    assert_eq!(value["batch"]["step_cap"], "unbounded");
+    assert_eq!(value["input"]["words"], serde_json::json!(words));
+    assert_eq!(value["input"]["word_count"], 2);
+    assert_eq!(
+        value["input"]["word_list_sha256"],
+        crate::stats_manifest::sha256_digest(&serde_json::to_vec(&words).unwrap())
+    );
+    assert_eq!(value["completion"]["requested"], 2);
+    assert_eq!(value["completion"]["complete"], 1);
+    assert_eq!(value["completion"]["incomplete"], 0);
+    assert_eq!(value["completion"]["invalid_shape"], 1);
+    assert_eq!(value["completion"]["missing"], 0);
+    assert_eq!(value["completion"]["words"][0]["form"], words[0]);
+    assert_eq!(value["completion"]["words"][0]["status"], "complete");
+    assert_eq!(value["completion"]["words"][1]["form"], words[1]);
+    assert_eq!(value["completion"]["words"][1]["status"], "invalid_shape");
+    assert!(out_path.exists());
+
+    let conn = rusqlite::Connection::open(&cache_path).unwrap();
+    let run_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+        .unwrap();
+    let run_word_count: i64 = conn
+        .query_row(
+            "SELECT word_count FROM run WHERE run_id = ?1",
+            [value["run"]["id"].as_i64().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let owning_words: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM word WHERE run_id = ?1",
+            [value["run"]["id"].as_i64().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(run_count, 1, "one manifest names one cache run");
+    assert_eq!(run_word_count, 2);
+    assert_eq!(owning_words, 2);
+    drop(conn);
+
+    let bytes = fs::read(&cache_path).unwrap();
+    assert_eq!(value["cache"]["bytes"], bytes.len() as u64);
+    assert_eq!(
+        value["cache"]["sha256"],
+        crate::stats_manifest::sha256_digest(&bytes)
+    );
+}
+
+#[test]
+fn frozen_batch_manifest_refuses_reuse_duplicates_and_start_resume() {
+    let dir = scratch_dir("frozen-manifest-refusal");
+    let (grammar_xml, word) = primary_fixture();
+    let cache_path = dir.join("cache.sqlite3");
+    let manifest_path = dir.join("stats-run.json");
+    let cache = cache_path.to_string_lossy().into_owned();
+    let manifest = manifest_path.to_string_lossy().into_owned();
+    let (args, out_path) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &format!("{word}\n"),
+        &["--stats", "--cache", &cache, "--stats-manifest", &manifest],
+    );
+    crate::run_batch(&args).expect("first frozen run");
+    let before_cache = fs::read(&cache_path).unwrap();
+    let before_manifest = fs::read(&manifest_path).unwrap();
+    let before_tsv = fs::read(&out_path).unwrap();
+
+    let second_manifest = dir.join("second-stats-run.json");
+    let mut second_args = args.clone();
+    let manifest_index = second_args
+        .iter()
+        .position(|arg| arg == "--stats-manifest")
+        .unwrap()
+        + 1;
+    second_args[manifest_index] = second_manifest.to_string_lossy().into_owned();
+    let err = crate::run_batch(&second_args).expect_err("a frozen cache cannot be reused");
+    assert!(err.contains("initially empty"), "{err}");
+    assert_eq!(fs::read(&cache_path).unwrap(), before_cache);
+    assert_eq!(fs::read(&manifest_path).unwrap(), before_manifest);
+    assert_eq!(fs::read(&out_path).unwrap(), before_tsv);
+
+    let duplicate_dir = scratch_dir("frozen-manifest-duplicate-word");
+    let duplicate_cache = duplicate_dir.join("cache.sqlite3");
+    let duplicate_manifest = duplicate_dir.join("stats-run.json");
+    let duplicate_cache_text = duplicate_cache.to_string_lossy().into_owned();
+    let duplicate_manifest_text = duplicate_manifest.to_string_lossy().into_owned();
+    let (duplicate_args, duplicate_out) = run_batch_args(
+        &duplicate_dir,
+        &grammar_xml,
+        &format!("{word}\n{word}\n"),
+        &[
+            "--stats",
+            "--cache",
+            &duplicate_cache_text,
+            "--stats-manifest",
+            &duplicate_manifest_text,
+        ],
+    );
+    let err = crate::run_batch(&duplicate_args).expect_err("duplicate forms overwrite cache rows");
+    assert!(err.contains("duplicate word"), "{err}");
+    assert!(!duplicate_out.exists());
+    assert!(!duplicate_cache.exists());
+    assert!(!duplicate_manifest.exists());
+
+    let resume_dir = scratch_dir("frozen-manifest-resume");
+    let resume_cache = resume_dir.join("cache.sqlite3");
+    let resume_manifest = resume_dir.join("stats-run.json");
+    let resume_cache_text = resume_cache.to_string_lossy().into_owned();
+    let resume_manifest_text = resume_manifest.to_string_lossy().into_owned();
+    let (resume_args, resume_out) = run_batch_args(
+        &resume_dir,
+        &grammar_xml,
+        &format!("{word}\n"),
+        &[
+            "--stats",
+            "--cache",
+            &resume_cache_text,
+            "--stats-manifest",
+            &resume_manifest_text,
+            "--start",
+            "1",
+        ],
+    );
+    let err = crate::run_batch(&resume_args).expect_err("frozen input cannot resume a partial run");
+    assert!(err.contains("--start"), "{err}");
+    assert!(!resume_out.exists());
+    assert!(!resume_cache.exists());
+    assert!(!resume_manifest.exists());
+}
+
+#[test]
+fn frozen_batch_manifest_requires_stats_and_an_explicit_cache() {
+    let dir = scratch_dir("frozen-manifest-requires-flags");
+    let (grammar_xml, _) = primary_fixture();
+    let manifest_path = dir.join("stats-run.json");
+    let manifest = manifest_path.to_string_lossy().into_owned();
+
+    let (no_stats, out_path) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        "word\n",
+        &["--stats-manifest", &manifest],
+    );
+    let err = crate::run_batch(&no_stats).expect_err("manifest requires --stats");
+    assert!(err.contains("--stats-manifest requires --stats"), "{err}");
+    assert!(!out_path.exists());
+
+    let stats_dir = scratch_dir("frozen-manifest-requires-cache");
+    let (no_cache, stats_out) = run_batch_args(
+        &stats_dir,
+        &grammar_xml,
+        "word\n",
+        &["--stats", "--stats-manifest", &manifest],
+    );
+    let err = crate::run_batch(&no_cache).expect_err("manifest requires explicit --cache");
+    assert!(err.contains("explicit --cache"), "{err}");
+    assert!(!stats_out.exists());
+}
+
+#[test]
+fn frozen_batch_manifest_tracks_grammar_compiler_and_option_identities() {
+    fn run_frozen(
+        dir: &std::path::Path,
+        grammar_xml: &str,
+        word: &str,
+        extra: &[&str],
+    ) -> serde_json::Value {
+        let cache_path = dir.join("cache.sqlite3");
+        let manifest_path = dir.join("stats-run.json");
+        let cache = cache_path.to_string_lossy().into_owned();
+        let manifest = manifest_path.to_string_lossy().into_owned();
+        let mut args = vec!["--stats", "--cache", &cache, "--stats-manifest", &manifest];
+        args.extend_from_slice(extra);
+        let extra_args: Vec<&str> = args;
+        let (batch_args, _) = run_batch_args(dir, grammar_xml, &format!("{word}\n"), &extra_args);
+        crate::run_batch(&batch_args).expect("frozen stats run");
+        serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap()
+    }
+
+    let (grammar_a, word_a) = primary_fixture();
+    let (grammar_b, word_b) = secondary_fixture();
+    let first = run_frozen(
+        &scratch_dir("frozen-identity-a"),
+        &grammar_a,
+        &word_a,
+        &["--threads", "1"],
+    );
+    let second = run_frozen(
+        &scratch_dir("frozen-identity-b"),
+        &grammar_b,
+        &word_b,
+        &["--threads", "2", "--word-timeout-ms", "10000"],
+    );
+    assert_ne!(
+        first["source"]["source_sha256"],
+        second["source"]["source_sha256"]
+    );
+    assert_ne!(
+        first["source"]["grammar_hash"],
+        second["source"]["grammar_hash"]
+    );
+    assert_ne!(
+        first["source"]["model_fingerprint"],
+        second["source"]["model_fingerprint"]
+    );
+    assert_eq!(first["compiler"]["version"], second["compiler"]["version"]);
+    assert_eq!(
+        first["compiler"]["build_identity"],
+        second["compiler"]["build_identity"]
+    );
+    assert_eq!(first["cache"]["schema_version"], pg_stats::SCHEMA_VERSION);
+    assert_eq!(
+        first["cache"]["counter_semantics_version"],
+        pg_stats::COUNTER_SEMANTICS_VERSION
+    );
+    assert_eq!(first["batch"]["threads"], 1);
+    assert_eq!(second["batch"]["threads"], 2);
+    assert_eq!(second["batch"]["word_timeout_ms"], 10000);
+    assert_ne!(first["run"]["options_hash"], second["run"]["options_hash"]);
+}
+
+#[test]
+fn frozen_batch_manifest_does_not_replace_an_existing_output() {
+    let dir = scratch_dir("frozen-manifest-existing-output");
+    let (grammar_xml, word) = primary_fixture();
+    let cache_path = dir.join("cache.sqlite3");
+    let manifest_path = dir.join("stats-run.json");
+    let cache = cache_path.to_string_lossy().into_owned();
+    let manifest = manifest_path.to_string_lossy().into_owned();
+    let (args, out_path) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &format!("{word}\n"),
+        &["--stats", "--cache", &cache, "--stats-manifest", &manifest],
+    );
+    fs::write(&manifest_path, b"keep-existing-manifest").unwrap();
+
+    let err = crate::run_batch(&args).expect_err("manifest publication must not overwrite");
+    assert!(err.contains("output_exists"), "{err}");
+    assert_eq!(fs::read(&manifest_path).unwrap(), b"keep-existing-manifest");
+    assert!(!cache_path.exists());
+    assert!(!out_path.exists());
+}
+
+#[test]
+fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
+    let dir = scratch_dir("frozen-manifest-partial");
+    let (grammar_xml, word) = primary_fixture();
+    let cache_path = dir.join("cache.sqlite3");
+    let manifest_path = dir.join("stats-run.json");
+    let cache = cache_path.to_string_lossy().into_owned();
+    let manifest = manifest_path.to_string_lossy().into_owned();
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &format!("{word}\n"),
+        &[
+            "--stats",
+            "--cache",
+            &cache,
+            "--stats-manifest",
+            &manifest,
+            "--word-timeout-ms",
+            "0",
+        ],
+    );
+    crate::run_batch(&args).expect("timed-out parser outcome is still a frozen observation");
+    let value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    assert_eq!(value["completion"]["requested"], 1);
+    assert_eq!(value["completion"]["complete"], 0);
+    assert_eq!(value["completion"]["incomplete"], 1);
+    assert_eq!(value["completion"]["words"][0]["status"], "incomplete");
+    assert_eq!(value["completion"]["words"][0]["timed_out"], true);
+
+    let cancelled_dir = scratch_dir("frozen-manifest-cancel-before-flush");
+    let cancelled_cache = cancelled_dir.join("cache.sqlite3");
+    let cancelled_manifest = cancelled_dir.join("stats-run.json");
+    let (cancelled_args, _) =
+        run_batch_args(&cancelled_dir, &grammar_xml, &format!("{word}\n"), &[]);
+    let prepared = prepare_frozen_batch_stats_hc(
+        &cancelled_args[0],
+        std::slice::from_ref(&word),
+        crate::DEFAULT_STEP_CAP,
+        crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+        None,
+        false,
+        false,
+        cancelled_cache.to_str().unwrap(),
+        &crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml)
+            .unwrap()
+            .grammar_hash,
+    )
+    .expect("prepare the fresh frozen cache");
+    drop(prepared);
+    assert!(!cancelled_manifest.exists());
+    let cancelled_conn = rusqlite::Connection::open(&cancelled_cache).unwrap();
+    let run_count: i64 = cancelled_conn
+        .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(run_count, 0, "an abandoned parse publishes no run");
+
+    let missing_dir = scratch_dir("frozen-manifest-missing-word");
+    let missing_cache = missing_dir.join("cache.sqlite3");
+    let (missing_args, _) = run_batch_args(&missing_dir, &grammar_xml, &format!("{word}\n"), &[]);
+    let prepared = prepare_frozen_batch_stats_hc(
+        &missing_args[0],
+        std::slice::from_ref(&word),
+        crate::DEFAULT_STEP_CAP,
+        crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+        None,
+        false,
+        false,
+        missing_cache.to_str().unwrap(),
+        &crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml)
+            .unwrap()
+            .grammar_hash,
+    )
+    .expect("prepare the fresh frozen cache");
+    let source = crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml).unwrap();
+    let err = finish_frozen_batch_stats_hc(
+        prepared,
+        Vec::new(),
+        &missing_dir.join("stats-run.json"),
+        source,
+        crate::stats_manifest::BatchOptions {
+            engine: "hc",
+            threads: 1,
+            step_cap: crate::DEFAULT_STEP_CAP,
+            work_cap: crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+            search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
+            word_timeout_ms: None,
+            guess: false,
+            always_enforce_final_templates: false,
+            start: 0,
+            analyses_requested: false,
+        },
+    )
+    .expect_err("a missing parse result cannot be frozen");
+    assert!(err.contains("missing stats record"), "{err}");
+    assert!(!missing_dir.join("stats-run.json").exists());
+}
+
+#[test]
+fn frozen_batch_manifest_rejects_colliding_paths_before_creating_outputs() {
+    let dir = scratch_dir("frozen-manifest-collisions");
+    let (grammar_xml, word) = primary_fixture();
+    let grammar_path = dir.join("grammar.xml");
+    let words_path = dir.join("words.txt");
+    let out_path = dir.join("out.tsv");
+    fs::write(&grammar_path, &grammar_xml).unwrap();
+    fs::write(&words_path, format!("{word}\n")).unwrap();
+    for (tag, collision) in [
+        ("grammar", grammar_path.clone()),
+        ("words", words_path.clone()),
+        ("tsv", out_path.clone()),
+    ] {
+        let cache_path = dir.join(format!("{tag}-cache.sqlite3"));
+        let cache = cache_path.to_string_lossy().into_owned();
+        let collision = collision.to_string_lossy().into_owned();
+        let args = vec![
+            grammar_path.to_string_lossy().into_owned(),
+            words_path.to_string_lossy().into_owned(),
+            out_path.to_string_lossy().into_owned(),
+            "--stats".into(),
+            "--cache".into(),
+            cache.clone(),
+            "--stats-manifest".into(),
+            collision,
+        ];
+        let before_grammar = fs::read(&grammar_path).unwrap();
+        let before_words = fs::read(&words_path).unwrap();
+        let err = crate::run_batch(&args).expect_err("manifest cannot alias batch paths");
+        assert!(err.contains("path collision"), "{err}");
+        assert_eq!(fs::read(&grammar_path).unwrap(), before_grammar);
+        assert_eq!(fs::read(&words_path).unwrap(), before_words);
+        assert!(!cache_path.exists());
+    }
 }

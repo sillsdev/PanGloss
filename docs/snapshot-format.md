@@ -6,6 +6,10 @@ architecture (`.fwdata → pg-fwdata → Snapshot → pg_grammar::compile → Gr
 
 ## 0. Conventions
 
+The immutable SQLite projection built from this format is specified in
+[`grammar-facts-format.md`](grammar-facts-format.md). It retains the exact Snapshot source digest
+separately from `Snapshot::grammar_hash()` and the compiler-bound model fingerprint.
+
 - **Envelope.** Every document is `{ "format": "pangloss-project", "version": 1, ... }`.
   `Snapshot::from_json` rejects any other format tag or version with a specific error rather
   than a generic parse failure.
@@ -249,6 +253,7 @@ derivation is compiler policy over already-complete data and is not duplicated h
 | `partsOfSpeech` | `PartOfSpeech[]` | Root-level parts of speech (each carries its own `children`). ← `LangProject.PartsOfSpeechOA` top level. `HCLoader.LoadLanguage`'s `AllPartsOfSpeech` (HCLoader.cs:170) flattens the whole tree at load time — this format keeps the tree shape since flattening it is a trivial, reversible compiler-side step. |
 | `compoundRules` | `CompoundRule[]` | `MorphologicalDataOA.CompoundRulesOS`, in declaration order, **including** disabled ones (each carries its own `disabled` flag). When this list is empty *and* `parserParameters.noDefaultCompounding` is false, `HCLoader` synthesizes two default rules (`DefaultCompoundingRules`, HCLoader.cs:1808-1840) — that synthesis is compiler policy, not stored data. |
 | `adhocProhibitions` | `AdhocProhibition[]` | `IMoAlloAdhocProhibRepository`/`IMoMorphAdhocProhibRepository.AllInstances()` (HCLoader.cs:341-351), including disabled/dangling ones. |
+| `adhocProhibitionGroups` | `AdhocProhibitionGroup[]`, optional | `MoAdhocProhibGr` identity, multilingual rationale, and `Members` references. Current `.fwdata` imports publish this field even when empty; absence means the Snapshot producer did not provide group facts. |
 | `exceptionFeatures` | `ExceptionFeature[]` | The registry of "exception feature"/productivity-restriction possibilities referenced (by guid) from MSAs, compound-rule constituent requirements, and rewrite-rule right-hand sides. ← `MorphologicalDataOA.ProdRestrictOA.ReallyReallyAllPossibilities` (HCLoader.cs:180) **and** the `CmPossibility`-typed items of `PhonologicalDataOA.PhonRuleFeats` (HCLoader.cs:2619-2621) — both flattened into one registry since `HCLoader` treats them identically (an opaque, guid-identified `MprFeature`). Each entry: `guid`, `name` ← `CmPossibility.Name`, `abbreviation` ← `CmPossibility.Abbreviation`. |
 | `lexEntryInflTypes` | `LexEntryInflType[]` | `ILexEntryInflTypeRepository.AllInstances()` |
 | `parserParameters` | `ParserParameters` | `MorphologicalDataOA.ParserParameters` (raw `<ParserParameters><HC>` XML block, parsed by `HCLoader`'s constructor, HCLoader.cs:92-112) |
@@ -358,6 +363,19 @@ derivation (HCLoader.cs:835-841).
 
 `adjacency`: `anywhere | somewhereToLeft | somewhereToRight | adjacentToLeft | adjacentToRight` ←
 `MoAdhocProhib.Adjacency` (int enum 0-4; `HCLoader.GetAdjacency`, HCLoader.cs:2241-2258).
+
+### `AdhocProhibitionGroup`
+
+| Field | Type | LCM origin |
+|---|---|---|
+| `guid` | guid | `MoAdhocProhibGr.Guid` |
+| `name` | `WsForm[]` | `MoAdhocProhibGr.Name`, retaining every writing-system alternative |
+| `description` | `WsForm[]` | `MoAdhocProhibGr.Description`, retaining every writing-system alternative |
+| `members` | `guid[]` | `MoAdhocProhibGr.Members`; this is a collection, so the importer sorts and deduplicates its references. The group collection is also sorted by GUID. Members may be prohibitions, nested groups, or unresolved targets. |
+
+Group membership and rationale describe authoring only. `HCLoader` still loads concrete prohibition
+repositories independently of their groups, so group membership and group order add no parser
+constraint. A group member GUID is not evidence that the referenced object loaded.
 
 ### `LexEntryInflType`
 
@@ -475,8 +493,8 @@ treatment of the two as mutually exclusive in practice).
 
 ## 7. `conversionProvenance`
 
-**Status:** `pg-fwdata` populates `sourceInventoryStatus`, `sourceCensus`, `importIssues`, and
-`graphToSnapshot` on every `.fwdata`/`.fwbackup` import. Absent from a document entirely (every
+**Status:** `pg-fwdata` populates `sourceInventoryStatus`, `sourceCensus`, `sourceObjects`,
+`graphToSnapshot`, `importLoadDecisions`, and `importIssues` on every `.fwdata`/`.fwbackup` import. Absent from a document entirely (every
 snapshot written before this schema existed), it deserializes as `schemaVersion: 0` with
 `sourceInventoryStatus: "unknown"` — `ConversionProvenance`'s `Default`, and never to be read as
 "cleanly imported". Excluded from `Snapshot::grammar_hash`'s digest — that digest's semantic
@@ -505,10 +523,12 @@ for it, never a second one.
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | integer | `1` for a document written by this build; `0` reads as "no provenance was ever recorded". `Snapshot`'s own `format`/`version` envelope is unrelated. |
-| `sourceInventoryStatus` | `"importedComplete" \| "importedWithFatalIssues" \| "synthetic" \| "unknown"` | Whether a real import produced this snapshot, and whether it completed cleanly. `"unknown"` at `schemaVersion: 1` and any status other than `"unknown"` at `schemaVersion: 0` are both impossible pairs — `ConversionProvenance::validate` rejects them. |
-| `sourceCensus` | object | A raw tally of the source graph's object classes (`totalOccurrences`, `classOccurrences`, `unhandledClassOccurrences`, `orderedHeaderSha256`) — the denominator `graphToSnapshot`'s stages are measured against. `orderedHeaderSha256` is the lowercase-hex SHA-256 of `"{class}\t{guid}\n"` per retained `<rt>` header, concatenated in document order (every header, allowed and unknown classes alike). |
-| `graphToSnapshot` | object | Six `InventoryKey` sets — `authored`, `considered`, `selected`, `represented`, `rejected`, `synthesized` — one per conversion-pipeline stage. An `InventoryKey` is a `{ kind, identity }` pair; `identity` is one of `object` (a single guid), `attachment` (owner/target/role), `expansion` (owner/member guids/role), or `setting` (a bare name) — built only through `InventoryKey`'s constructors, never by hand-concatenating strings. |
+| `schemaVersion` | integer | `2` for a document written by this build; `0` reads as "no provenance was ever recorded". `Snapshot`'s own `format`/`version` envelope is unrelated. |
+| `sourceInventoryStatus` | `"importedComplete" \| "importedWithFatalIssues" \| "synthetic" \| "unknown"` | Whether a real import produced this snapshot, and whether it completed cleanly. `"unknown"` at schema versions `1` or `2`, and any resolved status at version `0`, are impossible pairs — `ConversionProvenance::validate` rejects them. |
+| `sourceCensus` | object | A raw tally of the source graph's object classes (`totalOccurrences`, `classOccurrences`, `unhandledClassOccurrences`, `orderedHeaderSha256`) — the denominator `graphToSnapshot`'s stages are measured against. `orderedHeaderSha256` is the lowercase-hex SHA-256 of `"{class}\t{guid}\n"` per `<rt>` header, concatenated in document order (every header, allowed and unknown classes alike). |
+| `sourceObjects` | array | One row per raw `<rt>` occurrence in source order: ordinal, class name, raw GUID, canonical GUID when valid, whether the importer handles the class, tracked inventory kind when applicable, whether the streaming reader retained a record, and whether this occurrence repeats a GUID. An empty array is complete only at schema version `2` when the census total is also zero. |
+| `graphToSnapshot` | object | Six `InventoryKey` sets — `authored`, `considered`, `selected`, `represented`, `rejected`, `synthesized` — one per conversion-pipeline stage. An `InventoryKey` is a `{ kind, identity }` pair; `identity` is one of `object` (a single guid), `attachment` (owner/target/role), `expansion` (owner/member guids/role), `synthetic` (a stable key for a compiler-created object with no authored guid), `setting` (a named source-wide setting), or `sourceOccurrence` (a source ordinal, class, raw GUID, and optional canonical GUID). |
+| `importLoadDecisions` | array | Typed owner decisions at the import stage, including ordinary representation and known omissions such as disabled rules, unreferenced environments, objects from additional phoneme sets, missing GUIDs, and duplicate headers. Unrecorded decisions remain unknown in facts; they are never inferred from inventory-set differences. |
 | `importIssues` | array | Problems noticed while converting: `code`, `class` (`malformedSource \| invalidSource \| ambiguousSource \| unrepresentableForHc \| substrateUnresolvable \| migrationDifference`), an optional `source` pointer (`{ kind, id }`), `fatal`, and a human-readable `message`. `pg-fwdata` raises two fatal `invalidSource` codes from raw `<rt>` structure: `invalid-source.duplicate-guid` (a guid shared by two or more `<rt>` records, recognized or not — the first *recognized* record wins and every occurrence is named in the message) and `invalid-source.missing-guid` (a tracked/allowed-class `<rt>` record with no `guid` attribute — the record is dropped). |
 
 ## 8. `WsForm` (shared primitive)

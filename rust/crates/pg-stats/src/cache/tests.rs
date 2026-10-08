@@ -344,7 +344,11 @@ fn concurrent_first_writers_cannot_mix_engines() {
     let foma = spawn_writer("foma", "beta");
     let results = [hc.join().unwrap(), foma.join().unwrap()];
 
-    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results.iter().filter(|result| result.is_ok()).count(),
+        1,
+        "flush outcomes: {results:?}"
+    );
     assert_eq!(
         results
             .iter()

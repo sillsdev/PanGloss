@@ -170,6 +170,32 @@ pub struct RunMetadata {
     pub step_cap: Option<crate::StepCap>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrozenRunSnapshot {
+    pub run_id: i64,
+    pub schema_version: i64,
+    pub counter_semantics: i64,
+    pub build_info: String,
+    pub grammar_hash: String,
+    pub engine: String,
+    pub options_hash: String,
+    pub options_json: String,
+    pub word_count: u64,
+    pub step_cap: Option<crate::StepCap>,
+    pub words: Vec<FrozenWordSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrozenWordSummary {
+    pub form: String,
+    pub elapsed_ns: u64,
+    pub attempts: u64,
+    pub passes: u64,
+    pub capped: bool,
+    pub timed_out: bool,
+    pub invalid_shape: bool,
+}
+
 /// The seven counters for one `(object, stratum, allomorph)` combination inside one word.
 ///
 /// Counters are `u64` here, matching the collector; a value too large for SQLite's signed

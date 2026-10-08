@@ -31,6 +31,12 @@ fn census_counts_every_header_including_unknown_classes() {
         .ordered_header_sha256
         .chars()
         .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    let objects = graph.source_objects();
+    assert_eq!(objects.len(), census.total_occurrences as usize);
+    assert_eq!(objects[0].ordinal, 1);
+    assert!(objects[0].retained);
+    assert_eq!(objects[1].inventory_kind, None);
+    assert!(!objects[1].retained);
 }
 
 #[test]
@@ -59,6 +65,11 @@ fn duplicate_guid_on_an_allowed_class_keeps_the_first_and_reports_one_issue() {
     assert_eq!(duplicate_issues.len(), 1);
     assert!(duplicate_issues[0].fatal);
     assert!(graph.get("00000000-0000-0000-0000-000000000002").is_some());
+    let objects = graph.source_objects();
+    assert!(objects[0].retained);
+    assert!(!objects[0].duplicate);
+    assert!(!objects[1].retained);
+    assert!(objects[1].duplicate);
 }
 
 #[test]
@@ -81,6 +92,11 @@ fn first_recognized_occurrence_wins_over_an_earlier_unknown_class_duplicate() {
         .get("00000000-0000-0000-0000-000000000002")
         .expect("the recognized LexDb occurrence must be kept");
     assert_eq!(record.class, "LexDb");
+    let objects = graph.source_objects();
+    assert!(!objects[0].retained);
+    assert!(!objects[0].duplicate);
+    assert!(objects[1].retained);
+    assert!(objects[1].duplicate);
 }
 
 #[test]

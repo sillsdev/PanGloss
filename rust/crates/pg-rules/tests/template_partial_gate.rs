@@ -151,6 +151,7 @@ fn push_stratum(
 fn push_template(g: &mut Grammar, is_final: bool, slot_rule: MRuleId) -> TemplateId {
     let id = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: None,
         is_final,
         required_syn_fs: pg_featstruct::FsId(0),

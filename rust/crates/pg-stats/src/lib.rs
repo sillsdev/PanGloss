@@ -25,8 +25,8 @@ mod util;
 pub use cache::{OpenOutcome, StatsCache};
 pub use error::StatsError;
 pub use model::{
-    Direction, FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator,
-    UnknownVariant, WordRecord,
+    Direction, FactRecord, FrozenRunSnapshot, FrozenWordSummary, IdentityQuality, ObjectKind,
+    RunMetadata, StructuralLocator, UnknownVariant, WordRecord,
 };
 pub use path::{default_cache_dir, default_cache_path};
 pub use report::{

@@ -269,6 +269,7 @@ fn loads_hand_built_minimal_grammar() {
         entries: Vec::new(),
     }));
     facts_grammar.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: Some("template-only".into()),
         is_final: true,
         required_syn_fs: pg_featstruct::FsId(0),

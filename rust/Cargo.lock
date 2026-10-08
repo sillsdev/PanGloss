@@ -746,6 +746,7 @@ version = "0.6.2"
 dependencies = [
  "pg-assess",
  "pg-conformance-fixtures",
+ "pg-facts",
  "pg-featstruct",
  "pg-foma",
  "pg-foma-backend",
@@ -785,6 +786,25 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+]
+
+[[package]]
+name = "pg-facts"
+version = "0.6.2"
+dependencies = [
+ "pg-assess",
+ "pg-fwdata",
+ "pg-grammar",
+ "pg-parse",
+ "pg-rules",
+ "pg-snapshot",
+ "pg-stats",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

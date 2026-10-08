@@ -128,7 +128,7 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Result<Vec<MRuleId>, G
         ("Default Left Head Compounding", true),
         ("Default Right Head Compounding", false),
     ] {
-        let key = InventoryKey::object(InventoryKind::CompoundRule, name.to_string());
+        let key = InventoryKey::synthetic(InventoryKind::CompoundRule, name);
         ctx.synthesized(key.clone());
         ctx.considered(key.clone());
         ctx.selected(key.clone());

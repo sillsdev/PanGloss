@@ -2,7 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use pg_snapshot::{Msa, NaturalClass, PhonologicalRule};
+use pg_snapshot::{
+    InventoryKey, InventoryKind, LoadDisposition, LoadPipelineStage, LoadReasonCode, Msa,
+    NaturalClass, PhonologicalRule,
+};
 
 fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/fixture.fwdata")
@@ -18,6 +21,84 @@ fn fixture_variant(dir: &Path, old: &str, new: &str) -> PathBuf {
     let path = dir.join("variant.fwdata");
     std::fs::write(&path, variant).unwrap();
     path
+}
+
+#[test]
+fn compound_side_attachment_does_not_claim_an_unselected_msa_object() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut source = fixture_source();
+    let morph_data_header = r#"<rt class="MoMorphData" guid="00000000-0000-0000-0000-000000000003" ownerguid="00000000-0000-0000-0000-000000000001">"#;
+    let morph_data_start = source
+        .find(morph_data_header)
+        .expect("fixture must have its MoMorphData record");
+    let morph_data_end = morph_data_start
+        + source[morph_data_start..]
+            .find("</rt>")
+            .expect("MoMorphData record must close")
+        + "</rt>".len();
+    source.insert_str(
+        morph_data_end - "</rt>".len(),
+        "\n<CompoundRules>\n<objsur guid=\"00000000-0000-0000-0000-000000000071\" t=\"o\" />\n</CompoundRules>",
+    );
+
+    let compound_records = r#"
+<rt class="MoEndoCompound" guid="00000000-0000-0000-0000-000000000071" ownerguid="00000000-0000-0000-0000-000000000003">
+<Disabled val="False" />
+<HeadLast val="False" />
+<LeftMsa>
+<objsur guid="00000000-0000-0000-0000-000000000072" t="o" />
+</LeftMsa>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000072" ownerguid="00000000-0000-0000-0000-000000000071">
+<PartOfSpeech>
+<objsur guid="00000000-0000-0000-0000-00000000000b" t="r" />
+</PartOfSpeech>
+</rt>
+"#;
+    let language_project_end = "</languageproject>";
+    assert!(
+        source.contains(language_project_end),
+        "fixture must have a language project close tag"
+    );
+    source = source.replacen(
+        language_project_end,
+        &format!("{compound_records}{language_project_end}"),
+        1,
+    );
+    let path = dir.path().join("compound-only-msa.fwdata");
+    std::fs::write(&path, source).unwrap();
+
+    let (snapshot, _) = pg_fwdata::import_file(&path).expect("compound-only MSA must import");
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let msa = InventoryKey::object(InventoryKind::Msa, "00000000-0000-0000-0000-000000000072");
+    let attachment = InventoryKey::attachment(
+        InventoryKind::Msa,
+        "00000000-0000-0000-0000-000000000071",
+        "00000000-0000-0000-0000-000000000072",
+        "left",
+    );
+
+    assert!(inventory.authored.contains(&msa));
+    assert!(inventory.considered.contains(&msa));
+    assert!(inventory.selected.contains(&msa));
+    assert!(inventory.represented.contains(&msa));
+    assert!(inventory.represented.contains(&attachment));
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| {
+            decision.subject == msa
+                && decision.pipeline_stage == LoadPipelineStage::Import
+                && decision.disposition == LoadDisposition::Represented
+                && decision.loaded == Some(true)
+                && decision.reason_code == LoadReasonCode::Represented
+        }));
+    assert!(snapshot
+        .morphology
+        .compound_rules
+        .iter()
+        .any(|rule| { rule.guid() == "00000000-0000-0000-0000-000000000071" }));
 }
 
 fn parser_parameters_variant(dir: &Path, replacement: &str) -> PathBuf {
@@ -56,6 +137,33 @@ fn omitted_parser_parameters_variant(dir: &Path) -> PathBuf {
     let path = dir.join("variant.fwdata");
     std::fs::write(&path, variant).unwrap();
     path
+}
+
+#[test]
+fn unreferenced_feature_structure_gets_an_explicit_import_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let unattached = r#"<rt class="FsFeatStruc" guid="00000000-0000-0000-0000-0000000000fe"><FeatureSpecs/></rt>"#;
+    let path = fixture_variant(
+        dir.path(),
+        "</languageproject>",
+        &format!("{unattached}</languageproject>"),
+    );
+
+    let (snapshot, _) = pg_fwdata::import_file(&path).expect("fixture must import");
+    let key = InventoryKey::object(
+        InventoryKind::FeatureStructure,
+        "00000000-0000-0000-0000-0000000000fe",
+    );
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| {
+            decision.subject == key
+                && decision.pipeline_stage == LoadPipelineStage::Import
+                && decision.disposition == LoadDisposition::NotConsidered
+                && decision.reason_code == LoadReasonCode::Unreferenced
+        }));
 }
 
 fn assert_invalid_active_parser_source(path: &Path) {
@@ -524,6 +632,15 @@ fn fixture_conversion_provenance_reports_its_two_known_issues() {
 
     let census = &provenance.source_census;
     assert!(census.total_occurrences > 0);
+    assert_eq!(
+        provenance.source_objects.len() as u64,
+        census.total_occurrences
+    );
+    assert!(provenance
+        .source_objects
+        .iter()
+        .enumerate()
+        .all(|(index, object)| object.ordinal == index as u64 + 1));
     let class_sum: u64 = census.class_occurrences.values().sum();
     assert_eq!(class_sum, census.total_occurrences);
     assert_eq!(census.unhandled_class_occurrences.len(), 0);
@@ -534,12 +651,44 @@ fn fixture_conversion_provenance_reports_its_two_known_issues() {
         .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
 
     let (snapshot2, _report2) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    assert_eq!(provenance, &snapshot2.conversion_provenance);
     assert_eq!(
         census.ordered_header_sha256,
         snapshot2
             .conversion_provenance
             .source_census
             .ordered_header_sha256
+    );
+}
+
+#[test]
+fn reordering_unordered_retained_records_keeps_imported_group_facts_stable() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = r#"<rt class="LangProject" guid="00000000-0000-0000-0000-000000000001"/>"#;
+    let first = r#"<rt class="MoAdhocProhibGr" guid="00000000-0000-0000-0000-000000000020"><Name><AUni ws="en">Second</AUni></Name></rt>"#;
+    let second = r#"<rt class="MoAdhocProhibGr" guid="00000000-0000-0000-0000-000000000010"><Name><AUni ws="en">First</AUni></Name></rt>"#;
+    let prefix = format!("<languageproject>{project}");
+    let suffix = "</languageproject>";
+    let first_path = dir.path().join("first.fwdata");
+    let second_path = dir.path().join("second.fwdata");
+    std::fs::write(&first_path, format!("{prefix}{first}{second}{suffix}")).unwrap();
+    std::fs::write(&second_path, format!("{prefix}{second}{first}{suffix}")).unwrap();
+
+    let (left, _) = pg_fwdata::import_file(&first_path).unwrap();
+    let (right, _) = pg_fwdata::import_file(&second_path).unwrap();
+    let groups = left.morphology.adhoc_prohibition_groups.as_ref().unwrap();
+    assert_eq!(
+        groups,
+        right.morphology.adhoc_prohibition_groups.as_ref().unwrap()
+    );
+    assert_eq!(groups[0].guid, "00000000-0000-0000-0000-000000000010");
+    assert_eq!(
+        left.conversion_provenance.graph_to_snapshot,
+        right.conversion_provenance.graph_to_snapshot
+    );
+    assert_eq!(
+        left.conversion_provenance.import_load_decisions,
+        right.conversion_provenance.import_load_decisions
     );
 }
 
@@ -580,6 +729,19 @@ fn duplicating_an_allowed_class_guid_yields_one_fatal_issue_and_the_first_conten
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
     assert!(duplicate_issues[0].fatal);
+    assert!(provenance
+        .import_load_decisions
+        .iter()
+        .any(
+            |decision| decision.reason_code == pg_snapshot::LoadReasonCode::DuplicateHeader
+                && decision.disposition == pg_snapshot::LoadDisposition::Rejected
+        ));
+    assert!(provenance.source_objects.iter().any(|object| {
+        object.class_name == "LexEntry"
+            && object.raw_guid == "00000000-0000-0000-0000-000000000050"
+            && object.duplicate
+            && !object.retained
+    }));
 
     let suffix_entries: Vec<_> = snapshot
         .lexicon
@@ -631,6 +793,16 @@ fn unknown_class_record_is_census_only_and_raises_no_issue() {
             .get("ZzUnknown"),
         Some(&1)
     );
+    let unknown = provenance
+        .source_objects
+        .iter()
+        .find(|object| object.class_name == "ZzUnknown")
+        .unwrap();
+    assert_eq!(unknown.raw_guid, "00000000-0000-0000-0000-0000000000zz");
+    assert_eq!(unknown.canonical_guid, None);
+    assert_eq!(unknown.inventory_kind, None);
+    assert!(!unknown.handled);
+    assert!(!unknown.retained);
 }
 
 #[test]
@@ -659,6 +831,16 @@ fn missing_guid_on_an_allowed_class_is_a_fatal_issue_and_drops_the_record() {
         .collect();
     assert_eq!(missing_issues.len(), 1);
     assert!(missing_issues[0].fatal);
+    assert!(provenance
+        .import_load_decisions
+        .iter()
+        .any(
+            |decision| decision.reason_code == pg_snapshot::LoadReasonCode::MissingGuid
+                && decision.disposition == pg_snapshot::LoadDisposition::Rejected
+        ));
+    assert!(provenance.source_objects.iter().any(|object| {
+        object.class_name == "LexEntry" && object.raw_guid.is_empty() && !object.retained
+    }));
     assert!(!snapshot
         .lexicon
         .entries
@@ -925,6 +1107,13 @@ fn a_disabled_phonological_rule_is_considered_but_not_selected() {
     assert!(!inventory.represented.contains(&key));
     assert!(!inventory.rejected.contains(&key));
     assert!(snapshot.phonology.rules.is_empty());
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| decision.subject == key
+            && decision.disposition == pg_snapshot::LoadDisposition::NotConsidered
+            && decision.reason_code == pg_snapshot::LoadReasonCode::Disabled));
 }
 
 /// A second `PhPhonemeSet`'s phonemes are considered but never selected; `ONLY_FIRST_USED` stays non-fatal.
@@ -991,8 +1180,49 @@ fn a_second_phoneme_set_is_considered_but_not_selected() {
     assert!(inventory.considered.contains(&key));
     assert!(!inventory.selected.contains(&key));
     assert!(!snapshot.phonology.phonemes.iter().any(|p| p.name == "z"));
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| decision.subject == key
+            && decision.disposition == pg_snapshot::LoadDisposition::NotConsidered
+            && decision.reason_code
+                == pg_snapshot::LoadReasonCode::AdditionalPhonemeSetNotSelected));
     // The base fixture's own two known issues carry through unchanged; the skipped set adds none.
     assert_eq!(snapshot.conversion_provenance.import_issues.len(), 2);
+}
+
+#[test]
+fn an_unreferenced_environment_gets_an_import_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = fixture_source();
+    let environment = crlf(
+        r#"<rt class="PhEnvironment" guid="00000000-0000-0000-0000-000000000073">
+<Name><AUni ws="en">unused</AUni></Name>
+<StringRepresentation><Uni>_</Uni></StringRepresentation>
+</rt>
+"#,
+    );
+    let variant = source.replacen(
+        "</languageproject>",
+        &format!("{environment}</languageproject>"),
+        1,
+    );
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    let key = pg_snapshot::InventoryKey::object(
+        pg_snapshot::InventoryKind::Environment,
+        "00000000-0000-0000-0000-000000000073",
+    );
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| decision.subject == key
+            && decision.disposition == pg_snapshot::LoadDisposition::NotConsidered
+            && decision.reason_code == pg_snapshot::LoadReasonCode::Unreferenced));
 }
 
 fn phoneme_set_warning_variant(
@@ -1344,6 +1574,11 @@ fn an_active_templates_dangling_slot_is_fatal() {
         .expect("the dangling slot issue must be present");
     assert!(issue.fatal);
     assert_eq!(issue.class, pg_snapshot::IssueClass::InvalidSource);
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| decision.reason_code == pg_snapshot::LoadReasonCode::MissingReference));
     assert!(issue
         .message
         .contains("00000000-0000-0000-0000-00000000000e"));
@@ -1524,6 +1759,11 @@ fn a_dangling_closed_feature_value_is_fatal() {
     assert_eq!(unresolved.source_class.as_deref(), Some("FsSymFeatVal"));
     assert_eq!(unresolved.field.as_deref(), Some("Values"));
     assert_eq!(unresolved.opens_in, None);
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| decision.reason_code == pg_snapshot::LoadReasonCode::MissingReference));
     let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
     let attachment = InventoryKey::attachment(
         InventoryKind::FeatureValue,
@@ -1582,7 +1822,7 @@ fn wrong_class_closed_feature_value_keeps_all_source_identities() {
     let path = dir.path().join("wrong-class.fwdata");
     std::fs::write(&path, variant).unwrap();
 
-    let (_, report) = pg_fwdata::import_file(&path).unwrap();
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
     let warning = report
         .warnings
         .iter()
@@ -1627,6 +1867,11 @@ fn wrong_class_closed_feature_value_keeps_all_source_identities() {
     assert_eq!(actual.name.as_deref(), Some("afterVowel"));
     assert_eq!(actual.source_class.as_deref(), Some("PhEnvironment"));
     assert_eq!(actual.field.as_deref(), Some("Values"));
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| decision.reason_code == pg_snapshot::LoadReasonCode::WrongKindReference));
 }
 
 /// Missing fields are localized to the object and FieldWorks field that the extractor needs.

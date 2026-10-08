@@ -19,6 +19,10 @@ name = "recipe_optimize_timeout"
 path = "tests/recipe_optimize_timeout.rs"
 required-features = ["foma-tools"]
 
+[[test]]
+name = "facts_command"
+path = "tests/facts_command.rs"
+
 [features]
 examples = []
 foma-tools = ["dep:pg-foma", "dep:pg-foma-backend", "pg-assess/foma-tools", "pg-pack/foma-tools"]
@@ -46,6 +50,7 @@ pg-fwdata.workspace = true
 pg-foma = { workspace = true, optional = true }
 pg-foma-backend = { workspace = true, optional = true }
 pg-assess.workspace = true
+pg-facts.workspace = true
 pg-pack.workspace = true
 pg-worker-containment.workspace = true
 rayon.workspace = true
@@ -68,10 +73,9 @@ pg-stats.workspace = true
 # `pg_stats::StatsCache::open`'s wipe-on-grammar-change gate, since a report-only read must never
 # destroy data) via `pg_stats::report`'s `&rusqlite::Connection`-based queries.
 rusqlite.workspace = true
-
-[dev-dependencies]
 tempfile.workspace = true
 
+[dev-dependencies]
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true

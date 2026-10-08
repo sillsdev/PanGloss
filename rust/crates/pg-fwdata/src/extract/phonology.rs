@@ -19,9 +19,11 @@ pub fn extract_phonology(
 ) -> Phonology {
     let _ = feature_systems; // feature guids are resolved lazily by `extract_feature_structure`.
     let Some(lang_project) = lang_project else {
+        record_unreferenced_environments(ctx, None);
         return Phonology::default();
     };
     let Some(phon_data_guid) = lang_project.node.objsur_one("PhonologicalData") else {
+        record_unreferenced_environments(ctx, None);
         return Phonology::default();
     };
     let Some(phon_data) = ctx.require_from(
@@ -31,6 +33,7 @@ pub fn extract_phonology(
         lang_project,
         "PhonologicalData",
     ) else {
+        record_unreferenced_environments(ctx, None);
         return Phonology::default();
     };
 
@@ -39,6 +42,7 @@ pub fn extract_phonology(
     let environments = extract_environments(ctx, phon_data);
     let feature_constraints = extract_feature_constraints(ctx, phon_data);
     let rules = extract_rules(ctx, phon_data);
+    record_unreferenced_environments(ctx, Some(phon_data));
 
     Phonology {
         phoneme_set: phon_data.node.objsur_list("PhonemeSets").into_iter().next(),
@@ -88,12 +92,22 @@ fn extract_phoneme_set(
         };
         for g in skipped.node.objsur_list("Phonemes") {
             if ctx.get(&g).is_some_and(|r| r.class == "PhPhoneme") {
-                ctx.considered(InventoryKey::object(InventoryKind::Phoneme, g));
+                let key = InventoryKey::object(InventoryKind::Phoneme, g);
+                ctx.considered(key.clone());
+                ctx.not_considered(
+                    key,
+                    pg_snapshot::LoadReasonCode::AdditionalPhonemeSetNotSelected,
+                );
             }
         }
         for g in skipped.node.objsur_list("BoundaryMarkers") {
             if ctx.get(&g).is_some_and(|r| r.class == "PhBdryMarker") {
-                ctx.considered(InventoryKey::object(InventoryKind::BoundaryMarker, g));
+                let key = InventoryKey::object(InventoryKind::BoundaryMarker, g);
+                ctx.considered(key.clone());
+                ctx.not_considered(
+                    key,
+                    pg_snapshot::LoadReasonCode::AdditionalPhonemeSetNotSelected,
+                );
             }
         }
     }
@@ -317,6 +331,40 @@ fn extract_environments(ctx: &mut Ctx, phon_data: &Record) -> Vec<Environment> {
         .collect()
 }
 
+fn record_unreferenced_environments(ctx: &mut Ctx, phon_data: Option<&Record>) {
+    let referenced: std::collections::BTreeSet<_> = phon_data
+        .map(|record| {
+            record
+                .node
+                .objsur_list("Environments")
+                .into_iter()
+                .collect()
+        })
+        .unwrap_or_default();
+    let candidates: Vec<_> = ctx
+        .graph
+        .headers
+        .iter()
+        .filter(|header| header.class == "PhEnvironment" && !header.guid.is_empty())
+        .map(|header| header.guid.clone())
+        .collect();
+    let mut seen = std::collections::BTreeSet::new();
+    for guid in candidates {
+        if referenced.contains(&guid)
+            || !seen.insert(guid.clone())
+            || !ctx
+                .get(&guid)
+                .is_some_and(|record| record.class == "PhEnvironment")
+        {
+            continue;
+        }
+        ctx.not_considered(
+            InventoryKey::object(InventoryKind::Environment, guid),
+            pg_snapshot::LoadReasonCode::Unreferenced,
+        );
+    }
+}
+
 fn extract_environment(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Environment> {
     let rec = ctx.require_from(
         guid,
@@ -385,7 +433,8 @@ fn extract_rules(ctx: &mut Ctx, phon_data: &Record) -> Vec<PhonologicalRule> {
             let key = InventoryKey::object(InventoryKind::PhonologicalRule, guid.clone());
             if rec.node.val_bool("Disabled").unwrap_or(false) {
                 if matches!(rec.class.as_str(), "PhRegularRule" | "PhMetathesisRule") {
-                    ctx.considered(key);
+                    ctx.considered(key.clone());
+                    ctx.not_considered(key, pg_snapshot::LoadReasonCode::Disabled);
                 }
                 return None;
             }
@@ -547,15 +596,34 @@ fn resolve_rule_features(ctx: &mut Ctx, rec: &Record, field: &str, label: &str) 
         .into_iter()
         .filter_map(|wrapper_guid| {
             let wrapper = ctx.require_from(&wrapper_guid, "PhPhonRuleFeat", label, rec, field)?;
+            let key = InventoryKey::object(InventoryKind::RuleFeature, wrapper_guid.clone());
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
             let item = wrapper.node.objsur_one("Item");
-            if item.is_none() {
+            if let Some(item) = item {
+                ctx.represented(key);
+                Some(item)
+            } else {
                 ctx.warn_with_subjects(
                     super::codes::MISSING_REQUIRED_FIELD,
                     format!("{label}: PhPhonRuleFeat {wrapper_guid} has no Item reference"),
                     [ctx.subject_for_record(wrapper, Some("Item"))],
                 );
+                ctx.recorder
+                    .rejected_without_issue(pg_snapshot::LoadDecisionDraft {
+                        subject: key,
+                        pipeline_stage: pg_snapshot::LoadPipelineStage::Import,
+                        context_key: format!("phonologicalRule:{}:{field}", rec.guid),
+                        disposition: pg_snapshot::LoadDisposition::Rejected,
+                        loaded: Some(false),
+                        reason_code: pg_snapshot::LoadReasonCode::ConversionIssue(
+                            super::codes::MISSING_REQUIRED_FIELD.wire().to_string(),
+                        ),
+                        effective_value_json: Some("{\"missingField\":\"Item\"}".into()),
+                        issue_code: None,
+                    });
+                None
             }
-            item
         })
         .collect()
 }
@@ -654,7 +722,7 @@ pub(crate) fn resolve_phon_context(
         "PhIterationContext" => {
             let min = rec.node.val_int("Minimum").unwrap_or(0) as i32;
             let max = rec.node.val_int("Maximum").unwrap_or(-1) as i32;
-            let member_guid = rec.node.objsur_one("Member")?;
+            let member_guid = required_context_reference(ctx, rec, "Member")?;
             let member = resolve_phon_context(ctx, &member_guid, label, rec, "Member")?;
             record_represented(ctx);
             Some(PhonContext::Iteration {
@@ -664,12 +732,12 @@ pub(crate) fn resolve_phon_context(
             })
         }
         "PhSimpleContextSeg" => {
-            let phoneme = rec.node.objsur_one("FeatureStructure")?;
+            let phoneme = required_context_reference(ctx, rec, "FeatureStructure")?;
             record_represented(ctx);
             Some(PhonContext::Segment { phoneme })
         }
         "PhSimpleContextNC" => {
-            let natural_class = rec.node.objsur_one("FeatureStructure")?;
+            let natural_class = required_context_reference(ctx, rec, "FeatureStructure")?;
             let plus_variables = rec.node.objsur_list("PlusConstr");
             let minus_variables = rec.node.objsur_list("MinusConstr");
             record_represented(ctx);
@@ -680,7 +748,7 @@ pub(crate) fn resolve_phon_context(
             })
         }
         "PhSimpleContextBdry" => {
-            let marker = rec.node.objsur_one("FeatureStructure")?;
+            let marker = required_context_reference(ctx, rec, "FeatureStructure")?;
             record_represented(ctx);
             // The well-known word-boundary marker never appears as its own `PhBdryMarker` record, so failing to resolve one is the `#` anchor's own signature.
             // See `docs/research/pg-fwdata-phonology-extract-notes.md`.
@@ -703,4 +771,27 @@ pub(crate) fn resolve_phon_context(
             None
         }
     }
+}
+
+fn required_context_reference(ctx: &mut Ctx<'_>, rec: &Record, field: &str) -> Option<String> {
+    let guid = rec.node.objsur_one(field);
+    if guid.is_none() {
+        let key = InventoryKey::object(InventoryKind::PhonologicalContext, rec.guid.clone());
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
+        ctx.recorder
+            .rejected_without_issue(pg_snapshot::LoadDecisionDraft {
+                subject: key,
+                pipeline_stage: pg_snapshot::LoadPipelineStage::Import,
+                context_key: format!("phonContext:{}:{field}", rec.guid),
+                disposition: pg_snapshot::LoadDisposition::Rejected,
+                loaded: Some(false),
+                reason_code: pg_snapshot::LoadReasonCode::ConversionIssue(
+                    super::codes::MISSING_REQUIRED_FIELD.wire().to_string(),
+                ),
+                effective_value_json: Some(format!("{{\"missingField\":\"{field}\"}}")),
+                issue_code: None,
+            });
+    }
+    guid
 }

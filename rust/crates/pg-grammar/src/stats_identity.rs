@@ -18,6 +18,7 @@ use crate::model::{
     AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, PRuleId,
     PhonRuleDef, StratumId,
 };
+use std::collections::HashMap;
 
 pub use pg_grammar_model::stats_identity::OverlayPhase;
 
@@ -83,6 +84,50 @@ pub struct AllomorphIdentity {
     pub quality: IdentityQuality,
 }
 
+/// Identities for every runtime object in one compiled grammar.
+#[derive(Debug, Clone)]
+pub struct StatsIdentityCatalog {
+    morph_rules: Vec<ObjectIdentity>,
+    lex_entries: Vec<ObjectIdentity>,
+    allomorphs: Vec<AllomorphIdentity>,
+}
+
+impl StatsIdentityCatalog {
+    /// Builds the mappings once so per-word stats rows do not rescan the grammar.
+    pub fn new(grammar: &Grammar) -> Self {
+        let morph_rules = morph_rule_identities(grammar);
+        let lex_entries = lex_entry_identities(grammar);
+        let allomorphs = grammar
+            .allomorph_owners
+            .iter()
+            .map(|owner| allomorph_identity_for_owner(*owner, &lex_entries, &morph_rules))
+            .collect();
+        Self {
+            morph_rules,
+            lex_entries,
+            allomorphs,
+        }
+    }
+
+    /// Returns the identity for a compiled morphological rule.
+    pub fn morph_rule(&self, id: MRuleId) -> &ObjectIdentity {
+        &self.morph_rules[id.0 as usize]
+    }
+
+    /// Returns the identity for a compiled lexical entry.
+    pub fn lex_entry(&self, id: LexEntryId) -> &ObjectIdentity {
+        &self.lex_entries[id.0 as usize]
+    }
+
+    /// Returns a compiled allomorph identity or the synthetic guessed-root sentinel.
+    pub fn allomorph(&self, id: AllomorphId) -> AllomorphIdentity {
+        self.allomorphs
+            .get(id.0 as usize)
+            .cloned()
+            .unwrap_or_else(guessed_allomorph_identity)
+    }
+}
+
 /// The morpheme's authored `xml_key`, or `None` if unresolvable or empty.
 fn morpheme_xml_key(grammar: &Grammar, morpheme: MorphemeId) -> Option<String> {
     if morpheme == MorphemeId::GUESSED {
@@ -122,8 +167,13 @@ fn morph_rule_key_and_quality(grammar: &Grammar, id: MRuleId) -> (String, Identi
 }
 
 /// Resolve a morphological rule's stable identity.
+/// Reused authored keys receive structural ordinals so each runtime rule stays distinct.
 pub fn morph_rule_identity(grammar: &Grammar, id: MRuleId) -> ObjectIdentity {
     let (key, quality) = morph_rule_key_and_quality(grammar, id);
+    let key_count = (0..grammar.mrules.len())
+        .filter(|index| morph_rule_key_and_quality(grammar, MRuleId(*index as u32)).0 == key)
+        .count();
+    let (key, quality) = disambiguate_morph_rule_key(&key, id.0, key_count, quality);
     let def = &grammar.mrules[id.0 as usize];
     let label = morph_rule_name(def)
         .map(str::to_string)
@@ -134,6 +184,33 @@ pub fn morph_rule_identity(grammar: &Grammar, id: MRuleId) -> ObjectIdentity {
         label,
         quality,
     }
+}
+
+fn morph_rule_identities(grammar: &Grammar) -> Vec<ObjectIdentity> {
+    let base = (0..grammar.mrules.len())
+        .map(|index| morph_rule_key_and_quality(grammar, MRuleId(index as u32)))
+        .collect::<Vec<_>>();
+    let mut counts = HashMap::new();
+    for (key, _) in &base {
+        *counts.entry(key.clone()).or_insert(0usize) += 1;
+    }
+    base.into_iter()
+        .enumerate()
+        .map(|(index, (key, quality))| {
+            let (key, quality) =
+                disambiguate_morph_rule_key(&key, index as u32, counts[&key], quality);
+            let def = &grammar.mrules[index];
+            let label = morph_rule_name(def)
+                .map(str::to_string)
+                .unwrap_or_else(|| key.clone());
+            ObjectIdentity {
+                key,
+                kind: ObjectKind::MorphRule,
+                label,
+                quality,
+            }
+        })
+        .collect()
 }
 
 /// Resolve a phonological rule's stable identity. Both `PhonRuleDef` variants (`Rewrite`,
@@ -161,14 +238,36 @@ pub fn phon_rule_identity(grammar: &Grammar, id: PRuleId) -> ObjectIdentity {
     }
 }
 
-/// Resolve a lexical entry's stable identity. The label prefers the entry's morpheme's gloss
-/// (what a human recognizes in FLEx) and falls back to the authored id when no gloss is reachable.
+/// Resolve a lexical entry's stable identity. Duplicate source GUIDs include the MSA identity;
+/// repeated entry/MSA pairs use a structural ordinal. The label prefers the MSA gloss.
 pub fn lex_entry_identity(grammar: &Grammar, id: LexEntryId) -> ObjectIdentity {
     let entry = &grammar.entries[id.0 as usize];
     let (key, quality) = if entry.authored_id.trim().is_empty() {
         (format!("lex_entry#{}", id.0), IdentityQuality::Structural)
     } else {
-        (entry.authored_id.clone(), IdentityQuality::Authored)
+        let peers = grammar
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, peer)| peer.authored_id == entry.authored_id)
+            .collect::<Vec<_>>();
+        if peers.len() == 1 {
+            (entry.authored_id.clone(), IdentityQuality::Authored)
+        } else {
+            let morpheme = morpheme_identity(grammar, entry.morpheme);
+            let same_morpheme_count = peers
+                .iter()
+                .filter(|(_, peer)| morpheme_identity(grammar, peer.morpheme).key == morpheme.key)
+                .count();
+            lex_entry_authored_key(
+                &entry.authored_id,
+                &morpheme.key,
+                morpheme.quality,
+                id.0,
+                peers.len(),
+                same_morpheme_count,
+            )
+        }
     };
     let label = grammar
         .morphemes
@@ -181,6 +280,97 @@ pub fn lex_entry_identity(grammar: &Grammar, id: LexEntryId) -> ObjectIdentity {
         kind: ObjectKind::LexEntry,
         label,
         quality,
+    }
+}
+
+fn lex_entry_identities(grammar: &Grammar) -> Vec<ObjectIdentity> {
+    let mut authored_counts = HashMap::new();
+    let mut morpheme_counts = HashMap::new();
+    let morphemes = grammar
+        .entries
+        .iter()
+        .map(|entry| morpheme_identity(grammar, entry.morpheme))
+        .collect::<Vec<_>>();
+    for (index, entry) in grammar.entries.iter().enumerate() {
+        if entry.authored_id.trim().is_empty() {
+            continue;
+        }
+        *authored_counts
+            .entry(entry.authored_id.as_str())
+            .or_insert(0usize) += 1;
+        *morpheme_counts
+            .entry((entry.authored_id.as_str(), morphemes[index].key.as_str()))
+            .or_insert(0usize) += 1;
+    }
+    grammar
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let (key, quality) = if entry.authored_id.trim().is_empty() {
+                (format!("lex_entry#{}", index), IdentityQuality::Structural)
+            } else {
+                lex_entry_authored_key(
+                    &entry.authored_id,
+                    &morphemes[index].key,
+                    morphemes[index].quality,
+                    index as u32,
+                    authored_counts[entry.authored_id.as_str()],
+                    morpheme_counts[&(entry.authored_id.as_str(), morphemes[index].key.as_str())],
+                )
+            };
+            let label = grammar
+                .morphemes
+                .get(entry.morpheme.0 as usize)
+                .and_then(|m| m.gloss.clone())
+                .filter(|g| !g.is_empty())
+                .unwrap_or_else(|| key.clone());
+            ObjectIdentity {
+                key,
+                kind: ObjectKind::LexEntry,
+                label,
+                quality,
+            }
+        })
+        .collect()
+}
+
+fn disambiguate_morph_rule_key(
+    key: &str,
+    index: u32,
+    key_count: usize,
+    quality: IdentityQuality,
+) -> (String, IdentityQuality) {
+    if key_count > 1 {
+        (format!("{key}#mrule#{index}"), IdentityQuality::Structural)
+    } else {
+        (key.to_string(), quality)
+    }
+}
+
+fn lex_entry_authored_key(
+    authored_id: &str,
+    morpheme_key: &str,
+    morpheme_quality: IdentityQuality,
+    index: u32,
+    authored_id_count: usize,
+    same_morpheme_count: usize,
+) -> (String, IdentityQuality) {
+    if authored_id_count == 1 {
+        return (authored_id.to_string(), IdentityQuality::Authored);
+    }
+    if same_morpheme_count == 1 {
+        let quality = if morpheme_quality == IdentityQuality::Authored {
+            IdentityQuality::Authored
+        } else {
+            IdentityQuality::Structural
+        };
+        (format!("{authored_id}#morpheme:{morpheme_key}"), quality)
+    } else {
+        (
+            format!("{authored_id}#morpheme:{morpheme_key}#entry:{index}"),
+            IdentityQuality::Structural,
+        )
     }
 }
 
@@ -200,17 +390,40 @@ pub fn stratum_identity(grammar: &Grammar, id: StratumId) -> StratumIdentity {
 }
 
 /// Resolve an allomorph's structural locator from its owner's identity and index within it.
-fn allomorph_identity_for_owner(grammar: &Grammar, owner: AllomorphOwner) -> AllomorphIdentity {
+fn allomorph_identity_for_owner(
+    owner: AllomorphOwner,
+    lex_entries: &[ObjectIdentity],
+    morph_rules: &[ObjectIdentity],
+) -> AllomorphIdentity {
     let (owner_kind, owner_key, owner_label, index) = match owner {
         AllomorphOwner::Root(entry_id, idx) => {
-            let owner_identity = lex_entry_identity(grammar, entry_id);
-            ("lex_entry", owner_identity.key, owner_identity.label, idx)
+            let owner_identity = &lex_entries[entry_id.0 as usize];
+            (
+                "lex_entry",
+                owner_identity.key.clone(),
+                owner_identity.label.clone(),
+                idx,
+            )
         }
         AllomorphOwner::Affix(mrule_id, idx) => {
-            let owner_identity = morph_rule_identity(grammar, mrule_id);
-            ("morph_rule", owner_identity.key, owner_identity.label, idx)
+            let owner_identity = &morph_rules[mrule_id.0 as usize];
+            (
+                "morph_rule",
+                owner_identity.key.clone(),
+                owner_identity.label.clone(),
+                idx,
+            )
         }
     };
+    allomorph_identity_for_owner_fields(owner_kind, &owner_key, &owner_label, index)
+}
+
+fn allomorph_identity_for_owner_fields(
+    owner_kind: &str,
+    owner_key: &str,
+    owner_label: &str,
+    index: u16,
+) -> AllomorphIdentity {
     AllomorphIdentity {
         key: format!("{owner_kind}:{owner_key}#allo{index}"),
         label: format!("{owner_label} allomorph {index}"),
@@ -221,14 +434,24 @@ fn allomorph_identity_for_owner(grammar: &Grammar, owner: AllomorphOwner) -> All
 /// Resolve an allomorph's structural locator by its dense runtime id, via the grammar's
 /// allomorph registry.
 pub fn allomorph_identity(grammar: &Grammar, id: AllomorphId) -> AllomorphIdentity {
-    // `AllomorphId::GUESSED` indexes no registry row; `model.rs` requires every resolution site to special-case it.
     match grammar.allomorph_owners.get(id.0 as usize) {
-        Some(owner) => allomorph_identity_for_owner(grammar, *owner),
-        None => AllomorphIdentity {
-            key: "guesser#allo".to_string(),
-            label: "guessed root allomorph".to_string(),
-            quality: IdentityQuality::Synthetic,
-        },
+        Some(AllomorphOwner::Root(entry_id, index)) => {
+            let owner = lex_entry_identity(grammar, *entry_id);
+            allomorph_identity_for_owner_fields("lex_entry", &owner.key, &owner.label, *index)
+        }
+        Some(AllomorphOwner::Affix(rule_id, index)) => {
+            let owner = morph_rule_identity(grammar, *rule_id);
+            allomorph_identity_for_owner_fields("morph_rule", &owner.key, &owner.label, *index)
+        }
+        None => guessed_allomorph_identity(),
+    }
+}
+
+fn guessed_allomorph_identity() -> AllomorphIdentity {
+    AllomorphIdentity {
+        key: "guesser#allo".to_string(),
+        label: "guessed root allomorph".to_string(),
+        quality: IdentityQuality::Synthetic,
     }
 }
 

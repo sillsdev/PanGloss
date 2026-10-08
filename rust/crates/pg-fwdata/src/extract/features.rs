@@ -101,12 +101,13 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
     let abbreviation = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
     let mut values = Vec::new();
     for value_guid in rec.node.objsur_list("Values") {
-        let resolved = ctx.require_from(
+        let resolution = ctx.resolve_reference(&value_guid, "FsSymFeatVal");
+        let resolved = ctx.require_resolution(
             &value_guid,
             "FsSymFeatVal",
             "closedFeature.values",
-            rec,
-            "Values",
+            resolution,
+            (rec, "Values"),
         );
         let attachment = InventoryKey::attachment(
             InventoryKind::FeatureValue,
@@ -132,7 +133,7 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
             ctx.record_rejected(
                 attachment,
                 ConversionIssue {
-                    code: super::codes::DANGLING_REFERENCE,
+                    code: resolution.failure_code(),
                     class: IssueClass::InvalidSource,
                     source: Some(SourceRef {
                         kind: pg_snapshot::FwClass::FsSymFeatVal,

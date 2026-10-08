@@ -427,6 +427,7 @@ fn compounding_in_a_template_slot_bypasses_the_ordinary_synthesis_gate() {
     }));
     let tid = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
+        source_guid: None,
         name: None,
         is_final: true,
         required_syn_fs: pg_featstruct::FsId(0),

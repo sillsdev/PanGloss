@@ -59,8 +59,9 @@ pub mod warning_metadata;
 pub use common::{Guid, WsForm};
 pub use conversion::{
     ConversionInventory, ConversionIssue, ConversionProvenance, InventoryDelta, InventoryIdentity,
-    InventoryKey, InventoryKind, IssueClass, ProvenanceError, RawSourceCensus, SelectionRecorder,
-    SourceInventoryStatus, SourceRef, CONVERSION_PROVENANCE_SCHEMA_VERSION,
+    InventoryKey, InventoryKind, IssueClass, LoadDecision, LoadDecisionDraft, LoadDisposition,
+    LoadPipelineStage, LoadReasonCode, ProvenanceError, RawSourceCensus, RawSourceObject,
+    SelectionRecorder, SourceInventoryStatus, SourceRef, CONVERSION_PROVENANCE_SCHEMA_VERSION,
 };
 pub use feature::{
     ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureSystems, FeatureValue,
@@ -68,7 +69,7 @@ pub use feature::{
 };
 pub use lexicon::{AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense};
 pub use morphology::{
-    ActiveParser, AdhocProhibition, Adjacency, AffixSlot, AffixTemplate,
+    ActiveParser, AdhocProhibition, AdhocProhibitionGroup, Adjacency, AffixSlot, AffixTemplate,
     CompoundConstituentRequirement, CompoundOutcome, CompoundRule, CompoundRuleMaxApplications,
     ExceptionFeature, InflectionClass, LexEntryInflType, MorphType, Morphology, ParserParameters,
     PartOfSpeech, StemName, XAmpleParameters,

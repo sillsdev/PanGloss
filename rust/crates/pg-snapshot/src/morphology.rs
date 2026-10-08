@@ -37,6 +37,9 @@ pub struct Morphology {
     /// MSA is exactly the "stale ad-hoc rule" tolerance case called out in
     /// `docs/fwdata-import-plan.md` §1 — a `crate::validate` warning, never an import error).
     pub adhoc_prohibitions: Vec<AdhocProhibition>,
+    /// Authored rationale groups. `None` means the Snapshot producer did not publish these facts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adhoc_prohibition_groups: Option<Vec<AdhocProhibitionGroup>>,
     /// The registry of "exception feature" / productivity-restriction possibilities that MSAs,
     /// compound-rule constituent requirements, and rewrite-rule right-hand sides restrict
     /// productivity by. ← `MorphologicalDataOA.ProdRestrictOA.ReallyReallyAllPossibilities`
@@ -329,6 +332,16 @@ pub enum AdhocProhibition {
         others: Vec<Guid>,
         adjacency: Adjacency,
     },
+}
+
+/// A rationale group for ad hoc prohibitions. `members` is a collection, not an ordered list.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdhocProhibitionGroup {
+    pub guid: Guid,
+    pub name: Vec<crate::common::WsForm>,
+    pub description: Vec<crate::common::WsForm>,
+    pub members: Vec<Guid>,
 }
 
 /// An irregular-inflected-form variant type: tags a variant `LexEntry` as realizing a specific

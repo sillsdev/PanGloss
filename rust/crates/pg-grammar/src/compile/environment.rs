@@ -8,6 +8,43 @@ use crate::model::{
 
 use super::{issue_codes, roles, Ctx};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvironmentResolutionStatus {
+    Valid,
+    Invalid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvironmentClassToken {
+    pub side: String,
+    pub token_path: String,
+    pub token_text: String,
+    pub source_start: usize,
+    pub source_end: usize,
+    pub natural_class_guid: Option<String>,
+    pub natural_class_index: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EnvironmentResolution {
+    pub environment_guid: String,
+    pub status: EnvironmentResolutionStatus,
+    pub error: Option<String>,
+    pub error_code: Option<String>,
+    pub left_text: Option<String>,
+    pub right_text: Option<String>,
+    pub left: Option<Pattern>,
+    pub right: Option<Pattern>,
+    pub class_tokens: Vec<EnvironmentClassToken>,
+}
+
+#[derive(Debug, Clone)]
+struct SpannedToken {
+    text: String,
+    start: usize,
+    end: usize,
+}
+
 /// Retains authored expression text and only nonblank snapshot environment identifiers.
 pub(crate) fn snapshot_environment_source(
     env: &pg_snapshot::phonology::Environment,
@@ -15,6 +52,33 @@ pub(crate) fn snapshot_environment_source(
     EnvironmentSource {
         id: (!env.guid.trim().is_empty()).then(|| env.guid.clone()),
         text: (!env.representation.trim().is_empty()).then(|| env.representation.clone()),
+    }
+}
+
+pub(crate) fn record_unattempted(snapshot: &pg_snapshot::Snapshot, ctx: &Ctx) {
+    for environment in &snapshot.phonology.environments {
+        let key = InventoryKey::object(InventoryKind::Environment, environment.guid.clone());
+        if ctx.has_load_decision(&key) {
+            continue;
+        }
+        let referenced = snapshot.lexicon.entries.iter().any(|entry| {
+            entry.allomorphs.iter().any(|allomorph| {
+                allomorph
+                    .environments
+                    .iter()
+                    .chain(&allomorph.positions)
+                    .any(|guid| guid == &environment.guid)
+            })
+        });
+        ctx.considered(key.clone());
+        ctx.not_considered(
+            key,
+            if referenced {
+                pg_snapshot::LoadReasonCode::OwnerNotLoaded
+            } else {
+                pg_snapshot::LoadReasonCode::Unreferenced
+            },
+        );
     }
 }
 
@@ -53,18 +117,22 @@ pub(crate) fn resolve_environment_defs<'a>(
         let env_object = InventoryKey::object(InventoryKind::Environment, env.guid.clone());
         ctx.considered(env_object.clone());
         ctx.selected(env_object.clone());
-        match parse_environment(&env.representation, ctx) {
-            Ok((left, right)) => {
+        let resolved = ctx.environment_resolution(env);
+        match resolved.status {
+            EnvironmentResolutionStatus::Valid => {
                 environments.push(EnvironmentDef {
                     require: true,
-                    left,
-                    right,
+                    left: resolved.left,
+                    right: resolved.right,
                     source: Some(snapshot_environment_source(env)),
                 });
                 ctx.represented(attachment);
                 ctx.represented(env_object);
             }
-            Err(cause) => {
+            EnvironmentResolutionStatus::Invalid => {
+                let cause = resolved
+                    .error
+                    .unwrap_or_else(|| "invalid environment".into());
                 let source = Some(SourceRef {
                     kind: pg_snapshot::FwClass::PhEnvironment,
                     id: env.guid.clone(),
@@ -89,26 +157,72 @@ pub(crate) fn resolve_environment_defs<'a>(
     environments
 }
 
-/// `SplitEnvironment` + `IsValidEnvironment` + `LoadEnvironmentPattern` folded into one tokenize-and-build pass: parses `/left_right` into `(leftPattern, rightPattern)`, `Err` for anything `IsValidEnvironment` would reject so the caller can fall back to treating the environment as absent.
-pub(crate) fn parse_environment(
+pub(crate) fn resolve_environment_expression(
+    guid: &str,
     representation: &str,
     ctx: &Ctx,
-) -> Result<(Option<Pattern>, Option<Pattern>), String> {
-    let body = representation
-        .trim()
-        .strip_prefix('/')
-        .ok_or_else(|| format!("environment string {representation:?} must start with '/'"))?;
-    let parts: Vec<&str> = body.split('_').collect();
-    if parts.len() != 2 {
-        return Err(format!(
-            "environment string {representation:?} must contain exactly one '_'"
-        ));
+) -> EnvironmentResolution {
+    let (left_text, right_text) = match split_environment_string(representation) {
+        Ok(parts) => parts,
+        Err(error) => {
+            return EnvironmentResolution {
+                environment_guid: guid.into(),
+                status: EnvironmentResolutionStatus::Invalid,
+                error: Some(error),
+                error_code: Some("invalid_environment".into()),
+                left_text: None,
+                right_text: None,
+                left: None,
+                right: None,
+                class_tokens: Vec::new(),
+            }
+        }
+    };
+    let mut class_tokens = Vec::new();
+    let left = match resolve_environment_side(&left_text, true, "left", ctx, &mut class_tokens) {
+        Ok(pattern) => pattern,
+        Err(error) => {
+            return EnvironmentResolution {
+                environment_guid: guid.into(),
+                status: EnvironmentResolutionStatus::Invalid,
+                error: Some(error),
+                error_code: Some("invalid_environment".into()),
+                left_text: Some(left_text),
+                right_text: Some(right_text),
+                left: None,
+                right: None,
+                class_tokens,
+            }
+        }
+    };
+    let right = match resolve_environment_side(&right_text, false, "right", ctx, &mut class_tokens)
+    {
+        Ok(pattern) => pattern,
+        Err(error) => {
+            return EnvironmentResolution {
+                environment_guid: guid.into(),
+                status: EnvironmentResolutionStatus::Invalid,
+                error: Some(error),
+                error_code: Some("invalid_environment".into()),
+                left_text: Some(left_text),
+                right_text: Some(right_text),
+                left: None,
+                right: None,
+                class_tokens,
+            }
+        }
+    };
+    EnvironmentResolution {
+        environment_guid: guid.into(),
+        status: EnvironmentResolutionStatus::Valid,
+        error: None,
+        error_code: None,
+        left_text: Some(left_text),
+        right_text: Some(right_text),
+        left,
+        right,
+        class_tokens,
     }
-    let left_str = parts[0].trim();
-    let right_str = parts[1].trim();
-    let left = load_environment_pattern(left_str, true, ctx)?;
-    let right = load_environment_pattern(right_str, false, ctx)?;
-    Ok((left, right))
 }
 
 /// `SplitEnvironment` (HCLoader.cs:2260-2266) alone, without building patterns -- needed wherever a concatenative affix rule embeds one side's raw context tokens directly into its LHS pattern.
@@ -126,48 +240,46 @@ pub(crate) fn split_environment_string(representation: &str) -> Result<(String, 
     Ok((parts[0].trim().to_string(), parts[1].trim().to_string()))
 }
 
-/// `LoadEnvironmentPattern` (HCLoader.cs:2268-2281): `left` selects which edge a bare `#` anchors (start for the left context, end for the right).
-pub(crate) fn load_environment_pattern(
-    s: &str,
-    left: bool,
-    ctx: &Ctx,
-) -> Result<Option<Pattern>, String> {
-    if s.is_empty() {
-        return Ok(None);
-    }
-    let tokens = tokenize(s)?;
-    let mut nodes = Vec::new();
-    if left && s.starts_with('#') {
-        nodes.push(PatternNode::Anchor(AnchorSide::Left));
-    }
-    nodes.extend(nodes_from_tokens(&tokens, ctx)?);
-    if !left && s.ends_with('#') {
-        nodes.push(PatternNode::Anchor(AnchorSide::Right));
-    }
-    Ok(Some(Pattern { nodes }))
-}
-
 /// `TokenizeContext` (HCLoader.cs:2420-2457): splits a context string into `#`, `[...]` (natural-class reference), `(...)` (optional group), and plain-text tokens.
 pub(crate) fn tokenize(s: &str) -> Result<Vec<String>, String> {
+    Ok(tokenize_spanned(s)?
+        .into_iter()
+        .map(|token| token.text)
+        .collect())
+}
+
+fn tokenize_spanned(s: &str) -> Result<Vec<SpannedToken>, String> {
     let chars: Vec<char> = s.chars().collect();
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos < chars.len() {
         match chars[pos] {
             '#' => {
-                out.push("#".to_string());
+                out.push(SpannedToken {
+                    text: "#".into(),
+                    start: pos,
+                    end: pos + 1,
+                });
                 pos += 1;
             }
             '[' => {
                 let end = find_from(&chars, pos, ']')
                     .ok_or_else(|| format!("missing closing ']' in {s:?} at position {pos}"))?;
-                out.push(chars[pos..=end].iter().collect());
+                out.push(SpannedToken {
+                    text: chars[pos..=end].iter().collect(),
+                    start: pos,
+                    end: end + 1,
+                });
                 pos = end + 1;
             }
             '(' => {
                 let end = find_matching_paren(&chars, pos)
                     .ok_or_else(|| format!("missing closing ')' in {s:?} at position {pos}"))?;
-                out.push(chars[pos..=end].iter().collect());
+                out.push(SpannedToken {
+                    text: chars[pos..=end].iter().collect(),
+                    start: pos,
+                    end: end + 1,
+                });
                 pos = end + 1;
             }
             ')' => return Err(format!("unmatched ')' in {s:?} at position {pos}")),
@@ -178,7 +290,11 @@ pub(crate) fn tokenize(s: &str) -> Result<Vec<String>, String> {
                     .position(|&c| matches!(c, '#' | '[' | '(' | ')' | ' '))
                     .map(|d| pos + d)
                     .unwrap_or(chars.len());
-                out.push(chars[pos..end].iter().collect());
+                out.push(SpannedToken {
+                    text: chars[pos..end].iter().collect(),
+                    start: pos,
+                    end,
+                });
                 pos = end;
             }
         }
@@ -211,29 +327,90 @@ fn find_matching_paren(chars: &[char], open: usize) -> Option<usize> {
     None
 }
 
-/// `LoadPatternNodes` (HCLoader.cs:2391-2418): builds pattern nodes from already-tokenized context text; a bare `#` token contributes no node here since the edge anchor, if any, was already pushed by `load_environment_pattern`.
-fn nodes_from_tokens(tokens: &[String], ctx: &Ctx) -> Result<Vec<PatternNode>, String> {
+fn resolve_environment_side(
+    text: &str,
+    left: bool,
+    side: &str,
+    ctx: &Ctx,
+    class_tokens: &mut Vec<EnvironmentClassToken>,
+) -> Result<Option<Pattern>, String> {
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let tokens = tokenize_spanned(text)?;
+    let mut nodes = Vec::new();
+    if left && text.starts_with('#') {
+        nodes.push(PatternNode::Anchor(AnchorSide::Left));
+    }
+    nodes.extend(nodes_from_spanned(
+        &tokens,
+        side,
+        &[],
+        0,
+        ctx,
+        class_tokens,
+    )?);
+    if !left && text.ends_with('#') {
+        nodes.push(PatternNode::Anchor(AnchorSide::Right));
+    }
+    Ok(Some(Pattern { nodes }))
+}
+
+/// Resolves each class token through the compiler's winner map and records that winner.
+fn nodes_from_spanned(
+    tokens: &[SpannedToken],
+    side: &str,
+    parent_path: &[usize],
+    source_offset: usize,
+    ctx: &Ctx,
+    class_tokens: &mut Vec<EnvironmentClassToken>,
+) -> Result<Vec<PatternNode>, String> {
     let mut out = Vec::new();
-    for tok in tokens {
+    for (ordinal, token) in tokens.iter().enumerate() {
+        let tok = &token.text;
+        let mut path = parent_path.to_vec();
+        path.push(ordinal);
         let mut chars = tok.chars();
         match chars.next() {
             Some('#') => {}
             Some('[') => {
                 let name = tok[1..tok.len() - 1].trim();
-                let nc = ctx
-                    .natclass_by_name
-                    .get(name)
-                    .copied()
-                    .ok_or_else(|| format!("unknown natural class {name:?}"))?;
+                let nc = ctx.natclass_by_name.get(name).copied();
+                let natural_class_guid = nc
+                    .and_then(|id| ctx.natural_class_defs.get(id.0 as usize))
+                    .map(|definition| definition.xml_id.clone());
+                class_tokens.push(EnvironmentClassToken {
+                    side: side.into(),
+                    token_path: path
+                        .iter()
+                        .map(usize::to_string)
+                        .collect::<Vec<_>>()
+                        .join("/"),
+                    token_text: tok.clone(),
+                    source_start: source_offset + token.start,
+                    source_end: source_offset + token.end,
+                    natural_class_guid,
+                    natural_class_index: nc.map(|id| id.0),
+                });
+                let nc = nc.ok_or_else(|| format!("unknown natural class {name:?}"))?;
                 out.push(PatternNode::Context(SimpleContext {
                     nat_class: nc,
                     vars: Vec::new(),
                 }));
             }
             Some('(') => {
-                let inner = tok[1..tok.len() - 1].trim();
-                let inner_tokens = tokenize(inner)?;
-                let children = nodes_from_tokens(&inner_tokens, ctx)?;
+                let content = &tok[1..tok.len() - 1];
+                let leading = content.chars().take_while(|ch| ch.is_whitespace()).count();
+                let inner = content.trim();
+                let inner_tokens = tokenize_spanned(inner)?;
+                let children = nodes_from_spanned(
+                    &inner_tokens,
+                    side,
+                    &path,
+                    source_offset + token.start + 1 + leading,
+                    ctx,
+                    class_tokens,
+                )?;
                 out.push(PatternNode::Quantifier {
                     min: 0,
                     max: Some(1),
@@ -311,29 +488,6 @@ pub(crate) fn any_star(ctx: &Ctx) -> Vec<PatternNode> {
         },
         suffix_null(ctx),
     ]
-}
-
-/// `LoadPatternNodes(patternStr)` for a plain (non-environment-split) context string -- used by the infix LHS builder, which runs it directly on each side, not through `LoadEnvironmentPattern`, so no edge-anchor handling here.
-pub(crate) fn pattern_nodes(s: &str, ctx: &Ctx) -> Result<Vec<PatternNode>, String> {
-    if s.is_empty() {
-        return Ok(Vec::new());
-    }
-    let tokens = tokenize(s)?;
-    nodes_from_tokens(&tokens, ctx)
-}
-
-/// `IsValidEnvironment` (HCLoader.cs:1205-1271): the whole-string validity check every environment goes through before any pattern is built, as a dry run of the same tokenize/build machinery so verdicts cannot drift from what construction would accept.
-/// See `docs/research/pg-grammar-environment-validation-granularity.md` for why the check must fail the environment as a whole rather than per side.
-pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<(), String> {
-    let (left, right) = split_environment_string(representation)?;
-    for side in [left, right] {
-        if side.is_empty() {
-            continue;
-        }
-        let tokens = tokenize(&side)?;
-        nodes_from_tokens(&tokens, ctx)?;
-    }
-    Ok(())
 }
 
 /// Publishes attached environment literals after the allomorph owner selects a form.

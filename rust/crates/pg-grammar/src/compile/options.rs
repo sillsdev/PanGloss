@@ -68,5 +68,29 @@ pub struct CompileOptions {
     pub semantic_loss: SemanticLossPolicy,
 }
 
+impl CompileOptions {
+    /// Return the stable JSON projection used to identify these options in a facts artifact.
+    /// Keeping policy tags here lets production consumers record the compiler configuration
+    /// without depending on measurement-only policy details.
+    pub fn canonical_projection_json(self, resolved_substrate: ResolvedSubstratePolicy) -> String {
+        let semantic_loss = match self.semantic_loss {
+            SemanticLossPolicy::Refuse => "refuse",
+            SemanticLossPolicy::MeasureOnly => "measureOnly",
+        };
+        let requested = match self.substrate {
+            SubstratePolicy::Auto => "auto",
+            SubstratePolicy::Strict => "strict",
+            SubstratePolicy::CompleteFromUsage => "completeFromUsage",
+        };
+        let resolved = match resolved_substrate {
+            ResolvedSubstratePolicy::Strict => "strict",
+            ResolvedSubstratePolicy::CompleteFromUsage => "completeFromUsage",
+        };
+        format!(
+            "{{\"semanticLossPolicy\":\"{semantic_loss}\",\"substratePolicy\":{{\"requested\":\"{requested}\",\"resolved\":\"{resolved}\"}}}}"
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests;

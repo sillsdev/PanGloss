@@ -126,6 +126,7 @@ impl BatchParseCounter {
 mod assess;
 pub(crate) mod build_info;
 mod compile_failure;
+mod facts_cmd;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 #[cfg(feature = "foma-tools")]
 pub mod backend_report;
@@ -148,6 +149,7 @@ pub mod readiness_verdict;
 mod recipe_optimize;
 mod rich_trace;
 mod stats_cmd;
+mod stats_manifest;
 mod surface;
 mod trace_render;
 
@@ -305,6 +307,37 @@ fn reject_analysis_path_collisions(
     Ok(())
 }
 
+fn reject_frozen_stats_path_collisions(
+    grammar_path: &str,
+    words_path: &str,
+    out_path: &str,
+    analyses_path: Option<&str>,
+    cache_path: &str,
+    manifest_path: &str,
+) -> Result<(), String> {
+    let mut paths = vec![
+        ("grammar", grammar_path),
+        ("word list", words_path),
+        ("TSV output", out_path),
+        ("stats cache", cache_path),
+        ("stats manifest", manifest_path),
+    ];
+    if let Some(analyses_path) = analyses_path {
+        paths.push(("analyses output", analyses_path));
+    }
+    for (index, (label, path)) in paths.iter().enumerate() {
+        let key = path_key(std::path::Path::new(path));
+        for (other_label, other_path) in paths.iter().skip(index + 1) {
+            if same_path(&key, &path_key(std::path::Path::new(other_path))) {
+                return Err(format!(
+                    "stats manifest path collision: {label} and {other_label} resolve to the same path"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "developer-tools")]
 const REPORT_DEVELOPER_HELP: &str = " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
@@ -363,10 +396,11 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
+         usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--json]\n\
          usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
          usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
          usage: pangloss investigate <report.json> --case <caseId> [--report <path>]\n\
@@ -442,12 +476,14 @@ struct LoadedGrammar {
     grammar: Grammar,
     warnings: Vec<pg_snapshot::Warning>,
     metadata: Option<rich_trace::TraceMetadata>,
+    stats_source_identity: Option<stats_manifest::SourceIdentity>,
     substrate: pg_grammar::compile::issues::SubstrateReport,
 }
 
 fn load_grammar_impl(
     path: &str,
     capture_metadata: bool,
+    capture_stats_identity: bool,
 ) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
     let ext = std::path::Path::new(path)
         .extension()
@@ -455,9 +491,17 @@ fn load_grammar_impl(
         .unwrap_or("");
     match ext {
         "json" => {
-            let json = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+            let json = if capture_metadata {
+                let bytes = fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+                String::from_utf8(bytes).map_err(|e| format!("read {path}: {e}"))?
+            } else {
+                fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?
+            };
             let snapshot = pg_snapshot::Snapshot::from_json(&json)
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
+            let stats_source_identity = capture_stats_identity
+                .then(|| stats_manifest::SourceIdentity::from_snapshot_source(&json, &snapshot))
+                .transpose()?;
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
             let output = pg_grammar::compile_project_with(&snapshot, Default::default()).map_err(
@@ -471,12 +515,34 @@ fn load_grammar_impl(
                 grammar: output.grammar,
                 warnings: output.warnings,
                 metadata,
+                stats_source_identity,
                 substrate: output.substrate,
             })
         }
         _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
+            let source_bytes = if capture_stats_identity {
+                Some(fs::read(path).map_err(|e| format!("read {path}: {e}"))?)
+            } else {
+                None
+            };
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
+            if let Some(source_bytes) = source_bytes.as_deref() {
+                let bytes_after_import =
+                    fs::read(path).map_err(|e| format!("read {path} after import: {e}"))?;
+                if bytes_after_import != source_bytes {
+                    return Err(format!(
+                        "source changed while importing {path}; refusing to identify a different input"
+                    )
+                    .into());
+                }
+            }
+            let stats_source_identity = source_bytes
+                .as_deref()
+                .map(|bytes| {
+                    stats_manifest::SourceIdentity::from_imported_snapshot(bytes, &snapshot)
+                })
+                .transpose()?;
             let mut import_warnings = report.warnings;
             import_warnings.extend(snapshot.validate());
             let metadata =
@@ -495,20 +561,14 @@ fn load_grammar_impl(
                 grammar: output.grammar,
                 warnings: output.warnings,
                 metadata,
+                stats_source_identity,
                 substrate: output.substrate,
             })
         }
         _ => {
             let (xml, hash) = if capture_metadata {
                 let bytes = fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
-                use sha2::{Digest, Sha256};
-                let mut hasher = Sha256::new();
-                hasher.update(&bytes);
-                let hash = hasher
-                    .finalize()
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect();
+                let hash = stats_manifest::sha256_hex(&bytes);
                 let xml = String::from_utf8(bytes).map_err(|e| format!("read {path}: {e}"))?;
                 (xml, Some(hash))
             } else {
@@ -516,6 +576,11 @@ fn load_grammar_impl(
                     fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?,
                     None,
                 )
+            };
+            let stats_source_identity = if capture_stats_identity {
+                Some(stats_manifest::SourceIdentity::from_hc_xml(&xml)?)
+            } else {
+                None
             };
             let grammar = pg_grammar::load(&xml).map_err(|error| {
                 compile_failure::GrammarLoadError::Compile(Box::new(
@@ -527,6 +592,7 @@ fn load_grammar_impl(
                 grammar,
                 warnings: Vec::new(),
                 metadata,
+                stats_source_identity,
                 substrate: Default::default(),
             })
         }
@@ -534,9 +600,28 @@ fn load_grammar_impl(
 }
 
 pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
-    let loaded = load_grammar_impl(path, false).map_err(|error| error.to_string())?;
+    let loaded = load_grammar_impl(path, false, false).map_err(|error| error.to_string())?;
     print_substrate_report(&loaded.substrate);
     Ok((loaded.grammar, loaded.warnings))
+}
+
+fn load_grammar_with_stats_identity(
+    path: &str,
+) -> Result<
+    (
+        Grammar,
+        Vec<pg_snapshot::Warning>,
+        stats_manifest::SourceIdentity,
+    ),
+    String,
+> {
+    let mut loaded = load_grammar_impl(path, true, true).map_err(|error| error.to_string())?;
+    let source_identity = loaded
+        .stats_source_identity
+        .take()
+        .ok_or_else(|| "stats source identity was not captured".to_string())?;
+    print_substrate_report(&loaded.substrate);
+    Ok((loaded.grammar, loaded.warnings, source_identity))
 }
 
 pub(crate) fn load_grammar_with_trace_metadata(
@@ -549,7 +634,7 @@ pub(crate) fn load_grammar_with_trace_metadata(
     ),
     String,
 > {
-    let loaded = load_grammar_impl(path, true).map_err(|error| error.to_string())?;
+    let loaded = load_grammar_impl(path, true, false).map_err(|error| error.to_string())?;
     let metadata = loaded
         .metadata
         .ok_or_else(|| "rich trace metadata was not captured".to_string())?;
@@ -915,6 +1000,7 @@ struct BatchWordRun {
 fn parse_batch_with_stats(
     morpher: &Morpher,
     grammar: &Grammar,
+    identities: &pg_grammar::stats_identity::StatsIdentityCatalog,
     words: &[String],
     max_threads: usize,
     opts: &pg_parse::ParseOptions,
@@ -949,7 +1035,14 @@ fn parse_batch_with_stats(
                     outcome,
                     elapsed: start.elapsed(),
                 };
-                let stats = stats_cmd::batch_stats_word(grammar, word, &result, &rows, &prune_rows);
+                let stats = stats_cmd::batch_stats_word(
+                    grammar,
+                    identities,
+                    word,
+                    &result,
+                    &rows,
+                    &prune_rows,
+                );
                 Some(BatchWordRun {
                     outcome: result,
                     stats: Some(stats),
@@ -1017,6 +1110,7 @@ fn run_batch_with_counter(
     let mut stats_requested = false;
     let mut always_enforce_final_templates = false;
     let mut cache_path_arg: Option<String> = None;
+    let mut stats_manifest_path_arg: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -1086,6 +1180,13 @@ fn run_batch_with_counter(
             s if s.starts_with("--cache=") => {
                 cache_path_arg = Some(s["--cache=".len()..].to_string());
             }
+            "--stats-manifest" => {
+                let v = it.next().ok_or("--stats-manifest requires a value")?;
+                stats_manifest_path_arg = Some(v.clone());
+            }
+            s if s.starts_with("--stats-manifest=") => {
+                stats_manifest_path_arg = Some(s["--stats-manifest=".len()..].to_string());
+            }
             s => {
                 reject_unknown_option("batch", s)?;
                 positional.push(s);
@@ -1103,17 +1204,34 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]"
                 .into(),
         );
     };
+    if stats_manifest_path_arg.is_some() && !stats_requested {
+        return Err("--stats-manifest requires --stats".into());
+    }
+    if stats_manifest_path_arg.is_some() && cache_path_arg.is_none() {
+        return Err("--stats-manifest requires an explicit --cache path".into());
+    }
+    if stats_manifest_path_arg.is_some() && start_idx != 0 {
+        return Err("--stats-manifest cannot be combined with --start".into());
+    }
     if analyses_path_arg.is_some() && start_idx > 0 {
         return Err("--start cannot be combined with --analyses".into());
     }
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
     let t_load = Instant::now();
-    let (grammar, warnings) = load_grammar(grammar_path)?;
+    let (grammar, warnings, stats_source_identity) = if stats_manifest_path_arg.is_some() {
+        let (grammar, warnings, identity) = load_grammar_with_stats_identity(grammar_path)?;
+        (grammar, warnings, Some(identity))
+    } else {
+        let (grammar, warnings) = load_grammar(grammar_path)?;
+        (grammar, warnings, None)
+    };
+    let stats_identities =
+        stats_requested.then(|| pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar));
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
     let stats_cache_path = if stats_requested {
@@ -1134,6 +1252,25 @@ fn run_batch_with_counter(
             stats_cache_path.as_deref(),
         )?;
     }
+    let stats_manifest_path = stats_manifest_path_arg.as_deref();
+    if let Some(manifest_path) = stats_manifest_path {
+        let cache_path = stats_cache_path
+            .as_deref()
+            .expect("--stats-manifest requires --stats and --cache");
+        reject_frozen_stats_path_collisions(
+            grammar_path,
+            words_path,
+            out_path,
+            analyses_path_arg.as_deref(),
+            cache_path,
+            manifest_path,
+        )?;
+        if std::path::Path::new(manifest_path).exists() {
+            return Err(format!(
+                "output_exists: stats manifest already exists at {manifest_path}"
+            ));
+        }
+    }
     let words: Vec<String> = fs::read_to_string(words_path)
         .map_err(|e| format!("read {words_path}: {e}"))?
         .lines()
@@ -1143,17 +1280,41 @@ fn run_batch_with_counter(
 
     let work_cap = resolved_work_cap(step_cap, work_cap);
     // A cache refusal must fire before the TSV below is truncated.
-    let stats_cache = if stats_requested {
-        Some(stats_cmd::prepare_batch_stats_hc(
-            grammar_path,
-            &words,
-            step_cap,
-            work_cap,
-            word_timeout_ms,
-            guess,
-            always_enforce_final_templates,
-            cache_path_arg.as_deref(),
-        )?)
+    let stats_cache = if let Some(manifest_path) = stats_manifest_path {
+        let cache_path = stats_cache_path
+            .as_deref()
+            .expect("--stats-manifest requires --stats and --cache");
+        let source = stats_source_identity
+            .as_ref()
+            .expect("--stats-manifest captures a source identity with the grammar");
+        Some((
+            stats_cmd::prepare_frozen_batch_stats_hc(
+                grammar_path,
+                &words,
+                step_cap,
+                work_cap,
+                word_timeout_ms,
+                guess,
+                always_enforce_final_templates,
+                cache_path,
+                &source.grammar_hash,
+            )?,
+            Some(manifest_path),
+        ))
+    } else if stats_requested {
+        Some((
+            stats_cmd::prepare_batch_stats_hc(
+                grammar_path,
+                &words,
+                step_cap,
+                work_cap,
+                word_timeout_ms,
+                guess,
+                always_enforce_final_templates,
+                cache_path_arg.as_deref(),
+            )?,
+            None,
+        ))
     } else {
         None
     };
@@ -1205,7 +1366,7 @@ fn run_batch_with_counter(
             if i < start_idx {
                 if stats_cache
                     .as_ref()
-                    .is_some_and(|cache| !cache.contains(word))
+                    .is_some_and(|(cache, _)| !cache.contains(word))
                 {
                     if per_word_diagnostics {
                         reset_per_word_diagnostics();
@@ -1220,6 +1381,9 @@ fn run_batch_with_counter(
                     };
                     stats_words.push(stats_cmd::batch_stats_word(
                         &grammar,
+                        stats_identities
+                            .as_ref()
+                            .expect("--stats creates a typed identity catalog"),
                         word,
                         &result,
                         &rows,
@@ -1243,8 +1407,16 @@ fn run_batch_with_counter(
                     outcome,
                     elapsed: start.elapsed(),
                 };
-                let stats =
-                    stats_cmd::batch_stats_word(&grammar, word, &result, &rows, &prune_rows);
+                let stats = stats_cmd::batch_stats_word(
+                    &grammar,
+                    stats_identities
+                        .as_ref()
+                        .expect("--stats creates a typed identity catalog"),
+                    word,
+                    &result,
+                    &rows,
+                    &prune_rows,
+                );
                 (result, Some(stats))
             } else {
                 parse_counter.record();
@@ -1440,11 +1612,14 @@ fn run_batch_with_counter(
                 parse_batch_with_stats(
                     &morpher,
                     &grammar,
+                    stats_identities
+                        .as_ref()
+                        .expect("--stats creates a typed identity catalog"),
                     &words,
                     threads,
                     &opts,
                     start_idx,
-                    cache.existing_words(),
+                    cache.0.existing_words(),
                     parse_counter,
                 ),
                 0,
@@ -1528,8 +1703,32 @@ fn run_batch_with_counter(
         timed_out_words,
         threads,
     );
-    if let Some(stats_cache) = stats_cache {
-        let _ = stats_cmd::finish_batch_stats_hc(stats_cache, stats_words)?;
+    if let Some((stats_cache, manifest_path)) = stats_cache {
+        if let Some(manifest_path) = manifest_path {
+            let source = stats_source_identity
+                .expect("--stats-manifest captures a source identity with the grammar");
+            let batch_options = stats_manifest::BatchOptions {
+                engine: "hc",
+                threads,
+                step_cap,
+                work_cap,
+                search_budget_semantics: stats_cmd::SEARCH_BUDGET_SEMANTICS,
+                word_timeout_ms,
+                guess,
+                always_enforce_final_templates,
+                start: start_idx,
+                analyses_requested: analyses_path_arg.is_some(),
+            };
+            let _ = stats_cmd::finish_frozen_batch_stats_hc(
+                stats_cache,
+                stats_words,
+                std::path::Path::new(manifest_path),
+                source,
+                batch_options,
+            )?;
+        } else {
+            let _ = stats_cmd::finish_batch_stats_hc(stats_cache, stats_words)?;
+        }
     }
     Ok(())
 }

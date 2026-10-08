@@ -1,6 +1,6 @@
 //! Streaming `.fwdata` reader: pulls `<rt class="..." guid="...">` records one at a time (never a DOM of the whole document) into a `RawGraph`, skipping any class this crate's extractor doesn't understand before it is ever parsed into a `Node`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -10,7 +10,10 @@ use quick_xml::name::QName;
 use quick_xml::reader::Reader;
 use sha2::{Digest, Sha256};
 
-use pg_snapshot::{ConversionIssue, FwClass, IssueClass, RawSourceCensus, SourceRef};
+use pg_snapshot::{
+    canonical_guid, ConversionIssue, FwClass, IssueClass, RawSourceCensus, RawSourceObject,
+    SourceRef,
+};
 
 use crate::extract::codes;
 use crate::node::Node;
@@ -27,8 +30,11 @@ pub struct Record {
 /// One `<rt class="..." guid="...">` header, recorded in document order regardless of whether its class is understood or its guid is present.
 #[derive(Debug, Clone)]
 pub struct RawRecordHeader {
+    pub ordinal: u64,
     pub class: String,
     pub guid: String,
+    pub retained: bool,
+    pub duplicate: bool,
 }
 
 /// Every retained record, keyed by GUID; owning (`t="o"`) and by-reference (`t="r"`) links both resolve here the same way, as a GUID lookup.
@@ -75,6 +81,23 @@ impl RawGraph {
             unhandled_class_occurrences,
             ordered_header_sha256: format!("{:x}", hasher.finalize()),
         }
+    }
+
+    /// Returns every source occurrence in document order with the parser's retention decision.
+    pub fn source_objects(&self) -> Vec<RawSourceObject> {
+        self.headers
+            .iter()
+            .map(|header| RawSourceObject {
+                ordinal: header.ordinal,
+                class_name: header.class.clone(),
+                raw_guid: header.guid.clone(),
+                canonical_guid: canonical_guid(&header.guid),
+                handled: class_allowed(&header.class),
+                inventory_kind: crate::extract::tracked_kind(&header.class),
+                retained: header.retained,
+                duplicate: header.duplicate,
+            })
+            .collect()
     }
 }
 
@@ -123,6 +146,7 @@ pub(crate) const ALLOWED_CLASSES: &[&str] = &[
     "MoMorphType",
     "MoEndoCompound",
     "MoExoCompound",
+    "MoAdhocProhibGr",
     "MoAlloAdhocProhib",
     "MoMorphAdhocProhib",
     "LexEntryInflType",
@@ -183,6 +207,7 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
 
     let mut buf = Vec::new();
     let mut graph = RawGraph::default();
+    let mut seen_guids = HashSet::new();
     let mut saw_any_rt = false;
 
     loop {
@@ -196,9 +221,15 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                 let guid = get_attr(&e, "guid")?.unwrap_or_default();
                 saw_any_rt = true;
                 let ordinal = graph.headers.len() as u64 + 1;
+                let duplicate = !guid.is_empty() && !seen_guids.insert(guid.clone());
+                let retained =
+                    class_allowed(&class) && !guid.is_empty() && !graph.records.contains_key(&guid);
                 graph.headers.push(RawRecordHeader {
+                    ordinal,
                     class: class.clone(),
                     guid: guid.clone(),
+                    retained,
+                    duplicate,
                 });
                 if class_allowed(&class) {
                     if guid.is_empty() {
@@ -226,9 +257,15 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                 let guid = get_attr(&e, "guid")?.unwrap_or_default();
                 saw_any_rt = true;
                 let ordinal = graph.headers.len() as u64 + 1;
+                let duplicate = !guid.is_empty() && !seen_guids.insert(guid.clone());
+                let retained =
+                    class_allowed(&class) && !guid.is_empty() && !graph.records.contains_key(&guid);
                 graph.headers.push(RawRecordHeader {
+                    ordinal,
                     class: class.clone(),
                     guid: guid.clone(),
+                    retained,
+                    duplicate,
                 });
                 if class_allowed(&class) {
                     if guid.is_empty() {

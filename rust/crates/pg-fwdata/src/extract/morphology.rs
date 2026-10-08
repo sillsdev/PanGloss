@@ -1,10 +1,11 @@
 //! `morphology` snapshot section — see `docs/snapshot-format.md` §5.
 
 use pg_snapshot::{
-    AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, ConversionIssue, ExceptionFeature, FeatureSystems, FwClass,
-    FwObjectRef, InflectionClass, InventoryKey, InventoryKind, IssueClass, LexEntryInflType,
-    Lexicon, Morphology, ParserParameters, PartOfSpeech, SourceRef, StemName,
+    AdhocProhibition, AdhocProhibitionGroup, Adjacency, AffixSlot, AffixTemplate,
+    CompoundConstituentRequirement, CompoundOutcome, CompoundRule, ConversionIssue,
+    ExceptionFeature, FeatureSystems, FwClass, FwObjectRef, InflectionClass, InventoryKey,
+    InventoryKind, IssueClass, LexEntryInflType, Lexicon, Morphology, ParserParameters,
+    PartOfSpeech, SourceRef, StemName,
 };
 
 use super::features::extract_feature_structure;
@@ -40,6 +41,7 @@ pub fn extract_morphology(
     let adhoc_prohibitions = morph_data
         .map(|md| extract_adhoc_prohibitions(ctx, md))
         .unwrap_or_default();
+    let adhoc_prohibition_groups = Some(extract_adhoc_prohibition_groups(ctx));
 
     let phon_data = lang_project
         .and_then(|lp| lp.node.objsur_one("PhonologicalData"))
@@ -88,6 +90,7 @@ pub fn extract_morphology(
         parts_of_speech,
         compound_rules,
         adhoc_prohibitions,
+        adhoc_prohibition_groups,
         exception_features,
         lex_entry_infl_types,
         parser_parameters,
@@ -547,6 +550,11 @@ fn record_compound_side_attachment(
     ctx.selected(key.clone());
     if resolved {
         ctx.represented(key);
+        // Compound fields are copied from this MSA into the rule.
+        let msa_key = InventoryKey::object(InventoryKind::Msa, target_guid.to_string());
+        ctx.considered(msa_key.clone());
+        ctx.selected(msa_key.clone());
+        ctx.represented(msa_key);
     } else {
         ctx.record_rejected(
             key,
@@ -618,12 +626,89 @@ fn compound_outcome(
 // Ad-hoc co-occurrence prohibitions
 
 fn extract_adhoc_prohibitions(ctx: &mut Ctx, morph_data: &Record) -> Vec<AdhocProhibition> {
-    morph_data
-        .node
-        .objsur_list("AdhocCoProhibitions")
+    validate_adhoc_prohibition_references(ctx, morph_data, "AdhocCoProhibitions");
+
+    // HCLoader reads concrete rule repositories, so a group's Members must not decide extraction.
+    let mut groups: Vec<_> = ctx.graph.by_class("MoAdhocProhibGr").collect();
+    groups.sort_by(|left, right| left.guid.cmp(&right.guid));
+    for group in groups {
+        validate_adhoc_prohibition_references(ctx, group, "Members");
+    }
+
+    let mut rules: Vec<_> = ctx
+        .graph
+        .records
+        .values()
+        .filter(|record| {
+            matches!(
+                record.class.as_str(),
+                "MoMorphAdhocProhib" | "MoAlloAdhocProhib"
+            )
+        })
+        .collect();
+    rules.sort_by(|left, right| left.guid.cmp(&right.guid));
+    rules
         .into_iter()
-        .filter_map(|g| extract_adhoc_prohibition(ctx, &g, morph_data))
+        .filter_map(|rule| extract_adhoc_prohibition(ctx, &rule.guid, morph_data))
         .collect()
+}
+
+fn extract_adhoc_prohibition_groups(ctx: &Ctx) -> Vec<AdhocProhibitionGroup> {
+    let mut groups: Vec<_> = ctx.graph.by_class("MoAdhocProhibGr").collect();
+    groups.sort_by(|left, right| left.guid.cmp(&right.guid));
+    groups
+        .into_iter()
+        .map(|group| {
+            let mut members = group.node.objsur_list("Members");
+            members.sort();
+            members.dedup();
+            AdhocProhibitionGroup {
+                guid: group.guid.clone(),
+                name: group.node.ws_forms("Name"),
+                description: group.node.ws_forms("Description"),
+                members,
+            }
+        })
+        .collect()
+}
+
+/// Reports broken group-or-rule links; extraction follows HCLoader's concrete repositories instead.
+fn validate_adhoc_prohibition_references(ctx: &mut Ctx, owner: &Record, field: &str) {
+    for guid in owner.node.objsur_list(field) {
+        match ctx.get(&guid) {
+            Some(record)
+                if matches!(
+                    record.class.as_str(),
+                    "MoAdhocProhibGr" | "MoMorphAdhocProhib" | "MoAlloAdhocProhib"
+                ) => {}
+            Some(record) => {
+                ctx.warn_with_subjects(
+                    super::codes::UNEXPECTED_CLASS,
+                    format!(
+                        "morphology.adhocProhibitions: {field} references {guid} with unexpected class {}",
+                        record.class
+                    ),
+                    [
+                        ctx.subject_for_record(owner, Some(field)),
+                        ctx.unresolved_subject(&guid, "MoAdhocProhib", Some(field)),
+                        ctx.subject_for_record(record, None),
+                    ],
+                );
+            }
+            None => {
+                ctx.warn_with_subjects(
+                    super::codes::DANGLING_REFERENCE,
+                    format!(
+                        "morphology.adhocProhibitions: {field} has dangling reference to {guid}"
+                    ),
+                    [
+                        ctx.subject_for_record(owner, Some(field)),
+                        ctx.unresolved_subject(&guid, "MoAdhocProhib", Some(field)),
+                    ],
+                );
+            }
+        }
+    }
 }
 
 fn extract_adhoc_prohibition(

@@ -13,8 +13,8 @@ pub(crate) use inventory::tracked_kind;
 
 use pg_snapshot::{
     ConversionProvenance, FwClass, FwObjectRef, ImportWarningCode, InventoryKey, IssueClass,
-    SelectionRecorder, Snapshot, SourceInventoryStatus, SourceRef, Warning,
-    CONVERSION_PROVENANCE_SCHEMA_VERSION,
+    LoadDecisionDraft, LoadDisposition, LoadPipelineStage, LoadReasonCode, SelectionRecorder,
+    Snapshot, SourceInventoryStatus, SourceRef, Warning, CONVERSION_PROVENANCE_SCHEMA_VERSION,
 };
 
 use crate::{
@@ -41,9 +41,19 @@ pub(crate) enum ReferenceResolution<'a> {
     Missing,
 }
 
+impl ReferenceResolution<'_> {
+    pub(crate) fn failure_code(self) -> ImportWarningCode {
+        match self {
+            Self::Found(_) => panic!("a resolved reference has no failure code"),
+            Self::WrongClass(_) => codes::UNEXPECTED_CLASS,
+            Self::Missing => codes::DANGLING_REFERENCE,
+        }
+    }
+}
+
 impl<'a> Ctx<'a> {
     fn new(graph: &'a RawGraph) -> Self {
-        let mut recorder = SelectionRecorder::default();
+        let mut recorder = SelectionRecorder::for_stage(LoadPipelineStage::Import);
         inventory::seed_authored_from_graph(&mut recorder, graph);
         Ctx {
             graph,
@@ -103,8 +113,13 @@ impl<'a> Ctx<'a> {
         source: Option<SourceRef>,
         warning: Warning,
     ) {
+        let reason_code = match warning.code.as_str() {
+            code if code == codes::DANGLING_REFERENCE.wire() => LoadReasonCode::MissingReference,
+            code if code == codes::UNEXPECTED_CLASS.wire() => LoadReasonCode::WrongKindReference,
+            _ => LoadReasonCode::ConversionIssue(warning.code.clone()),
+        };
         self.warnings.push(warning.clone());
-        self.recorder.rejected(
+        self.recorder.rejected_with_reason(
             key,
             pg_snapshot::ConversionIssue {
                 code: ImportWarningCode::from_wire_or_unregistered(&warning.code),
@@ -113,6 +128,7 @@ impl<'a> Ctx<'a> {
                 fatal,
                 message: warning.message,
             },
+            reason_code,
         );
     }
 
@@ -127,6 +143,35 @@ impl<'a> Ctx<'a> {
 
     pub(crate) fn considered(&mut self, key: InventoryKey) {
         self.recorder.considered(key);
+    }
+
+    pub(crate) fn not_considered(&mut self, key: InventoryKey, reason_code: LoadReasonCode) {
+        self.recorder
+            .not_considered(key, String::new(), reason_code);
+    }
+
+    pub(crate) fn has_load_decision(&self, key: &InventoryKey, stage: LoadPipelineStage) -> bool {
+        self.recorder.has_load_decision(key, stage)
+    }
+
+    pub(crate) fn record_source_decision(
+        &mut self,
+        subject: InventoryKey,
+        disposition: LoadDisposition,
+        loaded: Option<bool>,
+        reason_code: LoadReasonCode,
+        issue_code: Option<String>,
+    ) {
+        self.recorder.record_load_decision(LoadDecisionDraft {
+            subject,
+            pipeline_stage: LoadPipelineStage::Import,
+            context_key: String::new(),
+            disposition,
+            loaded,
+            reason_code,
+            effective_value_json: None,
+            issue_code,
+        });
     }
 
     pub(crate) fn selected(&mut self, key: InventoryKey) {
@@ -151,7 +196,14 @@ impl<'a> Ctx<'a> {
         key: InventoryKey,
         issue: pg_snapshot::ConversionIssue,
     ) {
-        self.recorder.rejected(key, issue);
+        let reason_code = if issue.code == codes::DANGLING_REFERENCE {
+            LoadReasonCode::MissingReference
+        } else if issue.code == codes::UNEXPECTED_CLASS {
+            LoadReasonCode::WrongKindReference
+        } else {
+            LoadReasonCode::ConversionIssue(issue.code.wire().to_string())
+        };
+        self.recorder.rejected_with_reason(key, issue, reason_code);
     }
 
     pub(crate) fn require_from(
@@ -321,8 +373,9 @@ pub(crate) fn extract_recording(
     let lexicon = lexicon::extract_lexicon(&mut ctx, &feature_systems, &morphology);
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
+    finalize_unrecorded_tracked_objects(&mut ctx);
 
-    let (graph_to_snapshot, recorder_issues) = ctx.recorder.clone().finish();
+    let (graph_to_snapshot, recorder_issues, _) = ctx.recorder.clone().finish_with_load_decisions();
     let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
     let mut import_issues = graph.issues.clone();
     import_issues.extend(recorder_issues);
@@ -331,12 +384,221 @@ pub(crate) fn extract_recording(
     } else {
         SourceInventoryStatus::ImportedComplete
     };
+    for source_object in graph.source_objects() {
+        let decision = if !source_object.handled {
+            Some((LoadReasonCode::UnknownClass, None))
+        } else if source_object.raw_guid.is_empty() {
+            Some((LoadReasonCode::MissingGuid, Some(codes::MISSING_GUID)))
+        } else if source_object.duplicate && !source_object.retained {
+            Some((LoadReasonCode::DuplicateHeader, Some(codes::DUPLICATE_GUID)))
+        } else {
+            None
+        };
+        if let Some((reason_code, issue_code)) = decision {
+            ctx.record_source_decision(
+                source_object.key(),
+                if source_object.handled {
+                    LoadDisposition::Rejected
+                } else {
+                    LoadDisposition::NotConsidered
+                },
+                if source_object.handled {
+                    Some(false)
+                } else {
+                    None
+                },
+                reason_code,
+                issue_code.map(|code| code.wire().to_string()),
+            );
+        }
+    }
+    let (_, _, import_load_decisions) = ctx.recorder.clone().finish_with_load_decisions();
     snapshot.conversion_provenance = ConversionProvenance {
         schema_version: CONVERSION_PROVENANCE_SCHEMA_VERSION,
         source_inventory_status,
         source_census: graph.census(),
+        source_objects: graph.source_objects(),
         graph_to_snapshot,
+        import_load_decisions,
         import_issues,
     };
     Ok((snapshot, ctx.warnings, ctx.recorder))
+}
+
+/// Finalizes tracked source objects that normal extraction did not reach.
+fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
+    use std::collections::BTreeMap;
+
+    use pg_snapshot::{InventoryKind, LoadDecisionDraft};
+
+    fn collect_refs(node: &crate::node::Node, out: &mut Vec<String>) {
+        if node.tag == "objsur" {
+            if let Some(guid) = node.attr("guid") {
+                out.push(guid.to_string());
+            }
+        }
+        for child in &node.children {
+            collect_refs(child, out);
+        }
+    }
+
+    let mut incoming = BTreeMap::<String, Vec<(String, String)>>::new();
+    for owner in ctx.graph.records.values() {
+        let mut refs = Vec::new();
+        collect_refs(&owner.node, &mut refs);
+        refs.sort();
+        refs.dedup();
+        for target in refs {
+            incoming
+                .entry(target)
+                .or_default()
+                .push((owner.class.clone(), owner.guid.clone()));
+        }
+    }
+    for owners in incoming.values_mut() {
+        owners.sort();
+        owners.dedup();
+    }
+
+    let mut disabled_rule_targets = BTreeMap::<String, Vec<String>>::new();
+    for rule in ctx.graph.records.values().filter(|record| {
+        matches!(record.class.as_str(), "PhRegularRule" | "PhMetathesisRule")
+            && record.node.val_bool("Disabled").unwrap_or(false)
+    }) {
+        let mut pending = Vec::new();
+        collect_refs(&rule.node, &mut pending);
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(target) = pending.pop() {
+            if !seen.insert(target.clone()) {
+                continue;
+            }
+            if ctx.graph.get(&target).is_some_and(|record| {
+                inventory::tracked_kind(&record.class).is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        InventoryKind::PhonologicalContext | InventoryKind::RuleFeature
+                    )
+                })
+            }) {
+                disabled_rule_targets
+                    .entry(target.clone())
+                    .or_default()
+                    .push(rule.guid.clone());
+            }
+            if ctx.graph.get(&target).is_some_and(|record| {
+                inventory::tracked_kind(&record.class) == Some(InventoryKind::PhonologicalContext)
+            }) {
+                if let Some(record) = ctx.graph.get(&target) {
+                    collect_refs(&record.node, &mut pending);
+                }
+            }
+        }
+    }
+    for rules in disabled_rule_targets.values_mut() {
+        rules.sort();
+        rules.dedup();
+    }
+
+    let mut records: Vec<_> = ctx
+        .graph
+        .records
+        .values()
+        .filter_map(|record| inventory::tracked_kind(&record.class).map(|kind| (kind, record)))
+        .collect();
+    records.sort_by(|(left_kind, left), (right_kind, right)| {
+        (left_kind, left.guid.as_str()).cmp(&(right_kind, right.guid.as_str()))
+    });
+
+    for (guid, rule_guids) in &disabled_rule_targets {
+        let Some(record) = ctx.graph.get(guid) else {
+            continue;
+        };
+        let Some(kind) = inventory::tracked_kind(&record.class) else {
+            continue;
+        };
+        ctx.considered(InventoryKey::object(kind, guid.clone()));
+        for rule_guid in rule_guids {
+            ctx.recorder.not_considered(
+                InventoryKey::object(kind, guid.clone()),
+                format!("phonologicalRule:{rule_guid}"),
+                LoadReasonCode::Disabled,
+            );
+        }
+    }
+
+    for (kind, record) in records {
+        if !matches!(
+            kind,
+            InventoryKind::FeatureStructure
+                | InventoryKind::Msa
+                | InventoryKind::PhonologicalContext
+                | InventoryKind::RuleFeature
+        ) {
+            continue;
+        }
+        let key = InventoryKey::object(kind, record.guid.clone());
+        if ctx.has_load_decision(&key, LoadPipelineStage::Import) {
+            continue;
+        }
+
+        let owners = incoming.get(&record.guid).cloned().unwrap_or_default();
+        match kind {
+            InventoryKind::FeatureStructure if !owners.is_empty() => {
+                ctx.recorder.record_load_decision(LoadDecisionDraft {
+                    subject: key,
+                    pipeline_stage: LoadPipelineStage::Import,
+                    context_key: String::new(),
+                    disposition: LoadDisposition::MetadataOnly,
+                    loaded: None,
+                    reason_code: LoadReasonCode::MetadataOnly,
+                    effective_value_json: None,
+                    issue_code: None,
+                });
+            }
+            InventoryKind::Msa if !owners.is_empty() => {
+                for (owner_class, owner_guid) in owners {
+                    ctx.recorder.record_load_decision(LoadDecisionDraft {
+                        subject: key.clone(),
+                        pipeline_stage: LoadPipelineStage::Import,
+                        context_key: format!("owner:{owner_class}:{owner_guid}"),
+                        disposition: LoadDisposition::NotConsidered,
+                        loaded: None,
+                        reason_code: LoadReasonCode::OwnerNotLoaded,
+                        effective_value_json: None,
+                        issue_code: None,
+                    });
+                }
+            }
+            InventoryKind::PhonologicalContext | InventoryKind::RuleFeature => {
+                if !owners.is_empty() {
+                    for (owner_class, owner_guid) in owners {
+                        ctx.recorder.record_load_decision(LoadDecisionDraft {
+                            subject: key.clone(),
+                            pipeline_stage: LoadPipelineStage::Import,
+                            context_key: format!("owner:{owner_class}:{owner_guid}"),
+                            disposition: LoadDisposition::Rejected,
+                            loaded: Some(false),
+                            reason_code: LoadReasonCode::ConversionIssue(
+                                "sourceObjectNotResolved".into(),
+                            ),
+                            effective_value_json: None,
+                            issue_code: None,
+                        });
+                    }
+                } else {
+                    ctx.recorder
+                        .not_considered(key, String::new(), LoadReasonCode::Unreferenced);
+                }
+            }
+            InventoryKind::FeatureStructure => {
+                ctx.recorder
+                    .not_considered(key, String::new(), LoadReasonCode::Unreferenced)
+            }
+            InventoryKind::Msa => {
+                ctx.recorder
+                    .not_considered(key, String::new(), LoadReasonCode::Unreferenced)
+            }
+            _ => unreachable!("tracked-object finalizer filters its supported kinds"),
+        }
+    }
 }

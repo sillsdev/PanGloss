@@ -1,4 +1,37 @@
 use super::super::*;
+use sha2::{Digest, Sha256};
+
+const SINGLE_HEADER_GUID: &str = "00000000-0000-0000-0000-000000000001";
+
+fn one_header_digest(class_name: &str, raw_guid: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("{class_name}\t{raw_guid}\n").as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn one_header_provenance(ordered_header_sha256: String) -> ConversionProvenance {
+    ConversionProvenance {
+        schema_version: CONVERSION_PROVENANCE_SCHEMA_VERSION,
+        source_inventory_status: SourceInventoryStatus::ImportedComplete,
+        source_census: RawSourceCensus {
+            total_occurrences: 1,
+            class_occurrences: BTreeMap::from([("LexEntry".into(), 1)]),
+            ordered_header_sha256,
+            ..RawSourceCensus::default()
+        },
+        source_objects: vec![RawSourceObject {
+            ordinal: 1,
+            class_name: "LexEntry".into(),
+            raw_guid: SINGLE_HEADER_GUID.into(),
+            canonical_guid: Some(SINGLE_HEADER_GUID.into()),
+            handled: true,
+            inventory_kind: Some(InventoryKind::Entry),
+            retained: true,
+            duplicate: false,
+        }],
+        ..ConversionProvenance::default()
+    }
+}
 
 #[test]
 fn object_identity_carries_the_given_guid() {
@@ -116,6 +149,38 @@ fn validate_accepts_version_one_with_a_resolved_status() {
 }
 
 #[test]
+fn validate_accepts_current_provenance_with_one_row_per_header() {
+    let provenance = one_header_provenance(one_header_digest("LexEntry", SINGLE_HEADER_GUID));
+    assert!(provenance.validate().is_ok());
+}
+
+#[test]
+fn validate_rejects_current_provenance_with_a_mismatched_header_digest() {
+    let provenance = one_header_provenance("not-the-header-digest".into());
+    assert!(matches!(
+        provenance.validate(),
+        Err(ProvenanceError::SourceHeaderDigestDoesNotMatch)
+    ));
+}
+
+#[test]
+fn validate_rejects_current_provenance_without_each_source_header() {
+    let provenance = ConversionProvenance {
+        schema_version: CONVERSION_PROVENANCE_SCHEMA_VERSION,
+        source_inventory_status: SourceInventoryStatus::ImportedComplete,
+        source_census: RawSourceCensus {
+            total_occurrences: 1,
+            ..RawSourceCensus::default()
+        },
+        ..ConversionProvenance::default()
+    };
+    assert!(matches!(
+        provenance.validate(),
+        Err(ProvenanceError::SourceObjectsDoNotMatchCensus)
+    ));
+}
+
+#[test]
 fn validate_rejects_version_zero_with_a_resolved_status() {
     let provenance = ConversionProvenance {
         schema_version: 0,
@@ -144,13 +209,13 @@ fn validate_rejects_version_one_with_unknown_status() {
 #[test]
 fn validate_rejects_an_unrecognized_schema_version_regardless_of_status() {
     let provenance = ConversionProvenance {
-        schema_version: 2,
+        schema_version: 3,
         source_inventory_status: SourceInventoryStatus::ImportedComplete,
         ..ConversionProvenance::default()
     };
     assert!(matches!(
         provenance.validate(),
-        Err(ProvenanceError::UnsupportedSchemaVersion { found: 2 })
+        Err(ProvenanceError::UnsupportedSchemaVersion { found: 3 })
     ));
 }
 
@@ -163,6 +228,28 @@ fn invariants_hold_for_a_well_formed_sequence() {
     r.selected(key.clone());
     r.represented(key);
     assert!(r.check_invariants().is_ok());
+}
+
+#[test]
+fn owner_rejection_without_issue_closes_selected_inventory() {
+    let mut r = SelectionRecorder::for_stage(LoadPipelineStage::Import);
+    let key = InventoryKey::object(InventoryKind::PhonologicalContext, "g1");
+    r.authored(key.clone());
+    r.considered(key.clone());
+    r.selected(key.clone());
+    r.rejected_without_issue(LoadDecisionDraft {
+        subject: key.clone(),
+        pipeline_stage: LoadPipelineStage::Import,
+        context_key: "phonContext:g1:FeatureStructure".into(),
+        disposition: LoadDisposition::Rejected,
+        loaded: Some(false),
+        reason_code: LoadReasonCode::ConversionIssue("missingRequiredField".into()),
+        effective_value_json: Some("{\"missingField\":\"FeatureStructure\"}".into()),
+        issue_code: None,
+    });
+
+    assert!(r.check_invariants().is_ok());
+    assert!(r.inventory.rejected.contains(&key));
 }
 
 #[test]

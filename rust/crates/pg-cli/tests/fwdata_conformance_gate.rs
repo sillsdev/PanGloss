@@ -8,6 +8,37 @@ use std::time::Duration;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 
+const K_MSA_GUID: &str = "d71a9c35-5dd1-4659-997a-b3ad043e06f2";
+const K_ALLOMORPH_GUID: &str = "dad4fed7-93cb-46f8-b428-ef50ea86b4cf";
+const PREFIX_MSA_GUIDS: &[&str] = &[
+    "74f02ea2-b426-42b3-b564-4b82b48fb845",
+    "2eadd27a-2155-4a81-bf1c-6eefe4a05e18",
+    "b2935a58-ebdb-496e-a999-0fdd15740e23",
+    "d1da630c-0e8b-49aa-b4e0-45f1cfd4aa87",
+    "bddca7b0-652b-46c6-b539-f6a55840ffda",
+    "dac28aad-456a-4fb5-8b01-22d64d700d7e",
+    "fafe6823-8090-4a2f-b229-6cd3600d6eca",
+    "be9be864-9137-409a-aca2-bd0f04d1d10b",
+    "386281d3-c1a8-47e1-8bf2-54dd62a58c62",
+    "81580a7b-5b34-4463-85ef-7f96de757e05",
+    "3b2b6474-95b2-488e-ad86-c745fc09ef91",
+    "b50f1d61-7ce6-4f11-b5e0-977c9fb5dac0",
+];
+const PREFIX_ALLOMORPH_GUIDS: &[&str] = &[
+    "49759dad-3ca0-44f0-a597-43fc8015ebca",
+    "772c3c21-408b-4a67-ae70-3ff902946bc5",
+    "ccf408c9-99f0-4ff0-ac67-efa4f0a256bc",
+    "1166c2a4-528e-4dcd-8e08-4daefd95d600",
+    "009df337-59cb-4d1c-b875-5e1fc68dba37",
+    "308e9b48-3370-4103-be25-f765a0c6f734",
+    "759313da-93ff-45db-ad70-ea7734bc423e",
+    "f964f15b-fa85-4b64-a5a9-39ea912f54b6",
+    "1112b582-2d13-493c-bef5-8c62188c3678",
+    "b0bf2753-7792-44a2-bda5-754b13582865",
+    "3cb5bc99-8a47-42c2-bf7f-aefa1cef9f3d",
+    "cd8aacfd-695f-4944-b3e7-bd849d696a8a",
+];
+
 /// Wall-clock deadline armed on every `Morpher` built in `run_conformance`; generous relative to a normal word's low-single-digit-millisecond parse time, but small enough that every corpus word hitting it stays a bounded, if slow, run rather than an unbounded hang.
 const WORD_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -17,6 +48,13 @@ const KNOWN_ORACLE_DRIFT: &[(&str, &str)] = &[
     ("mpaka", "committed oracle has stale root \"mpaka\"; live fwdata says \"mpaka la la\""),
     ("guman", "committed oracle has stale root \"guman\" (x2); live fwdata says \"guman hello world\""),
 ];
+
+fn adhoc_guid(rule: &pg_snapshot::AdhocProhibition) -> &str {
+    match rule {
+        pg_snapshot::AdhocProhibition::Allomorph { guid, .. }
+        | pg_snapshot::AdhocProhibition::Morpheme { guid, .. } => guid.as_str(),
+    }
+}
 
 /// Locates a FieldWorks project's `.fwdata` file, or `None` if the FieldWorks checkout isn't
 /// present on this machine -- mirrors `pg-fwdata/tests/real_projects.rs::project_fwdata`.
@@ -46,6 +84,245 @@ fn read_words(path: &Path) -> Vec<String> {
         .map(|w| w.trim().to_string())
         .filter(|w| !w.is_empty())
         .collect()
+}
+
+fn fwdata_refs(guids: &[&str], reference_type: &str) -> String {
+    guids.iter().fold(String::new(), |mut refs, guid| {
+        refs.push_str(&format!(
+            "<objsur guid=\"{guid}\" t=\"{reference_type}\" />"
+        ));
+        refs
+    })
+}
+
+fn copy_writing_system_store(base_path: &Path, fixture_dir: &Path) {
+    let source_dir = base_path
+        .parent()
+        .expect("FieldWorks fixture has a parent directory")
+        .join("WritingSystemStore");
+    let destination_dir = fixture_dir.join("WritingSystemStore");
+    std::fs::create_dir_all(&destination_dir).expect("create temporary WritingSystemStore");
+    let mut copied = 0;
+    for entry in std::fs::read_dir(source_dir).expect("read FieldWorks WritingSystemStore") {
+        let source = entry.expect("read WritingSystemStore entry").path();
+        if source.extension().and_then(|ext| ext.to_str()) == Some("ldml") {
+            let destination = destination_dir.join(source.file_name().expect("LDML has a name"));
+            std::fs::copy(source, destination).expect("copy FieldWorks LDML");
+            copied += 1;
+        }
+    }
+    assert!(copied > 0, "FieldWorks fixture has LDML sidecars");
+}
+
+fn adhoc_project(
+    dir: &Path,
+    base: &str,
+    name: &str,
+    grouped: bool,
+    enabled_members: bool,
+) -> PathBuf {
+    const MORPH_DATA: &str = "5a540ed8-d95e-4a2b-805b-33b98c08c438";
+    const GROUP: &str = "00000000-0000-0000-0000-000000000060";
+    const NESTED_GROUP: &str = "00000000-0000-0000-0000-000000000065";
+    const MORPHEME: &str = "00000000-0000-0000-0000-000000000061";
+    const ALLOMORPH: &str = "00000000-0000-0000-0000-000000000062";
+    const DISABLED: &str = "00000000-0000-0000-0000-000000000063";
+    const EMPTY: &str = "00000000-0000-0000-0000-000000000064";
+    const MISSING: &str = "00000000-0000-0000-0000-0000000000fe";
+    let prefix_msa_refs = fwdata_refs(PREFIX_MSA_GUIDS, "r");
+    let prefix_allomorph_refs = fwdata_refs(PREFIX_ALLOMORPH_GUIDS, "r");
+
+    let field = if grouped {
+        format!("<AdhocCoProhibitions><objsur guid=\"{GROUP}\" t=\"o\" /></AdhocCoProhibitions>")
+    } else {
+        format!(
+            "<AdhocCoProhibitions><objsur guid=\"{EMPTY}\" t=\"o\" />\
+             <objsur guid=\"{ALLOMORPH}\" t=\"o\" />\
+             <objsur guid=\"{MORPHEME}\" t=\"o\" />\
+             <objsur guid=\"{DISABLED}\" t=\"o\" /></AdhocCoProhibitions>"
+        )
+    };
+    let mut source = base.to_string();
+    let morph_data_start = source
+        .find("<rt class=\"MoMorphData\"")
+        .expect("base fixture contains MoMorphData");
+    let morph_data_end = morph_data_start
+        + source[morph_data_start..]
+            .find("</rt>")
+            .expect("MoMorphData record closes");
+    source.insert_str(morph_data_end, &field);
+
+    let disabled_active = if enabled_members { "False" } else { "True" };
+    let nested_owner = if grouped { NESTED_GROUP } else { MORPH_DATA };
+    let outer_owner = if grouped { GROUP } else { MORPH_DATA };
+    let k_msa_guid = K_MSA_GUID;
+    let k_allomorph_guid = K_ALLOMORPH_GUID;
+    let member_records = format!(
+        r#"
+<rt class="MoMorphAdhocProhib" guid="{EMPTY}" ownerguid="{nested_owner}">
+<Adjacency val="0" /><Disabled val="{disabled_active}" />
+<FirstMorpheme><objsur guid="{k_msa_guid}" t="r" /></FirstMorpheme>
+</rt>
+<rt class="MoAlloAdhocProhib" guid="{ALLOMORPH}" ownerguid="{nested_owner}">
+<Adjacency val="0" /><Disabled val="{disabled_active}" />
+<FirstAllomorph><objsur guid="{k_allomorph_guid}" t="r" /></FirstAllomorph>
+<RestOfAllos>{prefix_allomorph_refs}</RestOfAllos>
+</rt>
+<rt class="MoMorphAdhocProhib" guid="{MORPHEME}" ownerguid="{outer_owner}">
+<Adjacency val="0" /><Disabled val="{disabled_active}" />
+<FirstMorpheme><objsur guid="{k_msa_guid}" t="r" /></FirstMorpheme>
+<RestOfMorphs>{prefix_msa_refs}</RestOfMorphs>
+</rt>
+<rt class="MoMorphAdhocProhib" guid="{DISABLED}" ownerguid="{nested_owner}">
+<Adjacency val="0" /><Disabled val="True" />
+<FirstMorpheme><objsur guid="{k_msa_guid}" t="r" /></FirstMorpheme>
+<RestOfMorphs>{prefix_msa_refs}</RestOfMorphs>
+</rt>
+"#
+    );
+    let groups = if grouped {
+        let group_disabled = if enabled_members { "True" } else { "False" };
+        format!(
+            r#"
+<rt class="MoAdhocProhibGr" guid="{NESTED_GROUP}" ownerguid="{GROUP}">
+<Disabled val="{group_disabled}" />
+<Name><AUni ws="en">Nested rationale</AUni></Name>
+<Description><AStr ws="en"><Run ws="en">Nested rule note</Run></AStr></Description>
+<Members>
+<objsur guid="{EMPTY}" t="o" />
+<objsur guid="{DISABLED}" t="o" />
+<objsur guid="{ALLOMORPH}" t="o" />
+<objsur guid="{MISSING}" t="o" />
+</Members>
+</rt>
+<rt class="MoAdhocProhibGr" guid="{GROUP}" ownerguid="{MORPH_DATA}">
+<Disabled val="{group_disabled}" />
+<Name><AUni ws="en">Rationale group</AUni></Name>
+<Description><AStr ws="en"><Run ws="en">Group note</Run></AStr></Description>
+<Members>
+<objsur guid="{NESTED_GROUP}" t="o" />
+<objsur guid="{MORPHEME}" t="o" />
+</Members>
+</rt>
+"#
+        )
+    } else {
+        String::new()
+    };
+    let records = format!("{member_records}{groups}");
+    let project_end = source
+        .rfind("</languageproject>")
+        .expect("base fixture closes languageproject");
+    source.insert_str(project_end, &records);
+
+    let path = dir.join(format!("{name}.fwdata"));
+    std::fs::write(&path, source).expect("write ad hoc fixture");
+    path
+}
+
+#[test]
+fn grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics() {
+    // PORT-CORRESPONDENCE: HCLoader.cs:340-350 filters concrete repository rules, not their groups.
+    let dir = tempfile::tempdir().expect("temporary fixture directory");
+    let base_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../machine/conformance/edge-cases/deep-optional-affix-nesting/fieldworks/project.fwdata",
+    );
+    let base_source = std::fs::read_to_string(&base_path).expect("read clean FieldWorks fixture");
+    copy_writing_system_store(&base_path, dir.path());
+    let grouped_path = adhoc_project(dir.path(), &base_source, "grouped", true, true);
+    let flat_path = adhoc_project(dir.path(), &base_source, "flat", false, true);
+    let disabled_grouped_path =
+        adhoc_project(dir.path(), &base_source, "disabled-grouped", true, false);
+    let disabled_flat_path = adhoc_project(dir.path(), &base_source, "disabled-flat", false, false);
+
+    let (base_snapshot, _) = pg_fwdata::import_file(&base_path).expect("baseline imports");
+    let (grouped_snapshot, grouped_report) =
+        pg_fwdata::import_file(&grouped_path).expect("grouped project imports");
+    let (flat_snapshot, _) = pg_fwdata::import_file(&flat_path).expect("flat project imports");
+    assert_eq!(
+        grouped_snapshot.morphology.adhoc_prohibitions,
+        flat_snapshot.morphology.adhoc_prohibitions
+    );
+    assert_eq!(grouped_snapshot.morphology.adhoc_prohibitions.len(), 4);
+    assert!(grouped_report
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "fwdata.dangling-reference"));
+    assert!(matches!(
+        grouped_snapshot
+            .morphology
+            .adhoc_prohibitions
+        .iter()
+        .find(|rule| adhoc_guid(rule) == "00000000-0000-0000-0000-000000000063"),
+        Some(pg_snapshot::AdhocProhibition::Morpheme { others, disabled: true, .. })
+            if others.iter().map(String::as_str).eq(PREFIX_MSA_GUIDS.iter().copied())
+    ));
+    assert!(matches!(
+        grouped_snapshot
+            .morphology
+            .adhoc_prohibitions
+            .iter()
+            .find(|rule| adhoc_guid(rule) == "00000000-0000-0000-0000-000000000064"),
+        Some(pg_snapshot::AdhocProhibition::Morpheme { others, .. }) if others.is_empty()
+    ));
+
+    let (base_grammar, _) = pg_grammar::compile_project(&base_snapshot).expect("baseline compiles");
+    let (grouped_grammar, _) =
+        pg_grammar::compile_project(&grouped_snapshot).expect("grouped project compiles");
+    let (flat_grammar, _) =
+        pg_grammar::compile_project(&flat_snapshot).expect("flat project compiles");
+    for word in ["k", "xxxxxxxxxxxxk"] {
+        let baseline = behavioral_result(
+            &base_grammar,
+            &Morpher::new(&base_grammar, usize::MAX).parse_word(word),
+        );
+        assert!(
+            !baseline.is_empty(),
+            "FieldWorks baseline must parse {word}"
+        );
+        let grouped = behavioral_result(
+            &grouped_grammar,
+            &Morpher::new(&grouped_grammar, usize::MAX).parse_word(word),
+        );
+        let flat = behavioral_result(
+            &flat_grammar,
+            &Morpher::new(&flat_grammar, usize::MAX).parse_word(word),
+        );
+        assert_eq!(grouped, flat, "grouped and flat analyses differ for {word}");
+        if word == "xxxxxxxxxxxxk" {
+            assert!(
+                grouped.is_empty(),
+                "the active group member must block {word}"
+            );
+        } else {
+            assert!(
+                !grouped.is_empty(),
+                "the unrelated sequence {word} must remain parseable"
+            );
+        }
+    }
+
+    let (disabled_grouped_snapshot, _) =
+        pg_fwdata::import_file(&disabled_grouped_path).expect("disabled grouped project imports");
+    let (disabled_flat_snapshot, _) =
+        pg_fwdata::import_file(&disabled_flat_path).expect("disabled flat project imports");
+    let (disabled_grouped_grammar, _) = pg_grammar::compile_project(&disabled_grouped_snapshot)
+        .expect("disabled grouped project compiles");
+    let (disabled_flat_grammar, _) = pg_grammar::compile_project(&disabled_flat_snapshot)
+        .expect("disabled flat project compiles");
+    let disabled_grouped = behavioral_result(
+        &disabled_grouped_grammar,
+        &Morpher::new(&disabled_grouped_grammar, usize::MAX).parse_word("xxxxxxxxxxxxk"),
+    );
+    let disabled_flat = behavioral_result(
+        &disabled_flat_grammar,
+        &Morpher::new(&disabled_flat_grammar, usize::MAX).parse_word("xxxxxxxxxxxxk"),
+    );
+    assert_eq!(disabled_grouped, disabled_flat);
+    assert!(
+        !disabled_grouped.is_empty(),
+        "disabled concrete members must not block xxxxxxxxxxxxk"
+    );
 }
 
 /// One analysis reduced to a cross-compiler-comparable shape: the in-order morpheme gloss sequence plus the surface string, ordered so a word's analysis set can be sorted and compared as a multiset.

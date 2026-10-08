@@ -46,10 +46,10 @@ pub(crate) fn class_role(class: &str) -> Option<ClassRole> {
         "PhPhonRuleFeat" | "LexEntryInflType" => ClassRole::Tracked(RuleFeature),
         "MoInflAffixTemplate" => ClassRole::Tracked(Template),
         "MoInflAffixSlot" => ClassRole::Tracked(TemplateSlot),
-        "LangProject" | "LexDb" | "MoMorphData" | "PhPhonData" | "FsFeatureSystem"
-        | "PhPhonemeSet" | "PhCode" | "PhSegRuleRHS" | "PhVariable" | "FsClosedValue"
-        | "FsComplexValue" | "CmPossibilityList" | "CmPossibility" | "MoMorphType"
-        | "LexEntryType" | "MoInsertNC" | "MoCopyFromInput" | "MoInsertPhones"
+        "LangProject" | "LexDb" | "MoMorphData" | "MoAdhocProhibGr" | "PhPhonData"
+        | "FsFeatureSystem" | "PhPhonemeSet" | "PhCode" | "PhSegRuleRHS" | "PhVariable"
+        | "FsClosedValue" | "FsComplexValue" | "CmPossibilityList" | "CmPossibility"
+        | "MoMorphType" | "LexEntryType" | "MoInsertNC" | "MoCopyFromInput" | "MoInsertPhones"
         | "MoModifyFromInput" => ClassRole::Carrier,
         _ => return None,
     })

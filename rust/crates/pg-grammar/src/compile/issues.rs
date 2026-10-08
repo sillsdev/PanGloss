@@ -4,8 +4,9 @@
 //! in `pg_snapshot::conversion`; only the compiler-specific constructors and error live here.
 
 use pg_snapshot::ImportWarningCode;
-use pg_snapshot::{ConversionIssue, InventoryDelta, SourceRef, Warning};
+use pg_snapshot::{ConversionIssue, InventoryDelta, LoadDecision, SourceRef, Warning};
 
+use super::EnvironmentResolution;
 use crate::chardef::CharDefKind;
 use crate::model::Grammar;
 
@@ -87,6 +88,36 @@ pub struct CompileOutput {
     pub warnings: Vec<Warning>,
     pub substrate: SubstrateReport,
     pub inventory: InventoryDelta,
+    pub load_decisions: Vec<LoadDecision>,
+    pub environment_resolutions: Vec<EnvironmentResolution>,
+    /// Final source-to-output associations published after grammar compaction.
+    pub compiled_mappings: Vec<CompiledMapping>,
+    /// Final sibling allomorph order within each source MSA and stratum bucket.
+    pub compiled_allomorph_order: Vec<CompiledAllomorphOrder>,
+}
+
+/// A source identity attached to a final compiler output identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledMapping {
+    pub source_kind: String,
+    pub source_guid: Option<String>,
+    pub source_key: String,
+    pub output_kind: String,
+    pub output_key: String,
+    pub identity_quality: String,
+}
+
+/// One compiler-ordered allomorph output in its entry/MSA/bucket context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompiledAllomorphOrder {
+    pub owner_key: String,
+    pub source_entry_guid: Option<String>,
+    pub source_msa_guid: Option<String>,
+    pub bucket: String,
+    pub source_allomorph_guid: Option<String>,
+    pub output_key: Option<String>,
+    pub compiled_order: Option<u32>,
+    pub is_final_elsewhere_case: bool,
 }
 
 /// Returned by [`super::compile_project_with`] under `Refuse` when any collected issue is fatal:
@@ -99,4 +130,13 @@ pub struct ConversionError {
     /// Named diagnostics already projected by the compiler, including imported findings.
     pub warnings: Vec<Warning>,
     pub substrate: SubstrateReport,
+    /// Compiler inventory retained when `Refuse` prevents a grammar from being returned.
+    pub inventory: InventoryDelta,
+    /// Owner-published load outcomes retained for refusal artifacts.
+    pub load_decisions: Vec<LoadDecision>,
+    pub environment_resolutions: Vec<EnvironmentResolution>,
+    /// Final source-to-output associations published before the refusal decision.
+    pub compiled_mappings: Vec<CompiledMapping>,
+    /// Final sibling allomorph order published before the refusal decision.
+    pub compiled_allomorph_order: Vec<CompiledAllomorphOrder>,
 }

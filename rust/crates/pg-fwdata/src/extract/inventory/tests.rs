@@ -71,6 +71,7 @@ fn carrier_classes_are_never_tracked() {
         "LangProject",
         "LexDb",
         "MoMorphData",
+        "MoAdhocProhibGr",
         "PhPhonData",
         "FsFeatureSystem",
         "PhPhonemeSet",
