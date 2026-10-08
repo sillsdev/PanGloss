@@ -15,7 +15,9 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use pg_featstruct::{FeatId, FeatureStruct};
-use pg_grammar_model::model::{AllomorphId, LexEntryId, MRuleId, MorphemeId, MprSet, StratumId};
+use pg_grammar_model::model::{
+    AllomorphId, LexEntryId, MRuleId, MorphemeId, MprSet, PRuleId, StratumId,
+};
 use pg_shape::Shape;
 
 /// State used by the final-template interleaving prune. `None` means the most recently applied
@@ -219,6 +221,8 @@ pub struct Word {
     /// this list), so termination rests on rules ceasing to apply or the step cap, never on key
     /// equality.
     pub mrule_apps: Vec<Option<MRuleId>>,
+    /// Analysis-side phonological rules that applied, populated only when stats are collected.
+    pub applied_phonological_rules: Vec<(StratumId, PRuleId)>,
     /// C# `Word._mruleAppIndex` (init `-1`). Grows in lock-step with `mrule_apps` during analysis,
     /// so it always equals `mrule_apps.len() as i32 - 1`. A dedup-key component
     /// (Word.cs:524,544), not a cascade driver.
@@ -340,6 +344,7 @@ impl Word {
             non_heads: Vec::new(),
             non_head_app_index: -1,
             mrule_apps: Vec::new(),
+            applied_phonological_rules: Vec::new(),
             mrule_app_index: -1,
             root_allomorph: None,
             root_runtime_id: None,

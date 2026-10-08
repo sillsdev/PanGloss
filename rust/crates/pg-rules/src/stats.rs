@@ -695,6 +695,12 @@ impl StatsCollector {
             .with_row(Direction::Synthesis, stratum, id.0, |c| c.uses += 1);
     }
 
+    /// `uses`: a phonological rule appeared in at least one surviving analysis.
+    pub fn record_use_prule(&self, stratum: StratumId, id: PRuleId) {
+        self.phon
+            .with_row(Direction::Synthesis, stratum, id.0, |c| c.uses += 1);
+    }
+
     /// `uses`: a lexical entry appeared as the resolved root of a surviving analysis.
     pub fn record_use_lex_entry(&self, stratum: StratumId, entry: LexEntryId, allomorph: u32) {
         self.sparse_with_row(
@@ -784,6 +790,7 @@ pub const WIRED_COUNTERS: &[(ObjectKind, &str)] = &[
     (ObjectKind::PhonRule, "work"),
     (ObjectKind::PhonRule, "outputs"),
     (ObjectKind::PhonRule, "not_applied"),
+    (ObjectKind::PhonRule, "uses"),
     (ObjectKind::LexEntry, "attempts"),
     (ObjectKind::LexEntry, "surface_mismatch"),
     (ObjectKind::LexEntry, "uses"),
@@ -801,10 +808,9 @@ pub const WIRED_COUNTERS: &[(ObjectKind, &str)] = &[
 /// `Measured` and the other two states answer different questions: `NotApplicable` says the
 /// counter describes something this kind of object cannot do (a permanent property of the model,
 /// e.g. a `lex_entry` cannot fail its own root lookup); `NotWired` says the counter is meaningful
-/// for this kind but this collector does not yet record it (a gap, e.g. `PhonRule`'s `uses` --
-/// `Word` carries no `PRuleId` trail for commit-on-pass to attribute to). Conflating the two would
-/// let a genuine gap read as a permanent fact, or vice versa -- a report renders both as `-`, but a
-/// caller deciding whether to spend effort closing the gap needs to tell them apart.
+/// for this kind but this collector does not yet record it (a gap, e.g. `Guesser`'s `uses`).
+/// Conflating the two would let a genuine gap read as a permanent fact, or vice versa. Reports
+/// render both as `-`, but callers deciding whether to close a gap need to tell them apart.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CounterSupport {
     Measured,
@@ -816,6 +822,7 @@ pub enum CounterSupport {
 const NOT_APPLICABLE_COUNTERS: &[(ObjectKind, &str)] = &[
     (ObjectKind::MorphRule, "surface_mismatch"),
     (ObjectKind::PhonRule, "surface_mismatch"),
+    (ObjectKind::PhonRule, "no_root"),
     (ObjectKind::LexEntry, "outputs"),
     (ObjectKind::LexEntry, "not_applied"),
     (ObjectKind::LexEntry, "no_root"),
@@ -847,6 +854,8 @@ const NOT_APPLICABLE_COUNTERS: &[(ObjectKind, &str)] = &[
 /// - `RootIndex`'s `no_root` is its only failure state, so a separate `outputs`/`not_applied`
 ///   would double-book the same event, and (per the point above) it has no `LexEntry`-shaped
 ///   identity for `surface_mismatch`/`uses` either.
+/// - A phonological rule is not an owner of a failed lexical lookup; its `no_root` attribution
+///   would mistake an earlier transformation for the later lookup failure.
 /// - `Guesser` and `Overlay` bypass the lexicon lookup entirely -- that is their whole purpose --
 ///   so `no_root` cannot apply to either; `Overlay`'s attempts count entries into each
 ///   `OverlayPhase`, which reports no per-phase success, so its `outputs`/`not_applied` are as

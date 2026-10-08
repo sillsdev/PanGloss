@@ -809,7 +809,12 @@ fn counter_support_agrees_with_wired_counters_and_reaches_both_gap_states() {
     );
     assert_eq!(
         counter_support(ObjectKind::PhonRule, "no_root"),
+        CounterSupport::NotApplicable,
+        "a phonological rule is not the owner of a later lexical lookup failure"
+    );
+    assert_eq!(
+        counter_support(ObjectKind::Guesser, "uses"),
         CounterSupport::NotWired,
-        "no_root could in principle attribute to a phonological rule, but Word carries no PRuleId trail yet"
+        "guesser uses remains a meaningful but unrecorded measurement"
     );
 }

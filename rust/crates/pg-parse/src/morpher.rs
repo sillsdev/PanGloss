@@ -501,9 +501,8 @@ impl<'g> Morpher<'g> {
                     node_parent,
                 );
                 for o in res.words {
-                    let k = o.dedup_key();
-                    results.entry(k.clone()).or_insert_with(|| o.clone());
-                    output_set.entry(k).or_insert(o);
+                    insert_candidate(&mut results, o.clone(), stats.is_some());
+                    insert_candidate(&mut output_set, o, stats.is_some());
                 }
             }
             input_set = output_set;
@@ -573,7 +572,7 @@ impl<'g> Morpher<'g> {
                                     alt_yield::record_identity(id);
                                 }
                             }
-                            matches.entry(vw.dedup_key()).or_insert(vw);
+                            insert_candidate(&mut matches, vw, stats.is_some());
                         }
                     }
                 }
@@ -845,7 +844,7 @@ impl<'g> Morpher<'g> {
         }
     }
 
-    /// `uses`: commit every morphological rule and the root lexical entry on a surviving analysis.
+    /// Commit the carried rules and root lexical entry on a surviving analysis.
     fn commit_uses(&self, stats: Option<&pg_rules::stats::StatsCollector>, vw: &Word) {
         let Some(stats) = stats else { return };
         let mut seen: Vec<MRuleId> = Vec::new();
@@ -857,6 +856,15 @@ impl<'g> Morpher<'g> {
             if let Some(stratum) = self.mrule_stratum(*id) {
                 stats.record_use_mrule(stratum, *id);
             }
+        }
+        let mut seen_prules = Vec::new();
+        for &(stratum, id) in &vw.applied_phonological_rules {
+            let applied_rule = (stratum, id);
+            if seen_prules.contains(&applied_rule) {
+                continue;
+            }
+            seen_prules.push(applied_rule);
+            stats.record_use_prule(stratum, id);
         }
         if let Some((le, allo_idx)) = self.root_lex_entry(vw) {
             stats.record_use_lex_entry(vw.stratum, le, allo_idx);
@@ -1619,6 +1627,24 @@ impl<'g> Morpher<'g> {
         let mut out = std::collections::BTreeSet::new();
         self.collect_valid_surfaces(generated, &mut out);
         out.into_iter().collect()
+    }
+}
+
+fn insert_candidate(candidates: &mut HashMap<WordKey, Word>, candidate: Word, collect_stats: bool) {
+    match candidates.entry(candidate.dedup_key()) {
+        std::collections::hash_map::Entry::Occupied(mut entry) => {
+            if collect_stats {
+                let applied = &mut entry.get_mut().applied_phonological_rules;
+                for rule in &candidate.applied_phonological_rules {
+                    if !applied.contains(rule) {
+                        applied.push(*rule);
+                    }
+                }
+            }
+        }
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            entry.insert(candidate);
+        }
     }
 }
 

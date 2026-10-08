@@ -4,6 +4,7 @@
 mod csharp_port_common;
 
 use pg_conformance_fixtures::discover;
+use pg_grammar_model::model::PhonRuleDef;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
 use pg_rules::stats::{Direction, ObjectKind, OverlayPhase, StatsRow};
@@ -42,6 +43,10 @@ fn fixture_cases() -> Vec<(pg_grammar_model::model::Grammar, Vec<Case>)> {
                 Case {
                     label: "katibɯd",
                     word: "katibɯd",
+                },
+                Case {
+                    label: "katibɯt",
+                    word: "katibɯt",
                 },
                 Case {
                     label: "pur",
@@ -282,6 +287,11 @@ fn stats_collection_does_not_change_the_parse_outcome() {
                 case.label
             );
             assert_eq!(off.steps, on.steps, "{}: steps must match", case.label);
+            assert_eq!(
+                off.work_steps, on.work_steps,
+                "{}: work_steps must match",
+                case.label
+            );
             assert_eq!(
                 off.timed_out, on.timed_out,
                 "{}: timed_out must match",
@@ -528,6 +538,61 @@ fn uses_is_nonzero_for_a_surviving_analysis_and_zero_for_a_word_with_no_analyses
     assert_eq!(
         dead_uses, 0,
         "a word with no surviving analyses must record uses nowhere"
+    );
+}
+
+#[test]
+fn phonological_rule_uses_commit_only_for_surviving_analyses() {
+    let (g, _) = fixture_cases().into_iter().next().unwrap();
+    let prule = g
+        .prules
+        .iter()
+        .position(|rule| matches!(rule, PhonRuleDef::Rewrite(rule) if rule.xml_id == "prNonContig"))
+        .expect("fixture must define prNonContig") as u32;
+    let m = Morpher::new(&g, usize::MAX);
+
+    let (accepted, accepted_rows) = m.parse_word_with_stats("katibɯd", &ParseOptions::default());
+    assert!(
+        !accepted.analyses.is_empty(),
+        "katibɯd must survive confirmation"
+    );
+    let accepted_uses: u64 = accepted_rows
+        .iter()
+        .filter(|row| {
+            row.kind == ObjectKind::PhonRule
+                && row.object_index == prule
+                && row.direction == Direction::Synthesis
+        })
+        .map(|row| row.counters.uses)
+        .sum();
+    assert!(
+        accepted_uses > 0,
+        "prNonContig must be used by the surviving analysis"
+    );
+
+    let (rejected, rejected_rows) = m.parse_word_with_stats("katibɯt", &ParseOptions::default());
+    assert!(
+        rejected.analyses.is_empty(),
+        "katibɯt must have no surviving analysis"
+    );
+    let rule_applied = rejected_rows.iter().any(|row| {
+        row.kind == ObjectKind::PhonRule
+            && row.object_index == prule
+            && row.direction == Direction::Analysis
+            && row.counters.outputs > 0
+    });
+    assert!(
+        rule_applied,
+        "prNonContig must apply before lexical lookup rejects the candidate"
+    );
+    let rejected_uses: u64 = rejected_rows
+        .iter()
+        .filter(|row| row.kind == ObjectKind::PhonRule)
+        .map(|row| row.counters.uses)
+        .sum();
+    assert_eq!(
+        rejected_uses, 0,
+        "rejected candidates must not commit phonological uses"
     );
 }
 

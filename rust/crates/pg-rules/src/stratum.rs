@@ -1159,6 +1159,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     out
                 }
             };
+            let applied = !result.is_empty();
+            drop(_phon_time);
+            if applied && self.stats.is_some() {
+                input
+                    .applied_phonological_rules
+                    .push((self.stratum_id, pid));
+            }
             if let Some(s) = result.into_iter().next() {
                 input.shape = s;
             }
