@@ -105,6 +105,11 @@ function Get-WorkspacePackageDefinitions {
     return $packages
 }
 
+# A Windows checkout with core.autocrlf holds CRLF, which Cargo rewrites as LF; only content may count.
+function Get-LockText([string]$Path) {
+    return (Get-Content -LiteralPath $Path -Raw) -replace "`r`n", "`n"
+}
+
 function Get-LockWithWorkspaceVersionsMasked([string]$LockText, [string[]]$WorkspacePackageNames) {
     $packagePattern = '(?ms)^\[\[package\]\]\r?\n(?<body>.*?)(?=^\[\[package\]\]|\z)'
     $builder = [System.Text.StringBuilder]::new()
@@ -184,7 +189,7 @@ if ($currentVersion.Groups['version'].Value -ceq $Version) {
 if (-not (Test-Path -LiteralPath $changelog -PathType Leaf)) {
     Write-Refusal 'changelog' 'CHANGELOG.md is missing' 33
 }
-$lockBefore = if (Test-Path -LiteralPath $cargoLock -PathType Leaf) { Get-Content -LiteralPath $cargoLock -Raw } else { $null }
+$lockBefore = if (Test-Path -LiteralPath $cargoLock -PathType Leaf) { Get-LockText $cargoLock } else { $null }
 if ($null -eq $lockBefore) { Write-Refusal 'lockfile' 'rust/Cargo.lock is missing before the managed refresh' 33 }
 $changelogText = Get-Content -LiteralPath $changelog -Raw
 if ($changelogText -notmatch ('(?m)^##\s+' + [regex]::Escape($Version) + '\s*$')) {
@@ -220,7 +225,7 @@ if (-not (Test-Path -LiteralPath $cargoLock -PathType Leaf)) {
     Write-Host '[release] managed offline lock refresh succeeded but rust/Cargo.lock is missing' -ForegroundColor Red
     exit 32
 }
-$lockAfterRefresh = Get-Content -LiteralPath $cargoLock -Raw
+$lockAfterRefresh = Get-LockText $cargoLock
 if ($lockAfterRefresh -ceq $lockBefore) {
     Write-Host '[release] managed offline lock refresh succeeded but did not refresh Cargo.lock for the new workspace version' -ForegroundColor Red
     exit 32
@@ -251,7 +256,7 @@ if (-not (Test-Path -LiteralPath $cargoLock -PathType Leaf)) {
     Write-Host '[release] managed check succeeded but rust/Cargo.lock is missing; refusing to commit an unverifiable release' -ForegroundColor Red
     exit 32
 }
-$lockAfterCheck = Get-Content -LiteralPath $cargoLock -Raw
+$lockAfterCheck = Get-LockText $cargoLock
 if ($lockAfterCheck -cne $lockAfterRefresh) {
     Write-Host '[release] managed locked check changed Cargo.lock after the validated offline refresh; refusing to commit an unverifiable lockfile' -ForegroundColor Red
     exit 32

@@ -91,6 +91,10 @@ if ($Mode -in @('lock-refresh', 'check') -and $env:PG_RELEASE_TEST_NO_LOCK_UPDAT
     $lock = [regex]::Replace($lock, '(?m)(name = "pg-cli"\r?\nversion = ")[^"]+("?)', '${1}9.9.9${2}', 1)
     [System.IO.File]::WriteAllText($lockPath, $lock, [System.Text.UTF8Encoding]::new($false))
 }
+if ($Mode -eq 'lock-refresh' -and $env:PG_RELEASE_TEST_LF_LOCK -eq '1') {
+    $lock = $lock -replace "`r`n", "`n"
+    [System.IO.File]::WriteAllText($lockPath, $lock, [System.Text.UTF8Encoding]::new($false))
+}
 if ($Mode -eq 'lock-refresh' -and $env:PG_RELEASE_TEST_EXTRA_LOCK_CHANGE -eq '1') {
     $lock = $lock -replace 'version = 4', 'version = 3'
     [System.IO.File]::WriteAllText($lockPath, $lock, [System.Text.UTF8Encoding]::new($false))
@@ -301,6 +305,23 @@ Test-Case 'offline lock refresh that changes lock metadata outside member versio
         Assert-True ($result.Output -match 'changed Cargo\.lock outside local workspace-member version lines') 'refusal must identify changes beyond workspace-member versions'
         Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', 'HEAD'))
         Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '--list', 'v0.7.0'))
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'a CRLF checkout whose lock Cargo rewrites as LF is accepted' {
+    $fixture = New-ReleaseFixture
+    try {
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('config', 'core.autocrlf', 'true') | Out-Null
+        Remove-Item -LiteralPath (Join-Path $fixture.Repository 'rust\Cargo.lock')
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('checkout', '--', 'rust/Cargo.lock') | Out-Null
+        $checkedOut = Get-Content (Join-Path $fixture.Repository 'rust\Cargo.lock') -Raw
+        Assert-True ($checkedOut -match "`r`n") 'fixture lock must be checked out with CRLF'
+        $prior = $env:PG_RELEASE_TEST_LF_LOCK
+        $env:PG_RELEASE_TEST_LF_LOCK = '1'
+        try { $result = Invoke-ReleaseScript -Repository $fixture.Repository }
+        finally { $env:PG_RELEASE_TEST_LF_LOCK = $prior }
+        Assert-Equal 0 $result.ExitCode $result.Output
+        Assert-True ((Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '--list', 'v0.7.0')) -eq 'v0.7.0') 'release must tag after a line-ending-only rewrite'
     } finally { Remove-ReleaseFixture $fixture }
 }
 
