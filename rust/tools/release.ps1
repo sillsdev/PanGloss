@@ -7,7 +7,7 @@
   Preconditions:
     - clean working tree on the current, up-to-date main branch
     - a new numeric x.y.z version and a matching CHANGELOG.md section
-    - managed pg.ps1 -Mode check succeeds after stamping, refreshing the lockfile
+    - managed offline lock refresh and locked pg.ps1 -Mode check succeed after stamping
 
   -DryRun checks the branch, tree, version, tag, and changelog without stamping or tagging.
   CI accepts only annotated vX.Y.Z tags whose commit is on origin/main. Prereleases are not
@@ -40,9 +40,10 @@ function Write-Refusal([string]$Gate, [string]$Reason, [int]$ExitCode) {
     exit $ExitCode
 }
 
-function Invoke-ManagedCheck {
+function Invoke-ManagedMode([ValidateSet('lock-refresh', 'check')][string]$Mode) {
     $pwsh = (Get-Process -Id $PID).Path
-    $argv = @('-NoProfile', '-NonInteractive', '-File', (Join-Path $toolRoot 'pg.ps1'), '-Mode', 'check', '-MaxConcurrent', "$MaxConcurrent")
+    $argv = @('-NoProfile', '-NonInteractive', '-File', (Join-Path $toolRoot 'pg.ps1'), '-Mode', $Mode, '-MaxConcurrent', "$MaxConcurrent")
+    if ($Mode -eq 'check') { $argv += '--locked' }
     Push-Location $repoRoot
     try {
         $transcript = & $pwsh @argv 2>&1 | ForEach-Object { Write-Host $_; "$_" }
@@ -60,6 +61,86 @@ function Invoke-ManagedCheck {
         }
     }
     return $exitCode
+}
+
+function Get-WorkspacePackageDefinitions {
+    $rustRoot = Split-Path -Parent $cargoToml
+    $manifest = Get-Content -LiteralPath $cargoToml -Raw
+    $workspaceSection = [regex]::Match($manifest, '(?ms)^\[workspace\]\r?\n(?<body>.*?)(?=^\[|\z)')
+    $memberList = if ($workspaceSection.Success) {
+        [regex]::Match($workspaceSection.Groups['body'].Value, '(?ms)^\s*members\s*=\s*\[(?<body>.*?)\]')
+    } else { $null }
+    if (-not $memberList -or -not $memberList.Success) { return @() }
+
+    $packages = @()
+    foreach ($member in [regex]::Matches($memberList.Groups['body'].Value, '"(?<path>[^"\r\n]+)"')) {
+        $memberPath = $member.Groups['path'].Value
+        $manifests = @()
+        if ($memberPath -match '[*?]') {
+            $memberDirs = @(Get-ChildItem -Path (Join-Path $rustRoot $memberPath) -Directory -ErrorAction SilentlyContinue)
+            $manifests = @($memberDirs | ForEach-Object { Join-Path $_.FullName 'Cargo.toml' } | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+        } else {
+            $candidate = Join-Path (Join-Path $rustRoot $memberPath) 'Cargo.toml'
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { $manifests = @($candidate) }
+        }
+        if ($manifests.Count -eq 0) {
+            throw "workspace member '$memberPath' has no Cargo.toml"
+        }
+        foreach ($memberManifest in $manifests) {
+            $memberText = Get-Content -LiteralPath $memberManifest -Raw
+            $packageSection = [regex]::Match($memberText, '(?ms)^\[package\]\r?\n(?<body>.*?)(?=^\[|\z)')
+            if (-not $packageSection.Success) { throw "workspace member manifest has no [package] section: $memberManifest" }
+            $nameMatch = [regex]::Match($packageSection.Groups['body'].Value, '(?m)^\s*name\s*=\s*"(?<name>[^"]+)"')
+            if (-not $nameMatch.Success) { throw "workspace member has no package name: $memberManifest" }
+            $usesWorkspaceVersion = [regex]::IsMatch(
+                $packageSection.Groups['body'].Value,
+                '(?m)^\s*version\.workspace\s*=\s*true\s*(?:#.*)?$|^\s*version\s*=\s*\{\s*workspace\s*=\s*true(?:\s*,[^}]*)?\s*\}'
+            )
+            $packages += [PSCustomObject]@{
+                Name = $nameMatch.Groups['name'].Value
+                UsesWorkspaceVersion = $usesWorkspaceVersion
+            }
+        }
+    }
+    return $packages
+}
+
+function Get-LockWithWorkspaceVersionsMasked([string]$LockText, [string[]]$WorkspacePackageNames) {
+    $packagePattern = '(?ms)^\[\[package\]\]\r?\n(?<body>.*?)(?=^\[\[package\]\]|\z)'
+    $builder = [System.Text.StringBuilder]::new()
+    $cursor = 0
+    foreach ($package in [regex]::Matches($LockText, $packagePattern)) {
+        [void]$builder.Append($LockText.Substring($cursor, $package.Index - $cursor))
+        $block = $package.Value
+        $body = $package.Groups['body'].Value
+        $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\s*$')
+        $isLocalWorkspaceMember = $nameMatch.Success -and
+            ($WorkspacePackageNames -ccontains $nameMatch.Groups['name'].Value) -and
+            ($body -notmatch '(?m)^source\s*=')
+        if ($isLocalWorkspaceMember) {
+            $versionLine = [regex]::new('(?m)^(?<prefix>version\s*=\s*")[^"]+(?<suffix>"[ \t]*\r?)$')
+            if ($versionLine.Matches($block).Count -eq 1) {
+                $block = $versionLine.Replace($block, '${prefix}<workspace-version>${suffix}', 1)
+            }
+        }
+        [void]$builder.Append($block)
+        $cursor = $package.Index + $package.Length
+    }
+    [void]$builder.Append($LockText.Substring($cursor))
+    return $builder.ToString()
+}
+
+function Get-LocalLockVersions([string]$LockText, [string]$PackageName) {
+    $versions = @()
+    foreach ($package in [regex]::Matches($LockText, '(?ms)^\[\[package\]\]\r?\n(?<body>.*?)(?=^\[\[package\]\]|\z)')) {
+        $body = $package.Groups['body'].Value
+        $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\s*$')
+        if ($nameMatch.Success -and $nameMatch.Groups['name'].Value -ceq $PackageName -and $body -notmatch '(?m)^source\s*=') {
+            $versionMatch = [regex]::Match($body, '(?m)^version\s*=\s*"(?<version>[^"]+)"\s*$')
+            if ($versionMatch.Success) { $versions += $versionMatch.Groups['version'].Value }
+        }
+    }
+    return $versions
 }
 
 $branch = git -C $repoRoot branch --show-current
@@ -124,8 +205,44 @@ if ($updatedBody -ceq $body) { Write-Refusal 'version' 'workspace version stamp 
 $stampedToml = $tomlText.Substring(0, $bodyGroup.Index) + $updatedBody + $tomlText.Substring($bodyGroup.Index + $bodyGroup.Length)
 [System.IO.File]::WriteAllText($cargoToml, $stampedToml, [System.Text.UTF8Encoding]::new($false))
 
-Write-Host '[release] refreshing Cargo.lock and checking all targets through managed pg.ps1 -Mode check'
-$checkExit = Invoke-ManagedCheck
+$workspacePackages = @()
+try { $workspacePackages = @(Get-WorkspacePackageDefinitions) }
+catch { Write-Host "[release] could not identify workspace members before lock validation: $_" -ForegroundColor Red; exit 33 }
+if ($workspacePackages.Count -eq 0) { Write-Host '[release] could not identify any Cargo workspace member packages for lock validation' -ForegroundColor Red; exit 33 }
+
+Write-Host '[release] refreshing Cargo.lock offline through managed pg.ps1 -Mode lock-refresh'
+$refreshExit = Invoke-ManagedMode -Mode 'lock-refresh'
+if ($refreshExit -ne 0) {
+    Write-Host "[release] managed offline lock refresh failed with exit $refreshExit; the version stamp is left in the tree for inspection" -ForegroundColor Red
+    exit 32
+}
+if (-not (Test-Path -LiteralPath $cargoLock -PathType Leaf)) {
+    Write-Host '[release] managed offline lock refresh succeeded but rust/Cargo.lock is missing' -ForegroundColor Red
+    exit 32
+}
+$lockAfterRefresh = Get-Content -LiteralPath $cargoLock -Raw
+if ($lockAfterRefresh -ceq $lockBefore) {
+    Write-Host '[release] managed offline lock refresh succeeded but did not refresh Cargo.lock for the new workspace version' -ForegroundColor Red
+    exit 32
+}
+$workspacePackageNames = @($workspacePackages | Where-Object { $_.UsesWorkspaceVersion } | ForEach-Object { $_.Name })
+$maskedLockBefore = Get-LockWithWorkspaceVersionsMasked -LockText $lockBefore -WorkspacePackageNames $workspacePackageNames
+$maskedLockAfter = Get-LockWithWorkspaceVersionsMasked -LockText $lockAfterRefresh -WorkspacePackageNames $workspacePackageNames
+if ($maskedLockAfter -cne $maskedLockBefore) {
+    Write-Host '[release] managed offline lock refresh changed Cargo.lock outside local workspace-member version lines; refusing to commit the lockfile' -ForegroundColor Red
+    exit 32
+}
+foreach ($workspacePackage in @($workspacePackages | Where-Object { $_.UsesWorkspaceVersion })) {
+    $lockedVersions = @(Get-LocalLockVersions -LockText $lockAfterRefresh -PackageName $workspacePackage.Name)
+    if ($lockedVersions.Count -ne 1 -or $lockedVersions[0] -cne $Version) {
+        $lockedVersion = if ($lockedVersions.Count -eq 1) { $lockedVersions[0] } elseif ($lockedVersions.Count -eq 0) { '<missing>' } else { '<ambiguous>' }
+        Write-Host "[release] Cargo.lock records $($workspacePackage.Name) version '$lockedVersion'; expected exactly one local workspace package at '$Version' after the managed refresh" -ForegroundColor Red
+        exit 32
+    }
+}
+
+Write-Host '[release] running all-target managed check with --locked after validating Cargo.lock'
+$checkExit = Invoke-ManagedMode -Mode 'check'
 if ($checkExit -ne 0) {
     Write-Host "[release] managed check failed with exit $checkExit; the version stamp is left in the tree for inspection" -ForegroundColor Red
     exit 32
@@ -134,20 +251,9 @@ if (-not (Test-Path -LiteralPath $cargoLock -PathType Leaf)) {
     Write-Host '[release] managed check succeeded but rust/Cargo.lock is missing; refusing to commit an unverifiable release' -ForegroundColor Red
     exit 32
 }
-$lockAfter = Get-Content -LiteralPath $cargoLock -Raw
-if ($lockAfter -ceq $lockBefore) {
-    Write-Host '[release] managed check succeeded but did not refresh Cargo.lock for the new workspace version' -ForegroundColor Red
-    exit 32
-}
-$lockedCliVersion = $null
-foreach ($package in [regex]::Matches($lockAfter, '(?ms)^\[\[package\]\]\r?\n(?<body>.*?)(?=^\[\[package\]\]|\z)')) {
-    if ($package.Groups['body'].Value -match '(?m)^name\s*=\s*"pg-cli"\s*$') {
-        $versionMatch = [regex]::Match($package.Groups['body'].Value, '(?m)^version\s*=\s*"(?<version>[^"]+)"\s*$')
-        if ($versionMatch.Success) { $lockedCliVersion = $versionMatch.Groups['version'].Value }
-    }
-}
-if ($lockedCliVersion -cne $Version) {
-    Write-Host "[release] Cargo.lock records pg-cli version '$lockedCliVersion'; expected '$Version' after the managed refresh" -ForegroundColor Red
+$lockAfterCheck = Get-Content -LiteralPath $cargoLock -Raw
+if ($lockAfterCheck -cne $lockAfterRefresh) {
+    Write-Host '[release] managed locked check changed Cargo.lock after the validated offline refresh; refusing to commit an unverifiable lockfile' -ForegroundColor Red
     exit 32
 }
 $postCheckDirty = @(git -C $repoRoot status --porcelain --untracked-files=all --ignore-submodules=all)

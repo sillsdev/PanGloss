@@ -11,8 +11,10 @@ pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.7.0
 ```
 
 The script checks the branch, working tree, remote `main`, version, tag, and changelog. It stamps
-`[workspace.package].version`, refreshes `Cargo.lock` through `pg.ps1 -Mode check`, commits
-`release: vX.Y.Z`, creates the annotated `vX.Y.Z` tag, and prints the push command. It never pushes.
+`[workspace.package].version`, refreshes `Cargo.lock` offline through managed
+`pg.ps1 -Mode lock-refresh`, verifies that only local workspace-member version lines changed, then
+runs the locked `pg.ps1 -Mode check`. It commits `release: vX.Y.Z`, creates the annotated
+`vX.Y.Z` tag, and prints the push command. It never pushes.
 `-DryRun` checks the cut preconditions and prints the command without stamping, committing, or
 tagging.
 

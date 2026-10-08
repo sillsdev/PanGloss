@@ -19,6 +19,9 @@
   v0.5.0 needed three release runs because clippy and rustfmt failures surfaced only in CI.
 
   Modes:
+    lock-refresh cargo update --workspace --offline. The release script uses this managed mode after
+                  stamping a workspace version and before its locked check; it accepts no Cargo
+                  passthrough arguments, so the offline workspace update cannot be widened.
     check         cargo clippy --all-targets -- -D warnings. The fast inner loop: it type-checks TEST
                   and EXAMPLE code, which `build` never touches, lints it exactly as CI does, and stops
                   before codegen and linking. That matters because linking is where the time is --
@@ -95,6 +98,7 @@
 
   Examples:
     rust\tools\pg.ps1 -Mode check                  # does everything, including test code, compile?
+    rust\tools\pg.ps1 -Mode lock-refresh           # release only: refresh workspace versions offline
     rust\tools\pg.ps1 -Mode quick -Package pg-foma # + that package's unit tests
     rust\tools\pg.ps1 -Mode test -FailFast         # stop at the first failure (default: report all)
     rust\tools\pg.ps1 -Mode build -Package pg-foma
@@ -148,7 +152,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree', 'remove-worktree')]
+    [ValidateSet('lock-refresh', 'check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree', 'remove-worktree')]
     [string]$Mode,
     # conformance-test only and MANDATORY there; no default by design (see CLAUDE.md).
     [ValidateSet('local', 'all')][string]$Scope = '',
@@ -211,6 +215,10 @@ Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 # Binder-proof passthrough for callers that cannot use the call operator; appended AFTER $ExtraArgs so an explicit arg still wins.
 if ($env:PANGLOSS_EXTRA_ARGS) {
     $ExtraArgs = @($ExtraArgs) + @(Split-ExtraArgsSpec $env:PANGLOSS_EXTRA_ARGS)
+}
+if ($Mode -eq 'lock-refresh' -and ($ExtraArgs.Count -gt 0 -or $Package -or $TestTarget -or $Filter -or $Scope)) {
+    Write-Host '[pg] -Mode lock-refresh accepts no Cargo passthrough args, package/test selectors, or conformance scope; the release lock refresh must stay workspace-wide and offline.' -ForegroundColor Red
+    exit 2
 }
 if ($HygieneBootstrap -and ($Mode -ne 'build' -or $Package -ne 'pg-comment-hygiene' -or -not $DebugProfile -or $ExtraArgs.Count -gt 0 -or $TestTarget -or $Filter -or $Bin -or $Example -or $Exe -or $Scope)) {
     Write-Host '[pg] -HygieneBootstrap requires exactly -Mode build -Package pg-comment-hygiene -DebugProfile, without Cargo passthrough arguments.' -ForegroundColor Red
@@ -554,6 +562,7 @@ function Invoke-RustFmt {
 }
 
 $profileLabel = switch ($Mode) {
+    'lock-refresh' { '<none -- offline lockfile refresh>' }
     'release' { 'release (fat LTO)' }
     'check' { if ($DebugProfile) { 'dev (check; no codegen, no linking)' } else { "$($script:TestOptProfile) (check; no codegen, no linking)" } }
     'quick' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
@@ -758,6 +767,10 @@ if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
     $runnerLabel = $testInvocation.RunnerLabel
 } else {
     switch ($Mode) {
+        'lock-refresh' {
+            # Refresh only workspace package versions offline before the locked check.
+            $cargoArgs = @('update', '--workspace', '--offline')
+        }
         'check' {
             # Clippy is cargo check plus lints: all targets and examples, no codegen, `-D warnings` as in CI.
             $cargoArgs = @(Get-ClippyInvocation -Package $Package -DebugProfile:$DebugProfile -TestTarget $TestTarget -ExtraArgs $ExtraArgs)
@@ -813,7 +826,7 @@ if ($Mode -eq 'run') {
 }
 
 if ($Mode -ne 'run' -and -not $runnerLabel) {
-    $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo clippy' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
+    $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'lock-refresh') { 'cargo update --workspace --offline' } elseif ($Mode -eq 'check') { 'cargo clippy' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
 }
 
 # `run` still takes a slot, but its own pool; -Heavy opts a build-sized probe back into the build pool.
