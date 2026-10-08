@@ -121,10 +121,13 @@ impl StatsIdentityCatalog {
 
     /// Returns a compiled allomorph identity or the synthetic guessed-root sentinel.
     pub fn allomorph(&self, id: AllomorphId) -> AllomorphIdentity {
-        self.allomorphs
-            .get(id.0 as usize)
-            .cloned()
-            .unwrap_or_else(guessed_allomorph_identity)
+        if id == AllomorphId::GUESSED {
+            return guessed_allomorph_identity();
+        }
+        match self.allomorphs.get(id.0 as usize) {
+            Some(identity) => identity.clone(),
+            None => panic!("allomorph id {} has no registry owner", id.0),
+        }
     }
 }
 
@@ -434,6 +437,9 @@ fn allomorph_identity_for_owner_fields(
 /// Resolve an allomorph's structural locator by its dense runtime id, via the grammar's
 /// allomorph registry.
 pub fn allomorph_identity(grammar: &Grammar, id: AllomorphId) -> AllomorphIdentity {
+    if id == AllomorphId::GUESSED {
+        return guessed_allomorph_identity();
+    }
     match grammar.allomorph_owners.get(id.0 as usize) {
         Some(AllomorphOwner::Root(entry_id, index)) => {
             let owner = lex_entry_identity(grammar, *entry_id);
@@ -443,7 +449,7 @@ pub fn allomorph_identity(grammar: &Grammar, id: AllomorphId) -> AllomorphIdenti
             let owner = morph_rule_identity(grammar, *rule_id);
             allomorph_identity_for_owner_fields("morph_rule", &owner.key, &owner.label, *index)
         }
-        None => guessed_allomorph_identity(),
+        None => panic!("allomorph id {} has no registry owner", id.0),
     }
 }
 

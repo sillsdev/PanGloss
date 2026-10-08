@@ -611,46 +611,46 @@ fn intern_object_on(
     .map_err(Into::into)
 }
 
-/// `stratum_key`'s unique index makes `INSERT OR IGNORE` + `SELECT` race-safe, matching `intern_object_on`.
+enum LocatorTable {
+    Stratum,
+    Allomorph,
+    Morpheme,
+}
+
+fn intern_locator_on(
+    conn: &Connection,
+    table: LocatorTable,
+    locator: &StructuralLocator,
+) -> Result<i64, StatsError> {
+    let (insert, select) = match table {
+        LocatorTable::Stratum => (
+            "INSERT OR IGNORE INTO stratum (key, label) VALUES (?1, ?2)",
+            "SELECT stratum_id FROM stratum WHERE key = ?1",
+        ),
+        LocatorTable::Allomorph => (
+            "INSERT OR IGNORE INTO allomorph (key, label) VALUES (?1, ?2)",
+            "SELECT allomorph_id FROM allomorph WHERE key = ?1",
+        ),
+        LocatorTable::Morpheme => (
+            "INSERT OR IGNORE INTO morpheme (key, label) VALUES (?1, ?2)",
+            "SELECT morpheme_id FROM morpheme WHERE key = ?1",
+        ),
+    };
+    conn.execute(insert, params![locator.key, locator.label])?;
+    conn.query_row(select, params![locator.key], |row| row.get(0))
+        .map_err(Into::into)
+}
+
 fn intern_stratum_on(conn: &Connection, locator: &StructuralLocator) -> Result<i64, StatsError> {
-    conn.execute(
-        "INSERT OR IGNORE INTO stratum (key, label) VALUES (?1, ?2)",
-        params![locator.key, locator.label],
-    )?;
-    conn.query_row(
-        "SELECT stratum_id FROM stratum WHERE key = ?1",
-        params![locator.key],
-        |row| row.get(0),
-    )
-    .map_err(Into::into)
+    intern_locator_on(conn, LocatorTable::Stratum, locator)
 }
 
-/// See `intern_stratum_on` — `allomorph_key` gives `allomorph` the same shape.
 fn intern_allomorph_on(conn: &Connection, locator: &StructuralLocator) -> Result<i64, StatsError> {
-    conn.execute(
-        "INSERT OR IGNORE INTO allomorph (key, label) VALUES (?1, ?2)",
-        params![locator.key, locator.label],
-    )?;
-    conn.query_row(
-        "SELECT allomorph_id FROM allomorph WHERE key = ?1",
-        params![locator.key],
-        |row| row.get(0),
-    )
-    .map_err(Into::into)
+    intern_locator_on(conn, LocatorTable::Allomorph, locator)
 }
 
-/// See `intern_stratum_on` — `morpheme_key` gives `morpheme` the same shape.
 fn intern_morpheme_on(conn: &Connection, locator: &StructuralLocator) -> Result<i64, StatsError> {
-    conn.execute(
-        "INSERT OR IGNORE INTO morpheme (key, label) VALUES (?1, ?2)",
-        params![locator.key, locator.label],
-    )?;
-    conn.query_row(
-        "SELECT morpheme_id FROM morpheme WHERE key = ?1",
-        params![locator.key],
-        |row| row.get(0),
-    )
-    .map_err(Into::into)
+    intern_locator_on(conn, LocatorTable::Morpheme, locator)
 }
 
 #[cfg(test)]

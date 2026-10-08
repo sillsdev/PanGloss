@@ -95,8 +95,16 @@ fn repeated_authored_source_ids_keep_runtime_objects_distinct() {
 fn the_guessed_allomorph_sentinel_resolves_instead_of_panicking() {
     let [grammar, _] = two_sample_grammars();
     let identity = allomorph_identity(&grammar, crate::model::AllomorphId::GUESSED);
-    assert!(!identity.key.is_empty());
+    assert_eq!(identity.key, "guesser#allo");
+    assert_eq!(identity.label, "guessed root allomorph");
     assert_eq!(identity.quality, IdentityQuality::Synthetic);
+}
+
+#[test]
+#[should_panic(expected = "allomorph id 4294967294 has no registry owner")]
+fn an_unresolved_non_guessed_allomorph_id_panics_with_its_id() {
+    let [grammar, _] = two_sample_grammars();
+    allomorph_identity(&grammar, crate::model::AllomorphId(u32::MAX - 1));
 }
 
 /// Every individual resolver, called directly over `grammar`'s own runtime ids.
