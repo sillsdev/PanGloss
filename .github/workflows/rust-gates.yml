@@ -88,7 +88,7 @@ jobs:
           current_version="$(awk '
             /^\[workspace\.package\]/ { in_workspace=1; next }
             /^\[/ { if (in_workspace) exit; in_workspace=0 }
-            in_workspace && /^version[[:space:]]*=/ { gsub(/"/, "", $3); print $3; exit }
+            in_workspace && /^version[[:space:]]*=/ { gsub(/["\r]/, "", $3); print $3; exit }
           ' rust/Cargo.toml)"
           if [[ "$current_version" != "$RELEASE_VERSION" ]]; then
             echo "::error::workspace version is $current_version; expected $RELEASE_VERSION from the release ref"
