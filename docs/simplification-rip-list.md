@@ -461,11 +461,11 @@ already rejected behavior.
 
 ### Open boundaries—no deletion authority until resolved
 
-- **Resolved 2026-08-27:** `parse` and `batch` remain full-engine runtime operations, with their
-  direct Foma branches deleted. `diagnose` is deleted. The grammar/corpus `assess` producer and
-  `investigate --grammar` rerun attribution are deleted; `compare`, `golden-diff`, and report-only
-  `investigate` remain as artifact consumers. No replacement completed-artifact route is added
-  during demolition.
+- **Resolved 2026-08-27:** at that date, `parse` and `batch` remained full-engine runtime operations,
+  with their direct Foma branches deleted. `diagnose` was deleted. The grammar/corpus `assess`
+  producer and `investigate --grammar` rerun attribution were deleted; the `compare`, `golden-diff`,
+  and report-only `investigate` CLI consumers were removed later in the health-inputs change. No
+  replacement completed-artifact route was added during demolition.
 - Whether a completed artifact must include a HermitCrab runtime payload immediately, or whether a
   completed Foma payload is the only current serializable artifact.
 - Whether `backend_runtime`'s PlanComposed-to-tuned path is deferred within-backend tuning or a
@@ -490,12 +490,12 @@ already rejected behavior.
 
 ### 2026-08-27 CLI assessment-producer deletion tranche
 
-Commits `f6852b18` and `84c3267d` complete the deletion-first tranche: **1,672 deletions / 5
-additions** across the tests and CLI producer surface. The grammar/corpus `assess` producer and
-`investigate --grammar` rerun attribution are removed; `compare`, `golden-diff`, and report-only
-`investigate` remain. CLI acceptance coverage for those retained consumers, including strict
-rejection of removed flags, is deferred until the post-demolition replacement/repair phase. Old
-producer-coupled tests must not be restored.
+Commits `f6852b18` and `84c3267d` completed the deletion-first tranche: **1,672 deletions / 5
+additions** across the tests and CLI producer surface. At that point the grammar/corpus `assess`
+producer and `investigate --grammar` rerun attribution were removed, while `compare`,
+`golden-diff`, and report-only `investigate` CLI consumers remained. The health-inputs change later
+removed those consumer commands; the `pg-assess` library remains. Old producer-coupled tests must
+not be restored.
 
 ### 2026-08-27 direct make-report compile route deletion
 

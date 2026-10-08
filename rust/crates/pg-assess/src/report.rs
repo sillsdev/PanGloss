@@ -32,7 +32,7 @@ use crate::set::AnalysisSet;
 pub const REPORT_SCHEMA: &str = "pangloss.assessment-report";
 pub const REPORT_SCHEMA_VERSION: u32 = 1;
 
-/// The suite this report answers, recorded so `golden-diff` can refuse to evaluate an old run
+/// The suite this report answers, recorded so `pg_assess::golden_diff` can refuse to evaluate an old run
 /// against revised policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

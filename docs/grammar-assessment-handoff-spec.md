@@ -536,10 +536,10 @@ enums, nullability, size bounds, and representation.
 
 ### 17.5 Golden-diff policy binding
 
-V1 `golden-diff` requires the exact suite ID, revision, semantic digest, and identity profile recorded
-in the assessment report. It does not reevaluate an old run against revised policy. A policy change
-creates a new suite revision and assessment. This keeps every agreement result attributable to the
-expectations present when the run was created.
+The `pg_assess::golden_diff` API requires the exact suite ID, revision, semantic digest, and identity
+profile recorded in the assessment report. It does not reevaluate an old run against revised policy.
+A policy change creates a new suite revision and assessment. This keeps every agreement result
+attributable to the expectations present when the run was created.
 
 ### 17.6 Comparison order and comparability
 
@@ -591,10 +591,10 @@ represented as an explicit caller-supplied redacted reference.
 
 ### 17.11 Investigation availability
 
-The retained `investigate` operation is report-only. It reads the requested report and case and
-emits a handoff bound to that report; it does not accept `--grammar` or `--grammar-source`, rerun
-a case, regenerate traces, select a pipeline, or perform cause attribution. Evidence unavailable
-in the report remains explicitly unavailable.
+The `pg_assess::investigate` API is report-only. It reads the requested report and case and emits a
+handoff bound to that report; it cannot accept grammar sources, rerun a case, regenerate traces,
+select a pipeline, or perform cause attribution. Evidence unavailable in the report remains
+explicitly unavailable.
 
 ### 17.13 Final operation rules
 

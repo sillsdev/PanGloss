@@ -16,7 +16,7 @@
 //!
 //! **An old run is never re-judged against revised policy.** Evaluation requires the exact suite
 //! ID, revision, semantic digest, and identity profile the assessment recorded. Otherwise a caller
-//! edits an expectation, re-runs `golden-diff` against last week's report, and gets a verdict about
+//! edits an expectation, re-runs `pg_assess::golden_diff` against last week's report, and gets a verdict about
 //! a run that never faced those expectations.
 //!
 //! **Every aggregate carries its denominator.** "12 disagreements" is unreadable without knowing

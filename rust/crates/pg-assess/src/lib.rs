@@ -2,7 +2,7 @@
 //! digests every assessment artifact is identified by.
 //!
 //! This crate is the identity and digest foundation the four operations (`assess`, `compare`,
-//! `golden-diff`, `investigate`) are built on. It deliberately knows nothing about suites,
+//! `golden_diff`, `investigate`) are built on. It deliberately knows nothing about suites,
 //! reports, or the CLI.
 //!
 //! The one idea everything here rests on: **an analysis identity is a value, not a reference**
