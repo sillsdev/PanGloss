@@ -286,7 +286,17 @@ pub(crate) fn compile_project_recording(
         .phonology
         .boundary_markers
         .iter()
-        .flat_map(|b| b.representations.iter().map(|f| crate::nfd::nfd(&f.form)))
+        .flat_map(|b| {
+            chardef::boundary_representations(
+                b,
+                snapshot
+                    .project
+                    .vernacular_writing_systems
+                    .first()
+                    .map(String::as_str),
+            )
+        })
+        .map(|representation| crate::nfd::nfd(&representation))
         .collect();
     let substrate::SubstrateCompletion {
         raw: completed_raw,

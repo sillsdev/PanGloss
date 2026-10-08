@@ -275,7 +275,10 @@ fn push_synthetic_boundary(
 }
 
 /// HCLoader's boundary-marker representation rule uses `BestVernacularAlternative`, distinct from phonemes' `VernacularDefaultWritingSystem`, but both fold to "prefer the project's default vernacular WS, else whatever's there" in this snapshot format.
-fn boundary_representations(bd: &BoundaryMarker, default_ws: Option<&str>) -> Vec<String> {
+pub(crate) fn boundary_representations(
+    bd: &BoundaryMarker,
+    default_ws: Option<&str>,
+) -> Vec<String> {
     ws_forms(&bd.representations, default_ws)
         .into_iter()
         .map(str::to_string)

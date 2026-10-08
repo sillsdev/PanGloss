@@ -37,6 +37,71 @@ fn warning_metadata(warning: &pg_snapshot::Warning) -> pg_snapshot::ImportWarnin
     pg_snapshot::import_warning_metadata(code)
 }
 
+#[test]
+fn boundary_inference_uses_only_the_owners_preferred_writing_system_forms() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.phonology.boundary_markers.push(BoundaryMarker {
+        guid: "bd-multilingual".into(),
+        name: "separator".into(),
+        representations: vec![ws("en", "-"), ws("sen", "+")],
+    });
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "kuma-")];
+
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert!(output.substrate.inferred_boundaries.is_empty());
+    let table = &output.grammar.char_tables[0];
+    assert!(table.lookup_nfd("+").is_some());
+    if let Some(id) = table.lookup_nfd("-") {
+        assert_ne!(table.get(id).kind(), crate::chardef::CharDefKind::Boundary);
+    }
+}
+
+#[test]
+fn affix_validity_and_construction_use_the_same_preferred_writing_system_form() {
+    for other in ["", "[C]"] {
+        let (mut snapshot, _) = fixture();
+        snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("en", other), ws("sen", "ta")];
+        let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        assert_eq!(
+            output
+                .grammar
+                .mrules
+                .iter()
+                .filter(|rule| matches!(rule, MorphRuleDef::AffixProcess(_)))
+                .count(),
+            1,
+            "other form {other:?}"
+        );
+        assert!(!output.issues.iter().any(|issue| {
+            issue
+                .source
+                .as_ref()
+                .is_some_and(|source| source.id == "allo-suffix")
+        }));
+    }
+    for preferred in ["", "[C]"] {
+        let (mut snapshot, _) = fixture();
+        snapshot.lexicon.entries[1].allomorphs[0].forms =
+            vec![ws("en", "ta"), ws("sen", preferred)];
+        let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        assert!(
+            output
+                .grammar
+                .mrules
+                .iter()
+                .all(|rule| !matches!(rule, MorphRuleDef::AffixProcess(_))),
+            "preferred form {preferred:?}"
+        );
+        assert!(output.issues.iter().any(|issue| {
+            issue
+                .source
+                .as_ref()
+                .is_some_and(|source| source.id == "allo-suffix")
+        }));
+    }
+}
+
 fn warning_guidance(warning: &pg_snapshot::Warning) -> Option<String> {
     warning_metadata(warning).guidance_for_subject(
         warning

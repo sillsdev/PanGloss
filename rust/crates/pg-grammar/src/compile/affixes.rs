@@ -783,8 +783,7 @@ pub(crate) fn collect_text_uses(
                 continue;
             }
 
-            let form = super::best_ws(&allo.forms, default_ws).unwrap_or("");
-            let form = super::format_form(form);
+            let form = literal_form(allo, default_ws);
             if form.trim().is_empty() {
                 continue;
             }
@@ -812,7 +811,11 @@ pub(crate) fn collect_text_uses(
     }
 }
 
-/// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity. Records the allomorph rejected only where this filter is the allomorph's one plausible route to a rule form (infix/prefix/suffix-shaped); a morph type that structurally can never be a rule form (bare stem/clitic/particle/phrase) is left considered-but-not-selected, mirroring a disabled compound rule rather than a failure.
+fn literal_form(allo: &Allomorph, preferred_ws: Option<&str>) -> String {
+    super::format_form(super::best_ws(&allo.forms, preferred_ws).unwrap_or(""))
+}
+
+/// Checks the selected affix form and reports why a selected allomorph cannot become a rule form.
 fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
     if let Some(process) = &allo.process {
         if process.input.len() > 1 || process.output.len() > 1 {
@@ -875,8 +878,8 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
         | MorphType::SuffixingInterfix
         | MorphType::Proclitic
         | MorphType::Enclitic => {
-            let form = super::best_ws(&allo.forms, None).unwrap_or("");
-            if is_bracket_pattern_form(form) {
+            let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
+            if is_bracket_pattern_form(&form) {
                 ctx.selected(key.clone());
                 ctx.reject(
                     key,
@@ -957,8 +960,7 @@ fn build_affix_allomorphs_for(
         return Vec::new();
     };
 
-    let form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or("");
-    let form = super::format_form(form);
+    let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
 
     let allo_infl_mpr = if matches!(msa, Msa::Inflectional { .. }) {
         let mut set = crate::model::MprSet::EMPTY;

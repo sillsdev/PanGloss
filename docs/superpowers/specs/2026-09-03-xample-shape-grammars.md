@@ -1,5 +1,10 @@
 # XAMPLE-authored FieldWorks projects on HC-Rust
 
+> [ADR 0008](../../adr/0008-provisional-definitions.md) supersedes this spec's
+> Auto/Strict selection and refusal policy. Provisional definitions apply to every
+> underdefined project, whatever parser FieldWorks has selected; each is reported
+> as grammar-health information. The contract below records the earlier design.
+
 Status: **ACCEPTED, REVISED 2026-09-04**. This revision supersedes the 2026-09-03
 "XAMPLE profile" contract. The durable rationale and engine comparison live in
 `docs/research/xample-grammars-on-hc-rust.md`.
