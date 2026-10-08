@@ -66,6 +66,9 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::plan::{FragmentSpec, NodeId, Plan, PlanNodeKind};
 use crate::strategy_coverage::ALL_STRATEGIES;
 
+mod variants;
+pub use variants::{observed_variants, ConstructVariant, VariantDisposition};
+
 // ---- Disposition + CharacteristicKind + the characterizer ----
 
 /// A characteristic's capability disposition. Ordered here from "most trusted" to
@@ -1789,6 +1792,34 @@ pub trait CapabilityPredicate {
     fn shape_key(&self) -> &'static str;
     /// Which `CharacteristicKind`(s) this predicate claims to discharge.
     fn discharges(&self) -> &[CharacteristicKind];
+    /// Reachable concrete forms discharged by this predicate, excluding vacuous absence.
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[]
+    }
+    /// Labels an occurrence using the verdict already computed by this predicate.
+    /// Ambiguous labels must be resolved by the owner rather than guessed by a coverage caller.
+    fn variant_for(
+        &self,
+        _grammar: &Grammar,
+        _observation: &CharacteristicObservation,
+        verdict: &PredicateVerdict,
+    ) -> ConstructVariant {
+        let disposition = VariantDisposition::from(verdict);
+        let mut matches = self
+            .variants()
+            .iter()
+            .copied()
+            .filter(|v| v.disposition() == disposition);
+        let variant = matches
+            .next()
+            .expect("predicate has no variant for its verdict");
+        assert!(
+            matches.next().is_none(),
+            "predicate must resolve its ambiguous variant labels: {}",
+            self.id()
+        );
+        variant
+    }
     /// Which `crate::enumerate::EmissionStrategy`s this predicate's judgement actually constrains —
     /// the compilers whose proposer could exhibit the shape it refuses.
     ///
@@ -1863,6 +1894,13 @@ fn mpr_gates_disjoint(a: &SubruleGateInfo, b: &SubruleGateInfo) -> bool {
 pub struct SimultaneousSubruleOverlapPredicate;
 
 impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::SimultaneousDisjoint,
+            ConstructVariant::SimultaneousUnproven,
+        ]
+    }
+
     fn id(&self) -> PredicateId {
         "simultaneous.subrule-overlap"
     }
@@ -2154,6 +2192,29 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 pub struct MultiTableFaithfulThreadingPredicate;
 
 impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::MultiTableDisjoint,
+            ConstructVariant::MultiTableShared,
+        ]
+    }
+
+    fn variant_for(
+        &self,
+        _grammar: &Grammar,
+        observation: &CharacteristicObservation,
+        _verdict: &PredicateVerdict,
+    ) -> ConstructVariant {
+        let ObservationDetail::MultiTable(detail) = &observation.detail else {
+            panic!("multi-table variant needs its observation")
+        };
+        if detail.representations_pairwise_disjoint {
+            ConstructVariant::MultiTableDisjoint
+        } else {
+            ConstructVariant::MultiTableShared
+        }
+    }
+
     fn id(&self) -> PredicateId {
         "multi-table.faithful-table-threading"
     }
@@ -2232,6 +2293,13 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 pub struct RightToLeftRewriteFaithfulReversalPredicate;
 
 impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::RtlReversal,
+            ConstructVariant::RtlUnlowerable,
+        ]
+    }
+
     fn id(&self) -> PredicateId {
         "right-to-left-rewrite.faithful-reversal-construction"
     }
@@ -2361,6 +2429,44 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 pub struct MetathesisFaithfulSwapPredicate;
 
 impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::MetathesisLtrSwap,
+            ConstructVariant::MetathesisRtlSwap,
+            ConstructVariant::MetathesisLtrUnlowerable,
+            ConstructVariant::MetathesisRtlUnlowerable,
+        ]
+    }
+
+    fn variant_for(
+        &self,
+        grammar: &Grammar,
+        observation: &CharacteristicObservation,
+        verdict: &PredicateVerdict,
+    ) -> ConstructVariant {
+        let ObservationDetail::Metathesis(detail) = &observation.detail else {
+            panic!("metathesis variant needs its observation")
+        };
+        let PhonRuleDef::Metathesis(rule) = &grammar.prules[detail.rule.0 as usize] else {
+            panic!("metathesis observation needs a metathesis rule")
+        };
+        match (rule.dir, verdict) {
+            (Dir::LeftToRight, PredicateVerdict::ConfirmOnly) => {
+                ConstructVariant::MetathesisLtrSwap
+            }
+            (Dir::RightToLeft, PredicateVerdict::ConfirmOnly) => {
+                ConstructVariant::MetathesisRtlSwap
+            }
+            (Dir::LeftToRight, PredicateVerdict::Refuse(_)) => {
+                ConstructVariant::MetathesisLtrUnlowerable
+            }
+            (Dir::RightToLeft, PredicateVerdict::Refuse(_)) => {
+                ConstructVariant::MetathesisRtlUnlowerable
+            }
+            (_, PredicateVerdict::Admit) => panic!("observed metathesis cannot vacuously admit"),
+        }
+    }
+
     fn id(&self) -> PredicateId {
         "metathesis.faithful-swap-construction"
     }
@@ -2559,6 +2665,13 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 pub struct CircumfixStructuralCompositePredicate;
 
 impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::CircumfixStructural,
+            ConstructVariant::CircumfixUnrouted,
+        ]
+    }
+
     fn id(&self) -> PredicateId {
         "circumfix-output-action.faithful-structural-composite"
     }
@@ -2673,6 +2786,33 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 pub struct ReduplicationPeelSupportedPredicate;
 
 impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::ReduplicationPeel,
+            ConstructVariant::ReduplicationStructural,
+            ConstructVariant::ReduplicationUnrouted,
+        ]
+    }
+
+    fn variant_for(
+        &self,
+        _grammar: &Grammar,
+        observation: &CharacteristicObservation,
+        verdict: &PredicateVerdict,
+    ) -> ConstructVariant {
+        if matches!(verdict, PredicateVerdict::Refuse(_)) {
+            return ConstructVariant::ReduplicationUnrouted;
+        }
+        let ObservationDetail::Reduplication(detail) = &observation.detail else {
+            panic!("reduplication variant needs its observation")
+        };
+        if detail.peel_attempted {
+            ConstructVariant::ReduplicationPeel
+        } else {
+            ConstructVariant::ReduplicationStructural
+        }
+    }
+
     fn id(&self) -> PredicateId {
         "reduplication.peel-eligible-rule-kind"
     }
@@ -2793,6 +2933,29 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 pub struct CompoundingRecursionSafePredicate;
 
 impl CapabilityPredicate for CompoundingRecursionSafePredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::CompoundingNonRecursive,
+            ConstructVariant::CompoundingRecursive,
+        ]
+    }
+
+    fn variant_for(
+        &self,
+        _grammar: &Grammar,
+        observation: &CharacteristicObservation,
+        _verdict: &PredicateVerdict,
+    ) -> ConstructVariant {
+        let ObservationDetail::Compounding(detail) = &observation.detail else {
+            panic!("compounding variant needs its observation")
+        };
+        if detail.recursive {
+            ConstructVariant::CompoundingRecursive
+        } else {
+            ConstructVariant::CompoundingNonRecursive
+        }
+    }
+
     fn id(&self) -> PredicateId {
         "compounding.non-recursive"
     }
@@ -2859,6 +3022,10 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 pub struct UnorderedOrderingUnionPredicate;
 
 impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[ConstructVariant::UnorderedOrderUnion]
+    }
+
     fn id(&self) -> PredicateId {
         "unordered-application.chain-depth-bounded"
     }
@@ -3031,6 +3198,10 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
 pub struct MprGroupOverwritePredicate;
 
 impl CapabilityPredicate for MprGroupOverwritePredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[ConstructVariant::MprOverwrite]
+    }
+
     fn id(&self) -> PredicateId {
         "mpr-group.overwrite-output"
     }
@@ -3121,6 +3292,35 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
 pub struct QuantifierBoundedExpansionPredicate;
 
 impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[
+            ConstructVariant::QuantifierBounded,
+            ConstructVariant::QuantifierUnbounded,
+            ConstructVariant::QuantifierBoundedUnlowerable,
+            ConstructVariant::QuantifierUnboundedUnlowerable,
+        ]
+    }
+
+    fn variant_for(
+        &self,
+        _grammar: &Grammar,
+        observation: &CharacteristicObservation,
+        verdict: &PredicateVerdict,
+    ) -> ConstructVariant {
+        let ObservationDetail::QuantifierPattern(detail) = &observation.detail else {
+            panic!("quantifier variant needs its observation")
+        };
+        match (detail.all_bounded, verdict) {
+            (true, PredicateVerdict::ConfirmOnly) => ConstructVariant::QuantifierBounded,
+            (false, PredicateVerdict::ConfirmOnly) => ConstructVariant::QuantifierUnbounded,
+            (true, PredicateVerdict::Refuse(_)) => ConstructVariant::QuantifierBoundedUnlowerable,
+            (false, PredicateVerdict::Refuse(_)) => {
+                ConstructVariant::QuantifierUnboundedUnlowerable
+            }
+            (_, PredicateVerdict::Admit) => panic!("observed quantifier cannot vacuously admit"),
+        }
+    }
+
     fn id(&self) -> PredicateId {
         "quantifier.bounded-expansion"
     }
@@ -3274,6 +3474,10 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 pub struct EpenthesisStructuralRoutePredicate;
 
 impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
+    fn variants(&self) -> &'static [ConstructVariant] {
+        &[ConstructVariant::EpenthesisStructural]
+    }
+
     fn id(&self) -> PredicateId {
         "epenthesis.structural-composite-route"
     }
