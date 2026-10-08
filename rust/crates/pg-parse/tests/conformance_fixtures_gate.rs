@@ -2,8 +2,8 @@
 //! See docs/conformance-staging-plan.md for the design and `machine/conformance/PROTOCOL.md` for the fixture format.
 
 use pg_conformance_fixtures::{
-    all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    producibility_census, require_fixture, OracleProvenance,
+    all_staged_fixtures, discover, graduation_guard_violations, producibility_census,
+    replay_against_oracle, require_fixture, OracleProvenance,
 };
 use pg_parse::Morpher;
 
@@ -31,6 +31,7 @@ fn all_discovered_fixtures_match_oracle() {
 
     let mut total_checked = 0usize;
     let mut total_skipped_fixtures = 0usize;
+    let mut mismatches = Vec::new();
     for f in &fixtures {
         let words_yaml = f.load_words_yaml();
         if let Some(reason) = words_yaml.skip_in_generic_replay() {
@@ -43,7 +44,14 @@ fn all_discovered_fixtures_match_oracle() {
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", f.label()));
         let morpher = Morpher::new(&grammar, usize::MAX);
         let label = f.label();
-        let checked = assert_matches_oracle(&label, &words_yaml, &morpher);
+        let replay = replay_against_oracle(&words_yaml, &morpher);
+        for mismatch in &replay.mismatches {
+            mismatches.push(format!(
+                "{label}: word {:?} {}\n  left (HC-Rust): {}\n right (oracle): {}",
+                mismatch.word, mismatch.what, mismatch.got, mismatch.expected
+            ));
+        }
+        let checked = replay.checked;
         assert!(
             checked > 0,
             "{label}: replayed zero words (every word guess-only or the fixture is empty?)"
@@ -60,6 +68,12 @@ fn all_discovered_fixtures_match_oracle() {
     eprintln!(
         "conformance_fixtures_gate: fieldworks_producible -- {}",
         census.summary_line()
+    );
+    assert!(
+        mismatches.is_empty(),
+        "{} conformance mismatches across the complete replay:\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
     );
 }
 
