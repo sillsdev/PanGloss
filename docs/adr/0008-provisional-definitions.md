@@ -30,8 +30,11 @@ defined one definition at a time, with no cliff.
   `docs/divergences/`, one staged conformance fixture recording XAMPLE, C# HermitCrab and PanGloss
   results, and a gate that fails on any difference from either engine the ledger does not list. The
   rules themselves are derived from measuring the real XAMPLE, not assumed.
-- A provisional letter, and an authored phoneme with no features, belong to no natural class,
-  because XAMPLE's classes are explicit letter lists and it never sees feature-defined classes.
+- A provisional letter belongs to no natural class that names letters or requires a feature value,
+  and an authored phoneme with no features belongs to no class that requires a feature value,
+  because XAMPLE's classes are explicit letter lists. A class with no conditions (a wildcard) still
+  matches both. For constrained classes this is what C# HermitCrab already does in environments and
+  forward rules; only its analysis-side unification differs.
 - Comparisons against analyses stored in a FieldWorks project use FieldWorks' own key (allomorph,
   MSA and inflection type per morph), because FieldWorks does not store root position or category.
 - The proposal is raised with `sillsdev/machine` as an issue to start the discussion; the staged

@@ -354,7 +354,7 @@ A project whose authored phonology leaves something a parse depends on undefined
 _Avoid_: Incomplete grammar, invalid grammar, XAMPLE project (as if the selected parser mattered)
 
 **Provisional definition**:
-A definition PanGloss supplies for something an underdefined project leaves undefined, chosen to match or exceed what XAMPLE does with the same project, and reported to the author as information naming what was undefined and what was assumed. A provisional letter is one of the language's own exemplar letters, longest first (so `ch` is one letter), and otherwise one visible character (so `ã` is one letter however it is typed). A provisional letter, like an authored phoneme with no features, belongs to no natural class. The author replaces a provisional definition by defining the thing; PanGloss never silently keeps one.
+A definition PanGloss supplies for something an underdefined project leaves undefined, chosen to match or exceed what XAMPLE does with the same project, and reported to the author as information naming what was undefined and what was assumed. A provisional letter is one of the language's own exemplar letters, longest first (so `ch` is one letter), and otherwise one visible character (so `ã` is one letter however it is typed). A provisional letter belongs to no natural class that names letters or requires a feature value, and an authored phoneme with no features belongs to no class that requires a feature value; a class with no conditions still matches both. The author replaces a provisional definition by defining the thing; PanGloss never silently keeps one.
 _Avoid_: Guess, guessed segment (guessing is root guessing), inferred definition, substrate completion (in user-facing text)
 
 **Divergence**:
