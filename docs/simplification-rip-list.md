@@ -4,6 +4,10 @@ Living implementation plan. Git history is the recovery mechanism; PanGloss is p
 external compatibility obligation. Old behavior must not be restored merely because a test expects
 it. Update or delete that test first when it pins a contract explicitly rejected below.
 
+Status update (2026-10-08): this plan's 2026-08-27 inventory said `compare`, `golden-diff`, and
+report-only `investigate` remained. Their CLI commands were removed in the health-inputs change;
+the `pg-assess` library remains.
+
 ## Rip-first execution order (2026-08-27)
 
 No one depends on the current pre-alpha implementation. Finish demolition before building its
@@ -510,7 +514,7 @@ consumer was that route went with it: `--words`, `--corpus`, `--attestor`, `--at
 
 `make-report` now reports on the artifact it is given. `measurements` is `None`, and build time,
 latency, and coverage say they were not measured rather than reporting a number the command has no
-honest way to produce. The verdict path is unchanged: `certify_with_semantics` already accepts a
+honest way to produce. The verdict path is unchanged: `assess_readiness_with_semantics` already accepts a
 `None` measurements — that is exactly what the refused-grammar branch has always passed it.
 `Measurements`/`LatencyMeasurement`/`CoverageAssessment` stay in `pg-foma::readiness_verdict`, and
 the golden-render tests that build one by hand still exercise the renderer.

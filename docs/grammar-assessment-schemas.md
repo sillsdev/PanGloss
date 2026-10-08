@@ -6,11 +6,11 @@ document describes the checked-in JSON Schemas exactly as written; where the sch
 `docs/grammar-assessment-handoff-spec.md` disagree, that is called out rather than papered over
 (see [Known inconsistencies](#known-inconsistencies-with-the-prose-spec)).
 
-Status (2026-08-27): the grammar/corpus `pangloss assess` producer and grammar-backed
-`investigate` rerun/attribution path are removed from the CLI. These schemas remain the wire-format
-reference for existing artifacts and retained `compare`, `golden-diff`, and report-only
-`investigate` consumers. The pipeline and missing-cause enum values below are retained only for
-v1 artifact compatibility; they are not CLI selection or rerun behavior.
+Status (2026-10-08): the assessment producer was removed in `84c3267d`; the `compare`,
+`golden-diff`, and `investigate` CLI commands were removed in the health-inputs change. The
+`pg-assess` library and these schemas remain available for callers that process existing artifacts.
+Pipeline and missing-cause enum values below remain for v1 artifact compatibility; they do not
+describe CLI commands, selection, or rerun behavior.
 
 Normative semantics live in `docs/grammar-assessment-handoff-spec.md`. Decision rationale lives in
 `openspec/changes/add-grammar-assessment/design.md` (D1-D15). This document is a map of the wire
@@ -45,8 +45,8 @@ declared JSON Schema subset.
 
 - **`assessment-suite`** — the caller's input: a versioned, ordered list of cases (each an opaque
   `caseId`, an input string, and an optional required/forbidden/allowed expectation). It remains
-  caller-owned and is consumed by artifact producers; it is never authored or transitioned by the
-  retained CLI.
+  caller-owned and is consumed by artifact producers; the `pangloss` CLI does not author or
+  transition it.
 - **`assessment-report`** — an immutable result artifact from an assessment run: a per-case outcome
   (`complete` / `incomplete` / `not_attempted`), the authoritative analysis set for complete cases
   only, provenance, execution metadata, and three identity digests.
@@ -59,8 +59,8 @@ declared JSON Schema subset.
   as structured identities, never bare counts, with denominators on every aggregate.
 - **`investigation-handoff`** — a handoff for one case bound to an exact report and its recorded
   execution metadata. The v1 wire shape retains observed/missing analyses, construct references,
-  narrative, and caveat fields for existing artifacts; the retained CLI supplies report-only
-  handoffs and does not regenerate evidence or compute cause attribution. No field makes a
+  narrative, and caveat fields for existing artifacts; the library supplies report-only handoffs
+  and does not regenerate evidence or compute cause attribution. No field makes a
   root-cause claim or prescribes a grammar edit.
 
 ## `common.defs.json` and how `$ref` resolves against it

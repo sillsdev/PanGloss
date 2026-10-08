@@ -1,6 +1,8 @@
 # PanGloss grammar-assessment handoff specification
 
-Status: implementation handoff for the PanGloss repository.
+Status: historical implementation handoff. The assessment producer was removed in `84c3267d`;
+the `compare`, `golden-diff`, and `investigate` consumer CLI commands were removed in the
+health-inputs change. The `pg-assess` library operations and tests remain.
 
 Date: 2026-07-28.
 
@@ -13,9 +15,9 @@ PanGloss provides the deterministic evidence-consumption layer for a grammar-cha
 3. compare a report with caller-supplied expected-analysis policy;
 4. produce a report-only investigation handoff on demand.
 
-The grammar/corpus report producer is outside this CLI's retained surface. The compare, golden-diff,
-and report-only investigate consumers remain supported; no replacement producer route is specified
-during demolition.
+The grammar/corpus report producer and the artifact-consumer commands are not part of the current
+CLI. The Rust `pg-assess` library retains report comparison, expected-analysis evaluation, and
+report-only investigation APIs.
 
 PanGloss reports facts. It does not decide whether a grammar is linguistically better, approve a
 proposal, mutate FieldWorks, persist review workflow, call an AI model, or impersonate a native
@@ -29,9 +31,8 @@ explicit required, forbidden, allowed, exact, or unresolved expectations.
 ## 2. Retained PanGloss capabilities
 
 Reuse the existing assessment wire schemas, canonical artifact digests, structured analysis identity,
-report parsing, report comparison, golden-diff evaluation, and report-only investigation handoff
-APIs. The retained CLI consumes caller-owned artifacts; it does not import or compile a grammar,
-execute a corpus, or produce a replacement assessment report route.
+report parsing, report comparison, expected-analysis evaluation, and report-only investigation handoff
+APIs in `pg-assess`. The `pangloss` CLI does not expose these operations.
 
 ## 3. Normative boundaries
 
@@ -89,20 +90,13 @@ Use the terminology already established in `PanGloss/CONTEXT.md`.
 | Context difference | A recorded difference in report provenance or execution metadata |
 | Investigation handoff | Machine-readable factual evidence for FieldWorks or another diagnostic client |
 
-## 5. Required public operations
+## 5. Assessment library operations
 
-Exact command spelling may follow existing `pg-cli` conventions, but the following public
-capabilities are required and must also be available through an internal Rust API suitable for the
-PanGloss SDK.
+The following Rust library operations remain available to consumers of `pg-assess`.
 
 ### 5.1 Compare two assessment reports
 
-Illustrative CLI:
-
-```text
-pangloss compare <baseline-assessment.json> <candidate-assessment.json>
-  --report <delta.json>
-```
+`pg_assess::compare` compares two parsed assessment reports.
 
 Behavior:
 
@@ -116,12 +110,7 @@ Behavior:
 
 ### 5.2 Compare an assessment with expectations
 
-Illustrative CLI:
-
-```text
-pangloss golden-diff <assessment.json> <suite.json>
-  --report <golden-diff.json>
-```
+`pg_assess::golden_diff` compares a parsed report with a parsed suite.
 
 Behavior:
 
@@ -136,16 +125,10 @@ logically distinct immutable artifacts.
 
 ### 5.3 Report-only investigation handoff
 
-The retained CLI operation is:
-
-```text
-pangloss investigate <assessment.json> --case <case-id> --report <handoff.json>
-```
-
-It reads the selected report and emits a handoff bound to that report and case. It does not accept
-a grammar path, rerun a case, select a pipeline, regenerate traces, or attribute a missing analysis.
-The handoff can carry only evidence already represented by the report and explicit unavailable
-status; it never claims a root cause or prescribes a grammar edit.
+`pg_assess::investigate` emits a handoff bound to a parsed report and selected case. It does not
+accept a grammar path, rerun a case, select a pipeline, regenerate traces, or attribute a missing
+analysis. The handoff can carry only evidence already represented by the report and explicit
+unavailable status; it never claims a root cause or prescribes a grammar edit.
 
 ## 6. Assessment-suite schema
 
@@ -424,14 +407,14 @@ Never report “97% passed” without the numerator, denominator, exclusions, an
 Reports may contain importer/compiler warnings, skipped or unsupported construct IDs, stale-reference
 diagnostics, capability metadata, model fingerprints, resource metadata, and completeness
 transitions. Comparison exposes differences in this metadata without changing compatible identity
-comparison. The retained CLI does not create new import or compile diagnostics.
+comparison. The `pg-assess` library does not create new import or compile diagnostics.
 
-## 11. Exit behavior
+## 11. Historical CLI exit behavior
 
-Retained CLI exit codes describe whether the requested evidence operation completed, not whether
-the grammar is good: success, invalid input/schema, unsupported capability or incompatible identity
-profile, and internal error. CI must interpret the golden-set-diff artifact when it needs a policy
-gate; comparison itself does not make a publication decision.
+The removed CLI used separate exit codes for successful operations, invalid input/schema,
+unsupported capability or incompatible identity profile, and internal errors. These process exit
+codes do not apply to `pg-assess`. CI consumers interpret the golden-set-diff artifact when they
+need a policy gate; comparison itself does not make a publication decision.
 
 ## 12. Determinism and limits
 
@@ -489,27 +472,24 @@ gate; comparison itself does not make a publication decision.
 - unavailable evidence is labeled unavailable rather than regenerated;
 - no field makes a root-cause or automatic-repair claim.
 
-## 16. Retained CLI scope
+## 16. Current surface
 
-- `compare` consumes two assessment reports and emits a structured grammar delta.
-- `golden-diff` consumes a report and suite expectations and emits a structured policy diff.
-- Report-only `investigate` consumes a report and case ID and emits a bound handoff.
+- `pg-assess` retains the `compare`, `golden_diff`, and `investigate` Rust APIs.
+- The `pangloss` CLI does not expose assessment producer or consumer commands.
 - Assessment-suite and assessment-report schemas remain wire-format references for artifact producers
   and consumers.
-- CLI acceptance coverage for retained consumers, including strict rejection of removed flags, is
-  deferred to the post-demolition replacement/repair phase. Producer-coupled tests are not restored.
+- CLI acceptance coverage was removed with those commands; library tests remain in `pg-assess`.
 
 ## 17. Normative v1 resolutions
 
 This section closes representation and execution choices that the preceding semantic sections leave
 illustrative. If wording above is ambiguous, this section governs v1.
 
-### 17.1 Retained operation boundary
+### 17.1 Removed CLI operation boundary
 
-The CLI no longer exposes a grammar/corpus assessment producer or a pipeline-selection flag.
-`compare`, `golden-diff`, and report-only `investigate` operate on caller-owned artifacts. The
-`foma-confirm` and `hermitcrab` values may remain in stored report/handoff schema data for wire
-compatibility, but this CLI does not choose between them or rerun either pipeline.
+The CLI exposes none of the assessment operations. The `pg-assess` library operations consume
+caller-owned artifacts. The `foma-confirm` and `hermitcrab` values may remain in stored report or
+handoff schema data for wire compatibility; they do not select or rerun either pipeline.
 
 ### 17.2 Canonical JSON and artifact IDs
 
@@ -583,23 +563,19 @@ analysis-set comparison.
 
 Consumers preserve the report's top-level `status` and nullable typed `failure`. They must not
 infer a successful empty analysis set from a failed or incomplete report. Producer-side setup,
-containment, and publication behavior is outside this retained CLI contract.
+containment, and publication behavior is outside this artifact-consumer API contract.
 
-### 17.8 Exit codes
+### 17.8 Library errors
 
-For retained evidence operations:
-
-- `0` — requested artifact was validly produced;
-- `2` — invalid input or schema;
-- `3` — unsupported capability or incompatible identity profile;
-- `70` — internal error.
+Library operations return typed errors where an operation can fail; `pg-assess` provides no process
+exit-code contract.
 
 ### 17.9 Report identity rules
 
 For existing reports, `sourceSha256`, `modelFingerprint`, and `identityDigest` retain the
 distinctions defined by the v1 wire schema. The identity profile remains caller-declared and
-comparisons with incompatible profiles are `not_comparable`; this retained CLI does not accept
-grammar sources or compile models.
+comparisons with incompatible profiles are `not_comparable`; these APIs do not accept grammar
+sources or compile models.
 
 ### 17.10 Diagnostics, limits, and redaction
 
@@ -623,12 +599,11 @@ in the report remains explicitly unavailable.
 ### 17.13 Final operation rules
 
 - Comparing incompatible identity profiles still produces a valid
-  `not_comparable/identity_profile_changed` grammar-delta artifact and normally exits `0`.
-- `golden-diff` evaluates expectations represented by the supplied suite; it does not mutate the
+  `not_comparable/identity_profile_changed` grammar-delta artifact.
+- `pg_assess::golden_diff` evaluates expectations represented by the supplied suite; it does not mutate the
   suite or create a new assessment run.
-- Report-only `investigate` does not rerun, regenerate, or attribute; it emits only a handoff bound
+- `pg_assess::investigate` does not rerun, regenerate, or attribute; it emits only a handoff bound
   to the selected report and case.
-- `--report` writes the requested retained-consumer artifact through the shared output path.
 
 ## 18. Definition of done
 

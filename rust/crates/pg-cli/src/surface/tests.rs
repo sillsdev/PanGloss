@@ -6,9 +6,6 @@ const HISTORICAL_DISPATCH_LITERALS: &[&str] = &[
     "generate",
     "parse",
     "import",
-    "compare",
-    "golden-diff",
-    "investigate",
     "fst-health",
     "coverage",
     "plan-diagram",
@@ -18,6 +15,16 @@ const HISTORICAL_DISPATCH_LITERALS: &[&str] = &[
     "__recipe-optimize-child",
     "__compile-worker-child",
 ];
+
+#[test]
+fn assessment_library_operations_are_not_cli_commands() {
+    for name in ["compare", "golden-diff", "investigate"] {
+        assert!(
+            find_command(name).is_none(),
+            "{name} remains available through pg-assess, not pangloss"
+        );
+    }
+}
 
 #[test]
 fn table_covers_every_historical_dispatch_literal() {

@@ -16,7 +16,7 @@ PanGloss is delivered in several capability profiles:
 - **Inference** — browser/WASM, word processors, and native C hosts load a precompiled one-file
   analysis package for bounded analysis, spell checking, and glossing.
 - **Native build and diagnostics** — FieldWorks and AI frameworks use the C ABI or CLI to import
-  grammars, compile FST packages, audit compiler health, and compare grammar revisions.
+  grammars, compile FST packages, audit compiler health, and assess grammar revisions with `pg-assess`.
 - **Reference development tooling** — source in this repository can compare selected words with the
   pinned C# Machine HermitCrab oracle for HC XML. It supports conformance investigation but is not
   distributed in the Runtime or SDK.
@@ -43,7 +43,7 @@ PanGloss treats a linguistic grammar like source code:
 | Build | Compile an FST and bind matching Rust-HermitCrab data |
 | Compiler output | A build report with FST warnings, errors, thresholds, and resource evidence |
 | Test | Run a caller-supplied word set against that compiled model |
-| Test output | An immutable assessment report; compare two reports to review a grammar delta |
+| Test output | An immutable assessment report; use `pg-assess` to compare reports and review a grammar delta |
 | Release | Optionally write one `.pgpack` PanGloss Language Pack |
 | Deploy | Load the Language Pack into PanGloss Runtime |
 

@@ -127,15 +127,6 @@ fn dispatch_recipe_optimize_child(args: &[String]) -> ExitCode {
         }
     }
 }
-fn dispatch_compare(args: &[String]) -> ExitCode {
-    crate::assess::exit(crate::assess::run_compare(args), "compare")
-}
-fn dispatch_golden_diff(args: &[String]) -> ExitCode {
-    crate::assess::exit(crate::assess::run_golden_diff(args), "golden-diff")
-}
-fn dispatch_investigate(args: &[String]) -> ExitCode {
-    crate::assess::exit(crate::assess::run_investigate(args), "investigate")
-}
 #[cfg(feature = "foma-tools")]
 fn dispatch_compile_worker_child(_args: &[String]) -> ExitCode {
     let stdin = std::io::stdin();
@@ -338,39 +329,6 @@ const FACTS_FLAGS: &[FlagSpec] = &[
         summary: "write one machine-readable result object to stdout",
     },
 ];
-
-const COMPARE_FLAGS: &[FlagSpec] = &[FlagSpec {
-    name: "--report",
-    takes_value: true,
-    summary: "write the delta artifact here instead of stdout",
-}];
-
-const GOLDEN_DIFF_FLAGS: &[FlagSpec] = &[
-    FlagSpec {
-        name: "--suite",
-        takes_value: true,
-        summary: "required; the golden suite JSON to diff the report against",
-    },
-    FlagSpec {
-        name: "--report",
-        takes_value: true,
-        summary: "write the diff artifact here instead of stdout",
-    },
-];
-
-const INVESTIGATE_FLAGS: &[FlagSpec] = &[
-    FlagSpec {
-        name: "--case",
-        takes_value: true,
-        summary: "required; the case id to produce a handoff for",
-    },
-    FlagSpec {
-        name: "--report",
-        takes_value: true,
-        summary: "write the handoff artifact here instead of stdout",
-    },
-];
-
 #[cfg(feature = "foma-tools")]
 const FST_HEALTH_FLAGS: &[FlagSpec] = &[];
 
@@ -635,30 +593,6 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["snapshot.json"],
         flags: FACTS_FLAGS,
         handler: dispatch_facts,
-    },
-    CommandSpec {
-        name: "compare",
-        summary: "Diff a baseline assessment report against a candidate report.",
-        hidden: false,
-        positionals: &["baseline.json", "candidate.json"],
-        flags: COMPARE_FLAGS,
-        handler: dispatch_compare,
-    },
-    CommandSpec {
-        name: "golden-diff",
-        summary: "Diff an assessment report against a golden suite.",
-        hidden: false,
-        positionals: &["report.json"],
-        flags: GOLDEN_DIFF_FLAGS,
-        handler: dispatch_golden_diff,
-    },
-    CommandSpec {
-        name: "investigate",
-        summary: "Produce an investigation handoff for one case in an assessment report.",
-        hidden: false,
-        positionals: &["report.json"],
-        flags: INVESTIGATE_FLAGS,
-        handler: dispatch_investigate,
     },
     #[cfg(feature = "foma-tools")]
     CommandSpec {

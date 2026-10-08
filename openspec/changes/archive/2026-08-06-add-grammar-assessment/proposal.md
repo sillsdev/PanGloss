@@ -1,3 +1,7 @@
+> Status update (2026-10-08): the assessment producer was removed in commit `84c3267d`; the
+> `compare`, `golden-diff`, and `investigate` consumer CLI commands were removed in the health-inputs
+> change. The `pg-assess` library and its tests remain.
+
 ## Why
 
 PanGloss can analyze a grammar but cannot yet hand a caller verifiable evidence about how two
