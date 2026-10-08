@@ -19,8 +19,10 @@ also excludes a featureless x from V=[voc +]; the divergence is analysis-side un
 `pg-grammar-model/src/chardef.rs::CharDef::has_authored_features`, `membership_bits`;
 `membership.rs::class_bits`; `segment.rs::nat_class_cd_set_with_constraints`.
 Authored featureless phonemes keep segment-list memberships naming them. Grammar health
-reports `provisional.phoneme-features` at Info severity, naming the phoneme and explaining
-how to assign features in FieldWorks.
+reports `provisional.phoneme-features` at Info severity only when at least one natural class
+requires a feature value. It reports one finding per affected phoneme, naming it and explaining
+how to assign features in FieldWorks. Unconstrained classes and segment lists alone trigger no
+featureless-phoneme finding; health calls the membership owner's feature-condition decision.
 Unconstrained feature classes admit every segment, including featureless phonemes and
 provisional letters. A synthetic Type tag does not count as an authored feature condition.
 
@@ -37,6 +39,9 @@ Managed runs and fix-removed checks are in the udp-core lane report.
 `unconstrained_feature_classes_match_provisional_and_featureless_stems` pins the empty-class
 exception and retained affixation. The complete fixture replay also pins the existing
 unconstrained `ncAny` in `chained-output-feature-override-loss`.
+`featureless_phoneme_info_requires_a_feature_condition` pins no finding for a wildcard-only
+grammar, one finding per featureless phoneme with one or two feature-requiring classes, no
+duplicate finding for provisional letters, and the checked-code report round-trip.
 
 XAMPLE/C# measurements and staged conformance fixtures come from a separate lane.
 These are synthetic regressions, not independent C# measurements or exported fixtures.

@@ -40,6 +40,10 @@ defined one definition at a time, with no cliff.
   (which stored analyses no longer parse, and which rule causes it), never hidden by also trying
   each word without its rules. "Match or exceed XAMPLE" covers phonology left undefined, not rules
   the author defined.
+- A featureless authored phoneme receives a `provisional.phoneme-features` Info finding only when
+  the grammar has at least one natural class requiring a feature value, so its exclusion matters.
+  PanGloss reports one finding per affected phoneme, regardless of how many such classes exist;
+  an unconstrained wildcard or a segment-list class alone does not trigger the finding.
 - Comparisons against analyses stored in a FieldWorks project use FieldWorks' own key (allomorph,
   MSA and inflection type per morph), because FieldWorks does not store root position or category.
 - The proposal is raised with `sillsdev/machine` as an issue to start the discussion; the staged

@@ -1,5 +1,7 @@
 # Lossless XAMPLE-Project Conversion to HC Implementation Plan
 
+> Historical plan: [ADR 0008](../../adr/0008-provisional-definitions.md) supersedes its Auto/Strict/Complete policy and missing-letter refusal. Provisional definitions now apply to every project.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convert XAMPLE-authored FieldWorks projects without semantic loss and execute them through the ordinary HC-Rust/FST pipeline, completing only the missing character substrate and refusing wrong, ambiguous, unsupported, or unrepresentable grammars.

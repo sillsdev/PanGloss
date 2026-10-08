@@ -13,6 +13,11 @@ on `feat/underdefined-base`; separate-lane C# measurements and synthetic Rust re
 - A class with no conditions matches both. The synthetic Type=Segment tag is not an
   authored feature-value condition; such a class remains a wildcard over segments.
 
+The owner further directed that `provisional.phoneme-features` Info is emitted only when
+the grammar contains at least one class requiring a feature value. Each affected featureless
+phoneme receives one finding, regardless of class count. A wildcard-only or segment-list-only
+grammar does not produce that finding; the membership owner supplies the triggering fact.
+
 This entry records the combined membership decision in addition to the individual
 provisional-letter and featureless-phoneme entries [054](054-provisional-letter-no-natural-class.md)
 and [055](055-featureless-phoneme-no-feature-class.md). Letter-unit and always-on behavior
@@ -56,9 +61,9 @@ FeatureNaturalClass because the loader adds Type=Segment. This broke
 synthetic Type tag from an authored feature condition, restoring the unconstrained wildcard.
 No fixture expectation was changed.
 
-Implementation is in the `feat/provisional-definitions` working tree based on PanGloss
-`5c51a38d26856285295a28bc91d5445c1ee1f7b2`; core changes remain uncommitted pending disposition
-of other existing unit-test outcomes. This status does not imply the feature is ready to merge.
+Implementation and pinning tests are on `feat/provisional-definitions`, based on PanGloss
+`5c51a38d26856285295a28bc91d5445c1ee1f7b2`. The udp-core lane report records the implementation
+commits, managed gates and fix-reverted checks separately from the other lane's staged witnesses.
 
 ## Pinning tests and demonstrated coverage
 
@@ -74,6 +79,9 @@ of other existing unit-test outcomes. This status does not imply the feature is 
 - `provisional_and_featureless_letters_do_not_match_a_runtime_feature_environment`:
   constrained environment excludes both; authored feature-valued positive control matches,
   including a table with more than 64 definitions.
+- `featureless_phoneme_info_requires_a_feature_condition`: no featureless-phoneme Info
+  without a feature-requiring class, one per affected phoneme with one or two such classes,
+  and a typed report round-trip preserving the new checked code.
 
 `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision`
 pins constrained-class/list eligibility and alpha-bound constraint omission.

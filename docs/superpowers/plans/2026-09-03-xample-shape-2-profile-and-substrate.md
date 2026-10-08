@@ -1,5 +1,7 @@
 # XAmple-shape, Plan 2 of 4: parser profile, substrate synthesis, analysis caps on the grammar
 
+> Historical plan: [ADR 0008](../../adr/0008-provisional-definitions.md) supersedes its Auto/Strict/Complete policy and missing-letter refusal. Provisional definitions now apply to every project.
+
 > **SUPERSEDED 2026-09-04 — DO NOT EXECUTE.** The accepted contract no longer creates an XAMPLE
 > runtime profile, drops authored rules, disables HC defaults, or attaches XAMPLE caps to `Grammar`.
 > The retained substrate work and the replacement refusal design are specified in
