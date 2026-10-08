@@ -100,6 +100,53 @@ fn malformed_xample_cap_is_none_and_reported() {
 }
 
 #[test]
+fn malformed_hc_booleans_warn_and_keep_defaults_without_claiming_representation() {
+    let (params, issues, presence) = parse_with_issues(Some(
+        "<ParserParameters><HC><NotOnClitics>sometimes</NotOnClitics>\
+         <AcceptUnspecifiedGraphemes>yes</AcceptUnspecifiedGraphemes>\
+         <NoDefaultCompounding>nope</NoDefaultCompounding></HC></ParserParameters>",
+    ))
+    .unwrap();
+    assert!(params.not_on_clitics);
+    assert!(!params.accept_unspecified_graphemes);
+    assert!(!params.no_default_compounding);
+    assert_eq!(issues.len(), 3);
+    assert!(issues
+        .iter()
+        .all(|issue| issue.code == codes::INVALID_PARSER_PARAMETER.wire()));
+    assert_eq!(
+        presence.hc_fields,
+        vec![
+            ("NotOnClitics", false),
+            ("AcceptUnspecifiedGraphemes", false),
+            ("NoDefaultCompounding", false),
+        ]
+    );
+}
+
+#[test]
+fn valid_hc_booleans_are_recorded_as_represented_candidates() {
+    let (params, issues, presence) = parse_with_issues(Some(
+        "<ParserParameters><HC><NotOnClitics>false</NotOnClitics>\
+         <AcceptUnspecifiedGraphemes>true</AcceptUnspecifiedGraphemes>\
+         <NoDefaultCompounding>1</NoDefaultCompounding></HC></ParserParameters>",
+    ))
+    .unwrap();
+    assert!(!params.not_on_clitics);
+    assert!(params.accept_unspecified_graphemes);
+    assert!(params.no_default_compounding);
+    assert!(issues.is_empty());
+    assert_eq!(
+        presence.hc_fields,
+        vec![
+            ("NotOnClitics", true),
+            ("AcceptUnspecifiedGraphemes", true),
+            ("NoDefaultCompounding", true),
+        ]
+    );
+}
+
+#[test]
 fn presence_reports_parsed_ok_per_xample_field() {
     let (_, _, presence) = parse_with_issues(Some(
         "<ParserParameters><XAmple><MaxPrefixes>many</MaxPrefixes>\

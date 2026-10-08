@@ -50,8 +50,9 @@
 //! `pg_snapshot::Snapshot::to_json()` to `<out.json>`. `ImportReport` warnings (dangling refs,
 //! unsupported constructs, log-and-skip decisions) and `Snapshot::validate()` warnings (dangling
 //! GUID cross-references *within* the snapshot) are printed to stderr, clearly labeled and kept
-//! separate since they come from different stages of the pipeline; exit is non-zero only on a
-//! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-or-`.fwbackup`-file), never on either warning list.
+//! separate since they come from different stages of the pipeline. A fatal provenance issue
+//! refuses publication because the resulting snapshot omitted required source data; nonfatal
+//! warnings remain visible while import can complete.
 //!
 //! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
 //! `fst-health <grammar> [<out.json>]` runs the cheap, grammar-only
@@ -123,7 +124,6 @@ impl BatchParseCounter {
     }
 }
 
-mod assess;
 pub(crate) mod build_info;
 mod compile_failure;
 mod facts_cmd;
@@ -401,9 +401,6 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--json]\n\
-         usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
-         usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
-         usage: pangloss investigate <report.json> --case <caseId> [--report <path>]\n\
          usage: pangloss fst-health <grammar> [<out.json>]\n\
          usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
@@ -443,7 +440,7 @@ fn print_usage_and_fail() -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// `import <project.fwdata/.fwbackup> <out.json>`: runs `pg-fwdata` over a FieldWorks project file and writes the resulting snapshot to `<out.json>`, printing import and validate warnings under separate headings; only a hard `ImportError` fails the command, since this pipeline must tolerate stale/dangling real-world project data.
+/// `import <project.fwdata/.fwbackup> <out.json>`: runs `pg-fwdata` over a FieldWorks project file and writes the snapshot only when its import provenance has no fatal issue; tolerated warnings and snapshot-validation warnings remain visible under separate headings.
 fn run_import(args: &[String]) -> Result<(), String> {
     let [fwdata_path, out_path] = args else {
         return Err("usage: import <project.fwdata/.fwbackup> <out.json>".into());
@@ -451,6 +448,15 @@ fn run_import(args: &[String]) -> Result<(), String> {
 
     let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(fwdata_path))
         .map_err(|e| format!("import {fwdata_path}: {e}"))?;
+
+    if compile_failure::CompileFailure::import_has_fatal_issues(&report.provenance) {
+        let failure = compile_failure::CompileFailure::from_import_provenance(
+            fwdata_path,
+            &report.provenance,
+        );
+        return Err(serde_json::to_string(&failure)
+            .map_err(|error| format!("serialize import refusal: {error}"))?);
+    }
 
     eprintln!("import warnings ({}):", report.warnings.len());
     for w in &report.warnings {

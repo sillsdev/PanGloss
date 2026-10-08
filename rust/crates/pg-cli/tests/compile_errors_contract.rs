@@ -70,3 +70,42 @@ fn parse_refusal_is_a_json_stderr_line_and_health_still_writes_findings() {
                 && finding["level"] == "error"
         ));
 }
+
+#[test]
+fn import_refuses_fatal_provenance_without_publishing_snapshot() {
+    let scratch = tempfile::tempdir().unwrap();
+    let project_path = scratch.path().join("fatal-source.fwdata");
+    let output_path = scratch.path().join("snapshot.json");
+    std::fs::write(
+        &project_path,
+        r#"<?xml version="1.0"?><languageproject>
+<rt class="LangProject" guid="00000000-0000-0000-0000-000000000001"/>
+<rt class="LexDb"/>
+</languageproject>"#,
+    )
+    .unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_pangloss"))
+        .arg("import")
+        .arg(&project_path)
+        .arg(&output_path)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!output_path.exists(), "fatal imports must not publish JSON");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!stderr.contains("import complete"));
+    let failure: serde_json::Value = stderr
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| value["status"] == "compile_error")
+        .expect("fatal import JSON on stderr");
+    assert_eq!(failure["path"], project_path.to_string_lossy().as_ref());
+    assert!(failure["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|issue| { issue["code"] == "invalid-source.missing-guid" && issue["fatal"] == true }));
+}

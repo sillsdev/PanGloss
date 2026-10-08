@@ -106,8 +106,28 @@ fn record_parser_settings(
     if presence.active_parser {
         record_present_setting(ctx, "ActiveParser");
     }
-    if presence.accept_unspecified_graphemes {
-        record_present_setting(ctx, "AcceptUnspecifiedGraphemes");
+    for (field, parsed_ok) in &presence.hc_fields {
+        let name = format!("HC.{field}");
+        let key = InventoryKey::setting(InventoryKind::ParserSetting, name);
+        ctx.authored(key.clone());
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
+        if *parsed_ok {
+            ctx.represented(key);
+        } else {
+            ctx.record_rejected(
+                key,
+                ConversionIssue {
+                    code: super::codes::INVALID_PARSER_PARAMETER,
+                    class: IssueClass::MalformedSource,
+                    source: None,
+                    fatal: false,
+                    message: format!(
+                        "morphology.parserParameters: HC {field} is present but malformed"
+                    ),
+                },
+            );
+        }
     }
     for (field, parsed_ok) in &presence.xample_fields {
         let name = format!("XAmple.{field}");
@@ -1030,5 +1050,37 @@ fn walk_possibility_item(
     let child_guids = rec.node.objsur_list("SubPossibilities");
     for child_guid in child_guids {
         walk_possibility_item(ctx, &child_guid, label, rec, "SubPossibilities", visit);
+    }
+}
+
+#[cfg(test)]
+mod parser_setting_tests {
+    use super::*;
+
+    #[test]
+    fn malformed_hc_boolean_is_rejected_instead_of_represented() {
+        let graph = crate::xml::RawGraph::default();
+        let mut ctx = Ctx::new(&graph);
+        let (_, _, presence) = parser_params::parse_with_issues(Some(
+            "<ParserParameters><HC><NoDefaultCompounding>sometimes</NoDefaultCompounding></HC></ParserParameters>",
+        ))
+        .unwrap();
+        record_parser_settings(&mut ctx, &ParserParameters::default(), &presence);
+
+        let key = InventoryKey::setting(
+            InventoryKind::ParserSetting,
+            "HC.NoDefaultCompounding".to_string(),
+        );
+        let (inventory, issues) = ctx.recorder.finish();
+        assert!(inventory.authored.contains(&key));
+        assert!(inventory.considered.contains(&key));
+        assert!(inventory.selected.contains(&key));
+        assert!(!inventory.represented.contains(&key));
+        assert!(inventory.rejected.contains(&key));
+        assert_eq!(issues.len(), 1);
+        assert_eq!(
+            issues[0].code,
+            super::super::codes::INVALID_PARSER_PARAMETER
+        );
     }
 }

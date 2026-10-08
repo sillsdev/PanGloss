@@ -8,11 +8,11 @@ use pg_snapshot::{
 use crate::node::parse_full_document;
 use crate::{extract::codes, ImportError};
 
-/// Which optional `ParserParameters` source fields were physically present in `<Uni>`, and (for the `XAmple` caps) whether each one parsed successfully — used only for `graphToSnapshot` recording, never to decide `ParserParameters`'s own values.
+/// Which optional `ParserParameters` source fields were physically present in `<Uni>`, and whether each HC boolean or `XAmple` cap parsed successfully — used only for `graphToSnapshot` recording, never to decide `ParserParameters`'s own values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParserSettingsPresence {
     pub active_parser: bool,
-    pub accept_unspecified_graphemes: bool,
+    pub hc_fields: Vec<(&'static str, bool)>,
     pub xample_fields: Vec<(&'static str, bool)>,
 }
 
@@ -114,21 +114,60 @@ pub fn parse_with_issues(
         ),
     };
 
-    let not_on_clitics = match hc {
-        None => true,
-        Some(hc) => hc.child_bool_text("NotOnClitics").unwrap_or(true),
-    };
-    let accept_unspecified_graphemes_present =
-        hc.is_some_and(|hc| hc.child("AcceptUnspecifiedGraphemes").is_some());
-    let accept_unspecified_graphemes = hc
-        .map(|hc| {
-            hc.child_bool_text("AcceptUnspecifiedGraphemes")
-                .unwrap_or(false)
-        })
-        .unwrap_or(false);
-    let no_default_compounding = hc
-        .map(|hc| hc.child_bool_text("NoDefaultCompounding").unwrap_or(false))
-        .unwrap_or(false);
+    fn hc_bool(
+        hc: Option<&crate::node::Node>,
+        tag: &'static str,
+        default: bool,
+        issues: &mut Vec<Warning>,
+        presence: &mut Vec<(&'static str, bool)>,
+    ) -> bool {
+        let Some(child) = hc.and_then(|hc| hc.child(tag)) else {
+            return default;
+        };
+        match child.bool_text() {
+            Some(value) => {
+                presence.push((tag, true));
+                value
+            }
+            None => {
+                issues.push(
+                    Warning::new(
+                        codes::INVALID_PARSER_PARAMETER,
+                        format!("Parser parameter '{tag}' has an invalid boolean value."),
+                    )
+                    .with_subject(
+                        FwObjectRef::new(FwClass::Project)
+                            .project_settings()
+                            .field(format!("HC.{tag}")),
+                    ),
+                );
+                presence.push((tag, false));
+                default
+            }
+        }
+    }
+    let mut hc_fields_present = Vec::new();
+    let not_on_clitics = hc_bool(
+        hc,
+        "NotOnClitics",
+        true,
+        &mut issues,
+        &mut hc_fields_present,
+    );
+    let accept_unspecified_graphemes = hc_bool(
+        hc,
+        "AcceptUnspecifiedGraphemes",
+        false,
+        &mut issues,
+        &mut hc_fields_present,
+    );
+    let no_default_compounding = hc_bool(
+        hc,
+        "NoDefaultCompounding",
+        false,
+        &mut issues,
+        &mut hc_fields_present,
+    );
     let strata = hc.and_then(|hc| hc.child("Strata")).map(|s| s.text.clone());
 
     let compound_rule_max_applications = params_elem
@@ -161,7 +200,7 @@ pub fn parse_with_issues(
         issues,
         ParserSettingsPresence {
             active_parser: active_parser_present,
-            accept_unspecified_graphemes: accept_unspecified_graphemes_present,
+            hc_fields: hc_fields_present,
             xample_fields: xample_fields_present,
         },
     ))

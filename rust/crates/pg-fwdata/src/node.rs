@@ -112,9 +112,9 @@ impl Node {
         Some(concat_runs(self.child(tag)?.child("Str")?))
     }
 
-    /// Tolerant boolean parse of a child element's own text content, as opposed to `val_bool`'s `val="..."` attribute.
-    pub fn child_bool_text(&self, tag: &str) -> Option<bool> {
-        let raw = self.child(tag)?.text.trim();
+    /// Parses this node's text as a FieldWorks boolean value (`true`/`false`, case-insensitive, or `1`/`0`).
+    pub fn bool_text(&self) -> Option<bool> {
+        let raw = self.text.trim();
         match raw {
             "1" => Some(true),
             "0" => Some(false),

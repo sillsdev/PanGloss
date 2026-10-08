@@ -1,6 +1,6 @@
 # CLI compile error JSON
 
-When `pangloss parse`, `batch`, or another command loads a grammar that cannot compile, it exits nonzero and emits one JSON object on a stderr line. That line has no `pangloss <command>:` prefix. Input I/O and command usage errors remain text. Consumers should select the JSON line whose `status` is `compile_error`, since stderr can also carry progress messages.
+When `pangloss parse`, `batch`, or another command loads a grammar that cannot compile, it exits nonzero and emits one JSON object on a stderr line. `pangloss import` uses the same shape when import provenance contains fatal source issues; it refuses to write the snapshot. That line has no `pangloss <command>:` prefix. Input I/O and command usage errors remain text. Consumers should select the JSON line whose `status` is `compile_error`, since stderr can also carry progress messages.
 
 ```json
 {"schema_version":1,"status":"compile_error","path":"sample.fwdata","message":"FieldWorks project cannot be converted to HC without semantic loss","issues":[{"code":"grammar.environment.unresolved","kind":"invalidSource","object_guid":"00000000-0000-0000-0000-000000000042","object_kind":"MoForm","field":"PhoneEnv","text":"environment does not resolve","advice":"In Lexicon > Lexicon Edit, inspect Allomorphs > Environments; in Grammar > Environments, inspect String Representation. Restore the intended environment or reselect it only if the reference is stale.","fatal":true}]}

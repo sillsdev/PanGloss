@@ -3,7 +3,10 @@
 use std::fmt;
 
 use pg_grammar::grammar_health::GrammarHealthDiagnostic;
-use pg_snapshot::{DiagnosticLevel, FwClass, ImportWarningCode, IssueClass, Snapshot, Warning};
+use pg_snapshot::{
+    ConversionProvenance, DiagnosticLevel, FwClass, ImportWarningCode, IssueClass, Snapshot,
+    SourceInventoryStatus, Warning,
+};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -154,6 +157,64 @@ impl CompileFailure {
             issues,
             diagnostics,
         }
+    }
+
+    pub(crate) fn from_import_provenance(path: &str, provenance: &ConversionProvenance) -> Self {
+        let mut issues = Vec::new();
+        let mut diagnostics = Vec::new();
+        for issue in provenance.import_issues.iter().filter(|issue| issue.fatal) {
+            let warning = Warning::from_conversion_issue(issue);
+            let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
+            let subject = warning.subjects.first();
+            diagnostics.push(diagnostic.clone());
+            issues.push(CompileIssue {
+                code: issue.code.wire().into(),
+                kind: CompileIssueKind::Conversion(issue.class),
+                object_guid: issue.source.as_ref().map(|source| source.id.clone()),
+                object_kind: issue.source.as_ref().map(|source| source.kind),
+                field: subject.and_then(|subject| subject.field.clone()),
+                text: issue.message.clone(),
+                advice: diagnostic.guidance.unwrap_or_else(|| {
+                    "Repair the fatal source issue before importing this FieldWorks project.".into()
+                }),
+                fatal: true,
+            });
+        }
+        let message = match issues.len() {
+            0 => "FieldWorks import provenance reports fatal issues but names none".to_string(),
+            1 => "FieldWorks import contains a fatal source issue; snapshot was not written"
+                .to_string(),
+            count => format!(
+                "FieldWorks import contains {count} fatal source issues; snapshot was not written"
+            ),
+        };
+        if issues.is_empty() {
+            issues.push(CompileIssue {
+                code: ImportWarningCode::CompileFailed.wire().into(),
+                kind: CompileIssueKind::Load("import_provenance"),
+                object_guid: None,
+                object_kind: None,
+                field: None,
+                text: message.clone(),
+                advice:
+                    "Inspect the import provenance; its fatal status has no corresponding issue."
+                        .into(),
+                fatal: true,
+            });
+        }
+        Self {
+            schema_version: 1,
+            status: "compile_error",
+            path: path.into(),
+            message,
+            issues,
+            diagnostics,
+        }
+    }
+
+    pub(crate) fn import_has_fatal_issues(provenance: &ConversionProvenance) -> bool {
+        provenance.source_inventory_status == SourceInventoryStatus::ImportedWithFatalIssues
+            || provenance.import_issues.iter().any(|issue| issue.fatal)
     }
 }
 

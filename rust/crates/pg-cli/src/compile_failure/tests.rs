@@ -74,3 +74,30 @@ fn early_compiler_failures_form_valid_error_findings() {
         );
     }
 }
+
+#[test]
+fn fatal_import_provenance_serializes_as_compile_error() {
+    let provenance = pg_snapshot::ConversionProvenance {
+        schema_version: pg_snapshot::CONVERSION_PROVENANCE_SCHEMA_VERSION,
+        source_inventory_status: SourceInventoryStatus::ImportedWithFatalIssues,
+        import_issues: vec![pg_snapshot::ConversionIssue {
+            code: ImportWarningCode::InvalidSourceMissingGuid,
+            class: IssueClass::InvalidSource,
+            source: Some(pg_snapshot::SourceRef {
+                kind: FwClass::MoStemMsa,
+                id: "rt#2".into(),
+            }),
+            fatal: true,
+            message: "LexDb record at rt#2 has no guid; dropped".into(),
+        }],
+        ..Default::default()
+    };
+    assert!(CompileFailure::import_has_fatal_issues(&provenance));
+    let failure = CompileFailure::from_import_provenance("sample.fwdata", &provenance);
+    let wire = serde_json::to_value(failure).unwrap();
+    assert_eq!(wire["status"], "compile_error");
+    assert_eq!(wire["path"], "sample.fwdata");
+    assert_eq!(wire["issues"][0]["code"], "invalid-source.missing-guid");
+    assert_eq!(wire["issues"][0]["object_kind"], "MoStemMsa");
+    assert_eq!(wire["issues"][0]["fatal"], true);
+}
