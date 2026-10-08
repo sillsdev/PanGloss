@@ -1,7 +1,7 @@
 use super::*;
 
 // The `&Grammar` front ends, used only by the golden-render test below; the live command drives the `_with_semantics` forms off its one shared owner.
-use crate::readiness_verdict::certify;
+use crate::readiness_verdict::assess_readiness;
 use pg_foma_backend::plan_diagram::build_plan_document;
 // Test-only: hoisting these to the module head made the production build warn on every compile.
 use crate::readiness_verdict::{CoverageAssessment, LatencyMeasurement};
@@ -68,6 +68,15 @@ fn backend_assessment_renderer_includes_shapes_and_cost_evidence() {
     assert!(rendered.contains("provenance=ProvenBound"), "{rendered}");
 }
 
+#[test]
+fn confirm_only_capability_states_the_route_contract_without_claiming_oracle_execution() {
+    let rendered = render_capability(&crate::readiness_verdict::CapabilitySummary::ConfirmOnly);
+    assert!(rendered.contains(
+        "this route may propose extra analyses and relies on HermitCrab confirmation to remove them"
+    ));
+    assert!(!rendered.contains("oracle"));
+}
+
 // A golden report over fixed, hand-picked inputs (never a live timer), since a live end-to-end run's real wall-clock timing would make a byte-for-byte golden inherently flaky.
 
 fn golden_report_markdown() -> String {
@@ -85,7 +94,7 @@ fn golden_report_markdown() -> String {
         latency_p90: LatencyMeasurement::Millis(2.0),
         latency_p99: LatencyMeasurement::Millis(10.0),
     };
-    let verdict = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let verdict = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
 
     // Real, deterministic composition, never a live timer: the same functions the live command calls, over the same fixed fixture.
     let plan_doc = build_plan_document(&g);
@@ -119,12 +128,7 @@ fn golden_report_markdown() -> String {
         "`synthetic-golden-corpus.txt` (sha256=`0000000000000000000000000000000000000000000000000000000000000000`)",
         "1 machine (heads/main)",
         "0000000000000000000000000000000000000000",
-        &[
-            "correctness: NOT CERTIFIED HERE -- coverage (when assessed) is a token-level \
-                 analysis RATE, never accuracy; correctness evidence comes from the synthetic \
-                 conformance suite, not from this report."
-                .to_string(),
-        ],
+        &[CORRECTNESS_NOT_TESTED.to_string()],
     )
 }
 

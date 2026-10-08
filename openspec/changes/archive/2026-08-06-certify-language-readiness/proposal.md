@@ -1,3 +1,7 @@
+> Status update (2026-10-08): the readiness tier is `ThresholdsMet` (“Thresholds met”). The report
+> summarizes measured checks and does not certify correctness; earlier certification wording below
+> is historical.
+
 ## Why
 
 There is no answer today to the question a project lead actually asks: *will this language work well

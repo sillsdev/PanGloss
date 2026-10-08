@@ -27,11 +27,8 @@ pub struct CandidateReport {
     pub score: Option<Score>,
     /// Orthogonal to `certification`: true when this candidate's completed FST is not eligible for
     /// production publication (see `pg_foma_backend::backend_runtime::RuntimeEvaluation::production_health`),
-    /// independent of whether it also reproduced the oracle. `#[serde(default)]` so a report
-    /// written before this field existed still parses -- as `false`, i.e. not known to be blocked,
-    /// which is the only backward-compatible reading for evidence that predates this question ever
-    /// being asked.
-    #[serde(default)]
+    /// independent of whether it also reproduced the oracle. Required because absence is not
+    /// evidence that publication is unblocked.
     pub production_blocks_publication: bool,
 }
 
@@ -55,17 +52,33 @@ impl PruningWaterfall {
     /// space sizes, not buckets of this funnel, they live in `SpaceCounts`, and when they were
     /// mirrored here nothing populated them — every real report rendered them as a false `0` that
     /// `reconciles()` could not catch, since the balance equation never referenced them.
+    pub fn reconciliation_error(&self) -> Option<&'static str> {
+        let buckets = [
+            self.inapplicable,
+            self.declared_not_searched,
+            self.duplicates,
+            self.materialization_rejects,
+            self.capability_rejected,
+            self.evaluated,
+            self.budget_pruned,
+        ];
+        let Some(total) = buckets
+            .into_iter()
+            .try_fold(0u64, |sum, count| sum.checked_add(count))
+        else {
+            return Some("pruning waterfall bucket sum overflows u64");
+        };
+        if total != self.generated {
+            return Some("pruning waterfall does not reconcile");
+        }
+        if self.confirmed > self.evaluated {
+            return Some("pruning confirmed count exceeds evaluated count");
+        }
+        None
+    }
+
     pub fn reconciles(&self) -> bool {
-        self.generated
-            == self
-                .inapplicable
-                .saturating_add(self.declared_not_searched)
-                .saturating_add(self.duplicates)
-                .saturating_add(self.materialization_rejects)
-                .saturating_add(self.capability_rejected)
-                .saturating_add(self.evaluated)
-                .saturating_add(self.budget_pruned)
-            && self.confirmed <= self.evaluated
+        self.reconciliation_error().is_none()
     }
 }
 
@@ -156,8 +169,8 @@ impl BackendOptimizationReport {
         if self.schema_version != BACKEND_REPORT_SCHEMA_VERSION {
             return Err("unsupported backend report schema version");
         }
-        if !self.pruning.reconciles() {
-            return Err("pruning waterfall does not reconcile");
+        if let Some(error) = self.pruning.reconciliation_error() {
+            return Err(error);
         }
         let has_scores = self
             .candidates

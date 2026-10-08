@@ -1,8 +1,8 @@
 {
-  "report_schema_version": 1,
+  "report_schema_version": 2,
   "policy_id": "readiness-policy-v1",
-  "device_class": "dev-workstation-v1 (Windows 11 x64, single-threaded `pangloss batch --threads 1`, release build -- the exact configuration docs/benchmark-matrix.md measured 2026-07-26 at commit 85f25dc, and the machine rust/tools/typology-speedup.sh runs on locally. NOT a mobile/embedded target device -- no such device has been benchmarked yet, and a certificate under this policy version must not be read as evidence about any other device class.)",
-  "tier": "certified",
+  "device_class": "dev-workstation-v1 (Windows 11 x64, single-threaded `pangloss batch --threads 1`, release build -- the exact configuration docs/benchmark-matrix.md measured 2026-07-26 at commit 85f25dc, and the machine rust/tools/typology-speedup.sh runs on locally. NOT a mobile/embedded target device -- no such device has been benchmarked yet, and a readiness report under this policy version must not be read as evidence about any other device class.)",
+  "tier": "thresholds_met",
   "capability": {
     "decision": "admit"
   },
@@ -100,6 +100,6 @@
     }
   ],
   "notes": [
-    "CERTIFIED: every declared threshold passed under this policy version, on the checks this report performed. See `checks` for exactly what was and was not assessed."
+    "Thresholds met: every declared threshold passed under this policy version, on the checks this report performed. See `checks` for exactly what was and was not assessed."
   ]
 }

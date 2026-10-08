@@ -25,6 +25,18 @@ fn policy_v1_round_trips_through_canonical_json() {
 }
 
 #[test]
+fn from_json_rejects_an_unsupported_schema_version() {
+    let json = policy_v1()
+        .to_canonical_json()
+        .replace("\"schema_version\": 1", "\"schema_version\": 2");
+    let error = ThresholdPolicy::from_json(&json).unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("unsupported threshold policy schema version"));
+    assert!(error.to_string().contains("2"));
+}
+
+#[test]
 fn to_canonical_json_is_deterministic() {
     let policy = policy_v1();
     assert_eq!(policy.to_canonical_json(), policy.to_canonical_json());

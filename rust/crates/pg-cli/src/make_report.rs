@@ -7,8 +7,8 @@ use std::path::Path;
 
 use crate::readiness_policy::{policy_v1, ThresholdPolicy};
 use crate::readiness_verdict::{
-    certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
-    Measurements, ReadinessReport, Tier, TrustStatus,
+    assess_readiness_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult,
+    CheckValue, Measurements, ReadinessReport, TrustStatus,
 };
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
@@ -32,6 +32,9 @@ const REFUSED_PACK_REMEDIATION: &str =
 #[cfg(not(feature = "developer-tools"))]
 const REFUSED_PACK_REMEDIATION: &str =
     "the grammar is outside the production capability policy, so no pack was built; consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow";
+
+const CORRECTNESS_NOT_TESTED: &str =
+    "correctness: NOT ESTABLISHED HERE -- coverage (when assessed) is a token-level analysis RATE, never accuracy; a token may receive an incorrect analysis and still count. Correctness evidence comes from the synthetic conformance suite, not from this report.";
 
 // Small, self-contained helpers: hashing, git introspection, timing.
 
@@ -326,7 +329,7 @@ fn render_capability(capability: &CapabilitySummary) -> String {
         }
         CapabilitySummary::ConfirmOnly => {
             "**ConfirmOnly** -- a first-class, recall-preserving non-failure verdict (ADR 0001): \
-             the compiled proposer is a strict superset here, confirmed by the oracle."
+             this route may propose extra analyses and relies on HermitCrab confirmation to remove them."
                 .to_string()
         }
         CapabilitySummary::Refuse { refusals } => {
@@ -371,7 +374,7 @@ fn render_trust(trust: &TrustStatus) -> String {
         TrustStatus::Overridden(record) => format!(
             "**Overridden (trust=unproven)** -- ADR-0005 capability override, authorized by \
              `{}` ({}), recorded at `{}`, {} fail-closed configuration(s) force-compiled through. \
-             An overridden artifact can never certify, under any configuration.",
+             An overridden artifact always has a Not supported readiness tier.",
             record.authorized_by,
             record.reason,
             record.recorded_at,
@@ -456,28 +459,22 @@ fn render_markdown_with_assessments(
     .unwrap();
     writeln!(out).unwrap();
 
-    let tier_word = match verdict.tier {
-        Tier::Certified => "CERTIFIED",
-        Tier::NotYet => "NOT YET",
-        Tier::NotSupported => "NOT SUPPORTED",
-    };
-    writeln!(out, "## Verdict: {tier_word}").unwrap();
+    let tier_label = verdict.tier.label();
+    writeln!(out, "## Readiness: {tier_label}").unwrap();
     writeln!(out).unwrap();
-    if verdict.is_certified() {
+    if verdict.thresholds_met() {
         writeln!(
             out,
-            "This grammar is **CERTIFIED** under policy `{}`: every declared threshold passed on \
-             the checks this report performed. See \"What this report did NOT test\" below for \
-             exactly what that excludes.",
+            "Every declared threshold passed under policy `{}` on the checks this report \
+             performed. This is a readiness summary and does not establish correctness.",
             verdict.policy_id
         )
         .unwrap();
     } else {
         writeln!(
             out,
-            "This grammar is **NOT CERTIFIED** ({tier_word}). Every failing/not-assessed/blocked \
-             check is named below, individually, with its measured value and threshold -- a bare \
-             \"not passing\" is never useful to a language team deciding whether to ask for support."
+            "Readiness is **{tier_label}**. Every failing, not-assessed, or blocked check is \
+             named below with its measured value and threshold."
         )
         .unwrap();
     }
@@ -671,12 +668,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         // Supplied packs remain reportable even when their source grammar is refused.
         || pack_path.is_some();
 
-    let mut not_tested: Vec<String> = vec![
-        "correctness: NOT CERTIFIED HERE -- coverage (when assessed) is a token-level analysis \
-         RATE, never accuracy; a token may receive an incorrect analysis and still count. \
-         Correctness evidence comes from the synthetic conformance suite, not from this report."
-            .to_string(),
-    ];
+    let mut not_tested: Vec<String> = vec![CORRECTNESS_NOT_TESTED.to_string()];
 
     let (trust, measurements, build_time_line, pack_pin): (
         TrustStatus,
@@ -704,8 +696,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         build_time_line = format!(
             "not measured -- the grammar was refused and no compiled artifact was \
              ever built ({REFUSED_REPORT_REMEDIATION}; the resulting \
-             report will still never certify -- trust=unproven never certifies, under any \
-             configuration)."
+             report will still be Not supported -- trust=unproven blocks threshold readiness)."
         );
         pack_pin = format!("none -- the grammar was refused and {REFUSED_PACK_REMEDIATION}.");
         latency_methodology_line = "not measured -- see \"build time\" above.".to_string();
@@ -777,7 +768,9 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         measurements = None;
     }
 
-    let verdict = certify_with_semantics(&semantics, &trust, measurements.as_ref(), &policy);
+    let verdict =
+        assess_readiness_with_semantics(&semantics, &trust, measurements.as_ref(), &policy)
+            .map_err(|error| error.to_string())?;
 
     // ---- compilation plan diagram (pure composition of section-visualize-compilation-plan) ----
     let plan_doc = build_plan_document_with_semantics(&semantics);
@@ -812,8 +805,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
 
     fs::write(out_path, &report_md).map_err(|e| format!("write {out_path}: {e}"))?;
     eprintln!(
-        "make-report complete: {out_path} -- tier={:?}, capability={:?}, trust={}",
-        verdict.tier,
+        "make-report complete: {out_path} -- readiness={}, capability={:?}, trust={}",
+        verdict.tier.label(),
         verdict.capability,
         if verdict.trust.is_unproven() {
             "unproven/overridden"

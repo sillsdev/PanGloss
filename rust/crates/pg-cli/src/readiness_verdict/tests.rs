@@ -83,8 +83,7 @@ fn passing_measurements(policy: &ThresholdPolicy) -> Measurements {
         coverage: CoverageAssessment::Attested {
             attestor: "synthetic-test-attestor".to_string(),
             attested_on: "2026-07-27".to_string(),
-            analysis_rate: (policy.coverage_min_analysis_rate.value + 1.0) / 2.0
-                + policy.coverage_min_analysis_rate.value / 2.0,
+            analysis_rate: 0.95,
         },
         latency_p50: LatencyMeasurement::Millis(policy.latency_p50_max_ms.value / 2.0),
         latency_p90: LatencyMeasurement::Millis(policy.latency_p90_max_ms.value / 2.0),
@@ -108,14 +107,14 @@ fn synthetic_override() -> OverrideRecord {
 // Basic tiering
 
 #[test]
-fn admit_grammar_with_passing_measurements_and_proven_trust_certifies() {
+fn admit_grammar_with_passing_measurements_meets_thresholds() {
     let g = load(ADMIT_XML);
     let policy = policy_v1();
     let measurements = passing_measurements(&policy);
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
 
-    assert_eq!(report.tier, Tier::Certified);
-    assert!(report.is_certified());
+    assert_eq!(report.tier, Tier::ThresholdsMet);
+    assert!(report.thresholds_met());
     assert_eq!(report.capability, CapabilitySummary::Admit);
     assert!(report.checks.iter().all(|c| c.outcome.is_pass()));
 }
@@ -127,7 +126,7 @@ fn a_failing_threshold_produces_not_yet_not_not_supported() {
     let mut measurements = passing_measurements(&policy);
     // Blow the pack-size budget way past the threshold.
     measurements.pack_size_bytes = policy.pack_size_max_bytes.value * 100;
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
 
     assert_eq!(report.tier, Tier::NotYet);
     let pack_check = report
@@ -143,37 +142,37 @@ fn a_failing_threshold_produces_not_yet_not_not_supported() {
 }
 
 #[test]
-fn confirm_only_grammar_can_still_certify_when_thresholds_pass() {
-    // ConfirmOnly is first-class, not a failure: ConfirmOnly + Proven + all thresholds passing must reach Certified, exactly like Admit.
+fn confirm_only_grammar_can_meet_thresholds() {
     let g = load(CONFIRM_ONLY_XML);
     let policy = policy_v1();
     let measurements = passing_measurements(&policy);
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
 
     assert_eq!(report.capability, CapabilitySummary::ConfirmOnly);
-    assert_eq!(report.tier, Tier::Certified);
+    assert_eq!(report.tier, Tier::ThresholdsMet);
 }
 
-// An override-trusted artifact never certifies, proven non-vacuous by sabotage.
+// Override trust blocks every check, even when the measured values meet policy.
 
-/// Sabotage proof: asserts the report certifies cleanly under `Proven` first, then flips only the trust field to `Overridden` with every other input held identical, showing the verdict flips to `NotSupported` with every check `Blocked`.
+/// Pins that changing only trust blocks every check and changes the tier to `NotSupported`.
 #[test]
-fn override_forces_not_supported_and_blocks_every_check_even_when_everything_else_would_pass() {
+fn override_forces_not_supported_and_blocks_every_check_even_when_everything_else_meets_thresholds()
+{
     let g = load(ADMIT_XML);
     let policy = policy_v1();
     let measurements = passing_measurements(&policy);
 
-    // Premise: with Proven trust this combination certifies cleanly, or the sabotage below would be vacuous.
-    let proven_report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    // The control case must meet every threshold so the override assertion is non-vacuous.
+    let proven_report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
     assert_eq!(
         proven_report.tier,
-        Tier::Certified,
-        "premise failed -- this sabotage test requires a genuinely certifying baseline"
+        Tier::ThresholdsMet,
+        "premise failed -- this test requires a baseline that meets every threshold"
     );
     assert!(proven_report.checks.iter().all(|c| c.outcome.is_pass()));
 
     // Sabotage: flip ONLY the trust status.
-    let overridden_report = certify(
+    let overridden_report = assess_readiness(
         &g,
         &TrustStatus::Overridden(synthetic_override()),
         Some(&measurements),
@@ -183,11 +182,11 @@ fn override_forces_not_supported_and_blocks_every_check_even_when_everything_els
     assert_eq!(
         overridden_report.tier,
         Tier::NotSupported,
-        "an override-trusted artifact must never certify, even when every threshold passes"
+        "an override-trusted artifact must remain not supported even when every threshold passes"
     );
     assert!(
-        !overridden_report.is_certified(),
-        "is_certified() must be false for an overridden artifact"
+        !overridden_report.thresholds_met(),
+        "thresholds_met() must be false for an overridden artifact"
     );
     assert!(
         overridden_report
@@ -218,7 +217,7 @@ fn override_blocks_even_a_capability_admit_grammar_under_any_configuration() {
         let g = load(xml);
         let policy = policy_v1();
         let measurements = passing_measurements(&policy);
-        let report = certify(
+        let report = assess_readiness(
             &g,
             &TrustStatus::Overridden(synthetic_override()),
             Some(&measurements),
@@ -231,12 +230,12 @@ fn override_blocks_even_a_capability_admit_grammar_under_any_configuration() {
 // Not-assessed coverage never renders as passed.
 
 #[test]
-fn not_assessed_coverage_blocks_certified_even_when_every_other_check_passes() {
+fn not_assessed_coverage_blocks_thresholds_met_even_when_every_other_check_passes() {
     let g = load(ADMIT_XML);
     let policy = policy_v1();
     let mut measurements = passing_measurements(&policy);
     measurements.coverage = CoverageAssessment::NotAssessed;
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
 
     let coverage_check = report
         .checks
@@ -255,15 +254,60 @@ fn not_assessed_coverage_blocks_certified_even_when_every_other_check_passes() {
     assert_eq!(
         report.tier,
         Tier::NotYet,
-        "an unassessed required check must deny Certified even when every other check passes"
+        "an unassessed required check must deny ThresholdsMet even when every other check passes"
     );
+}
+
+#[test]
+fn coverage_rejects_rates_outside_the_unit_interval_and_nan() {
+    let policy = policy_v1();
+    for analysis_rate in [-0.01, 1.01, f64::NAN] {
+        let assessment = CoverageAssessment::Attested {
+            attestor: "synthetic-test-attestor".to_string(),
+            attested_on: "2026-07-27".to_string(),
+            analysis_rate,
+        };
+        assert_eq!(
+            check_coverage(&assessment, &policy.coverage_min_analysis_rate),
+            Err(ReadinessMeasurementError::InvalidAnalysisRate)
+        );
+    }
+}
+
+#[test]
+fn readiness_measurement_boundary_rejects_rate_above_one() {
+    let policy = policy_v1();
+    let assessment = CoverageAssessment::Attested {
+        attestor: "synthetic-test-attestor".to_string(),
+        attested_on: "2026-07-27".to_string(),
+        analysis_rate: 1.4,
+    };
+
+    assert_eq!(
+        check_coverage(&assessment, &policy.coverage_min_analysis_rate),
+        Err(ReadinessMeasurementError::InvalidAnalysisRate)
+    );
+}
+
+#[test]
+fn coverage_accepts_both_unit_interval_endpoints() {
+    let policy = policy_v1();
+    for (analysis_rate, passes) in [(0.0, false), (1.0, true)] {
+        let assessment = CoverageAssessment::Attested {
+            attestor: "synthetic-test-attestor".to_string(),
+            attested_on: "2026-07-27".to_string(),
+            analysis_rate,
+        };
+        let outcome = check_coverage(&assessment, &policy.coverage_min_analysis_rate).unwrap();
+        assert_eq!(outcome.is_pass(), passes);
+    }
 }
 
 #[test]
 fn no_measurements_at_all_reports_every_check_not_assessed_never_passed() {
     let g = load(ADMIT_XML);
     let policy = policy_v1();
-    let report = certify(&g, &TrustStatus::Proven, None, &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, None, &policy);
 
     assert!(
         report
@@ -281,7 +325,7 @@ fn attested_coverage_carries_both_fixed_honesty_statements() {
     let g = load(ADMIT_XML);
     let policy = policy_v1();
     let measurements = passing_measurements(&policy);
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
 
     let coverage_check = report
         .checks
@@ -306,7 +350,7 @@ fn below_floor_latency_within_threshold_passes_conservatively() {
     let policy = policy_v1();
     let mut measurements = passing_measurements(&policy);
     measurements.latency_p50 = LatencyMeasurement::BelowFloor { floor_ms: 0.001 };
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
     let p50 = report
         .checks
         .iter()
@@ -324,7 +368,7 @@ fn below_floor_latency_coarser_than_threshold_is_not_assessed_not_guessed() {
     measurements.latency_p50 = LatencyMeasurement::BelowFloor {
         floor_ms: 1_000_000.0,
     };
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
     let p50 = report
         .checks
         .iter()
@@ -344,7 +388,7 @@ fn below_floor_latency_coarser_than_threshold_is_not_assessed_not_guessed() {
 fn report_records_policy_id_and_device_class() {
     let g = load(ADMIT_XML);
     let policy = policy_v1();
-    let report = certify(&g, &TrustStatus::Proven, None, &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, None, &policy);
     assert_eq!(report.policy_id, policy.policy_id);
     assert_eq!(report.device_class, policy.device_class);
 }
@@ -356,13 +400,13 @@ fn report_round_trips_through_canonical_json() {
     let g = load(ADMIT_XML);
     let policy = policy_v1();
     let measurements = passing_measurements(&policy);
-    let report = certify(&g, &TrustStatus::Proven, Some(&measurements), &policy);
+    let report = assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy);
     let json = report.to_canonical_json();
     let parsed = ReadinessReport::from_json(&json).expect("valid report JSON must parse");
     assert_eq!(parsed, report);
 }
 
-// Golden certificate for one small synthetic fixture, regenerated from the generator's own output, never hand-edited.
+// Golden readiness report for one small synthetic fixture, regenerated from the generator's own output, never hand-edited.
 
 /// A deterministic report over the `ADMIT_XML` fixture with fixed, hand-picked measurements, independent of any live grammar/pack state elsewhere in the repo.
 fn golden_report() -> ReadinessReport {
@@ -380,7 +424,7 @@ fn golden_report() -> ReadinessReport {
         latency_p90: LatencyMeasurement::Millis(2.0),
         latency_p99: LatencyMeasurement::Millis(10.0),
     };
-    certify(&g, &TrustStatus::Proven, Some(&measurements), &policy)
+    assess_readiness(&g, &TrustStatus::Proven, Some(&measurements), &policy)
 }
 
 #[track_caller]
@@ -451,18 +495,17 @@ fn readiness_verdict_golden_json() {
 }
 
 #[test]
-fn golden_report_is_certified() {
-    // Documents the golden fixture's tier directly, so a reader doesn't have to decode JSON to know it.
-    assert_eq!(golden_report().tier, Tier::Certified);
+fn golden_report_meets_thresholds() {
+    assert_eq!(golden_report().tier, Tier::ThresholdsMet);
 }
 
 const GOLDEN_JSON: &str = include_str!("../readiness_verdict_golden.json");
 
 /// Pins that `not-supported` cites a real refusal on all three reference grammars; `#[ignore]`d and self-skipping since it needs gitignored `samples/data/`.
-mod certification_gate {
+mod readiness_gate {
     use std::path::{Path, PathBuf};
 
-    use super::{certify, CapabilitySummary, CheckOutcome, Tier, TrustStatus};
+    use super::{assess_readiness, CapabilitySummary, CheckOutcome, Tier, TrustStatus};
     use crate::readiness_policy::policy_v1;
     use pg_grammar::model::Grammar;
 
@@ -489,7 +532,7 @@ mod certification_gate {
         let policy = policy_v1();
 
         // No compiled artifact/measurements at all — this grammar is refused before anything would compile.
-        let report = certify(&g, &TrustStatus::Proven, None, &policy);
+        let report = assess_readiness(&g, &TrustStatus::Proven, None, &policy);
 
         assert_eq!(
             report.tier,
@@ -539,8 +582,8 @@ mod certification_gate {
             report.checks
         );
         assert!(
-            !report.is_certified(),
-            "{xml_name}: a not-supported grammar must never certify"
+            !report.thresholds_met(),
+            "{xml_name}: a not-supported grammar must not report thresholds met"
         );
 
         // The report's notes must explain the not-supported tier in terms of the real capability evaluation — a bare "not passing" is useless.

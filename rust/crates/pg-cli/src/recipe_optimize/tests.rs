@@ -1,7 +1,9 @@
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{parse_args, read_progress_rows, RecipeOptimizeError};
+use super::{
+    parse_args, read_progress_rows, CandidateProgressRow, ProgressWriter, RecipeOptimizeError,
+};
 
 /// Drives `parse_args` directly rather than scraping its source for matching literals.
 mod flag_spec_drives_the_parser {
@@ -90,6 +92,7 @@ fn progress_reader_keeps_complete_rows_and_discards_malformed_or_truncated_rows(
             "confirmation_steps": 1,
             "raw_paths": 1
         },
+        "production_blocks_publication": false,
         "realized_strategy": "plan-composed"
     });
     fs::write(
@@ -102,6 +105,48 @@ fn progress_reader_keeps_complete_rows_and_discards_malformed_or_truncated_rows(
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].report.id, "candidate-1");
+    assert_eq!(rows[0].realized_strategy.as_str(), "plan-composed");
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn progress_reader_keeps_a_row_written_by_the_real_writer() {
+    let tag = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("pangloss-recipe-progress-writer-{tag}.jsonl"));
+    let row = serde_json::from_value::<CandidateProgressRow>(serde_json::json!({
+        "id": "writer-candidate",
+        "backend_id": "backend-1",
+        "certification": {
+            "status": "full-hc-confirmed",
+            "words": 1,
+            "corpus_hash": "hash"
+        },
+        "score": {
+            "states": 1,
+            "arcs": 1,
+            "build": 1,
+            "apply": 1,
+            "proposals": 1,
+            "confirmation": 1,
+            "confirmation_steps": 1,
+            "raw_paths": 1
+        },
+        "production_blocks_publication": false,
+        "realized_strategy": "plan-composed"
+    }))
+    .expect("realistic writer row must deserialize");
+    let mut writer = ProgressWriter::create(&path).unwrap();
+    writer.append(&row).unwrap();
+    drop(writer);
+
+    let rows = read_progress_rows(&path);
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].report.id, "writer-candidate");
+    assert!(!rows[0].report.production_blocks_publication);
     assert_eq!(rows[0].realized_strategy.as_str(), "plan-composed");
     let _ = fs::remove_file(path);
 }

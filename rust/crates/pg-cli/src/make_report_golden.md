@@ -1,12 +1,12 @@
 # PanGloss readiness report: MakeReportAdmitFixture
 
-Policy `readiness-policy-v1` (report schema v1), device class: dev-workstation-v1 (Windows 11 x64, single-threaded `pangloss batch --threads 1`, release build -- the exact configuration docs/benchmark-matrix.md measured 2026-07-26 at commit 85f25dc, and the machine rust/tools/typology-speedup.sh runs on locally. NOT a mobile/embedded target device -- no such device has been benchmarked yet, and a certificate under this policy version must not be read as evidence about any other device class.)
+Policy `readiness-policy-v1` (report schema v2), device class: dev-workstation-v1 (Windows 11 x64, single-threaded `pangloss batch --threads 1`, release build -- the exact configuration docs/benchmark-matrix.md measured 2026-07-26 at commit 85f25dc, and the machine rust/tools/typology-speedup.sh runs on locally. NOT a mobile/embedded target device -- no such device has been benchmarked yet, and a readiness report under this policy version must not be read as evidence about any other device class.)
 
-## Verdict: CERTIFIED
+## Readiness: Thresholds met
 
-This grammar is **CERTIFIED** under policy `readiness-policy-v1`: every declared threshold passed on the checks this report performed. See "What this report did NOT test" below for exactly what that excludes.
+Every declared threshold passed under policy `readiness-policy-v1` on the checks this report performed. This is a readiness summary and does not establish correctness.
 
-> CERTIFIED: every declared threshold passed under this policy version, on the checks this report performed. See `checks` for exactly what was and was not assessed.
+> Thresholds met: every declared threshold passed under this policy version, on the checks this report performed. See `checks` for exactly what was and was not assessed.
 
 ## Capability
 
@@ -65,7 +65,7 @@ classDef pgRefuse fill:#ffebe9,stroke:#cf222e,color:#82071e;
 
 ## What this report did NOT test
 
-- correctness: NOT CERTIFIED HERE -- coverage (when assessed) is a token-level analysis RATE, never accuracy; correctness evidence comes from the synthetic conformance suite, not from this report.
+- correctness: NOT ESTABLISHED HERE -- coverage (when assessed) is a token-level analysis RATE, never accuracy; a token may receive an incorrect analysis and still count. Correctness evidence comes from the synthetic conformance suite, not from this report.
 
 ## Pinned revisions (to re-derive this report)
 

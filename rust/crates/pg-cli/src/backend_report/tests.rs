@@ -123,9 +123,9 @@ fn a_clean_production_health_candidate_remains_selectable() {
     assert_eq!(r.validate(), Ok(()));
 }
 
-/// The new field round-trips through JSON, and a pre-existing report without it defaults to `false`.
+/// The publication decision round-trips and a report that omits it is rejected.
 #[test]
-fn production_blocks_publication_round_trips_and_legacy_reports_default_to_false() {
+fn production_blocks_publication_round_trips_and_is_required() {
     let mut r = sample();
     let mut blocked = confirmed_candidate("a", 1);
     blocked.production_blocks_publication = true;
@@ -140,16 +140,35 @@ fn production_blocks_publication_round_trips_and_legacy_reports_default_to_false
     assert!(restored.candidates[0].production_blocks_publication);
     assert_eq!(restored.validate(), Ok(()));
 
-    // Simulate a report written before this field existed: strip it out of the JSON entirely.
+    // Missing publication evidence cannot be interpreted as an unblocked candidate.
     let mut legacy: serde_json::Value = serde_json::from_str(&json).unwrap();
     legacy["candidates"][0]
         .as_object_mut()
         .unwrap()
         .remove("production_blocks_publication");
-    let legacy_report: BackendOptimizationReport = serde_json::from_value(legacy).unwrap();
-    assert!(
-        !legacy_report.candidates[0].production_blocks_publication,
-        "a field-less legacy candidate must default to not-known-blocked"
+    let error = serde_json::from_value::<BackendOptimizationReport>(legacy).unwrap_err();
+    assert!(error.to_string().contains("production_blocks_publication"));
+}
+
+#[test]
+fn pruning_bucket_sum_overflow_is_a_named_validation_error() {
+    let overflow = PruningWaterfall {
+        generated: u64::MAX,
+        inapplicable: u64::MAX,
+        duplicates: 1,
+        ..PruningWaterfall::default()
+    };
+    assert_eq!(
+        overflow.reconciliation_error(),
+        Some("pruning waterfall bucket sum overflows u64")
+    );
+    assert!(!overflow.reconciles());
+
+    let mut report = sample();
+    report.pruning = overflow;
+    assert_eq!(
+        report.validate(),
+        Err("pruning waterfall bucket sum overflows u64")
     );
 }
 

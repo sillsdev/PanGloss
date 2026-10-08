@@ -1,67 +1,11 @@
-//! The **tiered certification verdict** — `certify` evaluates a grammar's real capability
-//! decision, its trust status, and its measured facts against a
-//! `crate::readiness_policy::ThresholdPolicy`, and produces a `ReadinessReport` naming every
-//! failed check, never presenting an unassessed or override-blocked check as passed.
+//! A human-facing readiness summary over measured facts and a versioned threshold policy.
+//! It reports capability, trust, and every threshold check; meeting the thresholds is not a
+//! correctness verdict. Missing, blocked, and invalid measurements never pass silently.
 //!
-//! **Non-goal**: certifying correctness. This module composes evidence produced elsewhere (the
-//! capability gate, the conformance suite via an attested coverage rate, measured latency/size);
-//! it does not independently verify any of it.
-//!
-//! # The two tiers, and why a flat pass/fail cannot do this job
-//! - `Tier::NotYet`: the grammar compiles and runs (capability `Admit`/`ConfirmOnly`, trust
-//!   `Proven`), but at least one threshold is missed or a required check could not be assessed.
-//!   Actionable by the language team — more lexicon, better data, a smaller pack.
-//! - `Tier::NotSupported`: either (a) the grammar carries a permanent
-//!   `pg_foma::capability::CompileDecision::Refuse` — the **real** verdict this module always
-//!   computes itself (never a caller-supplied guess, never inferred from a failure to run), or (b) the
-//!   artifact carries a capability override (`trust=unproven`) — see the next section. Actionable
-//!   only by compiler work (or, for (b), a clean recompile without the override).
-//!
-//! A single pass/fail bit cannot distinguish these — "too slow today" and "contains a permanently
-//! carved-out construct" call for completely different responses.
-//!
-//! # Rule 1: an override-trusted artifact never certifies, under any configuration
-//! `certify` takes a caller-supplied `TrustStatus`. Whenever it is `TrustStatus::Overridden`,
-//! **every** `CheckOutcome` this call produces is `CheckOutcome::Blocked` — never `Pass`, even
-//! if the underlying measured value would numerically satisfy its threshold — and `Tier` is
-//! forced to `Tier::NotSupported`, regardless of what the real capability decision or any
-//! threshold comparison would otherwise say. This is deliberately **two independent enforcement
-//! points** (the per-check outcome AND the tier), not one: a caller that renders `checks` directly
-//! without consulting `tier` still cannot accidentally print a "Pass" for an unproven pack. See
-//! `override_forces_not_supported_and_blocks_every_check_even_when_everything_else_would_pass` for
-//! the sabotage proof this rule is non-vacuous (construct an artifact that would certify cleanly
-//! under `TrustStatus::Proven`, flip only the trust field to `Overridden`, show the verdict flips
-//! too).
-//!
-//! # Rule 2: held-out coverage is an attestation, never a measurement
-//! `CoverageAssessment::Attested` carries an `attestor` and a `attested_on` date and is rendered
-//! with `COVERAGE_UNVERIFIED_STATEMENT` stating plainly that it is unverified — nothing in this
-//! module checks whether the named attestor actually held the corpus out of authoring (PanGloss
-//! does not train, and nothing in a grammar artifact records what its author read). Absent a
-//! corpus, `CoverageAssessment::NotAssessed` renders as `CheckOutcome::NotAssessed`, which
-//! `compute_tier` treats as blocking `Tier::Certified` exactly like a real `Fail` — an
-//! unassessed check must never render as passed (rule 4 below; this is the same check).
-//!
-//! # Rule 3: coverage is a token-level analysis rate, never accuracy
-//! `COVERAGE_RATE_STATEMENT` is the fixed disclaimer every coverage `CheckResult` carries: the
-//! rate is the fraction of tokens receiving **at least one** analysis; a token may receive a
-//! *wrong* analysis and still count. Correctness is the conformance suite's job, not this module's.
-//!
-//! # Rule 4: an unassessed check never renders as passed
-//! `CheckOutcome` is a closed, four-variant enum (`Pass`/`Fail`/`NotAssessed`/`Blocked`) with no
-//! variant that could be mistaken for `Pass` by a renderer matching loosely — and `compute_tier`
-//! only ever returns `Tier::Certified` when **every** check is `Pass`, so a single `NotAssessed`
-//! or `Blocked` check anywhere denies `Certified` outright.
-//!
-//! # Latency's own below-floor discipline (composes with, but is distinct from, section 1's)
-//! `LatencyMeasurement` mirrors `tests/typology_speedup.rs`'s "never emit `0`" rule at this
-//! module's own layer (that harness's types are test-only and not importable as a library):
-//! `LatencyMeasurement::BelowFloor` records that the true value is somewhere under the stated
-//! floor, and `compare_latency` treats a below-floor measurement as a **safe** (conservative)
-//! comparison — the true value is less than the floor, so a floor at or under the threshold proves
-//! a pass; a floor above the threshold cannot be resolved finely enough to call, and is reported as
-//! `CheckOutcome::NotAssessed` (an honest "cannot tell", never a guessed `Pass` or `Fail`) rather
-//! than silently treating "below floor" as "zero" and calling it a pass by assumption.
+//! Coverage is a token analysis rate supplied with an attestation, not an accuracy measurement.
+//! A latency value below the timer floor can prove a pass only when that floor is within threshold.
+
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
@@ -70,7 +14,7 @@ use pg_foma::analyzer::FomaProposer;
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma_backend::backend_selection::select_backends;
-// Test-only: production code holds a `GrammarSemantics`, never a bare `Grammar` (see `certify`).
+// Test-only: production code holds `GrammarSemantics` rather than a bare `Grammar`.
 #[cfg(test)]
 use pg_grammar::model::Grammar;
 
@@ -78,7 +22,24 @@ use pg_grammar::model::Grammar;
 /// THRESHOLD_POLICY_SCHEMA_VERSION`] — the report's shape and the policy's shape can each change on
 /// their own schedule, mirroring `pg-pack::manifest`'s `MANIFEST_SCHEMA_VERSION` vs. its embedded
 /// `RequiredRuntimeFeatures::payload_format_version`).
-pub const READINESS_REPORT_SCHEMA_VERSION: u32 = 1;
+pub const READINESS_REPORT_SCHEMA_VERSION: u32 = 2;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadinessMeasurementError {
+    InvalidAnalysisRate,
+}
+
+impl fmt::Display for ReadinessMeasurementError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidAnalysisRate => {
+                f.write_str("analysis_rate must be finite and within 0.0..=1.0")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ReadinessMeasurementError {}
 
 /// The fixed disclaimer every coverage `CheckResult` carries (rule 3: never worded as accuracy).
 pub const COVERAGE_RATE_STATEMENT: &str = "Coverage is a token-level ANALYSIS RATE: the fraction \
@@ -120,7 +81,7 @@ pub enum TrustStatus {
     /// The characteristics-check gate admitted this artifact cleanly; no override was exercised.
     Proven,
     /// This artifact was force-compiled past a capability/correctness refusal, permanently
-    /// disqualifying certification regardless of every other input. FST-health findings are a
+    /// forces `NotSupported` regardless of every other input. FST-health findings are a
     /// separate readiness axis and are never admitted by this trust status.
     Overridden(OverrideRecord),
 }
@@ -162,8 +123,8 @@ pub enum LatencyMeasurement {
 
 // Measured facts a caller supplies; this module does not itself measure anything.
 
-/// The measured facts `certify` checks against a `ThresholdPolicy`. `None` for the whole
-/// struct (via `certify`'s `Option` parameter) means no compiled artifact exists to measure at
+/// The measured facts `assess_readiness` checks against a `ThresholdPolicy`. `None` for the whole
+/// struct (via its `Option` parameter) means no compiled artifact exists to measure at
 /// all (e.g. the grammar was refused before anything compiled); every field of coverage is its own
 /// independent `CoverageAssessment` since a corpus can be present or absent independent of
 /// whether size/latency were measured.
@@ -271,9 +232,9 @@ impl From<&CapabilityDiagnostic> for RefusalCitation {
     }
 }
 
-/// The real capability decision this report was computed from (`certify` always resolves it
+/// The real capability decision this report was computed from (`assess_readiness` always resolves it
 /// itself, through the gated backend's own report from `pg_foma_backend::backend_selection::select_backends`
-/// -- see `certify_with_semantics`'s own doc, "Which backend the certificate is about").
+/// -- see `assess_readiness_with_semantics`'s own doc, "Which backend the report is about").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
 pub enum CapabilitySummary {
@@ -300,15 +261,25 @@ impl CapabilitySummary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Tier {
-    /// Every check passed, capability is `Admit`/`ConfirmOnly`, and trust is `Proven`.
-    Certified,
+    /// Every measured check passed, capability is `Admit`/`ConfirmOnly`, and trust is `Proven`.
+    ThresholdsMet,
     /// Compiles and runs, but at least one threshold was missed or a check could not be assessed; actionable by the language team.
     NotYet,
     /// Either the capability gate blocks this grammar outright, or the artifact carries a capability override; actionable only by compiler work or a clean recompile.
     NotSupported,
 }
 
-/// The full certification report.
+impl Tier {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ThresholdsMet => "Thresholds met",
+            Self::NotYet => "Not yet",
+            Self::NotSupported => "Not supported",
+        }
+    }
+}
+
+/// The full readiness report.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadinessReport {
     pub report_schema_version: u32,
@@ -324,13 +295,13 @@ pub struct ReadinessReport {
     /// a strict superset of that.
     pub checks: Vec<CheckResult>,
     /// Free-form explanatory notes: why the tier is what it is, and (rule 1) that the override is
-    /// the reason certification refused, when applicable.
+    /// the reason the report is not supported, when applicable.
     pub notes: Vec<String>,
 }
 
 impl ReadinessReport {
-    pub fn is_certified(&self) -> bool {
-        matches!(self.tier, Tier::Certified)
+    pub fn thresholds_met(&self) -> bool {
+        matches!(self.tier, Tier::ThresholdsMet)
     }
 
     /// Canonical machine-readable form, the same pretty-printed convention `pg_foma::health` uses.
@@ -365,17 +336,23 @@ fn check_lexicon_scale(measured: u64, threshold: &ThresholdU64) -> CheckOutcome 
     }
 }
 
-fn check_coverage(assessment: &CoverageAssessment, threshold: &ThresholdF64) -> CheckOutcome {
+fn check_coverage(
+    assessment: &CoverageAssessment,
+    threshold: &ThresholdF64,
+) -> Result<CheckOutcome, ReadinessMeasurementError> {
     match assessment {
-        CoverageAssessment::NotAssessed => CheckOutcome::NotAssessed {
+        CoverageAssessment::NotAssessed => Ok(CheckOutcome::NotAssessed {
             reason: "no held-out corpus is available for this language".to_string(),
-        },
+        }),
         CoverageAssessment::Attested { analysis_rate, .. } => {
+            if !analysis_rate.is_finite() || !(0.0..=1.0).contains(analysis_rate) {
+                return Err(ReadinessMeasurementError::InvalidAnalysisRate);
+            }
             let value = CheckValue::Rate(*analysis_rate);
             if *analysis_rate >= threshold.value {
-                CheckOutcome::Pass { measured: value }
+                Ok(CheckOutcome::Pass { measured: value })
             } else {
-                CheckOutcome::Fail { measured: value }
+                Ok(CheckOutcome::Fail { measured: value })
             }
         }
     }
@@ -418,7 +395,7 @@ fn compute_checks(
     policy: &ThresholdPolicy,
     measurements: Option<&Measurements>,
     blocked_reason: Option<&str>,
-) -> Vec<CheckResult> {
+) -> Result<Vec<CheckResult>, ReadinessMeasurementError> {
     let raw: Vec<(CheckKind, CheckOutcome, CheckValue, Vec<String>)> = match measurements {
         None => vec![
             (
@@ -493,7 +470,7 @@ fn compute_checks(
                 ),
                 (
                     CheckKind::CoverageAnalysisRate,
-                    check_coverage(&m.coverage, &policy.coverage_min_analysis_rate),
+                    check_coverage(&m.coverage, &policy.coverage_min_analysis_rate)?,
                     CheckValue::Rate(policy.coverage_min_analysis_rate.value),
                     coverage_statements,
                 ),
@@ -519,7 +496,8 @@ fn compute_checks(
         }
     };
 
-    raw.into_iter()
+    Ok(raw
+        .into_iter()
         .map(|(kind, outcome, threshold, statements)| {
             let outcome = match blocked_reason {
                 None => outcome,
@@ -543,10 +521,10 @@ fn compute_checks(
                 statements,
             }
         })
-        .collect()
+        .collect())
 }
 
-/// `Certified` iff every check passed and neither the override nor the refusal gate fired; any `Blocked` or `NotAssessed` outcome denies `Certified`, same as an outright `Fail`.
+/// Reports `ThresholdsMet` only when every check passed and no refusal or override blocks the report.
 fn compute_tier(
     trust: &TrustStatus,
     capability: &CapabilitySummary,
@@ -559,7 +537,7 @@ fn compute_tier(
         return Tier::NotSupported;
     }
     if checks.iter().all(|c| c.outcome.is_pass()) {
-        Tier::Certified
+        Tier::ThresholdsMet
     } else {
         Tier::NotYet
     }
@@ -570,7 +548,7 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
     if let TrustStatus::Overridden(record) = trust {
         notes.push(format!(
             "BLOCKED: this artifact carries an ADR-0005 capability override (trust=unproven), \
-             authorized by {} ({}), recorded at {}. An override-trusted artifact never certifies, \
+             authorized by {} ({}), recorded at {}. An override-trusted artifact is not supported, \
              under any configuration -- see docs/adr/0005-capability-override-unproven-grammars.md. \
              {} fail-closed configuration(s) were force-compiled through.",
             record.authorized_by,
@@ -587,8 +565,8 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
         ));
     }
     match tier {
-        Tier::Certified => notes.push(
-            "CERTIFIED: every declared threshold passed under this policy version, on the \
+        Tier::ThresholdsMet => notes.push(
+            "Thresholds met: every declared threshold passed under this policy version, on the \
              checks this report performed. See `checks` for exactly what was and was not \
              assessed."
                 .to_string(),
@@ -603,7 +581,7 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
     notes
 }
 
-/// Certifies `g` against `policy`, given its `trust` status and (if any) its `measurements`.
+/// Assesses `g` against `policy`, given its `trust` status and (if any) its `measurements`.
 ///
 /// Always computes the capability verdict itself (never a caller-supplied one, never inferred from
 /// a failure to run). `measurements` is `None` when no compiled
@@ -611,37 +589,38 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
 /// each measurement's own coverage sub-field is independently `CoverageAssessment::NotAssessed`
 /// or `CoverageAssessment::Attested` regardless of whether the rest of `measurements` is present.
 /// Test-only: every production caller already holds a `GrammarSemantics` and calls
-/// `certify_with_semantics` directly.
+/// `assess_readiness_with_semantics` directly.
 #[cfg(test)]
-pub fn certify(
+pub fn assess_readiness(
     g: &Grammar,
     trust: &TrustStatus,
     measurements: Option<&Measurements>,
     policy: &ThresholdPolicy,
 ) -> ReadinessReport {
-    certify_with_semantics(&GrammarSemantics::derive(g), trust, measurements, policy)
+    assess_readiness_with_semantics(&GrammarSemantics::derive(g), trust, measurements, policy)
+        .expect("test readiness measurements must be valid")
 }
 
-/// `certify` over an already-derived `GrammarSemantics`; the semantics value is pure deterministic
+/// Assesses readiness over an already-derived `GrammarSemantics`; the semantics value is pure deterministic
 /// input, while this function still computes the `CompileDecision` itself.
 ///
-/// This does NOT weaken the rule that certification never accepts a caller-supplied capability
+/// This does not accept a caller-supplied capability
 /// verdict: a `GrammarSemantics` is a pure, deterministic function of the grammar, not a verdict,
 /// and this function still computes the `CompileDecision` itself through
 /// `pg_foma_backend::backend_selection::select_backends`. The thing a caller cannot do — hand in a `Refuse`
 /// it decided on its own — remains impossible.
 ///
-/// # Which backend the certificate is about
+/// # Which backend the report is about
 /// `pg_foma::analyzer::FomaProposer::EMISSION_STRATEGY`'s own report, not the whole-grammar join
-/// over every backend. A certificate describes the artifact a `pangloss` run would produce, and
+/// over every backend. A readiness report describes the artifact a `pangloss` run would produce, and
 /// that artifact comes from exactly one backend; the join would let another backend's ability
-/// certify an artifact it never built.
-pub fn certify_with_semantics(
+/// claim readiness for an artifact it never built.
+pub fn assess_readiness_with_semantics(
     semantics: &GrammarSemantics<'_>,
     trust: &TrustStatus,
     measurements: Option<&Measurements>,
     policy: &ThresholdPolicy,
-) -> ReadinessReport {
+) -> Result<ReadinessReport, ReadinessMeasurementError> {
     // One owner: `BackendSelection::decision_for`, the same one `capability_gate` calls.
     let decision = select_backends(semantics).decision_for(FomaProposer::EMISSION_STRATEGY);
     let capability = CapabilitySummary::from_decision(&decision);
@@ -653,11 +632,11 @@ pub fn certify_with_semantics(
             record.authorized_by, record.reason
         )),
     };
-    let checks = compute_checks(policy, measurements, blocked_reason.as_deref());
+    let checks = compute_checks(policy, measurements, blocked_reason.as_deref())?;
     let tier = compute_tier(trust, &capability, &checks);
     let notes = build_notes(trust, &capability, tier);
 
-    ReadinessReport {
+    Ok(ReadinessReport {
         report_schema_version: READINESS_REPORT_SCHEMA_VERSION,
         policy_id: policy.policy_id.clone(),
         device_class: policy.device_class.clone(),
@@ -666,7 +645,7 @@ pub fn certify_with_semantics(
         trust: trust.clone(),
         checks,
         notes,
-    }
+    })
 }
 
 #[cfg(test)]

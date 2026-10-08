@@ -1,8 +1,8 @@
 //! One
-//! declared, **versioned** place for the thresholds a certification verdict ([`crate::
+//! declared, **versioned** place for the thresholds a readiness report ([`crate::
 //! readiness_verdict`]) is measured against — pack size, lexicon scale, token analysis rate, and
 //! p50/p90/p99 latency against a named device class — so a verdict can cite the policy version
-//! that produced it and an older certificate stays interpretable after the numbers move.
+//! that produced it and an older readiness report stays interpretable after the numbers move.
 //!
 //! This module owns the schema and today's seed
 //! values only; it does not gate any compile path, mirroring `pg_foma::health`/`pg_foma::plan_diagram`'s
@@ -26,12 +26,11 @@
 //!   locally. This is deliberately **not** a mobile/embedded device name: no such device has been
 //!   benchmarked yet, and inventing an evocative name ("reference-mobile-tier-1") for a number with
 //!   no device behind it would be exactly the kind of authoritative-looking invention this module
-//!   exists to refuse. A certificate under this policy version is scoped to this workstation class
-//!   and must not be read as evidence about any other device class: no silent
-//!   generalization beyond it.
+//!   exists to refuse. A `ThresholdsMet` report under this policy version is scoped to this
+//!   workstation class and is not evidence about another device class or a correctness verdict.
 //! - **Latency (p50/p90/p99), `Calibration::Measured`**: grounded in two real sources — (1)
 //!   `docs/benchmark-matrix.md`'s one force-compiled data point (Indonesian, `--allow-unproven`:
-//!   p50 `<1`ms, p95 1ms, p99 1ms, max 8ms — reported there as force-compiled, not certified), and
+//!   p50 `<1`ms, p95 1ms, p99 1ms, max 8ms — reported there as force-compiled, without a threshold-pass claim), and
 //!   (2) the typology-speedup harness's own compiled-engine column (`rust/tools/
 //!   typology-speedup.sh`; `rust/crates/pg-foma/tests/typology_speedup.rs`), which shows
 //!   sub-millisecond medians across nearly every tiny synthetic edge-case/typology fixture. Both
@@ -48,7 +47,7 @@
 //!   as a starting reference point ONLY, because that is the one artifact-size policy already
 //!   declared anywhere in this repo — not itself derived from a device memory/storage budget.
 //! - **`lexicon_min_entries`, `Calibration::Placeholder`**: no full-scale reference grammar has
-//!   been compiled and certified end-to-end yet (a 10^4-10^5
+//!   been compiled and measured end-to-end yet (a 10^4-10^5
 //!   entry design target is a goal, not a measurement). Seeded low (1,000) as a clearly-provisional
 //!   floor pending a real study, not a claimed target.
 //! - **`coverage_min_analysis_rate`, `Calibration::Placeholder`**: no held-out corpus has ever
@@ -117,7 +116,7 @@ impl<T> Threshold<T> {
 /// The declared, versioned threshold policy: pack size, lexicon scale, token analysis rate, and
 /// p50/p90/p99 latency against a named device class. A [`crate::
 /// readiness_verdict::ReadinessReport`] records `ThresholdPolicy::policy_id` so an older
-/// certificate stays interpretable after the numbers move.
+/// report stays interpretable after the numbers move.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThresholdPolicy {
     /// This schema's wire-shape version at the time this policy was produced.
@@ -159,13 +158,20 @@ impl ThresholdPolicy {
 
     /// Parses a policy from its canonical JSON form.
     pub fn from_json(json: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(json)
+        let policy: Self = serde_json::from_str(json)?;
+        if policy.schema_version != THRESHOLD_POLICY_SCHEMA_VERSION {
+            return Err(<serde_json::Error as serde::de::Error>::custom(format!(
+                "unsupported threshold policy schema version {}; expected {}",
+                policy.schema_version, THRESHOLD_POLICY_SCHEMA_VERSION
+            )));
+        }
+        Ok(policy)
     }
 }
 
 /// Today's seeded policy — "v1". See this module's top doc for exactly what backs each value.
 /// Calling this function twice returns equal, deterministic policies (no clock/env dependence),
-/// which is required for the golden-certificate regeneration precedent (`crate::readiness_verdict`)
+/// which is required for the readiness-report golden regeneration precedent (`crate::readiness_verdict`)
 /// to be reproducible.
 pub fn policy_v1() -> ThresholdPolicy {
     ThresholdPolicy {
@@ -175,7 +181,7 @@ pub fn policy_v1() -> ThresholdPolicy {
             --threads 1`, release build -- the exact configuration docs/benchmark-matrix.md \
             measured 2026-07-26 at commit 85f25dc, and the machine rust/tools/typology-speedup.sh \
             runs on locally. NOT a mobile/embedded target device -- no such device has been \
-            benchmarked yet, and a certificate under this policy version must not be read as \
+            benchmarked yet, and a readiness report under this policy version must not be read as \
             evidence about any other device class.)"
             .to_string(),
         pack_size_max_bytes: Threshold::new(
@@ -194,7 +200,7 @@ pub fn policy_v1() -> ThresholdPolicy {
             1_000,
             Calibration::placeholder(
                 "No full-scale reference grammar (10^4-10^5 entries, this project's own stated \
-                 design target) has been compiled and certified end-to-end yet, so there is no \
+                 design target) has been compiled and measured end-to-end yet, so there is no \
                  measured evidence of what lexicon scale a device-viable language actually needs. \
                  Seeded at 1,000 entries as a low, clearly-provisional floor pending a real study \
                  -- a placeholder, not a target.",
