@@ -444,7 +444,23 @@ function Get-CargoTestInvocation {
     if ($Package) { $cargoArgs += @('-p', $Package) }
     if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
+    $cargoExtraArgs = @()
+    $runnerExtraArgs = @()
+    if ($UseNextest) {
+        $runnerExtraArgs = @($ExtraArgs)
+    } else {
+        # Cargo flags belong before cargo test's `--`; a caller uses its own `--` to start libtest args.
+        $runnerSeparator = [array]::IndexOf([string[]]$ExtraArgs, '--')
+        if ($runnerSeparator -ge 0) {
+            if ($runnerSeparator -gt 0) { $cargoExtraArgs = @($ExtraArgs[0..($runnerSeparator - 1)]) }
+            if ($runnerSeparator + 1 -lt $ExtraArgs.Count) { $runnerExtraArgs = @($ExtraArgs[($runnerSeparator + 1)..($ExtraArgs.Count - 1)]) }
+        } else {
+            $cargoExtraArgs = @($ExtraArgs)
+        }
+    }
+
     if (-not $UseNextest -and -not $FailFast -and $ExtraArgs -notcontains '--no-fail-fast') { $cargoArgs += '--no-fail-fast' }
+    if ($cargoExtraArgs) { $cargoArgs += $cargoExtraArgs }
     if ($UseNextest) {
         if ((-not $FailFast) -and ($ExtraArgs -notcontains '--no-fail-fast')) { $cargoArgs += '--no-fail-fast' }
         if ($HarnessModule) {
@@ -465,7 +481,7 @@ function Get-CargoTestInvocation {
         }
         if ($trailing.Count -gt 0) { $cargoArgs += @('--') + $trailing }
     }
-    if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
+    if ($runnerExtraArgs) { $cargoArgs += $runnerExtraArgs }
 
     return [PSCustomObject]@{
         CargoArgs   = @($cargoArgs)

@@ -112,7 +112,7 @@ Test-Case 'shared cargo test invocation preserves the current argument arrays ac
     foreach ($case in @(
         @{ Mode = 'test'; UseNextest = $true; DebugProfile = $false; FailFast = $true; ExtraArgs = @('--no-fail-fast') }
         @{ Mode = 'corpus-test'; UseNextest = $true; DebugProfile = $true; ExtraArgs = @('--no-capture') }
-        @{ Mode = 'corpus-test'; UseNextest = $false; DebugProfile = $false; Filter = 'needle'; ExtraArgs = @('--custom') }
+        @{ Mode = 'corpus-test'; UseNextest = $false; DebugProfile = $false; Filter = 'needle' }
         @{ Mode = 'conformance-test'; UseNextest = $false; DebugProfile = $true; Package = ''; TestTarget = 'target'; HarnessModule = 'module' }
     )) {
         $expected = Get-LegacyCargoTestInvocation @case -TestThreads 1
@@ -142,6 +142,24 @@ Test-Case 'ordinary test scope honors default-members and explicit workspace is 
     Assert-False ($ordinary.CargoArgs -contains '--workspace') 'default members define the ordinary solution'
     $all = Get-CargoTestInvocation -Mode test -UseNextest:$false -DebugProfile:$false -TestThreads 1 -ExtraArgs @('--workspace')
     Assert-Contains $all.CargoArgs '--workspace' 'explicit lab-wide scope remains available'
+}
+
+Test-Case 'plain cargo test sends extra Cargo flags before the runner separator' {
+    $cargoFlags = Get-CargoTestInvocation -Mode test -UseNextest:$false -DebugProfile:$false `
+        -TestThreads 2 -Package pg-cli -Filter readiness_measurement `
+        -ExtraArgs @('--features', 'pg-cli/foma-tools')
+    $separator = [array]::IndexOf($cargoFlags.CargoArgs, '--')
+    $feature = [array]::IndexOf($cargoFlags.CargoArgs, '--features')
+    Assert-True ($feature -ge 0 -and $feature -lt $separator) 'Cargo must receive the feature before libtest args'
+
+    $runnerFlags = Get-CargoTestInvocation -Mode test -UseNextest:$false -DebugProfile:$false `
+        -TestThreads 2 -Package pg-cli -Filter readiness_measurement `
+        -ExtraArgs @('--features', 'pg-cli/foma-tools', '--', '--nocapture')
+    $separator = [array]::IndexOf($runnerFlags.CargoArgs, '--')
+    $feature = [array]::IndexOf($runnerFlags.CargoArgs, '--features')
+    $nocapture = [array]::IndexOf($runnerFlags.CargoArgs, '--nocapture')
+    Assert-True ($feature -ge 0 -and $feature -lt $separator) 'Cargo feature must remain before the runner separator'
+    Assert-True ($nocapture -gt $separator) 'libtest flags must follow the runner separator'
 }
 
 Write-TestSummary
