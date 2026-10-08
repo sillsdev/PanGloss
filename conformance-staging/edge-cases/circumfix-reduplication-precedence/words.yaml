@@ -39,3 +39,4 @@ words:
         exercises:
           - "AffixProcessRule: prefix/suffix/circumfix/infix"
           - "AffixProcessRule: reduplication (ReduplicationHint)"
+          - "reduplication.structural-route"

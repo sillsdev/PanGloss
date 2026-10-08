@@ -48,6 +48,7 @@ words:
         rules: []
 
   - word: fasubel
+    exercises: ["compounding.non-recursive"]
     note: >-
       THE positive witness: headA (fasu) + nonHeadOk (bel) via cr1. headA carries only mpr1 of the
       {mpr1,mpr2} all-type group cr1's own headProdRestrictionsMprFeatures names -- admitted because
@@ -61,6 +62,7 @@ words:
         rules: [cr1]
 
   - word: fasuzon
+    exercises: ["compounding.non-recursive"]
     note: >-
       Left-to-confirm witness (design.md D3): headA + nonHeadBadPos (zon, posOther). zon is
       MPR-licensed as a non-head (non_head_prod_restrictions_mpr is empty/vacuous -- the FST
@@ -73,6 +75,7 @@ words:
     blocked_by: [cr1]
 
   - word: tikubel
+    exercises: ["compounding.non-recursive"]
     note: >-
       The second positive witness: headB (tiku) carries only mpr2, the OTHER member of the
       {mpr1,mpr2} all-type group, so the flat overlap is pinned on both members rather than on one
@@ -85,6 +88,7 @@ words:
         rules: [cr1]
 
   - word: numobel
+    exercises: ["compounding.non-recursive"]
     note: >-
       Rule-level negative control: headC (numo) carries no MPR features at all, so cr1's own
       headProdRestrictionsMprFeatures="mpr1 mpr2" (non-empty) has nothing to overlap -- proving the

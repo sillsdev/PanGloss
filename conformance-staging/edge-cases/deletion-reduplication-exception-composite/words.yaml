@@ -112,3 +112,4 @@ words:
         rules: [mrRedupFull]
         exercises:
           - "AffixProcessRule: reduplication (ReduplicationHint)"
+          - "reduplication.peel-route"

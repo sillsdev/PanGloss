@@ -29,7 +29,9 @@ words:
         rules: [prRtlBq]
         exercises:
           - "RewriteRule direction (Dir): right-to-left"
+          - "right-to-left-rewrite.reversal"
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          - "quantifier.bounded-compilable"
 
   - word: ecct
     note: >-
@@ -43,7 +45,9 @@ words:
         rules: [prRtlBq]
         exercises:
           - "RewriteRule direction (Dir): right-to-left"
+          - "right-to-left-rewrite.reversal"
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          - "quantifier.bounded-compilable"
 
   - word: accct
     note: >-
@@ -59,7 +63,9 @@ words:
         rules: []
         exercises:
           - "RewriteRule direction (Dir): right-to-left"
+          - "right-to-left-rewrite.reversal"
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          - "quantifier.bounded-compilable"
 
   - word: acat
     note: >-
@@ -71,6 +77,7 @@ words:
     expect_fail: true
     exercises:
       - "RewriteRule direction (Dir): right-to-left"
+      - "right-to-left-rewrite.reversal"
 
   - word: acct
     note: ROOT2's own RAW underlying shape, queried directly -- same reasoning as acat (should have rewritten to "ecct").
@@ -78,3 +85,4 @@ words:
     expect_fail: true
     exercises:
       - "RewriteRule direction (Dir): right-to-left"
+      - "right-to-left-rewrite.reversal"

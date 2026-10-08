@@ -29,6 +29,7 @@ words:
         rules: [mrCross]
         exercises:
           - "AffixProcessRule: prefix/suffix/circumfix/infix"
+          - "circumfix.structural-route"
 
   - word: pabatidin
     note: ROOT + mrCross's subCrossAB (prefix pa-, suffix -in) -- cross-product cell 2 of 4.
@@ -38,6 +39,7 @@ words:
         rules: [mrCross]
         exercises:
           - "AffixProcessRule: prefix/suffix/circumfix/infix"
+          - "circumfix.structural-route"
 
   - word: mabatidan
     note: >-
@@ -50,6 +52,7 @@ words:
         rules: [mrCross]
         exercises:
           - "AffixProcessRule: prefix/suffix/circumfix/infix"
+          - "circumfix.structural-route"
 
   - word: mabatidin
     note: >-
@@ -63,6 +66,7 @@ words:
         rules: [mrCross]
         exercises:
           - "AffixProcessRule: prefix/suffix/circumfix/infix"
+          - "circumfix.structural-route"
 
   - word: bumat
     note: >-
@@ -78,6 +82,7 @@ words:
         rules: [mrInfixDrop]
         exercises:
           - "AffixProcessRule: prefix/suffix/circumfix/infix"
+          - "circumfix.structural-route"
 
   - word: pidatan
     note: >-
@@ -87,3 +92,4 @@ words:
     expect_fail: true
     exercises:
       - "AffixProcessRule: prefix/suffix/circumfix/infix"
+      - "circumfix.structural-route"

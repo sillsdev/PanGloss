@@ -56,6 +56,7 @@ words:
         rules: [prXtoY]
         exercises:
           - "CharacterDefinitionTable: more than one table, one per stratum"
+          - "multi-table.shared-representations"
 
   - word: x
     note: >-
@@ -66,6 +67,7 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable: more than one table, one per stratum"
+      - "multi-table.shared-representations"
 
   - word: z
     note: >-
@@ -76,6 +78,7 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable: more than one table, one per stratum"
+      - "multi-table.shared-representations"
 
   - word: q
     note: >-
@@ -88,3 +91,4 @@ words:
         rules: []
         exercises:
           - "CharacterDefinitionTable: more than one table, one per stratum"
+          - "multi-table.shared-representations"

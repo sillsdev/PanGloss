@@ -73,6 +73,7 @@ words:
         rules: [mrDeriv, mrInfl]
         exercises:
           - "Stratum (Linear/Unordered rule order)"
+          - "unordered-application.order-union"
           - "AffixProcessRule: prefix/suffix/circumfix/infix"
 
   - word: nunavuq
@@ -81,6 +82,7 @@ words:
     blocked_by: [mrInfl]
     exercises:
       - "Stratum (Linear/Unordered rule order)"
+      - "unordered-application.order-union"
 
   - word: akutat
     note: >-

@@ -65,12 +65,14 @@ words:
         rules: [prKtoG]
         exercises:
           - "CharacterDefinitionTable: more than one table, one per stratum"
+          - "multi-table.disjoint-representations"
           - "CharacterDefinitionTable: cross-table respelling (an inner-stratum root surfaces spelled by the final stratum's table)"
           - "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"
       - signature: "ROOT2|g"
         rules: [prKtoG]
         exercises:
           - "CharacterDefinitionTable: more than one table, one per stratum"
+          - "multi-table.disjoint-representations"
           - "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"
 
   - word: k
@@ -82,6 +84,7 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable: more than one table, one per stratum"
+      - "multi-table.disjoint-representations"
       - "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"
 
   - word: z
@@ -99,6 +102,7 @@ words:
     expect_skip: true
     exercises:
       - "CharacterDefinitionTable: more than one table, one per stratum"
+      - "multi-table.disjoint-representations"
 
   - word: gk
     note: >-
@@ -108,3 +112,4 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable: more than one table, one per stratum"
+      - "multi-table.disjoint-representations"

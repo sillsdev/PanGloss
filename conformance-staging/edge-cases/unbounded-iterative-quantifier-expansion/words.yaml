@@ -27,6 +27,7 @@ words:
         rules: [prIterUnbounded]
         exercises:
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          - "quantifier.unbounded-compilable"
 
   - word: ecct
     note: >-
@@ -39,6 +40,7 @@ words:
         rules: [prIterUnbounded]
         exercises:
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          - "quantifier.unbounded-compilable"
 
   - word: eccccct
     note: >-
@@ -55,6 +57,7 @@ words:
         rules: [prIterUnbounded]
         exercises:
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          - "quantifier.unbounded-compilable"
 
   - word: at
     note: >-
@@ -69,6 +72,7 @@ words:
         rules: []
         exercises:
           - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+          - "quantifier.unbounded-compilable"
 
   - word: act
     note: >-
@@ -80,6 +84,7 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-compilable"
 
   - word: acct
     note: ROOT2's own RAW underlying shape, queried directly -- same reasoning as "act" (should have rewritten to "ecct").
@@ -87,6 +92,7 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-compilable"
 
   - word: accccct
     note: ROOT3's own RAW underlying shape, queried directly -- same reasoning as "act" (should have rewritten to "eccccct"), at the same high occurrence count as the genuine-unboundedness positive witness above.
@@ -94,3 +100,4 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-compilable"

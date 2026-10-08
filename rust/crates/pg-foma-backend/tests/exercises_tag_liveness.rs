@@ -1,4 +1,4 @@
-//! Every fixture `exercises:` tag must exactly match a literal `machine/conformance/constructs.txt` row id; an unmatched tag would otherwise silently contribute zero coverage instead of failing loudly.
+//! Validates generic construct tags and predicate-owned variant tags in fixture words.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -15,14 +15,19 @@ fn known_construct_ids() -> BTreeSet<String> {
     let path = repo_root().join("machine/conformance/constructs.txt");
     let text =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    text.lines()
+    let mut ids: BTreeSet<String> = text
+        .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(str::to_string)
-        .collect()
+        .collect();
+    for predicate in pg_foma::capability::default_registry().predicates() {
+        ids.extend(predicate.variants().iter().map(|v| v.id().to_string()));
+    }
+    ids
 }
 
-/// Every `exercises:` tag, on every word and parse, across both discovery roots, must be a known `constructs.txt` row id.
+/// Every word and parse tag must name a generic construct or a predicate-owned variant.
 #[test]
 fn every_exercises_tag_is_a_known_construct_id() {
     let known = known_construct_ids();
@@ -42,7 +47,7 @@ fn every_exercises_tag_is_a_known_construct_id() {
                 checked += 1;
                 if !known.contains(tag) {
                     offenders.push(format!(
-                        "{} word {:?}: exercises tag {:?} is not a constructs.txt row id",
+                        "{} word {:?}: exercises tag {:?} is not a construct or variant id",
                         f.label(),
                         w.word,
                         tag
@@ -55,7 +60,7 @@ fn every_exercises_tag_is_a_known_construct_id() {
                     if !known.contains(tag) {
                         offenders.push(format!(
                             "{} word {:?} parse (signature {:?}): exercises tag {:?} is not a \
-                             constructs.txt row id",
+                             construct or variant id",
                             f.label(),
                             w.word,
                             p.signature,
@@ -75,12 +80,8 @@ fn every_exercises_tag_is_a_known_construct_id() {
     );
     assert!(
         offenders.is_empty(),
-        "{} exercises: tag(s) do not match any machine/conformance/constructs.txt row id \
-         (byte-for-byte, per constructs.txt's own header comment). An unrecognized tag silently \
-         contributes ZERO coverage in conformance_coverage::construct_ids_for's cross-check -- \
-         exactly how LeftToRightRewrite/SubruleGating/RightToLeftRewrite/MultiTable sat Uncovered \
-         while their fixtures looked correct. Fix the tag to the exact constructs.txt row id it \
-         should have been:\n  {}",
+        "{} exercises: tag(s) do not match a machine/conformance/constructs.txt row id or an \
+         owning capability predicate's variant id. Fix each unknown tag:\n  {}",
         offenders.len(),
         offenders.join("\n  ")
     );

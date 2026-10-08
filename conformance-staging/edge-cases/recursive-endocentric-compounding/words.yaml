@@ -22,6 +22,7 @@ words:
         rules: []
         exercises:
           - "CompoundingRule"
+          - "compounding.recursive"
 
   - word: mafl
     note: ROOT2 bare root -- a plain control.
@@ -30,6 +31,7 @@ words:
         rules: []
         exercises:
           - "CompoundingRule"
+          - "compounding.recursive"
 
   - word: isra
     note: ROOT3 bare root -- a plain control.
@@ -38,6 +40,7 @@ words:
         rules: []
         exercises:
           - "CompoundingRule"
+          - "compounding.recursive"
 
   - word: tevimafl
     note: >-
@@ -53,6 +56,7 @@ words:
         rules: [cr1]
         exercises:
           - "CompoundingRule"
+          - "compounding.recursive"
 
   - word: maflisra
     note: ROOT2(head)+ROOT3(nonhead) via one application of cr1 -- a second depth-1 positive control (different root pair, same shape as tevimafl).
@@ -62,6 +66,7 @@ words:
         rules: [cr1]
         exercises:
           - "CompoundingRule"
+          - "compounding.recursive"
 
   - word: tevimaflisra
     note: >-
@@ -88,3 +93,4 @@ words:
     blocked_by: [cr1]
     exercises:
       - "CompoundingRule"
+      - "compounding.recursive"

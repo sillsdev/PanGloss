@@ -28,6 +28,7 @@ words:
         rules: [mrRtlReversal]
         exercises:
           - "MetathesisRule"
+          - "metathesis.right-to-left-swap"
 
   - word: tr
     note: >-
@@ -41,6 +42,7 @@ words:
         rules: [mrRtlReversal]
         exercises:
           - "MetathesisRule"
+          - "metathesis.right-to-left-swap"
 
   - word: qs
     note: >-
@@ -53,6 +55,7 @@ words:
     expect_fail: true
     exercises:
       - "MetathesisRule"
+      - "metathesis.right-to-left-swap"
 
   - word: rt
     note: ROOT2's own RAW underlying shape, queried directly -- same reasoning as "qs" (should have metathesized to "tr").
@@ -60,6 +63,7 @@ words:
     expect_fail: true
     exercises:
       - "MetathesisRule"
+      - "metathesis.right-to-left-swap"
 
   - word: sr
     note: >-
@@ -73,6 +77,7 @@ words:
     expect_fail: true
     exercises:
       - "MetathesisRule"
+      - "metathesis.right-to-left-swap"
 
   - word: tq
     note: The remaining spurious combination -- same reasoning as "sr".
@@ -80,3 +85,4 @@ words:
     expect_fail: true
     exercises:
       - "MetathesisRule"
+      - "metathesis.right-to-left-swap"

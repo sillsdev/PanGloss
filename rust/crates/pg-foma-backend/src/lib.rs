@@ -49,6 +49,7 @@ workbench_module! {
 pub mod backend_space;
 pub mod conformance_coverage;
 pub mod coverage_ledger;
+pub mod fixture_coverage;
 workbench_module! {
     pub mod coverage_seam;
 }

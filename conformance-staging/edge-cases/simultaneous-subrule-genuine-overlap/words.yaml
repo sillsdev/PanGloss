@@ -37,6 +37,7 @@ words:
         rules: [prOverlapDemo]
         exercises:
           - "RewriteRule Simultaneous"
+          - "simultaneous.unproven-pair"
 
   - word: de
     note: >-
@@ -59,6 +60,7 @@ words:
         rules: [prOverlapDemo]
         exercises:
           - "RewriteRule Simultaneous"
+          - "simultaneous.unproven-pair"
 
   - word: di
     note: >-
@@ -71,6 +73,7 @@ words:
         rules: [prOverlapDemo]
         exercises:
           - "RewriteRule Simultaneous"
+          - "simultaneous.unproven-pair"
 
   # ---- Underlying forms never surface: the rule is obligatory wherever its focus matches -----
   - word: pu

@@ -14,6 +14,7 @@ test-concurrency-hook = ["pg-foma-runtime/test-concurrency-hook"]
 test-support = ["pg-foma/test-support", "pg-foma-runtime/test-support"]
 
 [dependencies]
+pg-conformance-fixtures.workspace = true
 pg-foma.workspace = true
 pg-foma-runtime.workspace = true
 foma = "=0.4.2"
@@ -38,7 +39,6 @@ pg-worker-containment.workspace = true
 [dev-dependencies]
 pg-foma-backend = { path = ".", features = ["test-support", "developer-tools", "test-concurrency-hook"] }
 pg-grammar-gen = { workspace = true, features = ["oracle"] }
-pg-conformance-fixtures.workspace = true
 pg-fst.workspace = true
 
 [[test]]
