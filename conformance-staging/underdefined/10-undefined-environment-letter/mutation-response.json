@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "mode": "mutate",
+  "caseId": "10-undefined-environment-letter",
+  "baseSha256": "c2e9a49c4b0409599c05e2b5fc7412c1154cb7a0d031e6f0230902c5dffcb981",
+  "materializedSha256": "984a04977cb6706f38badc376e7b4e4a18554c52f767115b696013cf21e427c4",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "removed": [
+    {
+      "guid": "c0cd6f57-2ae9-4d5b-bef5-74c77420a13e",
+      "representations": [
+        "x"
+      ]
+    }
+  ],
+  "inboundReferences": [],
+  "reopened": true,
+  "deletedCount": 1,
+  "diagnostics": []
+}

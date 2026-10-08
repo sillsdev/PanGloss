@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<GAFAWSData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" date="Thursday, October 8, 2026" time="2:28:24 PM">
+  <WordRecords>
+    <WordRecord WRID="13">
+      <Prefixes>
+        <Affix MIDREF="101" />
+      </Prefixes>
+      <Stem MIDREF="R" />
+    </WordRecord>
+  </WordRecords>
+  <Morphemes>
+    <Morpheme MID="R" type="s" />
+    <Morpheme MID="101" StartCLIDREF="PP1" EndCLIDREF="PP1" type="pfx" />
+  </Morphemes>
+  <Classes>
+    <PrefixClasses>
+      <Class CLID="PP1" />
+    </PrefixClasses>
+    <SuffixClasses />
+  </Classes>
+  <Challenges />
+</GAFAWSData>

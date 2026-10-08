@@ -1,0 +1,413 @@
+{
+  "schemaVersion": 1,
+  "projectSha256": {
+    "control": "5816be63c3b530c821b142726d112c5c363591a61e010edbafece21f4dd9793c",
+    "off": "c47fb278a5ada685efc2487205fc215391b8a9817684ce0975006f9bd7b037cb",
+    "on": "d09d1e199ff5430a61ecf57366db1bf83bd2de1e8c3d31737c1092eceaae8a8e"
+  },
+  "modes": {
+    "control": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+                  "msa": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+                  "msa": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chumas",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "b8ab9ebd-1ada-4ecc-abde-58e5503251d6",
+                  "msa": "e0bf4884-5560-4919-9afa-82e621ad6377",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "b8ab9ebd-1ada-4ecc-abde-58e5503251d6",
+                  "msa": "e0bf4884-5560-4919-9afa-82e621ad6377",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "cuma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0."
+          }
+        },
+        {
+          "word": "huma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0."
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/control/xample.json.xample.log"
+    },
+    "off": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+                  "msa": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+                  "msa": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chuma, contains an undefined phoneme at 0."
+          }
+        },
+        {
+          "word": "chumas",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "b8ab9ebd-1ada-4ecc-abde-58e5503251d6",
+                  "msa": "e0bf4884-5560-4919-9afa-82e621ad6377",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chumas, contains an undefined phoneme at 0."
+          }
+        },
+        {
+          "word": "cuma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0."
+          }
+        },
+        {
+          "word": "huma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0."
+          }
+        }
+      ],
+      "hc_load_diagnostics": [
+        {
+          "kind": "InvalidShape",
+          "message": "The form \"chuma\" contains an undefined phoneme at 0."
+        }
+      ],
+      "xample_native_log": "measurements/off/xample.json.xample.log"
+    },
+    "on": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+                  "msa": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+                  "msa": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chumas",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "b8ab9ebd-1ada-4ecc-abde-58e5503251d6",
+                  "msa": "e0bf4884-5560-4919-9afa-82e621ad6377",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
+                  "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "b8ab9ebd-1ada-4ecc-abde-58e5503251d6",
+                  "msa": "e0bf4884-5560-4919-9afa-82e621ad6377",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "cuma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "huma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/on/xample.json.xample.log"
+    }
+  },
+  "writingSystemSha256": {
+    "control": {
+      "de.ldml": {
+        "sourceSha256": "3b50ca1670d500208645141883ec868913ac9fd982fa888e121dae9bf463b605",
+        "stagedSha256": "b8c5694ad7826239fdbd7c06e44b4b06b142a93f799feadfb8bbc5eb50af9e80"
+      },
+      "en.ldml": {
+        "sourceSha256": "9b4e30cad84858c110d2f620e874fad09fbe354c89809d01a7a852f4ead399ac",
+        "stagedSha256": "20613de6c3b11fac4c1d5c7a95f53116743ae537298b14d7929d3714cfafc3b9"
+      },
+      "es.ldml": {
+        "sourceSha256": "a38f0953a47f376e663022c42e1c71ea39c332465c191b3fb03def922336a55f",
+        "stagedSha256": "10e24a5a4479d94a3a4e2ca0d046401a93040e13ccecfbab932cc48625770ab0"
+      },
+      "fr.ldml": {
+        "sourceSha256": "a5e44560e1499bd2f3c2485cbf194de1a1090705b02e8b0196bab9067a8b976b",
+        "stagedSha256": "1b2e0ae070abbcaca08be7a77db15d1c98310a4f4fba84823b662cbfcf229abd"
+      }
+    },
+    "off": {
+      "de.ldml": {
+        "sourceSha256": "3b50ca1670d500208645141883ec868913ac9fd982fa888e121dae9bf463b605",
+        "stagedSha256": "b8c5694ad7826239fdbd7c06e44b4b06b142a93f799feadfb8bbc5eb50af9e80"
+      },
+      "en.ldml": {
+        "sourceSha256": "9b4e30cad84858c110d2f620e874fad09fbe354c89809d01a7a852f4ead399ac",
+        "stagedSha256": "20613de6c3b11fac4c1d5c7a95f53116743ae537298b14d7929d3714cfafc3b9"
+      },
+      "es.ldml": {
+        "sourceSha256": "a38f0953a47f376e663022c42e1c71ea39c332465c191b3fb03def922336a55f",
+        "stagedSha256": "10e24a5a4479d94a3a4e2ca0d046401a93040e13ccecfbab932cc48625770ab0"
+      },
+      "fr.ldml": {
+        "sourceSha256": "a5e44560e1499bd2f3c2485cbf194de1a1090705b02e8b0196bab9067a8b976b",
+        "stagedSha256": "1b2e0ae070abbcaca08be7a77db15d1c98310a4f4fba84823b662cbfcf229abd"
+      }
+    },
+    "on": {
+      "de.ldml": {
+        "sourceSha256": "3b50ca1670d500208645141883ec868913ac9fd982fa888e121dae9bf463b605",
+        "stagedSha256": "b8c5694ad7826239fdbd7c06e44b4b06b142a93f799feadfb8bbc5eb50af9e80"
+      },
+      "en.ldml": {
+        "sourceSha256": "9b4e30cad84858c110d2f620e874fad09fbe354c89809d01a7a852f4ead399ac",
+        "stagedSha256": "20613de6c3b11fac4c1d5c7a95f53116743ae537298b14d7929d3714cfafc3b9"
+      },
+      "es.ldml": {
+        "sourceSha256": "a38f0953a47f376e663022c42e1c71ea39c332465c191b3fb03def922336a55f",
+        "stagedSha256": "10e24a5a4479d94a3a4e2ca0d046401a93040e13ccecfbab932cc48625770ab0"
+      },
+      "fr.ldml": {
+        "sourceSha256": "a5e44560e1499bd2f3c2485cbf194de1a1090705b02e8b0196bab9067a8b976b",
+        "stagedSha256": "1b2e0ae070abbcaca08be7a77db15d1c98310a4f4fba84823b662cbfcf229abd"
+      }
+    }
+  },
+  "ldmlRetainedElements": [
+    "identity",
+    "characters",
+    "layout",
+    "special"
+  ]
+}

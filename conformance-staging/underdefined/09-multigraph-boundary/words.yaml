@@ -1,0 +1,184 @@
+# oracle-provenance: XAMPLE xample.dll/xample64.dll file version 3.12.23.21 (XAmpleManagedWrapper 9.3.10.1452), FieldWorks ParserCore/HCLoader 9.3.10.1452 + LCModel 11.0.0.55173, Machine/HC 3.8.2.0; XAMPLE off-project stored keys supply PanGloss minimum expectations; C# HC control/off/on are observations; PanGloss not executed. Binary hashes: ../engine-provenance.json.
+{
+  "schemaVersion": 1,
+  "language": "09-multigraph-boundary",
+  "inspired_by": [
+    "invented lexemes; no real language"
+  ],
+  "requires": [],
+  "fieldworks_producible": true,
+  "measurement_protocol": "underdefined-stored-keys-v1",
+  "words": [
+    {
+      "word": "huma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "chuma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflection_type": null
+            }
+          ],
+          [
+            {
+              "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflection_type": null
+            }
+          ],
+          [
+            {
+              "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflection_type": null
+            }
+          ],
+          [
+            {
+              "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "cchuma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    }
+  ]
+}

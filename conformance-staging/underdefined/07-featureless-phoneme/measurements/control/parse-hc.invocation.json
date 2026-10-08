@@ -1,0 +1,16 @@
+{
+  "args": [
+    "parse-hc",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\07-featureless-phoneme\\configured\\Synthetic\\Synthetic.fwdata",
+    "--hc-xml",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\07-featureless-phoneme\\control\\Probe.hc.xml",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\07-featureless-phoneme\\control\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\07-featureless-phoneme\\control\\hc.json"
+  ],
+  "exitCode": 0,
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "baseSha256": "19cd1751d574a3d4ef7c73260460932945e9b9bd9fcd8ff6535cfd8fc04f693f",
+  "operations": [
+    {
+      "op": "environment",
+      "text": "/ x _"
+    },
+    {
+      "op": "wordforming",
+      "representations": [
+        "x",
+        "m",
+        "u",
+        "a",
+        "s"
+      ]
+    }
+  ]
+}

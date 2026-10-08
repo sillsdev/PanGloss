@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "5683862eb73f91ca319ba6c79ed7eb94c7518845ae376e7dcb7e01fbcacfeb83",
+  "hcXmlSha256": "27269d51a6514af76cf03c22733f98bd69a6b52801a936a701d703bbe1a98ee0",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "x"
+      ],
+      "features": "[StrRep:\"x\", Type:segment]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "p"
+      ],
+      "features": "[StrRep:\"p\", Type:segment]"
+    },
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[StrRep:\"s\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+              "msaGuid": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "xuma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+              "msaGuid": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "xmuma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "xpuma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "xpumas",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 6
+    }
+  ]
+}

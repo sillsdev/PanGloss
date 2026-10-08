@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "caseId": "02-affix-letter",
+  "baseSha256": "6a1ebffab4c0c1d54bba00d0161181e79b320a314756b4e66a14d36ae208c770",
+  "operations": [
+    {
+      "op": "remove_phoneme",
+      "guid": "3cbf6ed2-302a-47d6-b56d-47b165c2e274",
+      "assertRepresentations": [
+        "x"
+      ],
+      "requireUnreferenced": false
+    }
+  ]
+}

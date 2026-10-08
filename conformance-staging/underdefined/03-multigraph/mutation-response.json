@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "mode": "mutate",
+  "caseId": "03-multigraph",
+  "baseSha256": "5816be63c3b530c821b142726d112c5c363591a61e010edbafece21f4dd9793c",
+  "materializedSha256": "c47fb278a5ada685efc2487205fc215391b8a9817684ce0975006f9bd7b037cb",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "removed": [
+    {
+      "guid": "83fdaa7f-8040-452e-a6a9-e87112a0c243",
+      "representations": [
+        "ch"
+      ]
+    }
+  ],
+  "inboundReferences": [],
+  "reopened": true,
+  "deletedCount": 1,
+  "diagnostics": []
+}

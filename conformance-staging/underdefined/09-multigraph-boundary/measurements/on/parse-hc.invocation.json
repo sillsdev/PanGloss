@@ -1,0 +1,16 @@
+{
+  "args": [
+    "parse-hc",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\accept-on\\Synthetic\\Synthetic.fwdata",
+    "--hc-xml",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\on\\Probe.hc.xml",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\on\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\on\\hc.json"
+  ],
+  "exitCode": 0,
+  "stdout": "",
+  "stderr": ""
+}

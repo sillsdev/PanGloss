@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "mode": "configure-probe",
+  "baseSha256": "98cebab2db87c3a5e11227aa8e468d0e55106995dafc1023db0dc89f4cb8dec9",
+  "materializedSha256": "8aff44aa889de335a13ccb541dcad290fcf0bbec1e0e6b0364db4ab113356f63",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "reopened": true,
+  "operations": [
+    {
+      "op": "accept-unspecified",
+      "value": true
+    }
+  ],
+  "parserParameters": "<ParserParameters>\n  <ActiveParser>XAmple</ActiveParser>\n  <XAmple>\n    <MaxNulls>0</MaxNulls>\n    <MaxPrefixes>5</MaxPrefixes>\n    <MaxInfixes>0</MaxInfixes>\n    <MaxRoots>1</MaxRoots>\n    <MaxSuffixes>5</MaxSuffixes>\n    <MaxInterfixes>0</MaxInterfixes>\n    <MaxAnalysesToReturn>1000</MaxAnalysesToReturn>\n  </XAmple>\n  <HC>\n    <NoDefaultCompounding>true</NoDefaultCompounding>\n    <AcceptUnspecifiedGraphemes>true</AcceptUnspecifiedGraphemes>\n  </HC>\n</ParserParameters>",
+  "environments": [
+    "/ [V] _"
+  ],
+  "naturalClasses": [
+    {
+      "kind": "PhNCFeatures",
+      "name": "V"
+    }
+  ],
+  "wordforming": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z"
+  ]
+}

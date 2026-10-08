@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "c5a17a640233f996b1e33734bea5d17b42827d78811b6c20ddfbe9072d6c3270",
+  "hcXmlSha256": "8ae2dd0f7506094bd90eaf4bcb86e0bd89537b715b530f0cd222853001b26c9f",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[StrRep:\"s\", Type:segment]"
+    },
+    {
+      "representations": [
+        "ã"
+      ],
+      "features": "[StrRep:\"ã\", Type:segment]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+              "msaGuid": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mãma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mãmas",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+              "msaGuid": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "mãma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mãmas",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+              "msaGuid": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    }
+  ]
+}

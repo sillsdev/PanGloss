@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "baseSha256": "b4545629824848ec1252a1e64d5478258b99f641208159185607cc6895745d8e",
+  "operations": [
+    {
+      "op": "clear-features",
+      "representation": "x"
+    }
+  ]
+}

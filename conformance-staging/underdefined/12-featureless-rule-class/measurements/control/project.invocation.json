@@ -1,0 +1,14 @@
+{
+  "args": [
+    "project",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\12-featureless-rule-class\\configured\\Synthetic\\Synthetic.fwdata",
+    "--out-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\12-featureless-rule-class\\control",
+    "--database",
+    "Probe"
+  ],
+  "exitCode": 0,
+  "stdout": "Generated 7 file(s) in H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\12-featureless-rule-class\\control:\n  Probe.hc.xml (9622 bytes, sha256 e79df5b0934676c03686146a8e9c81d874f7f7edb63302b5af9bdd8f758df1f5)\n  ProbegafawsData.xml (439 bytes, sha256 5f5979a65ee017320cd249d0ae922a5b6fdde1c18602f8f53da9675d595152a6)\n  OUTProbegafawsData.xml (673 bytes, sha256 26701bb5759a340cfd689f0fd361e1cf353167b687e6b48ec77ec7719bd8a93f, NOT deterministic)\n  Probeadctl.txt (3301 bytes, sha256 0fb0ac08cebfbceacdce3281be078467becd5f2572b895211d6a64f57d4d030b)\n  Probegram.txt (25636 bytes, sha256 41be3b8f2c533fd99547d951e54ce019421f801f839a4537fe84b13b3d819ac5)\n  ProbeXAmpleWordGrammarDebugger.xsl (105624 bytes, sha256 035317727ab32e5ae801eea05d50171fcf85d78363d5cc7a3bc26ee53e918251)\n  Probelex.txt (259 bytes, sha256 c09e29dc3532d1ca351fee69c719847ef8e26fc1b37e75d13e8b7b795026dd99)\n",
+  "stderr": ""
+}

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "mode": "configure-probe",
+  "baseSha256": "122332a58ad0a2ff33f4e9c5ad81c7fb00b0adb2a88e38ba86a749b5f4f51d83",
+  "materializedSha256": "6f7617bd76e99e5e4a3a77fec8986b582d4c3d8d2a33d7910f4b7a94c23f708c",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "reopened": true,
+  "operations": [
+    {
+      "op": "segment-class",
+      "members": [
+        "a",
+        "u"
+      ]
+    }
+  ],
+  "parserParameters": "<ParserParameters><ActiveParser>XAmple</ActiveParser><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>5</MaxPrefixes><MaxInfixes>0</MaxInfixes><MaxRoots>1</MaxRoots><MaxSuffixes>5</MaxSuffixes><MaxInterfixes>0</MaxInterfixes><MaxAnalysesToReturn>1000</MaxAnalysesToReturn></XAmple><HC><NoDefaultCompounding>true</NoDefaultCompounding><AcceptUnspecifiedGraphemes>false</AcceptUnspecifiedGraphemes></HC></ParserParameters>",
+  "environments": [
+    "/ [V] _"
+  ],
+  "naturalClasses": [
+    {
+      "kind": "PhNCSegments",
+      "name": "V"
+    }
+  ],
+  "wordforming": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z"
+  ]
+}

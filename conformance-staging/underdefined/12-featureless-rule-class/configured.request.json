@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "baseSha256": "e89a569502c461c3ee691864a5c50fd779f462d0369141b07f815ddb2c890881",
+  "operations": [
+    {
+      "op": "feature-class",
+      "distinct": true,
+      "assignments": {
+        "m": "-",
+        "u": "+",
+        "a": "+",
+        "s": "-",
+        "x": "-",
+        "p": "-"
+      }
+    },
+    {
+      "op": "rewrite",
+      "input": "m",
+      "output": "p",
+      "leftClass": "V"
+    }
+  ]
+}

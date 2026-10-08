@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse",
+  "database": "Probe",
+  "sourceSha256": "c5a17a640233f996b1e33734bea5d17b42827d78811b6c20ddfbe9072d6c3270",
+  "loadedEnginePinsVerified": true,
+  "engineVersion": "3.12.23.21",
+  "parameters": {
+    "runtime": {
+      "maxAnalysesToReturn": 1000
+    },
+    "adctl": {
+      "maxNulls": 0,
+      "maxPrefixes": 5,
+      "maxInfixes": 0,
+      "maxSuffixes": 5,
+      "maxRoots": 1,
+      "maxInterfixes": 0
+    },
+    "adctlPatched": false,
+    "adctlSource": "Probeadctl.txt"
+  },
+  "words": [
+    {
+      "word": "muma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"muma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='79' Label=\"muma\" wordType=\"root\"/>\r\n      <MSI DbRef='101'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "muma",
+              "allomorphGuid": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+              "inflectionTypeGuid": null,
+              "msaGuid": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "storedMsaGuid": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R0",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "muma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mãma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mãma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='81' Label=\"mãma\" wordType=\"root\"/>\r\n      <MSI DbRef='3'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "mãma",
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "inflectionTypeGuid": null,
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "storedMsaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R1",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "mãma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mãmas",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mãmas\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='81' Label=\"mãma\" wordType=\"root\"/>\r\n      <MSI DbRef='3'/>\r\n    </Morph>\r\n    <Morph>\r\n      <MoForm DbRef='74' Label=\"s\" wordType=\"63\"/>\r\n      <MSI DbRef='7'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "mãma",
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "inflectionTypeGuid": null,
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "storedMsaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R1",
+              "type": "MoStemAllomorph"
+            },
+            {
+              "form": "s",
+              "allomorphGuid": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+              "inflectionTypeGuid": null,
+              "msaGuid": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "storedMsaGuid": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "A",
+              "type": "MoAffixAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "mãmas"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mãma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mãma\">\r\n  <WfiAnalysis/>\r\n </Wordform>\r\n",
+      "analyses": [],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mãmas",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mãmas\">\r\n  <WfiAnalysis/>\r\n </Wordform>\r\n",
+      "analyses": [],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    }
+  ],
+  "nativeLog": "xample.json.xample.log"
+}

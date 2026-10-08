@@ -1,0 +1,30 @@
+
+\lx 50
+\g R1
+\c W
+\wc root
+\mp RootPOS66
+\a mum {12}
+ 
+\lx 54
+\g R0
+\c W
+\wc root
+\mp RootPOS66
+\a muma {2}
+ 
+\lx 107
+\g A
+\c W/W
+\o 2 2 
+\wc 63
+\a s {17}
+\eType suffix
+ 
+\lx 78
+\g R2
+\c W
+\wc root
+\mp RootPOS66
+\a mux {102}
+ 

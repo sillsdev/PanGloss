@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "mode": "configure-probe",
+  "baseSha256": "e89a569502c461c3ee691864a5c50fd779f462d0369141b07f815ddb2c890881",
+  "materializedSha256": "b4545629824848ec1252a1e64d5478258b99f641208159185607cc6895745d8e",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "reopened": true,
+  "operations": [
+    {
+      "op": "feature-class",
+      "distinct": true,
+      "assignments": {
+        "m": "-",
+        "u": "+",
+        "a": "+",
+        "s": "-",
+        "x": "-",
+        "p": "-"
+      }
+    },
+    {
+      "op": "rewrite",
+      "input": "m",
+      "output": "p",
+      "leftClass": "V"
+    }
+  ],
+  "parserParameters": "<ParserParameters><ActiveParser>XAmple</ActiveParser><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>5</MaxPrefixes><MaxInfixes>0</MaxInfixes><MaxRoots>1</MaxRoots><MaxSuffixes>5</MaxSuffixes><MaxInterfixes>0</MaxInterfixes><MaxAnalysesToReturn>1000</MaxAnalysesToReturn></XAmple><HC><NoDefaultCompounding>true</NoDefaultCompounding><AcceptUnspecifiedGraphemes>false</AcceptUnspecifiedGraphemes></HC></ParserParameters>",
+  "environments": [],
+  "naturalClasses": [
+    {
+      "kind": "PhNCFeatures",
+      "name": "V"
+    }
+  ],
+  "wordforming": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z"
+  ]
+}

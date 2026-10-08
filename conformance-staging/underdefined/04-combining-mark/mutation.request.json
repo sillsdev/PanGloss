@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "caseId": "04-combining-mark",
+  "baseSha256": "c5a17a640233f996b1e33734bea5d17b42827d78811b6c20ddfbe9072d6c3270",
+  "operations": [
+    {
+      "op": "remove_phoneme",
+      "guid": "640f27cf-550e-43da-8e5c-919296620796",
+      "assertRepresentations": [
+        "ã"
+      ],
+      "requireUnreferenced": false
+    }
+  ]
+}

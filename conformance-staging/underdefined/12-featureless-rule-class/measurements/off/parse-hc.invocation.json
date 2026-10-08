@@ -1,0 +1,16 @@
+{
+  "args": [
+    "parse-hc",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\12-featureless-rule-class\\featureless\\Synthetic\\Synthetic.fwdata",
+    "--hc-xml",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\12-featureless-rule-class\\off\\Probe.hc.xml",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\12-featureless-rule-class\\off\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\12-featureless-rule-class\\off\\hc.json"
+  ],
+  "exitCode": 0,
+  "stdout": "",
+  "stderr": ""
+}

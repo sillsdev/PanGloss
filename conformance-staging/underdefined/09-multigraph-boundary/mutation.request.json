@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "caseId": "09-multigraph-boundary",
+  "baseSha256": "d3b372963a972503149fb8d1c151b2a99e7fb9174a3783dbfa83957c273045b5",
+  "operations": [
+    {
+      "op": "remove_phoneme",
+      "guid": "a948906c-c6da-4b92-aff1-fe15bcecef31",
+      "assertRepresentations": [
+        "ch"
+      ],
+      "requireUnreferenced": false
+    }
+  ]
+}

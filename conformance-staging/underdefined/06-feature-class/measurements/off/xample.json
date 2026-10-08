@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse",
+  "database": "Probe",
+  "sourceSha256": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+  "loadedEnginePinsVerified": true,
+  "engineVersion": "3.12.23.21",
+  "parameters": {
+    "runtime": {
+      "maxAnalysesToReturn": 1000
+    },
+    "adctl": {
+      "maxNulls": 0,
+      "maxPrefixes": 5,
+      "maxInfixes": 0,
+      "maxSuffixes": 5,
+      "maxRoots": 1,
+      "maxInterfixes": 0
+    },
+    "adctlPatched": false,
+    "adctlSource": "Probeadctl.txt"
+  },
+  "words": [
+    {
+      "word": "muma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"muma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='12' Label=\"muma\" wordType=\"root\"/>\r\n      <MSI DbRef='121'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "muma",
+              "allomorphGuid": "14180160-3cf5-4a77-9c34-41abbb853719",
+              "inflectionTypeGuid": null,
+              "msaGuid": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+              "storedMsaGuid": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R0",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "muma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mumas",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mumas\">\r\n  <WfiAnalysis/>\r\n </Wordform>\r\n",
+      "analyses": [],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mum",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mum\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='37' Label=\"mum\" wordType=\"root\"/>\r\n      <MSI DbRef='70'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "mum",
+              "allomorphGuid": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+              "inflectionTypeGuid": null,
+              "msaGuid": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+              "storedMsaGuid": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R1",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "mum"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mums",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mums\">\r\n  <WfiAnalysis/>\r\n </Wordform>\r\n",
+      "analyses": [],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "mux",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"mux\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='61' Label=\"mux\" wordType=\"root\"/>\r\n      <MSI DbRef='71'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "mux",
+              "allomorphGuid": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+              "inflectionTypeGuid": null,
+              "msaGuid": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+              "storedMsaGuid": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R2",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "mux"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "muxs",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"muxs\">\r\n  <WfiAnalysis/>\r\n </Wordform>\r\n",
+      "analyses": [],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    }
+  ],
+  "nativeLog": "xample.json.xample.log"
+}

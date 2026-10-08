@@ -1,0 +1,198 @@
+# oracle-provenance: XAMPLE xample.dll/xample64.dll file version 3.12.23.21 (XAmpleManagedWrapper 9.3.10.1452), FieldWorks ParserCore/HCLoader 9.3.10.1452 + LCModel 11.0.0.55173, Machine/HC 3.8.2.0; XAMPLE off-project stored keys supply PanGloss minimum expectations; C# HC control/off/on are observations; PanGloss not executed. Binary hashes: ../engine-provenance.json.
+{
+  "schemaVersion": 1,
+  "language": "01-root-letter",
+  "inspired_by": [
+    "invented lexemes; no real language"
+  ],
+  "requires": [],
+  "fieldworks_producible": true,
+  "measurement_protocol": "underdefined-stored-keys-v1",
+  "words": [
+    {
+      "word": "muma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msa": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msa": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msa": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mumas",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msa": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "3db97d3b-f5a6-4f67-96be-59024ec21563",
+              "msa": "2642e3af-ffeb-4877-b12a-630d7d01f02f",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msa": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "3db97d3b-f5a6-4f67-96be-59024ec21563",
+              "msa": "2642e3af-ffeb-4877-b12a-630d7d01f02f",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msa": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "3db97d3b-f5a6-4f67-96be-59024ec21563",
+              "msa": "2642e3af-ffeb-4877-b12a-630d7d01f02f",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "xuma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "e78f7fd4-33d1-4157-b141-7c004fd39d48",
+              "msa": "af00386f-7294-4193-98fa-0bf918247eea",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xuma, contains an undefined phoneme at 0."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "e78f7fd4-33d1-4157-b141-7c004fd39d48",
+              "msa": "af00386f-7294-4193-98fa-0bf918247eea",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "xumas",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "e78f7fd4-33d1-4157-b141-7c004fd39d48",
+              "msa": "af00386f-7294-4193-98fa-0bf918247eea",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "3db97d3b-f5a6-4f67-96be-59024ec21563",
+              "msa": "2642e3af-ffeb-4877-b12a-630d7d01f02f",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumas, contains an undefined phoneme at 0."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "e78f7fd4-33d1-4157-b141-7c004fd39d48",
+              "msa": "af00386f-7294-4193-98fa-0bf918247eea",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "3db97d3b-f5a6-4f67-96be-59024ec21563",
+              "msa": "2642e3af-ffeb-4877-b12a-630d7d01f02f",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "xumu",
+      "xample": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumu, contains an undefined phoneme at 0."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    }
+  ]
+}

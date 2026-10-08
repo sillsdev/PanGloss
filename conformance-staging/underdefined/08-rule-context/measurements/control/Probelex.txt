@@ -1,0 +1,30 @@
+
+\lx 5
+\g A
+\c W/W
+\o 2 2 
+\wc 81
+\a s {108}
+\eType suffix
+ 
+\lx 13
+\g R1
+\c W
+\wc root
+\mp RootPOS70
+\a xuma {82}
+ 
+\lx 88
+\g R0
+\c W
+\wc root
+\mp RootPOS70
+\a muma {42}
+ 
+\lx 109
+\g R2
+\c W
+\wc root
+\mp RootPOS70
+\a xmuma {27}
+ 

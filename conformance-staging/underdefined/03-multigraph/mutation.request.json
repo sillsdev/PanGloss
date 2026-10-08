@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "caseId": "03-multigraph",
+  "baseSha256": "5816be63c3b530c821b142726d112c5c363591a61e010edbafece21f4dd9793c",
+  "operations": [
+    {
+      "op": "remove_phoneme",
+      "guid": "83fdaa7f-8040-452e-a6a9-e87112a0c243",
+      "assertRepresentations": [
+        "ch"
+      ],
+      "requireUnreferenced": false
+    }
+  ]
+}

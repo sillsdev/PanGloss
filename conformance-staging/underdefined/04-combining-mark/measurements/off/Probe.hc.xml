@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Synthetic</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="pos46">
+        <Name>N</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mpr1">Irregular Inflectional Variant</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr2">Past Variant</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mpr3">Plural Variant</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeatureGroup matchType="all" features="mpr1 mpr2 mpr3">
+        <Name>lexEntryInflTypes</Name>
+      </MorphologicalPhonologicalRuleFeatureGroup>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="table1">
+      <Name>***</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="char1">
+          <Representations>
+            <Representation>s</Representation>
+          </Representations>
+        </SegmentDefinition>
+        <SegmentDefinition id="char2">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+        </SegmentDefinition>
+        <SegmentDefinition id="char3">
+          <Representations>
+            <Representation>u</Representation>
+          </Representations>
+        </SegmentDefinition>
+        <SegmentDefinition id="char4">
+          <Representations>
+            <Representation>m</Representation>
+          </Representations>
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="char5">
+          <Representations>
+            <Representation>+</Representation>
+          </Representations>
+        </BoundaryDefinition>
+        <BoundaryDefinition id="char6">
+          <Representations>
+            <Representation>^0</Representation>
+            <Representation>*0</Representation>
+            <Representation>&amp;0</Representation>
+            <Representation>∅</Representation>
+          </Representations>
+        </BoundaryDefinition>
+        <BoundaryDefinition id="char7">
+          <Representations>
+            <Representation>.</Representation>
+          </Representations>
+        </BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="nc1">
+        <Name>Any</Name>
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered">
+        <Name>Morphology</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrule1" requiredPartsOfSpeech="pos46">
+            <Name>-s</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="msubrule1">
+                <MorphologicalInput>
+                  <PhoneticSequence id="msubrule1_stem">
+                    <OptionalSegmentSequence min="0" max="-1">
+                      <BoundaryMarker boundary="char6" />
+                      <BoundaryMarker boundary="char5" />
+                    </OptionalSegmentSequence>
+                    <OptionalSegmentSequence min="1" max="-1">
+                      <SimpleContext naturalClass="nc1" />
+                    </OptionalSegmentSequence>
+                    <OptionalSegmentSequence min="0" max="-1">
+                      <BoundaryMarker boundary="char5" />
+                      <BoundaryMarker boundary="char6" />
+                    </OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="msubrule1_stem" />
+                  <InsertSegments>
+                    <PhoneticShape>+s</PhoneticShape>
+                  </InsertSegments>
+                </MorphologicalOutput>
+                <Properties>
+                  <Property name="ID">73</Property>
+                </Properties>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>A</Gloss>
+            <Properties>
+              <Property name="ID">7</Property>
+            </Properties>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="pos46">
+            <Name>template</Name>
+            <Slot optional="true" morphologicalRules="mrule1">
+              <Name>slot</Name>
+            </Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="entry1" partOfSpeech="pos46">
+            <Allomorphs>
+              <Allomorph id="allo1">
+                <PhoneticShape>muma</PhoneticShape>
+                <Properties>
+                  <Property name="ID">77</Property>
+                </Properties>
+              </Allomorph>
+            </Allomorphs>
+            <Gloss>R0</Gloss>
+            <Properties>
+              <Property name="ID">99</Property>
+            </Properties>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered">
+        <Name>Clitics</Name>
+      </Stratum>
+      <Stratum characterDefinitionTable="table1">
+        <Name>Surface</Name>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

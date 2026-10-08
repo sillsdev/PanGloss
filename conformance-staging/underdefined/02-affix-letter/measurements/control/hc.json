@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "6a1ebffab4c0c1d54bba00d0161181e79b320a314756b4e66a14d36ae208c770",
+  "hcXmlSha256": "351e9fc936a4230a5af332ac5cd2356c65b1f096658cb3b01e8e590aa99843d2",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "x"
+      ],
+      "features": "[StrRep:\"x\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "7a03d086-5a3f-48a6-b87c-9d6e81f56875",
+              "msaGuid": "1b63a76b-1fa0-4fda-8f8e-8244f9ce9180",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mumax",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "7a03d086-5a3f-48a6-b87c-9d6e81f56875",
+              "msaGuid": "1b63a76b-1fa0-4fda-8f8e-8244f9ce9180",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "1ca1ff06-195c-4b6e-a4c5-a6b599b6e067",
+              "msaGuid": "6adcbf23-e9c9-4699-85e6-522329e865de",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "mumay",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumay, contains an undefined phoneme at 4.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumay, contains an undefined phoneme at 4.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    }
+  ]
+}

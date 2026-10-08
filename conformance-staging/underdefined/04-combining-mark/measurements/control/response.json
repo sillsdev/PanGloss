@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "mode": "project",
+  "fieldWorksVersion": "9.3.10.1452",
+  "assemblyVersions": {
+    "ParserCore.dll": "9.3.10.1452",
+    "SIL.LCModel.dll": "11.0.0.55173",
+    "SIL.Machine.dll": "3.8.2.0",
+    "SIL.Machine.Morphology.HermitCrab.dll": "3.8.2.0",
+    "XAmpleManagedWrapper.dll": "9.3.10.1452",
+    "xample64.dll": "3.12.23.21"
+  },
+  "sourcePath": "../../fieldworks-control/project.fwdata",
+  "sourceSha256": "c5a17a640233f996b1e33734bea5d17b42827d78811b6c20ddfbe9072d6c3270",
+  "database": "Probe",
+  "generated": [
+    {
+      "path": "Probe.hc.xml",
+      "sha256": "8ae2dd0f7506094bd90eaf4bcb86e0bd89537b715b530f0cd222853001b26c9f",
+      "bytes": 6339,
+      "deterministic": true
+    },
+    {
+      "path": "ProbegafawsData.xml",
+      "sha256": "ef9cf80748765a098ceac72fb98bd47b5a98b9efb3516ab4648f554a3fb1cf5e",
+      "bytes": 439,
+      "deterministic": true
+    },
+    {
+      "path": "OUTProbegafawsData.xml",
+      "sha256": "d935056f4491dfc9d40e6f4bc4ee1d23c2ecfdc754b6558f54bb65338c36e85f",
+      "bytes": 673,
+      "deterministic": false
+    },
+    {
+      "path": "Probeadctl.txt",
+      "sha256": "6d15fc74a3b5ca74e138c2a93841d4125152c9a82395233ad558aebb810f2d37",
+      "bytes": 3301,
+      "deterministic": true
+    },
+    {
+      "path": "Probegram.txt",
+      "sha256": "c314d5a7d59a0e9ce94760b3f0bcca96918dd218610baf469e0a59a23b0366ff",
+      "bytes": 25636,
+      "deterministic": true
+    },
+    {
+      "path": "ProbeXAmpleWordGrammarDebugger.xsl",
+      "sha256": "28ef09c27482191a00cb2a73e3188939e63f8598759b53d8156d4226ec222e3f",
+      "bytes": 105624,
+      "deterministic": true
+    },
+    {
+      "path": "Probelex.txt",
+      "sha256": "fc45a97d089463a897ce0e7826e8927a1797dbca33d18757db081be7dc0d7bc1",
+      "bytes": 195,
+      "deterministic": true
+    }
+  ],
+  "hcLoadDiagnostics": [],
+  "diagnostics": []
+}

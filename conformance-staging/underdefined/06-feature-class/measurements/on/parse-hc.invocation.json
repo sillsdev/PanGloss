@@ -1,0 +1,16 @@
+{
+  "args": [
+    "parse-hc",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\06-feature-class\\accept-on\\Synthetic\\Synthetic.fwdata",
+    "--hc-xml",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\06-feature-class\\on\\Probe.hc.xml",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\06-feature-class\\on\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\06-feature-class\\on\\hc.json"
+  ],
+  "exitCode": 0,
+  "stdout": "",
+  "stderr": ""
+}

@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "98cebab2db87c3a5e11227aa8e468d0e55106995dafc1023db0dc89f4cb8dec9",
+  "hcXmlSha256": "c4be0559b8dbf4fa67638b9e5c634acfc008c3a9868c9ff08d2790745441f7e9",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[identity:s, Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[identity:a, Type:segment, voc:+]"
+    },
+    {
+      "representations": [
+        "x"
+      ],
+      "features": "[identity:x, Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[identity:u, Type:segment, voc:+]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[identity:m, Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [
+    {
+      "name": "V",
+      "features": "[Type:segment, voc:+]",
+      "characters": [
+        {
+          "representations": [
+            "s"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "a"
+          ],
+          "unifiable": true,
+          "subsumes": true,
+          "subsumesWithDefaults": true
+        },
+        {
+          "representations": [
+            "x"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "u"
+          ],
+          "unifiable": true,
+          "subsumes": true,
+          "subsumesWithDefaults": true
+        },
+        {
+          "representations": [
+            "m"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "+"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "^0",
+            "*0",
+            "&0",
+            "∅"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "."
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "63ec2755-a1f1-4e18-868a-b6be3bf8fdaf",
+              "msaGuid": "6f62ca9a-2d87-4c56-94ac-a16528f38ba6",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mumas",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "63ec2755-a1f1-4e18-868a-b6be3bf8fdaf",
+              "msaGuid": "6f62ca9a-2d87-4c56-94ac-a16528f38ba6",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "cb8106f6-06df-4c9a-bf70-86d9ece78388",
+              "msaGuid": "dd0829a5-11fc-416a-8218-91656bfa0c23",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "mum",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "9598ba52-3657-4cf1-8435-adc6ae47259c",
+              "msaGuid": "310437c2-edd4-4610-b024-e2a60c9c6a19",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 3
+    },
+    {
+      "word": "mums",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mux",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "2c2be7b1-d517-4605-8ae1-e3eabefe9a66",
+              "msaGuid": "6070ad60-614f-4c1c-8df3-3ba7d19364a5",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 3
+    },
+    {
+      "word": "muxs",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    }
+  ]
+}

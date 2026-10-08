@@ -1,0 +1,513 @@
+{
+  "schemaVersion": 1,
+  "projectSha256": {
+    "control": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+    "off": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+    "on": "92d608c3460eed7550e9763714dd1a2b026ffef807f117eea0e87aad7aa7c2d4"
+  },
+  "modes": {
+    "control": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mumas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "2cc6e062-c88a-4a45-b411-f2500d5b74bc",
+                  "msa": "17908116-f32e-49c8-82bf-de58562ed503",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mum",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mums",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mux",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "muxs",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/control/xample.json.xample.log"
+    },
+    "off": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mumas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "2cc6e062-c88a-4a45-b411-f2500d5b74bc",
+                  "msa": "17908116-f32e-49c8-82bf-de58562ed503",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mum",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mums",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mux",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "muxs",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/off/xample.json.xample.log"
+    },
+    "on": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mumas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "14180160-3cf5-4a77-9c34-41abbb853719",
+                  "msa": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "2cc6e062-c88a-4a45-b411-f2500d5b74bc",
+                  "msa": "17908116-f32e-49c8-82bf-de58562ed503",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mum",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mums",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mux",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+                  "msa": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+                  "msa": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "muxs",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/on/xample.json.xample.log"
+    }
+  },
+  "writingSystemSha256": {
+    "control": {
+      "de.ldml": {
+        "sourceSha256": "1b4555343db1d84ff079f68a91477ba5406b604bd5e81a028af6f700f45307ac",
+        "stagedSha256": "656ad72727fe4c311c7c7b7f5324c7fc7ac7f961bac5db72d3873066f30a72d1"
+      },
+      "en.ldml": {
+        "sourceSha256": "3d6c5c133b0616e3d4adf9b4112e9e753b2e00350fd5265fcd102837dae18404",
+        "stagedSha256": "8f2b2b8499f6f4d65accaafa9e115d95cd6df0350d35c543a47e40aa27f2b4b3"
+      },
+      "es.ldml": {
+        "sourceSha256": "da7df05a655ff66bad93d7627b388babd5674ed6554759425f2657a398255c3b",
+        "stagedSha256": "971764f7496b5ec988fb07f1b9f8704abde94557111bb70ec8f5b92d08b30827"
+      },
+      "fr.ldml": {
+        "sourceSha256": "1f52abdd2c0cf686c46102e361d6c8028fc4ed295bf0610eed48d7b6800f5e13",
+        "stagedSha256": "ea91028207f67813f78ba9e5ea4b1568211a0aeb30b6170efa6806ed429d0275"
+      }
+    },
+    "off": {
+      "de.ldml": {
+        "sourceSha256": "1b4555343db1d84ff079f68a91477ba5406b604bd5e81a028af6f700f45307ac",
+        "stagedSha256": "656ad72727fe4c311c7c7b7f5324c7fc7ac7f961bac5db72d3873066f30a72d1"
+      },
+      "en.ldml": {
+        "sourceSha256": "3d6c5c133b0616e3d4adf9b4112e9e753b2e00350fd5265fcd102837dae18404",
+        "stagedSha256": "8f2b2b8499f6f4d65accaafa9e115d95cd6df0350d35c543a47e40aa27f2b4b3"
+      },
+      "es.ldml": {
+        "sourceSha256": "da7df05a655ff66bad93d7627b388babd5674ed6554759425f2657a398255c3b",
+        "stagedSha256": "971764f7496b5ec988fb07f1b9f8704abde94557111bb70ec8f5b92d08b30827"
+      },
+      "fr.ldml": {
+        "sourceSha256": "1f52abdd2c0cf686c46102e361d6c8028fc4ed295bf0610eed48d7b6800f5e13",
+        "stagedSha256": "ea91028207f67813f78ba9e5ea4b1568211a0aeb30b6170efa6806ed429d0275"
+      }
+    },
+    "on": {
+      "de.ldml": {
+        "sourceSha256": "1b4555343db1d84ff079f68a91477ba5406b604bd5e81a028af6f700f45307ac",
+        "stagedSha256": "656ad72727fe4c311c7c7b7f5324c7fc7ac7f961bac5db72d3873066f30a72d1"
+      },
+      "en.ldml": {
+        "sourceSha256": "3d6c5c133b0616e3d4adf9b4112e9e753b2e00350fd5265fcd102837dae18404",
+        "stagedSha256": "8f2b2b8499f6f4d65accaafa9e115d95cd6df0350d35c543a47e40aa27f2b4b3"
+      },
+      "es.ldml": {
+        "sourceSha256": "da7df05a655ff66bad93d7627b388babd5674ed6554759425f2657a398255c3b",
+        "stagedSha256": "971764f7496b5ec988fb07f1b9f8704abde94557111bb70ec8f5b92d08b30827"
+      },
+      "fr.ldml": {
+        "sourceSha256": "1f52abdd2c0cf686c46102e361d6c8028fc4ed295bf0610eed48d7b6800f5e13",
+        "stagedSha256": "ea91028207f67813f78ba9e5ea4b1568211a0aeb30b6170efa6806ed429d0275"
+      }
+    }
+  },
+  "ldmlRetainedElements": [
+    "identity",
+    "characters",
+    "layout",
+    "special"
+  ]
+}

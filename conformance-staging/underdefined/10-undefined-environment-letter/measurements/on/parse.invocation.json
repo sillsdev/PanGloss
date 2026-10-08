@@ -1,0 +1,18 @@
+{
+  "args": [
+    "parse",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\accept-on\\Synthetic\\Synthetic.fwdata",
+    "--project-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\on",
+    "--database",
+    "Probe",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\on\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\on\\xample.json"
+  ],
+  "exitCode": 0,
+  "stdout": "Wrote H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\on\\xample.json\n",
+  "stderr": ""
+}

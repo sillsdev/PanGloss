@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "mode": "mutate",
+  "caseId": "04-combining-mark",
+  "baseSha256": "c5a17a640233f996b1e33734bea5d17b42827d78811b6c20ddfbe9072d6c3270",
+  "materializedSha256": "fba8f0b17b56a3db93b3f271e1e2b8d5b8d105e3a1975bf4b7a8a61e8e51bb82",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "removed": [
+    {
+      "guid": "640f27cf-550e-43da-8e5c-919296620796",
+      "representations": [
+        "ã"
+      ]
+    }
+  ],
+  "inboundReferences": [],
+  "reopened": true,
+  "deletedCount": 1,
+  "diagnostics": []
+}

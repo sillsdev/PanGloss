@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "c47fb278a5ada685efc2487205fc215391b8a9817684ce0975006f9bd7b037cb",
+  "hcXmlSha256": "81ba24ffce824429550e4f3a78481a5644f82a235cb7eddd866a44e3ebdb56b3",
+  "diagnostics": [
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"chuma\" contains an undefined phoneme at 0."
+    }
+  ],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[StrRep:\"s\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+              "msaGuid": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "chuma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chuma, contains an undefined phoneme at 0.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chuma, contains an undefined phoneme at 0.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    },
+    {
+      "word": "chumas",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chumas, contains an undefined phoneme at 0.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chumas, contains an undefined phoneme at 0.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    },
+    {
+      "word": "cuma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    },
+    {
+      "word": "huma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    }
+  ]
+}

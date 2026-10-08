@@ -1,0 +1,14 @@
+{
+  "args": [
+    "project",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\08-rule-context\\mutated\\Synthetic\\Synthetic.fwdata",
+    "--out-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\08-rule-context\\off",
+    "--database",
+    "Probe"
+  ],
+  "exitCode": 0,
+  "stdout": "[InvalidShape] The form \"xuma\" contains an undefined phoneme at 0.\n[InvalidShape] The form \"xmuma\" contains an undefined phoneme at 0.\nGenerated 7 file(s) in H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\08-rule-context\\off:\n  Probe.hc.xml (6492 bytes, sha256 8f4ace6868fc20ee69a6eed42eb18f78aee0b13d56812bd0218fc336c80f168e)\n  ProbegafawsData.xml (439 bytes, sha256 bfbf3cf1352c5d42f6964a91accdfc74bbe312a1c42930ebb7176292134481f3)\n  OUTProbegafawsData.xml (673 bytes, sha256 bf28c7603818b364ff094a552825fbae9d002be3e945ffb7c531eaef58df9475, NOT deterministic)\n  Probeadctl.txt (3301 bytes, sha256 1e7022251a036e0acad349d24eee23a5cd8e0319e30e455d9fc8fc87d813d383)\n  Probegram.txt (25636 bytes, sha256 55939638681fd540c727acf8a9ae6ecd4d92e330471dcc389ad991163c9c084b)\n  ProbeXAmpleWordGrammarDebugger.xsl (105624 bytes, sha256 aaa464639252a8118d651157df83a1c96bbc6aa87b4fc154a7af1597c46c3a66)\n  Probelex.txt (259 bytes, sha256 980318199c8b8f3476ed57788848c2c1dfc4742e5218e3c8a67f424819fc67ad)\n",
+  "stderr": ""
+}

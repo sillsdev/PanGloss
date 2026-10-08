@@ -1,0 +1,208 @@
+# oracle-provenance: XAMPLE xample.dll/xample64.dll file version 3.12.23.21 (XAmpleManagedWrapper 9.3.10.1452), FieldWorks ParserCore/HCLoader 9.3.10.1452 + LCModel 11.0.0.55173, Machine/HC 3.8.2.0; XAMPLE off-project stored keys supply PanGloss minimum expectations; C# HC control/off/on are observations; PanGloss not executed. Binary hashes: ../engine-provenance.json.
+{
+  "schemaVersion": 1,
+  "language": "07-featureless-phoneme",
+  "inspired_by": [
+    "invented lexemes; no real language"
+  ],
+  "requires": [],
+  "fieldworks_producible": true,
+  "measurement_protocol": "underdefined-stored-keys-v1",
+  "words": [
+    {
+      "word": "muma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "7c297c71-5adc-4ce0-9e00-578a2d543e36",
+              "msa": "f867a974-9111-401e-85fe-110b70764e77",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "7c297c71-5adc-4ce0-9e00-578a2d543e36",
+              "msa": "f867a974-9111-401e-85fe-110b70764e77",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "7c297c71-5adc-4ce0-9e00-578a2d543e36",
+              "msa": "f867a974-9111-401e-85fe-110b70764e77",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mumas",
+      "xample": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "7c297c71-5adc-4ce0-9e00-578a2d543e36",
+              "msa": "f867a974-9111-401e-85fe-110b70764e77",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "61ad664c-b448-439d-a4ac-ee7e1ad91664",
+              "msa": "1bbe4a88-1819-4188-a9c2-ea3860a349d0",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mum",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "32bca18c-5674-4d46-93cb-799d27ce70b5",
+              "msa": "fbd31f71-be00-4ffe-93f3-83855d8d6d25",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "32bca18c-5674-4d46-93cb-799d27ce70b5",
+              "msa": "fbd31f71-be00-4ffe-93f3-83855d8d6d25",
+              "inflection_type": null
+            }
+          ],
+          [
+            {
+              "allomorph": "071cf99d-afbd-45df-bdb3-c544f2f35ef2",
+              "msa": "99a4fd88-0ca8-4a12-8714-0f8d25594de1",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "32bca18c-5674-4d46-93cb-799d27ce70b5",
+              "msa": "fbd31f71-be00-4ffe-93f3-83855d8d6d25",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mums",
+      "xample": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mux",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "071cf99d-afbd-45df-bdb3-c544f2f35ef2",
+              "msa": "99a4fd88-0ca8-4a12-8714-0f8d25594de1",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "32bca18c-5674-4d46-93cb-799d27ce70b5",
+              "msa": "fbd31f71-be00-4ffe-93f3-83855d8d6d25",
+              "inflection_type": null
+            }
+          ],
+          [
+            {
+              "allomorph": "071cf99d-afbd-45df-bdb3-c544f2f35ef2",
+              "msa": "99a4fd88-0ca8-4a12-8714-0f8d25594de1",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "071cf99d-afbd-45df-bdb3-c544f2f35ef2",
+              "msa": "99a4fd88-0ca8-4a12-8714-0f8d25594de1",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "muxs",
+      "xample": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "args": [
+    "parse",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\04-combining-mark\\mutated\\Synthetic\\Synthetic.fwdata",
+    "--project-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\04-combining-mark\\off",
+    "--database",
+    "Probe",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\04-combining-mark\\off\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\04-combining-mark\\off\\xample.json"
+  ],
+  "exitCode": 0,
+  "stdout": "Wrote H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\04-combining-mark\\off\\xample.json\n",
+  "stderr": ""
+}

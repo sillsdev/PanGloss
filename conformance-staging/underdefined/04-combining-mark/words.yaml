@@ -1,0 +1,159 @@
+# oracle-provenance: XAMPLE xample.dll/xample64.dll file version 3.12.23.21 (XAmpleManagedWrapper 9.3.10.1452), FieldWorks ParserCore/HCLoader 9.3.10.1452 + LCModel 11.0.0.55173, Machine/HC 3.8.2.0; XAMPLE off-project stored keys supply PanGloss minimum expectations; C# HC control/off/on are observations; PanGloss not executed. Binary hashes: ../engine-provenance.json.
+{
+  "schemaVersion": 1,
+  "language": "04-combining-mark",
+  "inspired_by": [
+    "invented lexemes; no real language"
+  ],
+  "requires": [],
+  "fieldworks_producible": true,
+  "measurement_protocol": "underdefined-stored-keys-v1",
+  "words": [
+    {
+      "word": "muma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+              "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+              "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+              "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mãma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mãmas",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+              "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+              "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mãma",
+      "xample": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mãmas",
+      "xample": {
+        "stored_analysis_keys": [],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    }
+  ]
+}

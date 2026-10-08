@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "mode": "configure-probe",
+  "baseSha256": "2dabe7dd61da219575184ea55a179a20ef4840b267ae253d080d08d44275ca3c",
+  "materializedSha256": "122332a58ad0a2ff33f4e9c5ad81c7fb00b0adb2a88e38ba86a749b5f4f51d83",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "reopened": true,
+  "operations": [
+    {
+      "op": "environment",
+      "text": "/ [V] _"
+    }
+  ],
+  "parserParameters": "<ParserParameters><ActiveParser>XAmple</ActiveParser><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>5</MaxPrefixes><MaxInfixes>0</MaxInfixes><MaxRoots>1</MaxRoots><MaxSuffixes>5</MaxSuffixes><MaxInterfixes>0</MaxInterfixes><MaxAnalysesToReturn>1000</MaxAnalysesToReturn></XAmple><HC><NoDefaultCompounding>true</NoDefaultCompounding><AcceptUnspecifiedGraphemes>false</AcceptUnspecifiedGraphemes></HC></ParserParameters>",
+  "environments": [
+    "/ [V] _"
+  ],
+  "naturalClasses": [],
+  "wordforming": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z"
+  ]
+}

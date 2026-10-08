@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "mode": "configure-probe",
+  "baseSha256": "fba8f0b17b56a3db93b3f271e1e2b8d5b8d105e3a1975bf4b7a8a61e8e51bb82",
+  "materializedSha256": "cb0fb25efccc9189c29ad17b016bee46d466e90deca013e1dfc1017d6c05ec1e",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "reopened": true,
+  "operations": [
+    {
+      "op": "accept-unspecified",
+      "value": true
+    }
+  ],
+  "parserParameters": "<ParserParameters>\n  <ActiveParser>XAmple</ActiveParser>\n  <XAmple>\n    <MaxNulls>0</MaxNulls>\n    <MaxPrefixes>5</MaxPrefixes>\n    <MaxInfixes>0</MaxInfixes>\n    <MaxRoots>1</MaxRoots>\n    <MaxSuffixes>5</MaxSuffixes>\n    <MaxInterfixes>0</MaxInterfixes>\n    <MaxAnalysesToReturn>1000</MaxAnalysesToReturn>\n  </XAmple>\n  <HC>\n    <NoDefaultCompounding>true</NoDefaultCompounding>\n    <AcceptUnspecifiedGraphemes>true</AcceptUnspecifiedGraphemes>\n  </HC>\n</ParserParameters>",
+  "environments": [],
+  "naturalClasses": [],
+  "wordforming": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "ã"
+  ]
+}

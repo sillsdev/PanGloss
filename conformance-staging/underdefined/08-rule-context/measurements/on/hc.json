@@ -1,0 +1,421 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "26393d7b5c048066725ab122b05bce425ad3f5772b7aac10e297b2419aa156a6",
+  "hcXmlSha256": "11575b5c111bf2398d5980cfca3e764c7edfc544513fabc91ad4b34fc5f90c85",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "p"
+      ],
+      "features": "[StrRep:\"p\", Type:segment]"
+    },
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[StrRep:\"s\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "b"
+      ],
+      "features": "[StrRep:\"b\", Type:segment]"
+    },
+    {
+      "representations": [
+        "c"
+      ],
+      "features": "[StrRep:\"c\", Type:segment]"
+    },
+    {
+      "representations": [
+        "d"
+      ],
+      "features": "[StrRep:\"d\", Type:segment]"
+    },
+    {
+      "representations": [
+        "e"
+      ],
+      "features": "[StrRep:\"e\", Type:segment]"
+    },
+    {
+      "representations": [
+        "f"
+      ],
+      "features": "[StrRep:\"f\", Type:segment]"
+    },
+    {
+      "representations": [
+        "g"
+      ],
+      "features": "[StrRep:\"g\", Type:segment]"
+    },
+    {
+      "representations": [
+        "h"
+      ],
+      "features": "[StrRep:\"h\", Type:segment]"
+    },
+    {
+      "representations": [
+        "i"
+      ],
+      "features": "[StrRep:\"i\", Type:segment]"
+    },
+    {
+      "representations": [
+        "j"
+      ],
+      "features": "[StrRep:\"j\", Type:segment]"
+    },
+    {
+      "representations": [
+        "k"
+      ],
+      "features": "[StrRep:\"k\", Type:segment]"
+    },
+    {
+      "representations": [
+        "l"
+      ],
+      "features": "[StrRep:\"l\", Type:segment]"
+    },
+    {
+      "representations": [
+        "n"
+      ],
+      "features": "[StrRep:\"n\", Type:segment]"
+    },
+    {
+      "representations": [
+        "o"
+      ],
+      "features": "[StrRep:\"o\", Type:segment]"
+    },
+    {
+      "representations": [
+        "q"
+      ],
+      "features": "[StrRep:\"q\", Type:segment]"
+    },
+    {
+      "representations": [
+        "r"
+      ],
+      "features": "[StrRep:\"r\", Type:segment]"
+    },
+    {
+      "representations": [
+        "t"
+      ],
+      "features": "[StrRep:\"t\", Type:segment]"
+    },
+    {
+      "representations": [
+        "v"
+      ],
+      "features": "[StrRep:\"v\", Type:segment]"
+    },
+    {
+      "representations": [
+        "w"
+      ],
+      "features": "[StrRep:\"w\", Type:segment]"
+    },
+    {
+      "representations": [
+        "x"
+      ],
+      "features": "[StrRep:\"x\", Type:segment]"
+    },
+    {
+      "representations": [
+        "y"
+      ],
+      "features": "[StrRep:\"y\", Type:segment]"
+    },
+    {
+      "representations": [
+        "z"
+      ],
+      "features": "[StrRep:\"z\", Type:segment]"
+    },
+    {
+      "representations": [
+        "!"
+      ],
+      "features": "[StrRep:\"!\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "\""
+      ],
+      "features": "[StrRep:\"\"\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "#"
+      ],
+      "features": "[StrRep:\"#\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "&"
+      ],
+      "features": "[StrRep:\"&\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "'"
+      ],
+      "features": "[StrRep:\"'\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "("
+      ],
+      "features": "[StrRep:\"(\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ")"
+      ],
+      "features": "[StrRep:\")\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "*"
+      ],
+      "features": "[StrRep:\"*\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ","
+      ],
+      "features": "[StrRep:\",\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "-"
+      ],
+      "features": "[StrRep:\"-\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "/"
+      ],
+      "features": "[StrRep:\"/\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ":"
+      ],
+      "features": "[StrRep:\":\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ";"
+      ],
+      "features": "[StrRep:\";\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "?"
+      ],
+      "features": "[StrRep:\"?\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "@"
+      ],
+      "features": "[StrRep:\"@\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "["
+      ],
+      "features": "[StrRep:\"[\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "]"
+      ],
+      "features": "[StrRep:\"]\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "§"
+      ],
+      "features": "[StrRep:\"§\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‐"
+      ],
+      "features": "[StrRep:\"‐\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‑"
+      ],
+      "features": "[StrRep:\"‑\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "–"
+      ],
+      "features": "[StrRep:\"–\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "—"
+      ],
+      "features": "[StrRep:\"—\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‘"
+      ],
+      "features": "[StrRep:\"‘\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "’"
+      ],
+      "features": "[StrRep:\"’\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "“"
+      ],
+      "features": "[StrRep:\"“\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "”"
+      ],
+      "features": "[StrRep:\"”\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "†"
+      ],
+      "features": "[StrRep:\"†\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‡"
+      ],
+      "features": "[StrRep:\"‡\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "…"
+      ],
+      "features": "[StrRep:\"…\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "′"
+      ],
+      "features": "[StrRep:\"′\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "″"
+      ],
+      "features": "[StrRep:\"″\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "xuma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "xmuma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "xpuma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "xpumas",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 6
+    }
+  ]
+}

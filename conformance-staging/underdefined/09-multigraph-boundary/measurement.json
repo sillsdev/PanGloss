@@ -1,0 +1,411 @@
+{
+  "schemaVersion": 1,
+  "projectSha256": {
+    "control": "d3b372963a972503149fb8d1c151b2a99e7fb9174a3783dbfa83957c273045b5",
+    "off": "2e8f0923c2743a461433c0e3b5548eab9704c50c6214faa459164a2ea9297866",
+    "on": "38fd07fa4c0d9800a1c293da0386b81ab147afa87de7051d723c0ed0bce62bd8"
+  },
+  "modes": {
+    "control": {
+      "words": [
+        {
+          "word": "huma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "cchuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/control/xample.json.xample.log"
+    },
+    "off": {
+      "words": [
+        {
+          "word": "huma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "cchuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/off/xample.json.xample.log"
+    },
+    "on": {
+      "words": [
+        {
+          "word": "huma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "chuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ],
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+                  "msa": "07992c9b-9706-4d71-acf4-a81a14018768",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "cchuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+                  "msa": "c42dae9c-7de0-414a-8699-96389823d9e3",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+                  "msa": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/on/xample.json.xample.log"
+    }
+  },
+  "writingSystemSha256": {
+    "control": {
+      "de.ldml": {
+        "sourceSha256": "d7bcc5198e289a202c798b1965b4b66b22386e17f0cf72f8cf5ffda51dc3546f",
+        "stagedSha256": "a8d2a6830fc238850d0a68b153e3cb637d24ebc3e566c8809ad8bbc03ca0c876"
+      },
+      "en.ldml": {
+        "sourceSha256": "e0afafd09b7c9c03681ea736d4978e5c399ffe5f727537c6d134989b32b7e298",
+        "stagedSha256": "0ed7565ed5856eb5040acd2e06be5372c2f291eb4e3e3865c136cd6189002315"
+      },
+      "es.ldml": {
+        "sourceSha256": "fa5f0afda34ad523ec3197a4f4946a3d36df40649bd07d4d4e86e825bb8b96e0",
+        "stagedSha256": "e6cab39430a1fc472b5a2b5efdb2aa5a1e51f572f168829279e836eff5ce3b89"
+      },
+      "fr.ldml": {
+        "sourceSha256": "26dfc16a8e640b457b9bc9cfb36d4f6067d7fe56614d0f84b6be896f0d424a97",
+        "stagedSha256": "bf11d8e29ca1d685b8c25b3f6ba258e044dfe86951350b3209861cd018e96f43"
+      }
+    },
+    "off": {
+      "de.ldml": {
+        "sourceSha256": "d7bcc5198e289a202c798b1965b4b66b22386e17f0cf72f8cf5ffda51dc3546f",
+        "stagedSha256": "a8d2a6830fc238850d0a68b153e3cb637d24ebc3e566c8809ad8bbc03ca0c876"
+      },
+      "en.ldml": {
+        "sourceSha256": "e0afafd09b7c9c03681ea736d4978e5c399ffe5f727537c6d134989b32b7e298",
+        "stagedSha256": "0ed7565ed5856eb5040acd2e06be5372c2f291eb4e3e3865c136cd6189002315"
+      },
+      "es.ldml": {
+        "sourceSha256": "fa5f0afda34ad523ec3197a4f4946a3d36df40649bd07d4d4e86e825bb8b96e0",
+        "stagedSha256": "e6cab39430a1fc472b5a2b5efdb2aa5a1e51f572f168829279e836eff5ce3b89"
+      },
+      "fr.ldml": {
+        "sourceSha256": "26dfc16a8e640b457b9bc9cfb36d4f6067d7fe56614d0f84b6be896f0d424a97",
+        "stagedSha256": "bf11d8e29ca1d685b8c25b3f6ba258e044dfe86951350b3209861cd018e96f43"
+      }
+    },
+    "on": {
+      "de.ldml": {
+        "sourceSha256": "d7bcc5198e289a202c798b1965b4b66b22386e17f0cf72f8cf5ffda51dc3546f",
+        "stagedSha256": "a8d2a6830fc238850d0a68b153e3cb637d24ebc3e566c8809ad8bbc03ca0c876"
+      },
+      "en.ldml": {
+        "sourceSha256": "e0afafd09b7c9c03681ea736d4978e5c399ffe5f727537c6d134989b32b7e298",
+        "stagedSha256": "0ed7565ed5856eb5040acd2e06be5372c2f291eb4e3e3865c136cd6189002315"
+      },
+      "es.ldml": {
+        "sourceSha256": "fa5f0afda34ad523ec3197a4f4946a3d36df40649bd07d4d4e86e825bb8b96e0",
+        "stagedSha256": "e6cab39430a1fc472b5a2b5efdb2aa5a1e51f572f168829279e836eff5ce3b89"
+      },
+      "fr.ldml": {
+        "sourceSha256": "26dfc16a8e640b457b9bc9cfb36d4f6067d7fe56614d0f84b6be896f0d424a97",
+        "stagedSha256": "bf11d8e29ca1d685b8c25b3f6ba258e044dfe86951350b3209861cd018e96f43"
+      }
+    }
+  },
+  "ldmlRetainedElements": [
+    "identity",
+    "characters",
+    "layout",
+    "special"
+  ]
+}

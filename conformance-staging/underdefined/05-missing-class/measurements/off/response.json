@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "mode": "project",
+  "fieldWorksVersion": "9.3.10.1452",
+  "assemblyVersions": {
+    "ParserCore.dll": "9.3.10.1452",
+    "SIL.LCModel.dll": "11.0.0.55173",
+    "SIL.Machine.dll": "3.8.2.0",
+    "SIL.Machine.Morphology.HermitCrab.dll": "3.8.2.0",
+    "XAmpleManagedWrapper.dll": "9.3.10.1452",
+    "xample64.dll": "3.12.23.21"
+  },
+  "sourcePath": "../../fieldworks/project.fwdata",
+  "sourceSha256": "122332a58ad0a2ff33f4e9c5ad81c7fb00b0adb2a88e38ba86a749b5f4f51d83",
+  "database": "Probe",
+  "generated": [
+    {
+      "path": "Probe.hc.xml",
+      "sha256": "2e5cc1830b4dd3e99d6c811051636939238d2ff4a1ef0bf5c9fd6d60f7e4e273",
+      "bytes": 6842,
+      "deterministic": true
+    },
+    {
+      "path": "ProbegafawsData.xml",
+      "sha256": "37022cc705852984b482d5e0f0510779815325b89fa7c91cbea15912222440aa",
+      "bytes": 439,
+      "deterministic": true
+    },
+    {
+      "path": "OUTProbegafawsData.xml",
+      "sha256": "6a157e250c1aa35e4ba8355c94b8ee413fcfaa23e9c59611ebffae3915ec3b37",
+      "bytes": 673,
+      "deterministic": false
+    },
+    {
+      "path": "Probeadctl.txt",
+      "sha256": "65c3fb03e7a146b3cd8ded2bfd00872a082a9489a82e972cb07e59a5050bcc97",
+      "bytes": 3301,
+      "deterministic": true
+    },
+    {
+      "path": "Probegram.txt",
+      "sha256": "e0b5daec230e5eb820eb83a50b9ba70ddc977b2f744bea4a509f9463c80541e1",
+      "bytes": 25636,
+      "deterministic": true
+    },
+    {
+      "path": "ProbeXAmpleWordGrammarDebugger.xsl",
+      "sha256": "bf570319476d4e96f047e2411a4cca7628c6b2abbd4490014148c436f74343bd",
+      "bytes": 105624,
+      "deterministic": true
+    },
+    {
+      "path": "Probelex.txt",
+      "sha256": "1ebcee4b0c7e768e561e124e180ef4b2165b01f0c0547e54019f8fc5a4423ef4",
+      "bytes": 256,
+      "deterministic": true
+    }
+  ],
+  "hcLoadDiagnostics": [
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ [V] _\" is invalid. Reason: Unrecognized natural class at position 4."
+    }
+  ],
+  "diagnostics": []
+}

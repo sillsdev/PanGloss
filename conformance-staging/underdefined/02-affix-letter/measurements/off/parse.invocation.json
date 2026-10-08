@@ -1,0 +1,18 @@
+{
+  "args": [
+    "parse",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\mutated\\Synthetic\\Synthetic.fwdata",
+    "--project-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\off",
+    "--database",
+    "Probe",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\off\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\off\\xample.json"
+  ],
+  "exitCode": 0,
+  "stdout": "Wrote H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\off\\xample.json\n",
+  "stderr": ""
+}

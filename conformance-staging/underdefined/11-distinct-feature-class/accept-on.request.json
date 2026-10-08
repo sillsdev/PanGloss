@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "baseSha256": "98cebab2db87c3a5e11227aa8e468d0e55106995dafc1023db0dc89f4cb8dec9",
+  "operations": [
+    {
+      "op": "accept-unspecified",
+      "value": true
+    }
+  ]
+}

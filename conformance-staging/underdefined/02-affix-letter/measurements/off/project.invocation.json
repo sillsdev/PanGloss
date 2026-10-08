@@ -1,0 +1,14 @@
+{
+  "args": [
+    "project",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\mutated\\Synthetic\\Synthetic.fwdata",
+    "--out-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\off",
+    "--database",
+    "Probe"
+  ],
+  "exitCode": 0,
+  "stdout": "[InvalidShape] The form \"+x\" contains an undefined phoneme at 1.\nGenerated 7 file(s) in H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\02-affix-letter\\off:\n  Probe.hc.xml (3487 bytes, sha256 8987c97a3caf1e8f613577e1d726e4e64380e4524358334267fbc180f0d1f493)\n  ProbegafawsData.xml (437 bytes, sha256 e67526e3764716ba74ce0fd79aa9fd94a4f01028287374fee0116d59cdb9dec5)\n  OUTProbegafawsData.xml (671 bytes, sha256 2d7978eb4c61b005f259b4cfb9f17b3ed01de788bd7d9d013a9b83330c7ab9a8, NOT deterministic)\n  Probeadctl.txt (3301 bytes, sha256 ea994b4e5c70e27f63444a32a1e81cbbae8d4fc066ae55a8d32d852958ea1018)\n  Probegram.txt (25628 bytes, sha256 a44ab15e6eab13f9a660dc55e4b49b8fcb227a9c839cdeca8f441583453e4d03)\n  ProbeXAmpleWordGrammarDebugger.xsl (105619 bytes, sha256 cb2e8439d25c2db060b7563c02aa92698ad670706ab5022faeafb6c57ca344f9)\n  Probelex.txt (130 bytes, sha256 5b40b136f7d92701c88553fad024dc8797860620ec2ce6ad7239c89efd34a477)\n",
+  "stderr": ""
+}

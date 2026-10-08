@@ -1,0 +1,18 @@
+{
+  "args": [
+    "parse",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\mutated\\Synthetic\\Synthetic.fwdata",
+    "--project-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\off",
+    "--database",
+    "Probe",
+    "--words",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\off\\words.txt",
+    "--out",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\off\\xample.json"
+  ],
+  "exitCode": 0,
+  "stdout": "Wrote H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\09-multigraph-boundary\\off\\xample.json\n",
+  "stderr": ""
+}

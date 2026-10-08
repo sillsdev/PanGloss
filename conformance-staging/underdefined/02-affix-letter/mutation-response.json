@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "mode": "mutate",
+  "caseId": "02-affix-letter",
+  "baseSha256": "6a1ebffab4c0c1d54bba00d0161181e79b320a314756b4e66a14d36ae208c770",
+  "materializedSha256": "50488efe05374b58dfb87893663605add157068e9cc0b467e571ce5354d1e264",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "removed": [
+    {
+      "guid": "3cbf6ed2-302a-47d6-b56d-47b165c2e274",
+      "representations": [
+        "x"
+      ]
+    }
+  ],
+  "inboundReferences": [],
+  "reopened": true,
+  "deletedCount": 1,
+  "diagnostics": []
+}

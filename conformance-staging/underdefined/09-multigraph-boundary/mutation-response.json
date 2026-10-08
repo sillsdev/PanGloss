@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "mode": "mutate",
+  "caseId": "09-multigraph-boundary",
+  "baseSha256": "d3b372963a972503149fb8d1c151b2a99e7fb9174a3783dbfa83957c273045b5",
+  "materializedSha256": "2e8f0923c2743a461433c0e3b5548eab9704c50c6214faa459164a2ea9297866",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "removed": [
+    {
+      "guid": "a948906c-c6da-4b92-aff1-fe15bcecef31",
+      "representations": [
+        "ch"
+      ]
+    }
+  ],
+  "inboundReferences": [],
+  "reopened": true,
+  "deletedCount": 1,
+  "diagnostics": []
+}

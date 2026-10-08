@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "mode": "project",
+  "fieldWorksVersion": "9.3.10.1452",
+  "assemblyVersions": {
+    "ParserCore.dll": "9.3.10.1452",
+    "SIL.LCModel.dll": "11.0.0.55173",
+    "SIL.Machine.dll": "3.8.2.0",
+    "SIL.Machine.Morphology.HermitCrab.dll": "3.8.2.0",
+    "XAmpleManagedWrapper.dll": "9.3.10.1452",
+    "xample64.dll": "3.12.23.21"
+  },
+  "sourcePath": "../../fieldworks/project.fwdata",
+  "sourceSha256": "fba8f0b17b56a3db93b3f271e1e2b8d5b8d105e3a1975bf4b7a8a61e8e51bb82",
+  "database": "Probe",
+  "generated": [
+    {
+      "path": "Probe.hc.xml",
+      "sha256": "512c744e4f9ca37fae32e6e8f368706a87f15ba697d435d5e33e20cc145409a9",
+      "bytes": 5655,
+      "deterministic": true
+    },
+    {
+      "path": "ProbegafawsData.xml",
+      "sha256": "e54bc5d6849072021b441552f444250a8d19a66dc847de10399e897c4ba0e70d",
+      "bytes": 439,
+      "deterministic": true
+    },
+    {
+      "path": "OUTProbegafawsData.xml",
+      "sha256": "dea48b855fee3fc260c627a148d3d328542fe9943ef6d06671ae40f26e4d4bda",
+      "bytes": 673,
+      "deterministic": false
+    },
+    {
+      "path": "Probeadctl.txt",
+      "sha256": "3cd9c7a3844eca8f3de7077eef4bbc215b7978e0bf96aa027a3a4f2431e6a65f",
+      "bytes": 3301,
+      "deterministic": true
+    },
+    {
+      "path": "Probegram.txt",
+      "sha256": "96f1044add2a4a6c0d71c2a0b459513f96df4231690ffd59cb7f8c5251b52f40",
+      "bytes": 25636,
+      "deterministic": true
+    },
+    {
+      "path": "ProbeXAmpleWordGrammarDebugger.xsl",
+      "sha256": "bdfd791926f15edac7ac7a874fd42f7a7f762a847fef30b1a2701dff5509d2ec",
+      "bytes": 105624,
+      "deterministic": true
+    },
+    {
+      "path": "Probelex.txt",
+      "sha256": "6aaafa421e15fa375e24fa8964f65cd088eb90e63393c63a27dc9e3c845db440",
+      "bytes": 194,
+      "deterministic": true
+    }
+  ],
+  "hcLoadDiagnostics": [
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"mãma\" contains an undefined phoneme at 2."
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "baseSha256": "12e33f2b4f218c969938e9f8421d6e558c75a53b49ae653902daf62f9e484bb3",
+  "operations": [
+    {
+      "op": "feature-class",
+      "assignments": {
+        "m": "-",
+        "u": "+",
+        "a": "+",
+        "s": "-"
+      }
+    },
+    {
+      "op": "environment",
+      "text": "/ [V] _"
+    }
+  ]
+}

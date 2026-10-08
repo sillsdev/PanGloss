@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "fba8f0b17b56a3db93b3f271e1e2b8d5b8d105e3a1975bf4b7a8a61e8e51bb82",
+  "hcXmlSha256": "512c744e4f9ca37fae32e6e8f368706a87f15ba697d435d5e33e20cc145409a9",
+  "diagnostics": [
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"mãma\" contains an undefined phoneme at 2."
+    }
+  ],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[StrRep:\"s\", Type:segment]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+              "msaGuid": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mãma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    },
+    {
+      "word": "mãmas",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    },
+    {
+      "word": "mãma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    },
+    {
+      "word": "mãmas",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    }
+  ]
+}

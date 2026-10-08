@@ -1,0 +1,1881 @@
+<?xml version="1.0" encoding="utf-8"?>
+<languageproject version="7000072">
+<rt class="LexEntryInflType" guid="01d4fbc1-3b0c-4f52-9163-7ab0d4f4711c" ownerguid="bb372467-5230-43ef-9cc7-4d40b053fb94">
+<Abbreviation>
+<AUni ws="en">irr. inf. var. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Irregular Inflectional Variant</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="LexEntryType" guid="024b62c9-93b3-41a0-ab19-587a0030219a" ownerguid="bb372467-5230-43ef-9cc7-4d40b053fb94">
+<Abbreviation>
+<AUni ws="en">dial. var. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Dialectal Variant</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="03c78ede-9aec-459f-9644-3384d68fb4a3" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.699" />
+<DateModified val="2026-10-08 18:20:23.699" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="PhNCFeatures" guid="061c9e82-66a0-40b2-9026-507e01a22598" ownerguid="0861cdbb-6024-4e6f-97ec-fded5bc2fd9e">
+<Abbreviation>
+<AUni ws="en">V</AUni>
+</Abbreviation>
+<Features>
+<objsur guid="4829de37-8bca-4b5b-a7a7-0e7d5affbfcc" t="o" />
+</Features>
+<Name>
+<AUni ws="en">V</AUni>
+</Name>
+</rt>
+<rt class="MoStemAllomorph" guid="071cf99d-afbd-45df-bdb3-c544f2f35ef2" ownerguid="4905d0ef-7f3d-41ef-afb9-e2f5612a22a7">
+<Form>
+<AUni ws="en">mux</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="r" />
+</MorphType>
+</rt>
+<rt class="PhPhonData" guid="0861cdbb-6024-4e6f-97ec-fded5bc2fd9e" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<Environments>
+<objsur guid="ee03c60a-6213-48de-8bee-2d4340cac1dc" t="o" />
+</Environments>
+<NaturalClasses>
+<objsur guid="061c9e82-66a0-40b2-9026-507e01a22598" t="o" />
+</NaturalClasses>
+<PhonemeSets>
+<objsur guid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d" t="o" />
+</PhonemeSets>
+<PhonRuleFeats>
+<objsur guid="1b15be7e-f6df-4f1e-a6e8-59dd5fadf5bd" t="o" />
+</PhonRuleFeats>
+</rt>
+<rt class="LexEntryType" guid="0c4663b3-4d9a-47af-b9a1-c8565d8112ed" ownerguid="bb372467-5230-43ef-9cc7-4d40b053fb94">
+<Abbreviation>
+<AUni ws="en">sp. var. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.783" />
+<DateModified val="2026-10-08 18:20:23.783" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Spelling Variant</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="0cc8c35a-cee9-434d-be58-5d29130fba5b" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">dis phr</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">discontiguous phrase</AUni>
+</Name>
+<SecondaryOrder val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmAgent" guid="1257a971-fcef-4f06-a5e2-c289de5aaf72" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<Human val="False" />
+<Version>
+<Uni>Normal</Uni>
+</Version>
+</rt>
+<rt class="LexSense" guid="12613ac3-7672-4f7b-8b73-9fa976b471b4" ownerguid="68b3b9e9-8e27-4ea3-b8e0-51605fd5f165">
+<Gloss>
+<AUni ws="en">R0</AUni>
+</Gloss>
+<MorphoSyntaxAnalysis>
+<objsur guid="f867a974-9111-401e-85fe-110b70764e77" t="r" />
+</MorphoSyntaxAnalysis>
+</rt>
+<rt class="MoMorphType" guid="18d9b1c3-b5b6-4c07-b92c-2fe1d2281bd4" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">ifxnfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">infixing interfix</AUni>
+</Name>
+<Postfix>
+<Uni>-</Uni>
+</Postfix>
+<Prefix>
+<Uni>-</Uni>
+</Prefix>
+<SecondaryOrder val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="1b15be7e-f6df-4f1e-a6e8-59dd5fadf5bd" ownerguid="0861cdbb-6024-4e6f-97ec-fded5bc2fd9e">
+<DateCreated val="2026-10-08 18:20:23.713" />
+<DateModified val="2026-10-08 18:20:23.713" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="5132" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="MoInflAffMsa" guid="1bbe4a88-1819-4188-a9c2-ea3860a349d0" ownerguid="2cf90114-0d3c-4e9e-8d3f-6a5291cf7d84">
+<PartOfSpeech>
+<objsur guid="9897a023-202c-47e8-9146-784bae2e8d50" t="r" />
+</PartOfSpeech>
+<Slots>
+<objsur guid="7c0a89ae-e899-4f9e-be8b-aef93279e54c" t="r" />
+</Slots>
+</rt>
+<rt class="FsClosedValue" guid="1c4440e2-acb7-4af8-9876-f690560f7749" ownerguid="78204359-4164-43d4-b09b-09fc3c9d3fed">
+<Feature>
+<objsur guid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca" t="r" />
+</Feature>
+<RefNumber val="0" />
+<Value>
+<objsur guid="34ca558b-016f-4a5c-ba0d-84ca2a042e97" t="r" />
+</Value>
+<ValueState val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.770" />
+<DateModified val="2026-10-08 18:20:23.770" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="5118" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Possibilities>
+<objsur guid="fec038ed-6a8c-4fa5-bc96-a4f515a98c50" t="o" />
+<objsur guid="1f6ae209-141a-40db-983c-bee93af0ca3c" t="o" />
+<objsur guid="73266a3a-48e8-4bd7-8c84-91c730340b7d" t="o" />
+<objsur guid="98c273c4-f723-4fb0-80df-eede2204dfca" t="o" />
+<objsur guid="b2276dec-b1a6-4d82-b121-fd114c009c59" t="o" />
+<objsur guid="35cee792-74c8-444e-a9b7-ed0461d4d3b7" t="o" />
+<objsur guid="9466d126-246e-400b-8bba-0703e09bc567" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="LexEntryType" guid="1f6ae209-141a-40db-983c-bee93af0ca3c" ownerguid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6">
+<Abbreviation>
+<AUni ws="en">comp. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Compound</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphData" guid="23f51cd7-bc22-4b82-b5d6-3afe4c27e9dc" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<ParserParameters>
+<Uni>&lt;ParserParameters&gt;
+  &lt;ActiveParser&gt;XAmple&lt;/ActiveParser&gt;
+  &lt;XAmple&gt;
+    &lt;MaxNulls&gt;0&lt;/MaxNulls&gt;
+    &lt;MaxPrefixes&gt;5&lt;/MaxPrefixes&gt;
+    &lt;MaxInfixes&gt;0&lt;/MaxInfixes&gt;
+    &lt;MaxRoots&gt;1&lt;/MaxRoots&gt;
+    &lt;MaxSuffixes&gt;5&lt;/MaxSuffixes&gt;
+    &lt;MaxInterfixes&gt;0&lt;/MaxInterfixes&gt;
+    &lt;MaxAnalysesToReturn&gt;1000&lt;/MaxAnalysesToReturn&gt;
+  &lt;/XAmple&gt;
+  &lt;HC&gt;
+    &lt;NoDefaultCompounding&gt;true&lt;/NoDefaultCompounding&gt;
+    &lt;AcceptUnspecifiedGraphemes&gt;true&lt;/AcceptUnspecifiedGraphemes&gt;
+  &lt;/HC&gt;
+&lt;/ParserParameters&gt;</Uni>
+</ParserParameters>
+<ProdRestrict>
+<objsur guid="2d098b5c-2847-4a36-a523-15dce39338f9" t="o" />
+</ProdRestrict>
+</rt>
+<rt class="CmPossibility" guid="2447168e-31e1-4f71-98ea-c562e8502fc0" ownerguid="dabd93cb-e518-4816-a8f6-7b50a587dd9b">
+<Abbreviation>
+<AUni ws="en">Main</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.743" />
+<DateModified val="2026-10-08 18:20:23.743" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Main Dictionary</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="27111188-1728-4e78-b1d2-0a4f9b695cb4" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.700" />
+<DateModified val="2026-10-08 18:20:23.700" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="66" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="LexEntry" guid="2cf90114-0d3c-4e9e-8d3f-6a5291cf7d84">
+<DateCreated val="2026-10-08 18:20:23.842" />
+<DateModified val="2026-10-08 18:20:23.842" />
+<DoNotUseForParsing val="False" />
+<HomographNumber val="0" />
+<LexemeForm>
+<objsur guid="61ad664c-b448-439d-a4ac-ee7e1ad91664" t="o" />
+</LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="1bbe4a88-1819-4188-a9c2-ea3860a349d0" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses>
+<objsur guid="4ae880e9-ab0a-4589-aada-0e518dd099ca" t="o" />
+</Senses>
+</rt>
+<rt class="CmPossibilityList" guid="2d098b5c-2847-4a36-a523-15dce39338f9" ownerguid="23f51cd7-bc22-4b82-b5d6-3afe4c27e9dc">
+<DateCreated val="2026-10-08 18:20:23.713" />
+<DateModified val="2026-10-08 18:20:23.713" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="CmPossibility" guid="2f06d436-b1e0-47ae-a42e-1f7b893c5fc2" ownerguid="ed6b2dcc-e82f-4631-b61a-6b630de332d0">
+<Abbreviation>
+<AUni ws="en">Coll.</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.784" />
+<DateModified val="2026-10-08 18:20:23.784" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Collocation</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibility" guid="30115b33-608a-4506-9f9c-2457cab4f4a8" ownerguid="ed6b2dcc-e82f-4631-b61a-6b630de332d0">
+<Abbreviation>
+<AUni ws="en">Gram.</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.784" />
+<DateModified val="2026-10-08 18:20:23.784" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Grammar</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoStemAllomorph" guid="32bca18c-5674-4d46-93cb-799d27ce70b5" ownerguid="fb827ab4-ef82-4f33-8bc5-6c7509af904e">
+<Form>
+<AUni ws="en">mum</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="r" />
+</MorphType>
+</rt>
+<rt class="MoMorphType" guid="3433683d-08a9-4bae-ae53-2a7798f64068" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">sfxnfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">suffixing interfix</AUni>
+</Name>
+<Prefix>
+<Uni>-</Uni>
+</Prefix>
+<SecondaryOrder val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="FsSymFeatVal" guid="34ca558b-016f-4a5c-ba0d-84ca2a042e97" ownerguid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca">
+<Abbreviation>
+<AUni ws="en">+</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">+</AUni>
+</Name>
+<ShowInGloss val="False" />
+</rt>
+<rt class="LexEntryType" guid="35cee792-74c8-444e-a9b7-ed0461d4d3b7" ownerguid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6">
+<Abbreviation>
+<AUni ws="en">p.v.</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Phrasal Verb</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="LexEntryType" guid="3942addb-99fd-43e9-ab7d-99025ceb0d4e" ownerguid="bb372467-5230-43ef-9cc7-4d40b053fb94">
+<Abbreviation>
+<AUni ws="en">unspec. var. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Unspecified Variant</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="PhBdryMarker" guid="3bde17ce-e39a-4bae-8a5c-a8d96fd4cb56" ownerguid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d">
+<Codes>
+<objsur guid="44f2f5a3-6ffc-47a2-b492-4ec4ab6afb57" t="o" />
+</Codes>
+<Name>
+<AUni ws="en">+</AUni>
+</Name>
+</rt>
+<rt class="LexEntryType" guid="4343b1ef-b54f-4fa4-9998-271319a6d74c" ownerguid="bb372467-5230-43ef-9cc7-4d40b053fb94">
+<Abbreviation>
+<AUni ws="en">fr. var. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Free Variant</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="PhCode" guid="44f2f5a3-6ffc-47a2-b492-4ec4ab6afb57" ownerguid="3bde17ce-e39a-4bae-8a5c-a8d96fd4cb56">
+<Representation>
+<AUni ws="en">+</AUni>
+</Representation>
+</rt>
+<rt class="FsFeatStruc" guid="46a14a57-d8ee-4a9f-a0c1-d1cd5cf3a5e5" ownerguid="e30b0468-0a11-406a-8384-ac05cfa2086f">
+<FeatureSpecs>
+<objsur guid="99ba81a4-05a3-4f04-92ae-0e56261c2c1d" t="o" />
+</FeatureSpecs>
+</rt>
+<rt class="LexDb" guid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<ComplexEntryTypes>
+<objsur guid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6" t="o" />
+</ComplexEntryTypes>
+<DateCreated val="2026-10-08 18:20:23.723" />
+<DateModified val="2026-10-08 18:20:23.723" />
+<DialectLabels>
+<objsur guid="a3a8188b-ab00-4a43-b925-a1eed62287ba" t="o" />
+</DialectLabels>
+<DomainTypes>
+<objsur guid="c2460d9b-233a-40da-9884-a44753567eae" t="o" />
+</DomainTypes>
+<ExtendedNoteTypes>
+<objsur guid="ed6b2dcc-e82f-4631-b61a-6b630de332d0" t="o" />
+</ExtendedNoteTypes>
+<IsBodyInSeparateSubentry val="False" />
+<IsHeadwordCitationForm val="False" />
+<Languages>
+<objsur guid="487c15b0-2ced-4417-8b77-9075f4a21e5f" t="o" />
+</Languages>
+<MorphTypes>
+<objsur guid="7e66591f-d4fc-46fb-a393-f1420f31307c" t="o" />
+</MorphTypes>
+<PublicationTypes>
+<objsur guid="dabd93cb-e518-4816-a8f6-7b50a587dd9b" t="o" />
+</PublicationTypes>
+<SenseTypes>
+<objsur guid="bf640994-69d1-4081-b51e-6548364001a1" t="o" />
+</SenseTypes>
+<UsageTypes>
+<objsur guid="67de5857-131c-4b39-b65b-26c1d805d124" t="o" />
+</UsageTypes>
+<VariantEntryTypes>
+<objsur guid="bb372467-5230-43ef-9cc7-4d40b053fb94" t="o" />
+</VariantEntryTypes>
+</rt>
+<rt class="FsFeatStruc" guid="4829de37-8bca-4b5b-a7a7-0e7d5affbfcc" ownerguid="061c9e82-66a0-40b2-9026-507e01a22598">
+<FeatureSpecs>
+<objsur guid="63acbbc6-890f-4f61-b6ac-efda36e55dc2" t="o" />
+</FeatureSpecs>
+</rt>
+<rt class="CmPossibilityList" guid="487c15b0-2ced-4417-8b77-9075f4a21e5f" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.784" />
+<DateModified val="2026-10-08 18:20:23.784" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="LexEntry" guid="4905d0ef-7f3d-41ef-afb9-e2f5612a22a7">
+<DateCreated val="2026-10-08 18:20:23.914" />
+<DateModified val="2026-10-08 18:20:23.914" />
+<DoNotUseForParsing val="False" />
+<HomographNumber val="0" />
+<LexemeForm>
+<objsur guid="071cf99d-afbd-45df-bdb3-c544f2f35ef2" t="o" />
+</LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="99a4fd88-0ca8-4a12-8714-0f8d25594de1" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses>
+<objsur guid="ebe2b5aa-9aca-4b25-8679-bf047f972d41" t="o" />
+</Senses>
+</rt>
+<rt class="LexSense" guid="4ae880e9-ab0a-4589-aada-0e518dd099ca" ownerguid="2cf90114-0d3c-4e9e-8d3f-6a5291cf7d84">
+<Gloss>
+<AUni ws="en">A</AUni>
+</Gloss>
+<MorphoSyntaxAnalysis>
+<objsur guid="1bbe4a88-1819-4188-a9c2-ea3860a349d0" t="r" />
+</MorphoSyntaxAnalysis>
+</rt>
+<rt class="PhCode" guid="538fef74-9a05-4537-82fc-279b525af745" ownerguid="9c3fb80a-432b-42ae-a20c-5f8abf6e1aa6">
+<Representation>
+<AUni ws="en">m</AUni>
+</Representation>
+</rt>
+<rt class="MoMorphType" guid="56db04bf-3d58-44cc-b292-4c8aa68538f4" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">part</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">particle</AUni>
+</Name>
+<SecondaryOrder val="1" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmAnnotationDefn" guid="56de9b1a-1ce7-42a1-aa76-512ebeff0dda" ownerguid="7ffc4eab-856a-43cc-bc11-0db55738c15b">
+<AllowsComment val="False" />
+<AllowsFeatureStructure val="False" />
+<AllowsInstanceOf val="False" />
+<BackColor val="0" />
+<CanCreateOrphan val="False" />
+<CopyCutPastable val="False" />
+<DateCreated val="2026-10-08 18:20:23.792" />
+<DateModified val="2026-10-08 18:20:23.792" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<InstanceOfSignature val="0" />
+<IsProtected val="False" />
+<MaxDupOccur val="0" />
+<Multi val="False" />
+<Name>
+<AUni ws="en">Consultant</AUni>
+</Name>
+<PromptUser val="False" />
+<Severity val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+<UserCanCreate val="True" />
+<ZeroWidth val="False" />
+</rt>
+<rt class="CmPossibility" guid="5dd29371-fdb0-497a-a2fb-7ca69b00ad4f" ownerguid="ed6b2dcc-e82f-4631-b61a-6b630de332d0">
+<Abbreviation>
+<AUni ws="en">Sem.</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.784" />
+<DateModified val="2026-10-08 18:20:23.784" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Semantic</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoAffixAllomorph" guid="61ad664c-b448-439d-a4ac-ee7e1ad91664" ownerguid="2cf90114-0d3c-4e9e-8d3f-6a5291cf7d84">
+<Form>
+<AUni ws="en">s</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="d7f713dd-e8cf-11d3-9764-00c04f186933" t="r" />
+</MorphType>
+<PhoneEnv>
+<objsur guid="ee03c60a-6213-48de-8bee-2d4340cac1dc" t="r" />
+</PhoneEnv>
+</rt>
+<rt class="FsClosedValue" guid="63acbbc6-890f-4f61-b6ac-efda36e55dc2" ownerguid="4829de37-8bca-4b5b-a7a7-0e7d5affbfcc">
+<Feature>
+<objsur guid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca" t="r" />
+</Feature>
+<RefNumber val="0" />
+<Value>
+<objsur guid="34ca558b-016f-4a5c-ba0d-84ca2a042e97" t="r" />
+</Value>
+<ValueState val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="67de5857-131c-4b39-b65b-26c1d805d124" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.724" />
+<DateModified val="2026-10-08 18:20:23.724" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="CmAgent" guid="67e9b8bf-c312-458e-89c3-6e9326e48aa0" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<Human val="False" />
+</rt>
+<rt class="LexEntry" guid="68b3b9e9-8e27-4ea3-b8e0-51605fd5f165">
+<DateCreated val="2026-10-08 18:20:23.905" />
+<DateModified val="2026-10-08 18:20:23.905" />
+<DoNotUseForParsing val="False" />
+<HomographNumber val="0" />
+<LexemeForm>
+<objsur guid="7c297c71-5adc-4ce0-9e00-578a2d543e36" t="o" />
+</LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="f867a974-9111-401e-85fe-110b70764e77" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses>
+<objsur guid="12613ac3-7672-4f7b-8b73-9fa976b471b4" t="o" />
+</Senses>
+</rt>
+<rt class="LexEntryType" guid="73266a3a-48e8-4bd7-8c84-91c730340b7d" ownerguid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6">
+<Abbreviation>
+<AUni ws="en">cont. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Contraction</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="76fb50ca-f858-469c-b1de-a73a863e9b10" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.800" />
+<DateModified val="2026-10-08 18:20:23.800" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="0" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="FsFeatStruc" guid="78204359-4164-43d4-b09b-09fc3c9d3fed" ownerguid="a9faa251-a7a8-4fec-b1b9-efc5172ddd0f">
+<FeatureSpecs>
+<objsur guid="1c4440e2-acb7-4af8-9876-f690560f7749" t="o" />
+</FeatureSpecs>
+</rt>
+<rt class="FsFeatureSystem" guid="7a8e927c-5669-45b1-a8e3-5bcabf381f40" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<Features>
+<objsur guid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca" t="o" />
+</Features>
+</rt>
+<rt class="CmPossibility" guid="7ad06e7d-15d1-42b0-ae19-9c05b7c0b181" ownerguid="ed6b2dcc-e82f-4631-b61a-6b630de332d0">
+<Abbreviation>
+<AUni ws="en">Cult.</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.784" />
+<DateModified val="2026-10-08 18:20:23.784" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Cultural</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="PhCode" guid="7b5e7907-04bc-4d81-bedb-95b379a2dcb1" ownerguid="babb74c4-088d-4c36-9b4f-3e88074e50f1">
+<Representation>
+<AUni ws="en">x</AUni>
+</Representation>
+</rt>
+<rt class="MoInflAffixSlot" guid="7c0a89ae-e899-4f9e-be8b-aef93279e54c" ownerguid="9897a023-202c-47e8-9146-784bae2e8d50">
+<Name>
+<AUni ws="en">slot</AUni>
+</Name>
+<Optional val="True" />
+</rt>
+<rt class="MoStemAllomorph" guid="7c297c71-5adc-4ce0-9e00-578a2d543e36" ownerguid="68b3b9e9-8e27-4ea3-b8e0-51605fd5f165">
+<Form>
+<AUni ws="en">muma</AUni>
+</Form>
+<IsAbstract val="False" />
+<MorphType>
+<objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="r" />
+</MorphType>
+</rt>
+<rt class="PhCode" guid="7d88a1af-7676-485d-864b-782525b2e923" ownerguid="e30b0468-0a11-406a-8384-ac05cfa2086f">
+<Representation>
+<AUni ws="en">u</AUni>
+</Representation>
+</rt>
+<rt class="CmPossibilityList" guid="7e66591f-d4fc-46fb-a393-f1420f31307c" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.767" />
+<DateModified val="2026-10-08 18:20:23.767" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="5042" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Possibilities>
+<objsur guid="d7f713e4-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713e7-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713df-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713e1-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713da-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="56db04bf-3d58-44cc-b292-4c8aa68538f4" t="o" />
+<objsur guid="d7f713db-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713e2-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713e5-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713dc-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713dd-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f713de-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="18d9b1c3-b5b6-4c07-b92c-2fe1d2281bd4" t="o" />
+<objsur guid="af6537b0-7175-4387-ba6a-36547d37fb13" t="o" />
+<objsur guid="3433683d-08a9-4bae-ae53-2a7798f64068" t="o" />
+<objsur guid="a23b6faa-1052-4f4d-984b-4b338bdaf95f" t="o" />
+<objsur guid="0cc8c35a-cee9-434d-be58-5d29130fba5b" t="o" />
+<objsur guid="c2d140e5-7ca9-41f4-a69a-22fc7049dd2c" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="CmAnnotationDefn" guid="7ffc4eab-856a-43cc-bc11-0db55738c15b" ownerguid="d71ce92e-2231-4ddf-9f66-cad842af7bbb">
+<AllowsComment val="False" />
+<AllowsFeatureStructure val="False" />
+<AllowsInstanceOf val="False" />
+<BackColor val="0" />
+<CanCreateOrphan val="False" />
+<CopyCutPastable val="False" />
+<DateCreated val="2026-10-08 18:20:23.791" />
+<DateModified val="2026-10-08 18:20:23.791" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<InstanceOfSignature val="0" />
+<IsProtected val="False" />
+<MaxDupOccur val="0" />
+<Multi val="False" />
+<PromptUser val="False" />
+<Severity val="0" />
+<SortSpec val="0" />
+<SubPossibilities>
+<objsur guid="56de9b1a-1ce7-42a1-aa76-512ebeff0dda" t="o" />
+<objsur guid="80ae5729-9cd8-424d-8e71-96c1a8fd5821" t="o" />
+</SubPossibilities>
+<UnderColor val="0" />
+<UnderStyle val="0" />
+<UserCanCreate val="False" />
+<ZeroWidth val="False" />
+</rt>
+<rt class="CmPossibility" guid="80a0dddb-8b4b-4454-b872-88adec6f2aba" ownerguid="d7f71649-e8cf-11d3-9764-00c04f186933">
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.800" />
+<DateModified val="2026-10-08 18:20:23.800" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmAnnotationDefn" guid="80ae5729-9cd8-424d-8e71-96c1a8fd5821" ownerguid="7ffc4eab-856a-43cc-bc11-0db55738c15b">
+<AllowsComment val="False" />
+<AllowsFeatureStructure val="False" />
+<AllowsInstanceOf val="False" />
+<BackColor val="0" />
+<CanCreateOrphan val="False" />
+<CopyCutPastable val="False" />
+<DateCreated val="2026-10-08 18:20:23.792" />
+<DateModified val="2026-10-08 18:20:23.792" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<InstanceOfSignature val="0" />
+<IsProtected val="False" />
+<MaxDupOccur val="0" />
+<Multi val="False" />
+<Name>
+<AUni ws="en">Translator</AUni>
+</Name>
+<PromptUser val="False" />
+<Severity val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+<UserCanCreate val="True" />
+<ZeroWidth val="False" />
+</rt>
+<rt class="PhPhoneme" guid="817ee254-6e60-4de0-bb54-261054f9b18c" ownerguid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d">
+<Codes>
+<objsur guid="aa262faa-9f6d-4565-bfb7-22647e468926" t="o" />
+</Codes>
+<Features>
+<objsur guid="c7b3ece7-ed47-408f-8dd6-d4026798ffa7" t="o" />
+</Features>
+<Name>
+<AUni ws="en">s</AUni>
+</Name>
+</rt>
+<rt class="CmAnnotationDefn" guid="82e2fd92-48d8-43c9-ba84-cc4a2a5beead" ownerguid="d71ce92e-2231-4ddf-9f66-cad842af7bbb">
+<AllowsComment val="False" />
+<AllowsFeatureStructure val="False" />
+<AllowsInstanceOf val="False" />
+<BackColor val="0" />
+<CanCreateOrphan val="False" />
+<CopyCutPastable val="False" />
+<DateCreated val="2026-10-08 18:20:23.792" />
+<DateModified val="2026-10-08 18:20:23.792" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<InstanceOfSignature val="0" />
+<IsProtected val="False" />
+<MaxDupOccur val="0" />
+<Multi val="False" />
+<PromptUser val="False" />
+<Severity val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+<UserCanCreate val="False" />
+<ZeroWidth val="False" />
+</rt>
+<rt class="LexSense" guid="82e6ef5e-2e0a-43d7-91ff-05ef23a2b12d" ownerguid="fb827ab4-ef82-4f33-8bc5-6c7509af904e">
+<Gloss>
+<AUni ws="en">R1</AUni>
+</Gloss>
+<MorphoSyntaxAnalysis>
+<objsur guid="fbd31f71-be00-4ffe-93f3-83855d8d6d25" t="r" />
+</MorphoSyntaxAnalysis>
+</rt>
+<rt class="LexEntryInflType" guid="837ebe72-8c1d-4864-95d9-fa313c499d78" ownerguid="bb372467-5230-43ef-9cc7-4d40b053fb94">
+<Abbreviation>
+<AUni ws="en">pst. var. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.783" />
+<DateModified val="2026-10-08 18:20:23.783" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Past Variant</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="FsClosedValue" guid="85564f25-7304-44b0-a3ea-130c391c62f1" ownerguid="e0af3343-919b-4956-b329-ef8bc72032c6">
+<Feature>
+<objsur guid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca" t="r" />
+</Feature>
+<RefNumber val="0" />
+<Value>
+<objsur guid="8aa6dff0-2d09-4206-becd-12805ef40077" t="r" />
+</Value>
+<ValueState val="0" />
+</rt>
+<rt class="FsSymFeatVal" guid="8aa6dff0-2d09-4206-becd-12805ef40077" ownerguid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca">
+<Abbreviation>
+<AUni ws="en">-</AUni>
+</Abbreviation>
+<Name>
+<AUni ws="en">-</AUni>
+</Name>
+<ShowInGloss val="False" />
+</rt>
+<rt class="CmAnnotationDefn" guid="8d4cbd80-0dca-4a83-8a1f-9db3aa4cff54" ownerguid="d71ce92e-2231-4ddf-9f66-cad842af7bbb">
+<AllowsComment val="False" />
+<AllowsFeatureStructure val="False" />
+<AllowsInstanceOf val="False" />
+<BackColor val="0" />
+<CanCreateOrphan val="False" />
+<CopyCutPastable val="False" />
+<DateCreated val="2026-10-08 18:20:23.789" />
+<DateModified val="2026-10-08 18:20:23.789" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<InstanceOfSignature val="0" />
+<IsProtected val="False" />
+<MaxDupOccur val="0" />
+<Multi val="False" />
+<PromptUser val="False" />
+<Severity val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+<UserCanCreate val="False" />
+<ZeroWidth val="False" />
+</rt>
+<rt class="FsFeatureSystem" guid="92132773-5767-40fc-a6ae-1de101710b18" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6" />
+<rt class="CmAgent" guid="9303883a-ad5c-4ccf-97a5-4add391f8dcb" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<Human val="True" />
+</rt>
+<rt class="LexEntryType" guid="9466d126-246e-400b-8bba-0703e09bc567" ownerguid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6">
+<Abbreviation>
+<AUni ws="en">say.</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Saying</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="FsClosedValue" guid="96c012e4-4e83-44c6-973d-3c8709d24eda" ownerguid="c7b3ece7-ed47-408f-8dd6-d4026798ffa7">
+<Feature>
+<objsur guid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca" t="r" />
+</Feature>
+<RefNumber val="0" />
+<Value>
+<objsur guid="8aa6dff0-2d09-4206-becd-12805ef40077" t="r" />
+</Value>
+<ValueState val="0" />
+</rt>
+<rt class="PartOfSpeech" guid="9897a023-202c-47e8-9146-784bae2e8d50" ownerguid="fa524934-f155-4ce0-ab4e-546667619094">
+<Abbreviation>
+<AUni ws="en">N</AUni>
+</Abbreviation>
+<AffixSlots>
+<objsur guid="7c0a89ae-e899-4f9e-be8b-aef93279e54c" t="o" />
+</AffixSlots>
+<AffixTemplates>
+<objsur guid="a1960508-db67-49d4-8a27-22d9c671c693" t="o" />
+</AffixTemplates>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.817" />
+<DateModified val="2026-10-08 18:20:23.817" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">N</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="LexEntryType" guid="98c273c4-f723-4fb0-80df-eede2204dfca" ownerguid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6">
+<Abbreviation>
+<AUni ws="en">der. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Derivation</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoStemMsa" guid="99a4fd88-0ca8-4a12-8714-0f8d25594de1" ownerguid="4905d0ef-7f3d-41ef-afb9-e2f5612a22a7">
+<PartOfSpeech>
+<objsur guid="9897a023-202c-47e8-9146-784bae2e8d50" t="r" />
+</PartOfSpeech>
+</rt>
+<rt class="FsClosedValue" guid="99ba81a4-05a3-4f04-92ae-0e56261c2c1d" ownerguid="46a14a57-d8ee-4a9f-a0c1-d1cd5cf3a5e5">
+<Feature>
+<objsur guid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca" t="r" />
+</Feature>
+<RefNumber val="0" />
+<Value>
+<objsur guid="34ca558b-016f-4a5c-ba0d-84ca2a042e97" t="r" />
+</Value>
+<ValueState val="0" />
+</rt>
+<rt class="PhPhoneme" guid="9c3fb80a-432b-42ae-a20c-5f8abf6e1aa6" ownerguid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d">
+<Codes>
+<objsur guid="538fef74-9a05-4537-82fc-279b525af745" t="o" />
+</Codes>
+<Features>
+<objsur guid="e0af3343-919b-4956-b329-ef8bc72032c6" t="o" />
+</Features>
+<Name>
+<AUni ws="en">m</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="9cff9164-8dcd-4c3e-9741-e22f7d86219e" ownerguid="a9faa251-a7a8-4fec-b1b9-efc5172ddd0f">
+<Representation>
+<AUni ws="en">a</AUni>
+</Representation>
+</rt>
+<rt class="LangProject" guid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<AnalysisWss>
+<Uni>en</Uni>
+</AnalysisWss>
+<AnalyzingAgents>
+<objsur guid="1257a971-fcef-4f06-a5e2-c289de5aaf72" t="o" />
+<objsur guid="67e9b8bf-c312-458e-89c3-6e9326e48aa0" t="o" />
+<objsur guid="9303883a-ad5c-4ccf-97a5-4add391f8dcb" t="o" />
+</AnalyzingAgents>
+<AnnotationDefs>
+<objsur guid="d71ce92e-2231-4ddf-9f66-cad842af7bbb" t="o" />
+</AnnotationDefs>
+<AnthroList>
+<objsur guid="ec4c20fb-3189-4fa2-8222-699e7e25b5c1" t="o" />
+</AnthroList>
+<CheckLists>
+<objsur guid="76fb50ca-f858-469c-b1de-a73a863e9b10" t="o" />
+</CheckLists>
+<ConfidenceLevels>
+<objsur guid="03c78ede-9aec-459f-9644-3384d68fb4a3" t="o" />
+</ConfidenceLevels>
+<CurAnalysisWss>
+<Uni>en</Uni>
+</CurAnalysisWss>
+<CurVernWss>
+<Uni>en</Uni>
+</CurVernWss>
+<DateCreated val="2026-10-08 18:20:21.959" />
+<DateModified val="2026-10-08 18:20:21.959" />
+<HomographWs>
+<Uni>en</Uni>
+</HomographWs>
+<LexDb>
+<objsur guid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79" t="o" />
+</LexDb>
+<Locations>
+<objsur guid="aeaf27ca-aa18-4193-94d5-7976e432e213" t="o" />
+</Locations>
+<MorphologicalData>
+<objsur guid="23f51cd7-bc22-4b82-b5d6-3afe4c27e9dc" t="o" />
+</MorphologicalData>
+<MsFeatureSystem>
+<objsur guid="92132773-5767-40fc-a6ae-1de101710b18" t="o" />
+</MsFeatureSystem>
+<PartsOfSpeech>
+<objsur guid="fa524934-f155-4ce0-ab4e-546667619094" t="o" />
+</PartsOfSpeech>
+<PhFeatureSystem>
+<objsur guid="7a8e927c-5669-45b1-a8e3-5bcabf381f40" t="o" />
+</PhFeatureSystem>
+<PhonologicalData>
+<objsur guid="0861cdbb-6024-4e6f-97ec-fded5bc2fd9e" t="o" />
+</PhonologicalData>
+<ResearchNotebook>
+<objsur guid="a256e2be-e56c-4d42-88bf-cfede58ce5d9" t="o" />
+</ResearchNotebook>
+<SemanticDomainList>
+<objsur guid="27111188-1728-4e78-b1d2-0a4f9b695cb4" t="o" />
+</SemanticDomainList>
+<TranslationTags>
+<objsur guid="d7f71649-e8cf-11d3-9764-00c04f186933" t="o" />
+</TranslationTags>
+<VernWss>
+<Uni>en</Uni>
+</VernWss>
+</rt>
+<rt class="MoInflAffixTemplate" guid="a1960508-db67-49d4-8a27-22d9c671c693" ownerguid="9897a023-202c-47e8-9146-784bae2e8d50">
+<Disabled val="False" />
+<Final val="True" />
+<Name>
+<AUni ws="en">template</AUni>
+</Name>
+<SuffixSlots>
+<objsur guid="7c0a89ae-e899-4f9e-be8b-aef93279e54c" t="r" />
+</SuffixSlots>
+</rt>
+<rt class="MoMorphType" guid="a23b6faa-1052-4f4d-984b-4b338bdaf95f" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">phr</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">phrase</AUni>
+</Name>
+<SecondaryOrder val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="RnResearchNbk" guid="a256e2be-e56c-4d42-88bf-cfede58ce5d9" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.717" />
+<DateModified val="2026-10-08 18:20:23.717" />
+</rt>
+<rt class="LexEntryInflType" guid="a32f1d1c-4832-46a2-9732-c2276d6547e8" ownerguid="bb372467-5230-43ef-9cc7-4d40b053fb94">
+<Abbreviation>
+<AUni ws="en">pl. var. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.783" />
+<DateModified val="2026-10-08 18:20:23.783" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Plural Variant</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="a3a8188b-ab00-4a43-b925-a1eed62287ba" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.786" />
+<DateModified val="2026-10-08 18:20:23.786" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="PhPhoneme" guid="a9faa251-a7a8-4fec-b1b9-efc5172ddd0f" ownerguid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d">
+<Codes>
+<objsur guid="9cff9164-8dcd-4c3e-9741-e22f7d86219e" t="o" />
+</Codes>
+<Features>
+<objsur guid="78204359-4164-43d4-b09b-09fc3c9d3fed" t="o" />
+</Features>
+<Name>
+<AUni ws="en">a</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="aa262faa-9f6d-4565-bfb7-22647e468926" ownerguid="817ee254-6e60-4de0-bb54-261054f9b18c">
+<Representation>
+<AUni ws="en">s</AUni>
+</Representation>
+</rt>
+<rt class="CmPossibilityList" guid="aeaf27ca-aa18-4193-94d5-7976e432e213" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.700" />
+<DateModified val="2026-10-08 18:20:23.700" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="12" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="MoMorphType" guid="af6537b0-7175-4387-ba6a-36547d37fb13" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">pfxnfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">prefixing interfix</AUni>
+</Name>
+<Postfix>
+<Uni>-</Uni>
+</Postfix>
+<SecondaryOrder val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="LexEntryType" guid="b2276dec-b1a6-4d82-b121-fd114c009c59" ownerguid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6">
+<Abbreviation>
+<AUni ws="en">id. of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.782" />
+<DateModified val="2026-10-08 18:20:23.782" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Idiom</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="PhPhoneme" guid="babb74c4-088d-4c36-9b4f-3e88074e50f1" ownerguid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d">
+<Codes>
+<objsur guid="7b5e7907-04bc-4d81-bedb-95b379a2dcb1" t="o" />
+</Codes>
+<Name>
+<AUni ws="en">x</AUni>
+</Name>
+</rt>
+<rt class="CmPossibilityList" guid="bb372467-5230-43ef-9cc7-4d40b053fb94" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.770" />
+<DateModified val="2026-10-08 18:20:23.770" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="5118" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Possibilities>
+<objsur guid="3942addb-99fd-43e9-ab7d-99025ceb0d4e" t="o" />
+<objsur guid="024b62c9-93b3-41a0-ab19-587a0030219a" t="o" />
+<objsur guid="4343b1ef-b54f-4fa4-9998-271319a6d74c" t="o" />
+<objsur guid="01d4fbc1-3b0c-4f52-9163-7ab0d4f4711c" t="o" />
+<objsur guid="a32f1d1c-4832-46a2-9732-c2276d6547e8" t="o" />
+<objsur guid="837ebe72-8c1d-4864-95d9-fa313c499d78" t="o" />
+<objsur guid="0c4663b3-4d9a-47af-b9a1-c8565d8112ed" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="bf640994-69d1-4081-b51e-6548364001a1" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.725" />
+<DateModified val="2026-10-08 18:20:23.725" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="c2460d9b-233a-40da-9884-a44753567eae" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.724" />
+<DateModified val="2026-10-08 18:20:23.724" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="MoMorphType" guid="c2d140e5-7ca9-41f4-a69a-22fc7049dd2c" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">clit</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">clitic</AUni>
+</Name>
+<SecondaryOrder val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="FsFeatStruc" guid="c7b3ece7-ed47-408f-8dd6-d4026798ffa7" ownerguid="817ee254-6e60-4de0-bb54-261054f9b18c">
+<FeatureSpecs>
+<objsur guid="96c012e4-4e83-44c6-973d-3c8709d24eda" t="o" />
+</FeatureSpecs>
+</rt>
+<rt class="PhPhonemeSet" guid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d" ownerguid="0861cdbb-6024-4e6f-97ec-fded5bc2fd9e">
+<BoundaryMarkers>
+<objsur guid="3bde17ce-e39a-4bae-8a5c-a8d96fd4cb56" t="o" />
+</BoundaryMarkers>
+<Phonemes>
+<objsur guid="817ee254-6e60-4de0-bb54-261054f9b18c" t="o" />
+<objsur guid="9c3fb80a-432b-42ae-a20c-5f8abf6e1aa6" t="o" />
+<objsur guid="a9faa251-a7a8-4fec-b1b9-efc5172ddd0f" t="o" />
+<objsur guid="babb74c4-088d-4c36-9b4f-3e88074e50f1" t="o" />
+<objsur guid="e30b0468-0a11-406a-8384-ac05cfa2086f" t="o" />
+</Phonemes>
+</rt>
+<rt class="CmPossibility" guid="d3d28628-60c9-4917-8185-ba64c59f20c3" ownerguid="ed6b2dcc-e82f-4631-b61a-6b630de332d0">
+<Abbreviation>
+<AUni ws="en">Disc.</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.784" />
+<DateModified val="2026-10-08 18:20:23.784" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<Name>
+<AUni ws="en">Discourse</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="d71ce92e-2231-4ddf-9f66-cad842af7bbb" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.694" />
+<DateModified val="2026-10-08 18:20:23.694" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="35" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Possibilities>
+<objsur guid="8d4cbd80-0dca-4a83-8a1f-9db3aa4cff54" t="o" />
+<objsur guid="7ffc4eab-856a-43cc-bc11-0db55738c15b" t="o" />
+<objsur guid="f094a0b0-01b8-4621-97f1-4d775bc29ce7" t="o" />
+<objsur guid="82e2fd92-48d8-43c9-ba84-cc4a2a5beead" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713da-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">ifx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">infix</AUni>
+</Name>
+<Postfix>
+<Uni>-</Uni>
+</Postfix>
+<Prefix>
+<Uni>-</Uni>
+</Prefix>
+<SecondaryOrder val="5" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713db-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">pfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">prefix</AUni>
+</Name>
+<Postfix>
+<Uni>-</Uni>
+</Postfix>
+<SecondaryOrder val="3" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713dc-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">smfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">simulfix</AUni>
+</Name>
+<Postfix>
+<Uni>=</Uni>
+</Postfix>
+<Prefix>
+<Uni>=</Uni>
+</Prefix>
+<SecondaryOrder val="5" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713dd-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">sfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">suffix</AUni>
+</Name>
+<Prefix>
+<Uni>-</Uni>
+</Prefix>
+<SecondaryOrder val="6" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713de-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">spfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">suprafix</AUni>
+</Name>
+<Postfix>
+<Uni>~</Uni>
+</Postfix>
+<Prefix>
+<Uni>~</Uni>
+</Prefix>
+<SecondaryOrder val="5" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713df-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">cfx</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">circumfix</AUni>
+</Name>
+<SecondaryOrder val="1" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713e1-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">enclit</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">enclitic</AUni>
+</Name>
+<Prefix>
+<Uni>=</Uni>
+</Prefix>
+<SecondaryOrder val="7" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713e2-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">proclit</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">proclitic</AUni>
+</Name>
+<Postfix>
+<Uni>=</Uni>
+</Postfix>
+<SecondaryOrder val="4" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713e4-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">bd root</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.768" />
+<DateModified val="2026-10-08 18:20:23.768" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">bound root</AUni>
+</Name>
+<Prefix>
+<Uni>*</Uni>
+</Prefix>
+<SecondaryOrder val="2" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713e5-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">ubd root</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">root</AUni>
+</Name>
+<SecondaryOrder val="1" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713e7-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">bd stem</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">bound stem</AUni>
+</Name>
+<Prefix>
+<Uni>*</Uni>
+</Prefix>
+<SecondaryOrder val="2" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="MoMorphType" guid="d7f713e8-e8cf-11d3-9764-00c04f186933" ownerguid="7e66591f-d4fc-46fb-a393-f1420f31307c">
+<Abbreviation>
+<AUni ws="en">ubd stem</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.769" />
+<DateModified val="2026-10-08 18:20:23.769" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">stem</AUni>
+</Name>
+<SecondaryOrder val="1" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="d7f71649-e8cf-11d3-9764-00c04f186933" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.799" />
+<DateModified val="2026-10-08 18:20:23.799" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Possibilities>
+<objsur guid="80a0dddb-8b4b-4454-b872-88adec6f2aba" t="o" />
+<objsur guid="d7f7164a-e8cf-11d3-9764-00c04f186933" t="o" />
+<objsur guid="d7f7164b-e8cf-11d3-9764-00c04f186933" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="CmPossibility" guid="d7f7164a-e8cf-11d3-9764-00c04f186933" ownerguid="d7f71649-e8cf-11d3-9764-00c04f186933">
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.800" />
+<DateModified val="2026-10-08 18:20:23.800" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibility" guid="d7f7164b-e8cf-11d3-9764-00c04f186933" ownerguid="d7f71649-e8cf-11d3-9764-00c04f186933">
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.800" />
+<DateModified val="2026-10-08 18:20:23.800" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="False" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="dabd93cb-e518-4816-a8f6-7b50a587dd9b" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.726" />
+<DateModified val="2026-10-08 18:20:23.726" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Name>
+<AUni ws="en">Publications</AUni>
+</Name>
+<Possibilities>
+<objsur guid="2447168e-31e1-4f71-98ea-c562e8502fc0" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="FsFeatStruc" guid="e0af3343-919b-4956-b329-ef8bc72032c6" ownerguid="9c3fb80a-432b-42ae-a20c-5f8abf6e1aa6">
+<FeatureSpecs>
+<objsur guid="85564f25-7304-44b0-a3ea-130c391c62f1" t="o" />
+</FeatureSpecs>
+</rt>
+<rt class="PhPhoneme" guid="e30b0468-0a11-406a-8384-ac05cfa2086f" ownerguid="ca0124c0-c12c-460b-9efc-6c0f6f809d1d">
+<Codes>
+<objsur guid="7d88a1af-7676-485d-864b-782525b2e923" t="o" />
+</Codes>
+<Features>
+<objsur guid="46a14a57-d8ee-4a9f-a0c1-d1cd5cf3a5e5" t="o" />
+</Features>
+<Name>
+<AUni ws="en">u</AUni>
+</Name>
+</rt>
+<rt class="LexSense" guid="ebe2b5aa-9aca-4b25-8679-bf047f972d41" ownerguid="4905d0ef-7f3d-41ef-afb9-e2f5612a22a7">
+<Gloss>
+<AUni ws="en">R2</AUni>
+</Gloss>
+<MorphoSyntaxAnalysis>
+<objsur guid="99a4fd88-0ca8-4a12-8714-0f8d25594de1" t="r" />
+</MorphoSyntaxAnalysis>
+</rt>
+<rt class="CmPossibilityList" guid="ec4c20fb-3189-4fa2-8222-699e7e25b5c1" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.698" />
+<DateModified val="2026-10-08 18:20:23.698" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="26" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="CmPossibilityList" guid="ed6b2dcc-e82f-4631-b61a-6b630de332d0" ownerguid="4735eaac-bfbe-4971-9b1d-6bcb74d7ca79">
+<DateCreated val="2026-10-08 18:20:23.783" />
+<DateModified val="2026-10-08 18:20:23.783" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="7" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Possibilities>
+<objsur guid="2f06d436-b1e0-47ae-a42e-1f7b893c5fc2" t="o" />
+<objsur guid="7ad06e7d-15d1-42b0-ae19-9c05b7c0b181" t="o" />
+<objsur guid="d3d28628-60c9-4917-8185-ba64c59f20c3" t="o" />
+<objsur guid="30115b33-608a-4506-9f9c-2457cab4f4a8" t="o" />
+<objsur guid="5dd29371-fdb0-497a-a2fb-7ca69b00ad4f" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="PhEnvironment" guid="ee03c60a-6213-48de-8bee-2d4340cac1dc" ownerguid="0861cdbb-6024-4e6f-97ec-fded5bc2fd9e">
+<StringRepresentation>
+<Str>
+<Run ws="en">/ [V] _</Run>
+</Str>
+</StringRepresentation>
+</rt>
+<rt class="FsClosedFeature" guid="f014ba1b-f669-40b7-b7ee-ac27fa7785ca" ownerguid="7a8e927c-5669-45b1-a8e3-5bcabf381f40">
+<Abbreviation>
+<AUni ws="en">voc</AUni>
+</Abbreviation>
+<DisplayToRightOfValues val="False" />
+<Name>
+<AUni ws="en">vocalic</AUni>
+</Name>
+<ShowInGloss val="False" />
+<Values>
+<objsur guid="34ca558b-016f-4a5c-ba0d-84ca2a042e97" t="o" />
+<objsur guid="8aa6dff0-2d09-4206-becd-12805ef40077" t="o" />
+</Values>
+</rt>
+<rt class="CmAnnotationDefn" guid="f094a0b0-01b8-4621-97f1-4d775bc29ce7" ownerguid="d71ce92e-2231-4ddf-9f66-cad842af7bbb">
+<AllowsComment val="False" />
+<AllowsFeatureStructure val="False" />
+<AllowsInstanceOf val="False" />
+<BackColor val="0" />
+<CanCreateOrphan val="False" />
+<CopyCutPastable val="False" />
+<DateCreated val="2026-10-08 18:20:23.792" />
+<DateModified val="2026-10-08 18:20:23.792" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<InstanceOfSignature val="0" />
+<IsProtected val="False" />
+<MaxDupOccur val="0" />
+<Multi val="False" />
+<PromptUser val="False" />
+<Severity val="0" />
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+<UserCanCreate val="False" />
+<ZeroWidth val="False" />
+</rt>
+<rt class="MoStemMsa" guid="f867a974-9111-401e-85fe-110b70764e77" ownerguid="68b3b9e9-8e27-4ea3-b8e0-51605fd5f165">
+<PartOfSpeech>
+<objsur guid="9897a023-202c-47e8-9146-784bae2e8d50" t="r" />
+</PartOfSpeech>
+</rt>
+<rt class="CmPossibilityList" guid="fa524934-f155-4ce0-ab4e-546667619094" ownerguid="9e30c7c3-c9c9-4f1f-88ff-3bac9b6159a6">
+<DateCreated val="2026-10-08 18:20:23.698" />
+<DateModified val="2026-10-08 18:20:23.698" />
+<Depth val="0" />
+<DisplayOption val="0" />
+<IsClosed val="False" />
+<IsSorted val="False" />
+<IsVernacular val="False" />
+<ItemClsid val="5049" />
+<ListVersion val="00000000-0000-0000-0000-000000000000" />
+<Possibilities>
+<objsur guid="9897a023-202c-47e8-9146-784bae2e8d50" t="o" />
+</Possibilities>
+<PreventChoiceAboveLevel val="0" />
+<PreventDuplicates val="False" />
+<PreventNodeChoices val="False" />
+<UseExtendedFields val="False" />
+<WsSelector val="0" />
+</rt>
+<rt class="LexEntry" guid="fb827ab4-ef82-4f33-8bc5-6c7509af904e">
+<DateCreated val="2026-10-08 18:20:23.914" />
+<DateModified val="2026-10-08 18:20:23.914" />
+<DoNotUseForParsing val="False" />
+<HomographNumber val="0" />
+<LexemeForm>
+<objsur guid="32bca18c-5674-4d46-93cb-799d27ce70b5" t="o" />
+</LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="fbd31f71-be00-4ffe-93f3-83855d8d6d25" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses>
+<objsur guid="82e6ef5e-2e0a-43d7-91ff-05ef23a2b12d" t="o" />
+</Senses>
+</rt>
+<rt class="MoStemMsa" guid="fbd31f71-be00-4ffe-93f3-83855d8d6d25" ownerguid="fb827ab4-ef82-4f33-8bc5-6c7509af904e">
+<PartOfSpeech>
+<objsur guid="9897a023-202c-47e8-9146-784bae2e8d50" t="r" />
+</PartOfSpeech>
+</rt>
+<rt class="LexEntryType" guid="fec038ed-6a8c-4fa5-bc96-a4f515a98c50" ownerguid="1ee09905-63dd-4c7a-a9bd-1d496743ccd6">
+<Abbreviation>
+<AUni ws="en">unspec. comp. form of</AUni>
+</Abbreviation>
+<BackColor val="0" />
+<DateCreated val="2026-10-08 18:20:23.781" />
+<DateModified val="2026-10-08 18:20:23.781" />
+<ForeColor val="0" />
+<Hidden val="False" />
+<IsProtected val="True" />
+<Name>
+<AUni ws="en">Unspecified Complex Form</AUni>
+</Name>
+<SortSpec val="0" />
+<UnderColor val="0" />
+<UnderStyle val="0" />
+</rt>
+</languageproject>

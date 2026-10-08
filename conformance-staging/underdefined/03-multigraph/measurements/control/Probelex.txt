@@ -1,0 +1,23 @@
+
+\lx 56
+\g R1
+\c W
+\wc root
+\mp RootPOS40
+\a chuma {19}
+ 
+\lx 99
+\g A
+\c W/W
+\o 2 2 
+\wc 23
+\a s {71}
+\eType suffix
+ 
+\lx 67
+\g R0
+\c W
+\wc root
+\mp RootPOS40
+\a muma {55}
+ 

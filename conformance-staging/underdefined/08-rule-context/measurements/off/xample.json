@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse",
+  "database": "Probe",
+  "sourceSha256": "68fe4d906114ce486595db3f4f5cef69c26c66f621dfc85b3221cf0efd56dae1",
+  "loadedEnginePinsVerified": true,
+  "engineVersion": "3.12.23.21",
+  "parameters": {
+    "runtime": {
+      "maxAnalysesToReturn": 1000
+    },
+    "adctl": {
+      "maxNulls": 0,
+      "maxPrefixes": 5,
+      "maxInfixes": 0,
+      "maxSuffixes": 5,
+      "maxRoots": 1,
+      "maxInterfixes": 0
+    },
+    "adctlPatched": false,
+    "adctlSource": "Probeadctl.txt"
+  },
+  "words": [
+    {
+      "word": "muma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"muma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='40' Label=\"muma\" wordType=\"root\"/>\r\n      <MSI DbRef='85'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "muma",
+              "allomorphGuid": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+              "inflectionTypeGuid": null,
+              "msaGuid": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+              "storedMsaGuid": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R0",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "muma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "xuma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"xuma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='79' Label=\"xuma\" wordType=\"root\"/>\r\n      <MSI DbRef='12'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "xuma",
+              "allomorphGuid": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+              "inflectionTypeGuid": null,
+              "msaGuid": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+              "storedMsaGuid": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R1",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "xuma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "xmuma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"xmuma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='25' Label=\"xmuma\" wordType=\"root\"/>\r\n      <MSI DbRef='106'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "xmuma",
+              "allomorphGuid": "391454a0-50fb-4cec-a965-26ef4db345f2",
+              "inflectionTypeGuid": null,
+              "msaGuid": "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
+              "storedMsaGuid": "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R2",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "xmuma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "xpuma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"xpuma\">\r\n  <WfiAnalysis/>\r\n </Wordform>\r\n",
+      "analyses": [],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "xpumas",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"xpumas\">\r\n  <WfiAnalysis/>\r\n </Wordform>\r\n",
+      "analyses": [],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    }
+  ],
+  "nativeLog": "xample.json.xample.log"
+}

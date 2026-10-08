@@ -1,0 +1,182 @@
+# oracle-provenance: XAMPLE xample.dll/xample64.dll file version 3.12.23.21 (XAmpleManagedWrapper 9.3.10.1452), FieldWorks ParserCore/HCLoader 9.3.10.1452 + LCModel 11.0.0.55173, Machine/HC 3.8.2.0; XAMPLE off-project stored keys supply PanGloss minimum expectations; C# HC control/off/on are observations; PanGloss not executed. Binary hashes: ../engine-provenance.json.
+{
+  "schemaVersion": 1,
+  "language": "10-undefined-environment-letter",
+  "inspired_by": [
+    "invented lexemes; no real language"
+  ],
+  "requires": [],
+  "fieldworks_producible": true,
+  "measurement_protocol": "underdefined-stored-keys-v1",
+  "words": [
+    {
+      "word": "muma",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
+              "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
+              "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
+              "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mumas",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
+              "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
+              "msa": "23577d24-75d0-4079-aedb-563309c3f68e",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
+              "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
+              "msa": "23577d24-75d0-4079-aedb-563309c3f68e",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
+              "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
+              "msa": "23577d24-75d0-4079-aedb-563309c3f68e",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "mux",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "706d6e69-fb7d-4c06-a5eb-f5fbb9da4431",
+              "msa": "5fb9c626-467f-43d3-911a-492a3152cb61",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mux, contains an undefined phoneme at 2."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "706d6e69-fb7d-4c06-a5eb-f5fbb9da4431",
+              "msa": "5fb9c626-467f-43d3-911a-492a3152cb61",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    },
+    {
+      "word": "muxs",
+      "xample": {
+        "stored_analysis_keys": [
+          [
+            {
+              "allomorph": "706d6e69-fb7d-4c06-a5eb-f5fbb9da4431",
+              "msa": "5fb9c626-467f-43d3-911a-492a3152cb61",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
+              "msa": "23577d24-75d0-4079-aedb-563309c3f68e",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "engine_error": null
+      },
+      "csharp_hc": {
+        "stored_analysis_keys": [],
+        "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, muxs, contains an undefined phoneme at 2."
+      },
+      "pangloss": {
+        "minimum_stored_analysis_keys": [
+          [
+            {
+              "allomorph": "706d6e69-fb7d-4c06-a5eb-f5fbb9da4431",
+              "msa": "5fb9c626-467f-43d3-911a-492a3152cb61",
+              "inflection_type": null
+            },
+            {
+              "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
+              "msa": "23577d24-75d0-4079-aedb-563309c3f68e",
+              "inflection_type": null
+            }
+          ]
+        ],
+        "allow_additional_analyses": true,
+        "executed": false
+      }
+    }
+  ]
+}

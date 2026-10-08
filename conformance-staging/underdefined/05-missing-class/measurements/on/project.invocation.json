@@ -1,0 +1,14 @@
+{
+  "args": [
+    "project",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\05-missing-class\\accept-on\\Synthetic\\Synthetic.fwdata",
+    "--out-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\05-missing-class\\on",
+    "--database",
+    "Probe"
+  ],
+  "exitCode": 0,
+  "stdout": "[InvalidEnvironment] The environment \"/ [V] _\" is invalid. Reason: Unrecognized natural class at position 4.\nGenerated 7 file(s) in H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\05-missing-class\\on:\n  Probe.hc.xml (16194 bytes, sha256 5db419d3e562fa70007737b97d685b9071edb932ebf3d91ad8f7f28d42cde912)\n  ProbegafawsData.xml (439 bytes, sha256 37022cc705852984b482d5e0f0510779815325b89fa7c91cbea15912222440aa)\n  OUTProbegafawsData.xml (673 bytes, sha256 237306c10a5589d8c56dbe48de794ccb574ebfc4778655d9b94908807f1e8cf2, NOT deterministic)\n  Probeadctl.txt (3301 bytes, sha256 65c3fb03e7a146b3cd8ded2bfd00872a082a9489a82e972cb07e59a5050bcc97)\n  Probegram.txt (25636 bytes, sha256 e0b5daec230e5eb820eb83a50b9ba70ddc977b2f744bea4a509f9463c80541e1)\n  ProbeXAmpleWordGrammarDebugger.xsl (105624 bytes, sha256 bf570319476d4e96f047e2411a4cca7628c6b2abbd4490014148c436f74343bd)\n  Probelex.txt (256 bytes, sha256 1ebcee4b0c7e768e561e124e180ef4b2165b01f0c0547e54019f8fc5a4423ef4)\n",
+  "stderr": ""
+}

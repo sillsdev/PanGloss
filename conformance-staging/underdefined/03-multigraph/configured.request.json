@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "baseSha256": "5816be63c3b530c821b142726d112c5c363591a61e010edbafece21f4dd9793c",
+  "operations": [
+    {
+      "op": "wordforming",
+      "representations": [
+        "m",
+        "u",
+        "a",
+        "s",
+        "ch"
+      ]
+    }
+  ]
+}

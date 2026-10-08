@@ -1,0 +1,14 @@
+{
+  "args": [
+    "project",
+    "--project",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\accept-on\\Synthetic\\Synthetic.fwdata",
+    "--out-dir",
+    "H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\on",
+    "--database",
+    "Probe"
+  ],
+  "exitCode": 0,
+  "stdout": "[InvalidEnvironment] The environment \"/ x _\" is invalid. Reason: Unrecognized phoneme at position 3.\nGenerated 7 file(s) in H:\\repos\\PanGloss\\.worktrees\\xample-measure\\_lane\\scratch\\underdefined-final\\10-undefined-environment-letter\\on:\n  Probe.hc.xml (15690 bytes, sha256 ae6b07e08c4c3b82f323d3a47439920df44e98239cb1082115540543c27965f8)\n  ProbegafawsData.xml (439 bytes, sha256 ff764b6fae56991e015a89e09fcdd08c212a1eb24785f4f8db134b8826839b6e)\n  OUTProbegafawsData.xml (673 bytes, sha256 089157d359b12a681715ba87724a8252cc9688938763e3a5b58c6323c061527b, NOT deterministic)\n  Probeadctl.txt (3301 bytes, sha256 6f70fada3981dab88c61f9640d1aeadfd08bf71714d33a64e53ea49d8ce45d53)\n  Probegram.txt (25636 bytes, sha256 8ad788b2553e43d53d0881476fe4789e74e4432ce9e67c8fbeeca3ef5f6f39cc)\n  ProbeXAmpleWordGrammarDebugger.xsl (105624 bytes, sha256 6989a38d10b7a9b2a35e404925ff4b25d54cfcfe1c69b37fff1780f647624ded)\n  Probelex.txt (194 bytes, sha256 2ecca4e3c1e2584229d7dc96e6c80121362ce5045727421814c2765daec9e727)\n",
+  "stderr": ""
+}

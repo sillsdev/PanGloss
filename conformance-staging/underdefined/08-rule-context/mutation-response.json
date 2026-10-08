@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "mode": "mutate",
+  "caseId": "08-rule-context",
+  "baseSha256": "5683862eb73f91ca319ba6c79ed7eb94c7518845ae376e7dcb7e01fbcacfeb83",
+  "materializedSha256": "68fe4d906114ce486595db3f4f5cef69c26c66f621dfc85b3221cf0efd56dae1",
+  "materializedProjectPath": "Synthetic\\Synthetic.fwdata",
+  "removed": [
+    {
+      "guid": "25ed0de9-dc63-4ee1-a643-598cca9908b9",
+      "representations": [
+        "x"
+      ]
+    }
+  ],
+  "inboundReferences": [
+    {
+      "targetGuid": "25ed0de9-dc63-4ee1-a643-598cca9908b9",
+      "referrerGuid": "00f599c1-c99d-407d-8e7a-4094fbd8ca4a",
+      "referrerClass": "PhSimpleContextSeg"
+    }
+  ],
+  "reopened": true,
+  "deletedCount": 1,
+  "diagnostics": []
+}

@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "baseSha256": "7e41fc3f62c7d16001a93a3c167189a743f556f5109cc50f361a2b67c382eb05",
+  "operations": [
+    {
+      "op": "rewrite",
+      "input": "m",
+      "output": "p",
+      "left": "x"
+    },
+    {
+      "op": "wordforming",
+      "representations": [
+        "x",
+        "m",
+        "u",
+        "a",
+        "p",
+        "s"
+      ]
+    }
+  ]
+}

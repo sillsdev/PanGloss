@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "mode": "author",
+  "fieldWorksVersion": "9.3.10.1452",
+  "grammarPath": "grammar.xml",
+  "grammarSha256": "ae4c3660b36e2c252c7935533ed0cb95ea8307c7db47f0213425e70a1786c24b",
+  "projectPath": "fieldworks-authored/project.fwdata",
+  "projectSha256": "7e41fc3f62c7d16001a93a3c167189a743f556f5109cc50f361a2b67c382eb05",
+  "authored": {
+    "PartOfSpeech": 1,
+    "PhPhoneme": 6,
+    "PhBdryMarker": 1,
+    "LexEntry": 4,
+    "MoAffixAllomorph": 1,
+    "MoStemAllomorph": 3,
+    "MoInflAffixTemplate": 1,
+    "MoInflAffixSlot": 1
+  },
+  "unmapped": [
+    "Stratum@morphologicalRuleOrder=\"unordered\" (ignored; FieldWorks has no equivalent)"
+  ],
+  "guidMap": {
+    "affix": "1fcddf6a-7682-4726-a053-b6e611a42333",
+    "affixAllo": "df875a7c-95e7-4bed-8d6e-39237c7be1ba",
+    "allo0": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+    "allo1": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+    "allo2": "391454a0-50fb-4cec-a965-26ef4db345f2",
+    "entry0": "9dc13403-2e1c-4d4a-b035-b5428af5519e",
+    "entry1": "5f6a8187-8c3a-4ad1-8bab-b0e837a8fcc6",
+    "entry2": "a1f1cc34-00d7-4d36-af2c-0ca8229ddef0",
+    "pos": "9e0ccf20-41c6-4b07-b804-f3a12ac531b1",
+    "seg0": "93256c5b-4551-41ab-aef4-bac20c3bddef",
+    "seg1": "ff127186-3d7c-4e34-b8c8-81c0652e4906",
+    "seg2": "704e4b9e-92dc-47d9-888c-60a19bf28f17",
+    "seg3": "dc77df55-c5ff-4617-92d6-87d7875164be",
+    "seg4": "25ed0de9-dc63-4ee1-a643-598cca9908b9",
+    "seg5": "cda913bf-2a50-4d00-ba7b-f977901adc92",
+    "slot": "b3385d71-017d-42c8-8058-6c73c00b2088",
+    "template": "8018fb59-a662-41cb-8076-c91f6c25e374"
+  },
+  "diagnostics": []
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "caseId": "01-root-letter",
+  "baseSha256": "24b0a1d81d0a5e064d3963d17c209a571d75d60795ae2240c0a78f2176febc36",
+  "operations": [
+    {
+      "op": "remove_phoneme",
+      "guid": "bcecf209-b757-44c0-807c-1060224fd369",
+      "assertRepresentations": [
+        "x"
+      ],
+      "requireUnreferenced": false
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "5816be63c3b530c821b142726d112c5c363591a61e010edbafece21f4dd9793c",
+  "hcXmlSha256": "8bee63796e35b37db87b2784eb63b9ec67709567939cbf1d91ae5bdeb152944f",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "ch"
+      ],
+      "features": "[StrRep:\"ch\", Type:segment]"
+    },
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[StrRep:\"s\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "8716e0cb-d3ad-4b06-910a-9f51a8a9320d",
+              "msaGuid": "a95b50af-5f5b-477e-b8cf-4ee97cbb50f7",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "chuma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "359c6dfa-7590-424e-ad08-336fe3302f03",
+              "msaGuid": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "chumas",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "359c6dfa-7590-424e-ad08-336fe3302f03",
+              "msaGuid": "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "b8ab9ebd-1ada-4ecc-abde-58e5503251d6",
+              "msaGuid": "e0bf4884-5560-4919-9afa-82e621ad6377",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "cuma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    },
+    {
+      "word": "huma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0.",
+      "projectedEngineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0.",
+      "projectedAnalysisCount": null,
+      "projectionAgrees": true
+    }
+  ]
+}

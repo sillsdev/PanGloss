@@ -1,0 +1,352 @@
+{
+  "schemaVersion": 1,
+  "projectSha256": {
+    "control": "5683862eb73f91ca319ba6c79ed7eb94c7518845ae376e7dcb7e01fbcacfeb83",
+    "off": "68fe4d906114ce486595db3f4f5cef69c26c66f621dfc85b3221cf0efd56dae1",
+    "on": "26393d7b5c048066725ab122b05bce425ad3f5772b7aac10e297b2419aa156a6"
+  },
+  "modes": {
+    "control": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+                  "msa": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+                  "msa": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+                  "msa": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+                  "msa": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xmuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "391454a0-50fb-4cec-a965-26ef4db345f2",
+                  "msa": "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xpuma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xpumas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/control/xample.json.xample.log"
+    },
+    "off": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+                  "msa": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+                  "msa": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xuma, contains an undefined phoneme at 0."
+          }
+        },
+        {
+          "word": "xmuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "391454a0-50fb-4cec-a965-26ef4db345f2",
+                  "msa": "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xmuma, contains an undefined phoneme at 0."
+          }
+        },
+        {
+          "word": "xpuma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xpuma, contains an undefined phoneme at 0."
+          }
+        },
+        {
+          "word": "xpumas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xpumas, contains an undefined phoneme at 0."
+          }
+        }
+      ],
+      "hc_load_diagnostics": [
+        {
+          "kind": "InvalidShape",
+          "message": "The form \"xuma\" contains an undefined phoneme at 0."
+        },
+        {
+          "kind": "InvalidShape",
+          "message": "The form \"xmuma\" contains an undefined phoneme at 0."
+        }
+      ],
+      "xample_native_log": "measurements/off/xample.json.xample.log"
+    },
+    "on": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+                  "msa": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+                  "msa": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xmuma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "391454a0-50fb-4cec-a965-26ef4db345f2",
+                  "msa": "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xpuma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "xpumas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/on/xample.json.xample.log"
+    }
+  },
+  "writingSystemSha256": {
+    "control": {
+      "de.ldml": {
+        "sourceSha256": "0ac0ef181f0d6d40a474645ccab973ffd4c5e639a00db1c7175802e26f6fdd56",
+        "stagedSha256": "9ce8cd6daf21bdd5c0474f624bbe343cfe325606307bdaff7912d1ed6032fb1d"
+      },
+      "en.ldml": {
+        "sourceSha256": "47768c7d41b762dc3b4bee48662137b546adbdca9b136876476f0c597addcae9",
+        "stagedSha256": "61f4ab1eebc57ef16fed033164a108c77a01aa3899d430c5ead71babc8b12cd4"
+      },
+      "es.ldml": {
+        "sourceSha256": "1f9a67abf1172f2cfe827883f0525b2fc346c7432099c3e108b7657e93e474ec",
+        "stagedSha256": "c621ebb29e7ff76e1f000dffb21982566b3adcb0f5c82a91e615a112813a9699"
+      },
+      "fr.ldml": {
+        "sourceSha256": "b6aa6da6a920f1827b894952dab2f4a95d5725a8fbf994e5b0c753131524940b",
+        "stagedSha256": "dde4d393dd65b86921c851d4113855f5a1e62680d41b8d331a9c85cf460fb2be"
+      }
+    },
+    "off": {
+      "de.ldml": {
+        "sourceSha256": "0ac0ef181f0d6d40a474645ccab973ffd4c5e639a00db1c7175802e26f6fdd56",
+        "stagedSha256": "9ce8cd6daf21bdd5c0474f624bbe343cfe325606307bdaff7912d1ed6032fb1d"
+      },
+      "en.ldml": {
+        "sourceSha256": "47768c7d41b762dc3b4bee48662137b546adbdca9b136876476f0c597addcae9",
+        "stagedSha256": "61f4ab1eebc57ef16fed033164a108c77a01aa3899d430c5ead71babc8b12cd4"
+      },
+      "es.ldml": {
+        "sourceSha256": "1f9a67abf1172f2cfe827883f0525b2fc346c7432099c3e108b7657e93e474ec",
+        "stagedSha256": "c621ebb29e7ff76e1f000dffb21982566b3adcb0f5c82a91e615a112813a9699"
+      },
+      "fr.ldml": {
+        "sourceSha256": "b6aa6da6a920f1827b894952dab2f4a95d5725a8fbf994e5b0c753131524940b",
+        "stagedSha256": "dde4d393dd65b86921c851d4113855f5a1e62680d41b8d331a9c85cf460fb2be"
+      }
+    },
+    "on": {
+      "de.ldml": {
+        "sourceSha256": "0ac0ef181f0d6d40a474645ccab973ffd4c5e639a00db1c7175802e26f6fdd56",
+        "stagedSha256": "9ce8cd6daf21bdd5c0474f624bbe343cfe325606307bdaff7912d1ed6032fb1d"
+      },
+      "en.ldml": {
+        "sourceSha256": "47768c7d41b762dc3b4bee48662137b546adbdca9b136876476f0c597addcae9",
+        "stagedSha256": "61f4ab1eebc57ef16fed033164a108c77a01aa3899d430c5ead71babc8b12cd4"
+      },
+      "es.ldml": {
+        "sourceSha256": "1f9a67abf1172f2cfe827883f0525b2fc346c7432099c3e108b7657e93e474ec",
+        "stagedSha256": "c621ebb29e7ff76e1f000dffb21982566b3adcb0f5c82a91e615a112813a9699"
+      },
+      "fr.ldml": {
+        "sourceSha256": "b6aa6da6a920f1827b894952dab2f4a95d5725a8fbf994e5b0c753131524940b",
+        "stagedSha256": "dde4d393dd65b86921c851d4113855f5a1e62680d41b8d331a9c85cf460fb2be"
+      }
+    }
+  },
+  "ldmlRetainedElements": [
+    "identity",
+    "characters",
+    "layout",
+    "special"
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "d3b372963a972503149fb8d1c151b2a99e7fb9174a3783dbfa83957c273045b5",
+  "hcXmlSha256": "8b1e02313c04bead45756c0679093c1c865c94f180c19c2e7bdaff2e9c6963e3",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "h"
+      ],
+      "features": "[StrRep:\"h\", Type:segment]"
+    },
+    {
+      "representations": [
+        "ch"
+      ],
+      "features": "[StrRep:\"ch\", Type:segment]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "c"
+      ],
+      "features": "[StrRep:\"c\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "huma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "msaGuid": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "chuma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msaGuid": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "cchuma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "msaGuid": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "msaGuid": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<GAFAWSData>
+  <WordRecords>
+    <WordRecord WRID="13">
+      <Prefixes>
+        <Affix MIDREF="101" />
+      </Prefixes>
+      <Stem MIDREF="R" />
+    </WordRecord>
+  </WordRecords>
+  <Morphemes>
+    <Morpheme MID="R" type="s" />
+    <Morpheme MID="101" type="pfx" />
+  </Morphemes>
+  <Classes>
+    <PrefixClasses />
+    <SuffixClasses />
+  </Classes>
+  <Challenges />
+</GAFAWSData>

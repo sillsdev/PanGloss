@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse",
+  "database": "Probe",
+  "sourceSha256": "2e8f0923c2743a461433c0e3b5548eab9704c50c6214faa459164a2ea9297866",
+  "loadedEnginePinsVerified": true,
+  "engineVersion": "3.12.23.21",
+  "parameters": {
+    "runtime": {
+      "maxAnalysesToReturn": 1000
+    },
+    "adctl": {
+      "maxNulls": 0,
+      "maxPrefixes": 5,
+      "maxInfixes": 0,
+      "maxSuffixes": 5,
+      "maxRoots": 1,
+      "maxInterfixes": 0
+    },
+    "adctlPatched": false,
+    "adctlSource": "Probeadctl.txt"
+  },
+  "words": [
+    {
+      "word": "huma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"huma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='95' Label=\"huma\" wordType=\"root\"/>\r\n      <MSI DbRef='4'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "huma",
+              "allomorphGuid": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "inflectionTypeGuid": null,
+              "msaGuid": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "storedMsaGuid": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R1",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "huma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "chuma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"chuma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='69' Label=\"chuma\" wordType=\"root\"/>\r\n      <MSI DbRef='74'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='104' Label=\"c\" wordType=\"101\"/>\r\n      <MSI DbRef='72'/>\r\n    </Morph>\r\n    <Morph>\r\n      <MoForm DbRef='95' Label=\"huma\" wordType=\"root\"/>\r\n      <MSI DbRef='4'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "chuma",
+              "allomorphGuid": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "inflectionTypeGuid": null,
+              "msaGuid": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "storedMsaGuid": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R0",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "chuma"
+        },
+        {
+          "morphemes": [
+            {
+              "form": "c",
+              "allomorphGuid": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "inflectionTypeGuid": null,
+              "msaGuid": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "storedMsaGuid": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "A",
+              "type": "MoAffixAllomorph"
+            },
+            {
+              "form": "huma",
+              "allomorphGuid": "ea68f4ac-e61e-446f-b324-c20695dd3cc3",
+              "inflectionTypeGuid": null,
+              "msaGuid": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "storedMsaGuid": "07992c9b-9706-4d71-acf4-a81a14018768",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R1",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "chuma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    },
+    {
+      "word": "cchuma",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"cchuma\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='104' Label=\"c\" wordType=\"101\"/>\r\n      <MSI DbRef='72'/>\r\n    </Morph>\r\n    <Morph>\r\n      <MoForm DbRef='69' Label=\"chuma\" wordType=\"root\"/>\r\n      <MSI DbRef='74'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "c",
+              "allomorphGuid": "fd77d532-5c50-4a38-8c43-309a8356bc3d",
+              "inflectionTypeGuid": null,
+              "msaGuid": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "storedMsaGuid": "c42dae9c-7de0-414a-8699-96389823d9e3",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "A",
+              "type": "MoAffixAllomorph"
+            },
+            {
+              "form": "chuma",
+              "allomorphGuid": "bd4d3dd3-d60d-4ec9-a39c-50be95a5f6b6",
+              "inflectionTypeGuid": null,
+              "msaGuid": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "storedMsaGuid": "c9ef1295-618c-4dee-9a4a-b517aedfb245",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "R0",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "cchuma"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    }
+  ],
+  "nativeLog": "xample.json.xample.log"
+}

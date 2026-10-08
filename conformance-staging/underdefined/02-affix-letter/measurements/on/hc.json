@@ -1,0 +1,428 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "9938e4f61f9b2e8f8720b7d596324c63f82c3de274dfe238cd71cd9d38ce7de5",
+  "hcXmlSha256": "fe670a38145f5e69d2bf555d80d600e05fe722dae4c57750c41d9bd3d736c126",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[StrRep:\"m\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[StrRep:\"u\", Type:segment]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "b"
+      ],
+      "features": "[StrRep:\"b\", Type:segment]"
+    },
+    {
+      "representations": [
+        "c"
+      ],
+      "features": "[StrRep:\"c\", Type:segment]"
+    },
+    {
+      "representations": [
+        "d"
+      ],
+      "features": "[StrRep:\"d\", Type:segment]"
+    },
+    {
+      "representations": [
+        "e"
+      ],
+      "features": "[StrRep:\"e\", Type:segment]"
+    },
+    {
+      "representations": [
+        "f"
+      ],
+      "features": "[StrRep:\"f\", Type:segment]"
+    },
+    {
+      "representations": [
+        "g"
+      ],
+      "features": "[StrRep:\"g\", Type:segment]"
+    },
+    {
+      "representations": [
+        "h"
+      ],
+      "features": "[StrRep:\"h\", Type:segment]"
+    },
+    {
+      "representations": [
+        "i"
+      ],
+      "features": "[StrRep:\"i\", Type:segment]"
+    },
+    {
+      "representations": [
+        "j"
+      ],
+      "features": "[StrRep:\"j\", Type:segment]"
+    },
+    {
+      "representations": [
+        "k"
+      ],
+      "features": "[StrRep:\"k\", Type:segment]"
+    },
+    {
+      "representations": [
+        "l"
+      ],
+      "features": "[StrRep:\"l\", Type:segment]"
+    },
+    {
+      "representations": [
+        "n"
+      ],
+      "features": "[StrRep:\"n\", Type:segment]"
+    },
+    {
+      "representations": [
+        "o"
+      ],
+      "features": "[StrRep:\"o\", Type:segment]"
+    },
+    {
+      "representations": [
+        "p"
+      ],
+      "features": "[StrRep:\"p\", Type:segment]"
+    },
+    {
+      "representations": [
+        "q"
+      ],
+      "features": "[StrRep:\"q\", Type:segment]"
+    },
+    {
+      "representations": [
+        "r"
+      ],
+      "features": "[StrRep:\"r\", Type:segment]"
+    },
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[StrRep:\"s\", Type:segment]"
+    },
+    {
+      "representations": [
+        "t"
+      ],
+      "features": "[StrRep:\"t\", Type:segment]"
+    },
+    {
+      "representations": [
+        "v"
+      ],
+      "features": "[StrRep:\"v\", Type:segment]"
+    },
+    {
+      "representations": [
+        "w"
+      ],
+      "features": "[StrRep:\"w\", Type:segment]"
+    },
+    {
+      "representations": [
+        "x"
+      ],
+      "features": "[StrRep:\"x\", Type:segment]"
+    },
+    {
+      "representations": [
+        "y"
+      ],
+      "features": "[StrRep:\"y\", Type:segment]"
+    },
+    {
+      "representations": [
+        "z"
+      ],
+      "features": "[StrRep:\"z\", Type:segment]"
+    },
+    {
+      "representations": [
+        "!"
+      ],
+      "features": "[StrRep:\"!\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "\""
+      ],
+      "features": "[StrRep:\"\"\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "#"
+      ],
+      "features": "[StrRep:\"#\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "&"
+      ],
+      "features": "[StrRep:\"&\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "'"
+      ],
+      "features": "[StrRep:\"'\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "("
+      ],
+      "features": "[StrRep:\"(\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ")"
+      ],
+      "features": "[StrRep:\")\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "*"
+      ],
+      "features": "[StrRep:\"*\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ","
+      ],
+      "features": "[StrRep:\",\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "-"
+      ],
+      "features": "[StrRep:\"-\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "/"
+      ],
+      "features": "[StrRep:\"/\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ":"
+      ],
+      "features": "[StrRep:\":\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ";"
+      ],
+      "features": "[StrRep:\";\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "?"
+      ],
+      "features": "[StrRep:\"?\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "@"
+      ],
+      "features": "[StrRep:\"@\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "["
+      ],
+      "features": "[StrRep:\"[\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "]"
+      ],
+      "features": "[StrRep:\"]\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "§"
+      ],
+      "features": "[StrRep:\"§\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‐"
+      ],
+      "features": "[StrRep:\"‐\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‑"
+      ],
+      "features": "[StrRep:\"‑\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "–"
+      ],
+      "features": "[StrRep:\"–\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "—"
+      ],
+      "features": "[StrRep:\"—\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‘"
+      ],
+      "features": "[StrRep:\"‘\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "’"
+      ],
+      "features": "[StrRep:\"’\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "“"
+      ],
+      "features": "[StrRep:\"“\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "”"
+      ],
+      "features": "[StrRep:\"”\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "†"
+      ],
+      "features": "[StrRep:\"†\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‡"
+      ],
+      "features": "[StrRep:\"‡\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "…"
+      ],
+      "features": "[StrRep:\"…\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "′"
+      ],
+      "features": "[StrRep:\"′\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "″"
+      ],
+      "features": "[StrRep:\"″\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "7a03d086-5a3f-48a6-b87c-9d6e81f56875",
+              "msaGuid": "1b63a76b-1fa0-4fda-8f8e-8244f9ce9180",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mumax",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "7a03d086-5a3f-48a6-b87c-9d6e81f56875",
+              "msaGuid": "1b63a76b-1fa0-4fda-8f8e-8244f9ce9180",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "1ca1ff06-195c-4b6e-a4c5-a6b599b6e067",
+              "msaGuid": "6adcbf23-e9c9-4699-85e6-522329e865de",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "mumay",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    }
+  ]
+}

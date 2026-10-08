@@ -1,0 +1,16 @@
+
+\lx 36
+\g A
+\c W/W
+\o 2 2 
+\wc 6
+\a x {13}
+\eType suffix
+ 
+\lx 12
+\g R0
+\c W
+\wc root
+\mp RootPOS33
+\a muma {41}
+ 

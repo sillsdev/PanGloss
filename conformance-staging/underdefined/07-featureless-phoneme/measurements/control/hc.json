@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "c6faf3e6b23de35e4d0929ebd246ae3b82aedf46e9a30cc98ea8def1855ba655",
+  "hcXmlSha256": "686b5b61d7d7fbfc864d22c155a67f1e5c9d3ee7ac4c899e95109a81f5268428",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[Type:segment, voc:+]"
+    },
+    {
+      "representations": [
+        "x"
+      ],
+      "features": "[StrRep:\"x\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[Type:segment, voc:+]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [
+    {
+      "name": "V",
+      "features": "[Type:segment, voc:+]",
+      "characters": [
+        {
+          "representations": [
+            "s"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "m"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "a"
+          ],
+          "unifiable": true,
+          "subsumes": true,
+          "subsumesWithDefaults": true
+        },
+        {
+          "representations": [
+            "x"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "u"
+          ],
+          "unifiable": true,
+          "subsumes": true,
+          "subsumesWithDefaults": true
+        },
+        {
+          "representations": [
+            "+"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "^0",
+            "*0",
+            "&0",
+            "∅"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "."
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "7c297c71-5adc-4ce0-9e00-578a2d543e36",
+              "msaGuid": "f867a974-9111-401e-85fe-110b70764e77",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mumas",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "7c297c71-5adc-4ce0-9e00-578a2d543e36",
+              "msaGuid": "f867a974-9111-401e-85fe-110b70764e77",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "61ad664c-b448-439d-a4ac-ee7e1ad91664",
+              "msaGuid": "1bbe4a88-1819-4188-a9c2-ea3860a349d0",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "mum",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "32bca18c-5674-4d46-93cb-799d27ce70b5",
+              "msaGuid": "fbd31f71-be00-4ffe-93f3-83855d8d6d25",
+              "inflectionTypeGuid": null
+            }
+          ]
+        },
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "071cf99d-afbd-45df-bdb3-c544f2f35ef2",
+              "msaGuid": "99a4fd88-0ca8-4a12-8714-0f8d25594de1",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 2,
+      "projectionAgrees": true,
+      "segmentCount": 3
+    },
+    {
+      "word": "mums",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mux",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "32bca18c-5674-4d46-93cb-799d27ce70b5",
+              "msaGuid": "fbd31f71-be00-4ffe-93f3-83855d8d6d25",
+              "inflectionTypeGuid": null
+            }
+          ]
+        },
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "071cf99d-afbd-45df-bdb3-c544f2f35ef2",
+              "msaGuid": "99a4fd88-0ca8-4a12-8714-0f8d25594de1",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 2,
+      "projectionAgrees": true,
+      "segmentCount": 3
+    },
+    {
+      "word": "muxs",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    }
+  ]
+}

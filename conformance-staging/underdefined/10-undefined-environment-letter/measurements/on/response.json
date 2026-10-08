@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "mode": "project",
+  "fieldWorksVersion": "9.3.10.1452",
+  "assemblyVersions": {
+    "ParserCore.dll": "9.3.10.1452",
+    "SIL.LCModel.dll": "11.0.0.55173",
+    "SIL.Machine.dll": "3.8.2.0",
+    "SIL.Machine.Morphology.HermitCrab.dll": "3.8.2.0",
+    "XAmpleManagedWrapper.dll": "9.3.10.1452",
+    "xample64.dll": "3.12.23.21"
+  },
+  "sourcePath": "../../fieldworks-on/project.fwdata",
+  "sourceSha256": "c020c2adbc9efb547c386bd19f0b85cdb6c9897ee18f7104a43d80aff989577c",
+  "database": "Probe",
+  "generated": [
+    {
+      "path": "Probe.hc.xml",
+      "sha256": "ae6b07e08c4c3b82f323d3a47439920df44e98239cb1082115540543c27965f8",
+      "bytes": 15690,
+      "deterministic": true
+    },
+    {
+      "path": "ProbegafawsData.xml",
+      "sha256": "ff764b6fae56991e015a89e09fcdd08c212a1eb24785f4f8db134b8826839b6e",
+      "bytes": 439,
+      "deterministic": true
+    },
+    {
+      "path": "OUTProbegafawsData.xml",
+      "sha256": "089157d359b12a681715ba87724a8252cc9688938763e3a5b58c6323c061527b",
+      "bytes": 673,
+      "deterministic": false
+    },
+    {
+      "path": "Probeadctl.txt",
+      "sha256": "6f70fada3981dab88c61f9640d1aeadfd08bf71714d33a64e53ea49d8ce45d53",
+      "bytes": 3301,
+      "deterministic": true
+    },
+    {
+      "path": "Probegram.txt",
+      "sha256": "8ad788b2553e43d53d0881476fe4789e74e4432ce9e67c8fbeeca3ef5f6f39cc",
+      "bytes": 25636,
+      "deterministic": true
+    },
+    {
+      "path": "ProbeXAmpleWordGrammarDebugger.xsl",
+      "sha256": "6989a38d10b7a9b2a35e404925ff4b25d54cfcfe1c69b37fff1780f647624ded",
+      "bytes": 105624,
+      "deterministic": true
+    },
+    {
+      "path": "Probelex.txt",
+      "sha256": "2ecca4e3c1e2584229d7dc96e6c80121362ce5045727421814c2765daec9e727",
+      "bytes": 194,
+      "deterministic": true
+    }
+  ],
+  "hcLoadDiagnostics": [
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ x _\" is invalid. Reason: Unrecognized phoneme at position 3."
+    }
+  ],
+  "diagnostics": []
+}

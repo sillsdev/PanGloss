@@ -1,0 +1,455 @@
+{
+  "schemaVersion": 1,
+  "projectSha256": {
+    "control": "c5a17a640233f996b1e33734bea5d17b42827d78811b6c20ddfbe9072d6c3270",
+    "off": "fba8f0b17b56a3db93b3f271e1e2b8d5b8d105e3a1975bf4b7a8a61e8e51bb82",
+    "on": "cb0fb25efccc9189c29ad17b016bee46d466e90deca013e1dfc1017d6c05ec1e"
+  },
+  "modes": {
+    "control": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+                  "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+                  "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãmas",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+                  "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+                  "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãmas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+                  "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/control/xample.json.xample.log"
+    },
+    "off": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+                  "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+                  "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2."
+          }
+        },
+        {
+          "word": "mãmas",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+                  "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2."
+          }
+        },
+        {
+          "word": "mãma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2."
+          }
+        },
+        {
+          "word": "mãmas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [],
+            "engine_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2."
+          }
+        }
+      ],
+      "hc_load_diagnostics": [
+        {
+          "kind": "InvalidShape",
+          "message": "The form \"mãma\" contains an undefined phoneme at 2."
+        }
+      ],
+      "xample_native_log": "measurements/off/xample.json.xample.log"
+    },
+    "on": {
+      "words": [
+        {
+          "word": "muma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+                  "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+                  "msa": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãma",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãmas",
+          "xample": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+                  "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+                  "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãma",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        },
+        {
+          "word": "mãmas",
+          "xample": {
+            "stored_analysis_keys": [],
+            "engine_error": null
+          },
+          "csharp_hc": {
+            "stored_analysis_keys": [
+              [
+                {
+                  "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+                  "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+                  "inflection_type": null
+                },
+                {
+                  "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+                  "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+                  "inflection_type": null
+                }
+              ]
+            ],
+            "engine_error": null
+          }
+        }
+      ],
+      "hc_load_diagnostics": [],
+      "xample_native_log": "measurements/on/xample.json.xample.log"
+    }
+  },
+  "writingSystemSha256": {
+    "control": {
+      "de.ldml": {
+        "sourceSha256": "6a3d74bafeb3e833d1944bc453614e878480bc2f97d11e965cc7f5627ff32334",
+        "stagedSha256": "7692a3554fd19c16949c5e0fabb4aeea5a367764325ce0aaa63599d18c329c5a"
+      },
+      "en.ldml": {
+        "sourceSha256": "de81ffbba22275241c6992dc1f7a44ea10caf61f0583459d6a87b6113e7874c0",
+        "stagedSha256": "dfcc3c772c7eebacda28f1f8d529ab49d5908cd1948ce2ac86262b62d68143fa"
+      },
+      "es.ldml": {
+        "sourceSha256": "1905fd521b8ab74d66c9b2c4f1ba33231637ccadb5e87fc265dcc48d48ae5cc7",
+        "stagedSha256": "1a85ab662a3e57eb6185640e74ac04e818c8ba192d12970337a167578cdd6f27"
+      },
+      "fr.ldml": {
+        "sourceSha256": "5dd1ceda33c1a49cf3a5d236ff9624b64e5f8ba8653d9d66522972c0b4cd7172",
+        "stagedSha256": "a8f64efd60764b1cd44137bb396aefd70eb8dc7adae6d6d895427935ab7312a1"
+      }
+    },
+    "off": {
+      "de.ldml": {
+        "sourceSha256": "6a3d74bafeb3e833d1944bc453614e878480bc2f97d11e965cc7f5627ff32334",
+        "stagedSha256": "7692a3554fd19c16949c5e0fabb4aeea5a367764325ce0aaa63599d18c329c5a"
+      },
+      "en.ldml": {
+        "sourceSha256": "de81ffbba22275241c6992dc1f7a44ea10caf61f0583459d6a87b6113e7874c0",
+        "stagedSha256": "dfcc3c772c7eebacda28f1f8d529ab49d5908cd1948ce2ac86262b62d68143fa"
+      },
+      "es.ldml": {
+        "sourceSha256": "1905fd521b8ab74d66c9b2c4f1ba33231637ccadb5e87fc265dcc48d48ae5cc7",
+        "stagedSha256": "1a85ab662a3e57eb6185640e74ac04e818c8ba192d12970337a167578cdd6f27"
+      },
+      "fr.ldml": {
+        "sourceSha256": "5dd1ceda33c1a49cf3a5d236ff9624b64e5f8ba8653d9d66522972c0b4cd7172",
+        "stagedSha256": "a8f64efd60764b1cd44137bb396aefd70eb8dc7adae6d6d895427935ab7312a1"
+      }
+    },
+    "on": {
+      "de.ldml": {
+        "sourceSha256": "6a3d74bafeb3e833d1944bc453614e878480bc2f97d11e965cc7f5627ff32334",
+        "stagedSha256": "7692a3554fd19c16949c5e0fabb4aeea5a367764325ce0aaa63599d18c329c5a"
+      },
+      "en.ldml": {
+        "sourceSha256": "de81ffbba22275241c6992dc1f7a44ea10caf61f0583459d6a87b6113e7874c0",
+        "stagedSha256": "dfcc3c772c7eebacda28f1f8d529ab49d5908cd1948ce2ac86262b62d68143fa"
+      },
+      "es.ldml": {
+        "sourceSha256": "1905fd521b8ab74d66c9b2c4f1ba33231637ccadb5e87fc265dcc48d48ae5cc7",
+        "stagedSha256": "1a85ab662a3e57eb6185640e74ac04e818c8ba192d12970337a167578cdd6f27"
+      },
+      "fr.ldml": {
+        "sourceSha256": "5dd1ceda33c1a49cf3a5d236ff9624b64e5f8ba8653d9d66522972c0b4cd7172",
+        "stagedSha256": "a8f64efd60764b1cd44137bb396aefd70eb8dc7adae6d6d895427935ab7312a1"
+      }
+    }
+  },
+  "ldmlRetainedElements": [
+    "identity",
+    "characters",
+    "layout",
+    "special"
+  ]
+}

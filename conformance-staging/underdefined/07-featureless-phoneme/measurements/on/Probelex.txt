@@ -1,0 +1,31 @@
+
+\lx 13
+\g A
+\c W/W
+\o 2 2 
+\wc 53
+\a s {42} / []_  | / [V] _ 
+		
+\eType suffix
+ 
+\lx 73
+\g R2
+\c W
+\wc root
+\mp RootPOS71
+\a mux {5}
+ 
+\lx 121
+\g R0
+\c W
+\wc root
+\mp RootPOS71
+\a muma {54}
+ 
+\lx 124
+\g R1
+\c W
+\wc root
+\mp RootPOS71
+\a mum {24}
+ 

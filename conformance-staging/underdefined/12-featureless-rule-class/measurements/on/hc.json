@@ -1,0 +1,949 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "6626130895360183a7bc7479ec76242762179e0c30e930191b3388a72e8802cf",
+  "hcXmlSha256": "2cb30105b25888f9432185670fa92be6b9c277571de00f094baf72c586e31601",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "x"
+      ],
+      "features": "[StrRep:\"x\", Type:segment]"
+    },
+    {
+      "representations": [
+        "u"
+      ],
+      "features": "[identity:u, Type:segment, voc:+]"
+    },
+    {
+      "representations": [
+        "p"
+      ],
+      "features": "[identity:p, Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[identity:a, Type:segment, voc:+]"
+    },
+    {
+      "representations": [
+        "s"
+      ],
+      "features": "[identity:s, Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "m"
+      ],
+      "features": "[identity:m, Type:segment, voc:-]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "b"
+      ],
+      "features": "[StrRep:\"b\", Type:segment]"
+    },
+    {
+      "representations": [
+        "c"
+      ],
+      "features": "[StrRep:\"c\", Type:segment]"
+    },
+    {
+      "representations": [
+        "d"
+      ],
+      "features": "[StrRep:\"d\", Type:segment]"
+    },
+    {
+      "representations": [
+        "e"
+      ],
+      "features": "[StrRep:\"e\", Type:segment]"
+    },
+    {
+      "representations": [
+        "f"
+      ],
+      "features": "[StrRep:\"f\", Type:segment]"
+    },
+    {
+      "representations": [
+        "g"
+      ],
+      "features": "[StrRep:\"g\", Type:segment]"
+    },
+    {
+      "representations": [
+        "h"
+      ],
+      "features": "[StrRep:\"h\", Type:segment]"
+    },
+    {
+      "representations": [
+        "i"
+      ],
+      "features": "[StrRep:\"i\", Type:segment]"
+    },
+    {
+      "representations": [
+        "j"
+      ],
+      "features": "[StrRep:\"j\", Type:segment]"
+    },
+    {
+      "representations": [
+        "k"
+      ],
+      "features": "[StrRep:\"k\", Type:segment]"
+    },
+    {
+      "representations": [
+        "l"
+      ],
+      "features": "[StrRep:\"l\", Type:segment]"
+    },
+    {
+      "representations": [
+        "n"
+      ],
+      "features": "[StrRep:\"n\", Type:segment]"
+    },
+    {
+      "representations": [
+        "o"
+      ],
+      "features": "[StrRep:\"o\", Type:segment]"
+    },
+    {
+      "representations": [
+        "q"
+      ],
+      "features": "[StrRep:\"q\", Type:segment]"
+    },
+    {
+      "representations": [
+        "r"
+      ],
+      "features": "[StrRep:\"r\", Type:segment]"
+    },
+    {
+      "representations": [
+        "t"
+      ],
+      "features": "[StrRep:\"t\", Type:segment]"
+    },
+    {
+      "representations": [
+        "v"
+      ],
+      "features": "[StrRep:\"v\", Type:segment]"
+    },
+    {
+      "representations": [
+        "w"
+      ],
+      "features": "[StrRep:\"w\", Type:segment]"
+    },
+    {
+      "representations": [
+        "y"
+      ],
+      "features": "[StrRep:\"y\", Type:segment]"
+    },
+    {
+      "representations": [
+        "z"
+      ],
+      "features": "[StrRep:\"z\", Type:segment]"
+    },
+    {
+      "representations": [
+        "!"
+      ],
+      "features": "[StrRep:\"!\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "\""
+      ],
+      "features": "[StrRep:\"\"\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "#"
+      ],
+      "features": "[StrRep:\"#\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "&"
+      ],
+      "features": "[StrRep:\"&\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "'"
+      ],
+      "features": "[StrRep:\"'\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "("
+      ],
+      "features": "[StrRep:\"(\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ")"
+      ],
+      "features": "[StrRep:\")\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "*"
+      ],
+      "features": "[StrRep:\"*\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ","
+      ],
+      "features": "[StrRep:\",\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "-"
+      ],
+      "features": "[StrRep:\"-\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "/"
+      ],
+      "features": "[StrRep:\"/\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ":"
+      ],
+      "features": "[StrRep:\":\", Type:boundary]"
+    },
+    {
+      "representations": [
+        ";"
+      ],
+      "features": "[StrRep:\";\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "?"
+      ],
+      "features": "[StrRep:\"?\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "@"
+      ],
+      "features": "[StrRep:\"@\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "["
+      ],
+      "features": "[StrRep:\"[\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "]"
+      ],
+      "features": "[StrRep:\"]\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "§"
+      ],
+      "features": "[StrRep:\"§\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‐"
+      ],
+      "features": "[StrRep:\"‐\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‑"
+      ],
+      "features": "[StrRep:\"‑\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "–"
+      ],
+      "features": "[StrRep:\"–\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "—"
+      ],
+      "features": "[StrRep:\"—\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‘"
+      ],
+      "features": "[StrRep:\"‘\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "’"
+      ],
+      "features": "[StrRep:\"’\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "“"
+      ],
+      "features": "[StrRep:\"“\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "”"
+      ],
+      "features": "[StrRep:\"”\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "†"
+      ],
+      "features": "[StrRep:\"†\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "‡"
+      ],
+      "features": "[StrRep:\"‡\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "…"
+      ],
+      "features": "[StrRep:\"…\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "′"
+      ],
+      "features": "[StrRep:\"′\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "″"
+      ],
+      "features": "[StrRep:\"″\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [
+    {
+      "name": "V",
+      "features": "[Type:segment, voc:+]",
+      "characters": [
+        {
+          "representations": [
+            "x"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "u"
+          ],
+          "unifiable": true,
+          "subsumes": true,
+          "subsumesWithDefaults": true
+        },
+        {
+          "representations": [
+            "p"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "a"
+          ],
+          "unifiable": true,
+          "subsumes": true,
+          "subsumesWithDefaults": true
+        },
+        {
+          "representations": [
+            "s"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "m"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "+"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "^0",
+            "*0",
+            "&0",
+            "∅"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "."
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "b"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "c"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "d"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "e"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "f"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "g"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "h"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "i"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "j"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "k"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "l"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "n"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "o"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "q"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "r"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "t"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "v"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "w"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "y"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "z"
+          ],
+          "unifiable": true,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "!"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "\""
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "#"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "&"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "'"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "("
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            ")"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "*"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            ","
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "-"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "/"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            ":"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            ";"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "?"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "@"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "["
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "]"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "§"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "‐"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "‑"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "–"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "—"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "‘"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "’"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "“"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "”"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "†"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "‡"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "…"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "′"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        },
+        {
+          "representations": [
+            "″"
+          ],
+          "unifiable": false,
+          "subsumes": false,
+          "subsumesWithDefaults": false
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "mupa",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "a7c08446-d98b-431c-b38a-d28ceadb4bee",
+              "msaGuid": "d53918cb-330f-4068-b9bd-3dbde34e7349",
+              "inflectionTypeGuid": null
+            }
+          ]
+        },
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "099bb5b8-80ad-4673-8144-e6e0df7b1c67",
+              "msaGuid": "22944e36-1b47-4b6a-83ef-dd23b444f738",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 2,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    },
+    {
+      "word": "xmuma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "xmupa",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "6b13eb01-44e4-44ad-bc99-168adc22d63c",
+              "msaGuid": "95814806-412e-4e8a-995a-0a57892891d4",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "xpupa",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 5
+    },
+    {
+      "word": "xuma",
+      "analyses": [],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 0,
+      "projectionAgrees": true,
+      "segmentCount": 4
+    }
+  ]
+}

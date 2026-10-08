@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "mode": "project",
+  "fieldWorksVersion": "9.3.10.1452",
+  "assemblyVersions": {
+    "ParserCore.dll": "9.3.10.1452",
+    "SIL.LCModel.dll": "11.0.0.55173",
+    "SIL.Machine.dll": "3.8.2.0",
+    "SIL.Machine.Morphology.HermitCrab.dll": "3.8.2.0",
+    "XAmpleManagedWrapper.dll": "9.3.10.1452",
+    "xample64.dll": "3.12.23.21"
+  },
+  "sourcePath": "../../fieldworks/project.fwdata",
+  "sourceSha256": "68fe4d906114ce486595db3f4f5cef69c26c66f621dfc85b3221cf0efd56dae1",
+  "database": "Probe",
+  "generated": [
+    {
+      "path": "Probe.hc.xml",
+      "sha256": "8f4ace6868fc20ee69a6eed42eb18f78aee0b13d56812bd0218fc336c80f168e",
+      "bytes": 6492,
+      "deterministic": true
+    },
+    {
+      "path": "ProbegafawsData.xml",
+      "sha256": "bfbf3cf1352c5d42f6964a91accdfc74bbe312a1c42930ebb7176292134481f3",
+      "bytes": 439,
+      "deterministic": true
+    },
+    {
+      "path": "OUTProbegafawsData.xml",
+      "sha256": "bf28c7603818b364ff094a552825fbae9d002be3e945ffb7c531eaef58df9475",
+      "bytes": 673,
+      "deterministic": false
+    },
+    {
+      "path": "Probeadctl.txt",
+      "sha256": "1e7022251a036e0acad349d24eee23a5cd8e0319e30e455d9fc8fc87d813d383",
+      "bytes": 3301,
+      "deterministic": true
+    },
+    {
+      "path": "Probegram.txt",
+      "sha256": "55939638681fd540c727acf8a9ae6ecd4d92e330471dcc389ad991163c9c084b",
+      "bytes": 25636,
+      "deterministic": true
+    },
+    {
+      "path": "ProbeXAmpleWordGrammarDebugger.xsl",
+      "sha256": "aaa464639252a8118d651157df83a1c96bbc6aa87b4fc154a7af1597c46c3a66",
+      "bytes": 105624,
+      "deterministic": true
+    },
+    {
+      "path": "Probelex.txt",
+      "sha256": "980318199c8b8f3476ed57788848c2c1dfc4742e5218e3c8a67f424819fc67ad",
+      "bytes": 259,
+      "deterministic": true
+    }
+  ],
+  "hcLoadDiagnostics": [
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"xuma\" contains an undefined phoneme at 0."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"xmuma\" contains an undefined phoneme at 0."
+    }
+  ],
+  "diagnostics": []
+}

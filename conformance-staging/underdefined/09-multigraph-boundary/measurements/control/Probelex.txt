@@ -1,0 +1,23 @@
+
+\lx 4
+\g R1
+\c W
+\wc root
+\mp RootPOS20
+\a huma {97}
+ 
+\lx 75
+\g R0
+\c W
+\wc root
+\mp RootPOS20
+\a chuma {70}
+ 
+\lx 73
+\g A
+\c W/W
+\o -2 -2 
+\wc 103
+\a c {106}
+\eType prefix
+ 

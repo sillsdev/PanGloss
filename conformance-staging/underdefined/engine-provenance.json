@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "recordedUtc": "2026-10-08T18:30:07.660848+00:00",
+  "binaries": {
+    "ParserCore.dll": {
+      "fileVersion": "9.3.10.1452",
+      "sha256": "a0f8784f27340b459c5cb0e520f3f948b83496446b78f3353378a3fb438c1957"
+    },
+    "SIL.LCModel.dll": {
+      "fileVersion": "11.0.0.55173",
+      "sha256": "e06d469434ddcbb1e2f1081fbcc803891ea4d26a8fc0112985e829bf5efe4df1"
+    },
+    "SIL.Machine.dll": {
+      "fileVersion": "3.8.2.0",
+      "sha256": "88626412ec2cf919a6b162443a143e0989ec8a8db0f14145521310cb6b8a0587"
+    },
+    "SIL.Machine.Morphology.HermitCrab.dll": {
+      "fileVersion": "3.8.2.0",
+      "sha256": "f8f12eafd970c760e2e4112daae8cd9c373fd48f92c3e05c90c603411d266fe3"
+    },
+    "XAmpleManagedWrapper.dll": {
+      "fileVersion": "9.3.10.1452",
+      "sha256": "648da8a33a087f212f536e31f30bcd48a77fb75604aaeb714ecb47bb197ee7ff"
+    },
+    "xample64.dll": {
+      "fileVersion": "3.12.23.21",
+      "sha256": "4444ebfee93fe6d84fbe1b4a0904d191d26c72d6fd09eecc4f37775fc8f0c2dd"
+    },
+    "xample.dll": {
+      "fileVersion": "3.12.23.21",
+      "sha256": "4444ebfee93fe6d84fbe1b4a0904d191d26c72d6fd09eecc4f37775fc8f0c2dd"
+    }
+  },
+  "projectorExeSha256": "6ffd12c84e7a4013d7f5319ddd80d8cceeca2096fa27548086740c892d41d656",
+  "fieldworksSourceInspected": "089eb9027b6d81be7883c40960f0de3ffa04b699",
+  "machineSourceInspected": "a4b29742b6274a01c7398ca3e800a19fa6d2c9aa",
+  "sourceHeadsAreNotInstalledBinaryBuildProvenance": true
+}

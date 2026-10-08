@@ -1,0 +1,76 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ldml xmlns:sil="urn://www.sil.org/ldml/0.1">
+  <identity>
+    <version number="$Revision$" />
+    <generation date="2026-10-08T18:20:52Z" />
+    <language type="es" />
+    <special>
+      <sil:identity revid="1f9188eccdd20d6b71d82723bbd185f439d50196" source="cldr" defaultRegion="ES" script="Latn" />
+    </special>
+  </identity>
+  <layout>
+    <orientation>
+      <lineOrder>top-to-bottom</lineOrder>
+      <characterOrder>left-to-right</characterOrder>
+    </orientation>
+  </layout>
+  <characters>
+    <ellipsis type="final">{0}…</ellipsis>
+    <ellipsis type="initial">… {0}</ellipsis>
+    <ellipsis type="medial">{0}… {1}</ellipsis>
+    <ellipsis type="word-final">{0}…</ellipsis>
+    <ellipsis type="word-initial">… {0}</ellipsis>
+    <ellipsis type="word-medial">{0}… {1}</ellipsis>
+    <moreInformation>?</moreInformation>
+    <parseLenients scope="general" level="lenient">
+      <parseLenient sample="$">[\$＄﹩]</parseLenient>
+      <parseLenient sample="%">[%％﹪ ٪]</parseLenient>
+      <parseLenient sample=".">[.．․﹒ 。｡︒]</parseLenient>
+      <parseLenient sample="£">[£￡ ₤]</parseLenient>
+      <parseLenient sample="¥">[¥￥]</parseLenient>
+      <parseLenient sample="’">['＇’ ՚ ᾽᾿ ʼ]</parseLenient>
+      <parseLenient sample="‰">[‰ ؉]</parseLenient>
+      <parseLenient sample="₩">[₩￦]</parseLenient>
+      <parseLenient sample="₹">[₹ {Rp} {Rs}₨]</parseLenient>
+    </parseLenients>
+    <parseLenients scope="number" level="lenient">
+      <parseLenient sample="+">[+＋﬩﹢⁺₊ ➕]</parseLenient>
+      <parseLenient sample=",">[,，﹐︐ ، ٫ 、﹑､︑]</parseLenient>
+      <parseLenient sample="-">[\-－﹣ ‑ ‒ −⁻₋ ➖]</parseLenient>
+    </parseLenients>
+    <parseLenients scope="number" level="stricter">
+      <parseLenient sample=",">[,，﹐︐ ٫]</parseLenient>
+      <parseLenient sample=".">[.．․﹒ ｡]</parseLenient>
+    </parseLenients>
+    <parseLenients scope="date" level="lenient">
+      <parseLenient sample="-">[\- ‑ . /]</parseLenient>
+      <parseLenient sample=":">[\: ∶]</parseLenient>
+    </parseLenients>
+    <exemplarCharacters>[a-z\u00E1\u00E9\u00ED\u00F1\u00F3\u00FA\u00FC]</exemplarCharacters>
+    <exemplarCharacters type="auxiliary">[\u00AA\u00BA\u00E0\u00E2-\u00E8\u00EA-\u00EC\u00EE\u00EF\u00F2\u00F4\u00F6\u00F8\u00F9\u00FB\u00FD\u00FF\u0101\u0103\u0113\u0115\u012B\u012D\u014D\u014F\u0153\u016B\u016D]</exemplarCharacters>
+    <exemplarCharacters type="index">[A-Z\u00D1]</exemplarCharacters>
+    <exemplarCharacters type="punctuation">[!-#\&amp;-*,-/\:;?@\[-\]\u00A1\u00A7\u00AB\u00BB\u00BF\u2010\u2011\u2013\u2014\u2018\u2019\u201C\u201D\u2020\u2021\u2026\u2032\u2033]</exemplarCharacters>
+    <special>
+      <sil:exemplarCharacters type="numbers">[%+-.0-9\u2011\u2030]</sil:exemplarCharacters>
+    </special>
+  </characters>
+  <special>
+    <sil:external-resources>
+      <sil:sampletext type="udhr">
+        <sil:url>http://efele.net/udhr/d/udhr_spa.txt</sil:url>
+      </sil:sampletext>
+      <sil:font name="Charis" types="default" features="ss04=1 cv43=2 cv68=1 cv77=1 cv90=1">
+        <sil:url>https://lff.api.languagetechnology.org/family/charis</sil:url>
+      </sil:font>
+      <sil:font name="Noto Sans">
+        <sil:url>https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf</sil:url>
+      </sil:font>
+      <sil:font name="Noto Serif">
+        <sil:url>https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSerif/NotoSerif-Regular.ttf</sil:url>
+      </sil:font>
+      <sil:kbd id="basic_kbdla" type="kmp">
+        <sil:url>https://keyman.com/go/keyboard/basic_kbdla/download/kmp</sil:url>
+      </sil:kbd>
+    </sil:external-resources>
+  </special>
+</ldml>
