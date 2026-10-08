@@ -132,13 +132,14 @@ namespace XampleProjector
 					var maxAnalysesToReturn = maxAnalysesOverride ?? DefaultMaxAnalysesToReturn;
 					var fixedFilesDir = Path.Combine(fieldWorksDir, "Language Explorer", "Configuration", "Grammar");
 
-					using (var xample = new XAmpleWrapper())
+					using (var xample = new LoggedXampleWrapper())
 					{
 						try
 						{
-							xample.Init();
+								xample.Init();
+								FieldWorksPins.VerifyXampleLoaded(fieldWorksDir);
 							xample.SetParameter("MaxAnalysesToReturn", maxAnalysesToReturn.ToString(CultureInfo.InvariantCulture));
-							xample.LoadFiles(fixedFilesDir, dynamicFilesDir, database);
+							xample.LoadWithLog(fixedFilesDir, dynamicFilesDir, database, Path.GetFullPath(outPath + ".xample.log"));
 						}
 						catch (Exception ex)
 						{
@@ -166,12 +167,15 @@ namespace XampleProjector
 							[Fields.SchemaVersion] = SchemaVersion.Current,
 							[Fields.Mode] = "parse",
 							[Fields.Database] = database,
+							[Fields.SourceSha256] = Sha256.OfFile(projectPath),
+							["loadedEnginePinsVerified"] = true,
 							// AmpleReportVersion is never called by the public managed wrapper surface
 							// (XAmpleWrapper/IXAmpleWrapper expose no such method), so the pinned
 							// xample64.dll file version is the only honest answer here.
 							[Fields.EngineVersion] = File.Exists(xample64Path) ? FileVersionInfo.GetVersionInfo(xample64Path).FileVersion : null,
 							[Fields.Parameters] = parametersJson,
 							[Fields.Words] = wordResults,
+							["nativeLog"] = Path.GetFileName(outPath + ".xample.log"),
 						};
 						JsonWriter.WriteFile(outPath, response);
 						Console.WriteLine("Wrote {0}", outPath);
@@ -301,6 +305,9 @@ namespace XampleProjector
 			// slot-firing combination even when the surface text and morph list happen to match).
 			foreach (var analysisElem in wordformElem.Descendants("WfiAnalysis"))
 			{
+				// The native engine emits an empty WfiAnalysis as its zero-analysis sentinel.
+				if (!analysisElem.Descendants("Morph").Any())
+					continue;
 				var morphemes = new JArray();
 				foreach (var morphElem in analysisElem.Descendants("Morph"))
 					morphemes.Add(DescribeMorph(repo, morphElem));
@@ -317,6 +324,7 @@ namespace XampleProjector
 			return new JObject
 			{
 				["word"] = word,
+				["rawXml"] = rawXml,
 				["analyses"] = analyses,
 				["reachedMaxAnalyses"] = reachedMax,
 				["engineError"] = engineError,
@@ -328,9 +336,10 @@ namespace XampleProjector
 			var formHvoText = (string)morphElem.Element("MoForm")?.Attribute("DbRef");
 			var msiHvoText = (string)morphElem.Element("MSI")?.Attribute("DbRef");
 
-			string formText = null, formType = null, morphnameOrGloss = null;
+			string formText = null, formType = null, morphnameOrGloss = null, allomorphGuid = null;
 			if (int.TryParse(formHvoText, out var formHvo) && repo.TryGetObject(formHvo, out ICmObject formObj) && formObj is IMoForm form)
 			{
+				allomorphGuid = form.Guid.ToString();
 				formText = form.Form?.BestVernacularAlternative?.Text;
 				formType = form.ClassName;
 				morphnameOrGloss = GlossOf(form.Owner as ILexEntry);
@@ -358,9 +367,10 @@ namespace XampleProjector
 			// resolution does not fully replicate -- see ParseCommand's own module doc), reports
 			// as an explicit absence (null), never the raw hvo/dotted DbRef text: that text is
 			// engine-internal, not a guid, and a caller must never mistake it for one.
-			string msaGuid = null;
+			string msaGuid = null, storedMsaGuid = null;
 			if (int.TryParse(msaHvoText, out var msaHvo) && repo.TryGetObject(msaHvo, out ICmObject msaObj) && msaObj is IMoMorphSynAnalysis msa)
 			{
+				storedMsaGuid = msa.Guid.ToString();
 				msaGuid = variantEntryGuid != null ? $"{variantEntryGuid}#{msa.Guid}" : msa.Guid.ToString();
 				if (morphnameOrGloss == null)
 					morphnameOrGloss = GlossOf(msa.Owner as ILexEntry);
@@ -369,7 +379,11 @@ namespace XampleProjector
 			return new JObject
 			{
 				["form"] = formText,
+				["allomorphGuid"] = allomorphGuid,
+				["inflectionTypeGuid"] = null,
 				["msaGuid"] = msaGuid,
+				["storedMsaGuid"] = storedMsaGuid,
+				["storedKeyComplete"] = allomorphGuid != null && storedMsaGuid != null && dbRefParts?.Length == 1,
 				["morphnameOrGloss"] = morphnameOrGloss,
 				["type"] = formType,
 			};

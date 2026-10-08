@@ -1207,6 +1207,7 @@ finally {
 # --- author / verify-parity live tests: the `machine` conformance submodule's own fixtures,
 #     not Sena 3 -- independent of whether Sena3 is reachable above. ---
 $conformanceRoot = Join-Path $root '..\..\machine\conformance'
+if ($env:PANGLOSS_CONFORMANCE_DIR) { $conformanceRoot = $env:PANGLOSS_CONFORMANCE_DIR }
 $pilotGrammar = Join-Path $conformanceRoot 'edge-cases\deep-optional-affix-nesting\grammar.xml'
 $mprRefusalGrammar = Join-Path $conformanceRoot 'languages\prefixal-discontinuous-slot-dependency\grammar.xml'
 $requireRefusalGrammar = Join-Path $conformanceRoot 'languages\suffixing-evidential-adjacency-chain\grammar.xml'
@@ -1271,6 +1272,28 @@ try {
 		exit 1
 	}
 	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: verify-parity confirms both exclusions bind in the live HC engine (k=1, xk=0, l=1, yl=0)."
+
+	$storedWords = Join-Path $alloCoOccurTempRoot 'stored-words.txt'
+	Set-Content -LiteralPath $storedWords -Value @('k', 'zzz') -Encoding utf8
+	$xampleCapture = Join-Path $alloCoOccurTempRoot 'stored-xample.json'
+	& $exePath parse --project $alloCoOccurFwdata --project-dir $alloCoOccurProjectedOutDir --database AlloCoOccur --words $storedWords --out $xampleCapture
+	if ($LASTEXITCODE -ne 0) { throw 'Stored-key XAMPLE probe failed.' }
+	$xampleStored = Get-Content -LiteralPath $xampleCapture -Raw | ConvertFrom-Json
+	if ($xampleStored.words[0].analyses.Count -ne 1 -or $xampleStored.words[1].analyses.Count -ne 0 -or
+		$xampleStored.words[1].rawXml -notmatch '<WfiAnalysis\s*/>') { throw 'XAMPLE empty-analysis sentinel was counted as a parse.' }
+	$hcCapture = Join-Path $alloCoOccurTempRoot 'stored-hc.json'
+	& $exePath parse-hc --project $alloCoOccurFwdata --hc-xml $alloCoOccurHcXml --words $storedWords --out $hcCapture
+	if ($LASTEXITCODE -ne 0) { throw 'Stored-key HC probe failed.' }
+	$hcStored = Get-Content -LiteralPath $hcCapture -Raw | ConvertFrom-Json
+	$xMorph = $xampleStored.words[0].analyses[0].morphemes[0]
+	$hMorph = $hcStored.words[0].analyses[0].morphemes[0]
+	if ($hcStored.words[0].analyses.Count -ne 1 -or $hcStored.words[1].engineError -notmatch 'InvalidShapeException' -or
+		$xMorph.allomorphGuid -ne $hMorph.allomorphGuid -or $xMorph.storedMsaGuid -ne $hMorph.msaGuid -or
+		[string]::IsNullOrEmpty($xMorph.allomorphGuid) -or [string]::IsNullOrEmpty($xMorph.storedMsaGuid)) { throw 'Stored-key identity or HC status mismatch.' }
+	if ((Get-Item -LiteralPath ($xampleCapture + '.xample.log')).Length -eq 0) { throw 'XAMPLE native load log is empty.' }
+	& $exePath --validate-capture $hcCapture
+	if ($LASTEXITCODE -ne 0) { throw 'HC capture schema failed.' }
+	Write-Host 'Stored-key and native-log probes OK; unparsed XAMPLE sentinel is empty, HC undefined shape is an error.'
 
 	Test-ContentDerivedLabelCatchesCoOccurrenceSwap -SourceFwdata $alloCoOccurFwdata -ExePath $exePath -Label 'AllomorphCoOccurrenceRule authoring probe'
 }

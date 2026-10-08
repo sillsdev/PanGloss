@@ -82,6 +82,10 @@
 
   <ItemGroup>
     <Reference Include="System.Xml.Linq" />
+    <Reference Include="SIL.Core">
+      <HintPath>$(FieldWorksDir)\SIL.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

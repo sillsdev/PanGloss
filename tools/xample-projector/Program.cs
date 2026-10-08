@@ -41,7 +41,7 @@ namespace XampleProjector
 			// FieldWorks -- a typo in the subcommand must never pay the cost of (or risk a
 			// false pin-mismatch report from) probing an install it was never going to use.
 			if (args[0] != "inspect" && args[0] != "project" && args[0] != "author" && args[0] != "verify-parity" &&
-				args[0] != "mutate" && args[0] != "parse")
+				args[0] != "mutate" && args[0] != "parse" && args[0] != "parse-hc" && args[0] != "configure-probe")
 			{
 				WriteUsage();
 				return ExitCodes.Usage;
@@ -91,6 +91,10 @@ namespace XampleProjector
 					return MutateCommand.Run(args, fieldWorksDir);
 				case "parse":
 					return ParseCommand.Run(args, fieldWorksDir);
+				case "parse-hc":
+					return ParseHcCommand.Run(args, fieldWorksDir);
+				case "configure-probe":
+					return ConfigureProbeCommand.Run(args, fieldWorksDir);
 				default:
 					WriteUsage();
 					return ExitCodes.Usage;
@@ -126,6 +130,8 @@ namespace XampleProjector
 			Console.WriteLine("        [--max-analyses N] [--max-prefixes N] [--max-suffixes N] [--max-infixes N]");
 			Console.WriteLine("        [--max-roots N] [--max-interfixes N] [--max-nulls N]");
 			Console.WriteLine("  --validate-capture <response.json>");
+			Console.WriteLine("  parse-hc --project <fwdata> --hc-xml <projection> --words <words.txt> --out <response.json>");
+			Console.WriteLine("  configure-probe --project <fwdata> --request <json> --out-dir <new clone directory>");
 			Console.WriteLine("  check-label-uniqueness --labels <guid-to-label.json>");
 			Console.WriteLine();
 			Console.WriteLine("FieldWorks install directory: ${0}, default {1}", FieldWorksDirEnvVar, DefaultFieldWorksDir);

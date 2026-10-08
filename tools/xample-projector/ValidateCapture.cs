@@ -122,8 +122,14 @@ namespace XampleProjector
 				case "parse":
 					required = ParseRequiredFields;
 					break;
+				case "parse-hc":
+					required = new[] { Fields.SchemaVersion, Fields.Mode, Fields.EngineVersion, Fields.SourceSha256, "hcXmlSha256", Fields.Diagnostics, "characterDefinitions", Fields.Words };
+					break;
+				case "configure-probe":
+					required = new[] { Fields.SchemaVersion, Fields.Mode, Fields.BaseSha256, Fields.MaterializedSha256, Fields.MaterializedProjectPath, Fields.Reopened, "operations", "parserParameters", "environments", "naturalClasses", "wordforming" };
+					break;
 				default:
-					problems.Add($"[{mode}] unknown mode (expected \"inspect\", \"project\", \"author\", \"mutate\", or \"parse\")");
+					problems.Add($"[{mode}] unknown capture mode");
 					return;
 			}
 
@@ -148,7 +154,7 @@ namespace XampleProjector
 			if (sourceSha256 != null && !Sha256Pattern.IsMatch(sourceSha256))
 				problems.Add($"\"{Fields.SourceSha256}\" is not 64 lowercase hex characters: \"{sourceSha256}\"");
 
-			foreach (var field in new[] { Fields.GrammarSha256, Fields.ProjectSha256, Fields.BaseSha256, Fields.MaterializedSha256 })
+			foreach (var field in new[] { Fields.GrammarSha256, Fields.ProjectSha256, Fields.BaseSha256, Fields.MaterializedSha256, "hcXmlSha256" })
 			{
 				var value = (string)document[field];
 				if (value != null && !Sha256Pattern.IsMatch(value))
