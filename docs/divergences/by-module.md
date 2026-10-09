@@ -146,6 +146,12 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 XAMPLE/C# measurements and staged fixtures for these entries come from a separate lane.
 
+## XAMPLE comparisons
+
+| XAMPLE / FieldWorks export site | Rust site | Entry |
+|---|---|---|
+| `FxtM3ParserToXAmpleADCtl.xsl`, `NatClassStringToHvo` (feature class exported as `[]`) | `pg-grammar/src/compile/environment.rs::load_environment_pattern` | [070](070-xample-feature-class-environment.md) |
+
 ## Optimization and shared-correctness follow-up
 
 | C# / Rust seam | Entries | Shared fixtures |

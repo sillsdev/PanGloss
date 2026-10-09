@@ -32,6 +32,6 @@ construct is a separate seam and is not implemented here.
 The lead reports that FieldWorks/XAMPLE and C# HC both drop an environment naming a
 nonexistent class whole. PanGloss keeps that drop; its Info finding remains later work.
 
-XAMPLE/C# measurements and staged conformance fixtures come from a separate lane.
-No upstream issue or fix PR was posted here because network access is closed. Staged
-fixtures and measured cross-engine results remain distinct, pending deliverables.
+XAMPLE/C# measurements and staged fixtures are on `feat/xample-measure`
+(`conformance-staging/underdefined/`). The policy is under discussion upstream in
+[sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).
