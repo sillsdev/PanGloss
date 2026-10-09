@@ -155,6 +155,9 @@ impl ConstructVariant {
                 "not authorable in FieldWorks; HC-XML only (FieldWorks/Src/LexText/Morphology/\
                  MetaRuleFormulaControl.cs:56-62,402-427; \
                  FieldWorks/Src/LexText/ParserCore/HCLoader.cs:2103-2150; \
+                 LT-22826 (alpha-variable HCLoader null-reference crash, \
+                 https://jira.sil.org/browse/LT-22826); LT-22827 (out-of-range switch index emits \
+                 malformed HC XML, https://jira.sil.org/browse/LT-22827); \
                  machine/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/\
                  AnalysisMetathesisRuleSpec.cs:20-52; \
                  /tmp/pangloss-lanes/metathesis-check/report.md, cases/final/optional-ltr and \
@@ -165,6 +168,9 @@ impl ConstructVariant {
                 "not authorable in FieldWorks; HC-XML only (FieldWorks/Src/LexText/Morphology/\
                  MetaRuleFormulaControl.cs:56-62,402-427; \
                  FieldWorks/Src/LexText/ParserCore/HCLoader.cs:2103-2150; \
+                 LT-22826 (alpha-variable HCLoader null-reference crash, \
+                 https://jira.sil.org/browse/LT-22826); LT-22827 (out-of-range switch index emits \
+                 malformed HC XML, https://jira.sil.org/browse/LT-22827); \
                  machine/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/\
                  AnalysisMetathesisRuleSpec.cs:20-52; \
                  /tmp/pangloss-lanes/metathesis-check/report.md, cases/final/optional-rtl and \
