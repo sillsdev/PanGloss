@@ -46,5 +46,6 @@ defined one definition at a time, with no cliff.
   an unconstrained wildcard or a segment-list class alone does not trigger the finding.
 - Comparisons against analyses stored in a FieldWorks project use FieldWorks' own key (allomorph,
   MSA and inflection type per morph), because FieldWorks does not store root position or category.
-- The proposal is raised with `sillsdev/machine` as an issue to start the discussion; the staged
+- The proposal is raised with `sillsdev/machine` as an issue to start the discussion
+  ([sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537)); the staged
   fixtures graduate upstream only if Machine adopts it.
