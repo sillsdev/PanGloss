@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pg_snapshot::{
     ConversionInventory, ConversionIssue, InventoryDelta, InventoryIdentity, InventoryKey,
-    LoadDecision, LoadDisposition, LoadPipelineStage, LoadReasonCode, Snapshot,
+    InventoryKind, LoadDecision, LoadDisposition, LoadPipelineStage, LoadReasonCode, Snapshot,
 };
 use rusqlite::{params, Transaction};
 use serde::Serialize;
@@ -69,7 +69,13 @@ pub(crate) fn insert_inventory_and_issues(
             params![class_name, *count as i64],
         )?;
     }
-    for source_object in &provenance.source_objects {
+    // Non-grammar occurrences stay in source_class_count; only grammar objects get a row here.
+    let grammar_sources: Vec<_> = provenance
+        .source_objects
+        .iter()
+        .filter(|source_object| source_object.inventory_kind.is_some())
+        .collect();
+    for source_object in &grammar_sources {
         let source_key = subject_key(&source_object.key())?.1;
         let inventory_kind = source_object
             .inventory_kind
@@ -151,12 +157,17 @@ pub(crate) fn insert_inventory_and_issues(
     );
     issue_rows.extend(compile_issues.iter().map(|issue| ("compile", issue)));
     let issue_keys = insert_issues(tx, issue_rows)?;
+    let grammar_source_keys: BTreeSet<_> = grammar_sources
+        .iter()
+        .map(|source_object| source_object.key())
+        .collect();
     insert_load_facts(
         tx,
         provenance,
         compile_inventory,
         load_decisions,
         &issue_keys,
+        &grammar_source_keys,
     )?;
     Ok(())
 }
@@ -301,10 +312,15 @@ fn insert_load_facts(
     inventory: &InventoryDelta,
     decisions: &[LoadDecision],
     issue_keys: &IssueKeyIndex,
+    grammar_source_keys: &BTreeSet<InventoryKey>,
 ) -> Result<(), FactsError> {
     let records = load_records(provenance, inventory, decisions);
     let mut records = records
         .into_iter()
+        .filter(|decision| {
+            decision.subject.kind != InventoryKind::SourceObject
+                || grammar_source_keys.contains(&decision.subject)
+        })
         .map(|decision| {
             let subject_key = subject_key(&decision.subject)?.1;
             Ok((decision, subject_key))

@@ -62,34 +62,37 @@ pub struct CompileOutput {
     pub inventory: InventoryDelta,
     pub load_decisions: Vec<LoadDecision>,
     pub environment_resolutions: Vec<EnvironmentResolution>,
+    /// Every compiled object's output identity, in compile order, after grammar compaction.
+    pub compiled_outputs: Vec<super::lineage::CompiledOutput>,
     /// Final source-to-output associations published after grammar compaction.
     pub compiled_mappings: Vec<CompiledMapping>,
     /// Final sibling allomorph order within each source MSA and stratum bucket.
     pub compiled_allomorph_order: Vec<CompiledAllomorphOrder>,
 }
 
-/// A source identity attached to a final compiler output identity.
+/// A source identity attached to one compiled output, with the role the source plays for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledMapping {
     pub source_kind: String,
     pub source_guid: Option<String>,
     pub source_key: String,
-    pub output_kind: String,
-    pub output_key: String,
+    /// The [`super::CompiledOutput`] this source maps to.
+    pub output_id: u32,
+    pub relation_role: String,
+    /// Position within the source, such as a circumfix half's surface order; 0 otherwise.
+    pub source_ordinal: u32,
     pub identity_quality: String,
 }
 
-/// One compiler-ordered allomorph output in its entry/MSA/bucket context.
+/// One compiler-ordered allomorph within its owner. Unrepresented rows carry no owner or output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledAllomorphOrder {
-    pub owner_key: String,
+    pub owner_output_id: Option<u32>,
     pub source_entry_guid: Option<String>,
     pub source_msa_guid: Option<String>,
-    pub bucket: String,
     pub source_allomorph_guid: Option<String>,
-    pub output_key: Option<String>,
+    pub output_id: Option<u32>,
     pub compiled_order: Option<u32>,
-    pub is_final_elsewhere_case: bool,
 }
 
 /// Returned by [`super::compile_project_with`] under `Refuse` when any collected issue is fatal:
@@ -107,6 +110,8 @@ pub struct ConversionError {
     /// Owner-published load outcomes retained for refusal artifacts.
     pub load_decisions: Vec<LoadDecision>,
     pub environment_resolutions: Vec<EnvironmentResolution>,
+    /// Output identities published before the refusal decision.
+    pub compiled_outputs: Vec<super::lineage::CompiledOutput>,
     /// Final source-to-output associations published before the refusal decision.
     pub compiled_mappings: Vec<CompiledMapping>,
     /// Final sibling allomorph order published before the refusal decision.

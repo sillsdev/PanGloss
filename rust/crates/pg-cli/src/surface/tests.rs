@@ -133,7 +133,7 @@ fn describe_json_publishes_the_facts_identity_contract() {
     })
     .unwrap();
     assert_eq!(value["facts"]["format"], "pangloss-grammar-facts");
-    assert_eq!(value["facts"]["schemaVersion"], 7);
+    assert_eq!(value["facts"]["schemaVersion"], 8);
     assert_eq!(value["facts"]["statsManifestVersion"], 1);
     assert_eq!(value["facts"]["applicationId"], 1_346_848_321);
     assert_eq!(value["facts"]["contextFormat"], "pangloss-facts-context");

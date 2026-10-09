@@ -72,6 +72,9 @@ pub use environment::{EnvironmentResolution, EnvironmentResolutionStatus};
 use inventory::{Lineage, LineageTarget};
 pub use issues::{CompileOutput, CompiledAllomorphOrder, CompiledMapping};
 use issues::{ConversionError, SubstrateReport};
+pub use lineage::{
+    compiled_outputs, AllomorphConditioning, CompiledOutput, CompiledOutputKind, CompiledOutputs,
+};
 pub use options::{CompileOptions, SemanticLossPolicy};
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
@@ -182,8 +185,10 @@ pub fn compile_project_with_options_and_import_warnings(
     }
     let (recorded_inventory, recorded_issues, load_decisions) =
         recorder.finish_with_load_decisions();
+    let compiled_outputs = lineage::compiled_outputs(&grammar);
     let (compiled_mappings, compiled_allomorph_order) =
-        lineage::publish(snapshot, &grammar, &load_decisions);
+        lineage::publish(snapshot, &grammar, &compiled_outputs, &load_decisions);
+    let compiled_outputs = compiled_outputs.outputs().to_vec();
     issues.extend(recorded_issues.iter().cloned());
     issues.extend(substrate_issues.iter().cloned());
     let mut warnings: Vec<_> = import_warnings.into_iter().collect();
@@ -213,6 +218,7 @@ pub fn compile_project_with_options_and_import_warnings(
             inventory,
             load_decisions,
             environment_resolutions,
+            compiled_outputs,
             compiled_mappings,
             compiled_allomorph_order,
         }
@@ -227,6 +233,7 @@ pub fn compile_project_with_options_and_import_warnings(
         inventory,
         load_decisions,
         environment_resolutions,
+        compiled_outputs,
         compiled_mappings,
         compiled_allomorph_order,
     })

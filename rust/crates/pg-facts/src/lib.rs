@@ -4,6 +4,7 @@ mod adhoc;
 mod compiled;
 mod context;
 mod features;
+mod guid;
 mod lexicon;
 mod load;
 mod metadata;

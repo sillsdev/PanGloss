@@ -598,7 +598,7 @@ fn insert_phonological_rules(
                 };
                 tx.execute(
                     "INSERT INTO rule_stratum(rule_guid, stratum_key, ordinal) VALUES (?1, ?2, ?3)",
-                    params![compiled.xml_id, key, rule_ordinal as i64],
+                    params![canonical_key(&compiled.xml_id), key, rule_ordinal as i64],
                 )?;
             }
         }
@@ -612,11 +612,16 @@ fn effective_strata(grammar: &pg_grammar::model::Grammar) -> BTreeMap<String, St
         let key = stratum_key(stratum_ordinal);
         for id in &stratum.prules {
             if let Some(PhonRuleDef::Rewrite(rule)) = grammar.prules.get(id.0 as usize) {
-                strata.insert(rule.xml_id.clone(), key.clone());
+                strata.insert(canonical_key(&rule.xml_id), key.clone());
             }
         }
     }
     strata
+}
+
+/// Map keys are canonical GUIDs, because lookups use `checked_guid`'s lowercase form.
+fn canonical_key(raw: &str) -> String {
+    pg_snapshot::canonical_guid(raw).unwrap_or_else(|| raw.to_string())
 }
 
 fn stratum_key(ordinal: usize) -> String {

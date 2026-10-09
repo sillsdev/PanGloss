@@ -28,6 +28,29 @@ use crate::model::{MorphRuleDef, PartialMorphemeReason, TemplateSlotZone};
 use crate::GrammarError;
 
 use super::test_support::assert_grammars_equal;
+use super::{CompiledAllomorphOrder, CompiledMapping};
+
+/// The output key a compiled mapping names, by its 1-based output id.
+fn key_of<'a>(output: &'a CompileOutput, mapping: &CompiledMapping) -> &'a str {
+    &output.compiled_outputs[mapping.output_id as usize - 1].key
+}
+
+fn kind_of(output: &CompileOutput, mapping: &CompiledMapping) -> &'static str {
+    output.compiled_outputs[mapping.output_id as usize - 1]
+        .kind
+        .as_str()
+}
+
+fn row_key<'a>(output: &'a CompileOutput, row: &CompiledAllomorphOrder) -> Option<&'a str> {
+    row.output_id
+        .map(|id| output.compiled_outputs[id as usize - 1].key.as_str())
+}
+
+fn bucket_of_row<'a>(output: &'a CompileOutput, row: &CompiledAllomorphOrder) -> &'a str {
+    row.owner_output_id.map_or("", |owner| {
+        output.compiled_outputs[owner as usize - 1].bucket.as_str()
+    })
+}
 use super::{
     compile_project, compile_project_measured, compile_project_recording, compile_project_with,
     environment, CompileOptions, CompileOutput, SemanticLossPolicy,
@@ -1797,7 +1820,7 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
         .find(|mapping| {
             mapping.source_kind == "entry"
                 && mapping.source_guid.as_deref() == Some("entry-variant")
-                && mapping.output_kind == "lexEntry"
+                && kind_of(&output, mapping) == "lex_entry"
         })
         .expect("the variant entry must map to its final lexical entry");
     let msa_mapping = output
@@ -1806,22 +1829,25 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
         .find(|mapping| {
             mapping.source_kind == "msa"
                 && mapping.source_guid.as_deref() == Some(f.stem_msa.as_str())
-                && mapping.output_kind == "lexEntry"
-                && mapping.output_key == variant_entry_mapping.output_key
+                && kind_of(&output, mapping) == "lex_entry"
+                && key_of(&output, mapping) == key_of(&output, variant_entry_mapping)
         })
         .expect("variant output must preserve its borrowed main-entry MSA association");
-    assert_eq!(msa_mapping.output_key, variant_entry_mapping.output_key);
+    assert_eq!(
+        key_of(&output, msa_mapping),
+        key_of(&output, variant_entry_mapping)
+    );
     assert!(output.compiled_mappings.iter().any(|mapping| {
         mapping.source_kind == "allomorph"
             && mapping.source_guid.as_deref() == Some("allo-variant")
-            && mapping.output_kind == "allomorph"
+            && kind_of(&output, mapping) == "allomorph"
             && mapping.identity_quality == "structural"
     }));
     assert!(output.compiled_allomorph_order.iter().any(|row| {
         row.source_entry_guid.as_deref() == Some("entry-variant")
             && row.source_msa_guid.as_deref() == Some(f.stem_msa.as_str())
             && row.source_allomorph_guid.as_deref() == Some("allo-variant")
-            && row.bucket == "Morphology"
+            && bucket_of_row(&output, row) == "Morphology"
             && row.compiled_order == Some(0)
     }));
 }
@@ -1853,7 +1879,7 @@ fn variant_affix_order_joins_variant_entry_to_the_main_entry_msa() {
         row.source_entry_guid.as_deref() == Some("entry-variant-affix")
             && row.source_msa_guid.as_deref() == Some("msa-suffix")
             && row.source_allomorph_guid.as_deref() == Some("allo-variant-affix")
-            && row.bucket == "Morphology"
+            && bucket_of_row(&output, row) == "Morphology"
             && row.compiled_order == Some(0)
     }));
 }
@@ -1890,9 +1916,9 @@ fn variant_affix_and_main_affix_sharing_an_msa_have_distinct_rule_keys() {
         .filter(|m| {
             m.source_kind == "msa"
                 && m.source_guid.as_deref() == Some(f.suffix_msa.as_str())
-                && m.output_kind == "morphRule"
+                && kind_of(&output, m) == "morph_rule"
         })
-        .map(|m| m.output_key.as_str())
+        .map(|m| key_of(&output, m))
         .collect();
     assert_eq!(rule_keys.len(), 2, "rule keys: {rule_keys:?}");
     assert!(rule_keys.iter().all(|key| key.starts_with("morph_rule:")));
@@ -1902,13 +1928,13 @@ fn variant_affix_and_main_affix_sharing_an_msa_have_distinct_rule_keys() {
         .iter()
         .filter(|m| {
             m.source_kind == "allomorph"
-                && m.output_kind == "allomorph"
+                && kind_of(&output, m) == "allomorph"
                 && matches!(
                     m.source_guid.as_deref(),
                     Some("allo-suffix" | "allo-variant-affix")
                 )
         })
-        .map(|m| m.output_key.as_str())
+        .map(|m| key_of(&output, m))
         .collect();
     assert_eq!(
         allomorph_keys.len(),
@@ -1956,9 +1982,9 @@ fn variant_stem_with_two_inflection_types_has_two_entry_keys() {
         .filter(|m| {
             m.source_kind == "msa"
                 && m.source_guid.as_deref() == Some(f.stem_msa.as_str())
-                && m.output_kind == "lexEntry"
+                && kind_of(&output, m) == "lex_entry"
         })
-        .map(|m| m.output_key.as_str())
+        .map(|m| key_of(&output, m))
         .collect();
     assert_eq!(
         entry_keys.len(),
@@ -1971,9 +1997,9 @@ fn variant_stem_with_two_inflection_types_has_two_entry_keys() {
         .filter(|m| {
             m.source_kind == "entry"
                 && m.source_guid.as_deref() == Some("entry-variant")
-                && m.output_kind == "lexEntry"
+                && kind_of(&output, m) == "lex_entry"
         })
-        .map(|m| m.output_key.as_str())
+        .map(|m| key_of(&output, m))
         .collect();
     assert_eq!(
         variant_keys.len(),
@@ -1991,17 +2017,16 @@ fn compiled_mapping_rows_equal_compiled_outputs() {
 
     let mut sources_by_key: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
     for row in &output.compiled_allomorph_order {
-        let (Some(key), Some(source)) = (
-            row.output_key.as_deref(),
-            row.source_allomorph_guid.as_deref(),
-        ) else {
+        let (Some(key), Some(source)) =
+            (row_key(&output, row), row.source_allomorph_guid.as_deref())
+        else {
             continue;
         };
         sources_by_key.entry(key).or_default().insert(source);
         assert!(
             output.compiled_mappings.iter().any(|m| {
-                m.output_kind == "allomorph"
-                    && m.output_key == key
+                kind_of(&output, m) == "allomorph"
+                    && key_of(&output, m) == key
                     && m.source_guid.as_deref() == Some(source)
             }),
             "order row {key} / {source} has no matching compiled mapping"
@@ -2956,23 +2981,19 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
             row.source_entry_guid.as_deref() == Some("entry-clitic")
                 && row.source_msa_guid.as_deref() == Some("msa-clitic")
                 && row.source_allomorph_guid.as_deref() == Some("allo-clitic")
-                && row.bucket == "Clitics"
+                && bucket_of_row(&output, row) == "Clitics"
         })
         .collect();
     assert_eq!(clitic_orders.len(), 2);
     assert!(clitic_orders
         .iter()
         .all(|row| row.compiled_order == Some(0)));
-    assert!(clitic_orders.iter().any(|row| {
-        row.output_key
-            .as_deref()
-            .is_some_and(|key| key.starts_with("lex_entry:"))
-    }));
-    assert!(clitic_orders.iter().any(|row| {
-        row.output_key
-            .as_deref()
-            .is_some_and(|key| key.starts_with("morph_rule:"))
-    }));
+    assert!(clitic_orders
+        .iter()
+        .any(|row| { row_key(&output, row).is_some_and(|key| key.starts_with("lex_entry:")) }));
+    assert!(clitic_orders
+        .iter()
+        .any(|row| { row_key(&output, row).is_some_and(|key| key.starts_with("morph_rule:")) }));
 }
 
 // --- snapshot-to-grammar selection recording ---------------------------------------------------
@@ -3636,7 +3657,7 @@ fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_non
         .iter()
         .filter(|mapping| {
             mapping.source_kind == "synthetic"
-                && mapping.output_kind == "morphRule"
+                && kind_of(&output, mapping) == "compound_rule"
                 && mapping.identity_quality == "synthetic"
         })
         .collect();
@@ -3644,18 +3665,18 @@ fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_non
     assert!(default_mappings
         .iter()
         .all(|mapping| mapping.source_guid.is_none()));
-    assert_eq!(
-        default_mappings
-            .iter()
-            .map(|mapping| mapping.output_key.as_str())
-            .collect::<std::collections::BTreeSet<_>>(),
-        [
-            "morph_rule:Default Left Head Compounding",
-            "morph_rule:Default Right Head Compounding",
-        ]
-        .into_iter()
-        .collect()
-    );
+    for name in [
+        "Default Left Head Compounding",
+        "Default Right Head Compounding",
+    ] {
+        let prefix = format!("compound_rule:endo#{name}@");
+        assert!(
+            default_mappings
+                .iter()
+                .any(|mapping| key_of(&output, mapping).starts_with(&prefix)),
+            "no output keyed {prefix}"
+        );
+    }
 
     let (mut snapshot_with_authored, _f2) = fixture();
     snapshot_with_authored
@@ -3719,7 +3740,7 @@ fn exocentric_compound_outputs_each_map_to_the_authored_rule() {
         .filter(|mapping| {
             mapping.source_kind == "compoundRule"
                 && mapping.source_guid.as_deref() == Some("compound-exocentric")
-                && mapping.output_kind == "morphRule"
+                && kind_of(&output, mapping) == "compound_rule"
         })
         .collect();
 
@@ -3727,12 +3748,18 @@ fn exocentric_compound_outputs_each_map_to_the_authored_rule() {
     assert!(mappings
         .iter()
         .all(|mapping| mapping.identity_quality == "structural"));
-    assert!(mappings
+    // Exocentric halves are two outputs by design, so the side names them and no collision suffix applies.
+    let keys: BTreeSet<&str> = mappings.iter().map(|m| key_of(&output, m)).collect();
+    assert!(keys
         .iter()
-        .any(|mapping| mapping.output_key == "morph_rule:exo-right#Exocentric"));
-    assert!(mappings
+        .any(|key| key.starts_with("compound_rule:exo#compound-exocentric#left@")));
+    assert!(keys
         .iter()
-        .any(|mapping| mapping.output_key == "morph_rule:exo-left#Exocentric"));
+        .any(|key| key.starts_with("compound_rule:exo#compound-exocentric#right@")));
+    assert!(
+        keys.iter().all(|key| !key.contains('!')),
+        "exocentric halves must not need a collision suffix: {keys:?}"
+    );
 }
 
 #[test]
@@ -3761,16 +3788,14 @@ fn null_affix_output_has_synthetic_order_and_optional_slots_omit_it() {
             .filter(|mapping| {
                 mapping.source_kind == "ruleFeature"
                     && mapping.source_guid.as_deref() == Some("infl-null")
-                    && mapping.output_kind == "allomorph"
+                    && kind_of(&output, mapping) == "allomorph"
             })
             .collect();
         let null_orders: Vec<_> = output
             .compiled_allomorph_order
             .iter()
             .filter(|row| {
-                row.output_key
-                    .as_deref()
-                    .is_some_and(|key| key.contains("null-affix#infl-null"))
+                row_key(&output, row).is_some_and(|key| key.contains("null-affix#infl-null"))
             })
             .collect();
 
@@ -3784,9 +3809,8 @@ fn null_affix_output_has_synthetic_order_and_optional_slots_omit_it() {
             assert!(null_orders[0].source_entry_guid.is_none());
             assert!(null_orders[0].source_msa_guid.is_none());
             assert_eq!(null_orders[0].source_allomorph_guid, None);
-            assert_eq!(null_orders[0].bucket, "Morphology");
+            assert_eq!(bucket_of_row(&output, null_orders[0]), "Morphology");
             assert_eq!(null_orders[0].compiled_order, Some(0));
-            assert!(null_orders[0].is_final_elsewhere_case);
         }
     }
 }
@@ -4057,7 +4081,7 @@ fn template_only_mrule_orphaned_by_no_template_is_revoked_unreachable_after_comp
     assert!(!output.compiled_mappings.iter().any(|mapping| {
         mapping.source_kind == "msa"
             && mapping.source_guid.as_deref() == Some("msa-orphan")
-            && mapping.output_kind == "morphRule"
+            && kind_of(&output, mapping) == "morph_rule"
     }));
     assert!(!output
         .compiled_allomorph_order
@@ -4847,6 +4871,7 @@ fn compile_options_and_output_carry_exactly_their_declared_fields() {
         inventory,
         load_decisions: _,
         environment_resolutions: _,
+        compiled_outputs: _,
         compiled_mappings: _,
         compiled_allomorph_order: _,
     } = out;
@@ -4876,7 +4901,7 @@ fn compiled_lineage_and_order_follow_final_root_allomorphs() {
         .filter(|row| {
             row.source_entry_guid.as_deref() == Some(f.stem_entry.as_str())
                 && row.source_msa_guid.as_deref() == Some(f.stem_msa.as_str())
-                && row.bucket == "Morphology"
+                && bucket_of_row(&output, row) == "Morphology"
         })
         .collect();
 
@@ -4884,13 +4909,11 @@ fn compiled_lineage_and_order_follow_final_root_allomorphs() {
     assert_eq!(order.len(), 2);
     assert_eq!(order[0].compiled_order, Some(0));
     assert_eq!(order[1].compiled_order, Some(1));
-    assert!(!order[0].is_final_elsewhere_case);
-    assert!(order[1].is_final_elsewhere_case);
     for guid in ["allo-stem", "allo-stem-alt"] {
         assert!(output.compiled_mappings.iter().any(|mapping| {
             mapping.source_kind == "allomorph"
                 && mapping.source_guid.as_deref() == Some(guid)
-                && mapping.output_kind == "allomorph"
+                && kind_of(&output, mapping) == "allomorph"
         }));
     }
 }
@@ -4908,9 +4931,9 @@ fn circumfix_source_halves_map_only_to_final_compiled_products() {
                     mapping.source_guid.as_deref(),
                     Some("allo-circ-prefix" | "allo-circ-suffix")
                 )
-                && mapping.output_kind == "allomorph"
+                && kind_of(&output, mapping) == "allomorph"
         })
-        .map(|mapping| mapping.output_key.as_str())
+        .map(|mapping| key_of(&output, mapping))
         .collect();
 
     assert_eq!(
@@ -4928,7 +4951,7 @@ fn circumfix_source_halves_map_only_to_final_compiled_products() {
                         mapping.source_guid.as_deref(),
                         Some("allo-circ-prefix" | "allo-circ-suffix")
                     )
-                    && mapping.output_kind == "allomorph"
+                    && kind_of(&output, mapping) == "allomorph"
             })
             .count(),
         2,
@@ -4940,9 +4963,9 @@ fn circumfix_source_halves_map_only_to_final_compiled_products() {
                 mapping.source_guid.as_deref(),
                 Some("allo-circ-prefix" | "allo-circ-suffix")
             )
-            && mapping.output_kind == "allomorph"
+            && kind_of(&output, mapping) == "allomorph"
     }) {
-        assert!(mapping.output_key.contains("#allo"));
+        assert!(key_of(&output, mapping).contains("#allo"));
     }
 }
 
@@ -6159,4 +6182,376 @@ fn prerelease_missing_template_slot_in_both_fields_keeps_distinct_facts() {
     assert!(warnings.iter().all(|w| w.subjects.len() == 2
         && w.subjects[1].guid.as_deref() == Some(missing)
         && w.subjects[1].status == pg_snapshot::FwSubjectStatus::UnresolvedReference));
+}
+
+/// Every compiled output names a distinct key, the one spelling every consumer joins on.
+fn assert_output_keys_unique(output: &CompileOutput) {
+    let keys: BTreeSet<&str> = output
+        .compiled_outputs
+        .iter()
+        .map(|out| out.key.as_str())
+        .collect();
+    assert_eq!(
+        keys.len(),
+        output.compiled_outputs.len(),
+        "compiled output keys must be unique"
+    );
+}
+
+/// The lexical-entry output keys a source entry maps to.
+fn entry_output_keys<'a>(output: &'a CompileOutput, entry_guid: &str) -> BTreeSet<&'a str> {
+    output
+        .compiled_mappings
+        .iter()
+        .filter(|m| {
+            m.source_kind == "entry"
+                && m.source_guid.as_deref() == Some(entry_guid)
+                && kind_of(output, m) == "lex_entry"
+        })
+        .map(|m| key_of(output, m))
+        .collect()
+}
+
+#[test]
+fn duplicate_variant_inflection_types_keep_unique_output_keys() {
+    let (mut snapshot, f) = fixture();
+    snapshot
+        .morphology
+        .lex_entry_infl_types
+        .push(LexEntryInflType {
+            guid: "infl-plural".to_string(),
+            name: "plural".to_string(),
+            abbreviation: "pl".to_string(),
+            gloss_prepend: String::new(),
+            gloss_append: ".pl".to_string(),
+            slots: Vec::new(),
+            inflection_features: None,
+        });
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-variant".to_string(),
+        citation_form: vec![ws("sen", "kumi")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-variant", MorphType::Stem, "kumi")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            variant_entry_types: vec!["infl-plural".to_string(), "infl-plural".to_string()],
+        }],
+    });
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+
+    assert_output_keys_unique(&output);
+    assert_eq!(
+        entry_output_keys(&output, "entry-variant").len(),
+        2,
+        "each repeated inflection type is its own lexical entry output"
+    );
+}
+
+#[test]
+fn repeated_variant_component_keeps_unique_output_keys() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-variant".to_string(),
+        citation_form: vec![ws("sen", "kumi")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-variant", MorphType::Stem, "kumi")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant".to_string(),
+            component_lexemes: vec![f.stem_entry.clone(), f.stem_entry.clone()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+
+    assert_output_keys_unique(&output);
+    assert_eq!(
+        entry_output_keys(&output, "entry-variant").len(),
+        2,
+        "a component named twice is two lexical entry outputs"
+    );
+}
+
+fn endocentric_rule(guid: &str, name: &str) -> CompoundRule {
+    CompoundRule::Endocentric {
+        guid: guid.to_string(),
+        name: name.to_string(),
+        disabled: false,
+        head_last: false,
+        left: CompoundConstituentRequirement::default(),
+        right: CompoundConstituentRequirement::default(),
+        overriding: CompoundOutcome::default(),
+    }
+}
+
+fn compound_keys_for(output: &CompileOutput, rule_guid: &str) -> Vec<String> {
+    let prefix = format!("compound_rule:endo#{rule_guid}@");
+    output
+        .compiled_outputs
+        .iter()
+        .filter(|out| out.key.starts_with(&prefix))
+        .map(|out| out.key.clone())
+        .collect()
+}
+
+#[test]
+fn same_named_compound_rules_have_distinct_output_keys() {
+    let (mut snapshot, _f) = fixture();
+    snapshot
+        .morphology
+        .compound_rules
+        .push(endocentric_rule("cr-one", "Same"));
+    snapshot
+        .morphology
+        .compound_rules
+        .push(endocentric_rule("cr-two", "Same"));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+
+    assert_output_keys_unique(&output);
+    assert_eq!(compound_keys_for(&output, "cr-one").len(), 1);
+    assert_eq!(compound_keys_for(&output, "cr-two").len(), 1);
+}
+
+#[test]
+fn renaming_a_compound_rule_keeps_its_output_key() {
+    let key_under = |name: &str| {
+        let (mut snapshot, _f) = fixture();
+        snapshot
+            .morphology
+            .compound_rules
+            .push(endocentric_rule("cr-stable", name));
+        let output =
+            compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+        let keys = compound_keys_for(&output, "cr-stable");
+        assert_eq!(keys.len(), 1, "one output for the rule under {name}");
+        keys[0].clone()
+    };
+    assert_eq!(key_under("Before"), key_under("After"));
+}
+
+#[test]
+fn allomorph_conditioning_flags() {
+    let (mut snapshot, _f) = fixture();
+    // A twin with the same gates (none) shares the signature; an environment changes conditioning, not gates.
+    snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.allomorphs.iter().any(|a| a.guid == "allo-suffix"))
+        .expect("the fixture's suffix entry owns allo-suffix")
+        .allomorphs
+        .push(simple_allomorph(
+            "allo-suffix-twin",
+            MorphType::Suffix,
+            "ku",
+        ));
+    let allomorph_output = |output: &CompileOutput, guid: &str| {
+        output
+            .compiled_mappings
+            .iter()
+            .find(|m| {
+                m.source_kind == "allomorph"
+                    && m.source_guid.as_deref() == Some(guid)
+                    && kind_of(output, m) == "allomorph"
+            })
+            .map(|m| output.compiled_outputs[m.output_id as usize - 1].clone())
+            .expect("the allomorph must have a compiled output")
+    };
+
+    let plain = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let plain_suffix = allomorph_output(&plain, "allo-suffix");
+    let plain_flags = plain_suffix
+        .conditioning
+        .expect("an allomorph output carries its conditioning");
+    assert!(
+        plain_flags.is_unconditioned,
+        "a bare suffix is unconditioned"
+    );
+    assert!(!plain_flags.has_phone_condition);
+    assert_eq!(plain_flags.realization_kind, "segments");
+    let twin_flags = allomorph_output(&plain, "allo-suffix-twin")
+        .conditioning
+        .expect("the twin carries conditioning");
+    assert_eq!(twin_flags.gate_signature, plain_flags.gate_signature);
+
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-after-t".into(),
+            name: String::new(),
+            representation: "/t_".into(),
+        });
+    let suffix_entry = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.allomorphs.iter().any(|a| a.guid == "allo-suffix"))
+        .expect("the fixture's suffix entry owns allo-suffix");
+    suffix_entry
+        .allomorphs
+        .iter_mut()
+        .find(|a| a.guid == "allo-suffix")
+        .expect("allo-suffix")
+        .environments
+        .push("env-after-t".into());
+    let conditioned =
+        compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let flags = allomorph_output(&conditioned, "allo-suffix")
+        .conditioning
+        .expect("conditioning");
+    assert!(
+        flags.has_phone_condition,
+        "an environment conditions the allomorph"
+    );
+    assert!(!flags.is_unconditioned);
+    assert_eq!(flags.gate_signature, plain_flags.gate_signature);
+}
+
+fn allomorph_output_for(output: &CompileOutput, guid: &str) -> crate::compile::CompiledOutput {
+    output
+        .compiled_mappings
+        .iter()
+        .find(|m| {
+            m.source_kind == "allomorph"
+                && m.source_guid.as_deref() == Some(guid)
+                && kind_of(output, m) == "allomorph"
+        })
+        .map(|m| output.compiled_outputs[m.output_id as usize - 1].clone())
+        .expect("the allomorph must have a compiled output")
+}
+
+#[test]
+fn gated_allomorph_has_morph_gate_and_a_canonical_gate_signature() {
+    let (mut snapshot, _f) = fixture();
+    for guid in ["class-a", "class-b"] {
+        snapshot.morphology.parts_of_speech[0]
+            .inflection_classes
+            .push(InflectionClass {
+                guid: guid.to_string(),
+                name: guid.to_string(),
+                abbreviation: guid.to_string(),
+                children: Vec::new(),
+            });
+    }
+    let suffix_entry = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.allomorphs.iter().any(|a| a.guid == "allo-suffix"))
+        .expect("the fixture's suffix entry owns allo-suffix");
+    let gated = |guid: &str, class: &str| {
+        let mut allo = simple_allomorph(guid, MorphType::Suffix, "ku");
+        allo.inflection_classes = vec![class.to_string()];
+        allo
+    };
+    suffix_entry
+        .allomorphs
+        .iter_mut()
+        .find(|a| a.guid == "allo-suffix")
+        .expect("allo-suffix")
+        .inflection_classes = vec!["class-a".to_string()];
+    suffix_entry
+        .allomorphs
+        .push(gated("allo-gate-twin", "class-a"));
+    suffix_entry
+        .allomorphs
+        .push(gated("allo-gate-other", "class-b"));
+
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let gated_flags = allomorph_output_for(&output, "allo-suffix")
+        .conditioning
+        .expect("conditioning");
+    assert!(
+        gated_flags.has_morph_gate,
+        "an inflection class gates the allomorph"
+    );
+    assert!(!gated_flags.is_unconditioned);
+    assert!(
+        gated_flags
+            .gate_signature
+            .strip_prefix("mpr=")
+            .and_then(|rest| rest.split(';').next())
+            .is_some_and(|ids| !ids.is_empty() && ids.split(',').all(|id| id.parse::<u8>().is_ok())),
+        "the gate names its MPR: {}",
+        gated_flags.gate_signature
+    );
+    let twin = allomorph_output_for(&output, "allo-gate-twin")
+        .conditioning
+        .expect("conditioning");
+    let other = allomorph_output_for(&output, "allo-gate-other")
+        .conditioning
+        .expect("conditioning");
+    assert_eq!(gated_flags.gate_signature, twin.gate_signature);
+    assert_ne!(gated_flags.gate_signature, other.gate_signature);
+}
+
+#[test]
+fn template_slot_surface_ordinals_count_outward_from_the_stem() {
+    let (mut snapshot, f) = fixture();
+    let pos = &mut snapshot.morphology.parts_of_speech[0];
+    for guid in ["slot-s2", "slot-p1", "slot-p2"] {
+        pos.affix_slots.push(AffixSlot {
+            guid: guid.to_string(),
+            name: guid.to_string(),
+            optional: false,
+        });
+    }
+    // Slot lists run innermost-to-outermost, so ordinal 0 sits nearest the stem on each side.
+    pos.affix_templates[0].prefix_slots = vec!["slot-p1".to_string(), "slot-p2".to_string()];
+    pos.affix_templates[0].suffix_slots = vec![f.slot.clone(), "slot-s2".to_string()];
+    for (entry, morph, slot, form) in [
+        ("entry-s2", MorphType::Suffix, "slot-s2", "ku"),
+        ("entry-p1", MorphType::Prefix, "slot-p1", "ma"),
+        ("entry-p2", MorphType::Prefix, "slot-p2", "ku"),
+    ] {
+        let msa = format!("msa-{entry}");
+        snapshot.lexicon.entries.push(LexEntry {
+            guid: entry.to_string(),
+            citation_form: vec![ws("sen", form)],
+            lexeme_morph_type: morph,
+            allomorphs: vec![simple_allomorph(&format!("allo-{entry}"), morph, form)],
+            msas: vec![Msa::Inflectional {
+                guid: msa.clone(),
+                part_of_speech: Some(f.noun_pos.clone()),
+                slots: vec![slot.to_string()],
+                features: None,
+                exception_features: Vec::new(),
+            }],
+            senses: vec![Sense {
+                guid: format!("sense-{entry}"),
+                gloss: vec![ws("en", form)],
+                definition: Vec::new(),
+                msa: Some(msa),
+            }],
+            entry_refs: Vec::new(),
+        });
+    }
+
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let mut surface_by_slot = BTreeMap::new();
+    for decision in &output.load_decisions {
+        let Some(value) = &decision.effective_value_json else {
+            continue;
+        };
+        if decision.subject.kind != pg_snapshot::InventoryKind::TemplateSlot {
+            continue;
+        }
+        let placement: serde_json::Value = serde_json::from_str(value).unwrap();
+        let slot = placement["slotGuid"].as_str().unwrap().to_string();
+        surface_by_slot.insert(slot, placement["surfaceOrdinal"].as_i64().unwrap());
+    }
+    let expected: BTreeMap<String, i64> = [
+        ("slot-s2".to_string(), 2),
+        (f.slot.clone(), 1),
+        ("slot-p1".to_string(), -1),
+        ("slot-p2".to_string(), -2),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(surface_by_slot, expected);
 }

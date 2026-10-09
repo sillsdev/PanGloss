@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 pub const APPLICATION_ID: i64 = 1_346_848_321;
-pub const FACT_SCHEMA_VERSION: u32 = 7;
+pub const FACT_SCHEMA_VERSION: u32 = 8;
 pub const FACT_FORMAT: &str = "pangloss-grammar-facts";
 pub const FACTS_CONTEXT_FORMAT: &str = "pangloss-facts-context";
 pub const FACTS_CONTEXT_VERSION: u32 = 1;
@@ -34,8 +34,8 @@ pub(crate) fn fixed_sections(
     let unavailable = |section: &str| SectionStatus {
         section: section.into(),
         status: "unavailable".into(),
-        source_scope: "not emitted by facts schema v7".into(),
-        reason_code: Some("not_in_facts_v7".into()),
+        source_scope: "not emitted by facts schema v8".into(),
+        reason_code: Some("not_in_facts_v8".into()),
     };
     vec![
         SectionStatus {
@@ -48,7 +48,7 @@ pub(crate) fn fixed_sections(
             section: "source_census".into(),
             status: if source_inventory_complete { "complete" } else { "unavailable" }.into(),
             source_scope: if source_inventory_complete {
-                "every source header occurrence, class count, and parse retention state from current import provenance".into()
+                "grammar source objects with their parse retention state, plus class counts for every source header occurrence, from current import provenance".into()
             } else {
                 "the supplied Snapshot provenance cannot establish every source header occurrence".into()
             },

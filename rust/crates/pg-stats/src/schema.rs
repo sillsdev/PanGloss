@@ -8,7 +8,7 @@ use crate::error::StatsError;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped when `schema.sql` changes shape. A cache is wiped, never migrated, on a mismatch.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// Bumped when counter meaning or object attribution changes; recorded per run rather than wiped on.
 pub use pg_rules::stats::COUNTER_SEMANTICS_VERSION;

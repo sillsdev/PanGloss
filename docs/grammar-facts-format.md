@@ -1,7 +1,7 @@
-# PanGloss grammar facts format (v7)
+# PanGloss grammar facts format (v8)
 
 **Format:** `pangloss-grammar-facts`. **SQLite application ID:** `1346848321` (`0x50474641`, `PGFA`).
-**Schema version:** `7`. The executable DDL is [schema.sql](../rust/crates/pg-facts/src/schema.sql).
+**Schema version:** `8`. The executable DDL is [schema.sql](../rust/crates/pg-facts/src/schema.sql).
 
 ## Changes from v4
 
@@ -41,21 +41,105 @@ exact Snapshot or its compiler-published source associations. The seven logical 
 states come from `pg-rules`' collector API; self-time support is recorded by direction. The artifact
 is rebuilt from source; there is no in-place schema migration.
 
+## Changes from v7
+
+Schema v8 increments `artifact_meta.schema_version` and `PRAGMA user_version` from 7 to 8. It
+carries grammar objects in the source census and drops the per-occurrence rows for every other
+class: `source_object` and the `sourceObject` rows of `load_fact` exist only where `inventory_kind`
+is not null. `source_class_count` and the `source_census` total still count every occurrence, so a
+text or wordform is visible as a count. The text-side data comes from the project itself, not from
+these facts. No CLI option restores a full census. The Snapshot is compiled exactly as the parser
+compiles it, so `grammar_hash` and compiled keys match the parser's. Every GUID in the stored rows is
+lowercased when the rows are written, including GUIDs embedded in key and message text. The one
+exemption is `source_object.raw_guid`, which keeps the importer's spelling. The artifact is rebuilt
+from source; there is no in-place schema migration.
+
 ## Compiled output keys
 
-The `output_key` text of `compiled_mapping` and `compiled_allomorph_order` changed without a schema
-change; the facts schema stays at version 7 because the columns are unchanged. Keys are built from
-the source XML key, the owning lexical entry, and the stratum bucket, so a variant entry that borrows
-its main entry's MSA gets its own keys:
+Every compiled grammar object has one row in `compiled_output`, and every consumer names it by
+`output_id`. The `key` text is the one spelling: `compiled_mapping` (source-to-output lineage),
+`compiled_allomorph_order` (sibling order) and `stats_object` / `stats_allomorph` (stats) all join
+to it. A stats row of kind `morph_rule`, `phon_rule` or `lex_entry`, and every allomorph row, carries the
+`output_id` of the object whose key it shares; guesser, overlay and root-trie rows carry `NULL`.
 
-- Affix rule: `morph_rule:{xml_key}#{entry_guid}@{bucket}`.
-- Lexical entry: `lex_entry:{xml_key}#{entry_guid}[~{infl_type_guid}]@{bucket}`. The `[~...]` part
-  appears only for variant stems, one per inflection type.
-- Allomorph: `{owner_key}#allo{index}`, where `owner_key` is the rule or entry key above.
+Keys are built only in `rust/crates/pg-grammar/src/compile/lineage.rs`, one function per kind, and
+GUIDs inside them are canonical lowercase from the start:
 
-A morpheme with no owning lexical entry (template null affixes and XML-loaded morphemes) keeps the
-bare `xml_key`, which is already unique. Compound rules keep `morph_rule:{xml_id}`. Stats joins use
-`stats_object` keys, which this change does not alter.
+- Lexical entry: `lex_entry:{xml_key}#{entry_guid}[~{infl_type_guid}]@{bucket}`. The `#{entry_guid}`
+  part appears when the morpheme has an owning entry; `[~...]` only for variant stems, one per
+  inflection type.
+- Affix or realizational rule: `morph_rule:{xml_key}#{entry_guid}@{bucket}`.
+- Compound rule: `compound_rule:{endo|exo}#{rule_guid}@{bucket}`. The tag is `exo` for an exocentric
+  rule and `endo` otherwise. An exocentric rule compiles to a left and a right output from one GUID, so
+  its key adds the side: `compound_rule:exo#{rule_guid}#{left|right}@{bucket}`. A rule with no source
+  GUID (a synthetic default, or a GUID-less XML fixture) uses its name in place of the GUID. Renaming an
+  authored rule keeps its key.
+- Natural class: `natural_class:{xml_id}`, with no bucket.
+- Phonological rule: `phon_rule:{xml_id}@{bucket}`, or `phon_rule#{index}:{name}@{bucket}` when the
+  rule has no `xml_id`.
+- Template: `template:{guid}@{bucket}`, or `template#{index}:{name}@{bucket}` without a GUID.
+- Allomorph: `{owner_key}#allo{index}`, where `owner_key` is the final key of the owning entry or rule.
+
+`{bucket}` is the stratum name (`Morphology`, `Clitics`, ...). `stratum_key` is `stratum#{ordinal}`
+and is `NULL` where no stratum lists the object. `stratum_key` carries no foreign key to `stratum`: a
+refused compile publishes outputs whose strata rows were never written, so the constraint would reject
+it.
+
+**Collision rule.** Keys are claimed in compile order: lexical entries (each followed by its allomorphs),
+then affix, realizational and compound rules in `mrules` order (each followed by its allomorphs), then
+phonological rules, templates and natural classes. The first output to claim a key keeps it. Each later
+output with the same key takes the suffix `!{n}`, with `n` = 2, 3, ... for that key, and its
+`identity_quality` becomes `structural`. A suffixed key is a new key, so it is never reused. Two variant
+entries sharing an inflection type or a repeated component lexeme therefore stay distinct. A by-design
+multi-output, such as the exocentric halves, names its parts in the key instead and never reaches this rule.
+
+A compound rule with no source GUID takes its name verbatim in the key; a name containing `#` or `@`
+makes that key ambiguous, which no current fixture produces.
+
+Columns of `compiled_output`:
+
+| Column | Meaning |
+|---|---|
+| `output_id` | 1-based id, in compile order. |
+| `kind` | `lex_entry`, `morph_rule`, `allomorph`, `template`, `phon_rule`, `compound_rule` or `natural_class`. |
+| `key` | The canonical key above. Unique. |
+| `owner_output_id` | Allomorph: its entry or rule. `NULL` otherwise. |
+| `stratum_key`, `bucket` | Owning stratum (`NULL` and `''` where none applies). |
+| `compiled_order` | Allomorph index within its owner. Non-`NULL` only for allomorphs. |
+| `identity_quality` | `authored`, `structural` (a collision or an XML-derived key) or `synthetic`. |
+| `realization_kind` | Allomorph shape: `root` (a root allomorph), `null` (empty RHS), `segments` (inserts with no copy between them), `process` (a `Modify` or context insert, or no insert), `circumfix` (inserts before and after the copies), `infix` (an insert between copies). Reduplication is not represented: the compiled RHS cannot show it, because `redup_hint` carries the morph type. |
+| `has_phone_condition` | 1 when the allomorph has an environment, or a left-hand context beyond the bare boundary-and-any wrapper. |
+| `has_morph_gate` | 1 when it has required or excluded MPRs, a required syntactic feature structure, or a stem name. |
+| `gate_signature` | Canonical gate text, below. Equal text means equal gate. |
+| `is_unconditioned` | 1 when neither `has_phone_condition` nor `has_morph_gate` is set. |
+
+`gate_signature` is `mpr=<ids>;xmpr=<ids>;fs=<FS>;stem=<name>`, with these exact rules:
+
+- `<ids>`: the `MprId`s of the required (`mpr`) or excluded (`xmpr`) set, ascending, comma-joined,
+  with no spaces. Empty when the set is empty.
+- `<FS>`: the required syntactic feature structure as `[feat=value,...]`, with features in ascending
+  `FeatId` order. A symbolic value is `s:` and its symbol indices ascending and comma-joined. A complex value
+  is `{...}` around its own `[...]`. The empty FS is `[]`.
+- `<name>`: the stem name, with `%`, `;`, `=`, `|` and `,` written as `%XX` (two hex digits). Empty when
+  the allomorph has no stem name.
+
+Ids are grammar-local, so two signatures are comparable only within one compiled grammar.
+
+`compiled_mapping(source_kind, source_guid, source_key, output_id, relation_role, source_ordinal,
+identity_quality)`. `relation_role` is `entry` (an entry's own lexical entry), `variant` (an entry whose
+allomorph forms a rule uses, other than the rule's owner), `msa`, `rule` (an infl-type or compound or
+phonological or template rule), `form` (one allomorph form), `circumfix_prefix_half` and
+`circumfix_suffix_half` (the two forms of a circumfix allomorph, in `source_ordinal` order), and
+`null_affix`. Compound, phonological and template sources map to their outputs by `rule`.
+A referenced natural class maps to its `natural_class` output with `relation_role` `rule`.
+
+`compiled_allomorph_order(owner_output_id, source_entry_guid, source_msa_guid, source_allomorph_key,
+source_allomorph_guid, output_id, compiled_order)`. Rows for a root whose entry the compiler did not
+represent have `owner_output_id` and `output_id` `NULL`.
+
+`template_slot.surface_ordinal` is the signed distance of a slot from the stem: suffix slot `i` is
+`i + 1`, and prefix slot `k` is `-(k + 1)`. Both slot lists are innermost-to-outermost, as the snapshot
+model documents (`rust/crates/pg-snapshot/src/morphology.rs`), so ordinal 0 is nearest the stem.
 
 ## Invocation and context
 
@@ -130,7 +214,7 @@ The `artifact_meta` singleton records:
 | `model_fingerprint` | `pg_assess::model_fingerprint(SourceKind::Snapshot, source, compiler_version)`. It covers canonical source JSON, including conversion provenance, and compiler version. |
 | `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest` | The caller-supplied evidence context and its identity. |
 | `compile_options_json`, `compile_options_sha256` | The production default options, including the resolved substrate policy and `SemanticLossPolicy::Refuse`. |
-| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v7 schema was written and verified. It does not mean every section is available. |
+| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v8 schema was written and verified. It does not mean every section is available. |
 | `run_manifest_sha256` | Nullable SHA-256 of the exact accepted stats manifest bytes. NULL when no stats run was requested. |
 
 Digests use the `sha256:<hex>` spelling except `grammar_hash`, which follows the existing
@@ -153,14 +237,14 @@ cannot be read, the command reports that the complete output already exists and 
 
 ## Sections
 
-`artifact_section` has exactly one row for each v7 section. `status` is `complete`, `partial`,
+`artifact_section` has exactly one row for each v8 section. `status` is `complete`, `partial`,
 `unavailable`, or `not_requested`. Readers must check it before treating an absent table or empty
 query result as an empty grammar.
 
-| Section | V7 status | Scope |
+| Section | V8 status | Scope |
 |---|---|---|
 | `project` | complete | Project name, declared writing-system order, exemplar characters. |
-| `source_census` | complete for current imported provenance; unavailable for synthetic or legacy provenance | Every raw source header occurrence, class totals, and streaming-reader retention/duplicate state. Fatal import issues do not erase the source census. |
+| `source_census` | complete for current imported provenance; unavailable for synthetic or legacy provenance | Grammar source objects with their retention/duplicate state, and class totals for every source header occurrence. Fatal import issues do not erase the source census. |
 | `conversion_inventory` | complete | Importer and compiler inventory stage sets, counts, and structured issues. |
 | `categories` | complete | Part-of-speech and inflection-class hierarchies, category feature links, and authored labels/default-class references. |
 | `entries` | complete | Entry identity/order, senses, glosses and definitions. |
@@ -168,14 +252,14 @@ query result as an empty grammar.
 | `adhoc_prohibitions` | complete | Flat allomorph and morpheme prohibitions, including disabled state and ordered conjunctive targets. |
 | `adhoc_groups` | complete when `adhocProhibitionGroups` is present in the Snapshot; unavailable otherwise | Group identities, multilingual names/descriptions, and unordered member references. Current `.fwdata` imports publish the section, including when no groups exist. Older or hand-built Snapshots that omit the optional property do not claim an empty group inventory. |
 | `load_accounting` | complete when current source census and all import/compiler inventory subjects have non-unknown decisions; partial otherwise | Typed decisions from the importer, compiler, and compaction. Missing owner decisions remain `unknown` with `decision_unrecorded`; they are not inferred from diagnostics. |
-| `effective_grammar` | partial after compile; unavailable after refusal | V7 carries final mappings and contextual allomorph order, but does not serialize the complete runtime grammar. |
+| `effective_grammar` | partial after compile; unavailable after refusal | V8 carries final mappings and contextual allomorph order, but does not serialize the complete runtime grammar. |
 | `templates` | complete after compile; partial after refusal | Authored slots, templates, and authored side/order; `compiled_order` is compiler-published and nullable when a source slot is not represented. |
 | `allomorphs` | complete | Every allomorph and every form in the supplied Snapshot, preserving entry/form order and writing-system tags. |
 | `environments` | complete | Every Snapshot environment and allomorph phone/position edge, with parse outcomes for environments the compiler attempted. |
 | `features` | complete | Feature-system definitions plus phoneme and feature-defined natural-class structures. |
 | `phonology` | complete after compile; partial after refusal | Authored phoneme, boundary, class, and constraint facts; final effective class extensions and strata when compilation completes. |
 | `patterns` | complete after compile; partial after refusal | Authored rewrite/metathesis trees and resolved trees for valid attempted environments. |
-| `compound_rules`, `affix_processes` | unavailable | These output detail tables are not emitted by schema v7. |
+| `compound_rules`, `affix_processes` | unavailable | These output detail tables are not emitted by schema v8. |
 | `compiled_mappings` | complete after compile; unavailable after refusal | Compiler-published final source-to-output associations and allomorph order after compaction. |
 | `parser_config` | partial | Normalized Snapshot parser parameters and compiled strata; source presence for defaulted scalar values is not retained. |
 | `stats` | complete when one validated frozen run is attached; not_requested otherwise | One manifest-bound HermitCrab run and its exact ordered input completion census. A complete section can include incomplete or invalid-shape words; it means the supplied run and all its rows were validated and projected. `stats_counter_support` is populated in either case and describes collector capability, not run measurements. |
@@ -270,7 +354,7 @@ trimmed left or right context side, not byte offsets into the whole expression.
 |---|---|
 | `source_census` | Singleton `total_occurrences` and `ordered_header_sha256` from Snapshot provenance. |
 | `source_class_count` | `class_name`, `occurrences`, `unhandled_occurrences`. |
-| `source_object` | `source_key`, 1-based `source_ordinal`, raw `class_name` and `raw_guid`, nullable `canonical_guid` and `inventory_kind`, plus `handled`, `retained`, and `duplicate` flags from the source reader. |
+| `source_object` | Grammar objects only (`inventory_kind` not null): `source_key`, 1-based `source_ordinal`, raw `class_name` and `raw_guid`, nullable `canonical_guid` and `inventory_kind`, plus `handled`, `retained`, and `duplicate` flags from the source reader. |
 | `conversion_item` | `(pipeline_stage, inventory_stage, subject_kind, subject_key)`, nullable `subject_guid`. Pipeline stage is `import`, `snapshot`, `compile`, or `compact`; inventory stage is `authored`, `considered`, `selected`, `represented`, `rejected`, or `synthesized`. |
 | `conversion_stage` | `(pipeline_stage, inventory_stage)`, `item_count`; includes zero-count rows for declared stage pairs. |
 | `conversion_issue` | `issue_key`, `pipeline_stage`, stable code/class/fatal fields, optional source kind/GUID, and message. |
@@ -388,7 +472,7 @@ GROUP BY o.kind, o.key;
 ## Reader rules
 
 - Check `PRAGMA application_id`, `PRAGMA user_version`, the matching metadata values, and
-  `complete=1` before reading facts. Schema v7 has no migration or upgrade path; rebuild from the exact
+  `complete=1` before reading facts. Schema v8 has no migration or upgrade path; rebuild from the exact
   Snapshot and context when the schema or model fingerprint differs.
 - Check `artifact_section` for every prerequisite. An unavailable ad hoc group section does not
   mean the source had no groups. A NULL `template_slot.compiled_order` means no final order was

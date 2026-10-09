@@ -26,6 +26,7 @@ struct Publication<'a> {
     decisions: &'a [LoadDecision],
     compile_issues: &'a [ConversionIssue],
     environment_resolutions: &'a [pg_grammar::compile::EnvironmentResolution],
+    compiled_outputs: &'a [pg_grammar::compile::CompiledOutput],
     compiled_mappings: &'a [pg_grammar::compile::CompiledMapping],
     compiled_allomorph_order: &'a [pg_grammar::compile::CompiledAllomorphOrder],
     grammar: Option<&'a pg_grammar::model::Grammar>,
@@ -128,6 +129,7 @@ fn write_facts_inner(
         decisions,
         compile_issues,
         environment_resolutions,
+        compiled_outputs,
         compiled_mappings,
         compiled_allomorph_order,
         grammar,
@@ -138,6 +140,7 @@ fn write_facts_inner(
             output.load_decisions,
             output.issues,
             output.environment_resolutions,
+            output.compiled_outputs,
             output.compiled_mappings,
             output.compiled_allomorph_order,
             Some(output.grammar),
@@ -148,6 +151,7 @@ fn write_facts_inner(
             error.load_decisions,
             error.issues,
             error.environment_resolutions,
+            error.compiled_outputs,
             error.compiled_mappings,
             error.compiled_allomorph_order,
             None,
@@ -211,6 +215,7 @@ fn write_facts_inner(
         decisions: &decisions,
         compile_issues: &compile_issues,
         environment_resolutions: &environment_resolutions,
+        compiled_outputs: &compiled_outputs,
         compiled_mappings: &compiled_mappings,
         compiled_allomorph_order: &compiled_allomorph_order,
         grammar: grammar.as_ref(),
@@ -236,6 +241,7 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         decisions,
         compile_issues,
         environment_resolutions,
+        compiled_outputs,
         compiled_mappings,
         compiled_allomorph_order,
         grammar,
@@ -263,6 +269,8 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         configure_database(&connection)?;
         connection.execute_batch(include_str!("schema.sql"))?;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Authored and compiled rows may spell one GUID in two cases until the canonical pass runs.
+        transaction.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         insert_metadata(
             &transaction,
             MetadataInput {
@@ -318,11 +326,17 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
             decisions,
             grammar,
         )?;
-        crate::compiled::insert(&transaction, compiled_mappings, compiled_allomorph_order)?;
+        crate::compiled::insert(
+            &transaction,
+            compiled_outputs,
+            compiled_mappings,
+            compiled_allomorph_order,
+        )?;
         crate::settings::insert_parser_config(&transaction, snapshot, grammar)?;
         if let Some(stats) = &stats {
             crate::stats::insert(&transaction, stats)?;
         }
+        crate::guid::canonicalize_stored_guids(&transaction)?;
         transaction.execute("UPDATE artifact_meta SET complete=1 WHERE singleton=1", [])?;
         transaction.commit()?;
         verify_database(&connection)?;

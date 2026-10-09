@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use crate::FactsError;
 
-type TemplateSlotPlacementMap = BTreeMap<(String, String, i64), (String, i64)>;
+type TemplateSlotPlacementMap = BTreeMap<(String, String, i64), (String, i64, i64)>;
 
 pub(crate) fn validate_authored_guids(snapshot: &Snapshot) -> Result<(), FactsError> {
     validate_pos_guids(
@@ -257,6 +257,7 @@ struct TemplateSlotPlacement {
     ordinal: i64,
     slot_guid: String,
     compiled_order: i64,
+    surface_ordinal: i64,
 }
 
 fn insert_templates(
@@ -323,21 +324,21 @@ fn insert_pos_templates(
                         ))
                     })?;
                     let key = (template_guid.clone(), side.to_string(), ordinal);
-                    let compiled_order = match placements.get(&key) {
-                        Some((mapped_slot, order)) if mapped_slot == &slot_guid => {
+                    let (compiled_order, surface_ordinal) = match placements.get(&key) {
+                        Some((mapped_slot, order, surface)) if mapped_slot == &slot_guid => {
                             inserted += 1;
-                            Some(*order)
+                            (Some(*order), Some(*surface))
                         }
                         Some(_) => {
                             return Err(FactsError::Serialization(format!(
                                 "compiler slot mapping disagrees with authored template {template_guid}"
                             )))
                         }
-                        None => None,
+                        None => (None, None),
                     };
                     tx.execute(
-                        "INSERT INTO template_slot(template_guid, side, ordinal, slot_guid, compiled_order) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![template_guid, side, ordinal, slot_guid, compiled_order],
+                        "INSERT INTO template_slot(template_guid, side, ordinal, slot_guid, compiled_order, surface_ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![template_guid, side, ordinal, slot_guid, compiled_order, surface_ordinal],
                     )?;
                 }
             }
@@ -397,7 +398,14 @@ fn template_slot_placements(
         }
         let key = (owner_guid, placement.side, placement.ordinal);
         if placements
-            .insert(key, (slot_guid, placement.compiled_order))
+            .insert(
+                key,
+                (
+                    slot_guid,
+                    placement.compiled_order,
+                    placement.surface_ordinal,
+                ),
+            )
             .is_some()
         {
             return Err(FactsError::Serialization(

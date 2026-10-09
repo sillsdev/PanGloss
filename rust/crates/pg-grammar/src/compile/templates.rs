@@ -256,6 +256,12 @@ fn build_template(
         }
 
         let compiled_order = slot_defs.len();
+        // Slot lists run innermost-to-outermost (pg-snapshot morphology.rs), so ordinal 0 is nearest the stem.
+        let surface_ordinal = if is_prefix {
+            -(authored_ordinal as i64 + 1)
+        } else {
+            authored_ordinal as i64 + 1
+        };
         represented_slots.push((
             slot_key,
             attachment,
@@ -263,6 +269,7 @@ fn build_template(
             authored_ordinal,
             slot_guid,
             compiled_order,
+            surface_ordinal,
         ));
         slot_defs.push(SlotDef {
             name: Some(affix_slot.name.clone()),
@@ -310,14 +317,22 @@ fn build_template(
         required_syn_fs,
         slots: slot_defs,
     });
-    for (slot_key, attachment, side, authored_ordinal, slot_guid, compiled_order) in
-        represented_slots
+    for (
+        slot_key,
+        attachment,
+        side,
+        authored_ordinal,
+        slot_guid,
+        compiled_order,
+        surface_ordinal,
+    ) in represented_slots
     {
         ctx.represented(slot_key);
         ctx.represented_with_effective_value(
             attachment,
             serde_json::json!({
                 "compiledOrder": compiled_order,
+                "surfaceOrdinal": surface_ordinal,
                 "ordinal": authored_ordinal,
                 "side": side,
                 "slotGuid": slot_guid,

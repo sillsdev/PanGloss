@@ -68,7 +68,7 @@ fn facts_command_writes_one_json_result_and_rejects_input_collision() {
     );
     let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(response["applicationId"], 1_346_848_321);
-    assert_eq!(response["schemaVersion"], 7);
+    assert_eq!(response["schemaVersion"], 8);
     assert_eq!(response["compileStatus"], "completed");
     assert!(response["outputBytes"].as_u64().unwrap() > 0);
     assert!(output_path.exists());

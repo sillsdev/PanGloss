@@ -100,6 +100,7 @@ CREATE TABLE template_slot (
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
     slot_guid TEXT NOT NULL COLLATE BINARY,
     compiled_order INTEGER CHECK (compiled_order >= 0),
+    surface_ordinal INTEGER,
     PRIMARY KEY (template_guid, side, ordinal),
     UNIQUE (template_guid, compiled_order)
 );
@@ -316,30 +317,50 @@ CREATE TABLE load_fact (
 
 CREATE INDEX load_fact_subject_guid ON load_fact(subject_guid COLLATE BINARY);
 
+-- One row per compiled grammar object. Lineage, allomorph order and stats all join on output_id; key
+-- is the one spelling (canonical lowercase GUIDs, `!{n}` suffix on a collision). See docs/grammar-facts-format.md.
+CREATE TABLE compiled_output (
+    output_id INTEGER PRIMARY KEY CHECK (output_id > 0),
+    kind TEXT NOT NULL COLLATE BINARY CHECK (kind IN ('lex_entry', 'morph_rule', 'allomorph', 'template', 'phon_rule', 'compound_rule', 'natural_class')),
+    key TEXT NOT NULL COLLATE BINARY UNIQUE,
+    owner_output_id INTEGER REFERENCES compiled_output(output_id),
+    stratum_key TEXT COLLATE BINARY,
+    bucket TEXT NOT NULL COLLATE BINARY,
+    compiled_order INTEGER CHECK (compiled_order >= 0),
+    identity_quality TEXT NOT NULL COLLATE BINARY CHECK (identity_quality IN ('authored', 'structural', 'synthetic')),
+    realization_kind TEXT COLLATE BINARY CHECK (realization_kind IN ('segments', 'null', 'process', 'circumfix', 'infix', 'root')),
+    has_phone_condition INTEGER CHECK (has_phone_condition IN (0, 1)),
+    has_morph_gate INTEGER CHECK (has_morph_gate IN (0, 1)),
+    gate_signature TEXT COLLATE BINARY,
+    is_unconditioned INTEGER CHECK (is_unconditioned IN (0, 1)),
+    CHECK ((kind = 'allomorph') = (compiled_order IS NOT NULL)),
+    CHECK (kind = 'allomorph' OR (realization_kind IS NULL AND has_phone_condition IS NULL AND has_morph_gate IS NULL AND gate_signature IS NULL AND is_unconditioned IS NULL)),
+    CHECK (kind <> 'allomorph' OR (realization_kind IS NOT NULL AND has_phone_condition IS NOT NULL AND has_morph_gate IS NOT NULL AND gate_signature IS NOT NULL AND is_unconditioned IS NOT NULL))
+);
+
 CREATE TABLE compiled_mapping (
     source_kind TEXT NOT NULL COLLATE BINARY,
     source_guid TEXT COLLATE BINARY,
     source_key TEXT NOT NULL COLLATE BINARY,
-    output_kind TEXT NOT NULL COLLATE BINARY,
-    output_key TEXT NOT NULL COLLATE BINARY,
+    output_id INTEGER NOT NULL REFERENCES compiled_output(output_id),
+    relation_role TEXT NOT NULL COLLATE BINARY CHECK (relation_role IN ('form', 'circumfix_prefix_half', 'circumfix_suffix_half', 'null_affix', 'msa', 'entry', 'variant', 'rule')),
+    source_ordinal INTEGER NOT NULL CHECK (source_ordinal >= 0),
     identity_quality TEXT NOT NULL CHECK (identity_quality IN ('authored', 'structural', 'synthetic')),
-    PRIMARY KEY (source_kind, source_key, output_kind, output_key)
+    PRIMARY KEY (source_kind, source_key, output_id, relation_role, source_ordinal)
 );
 
 CREATE TABLE compiled_allomorph_order (
-    owner_key TEXT NOT NULL COLLATE BINARY,
+    owner_output_id INTEGER REFERENCES compiled_output(output_id),
     source_entry_guid TEXT COLLATE BINARY,
     source_msa_guid TEXT COLLATE BINARY,
-    bucket TEXT NOT NULL COLLATE BINARY,
     source_allomorph_key TEXT NOT NULL COLLATE BINARY,
     source_allomorph_guid TEXT COLLATE BINARY,
-    output_key TEXT NOT NULL COLLATE BINARY,
+    output_id INTEGER REFERENCES compiled_output(output_id),
     compiled_order INTEGER CHECK (compiled_order >= 0),
-    is_final_elsewhere_case INTEGER NOT NULL CHECK (is_final_elsewhere_case IN (0, 1)),
-    PRIMARY KEY (owner_key, source_allomorph_key, output_key)
+    PRIMARY KEY (owner_output_id, source_allomorph_key, output_id)
 );
 
-CREATE INDEX compiled_allomorph_order_source ON compiled_allomorph_order(source_entry_guid, source_msa_guid, bucket);
+CREATE INDEX compiled_allomorph_order_source ON compiled_allomorph_order(source_entry_guid, source_msa_guid);
 
 -- One frozen P7 cache identity and one declared run. Local dimension IDs below are rebuilt from
 -- typed stable keys for deterministic facts output; original cache IDs remain only in provenance.
@@ -387,6 +408,7 @@ CREATE TABLE stats_allomorph (
     key TEXT COLLATE BINARY,
     label TEXT,
     identity_quality TEXT CHECK (identity_quality IN ('authored', 'structural', 'synthetic')),
+    output_id INTEGER REFERENCES compiled_output(output_id),
     CHECK ((allomorph_id = 0 AND key IS NULL AND identity_quality IS NULL) OR (allomorph_id > 0 AND key IS NOT NULL AND label IS NOT NULL AND identity_quality IS NOT NULL))
 );
 
@@ -397,6 +419,7 @@ CREATE TABLE stats_object (
     label TEXT NOT NULL,
     identity_quality TEXT NOT NULL CHECK (identity_quality IN ('authored', 'structural', 'synthetic')),
     morpheme_id INTEGER NOT NULL REFERENCES stats_morpheme(morpheme_id),
+    output_id INTEGER REFERENCES compiled_output(output_id),
     UNIQUE (kind, key)
 );
 

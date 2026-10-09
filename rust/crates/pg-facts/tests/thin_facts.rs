@@ -510,7 +510,7 @@ fn exports_authored_msa_references_flat_prohibitions_and_load_outcomes() {
     let result = build(&output, &source, context()).unwrap();
     assert_eq!(result.compile_status, "completed");
     assert_eq!(result.application_id, 1_346_848_321);
-    assert_eq!(result.schema_version, 7);
+    assert_eq!(result.schema_version, 8);
     assert!(result.output_bytes > 0);
     assert_eq!(result.output_sha256.len(), 71);
     assert_eq!(result.source_sha256, pg_assess::source_sha256(&source));
@@ -534,30 +534,32 @@ fn exports_authored_msa_references_flat_prohibitions_and_load_outcomes() {
         )
         .unwrap();
     assert_eq!(application_id, 1_346_848_321);
-    assert_eq!(user_version, 7);
+    assert_eq!(user_version, 8);
     assert_eq!(encoding, "UTF-8");
     assert_eq!(complete, 1);
 
     let compiled_allomorph: (String, String) = db
         .query_row(
-            "SELECT output_key, identity_quality FROM compiled_mapping \
-             WHERE source_kind='allomorph' AND source_guid=?1 AND output_kind='allomorph'",
+            "SELECT o.key, m.identity_quality FROM compiled_mapping m \
+             JOIN compiled_output o USING (output_id) \
+             WHERE m.source_kind='allomorph' AND m.source_guid=?1 AND o.kind='allomorph'",
             [ALLO_ROOT],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
     assert!(compiled_allomorph.0.contains("#allo0"));
     assert_eq!(compiled_allomorph.1, "structural");
-    let compiled_order: (String, i64, i64) = db
+    let compiled_order: (String, i64) = db
         .query_row(
-            "SELECT bucket, compiled_order, is_final_elsewhere_case \
-             FROM compiled_allomorph_order WHERE source_entry_guid=?1 AND source_msa_guid=?2 \
-             AND source_allomorph_guid=?3 AND bucket='Morphology'",
+            "SELECT o.bucket, c.compiled_order FROM compiled_allomorph_order c \
+             JOIN compiled_output o ON o.output_id = c.owner_output_id \
+             WHERE c.source_entry_guid=?1 AND c.source_msa_guid=?2 \
+             AND c.source_allomorph_guid=?3 AND o.bucket='Morphology'",
             [ENTRY_ROOT, MSA_ROOT, ALLO_ROOT],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert_eq!(compiled_order, ("Morphology".into(), 0, 1));
+    assert_eq!(compiled_order, ("Morphology".into(), 0));
     assert_eq!(
         db.query_row(
             "SELECT status FROM artifact_section WHERE section='compiled_mappings'",
@@ -743,10 +745,12 @@ fn exports_source_occurrences_only_when_import_provenance_can_establish_them() {
     let variant_path = temp.path().join("source.fwdata");
     std::fs::write(&variant_path, variant).unwrap();
     let (imported, _) = pg_fwdata::import_file(&variant_path).unwrap();
-    let expected_occurrences = imported
+    let expected_grammar_objects = imported
         .conversion_provenance
-        .source_census
-        .total_occurrences as i64;
+        .source_objects
+        .iter()
+        .filter(|object| object.inventory_kind.is_some())
+        .count() as i64;
     let imported_path = temp.path().join("imported.sqlite");
     build(&imported_path, imported.to_json().as_bytes(), context()).unwrap();
     let imported_db = Connection::open(imported_path).unwrap();
@@ -778,7 +782,7 @@ fn exports_source_occurrences_only_when_import_provenance_can_establish_them() {
         .unwrap();
     assert_eq!(source_status, "importedWithFatalIssues");
     assert_eq!(census_status, "complete");
-    assert_eq!(source_count, expected_occurrences);
+    assert_eq!(source_count, expected_grammar_objects);
     assert!(import_facts > 0);
     assert_eq!(load_status, "partial");
     let source_occurrence_reasons: i64 = imported_db
@@ -799,16 +803,23 @@ fn exports_source_occurrences_only_when_import_provenance_can_establish_them() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(unknown_class_reason, 1);
+    assert_eq!(unknown_class_reason, 0);
     let unknown_class_count: i64 = imported_db
         .query_row(
-            "SELECT COUNT(*) FROM source_object \
-             WHERE class_name='ZzUnknown' AND handled=0 AND retained=0",
+            "SELECT COUNT(*) FROM source_object WHERE class_name='ZzUnknown'",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(unknown_class_count, 1);
+    assert_eq!(unknown_class_count, 0);
+    let unknown_class_occurrences: i64 = imported_db
+        .query_row(
+            "SELECT occurrences FROM source_class_count WHERE class_name='ZzUnknown'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unknown_class_occurrences, 1);
 
     let mut synthetic = snapshot();
     let synthetic_path = temp.path().join("synthetic.sqlite");
@@ -1238,9 +1249,9 @@ fn projects_template_order_allomorph_order_and_every_form_writing_system() {
     let filtered_root_order = {
         let mut statement = db
             .prepare(
-                "SELECT source_allomorph_guid, compiled_order, is_final_elsewhere_case \
+                "SELECT source_allomorph_guid, compiled_order \
                  FROM compiled_allomorph_order WHERE source_entry_guid=?1 AND source_msa_guid=?2 \
-                   AND bucket='Morphology' AND source_allomorph_guid IN (?3, ?4) \
+                   AND source_allomorph_guid IN (?3, ?4) \
                  ORDER BY source_allomorph_guid",
             )
             .unwrap();
@@ -1251,7 +1262,6 @@ fn projects_template_order_allomorph_order_and_every_form_writing_system() {
                     Ok((
                         row.get::<_, Option<String>>(0)?,
                         row.get::<_, Option<i64>>(1)?,
-                        row.get::<_, i64>(2)?,
                     ))
                 },
             )
@@ -1262,18 +1272,19 @@ fn projects_template_order_allomorph_order_and_every_form_writing_system() {
     assert_eq!(
         filtered_root_order,
         vec![
-            (Some(ALLO_ROOT_ABSTRACT.into()), None, 0),
-            (Some(ALLO_ROOT_EMPTY.into()), None, 0),
+            (Some(ALLO_ROOT_ABSTRACT.into()), None),
+            (Some(ALLO_ROOT_EMPTY.into()), None),
         ],
         "compiler-filtered forms retain source identity without invented final order"
     );
     let suffix_order = {
         let mut statement = db
             .prepare(
-                "SELECT source_entry_guid, source_msa_guid, bucket, source_allomorph_guid, \
-                 compiled_order, is_final_elsewhere_case FROM compiled_allomorph_order \
-                 WHERE source_entry_guid=?1 AND source_msa_guid=?2 AND bucket='Morphology' \
-                 ORDER BY compiled_order, source_allomorph_guid",
+                "SELECT c.source_entry_guid, c.source_msa_guid, o.bucket, c.source_allomorph_guid, \
+                 c.compiled_order FROM compiled_allomorph_order c \
+                 JOIN compiled_output o ON o.output_id = c.owner_output_id \
+                 WHERE c.source_entry_guid=?1 AND c.source_msa_guid=?2 AND o.bucket='Morphology' \
+                 ORDER BY c.compiled_order, c.source_allomorph_guid",
             )
             .unwrap();
         statement
@@ -1284,7 +1295,6 @@ fn projects_template_order_allomorph_order_and_every_form_writing_system() {
                     row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, Option<i64>>(4)?,
-                    row.get::<_, i64>(5)?,
                 ))
             })
             .unwrap()
@@ -1299,7 +1309,6 @@ fn projects_template_order_allomorph_order_and_every_form_writing_system() {
             "Morphology".into(),
             Some(ALLO_SUFFIX.into()),
             Some(0),
-            1,
         )]
     );
     let abstract_flag: i64 = db
@@ -1912,15 +1921,14 @@ fn structured_compile_refusal_publishes_authored_facts_and_marks_effective_secti
     );
 }
 
-#[test]
-fn exports_environment_resolution_feature_extensions_and_rewrite_patterns() {
-    const PHONEME_K: &str = "00000000-0000-0000-0000-000000000101";
-    const PHONEME_M: &str = "00000000-0000-0000-0000-000000000103";
-    const PHONEME_S: &str = "00000000-0000-0000-0000-000000000105";
-    const PHONEME_T: &str = "00000000-0000-0000-0000-000000000106";
-    const PHONEME_TS: &str = "00000000-0000-0000-0000-000000000110";
-    const BOUNDARY_PLUS: &str = "00000000-0000-0000-0000-000000000109";
+const PHONEME_K: &str = "00000000-0000-0000-0000-000000000101";
+const PHONEME_M: &str = "00000000-0000-0000-0000-000000000103";
+const PHONEME_S: &str = "00000000-0000-0000-0000-000000000105";
+const PHONEME_T: &str = "00000000-0000-0000-0000-000000000106";
+const PHONEME_TS: &str = "00000000-0000-0000-0000-000000000110";
+const BOUNDARY_PLUS: &str = "00000000-0000-0000-0000-000000000109";
 
+fn environment_snapshot() -> Snapshot {
     let mut authored = snapshot();
     authored.feature_systems.phonological.closed_features = vec![ClosedFeature {
         guid: FEATURE_VOICE.into(),
@@ -2052,17 +2060,23 @@ fn exports_environment_resolution_feature_extensions_and_rewrite_patterns() {
                 excluded_rule_features: Vec::new(),
             }],
         }));
+    authored
+}
+
+#[test]
+fn exports_environment_resolution_feature_extensions_and_rewrite_patterns() {
+    let authored = environment_snapshot();
     let temp = tempfile::tempdir().unwrap();
     let output = temp.path().join("grammar-facts.sqlite");
     let result = build(&output, authored.to_json().as_bytes(), context()).unwrap();
     assert_eq!(result.compile_status, "completed");
-    assert_eq!(result.schema_version, 7);
+    assert_eq!(result.schema_version, 8);
     let db = Connection::open(output).unwrap();
 
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        8
     );
     assert_eq!(
         db.query_row(
@@ -2421,8 +2435,18 @@ fn preserves_invalid_dangling_and_owner_unreached_environment_facts() {
     );
 }
 
-#[test]
-fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
+/// The stats run the export tests read: the written artifact, its inputs, and the identities they check.
+struct ExportedStatsRun {
+    temp: tempfile::TempDir,
+    output: std::path::PathBuf,
+    source: Vec<u8>,
+    cache_path: std::path::PathBuf,
+    manifest_path: std::path::PathBuf,
+    circumfix_rule: pg_grammar::stats_identity::ObjectIdentity,
+    compound_rule: pg_grammar::stats_identity::ObjectIdentity,
+}
+
+fn write_exported_stats_run() -> ExportedStatsRun {
     let temp = tempfile::tempdir().unwrap();
     let mut snapshot = snapshot();
     snapshot
@@ -2491,7 +2515,9 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         .position(|entry| entry.authored_id == ENTRY_ROOT)
         .unwrap();
     let entry_id = pg_grammar::model::LexEntryId(entry_index as u32);
-    let object = pg_grammar::stats_identity::lex_entry_identity(&grammar, entry_id);
+    let object = pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar)
+        .lex_entry(entry_id)
+        .clone();
     let entry_def = &grammar.entries[entry_index];
     let morpheme = pg_grammar::stats_identity::morpheme_identity(&grammar, entry_def.morpheme);
     let stratum = pg_grammar::stats_identity::stratum_identity(
@@ -2499,7 +2525,8 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         morpheme_stratum(&grammar, entry_def.morpheme),
     );
     let allomorph_id = entry_def.allomorphs[0].id;
-    let allomorph = pg_grammar::stats_identity::allomorph_identity(&grammar, allomorph_id);
+    let allomorph =
+        pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar).allomorph(allomorph_id);
     let circumfix_rule_index = grammar
         .mrules
         .iter()
@@ -2514,8 +2541,9 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         })
         .unwrap();
     let circumfix_rule_id = pg_grammar::model::MRuleId(circumfix_rule_index as u32);
-    let circumfix_rule =
-        pg_grammar::stats_identity::morph_rule_identity(&grammar, circumfix_rule_id);
+    let circumfix_rule = pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar)
+        .morph_rule(circumfix_rule_id)
+        .clone();
     let pg_grammar::model::MorphRuleDef::AffixProcess(circumfix_def) =
         &grammar.mrules[circumfix_rule_index]
     else {
@@ -2526,8 +2554,8 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         &grammar,
         morpheme_stratum(&grammar, circumfix_def.morpheme),
     );
-    let circumfix_allomorph =
-        pg_grammar::stats_identity::allomorph_identity(&grammar, circumfix_def.allomorphs[0].id);
+    let circumfix_allomorph = pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar)
+        .allomorph(circumfix_def.allomorphs[0].id);
     let compound_rule_index = grammar
         .mrules
         .iter()
@@ -2538,10 +2566,9 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
             _ => false,
         })
         .unwrap();
-    let compound_rule = pg_grammar::stats_identity::morph_rule_identity(
-        &grammar,
-        pg_grammar::model::MRuleId(compound_rule_index as u32),
-    );
+    let compound_rule = pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar)
+        .morph_rule(pg_grammar::model::MRuleId(compound_rule_index as u32))
+        .clone();
     let guesser = pg_grammar::stats_identity::guesser_identity(&grammar);
     let run_id = cache
         .flush(
@@ -2571,7 +2598,10 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
                             object_label: object.label,
                             identity_quality: IdentityQuality::Authored,
                             stratum: Some(StructuralLocator::new(stratum.key, stratum.label)),
-                            allomorph: Some(StructuralLocator::new(allomorph.key, allomorph.label)),
+                            allomorph: Some(StructuralLocator::new(
+                                allomorph.key.clone(),
+                                allomorph.label.clone(),
+                            )),
                             morpheme: Some(StructuralLocator::new(morpheme.key, morpheme.label)),
                             direction: pg_stats::Direction::Analysis,
                             attempts: 1,
@@ -2626,9 +2656,9 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
                             self_time_ns: 2,
                         },
                         FactRecord {
-                            object_key: guesser.key,
+                            object_key: guesser.key.clone(),
                             object_kind: ObjectKind::Guesser,
-                            object_label: guesser.label,
+                            object_label: guesser.label.clone(),
                             identity_quality: IdentityQuality::Synthetic,
                             stratum: None,
                             allomorph: None,
@@ -2799,7 +2829,7 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         pg_facts::StatsInput::new(&cache_path, &manifest_path),
     )
     .unwrap();
-    assert_eq!(result.schema_version, 7);
+    assert_eq!(result.schema_version, 8);
     assert_eq!(
         result
             .sections
@@ -2809,6 +2839,77 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
             .status,
         "complete"
     );
+    ExportedStatsRun {
+        temp,
+        output,
+        source,
+        cache_path,
+        manifest_path,
+        circumfix_rule,
+        compound_rule,
+    }
+}
+
+#[test]
+fn stats_objects_join_compiled_output() {
+    let run = write_exported_stats_run();
+    let db = Connection::open(&run.output).unwrap();
+    // Compiled kinds join to compiled_output by the shared key; pseudo-objects join to nothing.
+    let unjoined_objects: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM stats_object WHERE kind IN ('morph_rule', 'phon_rule', 'lex_entry') AND output_id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unjoined_objects, 0);
+    let key_mismatches: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM stats_object o JOIN compiled_output c USING (output_id) WHERE o.key <> c.key",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(key_mismatches, 0);
+    let joined_pseudo: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM stats_object WHERE kind IN ('guesser', 'overlay', 'root_index') AND output_id IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(joined_pseudo, 0);
+    let unjoined_allomorphs: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM stats_allomorph WHERE allomorph_id > 0 AND key <> 'guesser#allo' AND output_id IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unjoined_allomorphs, 0);
+    // Every compiled slot carries a surface ordinal on its own side of the stem.
+    let surface_violations: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM template_slot WHERE compiled_order IS NOT NULL AND (surface_ordinal IS NULL OR (side='prefix' AND surface_ordinal >= 0) OR (side='suffix' AND surface_ordinal <= 0))",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(surface_violations, 0);
+}
+
+#[test]
+fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
+    let ExportedStatsRun {
+        temp,
+        output,
+        source,
+        cache_path,
+        manifest_path,
+        circumfix_rule,
+        compound_rule,
+        ..
+    } = write_exported_stats_run();
     let db = Connection::open(&output).unwrap();
     assert_eq!(
         db.query_row(
@@ -2911,10 +3012,17 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         entry_roles,
         vec!["msa_owner_entry", "source_form_owner_entry"]
     );
+    let root_entry_key: String = db
+        .query_row(
+            "SELECT key FROM compiled_output WHERE kind='lex_entry' AND key LIKE ?1",
+            [format!("lex_entry:{MSA_ROOT}#{ENTRY_ROOT}@%")],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(
         db.query_row(
             "SELECT s.source_allomorph_guid FROM stats_fact f JOIN stats_object o USING (object_id) JOIN stats_allomorph_source s USING (allomorph_id) WHERE o.kind='lex_entry' AND o.key=?1 AND s.source_ordinal=0",
-            [ENTRY_ROOT],
+            [root_entry_key.as_str()],
             |row| row.get::<_, String>(0),
         )
         .unwrap(),
@@ -3023,7 +3131,7 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         .execute("UPDATE run SET counter_semantics=3", [])
         .unwrap();
     let legacy_bytes = std::fs::read(&cache_path).unwrap();
-    let mut legacy_manifest = manifest.clone();
+    let mut legacy_manifest: serde_json::Value = serde_json::from_slice(&manifest_bytes).unwrap();
     legacy_manifest["cache"]["counter_semantics_version"] = serde_json::json!(3);
     legacy_manifest["cache"]["bytes"] = serde_json::json!(legacy_bytes.len());
     legacy_manifest["cache"]["sha256"] = serde_json::json!(pg_assess::source_sha256(&legacy_bytes));
@@ -3058,4 +3166,424 @@ fn morpheme_stratum(
     id: pg_grammar::model::MorphemeId,
 ) -> pg_grammar::model::StratumId {
     grammar.morphemes[id.0 as usize].stratum
+}
+
+#[test]
+fn facts_schema_version_is_8() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("grammar-facts.sqlite");
+    let result = build(&output, snapshot().to_json().as_bytes(), context()).unwrap();
+    assert_eq!(result.schema_version, 8);
+    let db = Connection::open(output).unwrap();
+    let user_version: i64 = db
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(user_version, 8);
+    let meta_version: i64 = db
+        .query_row(
+            "SELECT schema_version FROM artifact_meta WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(meta_version, 8);
+}
+
+#[test]
+fn facts_hold_no_non_grammar_objects() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../pg-fwdata/tests/data/fixture.fwdata");
+    let source = std::fs::read_to_string(&fixture).unwrap();
+    let text_guid = "00000000-0000-0000-0000-0000000000e1";
+    let wordform_guid = "00000000-0000-0000-0000-0000000000e2";
+    let injected = format!(
+        "<rt class=\"Text\" guid=\"{text_guid}\"/><rt class=\"WfiWordform\" guid=\"{wordform_guid}\"/>"
+    );
+    let variant = source.replacen(
+        "</languageproject>",
+        &format!("{injected}</languageproject>"),
+        1,
+    );
+    let variant_path = temp.path().join("source.fwdata");
+    std::fs::write(&variant_path, variant).unwrap();
+    let (imported, _) = pg_fwdata::import_file(&variant_path).unwrap();
+    let provenance = &imported.conversion_provenance;
+    let grammar_objects = provenance
+        .source_objects
+        .iter()
+        .filter(|object| object.inventory_kind.is_some())
+        .count() as i64;
+    assert!(provenance.source_objects.len() as i64 > grammar_objects);
+    let text_occurrences = provenance
+        .source_census
+        .class_occurrences
+        .get("Text")
+        .copied()
+        .unwrap_or_default() as i64;
+    assert_eq!(text_occurrences, 1);
+    let total_occurrences = provenance.source_census.total_occurrences as i64;
+
+    let imported_path = temp.path().join("imported.sqlite");
+    build(&imported_path, imported.to_json().as_bytes(), context()).unwrap();
+    let db = Connection::open(imported_path).unwrap();
+    let rows: i64 = db
+        .query_row("SELECT COUNT(*) FROM source_object", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(rows, grammar_objects);
+    let non_grammar_rows: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM source_object WHERE canonical_guid IN (?1, ?2)",
+            [text_guid, wordform_guid],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(non_grammar_rows, 0);
+    let non_grammar_facts: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM load_fact WHERE subject_kind='sourceObject' \
+             AND subject_guid IN (?1, ?2)",
+            [text_guid, wordform_guid],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(non_grammar_facts, 0);
+    let census_total: i64 = db
+        .query_row(
+            "SELECT total_occurrences FROM source_census WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(census_total, total_occurrences);
+    let text_class_count: i64 = db
+        .query_row(
+            "SELECT occurrences FROM source_class_count WHERE class_name='Text'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(text_class_count, text_occurrences);
+}
+
+fn uppercase_guids(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => {
+            if pg_snapshot::canonical_guid(text).is_some() {
+                *text = text.to_ascii_uppercase();
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(uppercase_guids),
+        serde_json::Value::Object(map) => map.values_mut().for_each(uppercase_guids),
+        _ => {}
+    }
+}
+
+fn table_rows(db: &Connection, table: &str) -> Vec<String> {
+    let mut statement = db.prepare(&format!("SELECT * FROM \"{table}\"")).unwrap();
+    let columns = statement.column_count();
+    let mut rows: Vec<String> = statement
+        .query_map([], |row| {
+            let values: Vec<rusqlite::types::Value> =
+                (0..columns).map(|index| row.get(index).unwrap()).collect();
+            Ok(format!("{values:?}"))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    rows.sort();
+    rows
+}
+
+#[test]
+fn uppercase_guids_keep_features_and_joins() {
+    let temp = tempfile::tempdir().unwrap();
+    let lower_json = environment_snapshot().to_json();
+    let mut value: serde_json::Value = serde_json::from_str(&lower_json).unwrap();
+    uppercase_guids(&mut value);
+    let upper_json = value.to_string();
+    assert_ne!(upper_json, lower_json);
+
+    let lower_path = temp.path().join("lower.sqlite");
+    let upper_path = temp.path().join("upper.sqlite");
+    build(&lower_path, lower_json.as_bytes(), context()).unwrap();
+    let result = build(&upper_path, upper_json.as_bytes(), context()).unwrap();
+    assert_eq!(result.compile_status, "completed");
+    let db = Connection::open(&upper_path).unwrap();
+
+    for guid in [NC_VOICED, PHONEME_K] {
+        let features: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM feature_structure WHERE owner_guid=?1",
+                [guid],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(features > 0, "no feature structure for {guid}");
+    }
+    let parse_status: String = db
+        .query_row(
+            "SELECT parse_status FROM environment WHERE guid=?1",
+            [ENV_VALID],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(parse_status, "valid");
+
+    let mut statement = db
+        .prepare(
+            "SELECT m.name, p.name FROM sqlite_master AS m, pragma_table_info(m.name) AS p \
+             WHERE m.type='table' AND p.name LIKE '%guid'",
+        )
+        .unwrap();
+    let guid_columns: Vec<(String, String)> = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert!(!guid_columns.is_empty());
+    for (table, column) in &guid_columns {
+        let upper: i64 = db
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\" <> lower(\"{column}\")"
+                ),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(upper, 0, "{table}.{column} holds uppercase GUIDs");
+    }
+
+    let lower_db = Connection::open(&lower_path).unwrap();
+    let mut tables = statement_tables(&lower_db);
+    tables.retain(|table| table != "artifact_meta");
+    for table in tables {
+        assert_eq!(
+            table_rows(&db, &table),
+            table_rows(&lower_db, &table),
+            "{table} differs between uppercase and lowercase input"
+        );
+    }
+}
+
+fn statement_tables(db: &Connection) -> Vec<String> {
+    let mut statement = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        .unwrap();
+    statement
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// Morph-type GUIDs that pg-fwdata matches case-sensitively, so they stay lowercase in both variants.
+fn importer_matches_lowercase_only(window: &str) -> bool {
+    window.starts_with("d7f713")
+        || matches!(
+            window,
+            "c2d140e5-7ca9-41f4-a69a-22fc7049dd2c"
+                | "56db04bf-3d58-44cc-b292-4c8aa68538f4"
+                | "a23b6faa-1052-4f4d-984b-4b338bdaf95f"
+                | "0cc8c35a-cee9-434d-be58-5d29130fba5b"
+                | "af6537b0-7175-4387-ba6a-36547d37fb13"
+                | "18d9b1c3-b5b6-4c07-b92c-2fe1d2281bd4"
+                | "3433683d-08a9-4bae-ae53-2a7798f64068"
+        )
+}
+
+fn recase_guid_text(text: &str, upper: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(character) = rest.chars().next() {
+        match rest.get(..36) {
+            Some(window) if pg_snapshot::canonical_guid(window).is_some() => {
+                let cased = if upper && !importer_matches_lowercase_only(window) {
+                    window.to_ascii_uppercase()
+                } else {
+                    window.to_ascii_lowercase()
+                };
+                out.push_str(&cased);
+                rest = &rest[36..];
+            }
+            _ => {
+                out.push(character);
+                rest = &rest[character.len_utf8()..];
+            }
+        }
+    }
+    out
+}
+
+fn has_uppercase_guid(text: &str) -> bool {
+    text.char_indices().any(|(index, _)| {
+        text.get(index..)
+            .and_then(|rest| rest.get(..36))
+            .is_some_and(|window| {
+                pg_snapshot::canonical_guid(window).is_some()
+                    && window.bytes().any(|byte| byte.is_ascii_uppercase())
+            })
+    })
+}
+
+fn table_rows_except(db: &Connection, table: &str, excluded: &[&str]) -> Vec<String> {
+    let mut names = db
+        .prepare("SELECT name FROM pragma_table_info(?1)")
+        .unwrap();
+    let columns: Vec<String> = names
+        .query_map([table], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|name: &String| !excluded.contains(&name.as_str()))
+        .collect();
+    let select = columns
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut statement = db
+        .prepare(&format!("SELECT {select} FROM \"{table}\""))
+        .unwrap();
+    let mut rows: Vec<String> = statement
+        .query_map([], |row| {
+            let values: Vec<rusqlite::types::Value> = (0..columns.len())
+                .map(|index| row.get(index).unwrap())
+                .collect();
+            Ok(format!("{values:?}"))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    rows.sort();
+    rows
+}
+
+#[test]
+fn uppercase_guid_snapshot_compiles_like_the_parser() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_str(&environment_snapshot().to_json()).unwrap();
+    uppercase_guids(&mut value);
+    let upper_json = value.to_string();
+    let parsed = Snapshot::from_json(&upper_json).unwrap();
+    let output = temp.path().join("facts.sqlite");
+    let result = build(&output, upper_json.as_bytes(), context()).unwrap();
+    assert_eq!(result.compile_status, "completed");
+    assert_eq!(result.grammar_hash, parsed.grammar_hash());
+
+    let compiled = pg_grammar::compile_project_with(&parsed, Default::default()).unwrap();
+    let mut expected: Vec<(String, String)> = compiled
+        .compiled_mappings
+        .iter()
+        .map(|mapping| {
+            (
+                recase_guid_text(&mapping.source_key, false),
+                recase_guid_text(
+                    &compiled.compiled_outputs[mapping.output_id as usize - 1].key,
+                    false,
+                ),
+            )
+        })
+        .collect();
+    expected.sort();
+    assert!(!expected.is_empty());
+    let db = Connection::open(output).unwrap();
+    let mut statement = db
+        .prepare("SELECT m.source_key, o.key FROM compiled_mapping m JOIN compiled_output o USING (output_id) ORDER BY 1, 2")
+        .unwrap();
+    let stored: Vec<(String, String)> = statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(stored, expected);
+}
+
+#[test]
+fn uppercase_source_headers_publish_lowercase_facts() {
+    let temp = tempfile::tempdir().unwrap();
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../pg-fwdata/tests/data/fixture.fwdata");
+    // The importer resolves this dangling reference only in uppercase; dropping it keeps both spellings equal.
+    let source = std::fs::read_to_string(&fixture).unwrap().replace(
+        "<objsur guid=\"00000000-0000-0000-0000-0000000000ff\" t=\"r\" />",
+        "",
+    );
+    // Same file name in both directories: the project name is derived from it.
+    std::fs::create_dir(temp.path().join("upper")).unwrap();
+    std::fs::create_dir(temp.path().join("lower")).unwrap();
+    let upper_path = temp.path().join("upper").join("fixture.fwdata");
+    let lower_path = temp.path().join("lower").join("fixture.fwdata");
+    std::fs::write(&upper_path, recase_guid_text(&source, true)).unwrap();
+    std::fs::write(&lower_path, recase_guid_text(&source, false)).unwrap();
+    let (upper, _) = pg_fwdata::import_file(&upper_path).unwrap();
+    let (lower, _) = pg_fwdata::import_file(&lower_path).unwrap();
+    assert!(upper
+        .conversion_provenance
+        .source_objects
+        .iter()
+        .any(|object| has_uppercase_guid(&object.raw_guid)));
+
+    let upper_db_path = temp.path().join("upper.sqlite");
+    let lower_db_path = temp.path().join("lower.sqlite");
+    build(&upper_db_path, upper.to_json().as_bytes(), context()).unwrap();
+    build(&lower_db_path, lower.to_json().as_bytes(), context()).unwrap();
+    let upper_db = Connection::open(upper_db_path).unwrap();
+    let lower_db = Connection::open(lower_db_path).unwrap();
+
+    let uppercase_raw: i64 = upper_db
+        .query_row(
+            "SELECT COUNT(*) FROM source_object WHERE raw_guid <> lower(raw_guid)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(uppercase_raw > 0);
+
+    for table in statement_tables(&upper_db) {
+        if table == "artifact_meta" {
+            continue;
+        }
+        let mut statement = upper_db
+            .prepare(&format!("SELECT * FROM \"{table}\""))
+            .unwrap();
+        let columns = statement.column_count();
+        let names: Vec<String> = (0..columns)
+            .map(|index| statement.column_name(index).unwrap().to_string())
+            .collect();
+        let rows: Vec<Vec<rusqlite::types::Value>> = statement
+            .query_map([], |row| (0..columns).map(|index| row.get(index)).collect())
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        for row in &rows {
+            for (name, value) in names.iter().zip(row) {
+                if name == "raw_guid" {
+                    continue;
+                }
+                if let rusqlite::types::Value::Text(text) = value {
+                    assert!(
+                        !has_uppercase_guid(text),
+                        "{table}.{name} stores an uppercase GUID: {text}"
+                    );
+                }
+            }
+        }
+    }
+
+    for table in statement_tables(&lower_db) {
+        if table == "artifact_meta" {
+            continue;
+        }
+        let excluded: &[&str] = match table.as_str() {
+            "source_census" => &["raw_guid", "ordered_header_sha256"],
+            _ => &["raw_guid"],
+        };
+        assert_eq!(
+            table_rows_except(&upper_db, &table, excluded),
+            table_rows_except(&lower_db, &table, excluded),
+            "{table} differs between uppercase and lowercase source headers"
+        );
+    }
 }

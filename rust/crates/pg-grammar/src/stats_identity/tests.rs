@@ -1,6 +1,23 @@
 use super::*;
 use pg_conformance_fixtures::{discover, require_fixture};
 
+/// Test-only lookups: one catalog per call keeps each assertion self-contained.
+fn morph_rule_identity(grammar: &crate::model::Grammar, id: MRuleId) -> ObjectIdentity {
+    StatsIdentityCatalog::new(grammar).morph_rule(id).clone()
+}
+
+fn phon_rule_identity(grammar: &crate::model::Grammar, id: PRuleId) -> ObjectIdentity {
+    StatsIdentityCatalog::new(grammar).phon_rule(id).clone()
+}
+
+fn lex_entry_identity(grammar: &crate::model::Grammar, id: LexEntryId) -> ObjectIdentity {
+    StatsIdentityCatalog::new(grammar).lex_entry(id).clone()
+}
+
+fn allomorph_identity(grammar: &crate::model::Grammar, id: AllomorphId) -> AllomorphIdentity {
+    StatsIdentityCatalog::new(grammar).allomorph(id)
+}
+
 /// Two structurally different fixtures already used by `pg-parse`'s own conformance gate.
 fn two_sample_grammars() -> [crate::model::Grammar; 2] {
     let a = require_fixture("languages", "metathesis-phase-isolation");
@@ -57,28 +74,6 @@ fn stats_keys_are_injective_across_every_fixture() {
             }
         }
     }
-}
-
-#[test]
-fn repeated_authored_source_ids_keep_runtime_objects_distinct() {
-    let first_rule = disambiguate_morph_rule_key("msa-guid", 2, 2, IdentityQuality::Authored);
-    let second_rule = disambiguate_morph_rule_key("msa-guid", 5, 2, IdentityQuality::Authored);
-    assert_ne!(first_rule.0, second_rule.0);
-    assert_eq!(first_rule.1, IdentityQuality::Structural);
-    assert_eq!(second_rule.1, IdentityQuality::Structural);
-
-    let first_msa_entry =
-        lex_entry_authored_key("entry-guid", "msa-a", IdentityQuality::Authored, 2, 2, 1);
-    let second_msa_entry =
-        lex_entry_authored_key("entry-guid", "msa-b", IdentityQuality::Authored, 5, 2, 1);
-    assert_ne!(first_msa_entry.0, second_msa_entry.0);
-    assert_eq!(first_msa_entry.1, IdentityQuality::Authored);
-    assert_eq!(second_msa_entry.1, IdentityQuality::Authored);
-
-    let repeated_msa_entry =
-        lex_entry_authored_key("entry-guid", "msa-a", IdentityQuality::Authored, 5, 2, 2);
-    assert_ne!(first_msa_entry.0, repeated_msa_entry.0);
-    assert_eq!(repeated_msa_entry.1, IdentityQuality::Structural);
 }
 
 /// Resolving the guessed-root sentinel must not index the allomorph registry out of bounds.

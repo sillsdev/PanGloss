@@ -1308,10 +1308,13 @@ fn expected_objects(
         }
         add(identity, None, sources)?;
     }
-    for (index, _rule) in grammar.prules.iter().enumerate() {
+    for (index, rule) in grammar.prules.iter().enumerate() {
         let id = pg_grammar::model::PRuleId(index as u32);
-        let identity = stats_identity::phon_rule_identity(grammar, id);
-        let guid = identity.key.clone();
+        let identity = catalog.phon_rule(id).clone();
+        let guid = match rule {
+            pg_grammar::model::PhonRuleDef::Rewrite(rule) => rule.xml_id.clone(),
+            pg_grammar::model::PhonRuleDef::Metathesis(rule) => rule.xml_id.clone(),
+        };
         let sources = if phon_guids.contains(&guid) {
             vec![("phonologicalRule".into(), guid, "phonological_rule".into())]
         } else {
@@ -1682,6 +1685,15 @@ pub(crate) fn insert(
     for fact in &projection.facts {
         tx.execute("INSERT INTO stats_fact(word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", params![fact.word_id, fact.object_id, fact.stratum_id, fact.allomorph_id, fact.direction, fact.attempts, fact.work, fact.outputs, fact.not_applied, fact.no_root, fact.surface_mismatch, fact.uses, fact.self_time_ns])?;
     }
+    // Stats and compiled outputs share one key, so the join is by key; pseudo-objects match none.
+    tx.execute(
+        "UPDATE stats_object SET output_id = (SELECT output_id FROM compiled_output WHERE compiled_output.key = stats_object.key) WHERE kind IN ('morph_rule', 'phon_rule', 'lex_entry')",
+        [],
+    )?;
+    tx.execute(
+        "UPDATE stats_allomorph SET output_id = (SELECT output_id FROM compiled_output WHERE compiled_output.key = stats_allomorph.key)",
+        [],
+    )?;
     tx.execute(
         "UPDATE artifact_meta SET run_manifest_sha256=?1 WHERE singleton=1",
         params![projection.manifest_sha256],

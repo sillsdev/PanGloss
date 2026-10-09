@@ -19,6 +19,7 @@ pub(crate) mod grammar_health_presentation;
 pub mod lint;
 pub mod load;
 pub mod stats_identity;
+pub mod trace_identity;
 
 pub use pg_grammar_model::{chardef, featsys, model, nfd, segment};
 

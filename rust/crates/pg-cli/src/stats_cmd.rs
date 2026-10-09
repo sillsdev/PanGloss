@@ -106,7 +106,7 @@ fn fact_record_from_stats_row(
             identities.morph_rule(MRuleId(row.object_index)).clone()
         }
         pg_rules::stats::ObjectKind::PhonRule => {
-            pg_grammar::stats_identity::phon_rule_identity(grammar, PRuleId(row.object_index))
+            identities.phon_rule(PRuleId(row.object_index)).clone()
         }
         pg_rules::stats::ObjectKind::LexEntry => {
             identities.lex_entry(LexEntryId(row.object_index)).clone()

@@ -105,6 +105,38 @@ fn wipes_on_grammar_hash_change_and_reports_it() {
 }
 
 #[test]
+fn wipes_a_version_seven_cache_whose_stats_keys_predate_compiled_output() {
+    let path = TempDir::new("pg-stats-v7");
+    let cache_path = path.path().join("cache.sqlite3");
+    let first = StatsCache::open(&cache_path, "hash-a").unwrap();
+    drop(first);
+    let legacy = Connection::open(&cache_path).unwrap();
+    legacy
+        .execute(
+            "UPDATE cache_identity SET schema_version = 7 WHERE cache_id = 1",
+            [],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let outcome = StatsCache::open(&cache_path, "hash-a").unwrap();
+    assert!(
+        outcome.wiped,
+        "a version-7 cache must be recreated, not reused under version-8 keys"
+    );
+    let version: i64 = outcome
+        .cache
+        .connection()
+        .query_row(
+            "SELECT schema_version FROM cache_identity WHERE cache_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(version, crate::schema::SCHEMA_VERSION);
+}
+
+#[test]
 fn wipes_an_empty_legacy_cache_before_claiming_current_identity() {
     let path = TempDir::new("pg-stats-empty-legacy");
     let cache_path = path.path().join("cache.sqlite3");

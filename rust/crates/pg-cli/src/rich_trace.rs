@@ -530,7 +530,10 @@ fn attempted_morphs(grammar: &Grammar, metadata: &TraceMetadata, word: &Word) ->
     }).collect()
 }
 fn source_identity(grammar: &Grammar, source: TraceSource) -> Value {
-    use pg_grammar::stats_identity::{morph_rule_identity, phon_rule_identity};
+    use pg_grammar::trace_identity::{
+        trace_morph_rule_identity as morph_rule_identity,
+        trace_phon_rule_identity as phon_rule_identity,
+    };
     let (kind, identity) = match source {
         TraceSource::Language | TraceSource::None => return Value::Null,
         TraceSource::Stratum(id) => {
@@ -553,7 +556,7 @@ fn identity_quality(quality: pg_grammar::stats_identity::IdentityQuality) -> &'s
     }
 }
 fn lex_entry_identity_json(grammar: &Grammar, entry: pg_grammar::model::LexEntryId) -> Value {
-    let identity = pg_grammar::stats_identity::lex_entry_identity(grammar, entry);
+    let identity = pg_grammar::trace_identity::trace_lex_entry_identity(grammar, entry);
     json!({ "kind": "lexEntry", "id": identity.key, "quality": identity_quality(identity.quality) })
 }
 fn outcome_status(type_: TraceType) -> &'static str {
@@ -598,7 +601,7 @@ fn trace_object_identity(grammar: &Grammar, object: TraceObject) -> Value {
     match object {
         TraceObject::MorphRule(id) => source_identity(grammar, TraceSource::MorphRule(id)),
         TraceObject::Allomorph(id) => {
-            let identity = pg_grammar::stats_identity::allomorph_identity(grammar, id);
+            let identity = pg_grammar::trace_identity::trace_allomorph_identity(grammar, id);
             let mut value = json!({"kind": "allomorph", "id": identity.key, "quality": identity_quality(identity.quality)});
             if let Some(source) = grammar.allomorph_sources.get(id.0 as usize) {
                 value["sourceFormIds"] = json!(source.form_guids);
