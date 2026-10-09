@@ -1,19 +1,19 @@
 {
-  "schema_version": 1,
-  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "schema_version": 2,
+  "comparison_profile": "underdefined-structured-identity-and-status/v2",
   "expected_differences": [
     {
       "difference": {
         "word": "mupa",
-        "key": [
-          {
-            "allomorph": "a7c08446-d98b-431c-b38a-d28ceadb4bee",
-            "inflection_type": null,
-            "msa": "d53918cb-330f-4068-b9bd-3dbde34e7349"
-          }
-        ],
-        "csharp_count": 1,
-        "pangloss_count": 0,
+        "identity": {
+          "morphemes": [
+            "d53918cb-330f-4068-b9bd-3dbde34e7349"
+          ],
+          "rootIndex": 0,
+          "category": "62e4c03b-fefc-434b-8242-1ebb4a702eea"
+        },
+        "csharp_present": true,
+        "pangloss_present": false,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },

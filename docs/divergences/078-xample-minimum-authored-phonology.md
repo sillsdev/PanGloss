@@ -44,17 +44,21 @@ compiler and parse owner's source-identity projection. Native engines were not r
 the Linux integration lane. The authored grammar and saved-project mutation, not PanGloss
 output, justify the seven exceptions above.
 
-`pg-cli/tests/underdefined_stored_keys_gate.rs` checks all 61 words. Its C# comparison
-profile is **stored-analysis key plus captured status**,
-`underdefined-stored-keys-and-status/v1`: ordered per-morph allomorph, MSA and inflection
-type with multiplicity, captured HC error and PanGloss invalid-shape result. This does
-**not** assert full C# structured-identity parity. Every measured difference is listed
-in a per-case `expected-differences.json` with an entry explaining its mechanism;
-unlisted and disappeared differences fail.
+`pg-cli/tests/underdefined_stored_keys_gate.rs` checks all 61 words. The XAMPLE minimum remains
+stored-key based; its keys do not contain root position or category. The C# comparison uses
+`underdefined-structured-identity-and-status/v2`: ordered stable morpheme identities, root
+position, category/POS, captured HC errors and PanGloss invalid-shape status.
 
-Open follow-up: rerun the Windows projector with the pinned native installation to capture
-C# root position and category, then add the full structured-identity comparison required
-by CONTEXT.md. These missing observations cannot be reconstructed from PanGloss output.
+The 36 saved HC XML files were replayed through the pinned Machine 3.8.2.0 assemblies. Their
+stored-key multisets and statuses agree with the original C# captures for all 183 case/state/word
+rows. Sidecars preserve root position and category, with DLL, harness, input and saved-project
+hashes plus line evidence for source-ID crosswalks. All 34 C# differences were re-derived under v2
+and remain covered by their existing ledger entries. Unlisted and disappeared differences fail;
+empty tables assert none.
+
+Category/POS in each C# sidecar is the stable FieldWorks PartOfSpeech GUID. The capture records
+the HC symbol and saved-project Name and Abbreviation lines used for its unique crosswalk, and the
+gate verifies that evidence against the pinned input hashes.
 
 The lane report records actual managed commands, exits and table-removal regression checks
 separately from the native captures' provenance.

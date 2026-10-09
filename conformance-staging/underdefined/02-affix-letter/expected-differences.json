@@ -1,24 +1,20 @@
 {
-  "schema_version": 1,
-  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "schema_version": 2,
+  "comparison_profile": "underdefined-structured-identity-and-status/v2",
   "expected_differences": [
     {
       "difference": {
         "word": "mumax",
-        "key": [
-          {
-            "allomorph": "7a03d086-5a3f-48a6-b87c-9d6e81f56875",
-            "inflection_type": null,
-            "msa": "1b63a76b-1fa0-4fda-8f8e-8244f9ce9180"
-          },
-          {
-            "allomorph": "1ca1ff06-195c-4b6e-a4c5-a6b599b6e067",
-            "inflection_type": null,
-            "msa": "6adcbf23-e9c9-4699-85e6-522329e865de"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "1b63a76b-1fa0-4fda-8f8e-8244f9ce9180",
+            "6adcbf23-e9c9-4699-85e6-522329e865de"
+          ],
+          "rootIndex": 0,
+          "category": "5ce19330-e4ad-4196-a50c-5d45fcf553f6"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -28,9 +24,9 @@
     {
       "difference": {
         "word": "mumax",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumax, contains an undefined phoneme at 4.",
         "pangloss_invalid_shape": false
       },
@@ -40,9 +36,9 @@
     {
       "difference": {
         "word": "mumay",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumay, contains an undefined phoneme at 4.",
         "pangloss_invalid_shape": true
       },

@@ -1,19 +1,19 @@
 {
-  "schema_version": 1,
-  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "schema_version": 2,
+  "comparison_profile": "underdefined-structured-identity-and-status/v2",
   "expected_differences": [
     {
       "difference": {
         "word": "mãma",
-        "key": [
-          {
-            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
-            "inflection_type": null,
-            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+          ],
+          "rootIndex": 0,
+          "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -23,9 +23,9 @@
     {
       "difference": {
         "word": "mãma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
@@ -35,20 +35,16 @@
     {
       "difference": {
         "word": "mãmas",
-        "key": [
-          {
-            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
-            "inflection_type": null,
-            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
-          },
-          {
-            "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
-            "inflection_type": null,
-            "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+            "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
+          ],
+          "rootIndex": 0,
+          "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -58,9 +54,9 @@
     {
       "difference": {
         "word": "mãmas",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
@@ -70,15 +66,15 @@
     {
       "difference": {
         "word": "mãma",
-        "key": [
-          {
-            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
-            "inflection_type": null,
-            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+          ],
+          "rootIndex": 0,
+          "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -88,9 +84,9 @@
     {
       "difference": {
         "word": "mãma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
@@ -100,20 +96,16 @@
     {
       "difference": {
         "word": "mãmas",
-        "key": [
-          {
-            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
-            "inflection_type": null,
-            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
-          },
-          {
-            "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
-            "inflection_type": null,
-            "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+            "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
+          ],
+          "rootIndex": 0,
+          "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -123,9 +115,9 @@
     {
       "difference": {
         "word": "mãmas",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },

@@ -1,24 +1,20 @@
 {
-  "schema_version": 1,
-  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "schema_version": 2,
+  "comparison_profile": "underdefined-structured-identity-and-status/v2",
   "expected_differences": [
     {
       "difference": {
         "word": "mumas",
-        "key": [
-          {
-            "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
-            "inflection_type": null,
-            "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6"
-          },
-          {
-            "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
-            "inflection_type": null,
-            "msa": "23577d24-75d0-4079-aedb-563309c3f68e"
-          }
-        ],
-        "csharp_count": 1,
-        "pangloss_count": 0,
+        "identity": {
+          "morphemes": [
+            "6707c385-af97-48f6-88a6-f332fdaa9ff6",
+            "23577d24-75d0-4079-aedb-563309c3f68e"
+          ],
+          "rootIndex": 0,
+          "category": "24790ecb-43f9-4336-86ea-2da76d31b2f9"
+        },
+        "csharp_present": true,
+        "pangloss_present": false,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -28,15 +24,15 @@
     {
       "difference": {
         "word": "mux",
-        "key": [
-          {
-            "allomorph": "706d6e69-fb7d-4c06-a5eb-f5fbb9da4431",
-            "inflection_type": null,
-            "msa": "5fb9c626-467f-43d3-911a-492a3152cb61"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "5fb9c626-467f-43d3-911a-492a3152cb61"
+          ],
+          "rootIndex": 0,
+          "category": "24790ecb-43f9-4336-86ea-2da76d31b2f9"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -46,9 +42,9 @@
     {
       "difference": {
         "word": "mux",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mux, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
@@ -58,20 +54,16 @@
     {
       "difference": {
         "word": "muxs",
-        "key": [
-          {
-            "allomorph": "706d6e69-fb7d-4c06-a5eb-f5fbb9da4431",
-            "inflection_type": null,
-            "msa": "5fb9c626-467f-43d3-911a-492a3152cb61"
-          },
-          {
-            "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
-            "inflection_type": null,
-            "msa": "23577d24-75d0-4079-aedb-563309c3f68e"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "5fb9c626-467f-43d3-911a-492a3152cb61",
+            "23577d24-75d0-4079-aedb-563309c3f68e"
+          ],
+          "rootIndex": 0,
+          "category": "24790ecb-43f9-4336-86ea-2da76d31b2f9"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -81,9 +73,9 @@
     {
       "difference": {
         "word": "muxs",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, muxs, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },

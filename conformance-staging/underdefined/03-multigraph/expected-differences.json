@@ -1,19 +1,19 @@
 {
-  "schema_version": 1,
-  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "schema_version": 2,
+  "comparison_profile": "underdefined-structured-identity-and-status/v2",
   "expected_differences": [
     {
       "difference": {
         "word": "chuma",
-        "key": [
-          {
-            "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
-            "inflection_type": null,
-            "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "8b46d586-3828-4ec1-ba4d-615d454c8f27"
+          ],
+          "rootIndex": 0,
+          "category": "69793b70-c3f2-472a-a44f-8d4a953c1870"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -23,9 +23,9 @@
     {
       "difference": {
         "word": "chuma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -35,20 +35,16 @@
     {
       "difference": {
         "word": "chumas",
-        "key": [
-          {
-            "allomorph": "359c6dfa-7590-424e-ad08-336fe3302f03",
-            "inflection_type": null,
-            "msa": "8b46d586-3828-4ec1-ba4d-615d454c8f27"
-          },
-          {
-            "allomorph": "b8ab9ebd-1ada-4ecc-abde-58e5503251d6",
-            "inflection_type": null,
-            "msa": "e0bf4884-5560-4919-9afa-82e621ad6377"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "8b46d586-3828-4ec1-ba4d-615d454c8f27",
+            "e0bf4884-5560-4919-9afa-82e621ad6377"
+          ],
+          "rootIndex": 0,
+          "category": "69793b70-c3f2-472a-a44f-8d4a953c1870"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -58,9 +54,9 @@
     {
       "difference": {
         "word": "chumas",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chumas, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -70,9 +66,9 @@
     {
       "difference": {
         "word": "cuma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -82,9 +78,9 @@
     {
       "difference": {
         "word": "huma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },

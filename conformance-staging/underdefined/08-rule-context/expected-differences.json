@@ -1,13 +1,13 @@
 {
-  "schema_version": 1,
-  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "schema_version": 2,
+  "comparison_profile": "underdefined-structured-identity-and-status/v2",
   "expected_differences": [
     {
       "difference": {
         "word": "xuma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -17,9 +17,9 @@
     {
       "difference": {
         "word": "xmuma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xmuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -29,9 +29,9 @@
     {
       "difference": {
         "word": "xpuma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xpuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -41,9 +41,9 @@
     {
       "difference": {
         "word": "xpumas",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xpumas, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },

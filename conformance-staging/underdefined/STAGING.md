@@ -46,16 +46,24 @@ are recorded in each measurement.json. Project .fwdata bytes are unchanged; comp
 checks real stored-key multisets, errors, diagnostics and segment counts. No UI metadata equivalence
 is claimed.
 
-The gate uses the comparison profile **stored-analysis key plus captured status**,
-`underdefined-stored-keys-and-status/v1`. Each case's `expected-differences.json` lists exact
-key multiplicities and captured HC-error/PanGloss-invalid-shape differences, with a ledger entry
-covering each mechanism. Unlisted and disappeared differences fail; empty tables assert none.
-The captures preserve ordered allomorph/MSA/inflection-type keys and engine errors, but do not
-record C# root position or category. Comparing their keys/statuses is not full C# structured
-analysis parity under CONTEXT.md. A Windows projector rerun to capture C# root position/category
-and enforce full structured identity is an open follow-up; the missing observation cannot be
-reconstructed as an observation from PanGloss output. The gate retains source-identity fields
-and analysis multiplicity rather than comparing rendered signatures or numeric compiler ids.
+The gate keeps the XAMPLE minimum on stored-analysis-key multisets and compares C# HC with
+PanGloss using `underdefined-structured-identity-and-status/v2`. Each `measurements/<state>/`
+directory has an `hc-identity.json` replay of its saved `Probe.hc.xml` through the pinned Machine
+3.8.2.0 assemblies. Before capture, the harness proved for all 36 states and 183 words that the
+replay's stored-key multisets and statuses match the original `hc.json` observations. The original
+captures remain unchanged.
+
+The v2 comparison uses ordered stable morpheme identities, root-morpheme position, category/POS,
+and captured C# error plus PanGloss invalid-shape status. The gate validates the sidecar's DLL,
+harness, XML, words, original-capture, invocation and saved-project hashes. It also checks the
+source-ID crosswalk against parse constraints and recorded line evidence from the HC XML and
+FieldWorks project. Category/POS uses the stable FieldWorks PartOfSpeech GUID, matched uniquely
+from the HC symbol's name to both the saved object's Name and Abbreviation. Eight initially
+ambiguous state mappings were resolved by unique form/gloss matches that agree with the all-word
+parse constraints. The 34 C# differences were re-derived under v2; each retains its existing
+ledger entry and reason. Unlisted and disappeared differences fail, while empty tables assert
+none. Comparison uses structured identities rather than rendered signatures or numeric compiler
+ids.
 
 ## Compact evidence and regeneration
 

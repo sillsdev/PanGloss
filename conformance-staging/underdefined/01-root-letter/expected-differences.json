@@ -1,19 +1,19 @@
 {
-  "schema_version": 1,
-  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "schema_version": 2,
+  "comparison_profile": "underdefined-structured-identity-and-status/v2",
   "expected_differences": [
     {
       "difference": {
         "word": "xuma",
-        "key": [
-          {
-            "allomorph": "e78f7fd4-33d1-4157-b141-7c004fd39d48",
-            "inflection_type": null,
-            "msa": "af00386f-7294-4193-98fa-0bf918247eea"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "af00386f-7294-4193-98fa-0bf918247eea"
+          ],
+          "rootIndex": 0,
+          "category": "6ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -23,9 +23,9 @@
     {
       "difference": {
         "word": "xuma",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -35,20 +35,16 @@
     {
       "difference": {
         "word": "xumas",
-        "key": [
-          {
-            "allomorph": "e78f7fd4-33d1-4157-b141-7c004fd39d48",
-            "inflection_type": null,
-            "msa": "af00386f-7294-4193-98fa-0bf918247eea"
-          },
-          {
-            "allomorph": "3db97d3b-f5a6-4f67-96be-59024ec21563",
-            "inflection_type": null,
-            "msa": "2642e3af-ffeb-4877-b12a-630d7d01f02f"
-          }
-        ],
-        "csharp_count": 0,
-        "pangloss_count": 1,
+        "identity": {
+          "morphemes": [
+            "af00386f-7294-4193-98fa-0bf918247eea",
+            "2642e3af-ffeb-4877-b12a-630d7d01f02f"
+          ],
+          "rootIndex": 0,
+          "category": "6ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5"
+        },
+        "csharp_present": false,
+        "pangloss_present": true,
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
@@ -58,9 +54,9 @@
     {
       "difference": {
         "word": "xumas",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumas, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
@@ -70,9 +66,9 @@
     {
       "difference": {
         "word": "xumu",
-        "key": null,
-        "csharp_count": 0,
-        "pangloss_count": 0,
+        "identity": null,
+        "csharp_present": false,
+        "pangloss_present": false,
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumu, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
