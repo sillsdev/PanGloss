@@ -61,6 +61,7 @@ pub struct CharDef {
     representations_nfd: Vec<String>,
     /// Per-feature symbolic bits; absent values use full masks, with Type pinned to segment or boundary.
     feature_lanes: Vec<u64>,
+    defaulted_feature_lanes: Vec<bool>,
     has_authored_features: bool,
     provisional: bool,
 }
@@ -130,6 +131,12 @@ impl CharDef {
     pub fn feature_lanes(&self) -> &[u64] {
         &self.feature_lanes
     }
+
+    /// Whether a lane retained its full-mask default during compilation. Explicit assignments and
+    /// the compiler-pinned Type lane are not defaulted, even when their bits equal the full mask.
+    pub fn feature_is_defaulted(&self, feature: FlatIndex) -> bool {
+        self.defaulted_feature_lanes[feature.0 as usize]
+    }
 }
 
 /// A compiled `CharacterDefinitionTable`: the segment/boundary inventory plus the NFD
@@ -189,18 +196,21 @@ impl CharDefTable {
             }
 
             // Every char def gets a full `feat_sys.len()`-wide lane row: segments resolve their authored `<FeatureValue>`s, boundaries author none so every lane defaults to full mask; the Type lane is then unconditionally pinned below, which never overwrites real author intent since it can never come from an authored `FeatureValue`.
-            let mut feature_lanes = if matches!(raw.kind, CharDefKind::Segment) {
-                Self::build_feature_lanes(&raw.feature_values, feat_sys)?
-            } else {
-                (0..feat_sys.len())
-                    .map(|i| feat_sys.mask(FlatIndex(i as u32)))
-                    .collect()
-            };
+            let (mut feature_lanes, mut defaulted_feature_lanes) =
+                if matches!(raw.kind, CharDefKind::Segment) {
+                    Self::build_feature_lanes(&raw.feature_values, feat_sys)?
+                } else {
+                    let lanes = (0..feat_sys.len())
+                        .map(|i| feat_sys.mask(FlatIndex(i as u32)))
+                        .collect();
+                    (lanes, vec![true; feat_sys.len()])
+                };
             let type_idx = feat_sys.type_flat().0 as usize;
             feature_lanes[type_idx] = match raw.kind {
                 CharDefKind::Segment => TYPE_SEGMENT_BITS,
                 CharDefKind::Boundary => TYPE_BOUNDARY_BITS,
             };
+            defaulted_feature_lanes[type_idx] = false;
 
             let id = CharDefId(defs.len() as u32);
             for norm in &representations_nfd {
@@ -215,6 +225,7 @@ impl CharDefTable {
                 representations: raw.representations,
                 representations_nfd,
                 feature_lanes,
+                defaulted_feature_lanes,
             });
         }
 
@@ -255,11 +266,12 @@ impl CharDefTable {
     fn build_feature_lanes(
         values: &[RawFeatureValue],
         feat_sys: &PhonFeatureSystem,
-    ) -> Result<Vec<u64>, ModelError> {
+    ) -> Result<(Vec<u64>, Vec<bool>), ModelError> {
         // Default every lane to "uninstantiated" (all symbols allowed), matching C#'s `EnsureFlat` seeding of absent features.
         let mut lanes: Vec<u64> = (0..feat_sys.len())
             .map(|i| feat_sys.mask(FlatIndex(i as u32)))
             .collect();
+        let mut defaulted = vec![true; feat_sys.len()];
 
         for fv in values {
             let flat = feat_sys.flat_index(&fv.feature_xml_id).ok_or_else(|| {
@@ -279,9 +291,10 @@ impl CharDefTable {
                 bits |= 1u64 << idx;
             }
             lanes[flat.0 as usize] = bits;
+            defaulted[flat.0 as usize] = false;
         }
 
-        Ok(lanes)
+        Ok((lanes, defaulted))
     }
 
     #[inline]

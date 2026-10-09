@@ -676,7 +676,7 @@ fn insert_effective_members(
                         identity.phoneme_guid,
                         identity_quality,
                         match_kind(class),
-                        match_basis(class, definition, grammar),
+                        match_basis(class, definition),
                     ],
                 )?;
             }
@@ -686,18 +686,13 @@ fn insert_effective_members(
 }
 
 /// Why a member is in its class: listed by a segment list, specified by its features, or underspecified.
-fn match_basis(
-    class: &pg_grammar::model::NaturalClass,
-    definition: &CharDef,
-    grammar: &pg_grammar::model::Grammar,
-) -> &'static str {
+fn match_basis(class: &pg_grammar::model::NaturalClass, definition: &CharDef) -> &'static str {
     match &class.kind {
         CompiledNaturalClassKind::Segments(_) => "listed",
         CompiledNaturalClassKind::Feature(pairs) => {
-            let lanes = definition.feature_lanes();
-            let defaulted = pairs.iter().any(|&(feature, _)| {
-                lanes[feature.0 as usize] == grammar.phon_features.mask(feature)
-            });
+            let defaulted = pairs
+                .iter()
+                .any(|&(feature, _)| definition.feature_is_defaulted(feature));
             if defaulted {
                 "underspecified"
             } else {

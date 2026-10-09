@@ -4849,6 +4849,84 @@ fn only_valid_environments_have_sides() {
 }
 
 #[test]
+fn match_basis_uses_assignment_provenance_for_single_valued_features() {
+    let mut source = environment_snapshot();
+    source.feature_systems.phonological.closed_features[0]
+        .values
+        .truncate(1);
+    for phoneme in &mut source.phonology.phonemes {
+        phoneme.features = Some(closed_structure(FEATURE_VOICE, VALUE_PLUS));
+    }
+    let place = "00000000-0000-0000-0000-0000000001b0";
+    let coronal = "00000000-0000-0000-0000-0000000001b1";
+    source
+        .feature_systems
+        .phonological
+        .closed_features
+        .push(ClosedFeature {
+            guid: place.into(),
+            name: "Place".into(),
+            abbreviation: "place".into(),
+            values: vec![FeatureValueSymbol {
+                guid: coronal.into(),
+                name: "Coronal".into(),
+                abbreviation: "cor".into(),
+            }],
+        });
+    source
+        .phonology
+        .phonemes
+        .iter_mut()
+        .find(|phoneme| phoneme.guid == PHONEME_TS)
+        .unwrap()
+        .features = Some(closed_structure(place, coronal));
+    let labels = |source: &Snapshot| -> Vec<(String, String)> {
+        let db = publish_gates(source, "single-valued-match-basis.sqlite");
+        let rows = db.prepare(
+            "SELECT phoneme_guid, match_basis FROM natural_class_effective_member WHERE natural_class_guid=?1 ORDER BY phoneme_guid",
+        )
+        .unwrap()
+        .query_map([NC_VOICED], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+        rows
+    };
+    let expected: Vec<_> = source
+        .phonology
+        .phonemes
+        .iter()
+        .map(|phoneme| {
+            (
+                phoneme.guid.clone(),
+                if phoneme.guid == PHONEME_TS {
+                    "underspecified"
+                } else {
+                    "specified"
+                }
+                .to_string(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>()
+        .into_iter()
+        .collect();
+    let single_valued = labels(&source);
+    assert_eq!(single_valued, expected);
+    source.feature_systems.phonological.closed_features[0]
+        .values
+        .push(FeatureValueSymbol {
+            guid: VALUE_MINUS.into(),
+            name: "Voiceless".into(),
+            abbreviation: "-".into(),
+        });
+    assert_eq!(
+        labels(&source),
+        single_valued,
+        "an unused value cannot change assignment provenance"
+    );
+}
+
+#[test]
 fn underspecified_member_has_match_basis_underspecified() {
     let mut source = side_snapshot();
     let feature_guid = "00000000-0000-0000-0000-0000000001b0";
