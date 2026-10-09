@@ -53,7 +53,7 @@ const GUID_COLUMNS: &[(&str, &[&str])] = &[
         &["subject_key", "subject_guid", "context_key", "issue_key"],
     ),
     ("object_state", &["subject_guid"]),
-    ("compiled_output", &["key", "stratum_key", "gate_signature"]),
+    ("compiled_output", &["key", "stratum_key"]),
     ("compiled_mapping", &["source_guid", "source_key"]),
     (
         "compiled_allomorph_order",
@@ -173,6 +173,11 @@ const GUID_COLUMNS: &[(&str, &[&str])] = &[
 /// Columns the pass deliberately leaves alone, each with the reason its text must stay as written.
 #[cfg(test)]
 const EXCLUDED_COLUMNS: &[(&str, &str, &str)] = &[
+    (
+        "compiled_output",
+        "gate_signature",
+        "grammar-local numeric identities and the authored stem name",
+    ),
     (
         "source_object",
         "raw_guid",

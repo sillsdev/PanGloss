@@ -3773,6 +3773,46 @@ fn publish_gates(source: &Snapshot, name: &str) -> Connection {
 }
 
 #[test]
+fn guid_shaped_stem_names_remain_verbatim_and_distinct_in_gate_signatures() {
+    let mut source = gate_snapshot();
+    let upper = "D7F71344-6E6E-4E5B-8E2A-0A1B2C3D4E5F";
+    let lower = upper.to_ascii_lowercase();
+    let stems = &mut source.morphology.parts_of_speech[0].stem_names;
+    stems[0].name = upper.into();
+    let mut second = stems[0].clone();
+    second.guid = STEM_NAME_UNDEFINED.into();
+    second.name = lower.clone();
+    stems.push(second);
+    allomorph_mut(&mut source, ALLO_ROOT).stem_name = Some(STEM_NAME.into());
+    allomorph_mut(&mut source, ALLO_ROOT_TWO).stem_name = Some(STEM_NAME_UNDEFINED.into());
+    let db = publish_gates(&source, "guid-stem-names.sqlite");
+    let signature = |allomorph: &str| -> String {
+        db.query_row(
+            "SELECT gate_signature FROM compiled_output WHERE output_id=?1",
+            [output_for_allomorph(&db, allomorph)],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    let upper_signature = signature(ALLO_ROOT);
+    let lower_signature = signature(ALLO_ROOT_TWO);
+    assert_ne!(upper_signature, lower_signature);
+    for (stem, name, signature) in [
+        (STEM_NAME, upper, upper_signature),
+        (STEM_NAME_UNDEFINED, lower.as_str(), lower_signature),
+    ] {
+        assert_eq!(signature, format!("mpr=;xmpr=;fs=[];stem={name}"));
+        assert_eq!(
+            db.query_row("SELECT name FROM stem_name WHERE guid=?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap(),
+            name
+        );
+    }
+}
+
+#[test]
 fn allomorph_form_class_matches_source_class() {
     let db = publish_gates(&gate_snapshot(), "form-class.sqlite");
     let class_of = |guid: &str| -> String {

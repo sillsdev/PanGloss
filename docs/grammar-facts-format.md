@@ -161,8 +161,9 @@ Columns of `compiled_output`:
 - `<FS>`: the required syntactic feature structure as `[feat=value,...]`, with features in ascending
   `FeatId` order. A symbolic value is `s:` and its symbol indices ascending and comma-joined. A complex value
   is `{...}` around its own `[...]`. The empty FS is `[]`.
-- `<name>`: the stem name, with `%`, `;`, `=`, `|` and `,` written as `%XX` (two hex digits). Empty when
-  the allomorph has no stem name.
+- `<name>`: the authored stem name verbatim, including case, with `%`, `;`, `=`, `|` and `,` written
+  as `%XX` (two hex digits). Empty when the allomorph has no stem name. GUID-shaped names are text,
+  not GUID identities, and are never lowercased. The signature's other components use numeric IDs.
 
 Ids are grammar-local, so two signatures are comparable only within one compiled grammar.
 
