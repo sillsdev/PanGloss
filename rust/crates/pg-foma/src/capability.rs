@@ -2645,6 +2645,13 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 ///   `Role::CircumfixSuffix` themselves still lands here, regardless of what any OTHER allomorph of
 ///   the same rule classifies as.
 ///
+/// # Permanent FieldWorks carve-out
+/// `CircumfixUnrouted` is permanently refused because FieldWorks authors ordinary circumfixes as
+/// a prefix insertion, a complete stem copy, and a suffix insertion (`HCLoader.cs:1273-1311`);
+/// its general affix-process loader maps the available input/output mappings
+/// (`HCLoader.cs:1334-1420`) but does not author the HC-XML-only shape represented by this
+/// refusal. The stable refusal reason is carried by `ConstructVariant::permanent_refusal_reason`.
+///
 /// # Provenance
 /// `EvidenceProvenance::Structural`: `structural_composite_attempted` reads directly-inspectable
 /// `model.rs` data via `crate::emit::is_structural_rule` (the SAME structural fact the real compile
@@ -2751,6 +2758,12 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 ///   true-reduplicating `RealizationalRule` is the principal example: the peeler intentionally only
 ///   owns `AffixProcessRule`, while this shape does not trigger structural synthesis. The grammar
 ///   must be refused rather than silently missing recall.
+///
+/// # Permanent FieldWorks carve-out
+/// `ReduplicationUnrouted` is permanently refused because the FieldWorks inflectional loader emits
+/// `AffixProcessRule` and leaves realizational affix-process rules as a TODO
+/// (`HCLoader.cs:976-979`). The stable refusal reason is carried by
+/// `ConstructVariant::permanent_refusal_reason`.
 ///
 /// # Route ownership
 /// `peel_attempted` is computed from the same shared rule-wide predicate the runtime peeler uses.

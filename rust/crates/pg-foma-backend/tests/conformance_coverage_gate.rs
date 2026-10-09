@@ -159,7 +159,7 @@ fn reachable_variant_coverage_does_not_regress() {
         missing_containment <= 11,
         "{missing_containment} obligations lack containment citations, exceeding 11"
     );
-    assert!(unmet <= 9, "{unmet} variant obligations unmet, exceeding 9");
+    assert!(unmet <= 8, "{unmet} variant obligations unmet, exceeding 8");
 }
 
 fn assert_hc_xml_permanent_refusal_fixture(
@@ -249,6 +249,26 @@ fn realizational_reduplication_has_a_permanent_hc_xml_only_refusal_fixture() {
         "not authorable in FieldWorks; HC-XML only (HCLoader.cs:976-979)",
         "HCLoader.cs:976-979",
     );
+}
+
+#[test]
+fn circumfix_unrouted_has_a_permanent_hc_xml_only_refusal() {
+    use pg_foma::capability::{default_registry, ConstructVariant};
+    use pg_foma_backend::coverage_ledger::{build_ledger, obligation_met};
+    use std::collections::HashSet;
+
+    let variant = ConstructVariant::CircumfixUnrouted;
+    let reason = "not authorable in FieldWorks; HC-XML only (HCLoader.cs:1273-1311,1334-1420; \
+                 emission_support.rs:248-251,273-335,357-370,424-471; \
+                 capability.rs:970-982,1135-1147,2700-2719; emit.rs:2958-2986)";
+    assert_eq!(variant.permanent_refusal_reason(), Some(reason));
+
+    let ledger = build_ledger(&default_registry(), &HashSet::new());
+    let row = ledger
+        .row(variant.kind(), Some(variant.id()))
+        .expect("the permanent refusal must remain a ledger obligation");
+    assert_eq!(row.permanent_refusal.as_deref(), Some(reason));
+    assert!(obligation_met(row), "{row:?}");
 }
 
 #[test]

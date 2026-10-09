@@ -143,6 +143,11 @@ impl ConstructVariant {
     /// Permanent authoring-based refusal, when one has been established.
     pub fn permanent_refusal_reason(self) -> Option<&'static str> {
         match self {
+            Self::CircumfixUnrouted => Some(
+                "not authorable in FieldWorks; HC-XML only (HCLoader.cs:1273-1311,1334-1420; \
+                 emission_support.rs:248-251,273-335,357-370,424-471; \
+                 capability.rs:970-982,1135-1147,2700-2719; emit.rs:2958-2986)",
+            ),
             Self::ReduplicationUnrouted => {
                 Some("not authorable in FieldWorks; HC-XML only (HCLoader.cs:976-979)")
             }
