@@ -44,11 +44,11 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Quantified-alpha, nullable-disagree, partial-class-disagree, overridden-alpha and ambiguous-disagree fixtures add 29 rows; divergence 067 upgrades alpha-variable-name-collision's TUT cell.
+    // Coverage includes `literal-hash-affix-context` and `word-boundary-affix-rewrite` on all three strategies.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 99,
+            oracle_exact: 101,
             compiles_but_misses: 3,
             refused: 2,
             unmeasurable: 0,
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 76,
+            oracle_exact: 78,
             compiles_but_misses: 3,
             refused: 25,
             unmeasurable: 0,
@@ -66,9 +66,9 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 34,
+            oracle_exact: 35,
             compiles_but_misses: 2,
-            refused: 65,
+            refused: 66,
             unmeasurable: 3,
         },
     ),
