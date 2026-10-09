@@ -19,6 +19,9 @@ use rustc_hash::FxHashMap as HashMap;
 /// candidate/lookup with no allomorph dimension at all).
 pub const ALLOMORPH_NONE: u32 = 0;
 
+/// Counter meaning and instrumentation support recorded by each statistics run.
+pub const COUNTER_SEMANTICS_VERSION: i64 = 4;
+
 /// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
 /// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key
 /// alongside `stratum`/`allomorph`, never a counted object of its own.
@@ -867,6 +870,23 @@ pub fn counter_support(kind: ObjectKind, counter: &str) -> CounterSupport {
         CounterSupport::NotApplicable
     } else {
         CounterSupport::NotWired
+    }
+}
+
+/// Resolves support using the producing run's counter semantics, not the reader's instrumentation.
+/// Version 3 did not establish measurement provenance for phonological `uses`.
+/// Unknown versions return their number as an error rather than interpreting stored defaults.
+pub fn counter_support_for_semantics(
+    kind: ObjectKind,
+    counter: &str,
+    semantics: i64,
+) -> Result<CounterSupport, i64> {
+    match semantics {
+        3 if kind == ObjectKind::PhonRule && matches!(counter, "uses" | "no_root") => {
+            Ok(CounterSupport::NotWired)
+        }
+        3 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
+        unsupported => Err(unsupported),
     }
 }
 

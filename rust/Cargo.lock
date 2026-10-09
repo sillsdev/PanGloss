@@ -1080,6 +1080,7 @@ dependencies = [
 name = "pg-stats"
 version = "0.7.0"
 dependencies = [
+ "pg-rules",
  "rusqlite",
  "serde",
  "serde_json",

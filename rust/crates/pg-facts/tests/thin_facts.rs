@@ -723,7 +723,7 @@ fn exports_authored_msa_references_flat_prohibitions_and_load_outcomes() {
             |row| row.get::<_, String>(0),
         )
         .unwrap(),
-        "not_wired",
+        "measured",
         "the support catalog is available even when run stats were not requested"
     );
 }
@@ -2220,7 +2220,8 @@ fn exports_environment_resolution_feature_extensions_and_rewrite_patterns() {
             |row| row.get::<_, i64>(0),
         )
         .unwrap(),
-        2
+        // PORT-DIVERGENCE: featureless ts cannot meet a feature constraint; docs/divergences/074-featureless-phoneme-no-feature-class.md.
+        1
     );
     assert_eq!(
         db.query_row(
@@ -2835,8 +2836,8 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
             |row| row.get::<_, String>(0),
         )
         .unwrap(),
-        "not_wired",
-        "PhonRule uses must not turn its stored default zero into a measured fact"
+        "measured",
+        "this frozen run records semantics with phonological uses instrumentation"
     );
     assert_eq!(
         db.query_row(
@@ -3014,6 +3015,41 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         std::fs::read(&output).unwrap(),
         std::fs::read(&repeated_output).unwrap(),
         "identical frozen input and producer identity must produce identical database bytes"
+    );
+
+    drop(db);
+    Connection::open(&cache_path)
+        .unwrap()
+        .execute("UPDATE run SET counter_semantics=3", [])
+        .unwrap();
+    let legacy_bytes = std::fs::read(&cache_path).unwrap();
+    let mut legacy_manifest = manifest.clone();
+    legacy_manifest["cache"]["counter_semantics_version"] = serde_json::json!(3);
+    legacy_manifest["cache"]["bytes"] = serde_json::json!(legacy_bytes.len());
+    legacy_manifest["cache"]["sha256"] = serde_json::json!(pg_assess::source_sha256(&legacy_bytes));
+    std::fs::write(
+        &manifest_path,
+        serde_json::to_vec(&legacy_manifest).unwrap(),
+    )
+    .unwrap();
+    let legacy_output = temp.path().join("legacy-facts.sqlite");
+    pg_facts::write_facts_with_stats(
+        &source,
+        context(),
+        &legacy_output,
+        producer(),
+        pg_facts::StatsInput::new(&cache_path, &manifest_path),
+    )
+    .unwrap();
+    let legacy = Connection::open(legacy_output).unwrap();
+    let support: (i64, String) = legacy.query_row(
+        "SELECT counter_semantics, support FROM stats_counter_support WHERE object_kind='phon_rule' AND counter='uses' AND direction='both'",
+        [], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!(
+        support,
+        (3, "not_wired".into()),
+        "legacy support belongs to the frozen run"
     );
 }
 

@@ -288,7 +288,14 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
                 params![section.section, section.status, section.source_scope, section.reason_code],
             )?;
         }
-        crate::stats::insert_catalog(&transaction)?;
+        crate::stats::insert_catalog(
+            &transaction,
+            stats
+                .as_ref()
+                .map_or(pg_stats::COUNTER_SEMANTICS_VERSION, |run| {
+                    run.counter_semantics
+                }),
+        )?;
         crate::morphology::insert_authored(
             &transaction,
             snapshot,

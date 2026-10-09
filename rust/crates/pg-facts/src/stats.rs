@@ -60,7 +60,7 @@ pub(crate) struct StatsProjection {
     cache_bytes: u64,
     pub(crate) manifest_sha256: String,
     schema_version: i64,
-    counter_semantics: i64,
+    pub(crate) counter_semantics: i64,
     run: ExportRun,
     morphemes: Vec<ExportDimension>,
     strata: Vec<ExportDimension>,
@@ -584,7 +584,6 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         .ok_or_else(|| FactsError::StatsRunUnavailable("stats run row is absent".into()))?;
     if identity_schema != pg_stats::SCHEMA_VERSION
         || schema_version != pg_stats::SCHEMA_VERSION
-        || counter_semantics != pg_stats::COUNTER_SEMANTICS_VERSION
         || identity_schema != schema_version
         || identity_grammar != grammar_hash
         || identity_grammar != manifest.source.grammar_hash
@@ -1598,7 +1597,10 @@ fn validate_sentinel(raw: &[RawDimension], name: &str) -> Result<(), FactsError>
     Ok(())
 }
 
-pub(crate) fn insert_catalog(tx: &rusqlite::Transaction<'_>) -> Result<(), FactsError> {
+pub(crate) fn insert_catalog(
+    tx: &rusqlite::Transaction<'_>,
+    counter_semantics: i64,
+) -> Result<(), FactsError> {
     use pg_rules::stats::{CounterSupport, Direction, ObjectKind};
     for kind in [
         ObjectKind::MorphRule,
@@ -1609,14 +1611,23 @@ pub(crate) fn insert_catalog(tx: &rusqlite::Transaction<'_>) -> Result<(), Facts
         ObjectKind::Overlay,
     ] {
         for counter in LOGICAL_COUNTERS {
-            let support = match pg_rules::stats::counter_support(kind, counter) {
+            let support = match pg_rules::stats::counter_support_for_semantics(
+                kind,
+                counter,
+                counter_semantics,
+            )
+            .map_err(|version| {
+                FactsError::StatsRunUnavailable(format!(
+                    "unsupported counter semantics version {version}"
+                ))
+            })? {
                 CounterSupport::Measured => "measured",
                 CounterSupport::NotApplicable => "not_applicable",
                 CounterSupport::NotWired => "not_wired",
             };
             tx.execute(
                 "INSERT INTO stats_counter_support(engine, counter_semantics, object_kind, counter, direction, support) VALUES ('hc', ?1, ?2, ?3, 'both', ?4)",
-                params![pg_stats::COUNTER_SEMANTICS_VERSION, stats_kind_name(kind), counter, support],
+                params![counter_semantics, stats_kind_name(kind), counter, support],
             )?;
         }
         for direction in [Direction::Analysis, Direction::Synthesis] {
@@ -1624,7 +1635,7 @@ pub(crate) fn insert_catalog(tx: &rusqlite::Transaction<'_>) -> Result<(), Facts
             tx.execute(
                 "INSERT INTO stats_counter_support(engine, counter_semantics, object_kind, counter, direction, support) VALUES ('hc', ?1, ?2, 'self_time_ns', ?3, ?4)",
                 params![
-                    pg_stats::COUNTER_SEMANTICS_VERSION,
+                    counter_semantics,
                     stats_kind_name(kind),
                     direction.as_str(),
                     if supported { "measured" } else { "not_applicable" },
@@ -1850,6 +1861,98 @@ mod tests {
                 build_identity: "fixture-build",
             },
         }
+    }
+
+    #[test]
+    fn legacy_frozen_phon_rule_zero_keeps_unwired_support() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("legacy.sqlite");
+        let mut cache = pg_stats::StatsCache::open(&path, GRAMMAR_HASH)
+            .unwrap()
+            .cache;
+        let mut manifest = fixture_manifest();
+        let run_id = cache
+            .flush(
+                &pg_stats::RunMetadata {
+                    build_info: manifest.compiler.build_identity.clone(),
+                    fwdata_path: "fixture.fwdata".into(),
+                    grammar_hash: GRAMMAR_HASH.into(),
+                    engine: "hc".into(),
+                    options_hash: manifest.run.options_hash.clone(),
+                    options_json: manifest.run.options_json.clone(),
+                    created_utc: "unix:1".into(),
+                    step_cap: Some("200000".parse().unwrap()),
+                },
+                &[pg_stats::WordRecord {
+                    form: "kuma".into(),
+                    elapsed_ns: 1,
+                    attempts: 1,
+                    passes: 1,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts: vec![pg_stats::FactRecord {
+                        object_key: "phon-rule".into(),
+                        object_kind: pg_stats::ObjectKind::PhonRule,
+                        object_label: "Phon rule".into(),
+                        identity_quality: pg_stats::IdentityQuality::Authored,
+                        stratum: None,
+                        allomorph: None,
+                        morpheme: None,
+                        direction: pg_stats::Direction::Analysis,
+                        attempts: 1,
+                        work: 1,
+                        outputs: 0,
+                        not_applied: 0,
+                        no_root: 0,
+                        surface_mismatch: 0,
+                        uses: 0,
+                        self_time_ns: 0,
+                    }],
+                }],
+            )
+            .unwrap();
+        cache.checkpoint_and_close().unwrap();
+        Connection::open(&path)
+            .unwrap()
+            .execute("UPDATE run SET counter_semantics=3", [])
+            .unwrap();
+        manifest.run.id = run_id;
+        manifest.cache.counter_semantics_version = 3;
+        let run = read_cache(&path, &manifest).unwrap();
+        assert_eq!(run.counter_semantics, 3);
+        assert_eq!(run.facts.len(), 1);
+        assert_eq!(run.facts[0].uses, 0);
+
+        let mut facts = Connection::open_in_memory().unwrap();
+        facts.execute_batch(include_str!("schema.sql")).unwrap();
+        let tx = facts.transaction().unwrap();
+        insert_catalog(&tx, run.counter_semantics).unwrap();
+        let support: String = tx.query_row(
+            "SELECT support FROM stats_counter_support WHERE object_kind='phon_rule' AND counter='uses' AND direction='both'",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(
+            support, "not_wired",
+            "a legacy stored zero has no measurement provenance"
+        );
+    }
+
+    #[test]
+    fn unknown_frozen_counter_semantics_refuses_catalog() {
+        let mut facts = Connection::open_in_memory().unwrap();
+        facts.execute_batch(include_str!("schema.sql")).unwrap();
+        let tx = facts.transaction().unwrap();
+        let error = insert_catalog(&tx, 999).unwrap_err();
+        assert!(
+            matches!(error, FactsError::StatsRunUnavailable(ref reason) if reason.contains("999"))
+        );
+        let count: i64 = tx
+            .query_row("SELECT COUNT(*) FROM stats_counter_support", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

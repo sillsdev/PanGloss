@@ -11,7 +11,7 @@ const SCHEMA_SQL: &str = include_str!("schema.sql");
 pub const SCHEMA_VERSION: i64 = 7;
 
 /// Bumped when counter meaning or object attribution changes; recorded per run rather than wiped on.
-pub const COUNTER_SEMANTICS_VERSION: i64 = 3;
+pub use pg_rules::stats::COUNTER_SEMANTICS_VERSION;
 
 pub(crate) fn has_run_table(conn: &Connection) -> Result<bool, StatsError> {
     let count: i64 = conn.query_row(
