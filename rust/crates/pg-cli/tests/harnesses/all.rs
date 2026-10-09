@@ -16,6 +16,9 @@ mod fixture_pins_never_self_skip;
 #[cfg(feature = "foma-tools")]
 #[path = "../four_grammar_recipe_evidence.rs"]
 mod four_grammar_recipe_evidence;
+#[cfg(unix)]
+#[path = "../frozen_batch_hard_links.rs"]
+mod frozen_batch_hard_links;
 #[path = "../fwdata_conformance_gate.rs"]
 mod fwdata_conformance_gate;
 #[path = "../fwdata_grammar_equivalence_gate.rs"]

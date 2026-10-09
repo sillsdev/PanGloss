@@ -12,11 +12,12 @@ pangloss batch grammar.json words.txt results.tsv \
   --stats-manifest stats-run.json --threads 1
 ~~~
 
-The cache must be absent or an existing zero-byte file before the batch starts. The command refuses
-a populated cache, duplicate effective word forms, a nonzero --start, a preexisting manifest, or
-any alias among the grammar, word list, TSV, analyses output, cache and manifest paths. The
-manifest flag requires both --stats and an explicit --cache. Without the manifest flag, batch
-keeps its existing cache reuse, TSV, analyses and multiplicity behavior.
+The cache must be absent or an existing zero-byte file before the batch starts. The command
+refuses a populated cache, duplicate effective word forms, a nonzero --start, a preexisting
+manifest, or any alias among the grammar, word list, TSV, analyses output, cache and manifest
+paths, including a hard link to an existing input (compared by file identity, not by path
+spelling). The manifest flag requires both --stats and an explicit --cache. Without the manifest
+flag, batch keeps its existing cache reuse, TSV, analyses and multiplicity behavior.
 
 The manifest has format pangloss-batch-stats-manifest, version 1, and these sections:
 
