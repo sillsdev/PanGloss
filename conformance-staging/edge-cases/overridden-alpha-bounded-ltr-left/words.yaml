@@ -10,64 +10,64 @@ words:
     parses:
       - signature: "IU|ii"
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: iy
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ia
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: iu
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: yi
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: yy
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ya
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: yu
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ai
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ay
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: aa
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: au
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ui
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: uy
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ua
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: uu
     expect_fail: true
     exercises:
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"

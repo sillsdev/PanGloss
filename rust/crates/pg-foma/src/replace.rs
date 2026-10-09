@@ -446,9 +446,11 @@ fn render_branch_regex(
     };
     let has_left = !left_slots.is_empty();
     let has_right = !right_slots.is_empty();
-    // Optional sites retain unchanged roots when widened repeated-variable agreement fails.
-    let arrow = if crate::lower::slots_have_repeated_alpha(left_slots)
-        || crate::lower::slots_have_repeated_alpha(right_slots)
+    // Optional sites preserve candidates across widened contexts and alternative alpha branches.
+    let arrow = if crate::lower::slots_require_optional_rewrite(lhs_slots)
+        || crate::lower::slots_require_optional_rewrite(rhs_slots)
+        || crate::lower::slots_require_optional_rewrite(left_slots)
+        || crate::lower::slots_require_optional_rewrite(right_slots)
     {
         "(->)"
     } else {
@@ -614,17 +616,31 @@ pub fn compile_rewrite_rule_subset(
         let mut next_occurrence = 0usize;
         // `crate::capability::rtl_reversal_construction_attempted` must pass this same scope value, or the capability predicate and this compiler could silently diverge on which rules are admitted.
         let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
-        let lhs_slots = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)?;
-        let rhs_slots = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)?;
+        let mut lhs_slots = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)?;
+        let mut rhs_slots = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)?;
         let environment_scope = crate::lower::PatternLowerScope::RewriteEnvironment;
-        let left_slots = match &subrule.left_env {
+        let mut left_slots = match &subrule.left_env {
             Some(p) => pattern_slots(g, table, p, &mut next_occurrence, environment_scope)?,
             None => Vec::new(),
         };
-        let right_slots = match &subrule.right_env {
+        let mut right_slots = match &subrule.right_env {
             Some(p) => pattern_slots(g, table, p, &mut next_occurrence, environment_scope)?,
             None => Vec::new(),
         };
+
+        if [&lhs_slots, &rhs_slots, &left_slots, &right_slots]
+            .iter()
+            .any(|slots| crate::lower::slots_have_ambiguous_disagree(slots))
+        {
+            for slots in [
+                &mut lhs_slots,
+                &mut rhs_slots,
+                &mut left_slots,
+                &mut right_slots,
+            ] {
+                crate::lower::defer_ambiguous_alpha_agreement(slots, table);
+            }
+        }
 
         let (assignments, report) = resolve_alpha_tuples(
             table,
@@ -896,7 +912,7 @@ fn slot_candidates(
         Slot::Union(members) => Some(expand(members)),
         Slot::ForeignFixed { .. }
         | Slot::Alpha { .. }
-        | Slot::RepeatedAlpha(_)
+        | Slot::DeferredAlpha { .. }
         | Slot::Repeat { .. }
         | Slot::Anchor => None,
     }

@@ -110,7 +110,14 @@ fn supported_construct_conformance_coverage_has_no_gaps() {
 #[test]
 fn reachable_variant_coverage_does_not_regress() {
     use pg_foma_backend::coverage_ledger::{build_ledger, obligation_met};
-    let replay = passing_covered_constructs(&discover());
+    let fixtures = discover();
+    let replay = passing_covered_constructs(&fixtures);
+    for fixture in &fixtures {
+        let evidence = passing_covered_constructs(std::slice::from_ref(fixture));
+        for tag in &evidence.passing_constructs {
+            eprintln!("COVERAGE_WITNESS\t{}\t{tag}", fixture.label());
+        }
+    }
     assert!(
         replay.load_failures.is_empty(),
         "load failures: {:?}",

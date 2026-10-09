@@ -1,73 +1,73 @@
 # oracle-provenance: founding-oracle
 # hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
-language: nullable-disagree-unbounded-ltr-right
-inspired_by: ["synthetic feature disagreement at a word edge"]
-sources: ["HCLoader.cs:2338-2344,2745-2770"]
+language: ambiguous-disagree-repeated-minus-partial-focus
+inspired_by: ["synthetic repeated minus alpha with partial focus"]
+sources: ["HCLoader.cs:2338-2344,2745-2770,2799-2808"]
 requires: [phonology]
 fieldworks_producible: true
 words:
   - word: ii
-    expect_fail: true
+    parses:
+      - signature: "IU|ii"
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: iy
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: ia
-    parses:
-      - signature: "AU|ia"
+    expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: iu
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: yi
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: yy
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: ya
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: yu
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: ai
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: ay
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: aa
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: au
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: ui
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: uy
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: ua
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"
   - word: uu
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-compilable"
+      - "quantifier.bounded-compilable"

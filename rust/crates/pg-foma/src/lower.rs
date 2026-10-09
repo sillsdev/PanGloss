@@ -65,15 +65,19 @@ pub(crate) enum Slot {
     ForeignFixed { table: TableId, cd: CharDefId },
     /// A natural class with no alpha binding at this occurrence: renders as a `[c1|c2|...]` union.
     Union(Vec<CharDefId>),
-    /// Repeated alpha membership, with agreement deferred to confirmation.
-    RepeatedAlpha(Vec<CharDefId>),
+    /// Alpha membership, with agreement deferred to confirmation.
+    DeferredAlpha {
+        members: Vec<CharDefId>,
+        ambiguous_disagree: bool,
+    },
     /// A natural class occurrence bound to one or more alpha variables, resolved per-tuple by `resolve_alpha_tuples`; `occurrence` is this slot instance's own id (unique per occurrence, not per variable, since two occurrences of the same `VarId` can draw from different classes that must only agree on feature value). The `bool` is `AlphaVar::plus` (`true` == agree/`+`, `false` == disagree/`-`).
     Alpha {
         vars: Vec<(VarId, pg_grammar::featsys::FlatIndex, bool)>,
         occurrence: usize,
         base_members: Vec<CharDefId>,
+        ambiguous_disagree: bool,
     },
-    /// Repetition renders natively; environment agreement is deferred via `RepeatedAlpha`.
+    /// Repetition renders natively; environment agreement is deferred via `DeferredAlpha`.
     Repeat {
         min: u32,
         max: Option<u32>,
@@ -86,25 +90,59 @@ pub(crate) enum Slot {
 /// Exact consumers must preserve alpha constraints at every repetition depth.
 fn slots_contain_alpha(slots: &[Slot]) -> bool {
     slots.iter().any(|s| match s {
-        Slot::Alpha { .. } | Slot::RepeatedAlpha(_) => true,
+        Slot::Alpha { .. } | Slot::DeferredAlpha { .. } => true,
         Slot::Repeat { children, .. } => slots_contain_alpha(children),
         Slot::Fixed(_) | Slot::ForeignFixed { .. } | Slot::Union(_) | Slot::Anchor => false,
     })
 }
 
-pub(crate) fn slots_have_repeated_alpha(slots: &[Slot]) -> bool {
+pub(crate) fn slots_have_ambiguous_disagree(slots: &[Slot]) -> bool {
     slots.iter().any(|slot| match slot {
-        Slot::RepeatedAlpha(_) => true,
-        Slot::Repeat { children, .. } => slots_have_repeated_alpha(children),
+        Slot::Alpha { ambiguous_disagree, .. }
+        | Slot::DeferredAlpha { ambiguous_disagree, .. } => *ambiguous_disagree,
+        Slot::Repeat { children, .. } => slots_have_ambiguous_disagree(children),
         _ => false,
     })
 }
 
-fn widen_repeated_alpha(slots: &mut [Slot]) {
+pub(crate) fn slots_require_optional_rewrite(slots: &[Slot]) -> bool {
+    slots.iter().any(|slot| match slot {
+        Slot::DeferredAlpha { .. } => true,
+        Slot::Alpha { ambiguous_disagree, .. } => *ambiguous_disagree,
+        Slot::Repeat { children, .. } => slots_require_optional_rewrite(children),
+        _ => false,
+    })
+}
+
+fn defer_alpha_agreement(slots: &mut [Slot]) {
     for slot in slots {
         match slot {
-            Slot::Alpha { base_members, .. } => *slot = Slot::RepeatedAlpha(base_members.clone()),
-            Slot::Repeat { children, .. } => widen_repeated_alpha(children),
+            Slot::Alpha { base_members, ambiguous_disagree, .. } => {
+                *slot = Slot::DeferredAlpha {
+                    members: base_members.clone(),
+                    ambiguous_disagree: *ambiguous_disagree,
+                };
+            }
+            Slot::Repeat { children, .. } => defer_alpha_agreement(children),
+            _ => {}
+        }
+    }
+}
+
+/// HC feature unions can match segments outside an occurrence's explicit member list.
+pub(crate) fn defer_ambiguous_alpha_agreement(slots: &mut [Slot], table: &CharDefTable) {
+    for slot in slots {
+        match slot {
+            Slot::Alpha { .. } | Slot::DeferredAlpha { .. } => {
+                *slot = Slot::DeferredAlpha {
+                    members: table.iter()
+                        .filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
+                        .map(|(id, _)| id)
+                        .collect(),
+                    ambiguous_disagree: true,
+                };
+            }
+            Slot::Repeat { children, .. } => defer_ambiguous_alpha_agreement(children, table),
             _ => {}
         }
     }
@@ -121,7 +159,7 @@ pub(crate) fn pattern_slots(
     slots_from_nodes(g, table, &pattern.nodes, next_occurrence, scope)
 }
 
-/// `true` iff `feature`'s value uniquely determines a member of `nat_class`; pinned by `replace::owning_table_tests::two_var_ambiguous_disagree_stays_refused`.
+/// Exact tuple expansion requires each governed value to identify one class member.
 fn class_feature_partition_is_unambiguous(
     g: &Grammar,
     table: &CharDefTable,
@@ -138,6 +176,35 @@ fn class_feature_partition_is_unambiguous(
         seen_values.push(value);
     }
     true
+}
+
+fn alpha_members(
+    g: &Grammar,
+    table: &CharDefTable,
+    context: &pg_grammar::model::SimpleContext,
+    scope: PatternLowerScope,
+) -> Option<(Vec<CharDefId>, bool)> {
+    let ambiguous = context.vars.iter().any(|var| {
+        !var.plus
+            && !class_feature_partition_is_unambiguous(g, table, context.nat_class, var.feature)
+    });
+    let excluded = context.vars.iter().map(|var| var.feature.0 as usize).collect();
+    let members = class_members(g, table, context.nat_class, &excluded);
+    if ambiguous
+        && (scope == PatternLowerScope::Baseline
+            || !matches!(g.natural_classes[context.nat_class.0 as usize].kind, NaturalClassKind::Segments(_))
+            || !table.iter().filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
+                .all(|(id, _)| members.contains(&id))
+            || !context.vars.iter().all(|var| {
+                g.phon_features.symbol_count(var.feature) == 2
+                    && members.iter().all(|member| {
+                        table.get(*member).feature_lanes()[var.feature.0 as usize].count_ones() == 1
+                    })
+            }))
+    {
+        return None;
+    }
+    Some((members, ambiguous))
 }
 
 /// `pattern_slots`'s own per-node walk, factored over a bare node slice so a `Quantifier`'s own `children` recurse through the identical per-node semantics, with `next_occurrence`/`scope` both threaded through unchanged.
@@ -157,20 +224,7 @@ fn slots_from_nodes(
                     let members = class_members(g, table, sc.nat_class, &HashSet::new());
                     out.push(Slot::Union(members));
                 } else {
-                    if sc.vars.iter().any(|v| {
-                        !v.plus
-                            && !class_feature_partition_is_unambiguous(
-                                g,
-                                table,
-                                sc.nat_class,
-                                v.feature,
-                            )
-                    }) {
-                        return None;
-                    }
-                    let excl: HashSet<usize> =
-                        sc.vars.iter().map(|v| v.feature.0 as usize).collect();
-                    let base = class_members(g, table, sc.nat_class, &excl);
+                    let (base, ambiguous_disagree) = alpha_members(g, table, sc, scope)?;
                     let occurrence = *next_occurrence;
                     *next_occurrence += 1;
                     let vars = sc.vars.iter().map(|v| (v.var, v.feature, v.plus)).collect();
@@ -178,6 +232,7 @@ fn slots_from_nodes(
                         vars,
                         occurrence,
                         base_members: base,
+                        ambiguous_disagree,
                     });
                 }
             }
@@ -198,7 +253,7 @@ fn slots_from_nodes(
                     if scope != PatternLowerScope::RewriteEnvironment {
                         return None;
                     }
-                    widen_repeated_alpha(&mut child_slots);
+                    defer_alpha_agreement(&mut child_slots);
                 }
                 out.push(Slot::Repeat {
                     min: *min,
@@ -276,6 +331,7 @@ pub(crate) fn resolve_alpha_tuples(
                 vars,
                 occurrence,
                 base_members,
+                ..
             } = slot
             {
                 occs.push(Occ {
@@ -397,7 +453,7 @@ pub(crate) fn render_slots(
             Slot::ForeignFixed { table, cd } => {
                 format_union_tokens(&alphabet.render_foreign_constraint_tokens(*table, *cd))
             }
-            Slot::Union(members) | Slot::RepeatedAlpha(members) => {
+            Slot::Union(members) | Slot::DeferredAlpha { members, .. } => {
                 let mut chars: Vec<char> = Vec::with_capacity(members.len());
                 for m in members {
                     for c in alphabet.render_tokens(*m) {
@@ -510,15 +566,7 @@ fn diagnose_unsupported_nodes(
         match node {
             PatternNode::CharDef(_) => {}
             PatternNode::Context(sc) => {
-                if sc.vars.iter().any(|v| {
-                    !v.plus
-                        && !class_feature_partition_is_unambiguous(
-                            g,
-                            table,
-                            sc.nat_class,
-                            v.feature,
-                        )
-                }) {
+                if !sc.vars.is_empty() && alpha_members(g, table, sc, scope).is_none() {
                     return Some(UnsupportedPatternNode::AlphaAmbiguousDisagree);
                 }
             }

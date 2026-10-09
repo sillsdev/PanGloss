@@ -219,17 +219,26 @@ fn feature_system_breadth_proposes_alpha_polarity_flip() {
     assert_proposes_oracle_identity(&label, &grammar, &words, "isk");
 }
 
-/// `prDoubleAlpha`'s ambiguous two-feature disagreement must stay an honest refusal, never a silent miscompile.
 #[test]
-fn alpha_variable_name_collision_stays_an_honest_refusal() {
-    let (label, grammar, _words) =
-        open(Root::Machine, "edge-cases", "alpha-variable-name-collision");
-    match compile_templated_morphotactics(&grammar) {
-        Err(_) => {}
-        Ok(_) => {
-            panic!("{label}: an ambiguous disagree-polarity alpha rule must not silently compile")
-        }
-    }
+fn alpha_variable_name_collision_matches_oracle_after_confirmation() {
+    let fixture = fixture(Root::Machine, "edge-cases", "alpha-variable-name-collision");
+    assert_eq!(
+        super::confirmed_rewrite_fixture::verify_templated_fixture(&fixture),
+        (2, 1)
+    );
+}
+
+#[test]
+fn partial_class_disagreement_stays_refused() {
+    let fixture = fixture(Root::Machine, "edge-cases", "alpha-variable-name-collision");
+    let xml = fixture.load_grammar_xml();
+    let partial = xml.replace("<Segment segment=\"cU\" />", "");
+    assert_ne!(
+        xml, partial,
+        "the refusal control must remove one class member"
+    );
+    let grammar = pg_grammar::load(&partial).unwrap();
+    assert!(compile_templated_morphotactics(&grammar).is_err());
 }
 
 #[test]

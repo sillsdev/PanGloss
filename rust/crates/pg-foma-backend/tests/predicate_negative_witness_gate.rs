@@ -54,6 +54,11 @@ fn every_registered_predicate_has_a_negative_witness_or_is_named_in_the_backlog(
     );
 
     let index = negative_witness_index(grammars.iter().map(|(l, g)| (l.clone(), g)));
+    for (predicate, witnesses) in &index {
+        for (label, strategy) in witnesses {
+            eprintln!("NEGATIVE_WITNESS\t{label}\t{strategy:?}\t{predicate}");
+        }
+    }
     assert!(
         !index.is_empty(),
         "no predicate was provoked by any fixture -- the envelope is not being consulted"

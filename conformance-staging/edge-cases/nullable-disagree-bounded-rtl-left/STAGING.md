@@ -7,3 +7,6 @@ Oracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; 16 complete 
 Divergence: docs/divergences/065-nullable-rewrite-environment.md.
 FieldWorks: HCLoader.cs:2338-2344,2745-2770.
 Upstream PR: none (Rust-only defect, network closed).
+
+FST proposal lowering is recorded in entry 067. The owning and templated pipelines
+check all sixteen oracle rows under unchanged apply limits, with measured HC confirmation.

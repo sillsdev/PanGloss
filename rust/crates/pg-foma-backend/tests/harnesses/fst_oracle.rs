@@ -4,6 +4,8 @@
 #[path = "../confirmed_rewrite_fixture.rs"]
 mod confirmed_rewrite_fixture;
 
+#[path = "../ambiguous_alpha_containment.rs"]
+mod ambiguous_alpha_containment;
 #[path = "../rewrite_oracle_fixtures.rs"]
 mod rewrite_oracle_fixtures;
 

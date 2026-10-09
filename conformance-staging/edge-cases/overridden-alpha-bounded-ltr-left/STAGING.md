@@ -6,3 +6,6 @@ Recorded XML and all 16 oracle rows: docs/divergences/evidence/069-overridden-al
 Owner regression: docs/divergences/069-analysis-binds-overridden-alpha.md.
 FieldWorks: HCLoader.cs:2033-2067,2338-2344,2745-2770,2799-2808.
 Upstream PR: none (network closed).
+
+Confirmed FST proof: docs/divergences/067-ambiguous-disagreement-proposals.md;
+owning and templated pipelines, all 16 oracle rows, unchanged 128-path/32-candidate limits.

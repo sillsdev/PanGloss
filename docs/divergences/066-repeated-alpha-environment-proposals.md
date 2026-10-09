@@ -23,10 +23,11 @@ and word boundaries. This variant is authorable.
 ## Rust site
 
 `pg-foma/src/lower.rs::PatternLowerScope::RewriteEnvironment` permits repetition of
-`Slot::RepeatedAlpha` membership unions. `replace.rs::render_branch_regex` chooses optional
+`Slot::DeferredAlpha` membership unions. `replace.rs::render_branch_regex` chooses optional
 per-site rewriting when either environment contains such a slot. Compiler lowerability and
 capability characterization use that same lowering scope. Exact span intersection and rewrite
-targets retain their independent scope; ambiguous disagreement still refuses.
+targets retain their independent scope. Entry 067 extends deferred agreement to the recorded
+ambiguous-disagreement shape; other ambiguous shapes retain their refusal.
 
 Each C#-valid repetition belongs to the independent membership language. Widening may add
 matches, so mandatory rewriting could destroy a valid unchanged candidate. Optional per-site

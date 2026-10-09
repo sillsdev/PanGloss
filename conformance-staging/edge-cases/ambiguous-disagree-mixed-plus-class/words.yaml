@@ -1,0 +1,41 @@
+# oracle-provenance: founding-oracle
+# hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
+language: ambiguous-disagree-mixed-plus-class
+inspired_by: ["synthetic mixed alpha class membership"]
+sources: ["HCLoader.cs:2745-2770,2799-2808"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ii
+    expect_fail: true
+  - word: iy
+    expect_fail: true
+  - word: ia
+    parses:
+      - signature: "AU|ia"
+  - word: iu
+    expect_fail: true
+  - word: yi
+    expect_fail: true
+  - word: yy
+    expect_fail: true
+  - word: ya
+    expect_fail: true
+  - word: yu
+    expect_fail: true
+  - word: ai
+    expect_fail: true
+  - word: ay
+    expect_fail: true
+  - word: aa
+    expect_fail: true
+  - word: au
+    expect_fail: true
+  - word: ui
+    expect_fail: true
+  - word: uy
+    expect_fail: true
+  - word: ua
+    expect_fail: true
+  - word: uu
+    expect_fail: true

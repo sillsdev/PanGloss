@@ -158,67 +158,91 @@ fn resolve_alpha_tuples_surviving_count_reflects_the_owning_table_not_table_zero
     );
 }
 
-/// Two VariableFeatures disagreeing over a 4-member class varying on both features -- `featBack` alone does not uniquely determine a member (`cI`/`cY` share `bkMinus`).
-const TWO_VAR_AMBIGUOUS_DISAGREE_XML: &str = r#"<HermitCrabInput><Language><Name>AmbiguousDisagree</Name>
-      <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
-      <PhonologicalFeatureSystem>
-        <SymbolicFeature id="featBack"><Name>back</Name><Symbols><Symbol id="bkPlus">+bk</Symbol><Symbol id="bkMinus">-bk</Symbol></Symbols></SymbolicFeature>
-        <SymbolicFeature id="featRound"><Name>round</Name><Symbols><Symbol id="rdMinus">-rd</Symbol><Symbol id="rdPlus">+rd</Symbol></Symbols></SymbolicFeature>
-      </PhonologicalFeatureSystem>
-      <CharacterDefinitionTable id="tbl"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
-          <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
-          <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
-          <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="ncVowel"><Name>vowels</Name><Segment segment="cI" /><Segment segment="cY" /><Segment segment="cA" /><Segment segment="cU" /></SegmentNaturalClass></NaturalClasses>
-      <PhonologicalRuleDefinitions>
-        <PhonologicalRule id="prDoubleAlpha">
-          <Name>doubleAlphaFlip</Name>
-          <VariableFeatures>
-            <VariableFeature id="varBack" name="a" phonologicalFeature="featBack" />
-            <VariableFeature id="varRound" name="b" phonologicalFeature="featRound" />
-          </VariableFeatures>
-          <PhoneticInput><PhoneticSequence>
-            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="plus" /></AlphaVariables></SimpleContext>
-            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="plus" /></AlphaVariables></SimpleContext>
-          </PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence>
-                <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="minus" /></AlphaVariables></SimpleContext>
-                <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="minus" /></AlphaVariables></SimpleContext>
-              </PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-          </PhonologicalSubrules>
-        </PhonologicalRule>
-      </PhonologicalRuleDefinitions>
-      <Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="prDoubleAlpha"><Name>Main</Name>
-        <LexicalEntries><LexicalEntry id="eAu" partOfSpeech="posN"><Allomorphs><Allomorph id="aAu"><PhoneticShape>au</PhoneticShape></Allomorph></Allomorphs><MorphemeId>AU</MorphemeId><Gloss>au</Gloss></LexicalEntry></LexicalEntries>
-      </Stratum></Strata>
-    </Language></HermitCrabInput>"#;
-
-/// FALSIFICATION: unguarded, this shape's 64 surviving tuples collapse to one wrong branch (`down("au")` produced `"ii"`, never the oracle-facing set) -- must stay refused.
 #[test]
-fn two_var_ambiguous_disagree_stays_refused() {
-    let g = pg_grammar::load(TWO_VAR_AMBIGUOUS_DISAGREE_XML).unwrap_or_else(|e| panic!("{e}"));
+fn ambiguous_disagreement_matches_recorded_oracle_after_confirmation() {
+    assert_confirmed_ambiguous_fixture("nullable-disagree-plain-ltr-right", 16);
+}
+
+#[test]
+fn two_var_ambiguous_disagree_matches_recorded_oracle_after_confirmation() {
+    assert_confirmed_ambiguous_fixture("alpha-variable-name-collision", 2);
+}
+
+fn assert_confirmed_ambiguous_fixture(name: &str, expected_words: usize) {
+    use crate::analyzer::FomaProposer;
+    use crate::compose_budget::ApplyBudget;
+    use crate::composite::{FomaAnalyzer, ProfiledFomaApplyOutcome};
+    use foma::lexcread::fsm_lexc_parse_string;
+    use foma::minimize::fsm_minimize;
+
+    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", name);
+    let g = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
     let rule = rewrite_rule_by_xml_id(&g, "prDoubleAlpha");
     let opts = FomaOptions::default();
-    assert!(
-        compile_rewrite_rule_subset(&opts, &g, rule, &|_| true).is_none(),
-        "an ambiguous disagree-polarity class must stay refused, not silently miscompile"
-    );
-    let table = owning_table(&g, rule).expect("rule resolves to a real owning table");
+    let (rewrite, _) = compile_rewrite_rule_subset(&opts, &g, rule, &|_| true)
+        .expect("recorded ambiguous disagreement must compile");
+    let table = owning_table(&g, rule).unwrap();
+    let alphabet = SegAlphabet::new(table);
+    let emitted = crate::uflexc::emit_underlying_filtered(&g, &alphabet, None).unwrap();
+    assert!(emitted.skipped.is_empty());
+    let lexicon = fsm_lexc_parse_string(&opts, None, &emitted.lexc_source).unwrap();
+    let network = fsm_minimize(&opts, fsm_compose(&opts, lexicon, rewrite));
+    let proposer = FomaProposer::from_precompiled_network_without_emit_report(&network)
+        .with_segment_query_encoder(table);
+    let mut analyzer = FomaAnalyzer::from_precompiled_proposer(&g, proposer);
+    let budget = ApplyBudget::with_caps(Some(128), Some(32));
+    let mut positives = 0;
+    let mut pruned = 0;
+    let mut checked = 0;
+    for word in fixture.load_words_yaml().words {
+        assert!(word.adapter_visible() && !word.expect_skip);
+        let ProfiledFomaApplyOutcome::Complete(profiled) =
+            analyzer.analyze_word_with_diagnostics_budgeted(&word.word, &budget)
+        else {
+            panic!("{} exceeded the apply budget", word.word)
+        };
+        let outcome = profiled.outcome;
+        assert!(outcome.peel_chain_depth_error.is_none());
+        if outcome.candidates_generated > 0 {
+            assert!(
+                profiled.diagnostics.confirmation_calls > 0,
+                "{} bypassed HC confirmation",
+                word.word
+            );
+        }
+        assert_eq!(
+            pg_parse::result_multiset(&outcome.analyses),
+            word.expected_multiset(),
+            "{}",
+            word.word
+        );
+        positives += usize::from(!outcome.analyses.is_empty());
+        pruned += usize::from(outcome.candidates_generated > 0 && outcome.confirmed == 0);
+        checked += 1;
+    }
+    assert_eq!(checked, expected_words);
+    assert_eq!(positives, 1);
+    assert!(pruned > 0);
+}
+
+#[test]
+fn ambiguous_disagreement_with_partial_class_stays_refused() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "nullable-disagree-plain-ltr-right");
+    let xml = fixture.load_grammar_xml();
+    let partial = xml.replace("<Segment segment=\"cU\" />", "");
+    assert_ne!(xml, partial, "the refusal control must remove one member");
+    let g = pg_grammar::load(&partial).unwrap();
+    let rule = rewrite_rule_by_xml_id(&g, "prDoubleAlpha");
+    assert!(!rewrite_rule_is_lowerable(&g, rule));
+    assert!(compile_rewrite_rule_subset(&FomaOptions::default(), &g, rule, &|_| true).is_none());
     assert_eq!(
         crate::lower::diagnose_unsupported(
             &g,
-            table,
+            owning_table(&g, rule).unwrap(),
             &rule.subrules[0].rhs,
             crate::lower::PatternLowerScope::RewriteRuleCompile,
         ),
-        crate::lower::UnsupportedPatternNode::AlphaAmbiguousDisagree,
-        "the witness must name the ambiguous-disagree shape specifically"
+        crate::lower::UnsupportedPatternNode::AlphaAmbiguousDisagree
     );
 }
