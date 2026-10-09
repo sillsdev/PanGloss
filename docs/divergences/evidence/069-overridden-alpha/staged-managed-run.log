@@ -1,0 +1,22 @@
+----- pg preflight -----
+mode: run  profile: <none -- running an already-built exe directly>
+worktree: /home/johnm/work/PanGloss.worktrees/feat/variant-lowering  (slug: variant-lowering)
+HEAD: f010d62f70d783194933cf395a2305f5233b071d  dirty files: 38
+base check (unverified): no recorded base (worktree predates metadata, or metadata unreadable) -- unverified
+target dir: <cargo default>
+free space: 805.8GB free (>= 5GB reserve)
+free memory: 28.7GB available (>= 2GB reserve)
+host cgroup: bounded (9663676416 bytes effective cap) -- host cgroup cap: 9663676416 bytes (mapped root /sys/fs/cgroup, current /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/run-p2067861-i6275537.scope)
+sccache: not-installed -- sccache not found on PATH
+slot limits: 2 build, 4 run (machine-wide convention -- see Enter-ResourceSlot)
+cargo jobs: 16 per build (memory-bound (cpu budget would allow 18); 1.5GB/job assumed over a 3.9GB reserve)
+build priority: BelowNormal (host-service-owned; unapplied by pg)
+-------------------------
+[build-env] waiting for a run slot (4 concurrent across all worktrees)...
+[pg] run (exe: /home/johnm/work/PanGloss.worktrees/feat/variant-lowering/rust/target/pg-test-opt/pangloss): /home/johnm/work/PanGloss.worktrees/feat/variant-lowering/rust/target/pg-test-opt/pangloss batch /home/johnm/work/PanGloss.worktrees/feat/variant-lowering/conformance-staging/edge-cases/ambiguous-disagree-repeated-minus-partial-focus/grammar.xml /home/johnm/work/PanGloss.worktrees/feat/variant-lowering/docs/divergences/evidence/067-ambiguous-disagreement/ambiguous-disagree-repeated-minus-partial-focus.words.txt /tmp/pangloss-lanes/third-port-rust.tsv --threads 1 --word-timeout-ms 5000  (target-dir: <default>)
+[pg] run: stdout -> /tmp/pangloss-lanes/third-port-rust.stdout (console stays quiet until it exits; tail the file to watch it)
+[pg] host cgroup preflight: host cgroup cap: 9663676416 bytes (mapped root /sys/fs/cgroup, current /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/run-p2067861-i6275537.scope)
+LOADTIME	engine=default	grammar_load_ms=0.292	morpher_build_ms=0.105	total_ms=0.398
+PARSEELAPSED	engine=default	elapsed_ms=0.261
+batch complete: 16 words parsed (0 skipped), 0 hit a search cap, 0 timed out [threads=1]
+[pg] run: captured 0 byte(s) to /tmp/pangloss-lanes/third-port-rust.stdout

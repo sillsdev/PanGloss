@@ -1,0 +1,73 @@
+# oracle-provenance: founding-oracle
+# hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
+language: overridden-alpha-bounded-ltr-left
+inspired_by: ["synthetic vowel neutralization with alpha environment"]
+sources: ["HCLoader.cs:2033-2067,2338-2344,2745-2770,2799-2808"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ii
+    parses:
+      - signature: "IU|ii"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: iy
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ia
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: iu
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: yi
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: yy
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ya
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: yu
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ai
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ay
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: aa
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: au
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ui
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: uy
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ua
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: uu
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"

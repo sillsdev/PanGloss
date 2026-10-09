@@ -2049,6 +2049,17 @@ fn ana_feature_target_lanes(
     rule: &RewriteRuleDef,
     sr: &RewriteSubruleDef,
 ) -> Vec<Vec<u64>> {
+    ana_feature_target(g, table, rule, sr).0
+}
+
+/// Resolve lanes and bindings from the effective analysis target; overwritten LHS variables cannot bind the surface.
+fn ana_feature_target(
+    g: &Grammar,
+    table: &CharDefTable,
+    rule: &RewriteRuleDef,
+    sr: &RewriteSubruleDef,
+) -> (Vec<Vec<u64>>, Vec<Vec<VarOccur>>) {
+    let lhs_vars = pattern_var_occurrences(&rule.lhs);
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
     rule.lhs
         .nodes
@@ -2057,12 +2068,19 @@ fn ana_feature_target_lanes(
         .enumerate()
         .map(|(k, (lhs_n, rhs_n))| {
             let mut lanes = node_full_lanes(g, table, lhs_n);
-            for (f, bits) in node_pins(g, table, rhs_n) {
+            let pins = node_pins(g, table, rhs_n);
+            let mut vars = lhs_vars[k].clone();
+            vars.retain(|occ| {
+                !pins.iter().any(|&(f, _)| f == occ.feature)
+                    && !rhs_vars[k].iter().any(|rhs| rhs.feature == occ.feature)
+            });
+            for &(f, bits) in &pins {
                 lanes[f] = bits;
             }
             for occ in &rhs_vars[k] {
                 lanes[occ.feature] = full_mask(g, occ.feature);
             }
+            vars.extend(rhs_vars[k].iter().cloned());
             let mut lanes = to_fst_lanes(g, &lanes);
             if let Some(strrep) = StrRepMatcher::new(g, table) {
                 if let PatternNode::CharDef(cd) = rhs_n {
@@ -2071,9 +2089,9 @@ fn ana_feature_target_lanes(
                     strrep.constrain(&mut lanes, cd.0);
                 }
             }
-            lanes
+            (lanes, vars)
         })
-        .collect()
+        .unzip()
 }
 
 /// C# `FeatureAnalysisRewriteRuleSpec`: the analysis target is the `LHS ⊕ RHS` priority-union (reversed direction, nondeterministic); must use `compile_lane_fst_grouped` and its per-row groups, never a positional `node_of[s..e]` slice — an earlier rule's vacuous unapply can interpose an Optional segment between two real target positions, making every candidate over-wide and the rule silently unapply nothing.
@@ -2103,7 +2121,7 @@ fn ana_feature(
         .collect();
 
     // Recomputed rather than threaded in: the same recompile-per-call tradeoff `analyze` makes.
-    let target_lanes = ana_feature_target_lanes(g, table, rule, sr);
+    let (target_lanes, target_vars) = ana_feature_target(g, table, rule, sr);
 
     // The features each RHS node changed, paired with bits to OR onto the node's value on unapply: C# reduces to `L | R`, NOT a full-mask reset, since resetting would wrongly accept a third symbol neither side mentions on a feature with more than two symbols; an alpha-governed feature keeps the full-mask fallback and is still listed as changed so a vacuous-looking literal pin still fires.
     let changed: Vec<Vec<(usize, u64)>> = rule
@@ -2127,9 +2145,6 @@ fn ana_feature(
             fs
         })
         .collect();
-
-    // The analysis target is `LHS ⊕ RHS`; a variable governing a *changed* feature no longer pins a matchable lane, so unapply agreement is keyed off LHS variables surviving on unchanged features plus environment variables.
-    let lhs_vars = pattern_var_occurrences(&rule.lhs);
 
     // Which tag half is trustworthy is DIRECTION-DEPENDENT: LTR keeps a row's START fresh, RTL's `get_offsets` swap makes the END fresh instead — and the LTR branch has no full-pipeline coverage (this target always compiles reversed from the rule's own direction), pinned only by `group_probe_diag`'s unit test.
     let rtl = target.direction() == Direction::RightToLeft;
@@ -2191,7 +2206,7 @@ fn ana_feature(
                 &node_of,
                 &target_nodes,
                 e,
-                &lhs_vars,
+                &target_vars,
                 left,
                 &left_match,
                 right,

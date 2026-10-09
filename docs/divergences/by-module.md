@@ -52,6 +52,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `RewriteRuleSpec.cs` (`MatchSubrule`), `TraversalMethodBase.cs` (`CheckAcceptingStartState`); FieldWorks `HCLoader.cs` (`LoadPatternNode`) | 065 |
 | `Quantifier.cs` (`GenerateNfa`), `PatternNodeCastExtensions.cs`; FieldWorks `HCLoader.cs`, `OccurrenceDlg.cs` | 068 |
 | C# rewrite alpha binding / `RewriteRuleSpec.MatchSubrule` | 067 |
+| `FeatureAnalysisRewriteRuleSpec` effective target priority union | 069 |
 
 ## By Rust module
 
@@ -97,6 +98,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-foma/src/lower.rs` (`PatternLowerScope`, `Slot::RepeatedAlpha`); `replace.rs` (`render_branch_regex`); `capability.rs` (`rtl_reversal_diagnosis`) | 066 |
 | `pg-foma/src/lower.rs` (`slots_from_nodes`); `replace.rs` (`owning_table`, `rewrite_rule_is_lowerable`) | 068 |
 | `pg-foma/src/lower.rs` (`alpha_members`); `replace.rs` (`compile_rewrite_rule_subset`) | 067 |
+| `pg-rules/src/rewrite.rs` (`ana_feature_target`, `ana_feature`) | 069 |
 | `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
 | `pg-rules/src/cache.rs` (`owning_table_for_prule`/`_metathesis_rule`/`_morpheme`/`_allomorph`/`_mrule`/`_compounding_rule`) | 041 |
 | `pg-rules/src/metathesis.rs` (`synthesize`/`analyze` table resolution) | 041 |
@@ -147,6 +149,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision` | 073, 074 |
 | `pg-grammar/src/compile/tests.rs` membership and unconstrained wildcard regressions; `machine/conformance/edge-cases/chained-output-feature-override-loss`; separate-lane `underdefined/07-featureless-phoneme`, `underdefined/12-featureless-rule-class` on `feat/xample-measure` | 076 |
 | `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 076 |
+
+| `pg-parse/tests/effective_analysis_target.rs`; staged `overridden-alpha-*` fixtures | 069 |
 
 ## Provisional-definition seams
 

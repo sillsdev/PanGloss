@@ -163,6 +163,27 @@ macro_rules! quantified_alpha_fixture {
 }
 
 quantified_alpha_fixture!(
+    overridden_alpha_plain,
+    "overridden-alpha-plain-ltr-left",
+    16
+);
+quantified_alpha_fixture!(
+    overridden_alpha_bounded,
+    "overridden-alpha-bounded-ltr-left",
+    16
+);
+quantified_alpha_fixture!(
+    overridden_alpha_unbounded,
+    "overridden-alpha-unbounded-ltr-left",
+    16
+);
+quantified_alpha_fixture!(
+    overridden_alpha_rtl,
+    "overridden-alpha-bounded-rtl-left",
+    16
+);
+
+quantified_alpha_fixture!(
     quantified_alpha_bounded_ltr_left,
     "quantified-alpha-bounded-ltr-left"
 );

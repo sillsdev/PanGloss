@@ -11,6 +11,8 @@ mod conformance_fixtures_gate;
 mod cross_table_metathesis_surface_match_gate;
 #[path = "../disjunctive_recheck_gate.rs"]
 mod disjunctive_recheck_gate;
+#[path = "../effective_analysis_target.rs"]
+mod effective_analysis_target;
 #[path = "../exact_analysis_fs_recall.rs"]
 mod exact_analysis_fs_recall;
 #[path = "../free_fluctuation_gate.rs"]

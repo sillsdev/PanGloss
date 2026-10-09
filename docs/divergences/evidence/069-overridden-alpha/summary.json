@@ -1,0 +1,23 @@
+{
+  "plain-partial": [
+    {
+      "word": "ii",
+      "oracle": "IU|ii",
+      "rust": "-"
+    }
+  ],
+  "plain-full": [
+    {
+      "word": "ii",
+      "oracle": "IU|ii",
+      "rust": "-"
+    }
+  ],
+  "repeated-full": [
+    {
+      "word": "ii",
+      "oracle": "IU|ii",
+      "rust": "-"
+    }
+  ]
+}

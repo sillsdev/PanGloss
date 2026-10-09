@@ -1,0 +1,722 @@
+[
+  {
+    "name": "plain-overwrite-plus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-plus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-overwrite-minus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-plus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "plain-retain-minus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-plus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-overwrite-minus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-plus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "bounded-retain-minus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-plus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-overwrite-minus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-plus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-plus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-plus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-plus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-plus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-plus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-plus-right-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-minus-left-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-minus-left-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-minus-left-sim",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-minus-right-ltr",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-minus-right-rtl",
+    "rows": 16,
+    "differences": []
+  },
+  {
+    "name": "unbounded-retain-minus-minus-right-sim",
+    "rows": 16,
+    "differences": []
+  }
+]
