@@ -143,6 +143,10 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         .find(|(s, _)| *s == cell.strategy)
                         .expect("every EmissionStrategy has a bucket entry");
                     let label = outcome_label(&cell.outcome);
+                    eprintln!(
+                        "SCOREBOARD_CELL\t{}\t{:?}\t{}",
+                        row.label, cell.strategy, label
+                    );
                     if label != "oracle_exact" {
                         not_exact.push(format!("{} [{:?}]: {label}", row.label, cell.strategy));
                     }
