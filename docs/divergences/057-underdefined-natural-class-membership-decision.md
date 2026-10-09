@@ -1,7 +1,7 @@
 # 057: Natural-class membership in underdefined projects
 
 Kind: behavioural.
-Status: deliberate divergence — upstream discussion pending (Machine issue not yet posted).
+Status: deliberate divergence — upstream discussion open: [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).
 Evidence: owner decision of 2026-10-08, ADR 0008 amended in PanGloss `342e6957`
 on `feat/underdefined-base`; separate-lane C# measurements and synthetic Rust regressions.
 
@@ -125,8 +125,10 @@ recorded in `/tmp/pangloss-lanes/udp-parity.md`.
 ## Upstream status and evidence limits
 
 This is an owner-authorized deliberate divergence under amended ADR 0008, not a claim
-that C#'s analysis result is a reproduced upstream bug. Discussion with `sillsdev/machine`
-is pending; **no Machine issue has been posted**. Network access is closed in this lane.
+that C#'s analysis result is a reproduced upstream bug. Discussion is open in
+[sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537) (posted 2026-10-08), which asks whether the analysis-side
+unification is intended and whether a provisional-definition policy belongs upstream. Track the
+disposition there and update this entry when it resolves.
 The separate lane must preserve exact oracle revisions and witness outputs when integrating
 its staged fixtures. Fixture presence, measurement provenance, implementation and demonstrated
 regression coverage remain distinct claims.

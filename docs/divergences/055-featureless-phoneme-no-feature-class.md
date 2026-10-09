@@ -1,7 +1,7 @@
 # 055: Featureless authored phonemes do not match classes requiring feature values
 
 Kind: behavioural.
-Status: open — implemented in Rust; cross-engine measurements pending.
+Status: open — implemented in Rust; upstream discussion open: [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).
 Evidence: ADR 0008 and code-constructed snapshot regressions.
 
 ## C# site
@@ -45,5 +45,6 @@ duplicate finding for provisional letters, and the checked-code report round-tri
 
 XAMPLE/C# measurements and staged conformance fixtures come from a separate lane.
 These are synthetic regressions, not independent C# measurements or exported fixtures.
-No Machine issue or fix PR was posted here because network access is closed; independent
-cross-engine evidence and the ADR's upstream discussion remain pending.
+The C# analysis-side inconsistency (featureless segments unify with feature classes when a rule
+is unapplied, though environments and synthesis use subsumption) is raised upstream in
+[sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537), posted 2026-10-08. Track the disposition there.
