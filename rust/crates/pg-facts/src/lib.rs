@@ -10,6 +10,7 @@ mod load;
 mod metadata;
 mod morphology;
 mod phonology;
+mod references;
 mod settings;
 mod stats;
 mod variants;

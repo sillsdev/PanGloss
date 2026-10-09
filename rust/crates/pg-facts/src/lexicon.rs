@@ -106,7 +106,7 @@ fn insert_process(
 }
 
 /// Derived from the morph type, since the Snapshot omits the `MoForm` subclass.
-fn form_class(allomorph: &Allomorph) -> &'static str {
+pub(crate) fn form_class(allomorph: &Allomorph) -> &'static str {
     if allomorph.process.is_some() {
         return "process";
     }
@@ -131,6 +131,12 @@ fn form_class(allomorph: &Allomorph) -> &'static str {
     }
 }
 
+/// Whether the compiler reads an allomorph's `positions`; affix paths chain them after `environments`.
+/// Pinned by `root_position_sharing_an_invalid_environment_exports_as_not_attempted`.
+pub(crate) fn reads_positions(allomorph: &Allomorph) -> bool {
+    form_class(allomorph) == "affix"
+}
+
 /// Publishes each authored allomorph gate; a gate the compiler recorded nothing for is `owner_not_loaded`.
 pub(crate) fn insert_gates(
     tx: &Transaction<'_>,
@@ -138,27 +144,9 @@ pub(crate) fn insert_gates(
     outcomes: &[AllomorphGateOutcome],
     feature_structures: &FeatureStructureIds,
 ) -> Result<(), FactsError> {
-    let outcome_by_gate: BTreeMap<(&str, AllomorphGateKind, u32), &AllomorphGateOutcome> = outcomes
-        .iter()
-        .map(|outcome| {
-            (
-                (
-                    outcome.allomorph_guid.as_str(),
-                    outcome.gate_kind,
-                    outcome.ordinal,
-                ),
-                outcome,
-            )
-        })
-        .collect();
-    let effect_of = |allomorph: &str, kind: AllomorphGateKind, ordinal: u32| match outcome_by_gate
-        .get(&(allomorph, kind, ordinal))
-    {
-        Some(outcome) => (
-            outcome.effect.as_str(),
-            outcome.reason_code.map(str::to_owned),
-        ),
-        None => ("owner_not_loaded", None),
+    let gates = GateEffects::new(outcomes);
+    let effect_of = |allomorph: &str, kind: AllomorphGateKind, ordinal: u32| {
+        gates.effect(allomorph, kind, ordinal)
     };
     for entry in &snapshot.lexicon.entries {
         for allomorph in &entry.allomorphs {
@@ -222,7 +210,10 @@ pub(crate) fn insert_gates(
                         ordinal: 0,
                         target_guid: Some(&category_guid),
                         fs_id: None,
-                        outcome: ("ignored", Some("msEnvPartOfSpeechNotRead".into())),
+                        outcome: (
+                            MS_ENV_PART_OF_SPEECH_EFFECT,
+                            Some("msEnvPartOfSpeechNotRead".into()),
+                        ),
                     },
                 )?;
             }
@@ -308,6 +299,50 @@ pub(crate) fn insert_entry_variants(
         }
     }
     Ok(())
+}
+
+/// The `parser_effect` of an `MsEnvPartOfSpeech` gate: no compiler path reads it.
+pub(crate) const MS_ENV_PART_OF_SPEECH_EFFECT: &str = "ignored";
+
+/// The compiler's recorded gate outcomes, looked up the way the gate table and the reference index need them.
+pub(crate) struct GateEffects<'a> {
+    by_gate: BTreeMap<(&'a str, AllomorphGateKind, u32), &'a AllomorphGateOutcome>,
+}
+
+impl<'a> GateEffects<'a> {
+    pub(crate) fn new(outcomes: &'a [AllomorphGateOutcome]) -> Self {
+        Self {
+            by_gate: outcomes
+                .iter()
+                .map(|outcome| {
+                    (
+                        (
+                            outcome.allomorph_guid.as_str(),
+                            outcome.gate_kind,
+                            outcome.ordinal,
+                        ),
+                        outcome,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// The effect and reason the compiler recorded; a gate it never read is `owner_not_loaded`.
+    pub(crate) fn effect(
+        &self,
+        allomorph: &str,
+        kind: AllomorphGateKind,
+        ordinal: u32,
+    ) -> (&'static str, Option<String>) {
+        match self.by_gate.get(&(allomorph, kind, ordinal)) {
+            Some(outcome) => (
+                outcome.effect.as_str(),
+                outcome.reason_code.map(str::to_owned),
+            ),
+            None => ("owner_not_loaded", None),
+        }
+    }
 }
 
 /// One `allomorph_gate` row before its allomorph guid is attached.

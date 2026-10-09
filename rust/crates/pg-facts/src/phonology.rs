@@ -14,6 +14,7 @@ use pg_snapshot::{InventoryKey, InventoryKind, LoadDecision, LoadDisposition, Sn
 use rusqlite::{params, Transaction};
 
 use crate::features::FeatureStructureIds;
+use crate::lexicon::reads_positions;
 use crate::load::subject_key;
 use crate::morphology::checked_guid;
 use crate::FactsError;
@@ -282,43 +283,18 @@ fn insert_environment_usage(
     resolutions: &[EnvironmentResolution],
     decisions: &[LoadDecision],
 ) -> Result<(), FactsError> {
-    let resolved: BTreeMap<_, _> = resolutions
-        .iter()
-        .map(|resolution| (resolution.environment_guid.as_str(), resolution))
-        .collect();
-    let environments: BTreeSet<_> = snapshot
-        .phonology
-        .environments
-        .iter()
-        .map(|environment| environment.guid.as_str())
-        .collect();
+    let edges = EnvironmentEdges::new(snapshot, resolutions);
     for entry in &snapshot.lexicon.entries {
         for allomorph in &entry.allomorphs {
             for (role, guids) in [
                 ("phone", &allomorph.environments),
                 ("position", &allomorph.positions),
             ] {
+                let consumed = role == "phone" || reads_positions(allomorph);
                 for (ordinal, environment_guid) in guids.iter().enumerate() {
-                    let attachment = InventoryKey::attachment(
-                        InventoryKind::Environment,
-                        allomorph.guid.clone(),
-                        environment_guid.clone(),
-                        "environment",
-                    );
-                    let decision = latest_decision(decisions, &attachment);
-                    let owner_key =
-                        InventoryKey::object(InventoryKind::Allomorph, allomorph.guid.clone());
-                    let owner_decision = latest_decision(decisions, &owner_key);
-                    let owner_loaded = owner_decision
-                        .and_then(|value| value.loaded)
-                        .or_else(|| inventory_owner_loaded(&owner_key, decisions));
-                    let outcome = environment_usage_outcome(
-                        environments.contains(environment_guid.as_str()),
-                        resolved.get(environment_guid.as_str()).copied(),
-                        decision,
-                        owner_loaded,
-                    )?;
-                    let link = decision.map(load_decision_link).transpose()?;
+                    let edge =
+                        edges.outcome(&allomorph.guid, environment_guid, consumed, decisions)?;
+                    let link = edge.decision.map(load_decision_link).transpose()?;
                     tx.execute(
                         "INSERT INTO environment_usage(allomorph_guid, role, ordinal, compile_context_key, environment_guid, resolved_environment_guid, compiled, result, load_subject_kind, load_subject_key, load_pipeline_stage, load_context_key, load_decision_ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                         params![
@@ -327,13 +303,13 @@ fn insert_environment_usage(
                             ordinal as i64,
                             COMPILE_CONTEXT,
                             environment_guid,
-                            if environments.contains(environment_guid.as_str()) {
+                            if edges.exists(environment_guid) {
                                 Some(environment_guid.as_str())
                             } else {
                                 None
                             },
-                            if outcome.compiled { 1_i64 } else { 0_i64 },
-                            outcome.result,
+                            if edge.compiled { 1_i64 } else { 0_i64 },
+                            edge.result,
                             link.as_ref().map(|value| value.0.as_str()),
                             link.as_ref().map(|value| value.1.as_str()),
                             link.as_ref().map(|value| value.2.as_str()),
@@ -348,6 +324,75 @@ fn insert_environment_usage(
     Ok(())
 }
 
+/// The compiler's outcome for each allomorph edge, read by both the usage table and the reference index.
+pub(crate) struct EnvironmentEdges<'a> {
+    environments: BTreeSet<&'a str>,
+    resolved: BTreeMap<&'a str, &'a EnvironmentResolution>,
+}
+
+/// One edge's outcome; `decision` is the attachment's compiler decision when one was recorded.
+pub(crate) struct EdgeOutcome<'a> {
+    pub(crate) result: &'static str,
+    pub(crate) compiled: bool,
+    pub(crate) decision: Option<&'a LoadDecision>,
+}
+
+impl<'a> EnvironmentEdges<'a> {
+    pub(crate) fn new(snapshot: &'a Snapshot, resolutions: &'a [EnvironmentResolution]) -> Self {
+        Self {
+            environments: snapshot
+                .phonology
+                .environments
+                .iter()
+                .map(|environment| environment.guid.as_str())
+                .collect(),
+            resolved: resolutions
+                .iter()
+                .map(|resolution| (resolution.environment_guid.as_str(), resolution))
+                .collect(),
+        }
+    }
+
+    /// Whether the Snapshot authors an environment with this GUID.
+    pub(crate) fn exists(&self, environment_guid: &str) -> bool {
+        self.environments.contains(environment_guid)
+    }
+
+    /// `consumed` is false when the owner's compiler path never reads this role.
+    pub(crate) fn outcome(
+        &self,
+        allomorph_guid: &str,
+        environment_guid: &str,
+        consumed: bool,
+        decisions: &'a [LoadDecision],
+    ) -> Result<EdgeOutcome<'a>, FactsError> {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::Environment,
+            allomorph_guid.to_string(),
+            environment_guid.to_string(),
+            "environment",
+        );
+        let decision = latest_decision(decisions, &attachment);
+        let owner_key = InventoryKey::object(InventoryKind::Allomorph, allomorph_guid.to_string());
+        let owner_decision = latest_decision(decisions, &owner_key);
+        let owner_loaded = owner_decision
+            .and_then(|value| value.loaded)
+            .or_else(|| inventory_owner_loaded(&owner_key, decisions));
+        let outcome = environment_usage_outcome(
+            self.exists(environment_guid),
+            self.resolved.get(environment_guid).copied(),
+            decision,
+            owner_loaded,
+            consumed,
+        )?;
+        Ok(EdgeOutcome {
+            result: outcome.result,
+            compiled: outcome.compiled,
+            decision,
+        })
+    }
+}
+
 struct EnvironmentUsageOutcome {
     result: &'static str,
     compiled: bool,
@@ -358,10 +403,17 @@ fn environment_usage_outcome(
     resolution: Option<&EnvironmentResolution>,
     decision: Option<&LoadDecision>,
     owner_loaded: Option<bool>,
+    consumed: bool,
 ) -> Result<EnvironmentUsageOutcome, FactsError> {
     if decision.is_none() && owner_loaded == Some(false) {
         return Ok(EnvironmentUsageOutcome {
             result: "owner_not_loaded",
+            compiled: false,
+        });
+    }
+    if decision.is_none() && !consumed {
+        return Ok(EnvironmentUsageOutcome {
+            result: "not_attempted",
             compiled: false,
         });
     }
@@ -430,7 +482,10 @@ fn latest_decision<'a>(
         .max_by_key(|decision| decision.decision_ordinal)
 }
 
-fn inventory_owner_loaded(subject: &InventoryKey, decisions: &[LoadDecision]) -> Option<bool> {
+pub(crate) fn inventory_owner_loaded(
+    subject: &InventoryKey,
+    decisions: &[LoadDecision],
+) -> Option<bool> {
     let value = decisions
         .iter()
         .filter(|decision| decision.subject == *subject)
@@ -539,6 +594,43 @@ fn natural_class_def(
         .ok_or_else(|| {
             FactsError::Serialization(format!("natural class index {} is not defined", class.0))
         })
+}
+
+/// The phonemes each feature-defined class matches in the compiler's character tables, with the class GUID.
+pub(crate) fn feature_class_phonemes(
+    snapshot: &Snapshot,
+    grammar: Option<&pg_grammar::model::Grammar>,
+) -> Result<Vec<(String, String)>, FactsError> {
+    let Some(grammar) = grammar else {
+        return Ok(Vec::new());
+    };
+    let authored: BTreeSet<_> = snapshot
+        .phonology
+        .natural_classes
+        .iter()
+        .map(natural_class_guid)
+        .collect();
+    let sources = SourceGuids::new(snapshot);
+    let mut matched = Vec::new();
+    for class in &grammar.natural_classes {
+        if !authored.contains(class.xml_id.as_str()) || match_kind(class) != "features" {
+            continue;
+        }
+        for table in &grammar.char_tables {
+            let effective: BTreeSet<_> = pg_grammar::segment::nat_class_member_ids(table, class)
+                .into_iter()
+                .collect();
+            for (char_id, definition) in table.iter() {
+                if !effective.contains(&char_id) {
+                    continue;
+                }
+                if let Some(phoneme) = segment_identity(definition, &sources)?.phoneme_guid {
+                    matched.push((class.xml_id.clone(), phoneme));
+                }
+            }
+        }
+    }
+    Ok(matched)
 }
 
 fn insert_effective_members(
@@ -672,6 +764,75 @@ fn insert_environment_sides(
                     )?;
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// A phoneme or boundary a resolved environment side names literally; a class or `#` is not one.
+pub(crate) struct EnvironmentLiteral {
+    pub(crate) environment: String,
+    pub(crate) valid: bool,
+    pub(crate) phoneme: Option<String>,
+    pub(crate) boundary: Option<String>,
+}
+
+/// Every literal segment of every resolved environment side, read from the compiler's side elements.
+pub(crate) fn environment_literals(
+    snapshot: &Snapshot,
+    resolutions: &[EnvironmentResolution],
+    grammar: Option<&pg_grammar::model::Grammar>,
+) -> Result<Vec<EnvironmentLiteral>, FactsError> {
+    let Some(grammar) = grammar else {
+        return Ok(Vec::new());
+    };
+    let sources = SourceGuids::new(snapshot);
+    let mut literals = Vec::new();
+    for resolution in resolutions {
+        let Some(table) = grammar.char_tables.get(resolution.table.0 as usize) else {
+            continue;
+        };
+        let valid = resolution.status == EnvironmentResolutionStatus::Valid;
+        for pattern in [&resolution.left, &resolution.right] {
+            let elements = environment_side_elements(pattern.as_ref());
+            push_literals(
+                &elements,
+                table,
+                &sources,
+                &resolution.environment_guid,
+                valid,
+                &mut literals,
+            )?;
+        }
+    }
+    Ok(literals)
+}
+
+fn push_literals(
+    elements: &[EnvironmentSideElement],
+    table: &CharDefTable,
+    sources: &SourceGuids,
+    environment: &str,
+    valid: bool,
+    out: &mut Vec<EnvironmentLiteral>,
+) -> Result<(), FactsError> {
+    for element in elements {
+        match element {
+            EnvironmentSideElement::Segment(id) => {
+                let identity = segment_identity(table.get(*id), sources)?;
+                if identity.phoneme_guid.is_some() || identity.boundary_guid.is_some() {
+                    out.push(EnvironmentLiteral {
+                        environment: environment.to_string(),
+                        valid,
+                        phoneme: identity.phoneme_guid,
+                        boundary: identity.boundary_guid,
+                    });
+                }
+            }
+            EnvironmentSideElement::Optional { children, .. } => {
+                push_literals(children, table, sources, environment, valid, out)?;
+            }
+            EnvironmentSideElement::WordBoundary | EnvironmentSideElement::NaturalClass(_) => {}
         }
     }
     Ok(())
@@ -907,7 +1068,7 @@ fn stratum_key(ordinal: usize) -> String {
     format!("stratum#{ordinal}")
 }
 
-fn rule_feature_target_kind(snapshot: &Snapshot, target_guid: &str) -> &'static str {
+pub(crate) fn rule_feature_target_kind(snapshot: &Snapshot, target_guid: &str) -> &'static str {
     if has_inflection_class(&snapshot.morphology.parts_of_speech, target_guid) {
         return "inflectionClass";
     }
@@ -1348,7 +1509,7 @@ pub(crate) fn insert_pattern_root(
     Ok(tx.last_insert_rowid())
 }
 
-fn natural_class_guid(class: &NaturalClass) -> &str {
+pub(crate) fn natural_class_guid(class: &NaturalClass) -> &str {
     match class {
         NaturalClass::Segments { guid, .. } | NaturalClass::Features { guid, .. } => guid,
     }
@@ -1366,5 +1527,41 @@ fn direction(direction: RuleDirection) -> &'static str {
         RuleDirection::LeftToRight => "leftToRight",
         RuleDirection::RightToLeft => "rightToLeft",
         RuleDirection::Simultaneous => "simultaneous",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pg_grammar::compile::{EnvironmentResolution, EnvironmentResolutionStatus};
+    use pg_grammar::model::TableId;
+
+    use super::environment_usage_outcome;
+
+    fn invalid_resolution() -> EnvironmentResolution {
+        EnvironmentResolution {
+            environment_guid: "environment".into(),
+            table: TableId(0),
+            status: EnvironmentResolutionStatus::Invalid,
+            error: Some("unknown class".into()),
+            error_code: Some("invalid_environment".into()),
+            left_text: None,
+            right_text: None,
+            left: None,
+            right: None,
+            class_tokens: Vec::new(),
+        }
+    }
+
+    /// An attempted invalid edge with no decision fails integrity; an unconsumed one is excused.
+    #[test]
+    fn attempted_invalid_edge_without_a_decision_is_an_integrity_error() {
+        let resolution = invalid_resolution();
+        let attempted = environment_usage_outcome(true, Some(&resolution), None, Some(true), true);
+        assert!(attempted.is_err());
+        let unattempted =
+            environment_usage_outcome(true, Some(&resolution), None, Some(true), false)
+                .expect("an unconsumed invalid edge is not attempted");
+        assert_eq!(unattempted.result, "not_attempted");
+        assert!(!unattempted.compiled);
     }
 }

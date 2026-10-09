@@ -48,6 +48,28 @@ impl PosTable {
         out
     }
 
+    /// Every POS guid in the tree, each with its descendants, self included, in `add_with_descendants` order.
+    pub(crate) fn descendant_guids(&self, guid: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        self.collect_descendant_guids(guid, &mut out);
+        out
+    }
+
+    fn collect_descendant_guids(&self, guid: &str, out: &mut Vec<String>) {
+        if self.bit_of.contains_key(guid) {
+            out.push(guid.to_string());
+        }
+        if let Some(children) = self.children_of.get(guid) {
+            for c in children {
+                self.collect_descendant_guids(c, out);
+            }
+        }
+    }
+
+    pub(crate) fn guids(&self) -> impl Iterator<Item = &str> {
+        self.bit_of.keys().map(String::as_str)
+    }
+
     fn add_with_descendants(&self, guid: &str, out: &mut SymbolBits) {
         if let Some(&b) = self.bit_of.get(guid) {
             out.set(b);

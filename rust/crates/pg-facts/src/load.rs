@@ -169,6 +169,7 @@ pub(crate) fn insert_inventory_and_issues(
         &issue_keys,
         &grammar_source_keys,
     )?;
+    insert_object_state(tx)?;
     Ok(())
 }
 
@@ -344,6 +345,81 @@ fn insert_load_facts(
         insert_load_fact(tx, &decision, issue_keys)?;
     }
     Ok(())
+}
+
+/// Publishes each subject's final load state, stage by the rule documented on `object_state`.
+fn insert_object_state(tx: &Transaction<'_>) -> Result<(), FactsError> {
+    type Row = (
+        String,
+        String,
+        String,
+        i64,
+        String,
+        String,
+        String,
+        Option<i64>,
+        String,
+    );
+    let mut statement = tx.prepare(
+        "SELECT subject_kind, subject_guid, pipeline_stage, decision_ordinal, subject_key, \
+         context_key, disposition, loaded, reason_code FROM load_fact \
+         WHERE subject_guid IS NOT NULL ORDER BY subject_kind, subject_guid",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok::<Row, rusqlite::Error>((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(statement);
+    let mut subjects: BTreeMap<(String, String), Vec<Row>> = BTreeMap::new();
+    for row in rows {
+        subjects
+            .entry((row.0.clone(), row.1.clone()))
+            .or_default()
+            .push(row);
+    }
+    for ((kind, guid), rows) in subjects {
+        let final_rank = rows.iter().map(|row| stage_rank(&row.2)).max().unwrap_or(0);
+        let at_final: Vec<&Row> = rows
+            .iter()
+            .filter(|row| stage_rank(&row.2) == final_rank)
+            .collect();
+        let final_stage = at_final[0].2.clone();
+        let first_loaded = at_final[0].7;
+        let loaded = first_loaded.filter(|_| at_final.iter().all(|row| row.7 == first_loaded));
+        let dispositions: BTreeSet<&str> = at_final.iter().map(|row| row.6.as_str()).collect();
+        let dispositions = dispositions.into_iter().collect::<Vec<_>>().join(",");
+        let primary = at_final
+            .iter()
+            .min_by(|left, right| (left.3, &left.4, &left.5).cmp(&(right.3, &right.4, &right.5)))
+            .map(|row| row.8.clone())
+            .unwrap_or_default();
+        tx.execute(
+            "INSERT INTO object_state(subject_kind, subject_guid, final_stage, loaded, dispositions, primary_reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![kind, guid, final_stage, loaded, dispositions, primary],
+        )?;
+    }
+    Ok(())
+}
+
+/// Later stages supersede earlier ones: compact over compile over snapshot over import.
+fn stage_rank(stage: &str) -> u8 {
+    match stage {
+        "import" => 0,
+        "snapshot" => 1,
+        "compile" => 2,
+        _ => 3,
+    }
 }
 
 pub(crate) fn accounting_is_complete(

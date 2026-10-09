@@ -269,6 +269,31 @@ pub(crate) fn insert_definitions(
     Ok(())
 }
 
+/// Ancestor chains by parent link; `closure_tables_agree_with_compiler_descendants` checks them.
+pub(crate) fn insert_closures(tx: &Transaction<'_>) -> Result<(), FactsError> {
+    tx.execute_batch(
+        "INSERT INTO category_ancestor(category_guid, ancestor_guid, depth)
+           WITH RECURSIVE chain(category_guid, ancestor_guid, depth) AS (
+             SELECT guid, guid, 0 FROM category
+             UNION ALL
+             SELECT chain.category_guid, category.parent_guid, chain.depth + 1
+               FROM chain JOIN category ON category.guid = chain.ancestor_guid
+              WHERE category.parent_guid IS NOT NULL
+           )
+           SELECT category_guid, ancestor_guid, depth FROM chain;
+         INSERT INTO inflection_class_ancestor(inflection_class_guid, ancestor_guid, depth)
+           WITH RECURSIVE chain(inflection_class_guid, ancestor_guid, depth) AS (
+             SELECT guid, guid, 0 FROM inflection_class
+             UNION ALL
+             SELECT chain.inflection_class_guid, inflection_class.parent_guid, chain.depth + 1
+               FROM chain JOIN inflection_class ON inflection_class.guid = chain.ancestor_guid
+              WHERE inflection_class.parent_guid IS NOT NULL
+           )
+           SELECT inflection_class_guid, ancestor_guid, depth FROM chain;",
+    )?;
+    Ok(())
+}
+
 /// Every part of speech, parents before their subcategories.
 pub(crate) fn all_parts_of_speech(items: &[PartOfSpeech]) -> Vec<&PartOfSpeech> {
     let mut all = Vec::new();

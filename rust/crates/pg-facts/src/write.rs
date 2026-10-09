@@ -277,6 +277,12 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         NamedTempFile::new_in(parent).map_err(|error| FactsError::Io(error.to_string()))?;
     let temporary_path = temporary.path().to_path_buf();
     {
+        let form_segments = match grammar {
+            Some(grammar) => {
+                crate::compiled::output_segments(snapshot, grammar, allomorph_output_ids)?
+            }
+            None => Vec::new(),
+        };
         let mut connection = Connection::open(temporary_path)?;
         configure_database(&connection)?;
         connection.execute_batch(include_str!("schema.sql"))?;
@@ -324,6 +330,7 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         )?;
         let feature_structures = crate::features::insert_authored(&transaction, snapshot)?;
         crate::morphology::insert_definitions(&transaction, snapshot, &feature_structures)?;
+        crate::morphology::insert_closures(&transaction)?;
         crate::lexicon::insert_entry_variants(&transaction, snapshot)?;
         crate::lexicon::insert_gates(&transaction, snapshot, allomorph_gates, &feature_structures)?;
         crate::load::insert_inventory_and_issues(
@@ -343,14 +350,24 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         )?;
         crate::compiled::insert(
             &transaction,
-            snapshot,
             compiled_outputs,
             compiled_mappings,
             compiled_allomorph_order,
-            grammar,
-            allomorph_output_ids,
+            &form_segments,
         )?;
         crate::settings::insert_parser_config(&transaction, snapshot, grammar)?;
+        crate::references::insert(
+            &transaction,
+            snapshot,
+            decisions,
+            environment_resolutions,
+            allomorph_gates,
+            crate::references::CompiledInputs {
+                grammar,
+                mappings: compiled_mappings,
+                form_segments: &form_segments,
+            },
+        )?;
         if let Some(stats) = &stats {
             crate::stats::insert(&transaction, stats)?;
         }

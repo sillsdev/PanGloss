@@ -54,6 +54,26 @@ lowercased when the rows are written, including GUIDs embedded in key and messag
 exemption is `source_object.raw_guid`, which keeps the importer's spelling. The artifact is rebuilt
 from source; there is no in-place schema migration.
 
+The v8 changes, in the order they landed:
+
+- The source census keeps grammar objects only, and every stored GUID is lowercased when written.
+- Compiled grammar objects share one output identity across `compiled_output`, `compiled_mapping`,
+  `compiled_allomorph_order` and the stats tables.
+- Allomorph gates record the compiler's effect on each gate, and the gate vocabulary includes
+  `not_attempted`. MSA features move into the normalized feature rows.
+- Affix-process parts and outputs, compound rules, and rewrite-rule roots and rule names are published.
+- Stem names, exception features, irregular inflection types and variant links are published with the
+  references that name them.
+- Environment sides, natural-class match bases and compiled form segments are published. An
+  environments section is partial after a refused compile.
+- `statement_reference` is keyed by target. A test requires every GUID column that is not exempt to be
+  published there.
+- Compiled form segments, feature-matched class members and descendant classes are published. Dangling
+  rule features are published as `mprFeature` references, and form segments are computed once per
+  publish.
+- `object_state`, the category and inflection-class ancestor closures, and the reverse-lookup indexes
+  are published. See "Final object state, closures, and reverse indexes".
+
 ## Compiled output keys
 
 Every compiled grammar object has one row in `compiled_output`, and every consumer names it by
@@ -288,7 +308,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `template_slot` | `(template_guid, side, ordinal)`, source `slot_guid`, nullable `compiled_order`; `side` is `prefix` or `suffix`. The source slot has no foreign key. Ordinals follow the authored Snapshot vectors. The compiler publishes effective order after dropping unresolved or rule-free slots; a missing order is not reconstructed by the writer. |
 | `lex_entry` | `guid`, `source_ordinal`, `lexeme_morph_type`. |
 | `allomorph` | `guid`, owning `entry_guid`, `ordinal`, `morph_type`, `form_class` (`stem`, `affix`, or `process`), `is_abstract`, nullable `stem_name_guid`. `form_class` is derived from the morph type and the process realization, because the Snapshot does not carry the source `MoForm` subclass. |
-| `allomorph_gate` | `(allomorph_guid, gate_kind, ordinal)`, nullable `target_guid`, nullable `fs_id` (required features only), `parser_effect`, nullable `reason_code`. `gate_kind` is `inflection_class`, `required_features`, `required_category`, or `stem_name`. `parser_effect` is `applied`, `ignored`, `unresolved`, `owner_not_loaded`, or `not_attempted`. It is the compiler's recorded outcome. `owner_not_loaded` means no owner read the allomorph, so the compiler recorded nothing for it. `not_attempted` means the compiler has no path that reads this gate on this allomorph kind. `required_features` (`MsEnvFeatures`) is an affix-allomorph gate in FieldWorks data; a process or stem allomorph that carries it is published `not_attempted`. A circumfix's prefix-half classes are `applied`; its suffix-half classes are `ignored` with reason `circumfixSuffixClassesNotRead`, and its halves' features are `ignored` with reason `circumfixIgnoresAllomorphGates`. `required_category` (`MsEnvPartOfSpeech`) is always `ignored` with reason `msEnvPartOfSpeechNotRead`, because no compiler path reads it. An allomorph under several MSAs reports its strongest outcome. |
+| `allomorph_gate` | `(allomorph_guid, gate_kind, ordinal)`, nullable `target_guid`, nullable `fs_id` (required features only), `parser_effect`, nullable `reason_code`. `gate_kind` is `inflection_class`, `required_features`, `required_category`, or `stem_name`. `parser_effect` is `applied`, `ignored`, `unresolved`, `owner_not_loaded`, or `not_attempted`. It is the compiler's recorded outcome. `owner_not_loaded` means no owner read the allomorph, so the compiler recorded nothing for it. `not_attempted` means the compiler has no path that reads this gate on this allomorph kind. `required_features` (`MsEnvFeatures`) is an affix-allomorph gate in FieldWorks data; a process or stem allomorph that carries it is published `not_attempted`. A circumfix's prefix-half classes are `applied`; its suffix-half classes are `ignored` with reason `circumfixSuffixClassesNotRead`, and its halves' features are `ignored` with reason `circumfixIgnoresAllomorphGates`. `required_category` (`MsEnvPartOfSpeech`) is always `ignored` with reason `msEnvPartOfSpeechNotRead`, because no compiler path reads it. An allomorph under several MSAs reports its strongest outcome. The reason codes that no other row names are: `derivationalMsaIgnoresAlloClasses`, `stemMsaIgnoresAlloClasses` and `unclassifiedMsaIgnoresAlloClasses` (`ignored` on an `inflection_class` gate that a non-inflectional MSA does not read); `allomorphNotRepresented` (`ignored` on a gate of an allomorph that no compiled object was built from); and `notAnAffixAllomorph` (`not_attempted` on a `required_features` gate of a non-affix allomorph). |
 | `allomorph_form` | `(allomorph_guid, ordinal)`, `writing_system`, `form`; all forms are retained in source order. |
 | `entry_citation_form` | `(entry_guid, ordinal)`, `writing_system`, `form`; the source order is preserved. |
 | `msa` | `msa_guid`, owning `entry_guid`, and `kind` (`stem`, `inflectional`, `derivational`, `unclassified`). |
@@ -364,6 +384,167 @@ resolved tokens remain visible when a later token makes the entire environment i
 have no pattern root. The environment token spans are zero-based Unicode-scalar offsets within the
 trimmed left or right context side, not byte offsets into the whole expression.
 
+### Statement references
+
+`statement_reference` answers "is this statement used, and by what" with one index seek on its
+target. A consumer must never read a parser-used statement as unused, so the index publishes every
+GUID-bearing column of this format except the exemptions listed below. It is derived: it repeats
+references other tables hold and adds the ones they do not. It is written after the other tables,
+from the Snapshot and the compiler's recorded outcomes, and is keyed so that every reference to one
+target is adjacent.
+
+| Table | Key and columns |
+|---|---|
+| `statement_reference` | `(target_kind, target_guid, referrer_kind, referrer_guid, role, ordinal)`, and `parser_effect`. The table is `WITHOUT ROWID`. |
+
+`target_guid` is the referenced GUID as the Snapshot spells it, canonical lowercase. A dangling
+reference keeps its GUID. Its effect is `unresolved` when the owner was loaded, and
+`owner_not_loaded` when the compiler recorded no decision for the owner.
+
+`target_kind` (20 values):
+
+| Value | Target |
+|---|---|
+| `environment` | An environment. |
+| `naturalClass` | A natural class (a segment list or a feature-defined class). |
+| `phoneme`, `boundary` | A phoneme or boundary marker. |
+| `category` | A part of speech. |
+| `inflectionClass` | An inflection class. |
+| `slot` | An affix slot. |
+| `template` | An affix template. |
+| `exceptionFeature` | An exception (productivity-restriction) feature. |
+| `feature`, `featureValue` | A feature or a closed value of a feature. |
+| `featureConstraint` | An alpha-variable constraint. |
+| `stemName` | A stem name. |
+| `msa` | A morphosyntactic analysis. |
+| `allomorph` | An allomorph (an ad hoc allomorph prohibition's target). |
+| `entry`, `sense` | A lexical entry or sense, as the component of a variant link. |
+| `inflType` | An irregular inflection type (`lex_entry_infl_type`). |
+| `variantType` | A variant entry type that is not an inflection type. |
+| `mprFeature` | A rule's required or excluded feature that the Snapshot defines as no inflection class, exception feature or feature value; its `parser_effect` is `unresolved`. |
+
+`referrer_kind` (16 values):
+
+| Value | Referrer |
+|---|---|
+| `allomorph` | An allomorph: its environment edges, its gates, and its required features. |
+| `environment` | An environment: its resolved class tokens and literal segments. |
+| `affixProcess` | An affix process, keyed by its allomorph GUID: its input parts and output steps. |
+| `phonologicalRule` | A phonological rule: its patterns, parts of speech, rule features and alpha variables. |
+| `compoundRule` | A compound rule: its constituent and outcome sides. |
+| `msa` | An MSA: its categories, classes, slots, stem names, exception features and features. |
+| `sense` | A sense: its MSA link. |
+| `entry` | A variant entry: its component lexemes and variant types. |
+| `category` | A part of speech: its default class, inflectable features and the templates it owns. |
+| `template` | An affix template: its prefix and suffix slots. |
+| `inflType` | An irregular inflection type: its slots and features. |
+| `adhocProhibition` | An ad hoc prohibition: its primary and other targets. |
+| `naturalClass` | A natural class: its segment-list members and its features. |
+| `phoneme` | A phoneme: its features. |
+| `stemName` | A stem name: its regions' features. |
+| `featureConstraint` | An alpha-variable constraint: the feature it names. |
+
+`role` (the position of the reference within its referrer; `role` and `referrer_kind` together
+identify the source column):
+
+| Role | Referrer | Source |
+|---|---|---|
+| `phone_env`, `position_env` | `allomorph` | `allomorph_environment` and `environment_usage` (`phone`, `position`). |
+| `inflection_class`, `stem_name`, `required_category` | `allomorph` | `allomorph_gate` by `gate_kind`. |
+| `required_features` | `allomorph` | `feature_assignment` of the allomorph's required features. |
+| `env_token` | `environment` | `environment_natural_class` resolved tokens. |
+| `env_segment` | `environment` | Literal phonemes of each resolved side, from the compiler's side elements. |
+| `process_input` | `affixProcess` | Pattern nodes of `affix_process_input`. |
+| `process_insert`, `process_modify` | `affixProcess` | `affix_process_output` `insert_class` and `modify`. |
+| `rewrite_lhs`, `rewrite_sc`, `rewrite_left_context`, `rewrite_right_context`, `metathesis_pattern` | `phonologicalRule` | Pattern roots of the rule's authored sides. |
+| `rewrite_pos`, `rule_feature_required`, `rule_feature_excluded` | `phonologicalRule` | `rewrite_rhs_pos` and `rewrite_rhs_rule_feature`. |
+| `rule_variable` | `phonologicalRule` | `phonological_rule_variable`. |
+| `pattern_variable` | `phonologicalRule`, `affixProcess` | `pattern_variable`, through the pattern node that owns it. |
+| `left_category`, `left_exception`, `right_category`, `right_exception`, `outcome_category`, `outcome_class` | `compoundRule` | `compound_rule_side` and `compound_rule_exception_feature`. |
+| `pos`, `from_pos`, `to_pos`, `clitic_from` | `msa` | `msa_category`. |
+| `class`, `from_class`, `to_class` | `msa` | `msa_inflection_class`. |
+| `slot`, `clitic_slot` | `msa` | `msa_slot`. |
+| `from_stem_name` | `msa` | `msa_stem_name`. |
+| `required`, `from_required`, `to_required` | `msa` | `msa_exception_feature`. |
+| `features`, `from_features`, `to_features` | `msa`, `inflType`, `naturalClass`, `phoneme`, `stemName` (`region`) | `feature_assignment` of the owner's feature structures. |
+| `prefix_slot`, `suffix_slot` | `template` | `template_slot` by `side`. |
+| `template` | `category` | `affix_template` ownership. |
+| `slot` | `inflType` | `lex_entry_infl_type_slot`. |
+| `default_class`, `inflectable_feature` | `category` | `category.default_inflection_class_guid` and `category_feature`. |
+| `region` | `stemName` | `feature_assignment` of `stem_name_region` structures. |
+| `class_member` | `naturalClass` | `natural_class_member` (segment lists). |
+| `class_effective_member` | `naturalClass` | `natural_class_effective_member` of a feature-defined class: each phoneme the compiler's feature match selects. |
+| `form_segment` | `allomorph` | `compiled_form_segment` of the allomorph's compiled form: each phoneme, boundary or class the compiler segmented it into. |
+| `via_ancestor` | any | Each descendant of a referenced inflection class. The compiler's subclass closure can use it, so it is published with the same referrer and effect as the reference to its ancestor. |
+| `constraint_feature` | `featureConstraint` | `feature_constraint.feature_guid`. |
+| `msa` | `sense` | `sense.msa_guid`. |
+| `variant_component`, `variant_type` | `entry` | `entry_variant` and `entry_variant_type`. |
+| `primary`, `other` | `adhocProhibition` | `adhoc_prohibition` and `adhoc_other`. |
+
+`ordinal` is a sequence number within each `(referrer_kind, referrer_guid, role)`, in the order the
+writer walks the Snapshot. It is not a source position. Read the source table for position.
+
+`parser_effect` is the compiler's outcome for the referrer. A `via_ancestor` row carries the effect of the
+reference it expands. A rule feature the Snapshot does not define is published with target kind
+`unresolved` and the rule's own effect, so it is `unresolved` when the rule was loaded:
+
+- An allomorph gate row carries the gate's own `parser_effect`. `required_category`
+  (`MsEnvPartOfSpeech`) is always `ignored`. A required-features reference carries the gate
+  table's effect too: `not_attempted` for a non-affix allomorph.
+- An environment edge takes the outcome `environment_usage` records for it: `represented` is
+  `applied`; `invalid` and `unresolved` are `unresolved`; `owner_not_loaded` and `not_attempted`
+  carry over. `not_attempted` is used only for an edge or environment the compiler never consumed,
+  and for a variant type that no compiler path reads.
+- An environment class token or literal segment is `applied` when its environment is valid and an
+  allomorph edge uses it as `represented`; `not_attempted` when the environment is valid but no edge
+  consumed it; `unresolved` when the environment is invalid.
+- Every other referrer is `applied` when the compiler loaded it and the target resolves,
+  `unresolved` when it loaded but the target does not resolve, and `owner_not_loaded` when the
+  compiler did not load it or recorded no decision for it. A disabled adhoc prohibition or
+  compound rule, a disabled template, and an MSA the compiler rejects are `owner_not_loaded`.
+
+Compound rules contribute category, inflection-class and exception-feature references only. The
+LibLCM compound-rule model holds no natural-class or environment reference, so none is indexed.
+
+Environment literals are phonemes only. The environment tokenizer (`segment_phonemes_only`) skips
+boundary character definitions, so a boundary marker never appears as a literal, and
+`environment_side_member.boundary_guid` is NULL for every compiled environment. A `#` is a word
+boundary, not a marker, and has no GUID. The compiler also gives boundary character definitions no
+source GUID, so `compiled_form_segment.boundary_guid` is NULL for every compiled boundary, including a
+source marker written into a root's form. A boundary's use in a rule is still published from the
+rule's pattern. A class token or literal segment that resolves to no GUID has no GUID to key a row by,
+so it stays only in `environment_natural_class` or `environment_side` and is not published.
+
+Exemptions (GUID columns the index deliberately does not publish). Every exemption names one table
+and one column; there are no wildcards, so a new column in any table fails the test. The test's
+`EXEMPT_GUID_COLUMNS` list is the authority, and its staleness check fails on any entry that names no
+GUID column. Two reasons cover most entries:
+
+- Owner and containment links: the parent row publishes its own references, and a container's existence
+  is not use. This covers `parent_guid` tree links (a child class is reached through its own references
+  and through `via_ancestor` rows), `owner_category_guid`, the `category_guid` of slots and templates,
+  and the owner GUIDs of the child tables. A template is the exception: its ownership by a category is
+  published as a `template` reference, because a template is a parse unit of its own, whereas a slot is
+  parser-used only through a template or an MSA.
+- Provenance and compiled identities: `conversion_*`, `load_fact` and `source_object` identities record
+  the import and compile; `stats_*` records the frozen run; `compiled_mapping.source_guid` and
+  `compiled_allomorph_order` name sources whose compiled output is published through `form_segment`.
+
+Other exemptions are relations no compiler path reads, or identities of a row's own link:
+`feature.feature_type_guid`; the members of ad hoc groups (`adhoc_group_member.member_guid`), whose
+prohibitions are published through `adhoc_other`; `phoneme_set`, the container identity of the phoneme
+set; `environment_usage.resolved_environment_guid`, a copy of `environment_guid` when the edge resolved;
+and the `ref_guid` of variant links, whose components and types are published.
+
+Columns the compiler cannot populate are listed separately with their reason (`environment_side_member.boundary_guid`
+and `compiled_form_segment.boundary_guid`, above). Their values are still checked when present.
+
+Reader rule: `statement_reference` is complete only when the sections it derives from are complete:
+`environments`, `phonology`, `patterns`, `allomorphs`, `msas`, `entries`, `templates`,
+`compound_rules`, `affix_processes` and `adhoc_prohibitions`. After a refused compile it covers the
+refusal's recorded outcomes, and the environment literals are absent, because the compiler's
+character tables are not built. Check those sections before treating an absent row as unused.
+
 ### Provenance and load facts
 
 | Table | Key and columns |
@@ -408,6 +589,32 @@ reserved for named source-wide settings.
 `unreachableInGrammar`. `source_kind` uses the same camelCase `InventoryKind` spelling as
 `conversion_item.subject_kind`. The checked-in DDL defines each SQLite type, nullability rule,
 primary key, foreign key, index, and `CHECK` constraint.
+
+### Final object state, closures, and reverse indexes
+
+`object_state` has one row per `(subject_kind, subject_guid)` that `load_fact` names, so a consumer
+reads each object's final load state without re-deriving it from every decision. Its rule: the final
+stage is the highest of `compact`, `compile`, `snapshot`, `import` that any of the subject's rows
+carries. `loaded` is the shared value of the rows at that stage, and NULL unless every one of them
+agrees on a non-NULL value. `dispositions` is the sorted, comma-joined distinct dispositions at that
+stage. `primary_reason` is the `reason_code` of the lowest `decision_ordinal` at that stage; ties are
+broken by `subject_key`, then `context_key`, so the value is deterministic. A GUID that several
+source occurrences share is one subject, and every row for it feeds the rule. Per-context state stays
+in `load_fact`.
+
+`category_ancestor(category_guid, ancestor_guid, depth)` and `inflection_class_ancestor(
+inflection_class_guid, ancestor_guid, depth)` hold every node with itself at depth 0 and each of its
+ancestors by parent link. They are derived from the same nesting the compiler's descendant expansion
+walks, so a class's subclasses are the rows where it is the ancestor. Both tables are keyed by
+`(subject, ancestor)`, and each subject has at most one ancestor per depth.
+
+Reverse-lookup indexes serve drill-down views: `allomorph_environment(environment_guid)`,
+`environment_usage(environment_guid)`, `environment_natural_class(natural_class_guid)`,
+`pattern_node(natural_class_guid)`, `pattern_node(phoneme_guid)`, `msa_slot(slot_guid)`,
+`msa_category(category_guid)`, `msa(entry_guid)`, `template_slot(slot_guid)`,
+`compiled_mapping(source_guid)`, `compiled_allomorph_order(source_allomorph_guid)`, `sense(msa_guid)`,
+and `adhoc_other(target_guid)`; the DDL names them. Every column in that list exists in v8, so none
+was dropped. The closure tables add an index on `ancestor_guid` for the descendants lookup.
 
 ### Frozen parser stats
 

@@ -14,12 +14,10 @@ use crate::FactsError;
 
 pub(crate) fn insert(
     tx: &Transaction<'_>,
-    snapshot: &Snapshot,
     outputs: &[CompiledOutput],
     mappings: &[CompiledMapping],
     allomorph_order: &[CompiledAllomorphOrder],
-    grammar: Option<&Grammar>,
-    allomorph_output_ids: &[Option<u32>],
+    form_segments: &[(u32, Vec<FormSegment>)],
 ) -> Result<(), FactsError> {
     for output in outputs {
         let conditioning = output.conditioning.as_ref();
@@ -56,18 +54,16 @@ pub(crate) fn insert(
             ],
         )?;
     }
-    if let Some(grammar) = grammar {
-        insert_form_segments(tx, snapshot, grammar, allomorph_output_ids)?;
-    }
+    insert_form_segments(tx, form_segments)?;
     crate::variants::insert_compiled_order(tx, allomorph_order)
 }
 
 /// One `compiled_form_segment` row before it is numbered within its output.
-struct FormSegment {
-    segment_kind: &'static str,
-    phoneme_guid: Option<String>,
-    boundary_guid: Option<String>,
-    natural_class_guid: Option<String>,
+pub(crate) struct FormSegment {
+    pub(crate) segment_kind: &'static str,
+    pub(crate) phoneme_guid: Option<String>,
+    pub(crate) boundary_guid: Option<String>,
+    pub(crate) natural_class_guid: Option<String>,
     token_text: Option<String>,
 }
 
@@ -83,13 +79,36 @@ impl FormSegment {
     }
 }
 
-/// Segments each reached allomorph: a root's shape or an affix's RHS in order; a bracket pattern has none.
+/// Writes the segments of each compiled allomorph output.
 fn insert_form_segments(
     tx: &Transaction<'_>,
+    form_segments: &[(u32, Vec<FormSegment>)],
+) -> Result<(), FactsError> {
+    for (output_id, segments) in form_segments {
+        for (ordinal, segment) in segments.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO compiled_form_segment(output_id, ordinal, segment_kind, phoneme_guid, boundary_guid, natural_class_guid, token_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    i64::from(*output_id),
+                    ordinal as i64,
+                    segment.segment_kind,
+                    segment.phoneme_guid,
+                    segment.boundary_guid,
+                    segment.natural_class_guid,
+                    segment.token_text,
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// The segments of each compiled allomorph output, read once for both the form table and the reference index.
+pub(crate) fn output_segments(
     snapshot: &Snapshot,
     grammar: &Grammar,
     allomorph_output_ids: &[Option<u32>],
-) -> Result<(), FactsError> {
+) -> Result<Vec<(u32, Vec<FormSegment>)>, FactsError> {
     let sources = SourceGuids::new(snapshot);
     // A process copy is part of its output; a concatenative copy is the stem it attaches to.
     let process_guids: BTreeSet<String> = snapshot
@@ -100,6 +119,7 @@ fn insert_form_segments(
         .filter(|allomorph| allomorph.process.is_some())
         .map(|allomorph| canonical_key(&allomorph.guid))
         .collect();
+    let mut outputs = Vec::new();
     for (index, owner) in grammar.allomorph_owners.iter().enumerate() {
         let Some(output_id) = allomorph_output_ids.get(index).copied().flatten() else {
             continue;
@@ -127,22 +147,9 @@ fn insert_form_segments(
         let Some(segments) = segments else {
             continue;
         };
-        for (ordinal, segment) in segments.iter().enumerate() {
-            tx.execute(
-                "INSERT INTO compiled_form_segment(output_id, ordinal, segment_kind, phoneme_guid, boundary_guid, natural_class_guid, token_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    i64::from(output_id),
-                    ordinal as i64,
-                    segment.segment_kind,
-                    segment.phoneme_guid,
-                    segment.boundary_guid,
-                    segment.natural_class_guid,
-                    segment.token_text,
-                ],
-            )?;
-        }
+        outputs.push((output_id, segments));
     }
-    Ok(())
+    Ok(outputs)
 }
 
 fn table_of(grammar: &Grammar, table: u16) -> Result<&CharDefTable, FactsError> {

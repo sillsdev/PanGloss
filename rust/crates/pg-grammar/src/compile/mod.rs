@@ -269,6 +269,34 @@ pub(crate) type CompiledProject = (
     Vec<AllomorphGateOutcome>,
 );
 
+/// Each category and inflection class mapped to its descendants, self included, as the compiler expands them.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct DescendantClosures {
+    /// Category guid to the guids of itself and every subcategory below it.
+    pub categories: BTreeMap<String, Vec<String>>,
+    /// Inflection-class guid to the guids of itself and every subclass below it.
+    pub inflection_classes: BTreeMap<String, Vec<String>>,
+}
+
+/// The descendant expansion the compiler uses for required-side references, read without compiling.
+pub fn descendant_closures(snapshot: &Snapshot) -> Result<DescendantClosures, GrammarError> {
+    let mut recorder = SelectionRecorder::for_stage(pg_snapshot::LoadPipelineStage::Compile);
+    let mpr = mpr::build(snapshot, &mut recorder)?;
+    let (_, pos) = features::build_syn_features(snapshot, &mut recorder)?;
+    let categories = pos
+        .guids()
+        .map(|guid| (guid.to_string(), pos.descendant_guids(guid)))
+        .collect();
+    let inflection_classes = mpr
+        .infl_class_guids()
+        .map(|guid| (guid.to_string(), mpr.infl_class_descendant_guids(guid)))
+        .collect();
+    Ok(DescendantClosures {
+        categories,
+        inflection_classes,
+    })
+}
+
 /// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
 /// substrate-only issues and owner warnings -- the seams the measured API and [`compile_project_with`]
 /// read. Recording happens before

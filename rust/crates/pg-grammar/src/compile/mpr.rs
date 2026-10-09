@@ -50,6 +50,31 @@ impl MprTables {
         }
     }
 
+    /// An inflection class and its recursive subclasses, self included, as `infl_class_with_descendants` expands them.
+    pub(crate) fn infl_class_descendant_guids(&self, guid: &str) -> Vec<String> {
+        if !self.infl_class_bit.contains_key(guid) {
+            return Vec::new();
+        }
+        let mut out = vec![guid.to_string()];
+        self.collect_infl_class_descendants(guid, &mut out);
+        out
+    }
+
+    fn collect_infl_class_descendants(&self, guid: &str, out: &mut Vec<String>) {
+        if let Some(children) = self.infl_class_children.get(guid) {
+            for child in children {
+                if self.infl_class_bit.contains_key(child) {
+                    out.push(child.clone());
+                }
+                self.collect_infl_class_descendants(child, out);
+            }
+        }
+    }
+
+    pub(crate) fn infl_class_guids(&self) -> impl Iterator<Item = &str> {
+        self.infl_class_bit.keys().map(String::as_str)
+    }
+
     pub fn exception_feature(&self, guid: &str) -> Option<MprSet> {
         self.exception_feature_bit.get(guid).map(|&b| {
             let mut s = MprSet::EMPTY;

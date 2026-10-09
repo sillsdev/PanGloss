@@ -15,8 +15,8 @@ use pg_snapshot::morphology::{
     LexEntryInflType, MorphType, Morphology, PartOfSpeech, StemName,
 };
 use pg_snapshot::phonology::{
-    BoundaryMarker, Environment, NaturalClass, PhonContext, Phoneme, PhonologicalRule, Phonology,
-    RewriteRhs, RewriteRule, RuleDirection,
+    BoundaryMarker, Environment, FeatureConstraint, NaturalClass, PhonContext, Phoneme,
+    PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection,
 };
 use pg_snapshot::project::Project;
 use pg_snapshot::{Snapshot, WsForm};
@@ -861,16 +861,8 @@ fn exports_source_occurrences_only_when_import_provenance_can_establish_them() {
     assert_eq!(rows, 0);
 }
 
-#[test]
-fn exports_adhoc_signatures_group_rationale_and_loader_outcomes() {
-    const PROHIBITION_DUPLICATE: &str = "00000000-0000-0000-0000-000000000043";
-    const PROHIBITION_FIRST_TARGET: &str = "00000000-0000-0000-0000-000000000044";
-    const PROHIBITION_SECOND_TARGET: &str = "00000000-0000-0000-0000-000000000045";
-    const PROHIBITION_EMPTY: &str = "00000000-0000-0000-0000-000000000046";
-    const PROHIBITION_UNRESOLVED: &str = "00000000-0000-0000-0000-000000000047";
-    const PROHIBITION_WRONG_KIND: &str = "00000000-0000-0000-0000-000000000048";
-    const GROUP: &str = "00000000-0000-0000-0000-000000000060";
-
+/// A fixture whose allomorph prohibition compacts an orphan target, so a compact load decision exists.
+fn compacted_snapshot() -> Snapshot {
     let mut authored = snapshot();
     authored.morphology.parts_of_speech[0]
         .affix_slots
@@ -902,6 +894,20 @@ fn exports_adhoc_signatures_group_rationale_and_loader_outcomes() {
             others: vec![ALLO_ORPHAN.into()],
             adjacency: Adjacency::Anywhere,
         });
+    authored
+}
+
+#[test]
+fn exports_adhoc_signatures_group_rationale_and_loader_outcomes() {
+    const PROHIBITION_DUPLICATE: &str = "00000000-0000-0000-0000-000000000043";
+    const PROHIBITION_FIRST_TARGET: &str = "00000000-0000-0000-0000-000000000044";
+    const PROHIBITION_SECOND_TARGET: &str = "00000000-0000-0000-0000-000000000045";
+    const PROHIBITION_EMPTY: &str = "00000000-0000-0000-0000-000000000046";
+    const PROHIBITION_UNRESOLVED: &str = "00000000-0000-0000-0000-000000000047";
+    const PROHIBITION_WRONG_KIND: &str = "00000000-0000-0000-0000-000000000048";
+    const GROUP: &str = "00000000-0000-0000-0000-000000000060";
+
+    let authored = compacted_snapshot();
     let mut source = serde_json::to_value(authored).unwrap();
     let rules = source["morphology"]["adhocProhibitions"]
         .as_array_mut()
@@ -4930,4 +4936,1433 @@ fn form_segments(db: &Connection, output: i64) -> Vec<(i64, String, Option<Strin
     .unwrap()
     .collect::<Result<_, _>>()
     .unwrap()
+}
+
+const NC_PROCESS_ONLY: &str = "00000000-0000-0000-0000-0000000001a1";
+const NC_RULE_ONLY: &str = "00000000-0000-0000-0000-0000000001a2";
+const NC_UNUSED: &str = "00000000-0000-0000-0000-0000000001a3";
+const ENV_INFIX: &str = "00000000-0000-0000-0000-0000000001a4";
+const ALLO_INFIX: &str = "00000000-0000-0000-0000-0000000001a5";
+const SLOT_PREFIX: &str = "00000000-0000-0000-0000-0000000001a6";
+const MSA_DERIVATIONAL: &str = "00000000-0000-0000-0000-0000000001a7";
+const ENTRY_INFIX: &str = "00000000-0000-0000-0000-0000000001a8";
+const SENSE_INFIX: &str = "00000000-0000-0000-0000-0000000001a9";
+const MSA_INFIX: &str = "00000000-0000-0000-0000-0000000001aa";
+const NC_FEATURES: &str = "00000000-0000-0000-0000-0000000001ab";
+const FC_VOICE: &str = "00000000-0000-0000-0000-0000000001ac";
+const REFERENCE_VARIANT_LINK: &str = "00000000-0000-0000-0000-0000000001ad";
+const VARIANT_TYPE: &str = "00000000-0000-0000-0000-0000000001ae";
+const ENV_BOUNDARY: &str = "00000000-0000-0000-0000-0000000001af";
+const REFERENCE_CLITIC_BOUNDARY: &str = "00000000-0000-0000-0000-0000000001b0";
+const INFL_CLASS_CHILD: &str = "00000000-0000-0000-0000-0000000001b1";
+const REFERENCE_DANGLING_FEATURE: &str = "00000000-0000-0000-0000-0000000001b2";
+
+/// (referrer_kind, referrer_guid, role, parser_effect) for one statement_reference target.
+type StatementRow = (String, String, String, String);
+
+fn row(referrer_kind: &str, referrer: &str, role: &str, effect: &str) -> StatementRow {
+    (
+        referrer_kind.into(),
+        referrer.into(),
+        role.into(),
+        effect.into(),
+    )
+}
+
+fn statement_rows(db: &Connection, target_kind: &str, target: &str) -> Vec<StatementRow> {
+    db.prepare(
+        "SELECT referrer_kind, referrer_guid, role, parser_effect FROM statement_reference \
+         WHERE target_kind = ?1 AND target_guid = ?2 ORDER BY referrer_kind, referrer_guid, role, ordinal",
+    )
+    .unwrap()
+    .query_map([target_kind, target], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+    })
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap()
+}
+
+#[test]
+fn natural_class_used_only_by_an_affix_process_is_referenced() {
+    let mut source = process_snapshot(
+        PROCESS_NC_ALLO,
+        vec![
+            PhonContext::NaturalClass {
+                natural_class: NC_PROCESS_ONLY.into(),
+                plus_variables: Vec::new(),
+                minus_variables: Vec::new(),
+            },
+            PhonContext::Variable,
+        ],
+        vec![RuleMapping::CopyFromInput { part: 2 }],
+    );
+    source.phonology.natural_classes = vec![NaturalClass::Segments {
+        guid: NC_PROCESS_ONLY.into(),
+        name: "Process class".into(),
+        display_name: None,
+        phonemes: vec![PHONEME_K.into()],
+    }];
+    let db = publish_gates(&source, "reference-process.sqlite");
+    assert_eq!(
+        statement_rows(&db, "naturalClass", NC_PROCESS_ONLY),
+        vec![row(
+            "affixProcess",
+            PROCESS_NC_ALLO,
+            "process_input",
+            "applied"
+        )]
+    );
+}
+
+#[test]
+fn natural_class_used_only_in_a_rule_context_is_referenced() {
+    let mut source = snapshot();
+    source.phonology.natural_classes = vec![NaturalClass::Segments {
+        guid: NC_RULE_ONLY.into(),
+        name: "Rule class".into(),
+        display_name: None,
+        phonemes: vec![PHONEME_K.into()],
+    }];
+    source.phonology.rules = vec![PhonologicalRule::Rewrite(RewriteRule {
+        guid: RULE_REWRITE.into(),
+        name: "Rule".into(),
+        direction: RuleDirection::LeftToRight,
+        structural_description: vec![PhonContext::Segment {
+            phoneme: PHONEME_K.into(),
+        }],
+        feature_constraint_variables: Vec::new(),
+        right_hand_sides: vec![RewriteRhs {
+            structural_change: vec![PhonContext::Segment {
+                phoneme: PHONEME_M.into(),
+            }],
+            left_context: Some(PhonContext::NaturalClass {
+                natural_class: NC_RULE_ONLY.into(),
+                plus_variables: Vec::new(),
+                minus_variables: Vec::new(),
+            }),
+            ..RewriteRhs::default()
+        }],
+    })];
+    let db = publish_gates(&source, "reference-rule.sqlite");
+    assert_eq!(
+        statement_rows(&db, "naturalClass", NC_RULE_ONLY),
+        vec![row(
+            "phonologicalRule",
+            RULE_REWRITE,
+            "rewrite_left_context",
+            "applied"
+        )]
+    );
+}
+
+#[test]
+fn environment_used_only_as_an_infix_position_is_referenced() {
+    let mut source = environment_snapshot();
+    source.phonology.environments.push(Environment {
+        guid: ENV_INFIX.into(),
+        name: "Infix position".into(),
+        representation: "/[C]_".into(),
+    });
+    source.lexicon.entries.push(entry(
+        ENTRY_INFIX,
+        SENSE_INFIX,
+        Allomorph {
+            positions: vec![ENV_INFIX.into()],
+            ..allomorph(ALLO_INFIX, MorphType::Infix, "ku")
+        },
+        Msa::Inflectional {
+            guid: MSA_INFIX.into(),
+            part_of_speech: Some(POS.into()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        },
+        "infix",
+    ));
+    let db = publish_gates(&source, "reference-infix.sqlite");
+    assert_eq!(
+        statement_rows(&db, "environment", ENV_INFIX),
+        vec![row("allomorph", ALLO_INFIX, "position_env", "applied")]
+    );
+}
+
+#[test]
+fn ignored_gate_reference_is_ignored() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_SUFFIX).ms_env_part_of_speech = Some(POS.into());
+    let db = publish_gates(&source, "reference-ignored-gate.sqlite");
+    let gate_rows: Vec<StatementRow> = statement_rows(&db, "category", POS)
+        .into_iter()
+        .filter(|statement| statement.0 == "allomorph")
+        .collect();
+    assert_eq!(
+        gate_rows,
+        vec![row(
+            "allomorph",
+            ALLO_SUFFIX,
+            "required_category",
+            "ignored"
+        )]
+    );
+}
+
+#[test]
+fn unused_class_has_no_statement_reference() {
+    let mut source = snapshot();
+    source.phonology.natural_classes = vec![NaturalClass::Segments {
+        guid: NC_UNUSED.into(),
+        name: "Unused".into(),
+        display_name: None,
+        phonemes: vec![PHONEME_K.into()],
+    }];
+    let db = publish_gates(&source, "reference-unused.sqlite");
+    assert!(statement_rows(&db, "naturalClass", NC_UNUSED).is_empty());
+}
+
+/// GUID columns that are not statement references, as (table, column, reason); every column is named.
+// Owners, provenance, compiled mirrors and unread relations; a sole primary-key GUID needs no entry.
+const EXEMPT_GUID_COLUMNS: &[(&str, &str, &str)] = &[
+    (
+        "object_state",
+        "subject_guid",
+        "derived from load_fact, which already accounts for every subject it names",
+    ),
+    (
+        "category_ancestor",
+        "category_guid",
+        "closure of the category tree, not a statement reference",
+    ),
+    (
+        "category_ancestor",
+        "ancestor_guid",
+        "closure of the category tree, not a statement reference",
+    ),
+    (
+        "inflection_class_ancestor",
+        "inflection_class_guid",
+        "closure of the class tree, not a statement reference",
+    ),
+    (
+        "inflection_class_ancestor",
+        "ancestor_guid",
+        "closure of the class tree, not a statement reference",
+    ),
+    (
+        "statement_reference",
+        "target_guid",
+        "the index is not a reference to itself",
+    ),
+    (
+        "statement_reference",
+        "referrer_guid",
+        "the index is not a reference to itself",
+    ),
+    (
+        "allomorph_form",
+        "allomorph_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "entry_citation_form",
+        "entry_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "sense_text",
+        "sense_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "rewrite_rhs",
+        "rule_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "rule_stratum",
+        "rule_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "pattern_root",
+        "owner_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "affix_process_input",
+        "allomorph_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "stem_name_region",
+        "stem_name_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "environment_side",
+        "environment_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "phoneme_grapheme",
+        "phoneme_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "boundary_grapheme",
+        "boundary_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "adhoc_group_text",
+        "group_guid",
+        "owner: the row's parent owns its own rows",
+    ),
+    (
+        "adhoc_group_member",
+        "group_guid",
+        "owner: a group owns its members",
+    ),
+    (
+        "adhoc_group_member",
+        "member_guid",
+        "groups are not read by any compiler path; members are not statements",
+    ),
+    (
+        "phoneme_set",
+        "guid",
+        "identity of the phoneme-set container, the source GUID of a character table",
+    ),
+    (
+        "compiled_mapping",
+        "source_guid",
+        "compiled source identity; an allomorph source's segments are published through form_segment",
+    ),
+    (
+        "compiled_allomorph_order",
+        "source_entry_guid",
+        "compiled order of sources already published through their own references",
+    ),
+    (
+        "compiled_allomorph_order",
+        "source_msa_guid",
+        "compiled order of sources already published through their own references",
+    ),
+    (
+        "compiled_allomorph_order",
+        "source_allomorph_guid",
+        "compiled order of sources already published through their own references",
+    ),
+    (
+        "natural_class_effective_member",
+        "natural_class_guid",
+        "owner: a class owns its effective members",
+    ),
+    (
+        "stats_object_source",
+        "source_guid",
+        "frozen-run provenance, not a statement reference",
+    ),
+    (
+        "stats_allomorph_source",
+        "source_allomorph_guid",
+        "frozen-run provenance, not a statement reference",
+    ),
+    (
+        "conversion_item",
+        "subject_guid",
+        "import and compile provenance records every object, used or not",
+    ),
+    (
+        "conversion_issue",
+        "source_guid",
+        "import and compile provenance records every object, used or not",
+    ),
+    (
+        "load_fact",
+        "subject_guid",
+        "import and compile provenance records every object, used or not",
+    ),
+    (
+        "category",
+        "parent_guid",
+        "tree link: a child category is used through its own references",
+    ),
+    (
+        "inflection_class",
+        "owner_category_guid",
+        "owner: a class belongs to a category",
+    ),
+    (
+        "inflection_class",
+        "parent_guid",
+        "containment: a child is used through its own references and through via_ancestor rows",
+    ),
+    (
+        "affix_slot",
+        "category_guid",
+        "owner: a category lists its slots",
+    ),
+    (
+        "affix_template",
+        "category_guid",
+        "owner: the category's template reference is published from the category",
+    ),
+    (
+        "template_slot",
+        "template_guid",
+        "owner: a template owns its slot order",
+    ),
+    (
+        "allomorph",
+        "entry_guid",
+        "owner: an entry owns its allomorphs",
+    ),
+    (
+        "allomorph_gate",
+        "allomorph_guid",
+        "owner: an allomorph owns its gates",
+    ),
+    (
+        "allomorph_environment",
+        "allomorph_guid",
+        "owner: an allomorph owns its environment edges",
+    ),
+    (
+        "affix_process_output",
+        "allomorph_guid",
+        "owner: a process owns its output steps",
+    ),
+    ("msa", "entry_guid", "owner: an entry owns its MSAs"),
+    (
+        "msa_category",
+        "msa_guid",
+        "owner: an MSA owns its category links",
+    ),
+    ("msa_slot", "msa_guid", "owner: an MSA owns its slot links"),
+    (
+        "msa_inflection_class",
+        "msa_guid",
+        "owner: an MSA owns its class link",
+    ),
+    (
+        "msa_stem_name",
+        "msa_guid",
+        "owner: an MSA owns its stem-name link",
+    ),
+    (
+        "msa_exception_feature",
+        "msa_guid",
+        "owner: an MSA owns its exception links",
+    ),
+    ("sense", "entry_guid", "owner: an entry owns its senses"),
+    (
+        "entry_variant",
+        "variant_entry_guid",
+        "owner: the entry that holds the variant link",
+    ),
+    (
+        "entry_variant",
+        "ref_guid",
+        "identity of the link; its components and types are published",
+    ),
+    (
+        "entry_variant_type",
+        "ref_guid",
+        "identity of the link; its types are published",
+    ),
+    (
+        "adhoc_other",
+        "prohibition_guid",
+        "owner: a prohibition owns its other targets",
+    ),
+    (
+        "stem_name",
+        "category_guid",
+        "owner: a category lists its stem names",
+    ),
+    (
+        "feature",
+        "feature_type_guid",
+        "the feature type is read by no compiler path",
+    ),
+    (
+        "feature_value",
+        "feature_guid",
+        "owner: a feature owns its values",
+    ),
+    (
+        "feature_structure",
+        "owner_guid",
+        "owner: the referencing row publishes the owner's references",
+    ),
+    (
+        "category_feature",
+        "category_guid",
+        "owner: a category lists its inflectable features",
+    ),
+    (
+        "natural_class_member",
+        "natural_class_guid",
+        "owner: a class owns its members",
+    ),
+    (
+        "environment_side_member",
+        "environment_guid",
+        "owner: an environment owns its side members",
+    ),
+    (
+        "environment_natural_class",
+        "environment_guid",
+        "owner: an environment owns its class tokens",
+    ),
+    (
+        "environment_usage",
+        "allomorph_guid",
+        "owner: an allomorph owns its environment edges",
+    ),
+    (
+        "environment_usage",
+        "resolved_environment_guid",
+        "copy of environment_guid when the edge resolved",
+    ),
+    (
+        "phonological_rule_variable",
+        "rule_guid",
+        "owner: a rule owns its variables",
+    ),
+    (
+        "rewrite_rhs_pos",
+        "rule_guid",
+        "owner: a rule owns its right-hand sides",
+    ),
+    (
+        "rewrite_rhs_rule_feature",
+        "rule_guid",
+        "owner: a rule owns its right-hand sides",
+    ),
+    (
+        "compound_rule_side",
+        "rule_guid",
+        "owner: a compound rule owns its sides",
+    ),
+    (
+        "compound_rule_exception_feature",
+        "rule_guid",
+        "owner: a compound rule owns its exceptions",
+    ),
+    (
+        "lex_entry_infl_type_slot",
+        "infl_type_guid",
+        "owner: an inflection type owns its slot order",
+    ),
+    (
+        "source_object",
+        "raw_guid",
+        "the importer's spelling, kept for provenance",
+    ),
+    (
+        "source_object",
+        "canonical_guid",
+        "provenance identity of a source object",
+    ),
+];
+
+/// Reference columns the compiler cannot populate, as (table, column, reason); values are still checked.
+const NOT_POPULATED_BY_COMPILER: &[(&str, &str, &str)] = &[
+    (
+        "environment_side_member",
+        "boundary_guid",
+        "environment text is segmented by phonemes only, so a boundary marker is never a literal member",
+    ),
+    (
+        "compiled_form_segment",
+        "boundary_guid",
+        "boundary character definitions carry no source GUID (chardef.rs), so compiled boundaries have none",
+    ),
+];
+
+/// Whether a (table, column) pair is exempted by `EXEMPT_GUID_COLUMNS`.
+fn exempt_guid_column(table: &str, column: &str) -> bool {
+    EXEMPT_GUID_COLUMNS
+        .iter()
+        .any(|(exempt_table, exempt_column, _)| *exempt_table == table && *exempt_column == column)
+}
+
+fn text_column(db: &Connection, sql: &str) -> Vec<String> {
+    db.prepare(sql)
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+/// A snapshot in which every GUID-bearing column outside `EXEMPT_GUID_COLUMNS` holds at least one row.
+fn reference_snapshot() -> Snapshot {
+    let mut source = environment_snapshot();
+    source.feature_systems.morphosyntactic.closed_features = vec![ClosedFeature {
+        guid: MS_NUMBER.into(),
+        name: "Number".into(),
+        abbreviation: "num".into(),
+        values: vec![
+            FeatureValueSymbol {
+                guid: MS_SINGULAR.into(),
+                name: "singular".into(),
+                abbreviation: "sg".into(),
+            },
+            FeatureValueSymbol {
+                guid: MS_PLURAL.into(),
+                name: "plural".into(),
+                abbreviation: "pl".into(),
+            },
+        ],
+    }];
+    source.morphology.exception_features = vec![ExceptionFeature {
+        guid: COMPOUND_EXCEPTION.into(),
+        name: "Exception".into(),
+        abbreviation: "exc".into(),
+    }];
+    source.morphology.lex_entry_infl_types = vec![infl_type(
+        vec![SLOT.into()],
+        Some(closed_structure(MS_NUMBER, MS_SINGULAR)),
+    )];
+    let pos = &mut source.morphology.parts_of_speech[0];
+    pos.inflection_classes = vec![InflectionClass {
+        guid: INFL_CLASS.into(),
+        name: "Class".into(),
+        abbreviation: "cls".into(),
+        children: vec![InflectionClass {
+            guid: INFL_CLASS_CHILD.into(),
+            name: "Child class".into(),
+            abbreviation: "child".into(),
+            children: Vec::new(),
+        }],
+    }];
+    pos.default_inflection_class = Some(INFL_CLASS.into());
+    pos.inflectable_features = vec![MS_NUMBER.into()];
+    pos.stem_names = vec![StemName {
+        guid: STEM_NAME.into(),
+        name: "Region".into(),
+        abbreviation: None,
+        regions: vec![closed_structure(MS_NUMBER, MS_SINGULAR)],
+    }];
+    pos.affix_slots.push(AffixSlot {
+        guid: SLOT_PREFIX.into(),
+        name: "Prefix".into(),
+        optional: true,
+    });
+    pos.affix_templates[0].prefix_slots = vec![SLOT_PREFIX.into()];
+    pos.affix_templates.push(AffixTemplate {
+        guid: TEMPLATE_DISABLED.into(),
+        name: "Disabled template".into(),
+        disabled: true,
+        prefix_slots: Vec::new(),
+        suffix_slots: vec![SLOT_PREFIX.into()],
+        is_final: false,
+    });
+    allomorph_mut(&mut source, ALLO_ROOT).inflection_classes = vec![INFL_CLASS.into()];
+    allomorph_mut(&mut source, ALLO_ROOT).stem_name = Some(STEM_NAME.into());
+    allomorph_mut(&mut source, ALLO_SUFFIX).ms_env_part_of_speech = Some(POS.into());
+    allomorph_mut(&mut source, ALLO_SUFFIX).ms_env_features =
+        Some(closed_structure(MS_NUMBER, MS_PLURAL));
+    source.phonology.environments.push(Environment {
+        guid: ENV_BOUNDARY.into(),
+        name: "Boundary position".into(),
+        representation: "/_+".into(),
+    });
+    allomorph_mut(&mut source, ALLO_SUFFIX)
+        .positions
+        .push(ENV_BOUNDARY.into());
+    entry_mut(&mut source, ENTRY_SUFFIX)
+        .allomorphs
+        .push(Allomorph {
+            process: Some(AffixProcess {
+                input: vec![
+                    PhonContext::NaturalClass {
+                        natural_class: NC_C.into(),
+                        plus_variables: Vec::new(),
+                        minus_variables: Vec::new(),
+                    },
+                    PhonContext::Variable,
+                ],
+                output: vec![
+                    RuleMapping::InsertNaturalClass {
+                        natural_class: NC_VOICED.into(),
+                    },
+                    RuleMapping::CopyFromInput { part: 2 },
+                ],
+            }),
+            ..allomorph(PROCESS_NC_ALLO, MorphType::Suffix, "")
+        });
+    source.lexicon.entries[1].msas = vec![Msa::Stem {
+        guid: MSA_ROOT_TWO.into(),
+        part_of_speech: Some(POS.into()),
+        inflection_class: Some(INFL_CLASS.into()),
+        features: Some(closed_structure(MS_NUMBER, MS_SINGULAR)),
+        exception_features: vec![COMPOUND_EXCEPTION.into()],
+        from_parts_of_speech: vec![POS.into()],
+        slots: vec![SLOT_PREFIX.into()],
+    }];
+    source.lexicon.entries[1].entry_refs = vec![EntryRef::Variant {
+        guid: REFERENCE_VARIANT_LINK.into(),
+        component_lexemes: vec![ENTRY_ROOT.into(), SENSE_ROOT.into()],
+        variant_entry_types: vec![INFL_TYPE.into(), VARIANT_TYPE.into()],
+    }];
+    entry_mut(&mut source, ENTRY_SUFFIX)
+        .msas
+        .push(Msa::Derivational {
+            guid: MSA_DERIVATIONAL.into(),
+            from_part_of_speech: Some(POS.into()),
+            to_part_of_speech: Some(POS_VERB.into()),
+            from_features: Some(closed_structure(MS_NUMBER, MS_SINGULAR)),
+            to_features: None,
+            from_inflection_class: Some(INFL_CLASS.into()),
+            to_inflection_class: None,
+            from_exception_features: vec![COMPOUND_EXCEPTION.into()],
+            to_exception_features: Vec::new(),
+            from_stem_name: Some(STEM_NAME.into()),
+        });
+    // A source boundary marker inside a root's form puts a boundary GUID into its compiled shape.
+    source.phonology.boundary_markers.push(BoundaryMarker {
+        guid: REFERENCE_CLITIC_BOUNDARY.into(),
+        name: "Clitic boundary".into(),
+        representations: vec![ws("qaa", "=")],
+    });
+    allomorph_mut(&mut source, ALLO_ROOT_TWO).forms = vec![ws("qaa", "su=ma")];
+    // An infix lexeme with no slot is rejected by the compiler, so its MSA is an unloaded owner.
+    source.lexicon.entries.push(entry(
+        ENTRY_INFIX,
+        SENSE_INFIX,
+        allomorph(ALLO_INFIX, MorphType::Infix, "ku"),
+        Msa::Inflectional {
+            guid: MSA_INFIX.into(),
+            part_of_speech: Some(POS.into()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        },
+        "infix",
+    ));
+    source.morphology.compound_rules = vec![
+        CompoundRule::Endocentric {
+            guid: COMPOUND_ENDO.into(),
+            name: "Endo rule".into(),
+            disabled: false,
+            head_last: true,
+            left: CompoundConstituentRequirement {
+                part_of_speech: Some(POS.into()),
+                exception_features: vec![COMPOUND_EXCEPTION.into()],
+            },
+            right: CompoundConstituentRequirement {
+                part_of_speech: Some(POS_VERB.into()),
+                exception_features: Vec::new(),
+            },
+            overriding: CompoundOutcome {
+                part_of_speech: Some(POS.into()),
+                inflection_class: Some(INFL_CLASS.into()),
+            },
+        },
+        CompoundRule::Exocentric {
+            guid: COMPOUND_EXO.into(),
+            name: "Exo rule".into(),
+            disabled: true,
+            left: Default::default(),
+            right: Default::default(),
+            to: CompoundOutcome {
+                part_of_speech: Some(POS.into()),
+                inflection_class: None,
+            },
+        },
+    ];
+    source.phonology.feature_constraints = vec![FeatureConstraint {
+        guid: FC_VOICE.into(),
+        feature: FEATURE_VOICE.into(),
+    }];
+    source
+        .phonology
+        .natural_classes
+        .push(NaturalClass::Features {
+            guid: NC_FEATURES.into(),
+            name: "Voiced".into(),
+            display_name: None,
+            features: closed_structure(FEATURE_VOICE, VALUE_PLUS),
+        });
+    let Some(PhonologicalRule::Rewrite(rule)) = source.phonology.rules.last_mut() else {
+        panic!("environment snapshot ends with the rewrite rule");
+    };
+    rule.feature_constraint_variables = vec![FC_VOICE.into()];
+    let rhs = &mut rule.right_hand_sides[0];
+    rhs.right_context = Some(PhonContext::Sequence {
+        members: vec![
+            PhonContext::NaturalClass {
+                natural_class: NC_VOICED.into(),
+                plus_variables: vec![FC_VOICE.into()],
+                minus_variables: Vec::new(),
+            },
+            PhonContext::Boundary {
+                marker: BOUNDARY_PLUS.into(),
+            },
+        ],
+    });
+    rhs.required_parts_of_speech = vec![POS.into()];
+    rhs.required_rule_features = vec![
+        INFL_CLASS.into(),
+        COMPOUND_EXCEPTION.into(),
+        VALUE_PLUS.into(),
+        REFERENCE_DANGLING_FEATURE.into(),
+    ];
+    rhs.excluded_rule_features = vec![VALUE_MINUS.into()];
+    source
+}
+
+fn closed_structure(feature: &str, value: &str) -> FeatureStructure {
+    FeatureStructure {
+        values: vec![FeatureValue {
+            feature: feature.into(),
+            value: FeatureValueKind::Closed {
+                value: value.into(),
+            },
+        }],
+    }
+}
+
+#[test]
+fn every_reference_table_row_has_a_statement_reference() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("references.sqlite");
+    build(
+        &output,
+        reference_snapshot().to_json().as_bytes(),
+        context(),
+    )
+    .unwrap();
+    let db = Connection::open(output).unwrap();
+    let tables = text_column(
+        &db,
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    );
+    let mut guid_columns = BTreeSet::new();
+    for table in &tables {
+        let mut statement = db
+            .prepare(&format!(
+                "SELECT name, pk FROM pragma_table_info('{table}')"
+            ))
+            .unwrap();
+        let columns: Vec<(String, i64)> = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let primary_keys = columns.iter().filter(|(_, pk)| *pk > 0).count();
+        for (column, pk) in columns {
+            let own_identity = pk > 0 && primary_keys == 1;
+            if (column.ends_with("_guid") || column == "guid") && !own_identity {
+                guid_columns.insert((table.clone(), column));
+            }
+        }
+    }
+    for (table, column, _) in NOT_POPULATED_BY_COMPILER {
+        assert!(
+            guid_columns.contains(&(table.to_string(), column.to_string())),
+            "unreachable entry {table}.{column} matches no GUID column"
+        );
+    }
+    for (table, column, _) in EXEMPT_GUID_COLUMNS {
+        assert!(
+            tables.iter().any(|name| name == table),
+            "exemption names no table {table}"
+        );
+        assert!(
+            guid_columns.contains(&(table.to_string(), column.to_string())),
+            "exemption {table}.{column} matches no GUID column"
+        );
+    }
+    for (table, column) in &guid_columns {
+        if exempt_guid_column(table, column) {
+            continue;
+        }
+        let populated: i64 = db
+            .query_row(
+                &format!("SELECT COUNT(*) FROM \"{table}\" WHERE \"{column}\" IS NOT NULL"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let unreachable = NOT_POPULATED_BY_COMPILER
+            .iter()
+            .any(|(t, c, _)| *t == table && *c == column);
+        assert!(
+            populated > 0 || unreachable,
+            "the fixture never populates {table}.{column}"
+        );
+        let values = text_column(
+            &db,
+            &format!(
+                "SELECT DISTINCT \"{column}\" FROM \"{table}\" WHERE \"{column}\" IS NOT NULL"
+            ),
+        );
+        for value in values {
+            let found: i64 = db
+                .query_row(
+                    "SELECT COUNT(*) FROM statement_reference WHERE target_guid = ?1",
+                    [&value],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                found > 0,
+                "{table}.{column} = {value} is not published in statement_reference"
+            );
+        }
+    }
+}
+
+#[test]
+fn referrer_effects_follow_each_owners_compile_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("effects.sqlite");
+    build(
+        &output,
+        reference_snapshot().to_json().as_bytes(),
+        context(),
+    )
+    .unwrap();
+    let db = Connection::open(output).unwrap();
+    assert!(statement_rows(&db, "slot", SLOT).contains(&row("msa", MSA_SUFFIX, "slot", "applied")));
+    assert!(statement_rows(&db, "category", POS).contains(&row(
+        "msa",
+        MSA_UNSLOTTED,
+        "pos",
+        "applied"
+    )));
+    assert!(statement_rows(&db, "category", POS).contains(&row(
+        "msa",
+        MSA_INFIX,
+        "pos",
+        "owner_not_loaded"
+    )));
+    assert!(statement_rows(&db, "naturalClass", NC_C).contains(&row(
+        "environment",
+        ENV_REPEAT,
+        "env_token",
+        "applied"
+    )));
+    assert!(
+        statement_rows(&db, "slot", SLOT).contains(&row("inflType", INFL_TYPE, "slot", "applied"))
+    );
+    assert!(statement_rows(&db, "slot", SLOT).contains(&row(
+        "template",
+        TEMPLATE,
+        "suffix_slot",
+        "applied"
+    )));
+    assert!(statement_rows(&db, "slot", SLOT_PREFIX).contains(&row(
+        "template",
+        TEMPLATE_DISABLED,
+        "suffix_slot",
+        "owner_not_loaded"
+    )));
+    assert!(statement_rows(&db, "category", POS).contains(&row(
+        "compoundRule",
+        COMPOUND_ENDO,
+        "left_category",
+        "applied"
+    )));
+    assert!(statement_rows(&db, "category", POS).contains(&row(
+        "compoundRule",
+        COMPOUND_EXO,
+        "outcome_category",
+        "owner_not_loaded"
+    )));
+    assert!(statement_rows(&db, "msa", MSA_ROOT).contains(&row(
+        "adhocProhibition",
+        PROHIBITION_MORPHEME,
+        "primary",
+        "applied"
+    )));
+    assert!(statement_rows(&db, "msa", MSA_ROOT).contains(&row(
+        "adhocProhibition",
+        PROHIBITION_DISABLED,
+        "primary",
+        "owner_not_loaded"
+    )));
+    assert!(
+        statement_rows(&db, "inflectionClass", INFL_CLASS_CHILD).contains(&row(
+            "allomorph",
+            ALLO_ROOT,
+            "via_ancestor",
+            "ignored"
+        ))
+    );
+    assert!(
+        statement_rows(&db, "mprFeature", REFERENCE_DANGLING_FEATURE).contains(&row(
+            "phonologicalRule",
+            RULE_REWRITE,
+            "rule_feature_required",
+            "unresolved"
+        ))
+    );
+}
+
+const CATEGORY_CHILD: &str = "00000000-0000-0000-0000-0000000000c1";
+const CATEGORY_GRANDCHILD: &str = "00000000-0000-0000-0000-0000000000c2";
+const CLASS_ROOT: &str = "00000000-0000-0000-0000-0000000000c3";
+const CLASS_MID: &str = "00000000-0000-0000-0000-0000000000c4";
+const CLASS_LEAF: &str = "00000000-0000-0000-0000-0000000000c5";
+
+fn closure_snapshot() -> Snapshot {
+    let mut source = snapshot();
+    let empty_category = |guid: &str, name: &str| PartOfSpeech {
+        guid: guid.into(),
+        name: name.into(),
+        abbreviation: name.chars().take(2).collect(),
+        children: Vec::new(),
+        inflection_classes: Vec::new(),
+        default_inflection_class: None,
+        inflectable_features: Vec::new(),
+        stem_names: Vec::new(),
+        affix_slots: Vec::new(),
+        affix_templates: Vec::new(),
+    };
+    let mut child = empty_category(CATEGORY_CHILD, "Child");
+    child
+        .children
+        .push(empty_category(CATEGORY_GRANDCHILD, "Grandchild"));
+    let pos = &mut source.morphology.parts_of_speech[0];
+    pos.children.push(child);
+    pos.inflection_classes = vec![InflectionClass {
+        guid: CLASS_ROOT.into(),
+        name: "Root class".into(),
+        abbreviation: "R".into(),
+        children: vec![InflectionClass {
+            guid: CLASS_MID.into(),
+            name: "Mid class".into(),
+            abbreviation: "M".into(),
+            children: vec![InflectionClass {
+                guid: CLASS_LEAF.into(),
+                name: "Leaf class".into(),
+                abbreviation: "L".into(),
+                children: Vec::new(),
+            }],
+        }],
+    }];
+    source
+}
+
+fn closure_rows(db: &Connection, table: &str, guids: &[&str]) -> BTreeSet<(String, String, i64)> {
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT {table}_guid, ancestor_guid, depth FROM {table}_ancestor"
+        ))
+        .unwrap();
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .filter(|(subject, _, _): &(String, String, i64)| guids.contains(&subject.as_str()))
+        .collect()
+}
+
+fn closure_row(subject: &str, ancestor: &str, depth: i64) -> (String, String, i64) {
+    (subject.into(), ancestor.into(), depth)
+}
+
+#[test]
+fn category_closure_includes_self_and_ancestors() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("closure.sqlite");
+    build(&output, closure_snapshot().to_json().as_bytes(), context()).unwrap();
+    let db = Connection::open(output).unwrap();
+    let actual = closure_rows(&db, "category", &[POS, CATEGORY_CHILD, CATEGORY_GRANDCHILD]);
+    let expected = BTreeSet::from([
+        closure_row(POS, POS, 0),
+        closure_row(CATEGORY_CHILD, CATEGORY_CHILD, 0),
+        closure_row(CATEGORY_CHILD, POS, 1),
+        closure_row(CATEGORY_GRANDCHILD, CATEGORY_GRANDCHILD, 0),
+        closure_row(CATEGORY_GRANDCHILD, CATEGORY_CHILD, 1),
+        closure_row(CATEGORY_GRANDCHILD, POS, 2),
+    ]);
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn inflection_class_closure_matches_compiler_descendants() {
+    // The compiler expands a class to itself and its recursive subclasses; the closure is that relation.
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("closure.sqlite");
+    build(&output, closure_snapshot().to_json().as_bytes(), context()).unwrap();
+    let db = Connection::open(output).unwrap();
+    let actual = closure_rows(
+        &db,
+        "inflection_class",
+        &[CLASS_ROOT, CLASS_MID, CLASS_LEAF],
+    );
+    let expected = BTreeSet::from([
+        closure_row(CLASS_ROOT, CLASS_ROOT, 0),
+        closure_row(CLASS_MID, CLASS_MID, 0),
+        closure_row(CLASS_MID, CLASS_ROOT, 1),
+        closure_row(CLASS_LEAF, CLASS_LEAF, 0),
+        closure_row(CLASS_LEAF, CLASS_MID, 1),
+        closure_row(CLASS_LEAF, CLASS_ROOT, 2),
+    ]);
+    assert_eq!(actual, expected);
+}
+
+/// The published descendants of `ancestor` in a closure table, read from the ancestor's side.
+fn published_descendants(db: &Connection, table: &str, ancestor: &str) -> BTreeSet<String> {
+    let mut statement = db
+        .prepare(&format!(
+            "SELECT {table}_guid FROM {table}_ancestor WHERE ancestor_guid = ?1"
+        ))
+        .unwrap();
+    statement
+        .query_map([ancestor], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn closure_tables_agree_with_compiler_descendants() {
+    let source = closure_snapshot();
+    let compiled = pg_grammar::compile::descendant_closures(&source).unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("closure.sqlite");
+    build(&output, source.to_json().as_bytes(), context()).unwrap();
+    let db = Connection::open(output).unwrap();
+    assert!(compiled.categories.len() >= 3 && compiled.inflection_classes.len() == 3);
+    for (table, expansion) in [
+        ("category", &compiled.categories),
+        ("inflection_class", &compiled.inflection_classes),
+    ] {
+        for (ancestor, descendants) in expansion {
+            let expected: BTreeSet<String> = descendants.iter().cloned().collect();
+            assert_eq!(
+                published_descendants(&db, table, ancestor),
+                expected,
+                "{table} {ancestor}: published closure differs from the compiler"
+            );
+        }
+        let rows: i64 = db
+            .query_row(
+                &format!("SELECT COUNT(*) FROM {table}_ancestor"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let expected_rows: usize = expansion.values().map(Vec::len).sum();
+        assert_eq!(
+            rows as usize, expected_rows,
+            "{table} closure has extra rows"
+        );
+    }
+}
+
+#[test]
+fn reverse_indexes_exist() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("indexes.sqlite");
+    build(&output, snapshot().to_json().as_bytes(), context()).unwrap();
+    let db = Connection::open(output).unwrap();
+    let indexes = text_column(
+        &db,
+        "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'",
+    );
+    for expected in [
+        "allomorph_environment_environment",
+        "environment_usage_environment",
+        "environment_natural_class_class",
+        "pattern_node_natural_class",
+        "pattern_node_phoneme",
+        "msa_slot_slot",
+        "msa_category_category",
+        "msa_entry",
+        "template_slot_slot",
+        "compiled_mapping_source",
+        "compiled_allomorph_order_source_allomorph",
+        "sense_msa",
+        "adhoc_other_target",
+    ] {
+        assert!(
+            indexes.iter().any(|name| name == expected),
+            "missing reverse index {expected}"
+        );
+    }
+}
+
+/// Subject kind and GUID, then final stage, loaded, dispositions and primary reason.
+type ObjectStates = BTreeMap<(String, String), (String, Option<i64>, String, String)>;
+/// One `load_fact` row: subject kind, GUID, stage, ordinal, key, context, disposition, loaded, reason.
+type LoadRow = (
+    String,
+    String,
+    String,
+    i64,
+    String,
+    String,
+    String,
+    Option<i64>,
+    String,
+);
+
+/// Mirrors the documented rule: compact over compile over snapshot over import, per subject.
+fn expected_object_state(db: &Connection) -> ObjectStates {
+    fn rank(stage: &str) -> i64 {
+        match stage {
+            "import" => 0,
+            "snapshot" => 1,
+            "compile" => 2,
+            "compact" => 3,
+            other => panic!("unknown stage {other}"),
+        }
+    }
+    let mut statement = db
+        .prepare(
+            "SELECT subject_kind, subject_guid, pipeline_stage, decision_ordinal, subject_key, \
+             context_key, disposition, loaded, reason_code FROM load_fact \
+             WHERE subject_guid IS NOT NULL",
+        )
+        .unwrap();
+    let rows: Vec<LoadRow> = statement
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let mut groups: BTreeMap<(String, String), Vec<_>> = BTreeMap::new();
+    for entry in rows {
+        groups
+            .entry((entry.0.clone(), entry.1.clone()))
+            .or_default()
+            .push(entry);
+    }
+    groups
+        .into_iter()
+        .map(|(subject, entries)| {
+            let final_rank = entries.iter().map(|e| rank(&e.2)).max().unwrap();
+            let at_final: Vec<_> = entries
+                .iter()
+                .filter(|e| rank(&e.2) == final_rank)
+                .collect();
+            let stage = at_final[0].2.clone();
+            let loaded = {
+                let first = at_final[0].7;
+                if first.is_some() && at_final.iter().all(|e| e.7 == first) {
+                    first
+                } else {
+                    None
+                }
+            };
+            let dispositions: BTreeSet<&str> = at_final.iter().map(|e| e.6.as_str()).collect();
+            let dispositions = dispositions.into_iter().collect::<Vec<_>>().join(",");
+            let primary = at_final
+                .iter()
+                .min_by(|a, b| (a.3, &a.4, &a.5).cmp(&(b.3, &b.4, &b.5)))
+                .unwrap()
+                .8
+                .clone();
+            (subject, (stage, loaded, dispositions, primary))
+        })
+        .collect()
+}
+
+fn stored_object_state(db: &Connection) -> ObjectStates {
+    let mut statement = db
+        .prepare(
+            "SELECT subject_kind, subject_guid, final_stage, loaded, dispositions, primary_reason \
+             FROM object_state",
+        )
+        .unwrap();
+    statement
+        .query_map([], |row| {
+            Ok((
+                (row.get(0)?, row.get(1)?),
+                (row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?),
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn object_state_prefers_compact_then_compile_then_import() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("object-state.sqlite");
+    build(
+        &output,
+        compacted_snapshot().to_json().as_bytes(),
+        context(),
+    )
+    .unwrap();
+    let db = Connection::open(output).unwrap();
+    let stored = stored_object_state(&db);
+    assert_eq!(stored, expected_object_state(&db));
+    let stages: BTreeSet<&str> = stored.values().map(|value| value.0.as_str()).collect();
+    assert!(stages.contains("compact"), "fixture compacts an object");
+    assert!(stages.contains("compile"), "fixture compiles an object");
+    let compacted = stored
+        .iter()
+        .find(|((_, guid), _)| guid == PROHIBITION_COMPACTED_TARGET)
+        .map(|(_, value)| value.clone())
+        .expect("compacted target has an object_state row");
+    assert_eq!(compacted.0, "compact");
+    assert_eq!(compacted.2, "compacted");
+}
+
+/// Subjects whose only `load_fact` rows are import rows, with their object_state values.
+fn import_only_subjects(db: &Connection) -> Vec<(String, String, Option<i64>, String)> {
+    db.prepare(
+        "SELECT o.subject_kind, o.subject_guid, o.loaded, o.final_stage FROM object_state o \
+         WHERE NOT EXISTS (SELECT 1 FROM load_fact f WHERE f.subject_kind = o.subject_kind \
+         AND f.subject_guid = o.subject_guid AND f.pipeline_stage <> 'import')",
+    )
+    .unwrap()
+    .query_map([], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
+}
+
+#[test]
+fn object_state_import_only_subjects_take_their_import_state() {
+    let fwdata =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../pg-fwdata/tests/data/fixture.fwdata");
+    let (imported, _) = pg_fwdata::import_file(&fwdata).unwrap();
+    let fixtures = [
+        snapshot(),
+        compacted_snapshot(),
+        closure_snapshot(),
+        t2_snapshot(),
+        reference_snapshot(),
+        environment_snapshot(),
+        imported,
+    ];
+    let mut checked = 0;
+    for (index, fixture) in fixtures.iter().enumerate() {
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("import-only.sqlite");
+        build(&output, fixture.to_json().as_bytes(), context()).unwrap();
+        let db = Connection::open(output).unwrap();
+        for (kind, guid, loaded, final_stage) in import_only_subjects(&db) {
+            assert_eq!(final_stage, "import", "fixture {index}: {kind} {guid}");
+            let own: Option<i64> = db
+                .query_row(
+                    "SELECT loaded FROM load_fact WHERE subject_kind = ?1 AND subject_guid = ?2 \
+                     ORDER BY decision_ordinal LIMIT 1",
+                    [&kind, &guid],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                loaded, own,
+                "fixture {index}: {kind} {guid} takes its import loaded value"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "some fixture has an import-only subject");
+}
+
+#[test]
+fn object_state_loaded_is_null_when_rows_disagree() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("object-state.sqlite");
+    build(&output, snapshot().to_json().as_bytes(), context()).unwrap();
+    let db = Connection::open(output).unwrap();
+    assert_eq!(stored_object_state(&db), expected_object_state(&db));
+    let disagreeing: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM object_state o WHERE (SELECT COUNT(DISTINCT IFNULL(f.loaded, -1)) \
+             FROM load_fact f WHERE f.subject_kind = o.subject_kind AND f.subject_guid = o.subject_guid \
+             AND f.pipeline_stage = o.final_stage) > 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        disagreeing > 0,
+        "fixture has a subject whose final-stage rows disagree"
+    );
+    let not_null_when_disagreeing: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM object_state o WHERE o.loaded IS NOT NULL AND (SELECT COUNT(DISTINCT IFNULL(f.loaded, -1)) \
+             FROM load_fact f WHERE f.subject_kind = o.subject_kind AND f.subject_guid = o.subject_guid \
+             AND f.pipeline_stage = o.final_stage) > 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(not_null_when_disagreeing, 0);
+}
+
+#[test]
+fn root_position_sharing_an_invalid_environment_exports_as_not_attempted() {
+    let mut authored = snapshot();
+    authored.phonology.environments.push(Environment {
+        guid: ENV_INVALID.into(),
+        name: "Unknown class on right".into(),
+        representation: "/_[Missing]".into(),
+    });
+    for allomorph in authored
+        .lexicon
+        .entries
+        .iter_mut()
+        .flat_map(|entry| entry.allomorphs.iter_mut())
+    {
+        if allomorph.guid == ALLO_SUFFIX {
+            allomorph.environments = vec![ENV_INVALID.into()];
+        }
+        if allomorph.guid == ALLO_ROOT {
+            allomorph.positions = vec![ENV_INVALID.into()];
+        }
+    }
+
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("shared-invalid-environment.sqlite");
+    build(&output, authored.to_json().as_bytes(), context())
+        .expect("a root position that no compiler path consumes must not abort the export");
+    let db = Connection::open(output).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT result FROM environment_usage WHERE allomorph_guid=?1 AND role='phone' AND environment_guid=?2",
+            rusqlite::params![ALLO_SUFFIX, ENV_INVALID],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        "invalid",
+        "the suffix's attempted phone edge keeps its compiler rejection"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT result FROM environment_usage WHERE allomorph_guid=?1 AND role='position' AND environment_guid=?2",
+            rusqlite::params![ALLO_ROOT, ENV_INVALID],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        "not_attempted"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT parser_effect FROM statement_reference WHERE target_kind='environment' AND target_guid=?1 AND referrer_guid=?2 AND role='position_env'",
+            rusqlite::params![ENV_INVALID, ALLO_ROOT],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        "not_attempted"
+    );
 }

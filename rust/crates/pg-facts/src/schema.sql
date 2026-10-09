@@ -79,6 +79,28 @@ CREATE TABLE inflection_class (
     abbreviation TEXT NOT NULL
 );
 
+-- Each category with itself (depth 0) and every ancestor, from category.parent_guid.
+CREATE TABLE category_ancestor (
+    category_guid TEXT NOT NULL COLLATE BINARY REFERENCES category(guid),
+    ancestor_guid TEXT NOT NULL COLLATE BINARY REFERENCES category(guid),
+    depth INTEGER NOT NULL CHECK (depth >= 0),
+    PRIMARY KEY (category_guid, ancestor_guid),
+    UNIQUE (category_guid, depth)
+) WITHOUT ROWID;
+
+CREATE INDEX category_ancestor_ancestor ON category_ancestor(ancestor_guid COLLATE BINARY);
+
+-- Each inflection class with itself (depth 0) and every ancestor, from inflection_class.parent_guid.
+CREATE TABLE inflection_class_ancestor (
+    inflection_class_guid TEXT NOT NULL COLLATE BINARY REFERENCES inflection_class(guid),
+    ancestor_guid TEXT NOT NULL COLLATE BINARY REFERENCES inflection_class(guid),
+    depth INTEGER NOT NULL CHECK (depth >= 0),
+    PRIMARY KEY (inflection_class_guid, ancestor_guid),
+    UNIQUE (inflection_class_guid, depth)
+) WITHOUT ROWID;
+
+CREATE INDEX inflection_class_ancestor_ancestor ON inflection_class_ancestor(ancestor_guid COLLATE BINARY);
+
 CREATE TABLE affix_slot (
     guid TEXT PRIMARY KEY COLLATE BINARY,
     category_guid TEXT NOT NULL COLLATE BINARY REFERENCES category(guid),
@@ -345,6 +367,19 @@ CREATE TABLE load_fact (
 );
 
 CREATE INDEX load_fact_subject_guid ON load_fact(subject_guid COLLATE BINARY);
+
+-- The final load state of each subject. Derived from load_fact by the rule in docs/grammar-facts-format.md.
+CREATE TABLE object_state (
+    subject_kind TEXT NOT NULL COLLATE BINARY,
+    subject_guid TEXT NOT NULL COLLATE BINARY,
+    final_stage TEXT NOT NULL COLLATE BINARY CHECK (final_stage IN ('import', 'snapshot', 'compile', 'compact')),
+    loaded INTEGER CHECK (loaded IN (0, 1) OR loaded IS NULL),
+    dispositions TEXT NOT NULL COLLATE BINARY,
+    primary_reason TEXT NOT NULL COLLATE BINARY,
+    PRIMARY KEY (subject_kind, subject_guid)
+) WITHOUT ROWID;
+
+CREATE INDEX object_state_guid ON object_state(subject_guid COLLATE BINARY);
 
 -- One row per compiled grammar object. Lineage, allomorph order and stats all join on output_id; key
 -- is the one spelling (canonical lowercase GUIDs, `!{n}` suffix on a collision). See docs/grammar-facts-format.md.
@@ -900,3 +935,32 @@ CREATE TABLE pattern_variable (
     feature_constraint_guid TEXT NOT NULL COLLATE BINARY,
     PRIMARY KEY (node_id, polarity, ordinal)
 );
+
+-- One row per parser-relevant reference to a grammar statement, keyed by target so "is X used, and
+-- by what" is one index seek. Derived: it repeats facts other tables hold and adds the ones they do not.
+-- parser_effect is the compiler's outcome for the referrer; see docs/grammar-facts-format.md.
+CREATE TABLE statement_reference (
+    target_kind TEXT NOT NULL COLLATE BINARY CHECK (target_kind IN ('environment', 'naturalClass', 'phoneme', 'boundary', 'category', 'inflectionClass', 'slot', 'exceptionFeature', 'feature', 'featureValue', 'featureConstraint', 'stemName', 'msa', 'allomorph', 'template', 'entry', 'sense', 'inflType', 'variantType', 'mprFeature')),
+    target_guid TEXT NOT NULL COLLATE BINARY,
+    referrer_kind TEXT NOT NULL COLLATE BINARY CHECK (referrer_kind IN ('allomorph', 'environment', 'affixProcess', 'phonologicalRule', 'compoundRule', 'msa', 'template', 'inflType', 'adhocProhibition', 'naturalClass', 'phoneme', 'category', 'stemName', 'featureConstraint', 'sense', 'entry')),
+    referrer_guid TEXT NOT NULL COLLATE BINARY,
+    role TEXT NOT NULL COLLATE BINARY CHECK (role IN ('phone_env', 'position_env', 'inflection_class', 'required_category', 'stem_name', 'required_features', 'env_token', 'env_segment', 'process_input', 'process_insert', 'process_modify', 'rewrite_lhs', 'rewrite_sc', 'rewrite_left_context', 'rewrite_right_context', 'metathesis_pattern', 'rewrite_pos', 'rule_feature_required', 'rule_feature_excluded', 'rule_variable', 'pattern_variable', 'left_category', 'left_exception', 'right_category', 'right_exception', 'outcome_category', 'outcome_class', 'pos', 'from_pos', 'to_pos', 'clitic_from', 'class', 'from_class', 'to_class', 'from_stem_name', 'slot', 'clitic_slot', 'required', 'from_required', 'to_required', 'features', 'from_features', 'to_features', 'prefix_slot', 'suffix_slot', 'primary', 'other', 'default_class', 'inflectable_feature', 'template', 'region', 'constraint_feature', 'msa', 'variant_component', 'variant_type', 'class_member', 'class_effective_member', 'form_segment', 'via_ancestor')),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    parser_effect TEXT NOT NULL COLLATE BINARY CHECK (parser_effect IN ('applied', 'ignored', 'unresolved', 'owner_not_loaded', 'not_attempted')),
+    PRIMARY KEY (target_kind, target_guid, referrer_kind, referrer_guid, role, ordinal)
+) WITHOUT ROWID;
+
+-- Reverse lookups from a referenced object to the rows that name it, for drill-down views.
+CREATE INDEX allomorph_environment_environment ON allomorph_environment(environment_guid COLLATE BINARY);
+CREATE INDEX environment_usage_environment ON environment_usage(environment_guid COLLATE BINARY);
+CREATE INDEX environment_natural_class_class ON environment_natural_class(natural_class_guid COLLATE BINARY);
+CREATE INDEX pattern_node_natural_class ON pattern_node(natural_class_guid COLLATE BINARY);
+CREATE INDEX pattern_node_phoneme ON pattern_node(phoneme_guid COLLATE BINARY);
+CREATE INDEX msa_slot_slot ON msa_slot(slot_guid COLLATE BINARY);
+CREATE INDEX msa_category_category ON msa_category(category_guid COLLATE BINARY);
+CREATE INDEX msa_entry ON msa(entry_guid COLLATE BINARY);
+CREATE INDEX template_slot_slot ON template_slot(slot_guid COLLATE BINARY);
+CREATE INDEX compiled_mapping_source ON compiled_mapping(source_guid COLLATE BINARY);
+CREATE INDEX compiled_allomorph_order_source_allomorph ON compiled_allomorph_order(source_allomorph_guid COLLATE BINARY);
+CREATE INDEX sense_msa ON sense(msa_guid COLLATE BINARY);
+CREATE INDEX adhoc_other_target ON adhoc_other(target_guid COLLATE BINARY);
