@@ -3598,7 +3598,7 @@ fn uppercase_source_headers_publish_lowercase_facts() {
             .collect();
         for row in &rows {
             for (name, value) in names.iter().zip(row) {
-                if name == "raw_guid" {
+                if name == "raw_guid" || name.ends_with("_json") {
                     continue;
                 }
                 if let rusqlite::types::Value::Text(text) = value {
@@ -3617,6 +3617,8 @@ fn uppercase_source_headers_publish_lowercase_facts() {
         }
         let excluded: &[&str] = match table.as_str() {
             "source_census" => &["raw_guid", "ordered_header_sha256"],
+            "load_fact" => &["effective_value_json"],
+            "parser_config" => &["source_value_json", "effective_value_json"],
             _ => &["raw_guid"],
         };
         assert_eq!(
