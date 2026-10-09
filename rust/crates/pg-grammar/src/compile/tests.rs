@@ -37,6 +37,77 @@ fn warning_metadata(warning: &pg_snapshot::Warning) -> pg_snapshot::ImportWarnin
 }
 
 #[test]
+fn missing_natural_class_reports_info_and_drops_the_entire_environment() {
+    let (mut snapshot, _) = fixture();
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "missing-class-environment".into(),
+            name: "Missing class probe".into(),
+            representation: "/ k [Absent] _".into(),
+        });
+    for entry in &mut snapshot.lexicon.entries {
+        for allomorph in &mut entry.allomorphs {
+            allomorph
+                .environments
+                .push("missing-class-environment".into());
+        }
+    }
+    let compiled = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let resolution = compiled
+        .environment_resolutions
+        .iter()
+        .find(|resolution| resolution.environment_guid == "missing-class-environment")
+        .unwrap();
+    assert_eq!(
+        resolution.status,
+        super::EnvironmentResolutionStatus::Invalid
+    );
+    assert!(resolution.left.is_none() && resolution.right.is_none());
+    assert_eq!(resolution.class_tokens[0].token_text, "[Absent]");
+    assert!(resolution.class_tokens[0].natural_class_index.is_none());
+    let findings = compiled
+        .warnings
+        .iter()
+        .filter(|warning| warning.code == "grammar.environment.missing-natural-class")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        findings.len(),
+        1,
+        "one cached owner result must produce one Info finding"
+    );
+    let diagnostic =
+        crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(findings[0]);
+    assert_eq!(diagnostic.level, pg_snapshot::DiagnosticLevel::Info);
+    assert!(diagnostic.message.contains("[Absent]"));
+    assert!(diagnostic.message.contains("entire environment"));
+    assert_eq!(
+        diagnostic.subjects[0].guid.as_deref(),
+        Some("missing-class-environment")
+    );
+    let outcome = pg_parse::Morpher::new(&compiled.grammar, 100_000).parse_word("kumata");
+    assert!(!outcome.capped && !outcome.timed_out && !outcome.invalid_shape);
+    assert!(
+        !outcome.analyses.is_empty(),
+        "the surviving literal k restriction must also be dropped"
+    );
+    snapshot.phonology.environments[0].representation = "/ k _".into();
+    let repaired = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert!(!repaired
+        .warnings
+        .iter()
+        .any(|warning| warning.code == "grammar.environment.missing-natural-class"));
+    assert!(
+        pg_parse::Morpher::new(&repaired.grammar, 100_000)
+            .parse_word("kumata")
+            .analyses
+            .is_empty(),
+        "the valid literal environment must bind"
+    );
+}
+
+#[test]
 fn featureless_phoneme_info_requires_a_feature_condition() {
     for class_count in [0, 1, 2] {
         let (mut snapshot, _) = fixture();

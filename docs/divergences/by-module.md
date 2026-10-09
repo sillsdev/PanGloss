@@ -146,6 +146,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `CharacterDefinitionTable.Add`, feature unification | `pg-foma/src/lower.rs::class_members`, `structural_allomorph.rs::context_members` | [073](073-provisional-letter-no-natural-class.md), [074](074-featureless-phoneme-no-feature-class.md) |
 | constrained-class subsumption / analysis-side unification | `pg-grammar-model/src/membership.rs::class_bits`, `segment.rs::nat_class_cd_set_with_constraints`; `pg-rules` matching and Foma owner calls | [076](076-underdefined-natural-class-membership-decision.md) |
 | literal representation unification | `pg-parse/src/surface.rs::matching_reps_for_node`; `pg-grammar-model/src/membership.rs::literal_lanes`, `chardef.rs::literal_constraint_lanes` | [076](076-underdefined-natural-class-membership-decision.md) |
+| FieldWorks environment export / `HCLoader.InvalidEnvironment` | `pg-grammar/src/compile/environment.rs::nodes_from_spanned`, `mod.rs::Ctx::environment_resolution`; `pg-snapshot` warning metadata | [077](077-missing-natural-class-environment-info.md) |
 
 XAMPLE/C# measurements and staged fixtures for these entries come from a separate lane.
 

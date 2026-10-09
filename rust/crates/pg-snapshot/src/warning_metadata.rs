@@ -500,6 +500,13 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[],
             Some(PARSER_HELP),
         ),
+        EnvironmentMissingNaturalClass => advice(
+            "Environment names a missing natural class",
+            "A phonological environment names a natural class that does not exist. PanGloss discards the entire environment, including its other contexts, as FieldWorks and C# HermitCrab do. This can make an allomorph available in more positions.",
+            "In Grammar > Natural Classes, define the named class or correct its abbreviation in Grammar > Environments. Check the allomorph's intended distribution in Lexicon > Lexicon Edit > Allomorphs > Environments.",
+            &[("EnvironmentEdit", "String Representation"), ("lexiconEdit", "Allomorphs > Environments")],
+            Some(ALLOMORPHS_HELP),
+        ),
         EnvironmentInvalid => advice(
             "Invalid phonological environment",
             "The environment expression could not be parsed and is ignored as a restriction.",
@@ -837,6 +844,7 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::CircumfixEnvironmentCombinationSkipped => DiagnosticLevel::Warning,
         ImportWarningCode::EnvironmentUnresolved => DiagnosticLevel::Error,
         ImportWarningCode::EnvironmentInvalid => DiagnosticLevel::Warning,
+        ImportWarningCode::EnvironmentMissingNaturalClass => DiagnosticLevel::Info,
         ImportWarningCode::CompileFailed => DiagnosticLevel::Error,
         ImportWarningCode::TemplateSlotUnresolved => DiagnosticLevel::Warning,
         ImportWarningCode::TemplateSlotNoRules => DiagnosticLevel::Warning,

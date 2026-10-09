@@ -892,6 +892,27 @@ impl Ctx<'_> {
         }
         let result =
             environment::resolve_environment_expression(&env.guid, &env.representation, self);
+        if let Some(token) = result
+            .class_tokens
+            .iter()
+            .find(|token| token.natural_class_index.is_none())
+        {
+            self.owner_warnings.borrow_mut().push(
+                pg_snapshot::Warning::new(
+                    ImportWarningCode::EnvironmentMissingNaturalClass,
+                    format!(
+                        "Environment {:?} names nonexistent natural class {}; the entire environment is discarded, as in FieldWorks and C# HermitCrab.",
+                        env.representation, token.token_text
+                    ),
+                )
+                .with_subject(
+                    pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::PhEnvironment)
+                        .guid(env.guid.clone())
+                        .name(env.representation.clone())
+                        .field("StringRepresentation"),
+                ),
+            );
+        }
         self.environment_resolutions
             .borrow_mut()
             .insert(env.guid.clone(), result.clone());

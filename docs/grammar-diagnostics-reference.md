@@ -98,13 +98,14 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [conversion.unsupported-construct](diagnostics/conversion.unsupported-construct.md) | Reduplication inventory check is unsupported | In Lexicon > Lexicon Edit, inspect the allomorph form. Keep an accurate pattern and report it; change it only if an equivalent supported representation is known. |
 | [substrate.position-unmapped](diagnostics/substrate.position-unmapped.md) | Allomorph character position is unmapped | In Lexicon > Lexicon Edit, inspect the named position in the form. Correct an unintended character; if FieldWorks displays the intended spelling, report the mapping problem and diagnostic details. |
 
-## Information (8)
+## Information (9)
 
 | Code | Title | What to do |
 |---|---|---|
 | [provisional.phoneme-features](diagnostics/provisional.phoneme-features.md) | Phoneme has no features | In Grammar > Phonemes, select the named phoneme and assign its Phonological Features to replace this provisional definition. |
 | [fwdata.only-first-used](diagnostics/fwdata.only-first-used.md) | Only the first phoneme set is used | In Grammar > Phonemes, check that the intended inventory appears in the first set. If it does, no change is needed; otherwise report the limitation before reorganizing the project. |
 | [grammar.allomorph.morph-type-unsupported-as-rule-form](diagnostics/grammar.allomorph.morph-type-unsupported-as-rule-form.md) | Loaded through separate parts | In Lexicon > Lexicon Edit, no change is needed when the separate parts are the intended parser representation. |
+| [grammar.environment.missing-natural-class](diagnostics/grammar.environment.missing-natural-class.md) | Environment names a missing natural class | In Grammar > Natural Classes, define the named class or correct its abbreviation in Grammar > Environments. Check the allomorph's intended distribution in Lexicon > Lexicon Edit > Allomorphs > Environments. |
 | [grammar.mrule.unreachable-compacted](diagnostics/grammar.mrule.unreachable-compacted.md) | Unreachable affix omitted | No change is needed if the affix is intentionally unused. Otherwise inspect its category's Affix Templates in Grammar > Category Edit and its Grammatical Info. in Lexicon > Lexicon Edit. |
 | [grammar.cooccurrence.target-unreachable](diagnostics/grammar.cooccurrence.target-unreachable.md) | Unused ad hoc rule omitted | No change is needed if the rule is intentionally unused. Otherwise check its target affix's Grammatical Info. in Lexicon > Lexicon Edit and Affix Templates in Grammar > Category Edit, then review Grammar > Ad hoc Rules. |
 | [grammar.natclass.unreferenced-compacted](diagnostics/grammar.natclass.unreferenced-compacted.md) | Unused natural class omitted | No change is needed if the class is intentionally unused. If it should be used, inspect the relevant rule in Grammar > Phonological Rules or String Representation in Grammar > Environments. |

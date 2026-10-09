@@ -26,6 +26,9 @@ defined one definition at a time, with no cliff.
 
 - A fully defined project still parses exactly as C# HermitCrab does; the oracle hierarchy in
   `CLAUDE.md` is unchanged for it.
+- An environment naming a nonexistent natural class is discarded in full, as FieldWorks and C#
+  HermitCrab do. PanGloss reports the missing class and whole-environment drop as Info; the lead
+  retained this behavior after native-engine measurement (ledger 077). No wildcard class is inferred.
 - Every behaviour a provisional definition introduces is a divergence: one ledger entry under
   `docs/divergences/`, one staged conformance fixture recording XAMPLE, C# HermitCrab and PanGloss
   results, and a gate that fails on any difference from either engine the ledger does not list. The
