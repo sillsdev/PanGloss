@@ -86,9 +86,13 @@ Test-Case 'classification itself never deletes anything' {
 }
 
 Test-Case 'dry run (-Apply not passed) deletes nothing, regardless of class' {
+    $expectedBytes = [long]((Get-ChildItem -LiteralPath $dirLegacyFlag, $dirDisposable -Recurse -Force -File |
+        Measure-Object -Property Length -Sum).Sum)
     $r = Invoke-TargetGc -Classification $classification -Apply:$false -Roots @($root)
     Assert-True $r.Skipped
     Assert-Equal 0 $r.Deleted.Count
+    Assert-Equal 0 $r.BytesFreed 'dry-run must free no file bytes'
+    Assert-Equal $expectedBytes $r.BytesWouldFree 'dry-run bytes must match the disposable files still present'
     foreach ($d in @($dirUnknown, $dirLegacyFlag, $dirLive, $dirDisposable, $dirOtherRepo)) {
         Assert-True (Test-Path $d) "dry run must not have deleted $d"
     }
@@ -125,15 +129,28 @@ Test-Case 'gc queries exactly the shared compiler and linker names' {
         [PSCustomObject]@{ Name = 'cargo-nextest.exe' },
         [PSCustomObject]@{ Name = 'pangloss.exe' }
     )
-    $expectedNames = @('rustc.exe', 'cargo.exe', 'link.exe', 'lld-link.exe', 'rust-lld.exe')
-    $expectedFilter = @($expectedNames | ForEach-Object { "Name='$_'" }) -join ' or '
-
-    try {
-        $names = @(Get-LiveBuildProcesses | ForEach-Object { $_.Name })
-        Assert-Equal ($expectedNames -join ',') ($names -join ',')
-        Assert-Equal $expectedFilter $script:LastCimFilter 'the WQL query must be derived from the exact gc process set'
-    } finally {
-        $script:FakeCimProcessRows = @()
+    if ($IsLinux) {
+        $linuxRows = @(
+            [PSCustomObject]@{ Name = 'rustc'; Argv0 = 'rustc'; Arguments = @('rustc'); CommandLine = 'rustc'; Cwd = '/tmp' },
+            [PSCustomObject]@{ Name = 'cargo'; Argv0 = 'cargo'; Arguments = @('cargo'); CommandLine = 'cargo'; Cwd = '/tmp' },
+            [PSCustomObject]@{ Name = 'ld.lld'; Argv0 = 'ld.lld'; Arguments = @('ld.lld'); CommandLine = 'ld.lld'; Cwd = '/tmp' },
+            [PSCustomObject]@{ Name = 'mold'; Argv0 = 'mold'; Arguments = @('mold'); CommandLine = 'mold'; Cwd = '/tmp' },
+            [PSCustomObject]@{ Name = 'pangloss'; Argv0 = 'pangloss'; Arguments = @('pangloss'); CommandLine = 'pangloss'; Cwd = '/tmp' },
+            [PSCustomObject]@{ Name = 'sccache'; Argv0 = 'sccache'; Arguments = @('sccache'); CommandLine = 'sccache'; Cwd = '/tmp' },
+            [PSCustomObject]@{ Name = 'sleep'; Argv0 = 'sleep'; Arguments = @('sleep'); CommandLine = 'sleep'; Cwd = '/tmp' }
+        )
+        $names = @(Get-LinuxLiveBuildProcesses -Snapshot $linuxRows | ForEach-Object { $_.Name })
+        Assert-Equal 'rustc,cargo,ld.lld,mold,pangloss,sccache' ($names -join ',') 'Linux gc must select compiler, linker, Pangloss, and shared-cache activity names'
+    } else {
+        $expectedNames = @('rustc.exe', 'cargo.exe', 'link.exe', 'lld-link.exe', 'rust-lld.exe')
+        $expectedFilter = @($expectedNames | ForEach-Object { "Name='$_'" }) -join ' or '
+        try {
+            $names = @(Get-LiveBuildProcesses | ForEach-Object { $_.Name })
+            Assert-Equal ($expectedNames -join ',') ($names -join ',')
+            Assert-Equal $expectedFilter $script:LastCimFilter 'the WQL query must be derived from the exact gc process set'
+        } finally {
+            $script:FakeCimProcessRows = @()
+        }
     }
 }
 
@@ -156,26 +173,36 @@ Test-Case 'a live build naming THIS directory does block it' {
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
     Set-Content -Path (Join-Path $probe 'filler.bin') -Value 'x'
     Get-ChildItem -LiteralPath $probe -Recurse -File | ForEach-Object { $_.LastWriteTime = (Get-Date).AddHours(-3) }
-    $claimer = [PSCustomObject]@{ Name = 'cargo.exe'; CommandLine = "cargo build --target-dir $probe" }
+    $claimedPath = if ($IsLinux) { Join-Path $probe 'debug/deps' } else { $probe }
+    $claimer = [PSCustomObject]@{
+        Name = if ($IsLinux) { 'cargo' } else { 'cargo.exe' }
+        CommandLine = "cargo build --target-dir $claimedPath"
+        Arguments = @('cargo', 'build', '--target-dir', $claimedPath)
+    }
     $classified = [PSCustomObject]@{ Path = $probe; Class = 'disposable'; SizeGB = 0 }
     $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses @($claimer) -Roots @($root)
     Assert-Equal 0 $r.Deleted.Count
+    Assert-Equal 0 $r.BytesFreed 'a claimed target directory must contribute no freed bytes'
+    Assert-Equal 1 $r.SkippedDirs.Count 'a claimed directory must be counted as skipped'
     Assert-True (Test-Path $probe) 'a directory a live build names must survive'
-    Assert-True ($r.SkipReason -match 'command line') "skip reason must say why: $($r.SkipReason)"
+    Assert-True ($r.SkippedDirs[0].Reason -match 'uses or names') 'the skip must identify the live process path claim'
 }
 
-Test-Case 'link.exe and both LLD linkers restrict gc to their named target directory' {
-    foreach ($n in 'link.exe', 'lld-link.exe', 'rust-lld.exe') {
+Test-Case 'compiler linkers restrict gc to their named target directory' {
+    $linkers = if ($IsLinux) { @('cc', 'ld.lld', 'mold', 'rust-lld') } else { @('link.exe', 'lld-link.exe', 'rust-lld.exe') }
+    foreach ($n in $linkers) {
         $busyDir = New-FakeTarget -Root $root -Name "busy-$($n.Replace('.', '-'))" -Marker $null
         $unrelatedDir = New-FakeTarget -Root $root -Name "free-$($n.Replace('.', '-'))" -Marker $null
         $process = [PSCustomObject]@{
             Name = $n
             CommandLine = "$n --target-dir $busyDir"
+            Argv0 = $n
+            Arguments = @($n, '--target-dir', $busyDir)
         }
         $script:FakeCimProcessRows = @($process)
 
         try {
-            $busy = @(Get-LiveBuildProcesses)
+            $busy = if ($IsLinux) { @(Get-LinuxLiveBuildProcesses -Snapshot @($process)) } else { @(Get-LiveBuildProcesses) }
             Assert-Equal 1 $busy.Count "$n must be returned by the live-build process query"
             Assert-Equal $n $busy[0].Name
 
@@ -202,14 +229,18 @@ Test-Case 'a recently written directory blocks itself, since CARGO_TARGET_DIR na
     $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses @() -Roots @($root)
     Assert-Equal 0 $r.Deleted.Count
     Assert-True (Test-Path $probe) 'a directory written to seconds ago must survive'
-    Assert-True ($r.SkipReason -match 'last') "skip reason must name the recency: $($r.SkipReason)"
+    Assert-True ($r.SkippedDirs[0].Reason -match 'last') 'the per-directory skip reason must name the recency'
 }
 
 Test-Case '-Apply with no busy processes deletes ONLY the disposable directories' {
+    $expectedBytes = [long]((Get-ChildItem -LiteralPath $dirLegacyFlag, $dirDisposable -Recurse -Force -File |
+        Measure-Object -Property Length -Sum).Sum)
     $r = Invoke-TargetGc -Classification $classification -Apply:$true -BusyProcesses @() -Roots @($root)
     Assert-False $r.Skipped
     # Two, not one: the legacy-flag dir joined this class when `preserved` stopped being consulted.
     Assert-Equal 2 $r.Deleted.Count
+    Assert-Equal $expectedBytes $r.BytesFreed 'reported file bytes must match the files removed'
+    Assert-Equal $expectedBytes $r.BytesWouldFree 'the pre-delete file-byte count must match the final removal count'
     Assert-Contains $r.Deleted $dirDisposable
     Assert-Contains $r.Deleted $dirLegacyFlag
     Assert-False (Test-Path $dirDisposable) 'the disposable directory must actually be removed'
@@ -229,6 +260,24 @@ Test-Case 'a disposable path outside every configured root is refused, not delet
     Assert-True $threw 'deleting a path outside every configured root must throw'
     Assert-True (Test-Path $outside) 'the out-of-root directory must still exist'
     Remove-Item -Recurse -Force $outside -ErrorAction SilentlyContinue
+}
+
+if ($IsLinux) {
+    Test-Case 'Linux containment compares target roots with case-sensitive paths' {
+        $caseRoot = Join-Path $root 'CaseRoot'
+        $caseSibling = Join-Path $root 'caseroot'
+        $outside = Join-Path $caseSibling 'target'
+        New-Item -ItemType Directory -Force -Path $caseRoot, $outside | Out-Null
+        Set-Content -LiteralPath (Join-Path $outside 'filler.bin') -Value 'bytes'
+        Get-Item -LiteralPath (Join-Path $outside 'filler.bin') | ForEach-Object { $_.LastWriteTime = (Get-Date).AddHours(-3) }
+        $classified = @([PSCustomObject]@{ Path = $outside; Class = 'disposable'; SizeGB = 0 })
+        $threw = $false
+        try { Invoke-TargetGc -Classification $classified -Apply -BusyProcesses @() -Roots @($caseRoot) } catch {
+            $threw = $_.Exception.Message -match 'not contained in any configured cache root'
+        }
+        Assert-True $threw 'a case-distinct sibling directory must not pass Linux cache-root containment'
+        Assert-True (Test-Path -LiteralPath $outside) 'the sibling target must remain untouched'
+    }
 }
 
 Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue

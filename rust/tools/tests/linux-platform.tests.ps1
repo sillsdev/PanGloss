@@ -492,7 +492,7 @@ Committed_AS:   2048 kB
         Assert-False ($text -match 'event-2004') 'Linux host proof report must not claim Windows event enforcement anywhere'
     }
 
-    Test-Case 'Unsupported platforms and Linux gc refuse before platform-specific work' {
+    Test-Case 'Unsupported platforms refuse early and Linux gc uses its proc adapter' {
         $common = Get-Content (Join-Path $toolRoot '_common.ps1') -Raw
         $pg = Get-Content (Join-Path $toolRoot 'pg.ps1') -Raw
         $unsupportedAt = $pg.IndexOf('if (-not $IsWindows -and -not $IsLinux)', [StringComparison]::Ordinal)
@@ -503,15 +503,15 @@ Committed_AS:   2048 kB
         Assert-True ($unsupportedAt -lt $resolveAt -and $unsupportedAt -lt $preflightAt) 'unsupported refusal must precede target resolution and preflight'
         Assert-True ($pg.IndexOf('ExitCodeUnsupportedPlatform', $unsupportedAt, [StringComparison]::Ordinal) -ge 0) 'unsupported platforms need a distinct refusal exit code'
         Assert-True ($pg.IndexOf('unsupported platform', $unsupportedAt, [StringComparison]::Ordinal) -ge 0) 'unsupported platform refusal must provide an actionable message'
-        $gcGuardAt = $pg.LastIndexOf('if ($IsLinux -and $Mode -eq ''gc'')', [StringComparison]::Ordinal)
         $gcAt = $pg.LastIndexOf('if ($Mode -eq ''gc'')', [StringComparison]::Ordinal)
         $linuxProofAt = $pg.LastIndexOf('if ($IsLinux -and $Mode -notin @(''gc'', ''new-worktree'', ''remove-worktree''))', [StringComparison]::Ordinal)
-        Assert-True ($gcGuardAt -ge 0 -and $gcGuardAt -lt $gcAt) 'Linux gc must have an early refusal guard before the Windows process-snapshot branch'
-        Assert-True ($gcGuardAt -lt $repoAt -and $gcGuardAt -lt $resolveAt -and $gcGuardAt -lt $preflightAt) 'Linux gc refusal must precede repo, target, and preflight work'
-        Assert-True ($pg.IndexOf('ExitCodeLinuxGcUnsupported', $gcGuardAt, [StringComparison]::Ordinal) -ge 0) 'Linux gc needs a distinct refusal exit code'
-        Assert-True ($pg.IndexOf('Linux gc', $gcGuardAt, [StringComparison]::Ordinal) -ge 0) 'Linux gc refusal must provide an actionable message'
-        Assert-True ($gcAt -ge 0 -and $linuxProofAt -ge 0 -and $gcAt -gt $linuxProofAt) 'Linux gc must be ordered after its explicit preflight exclusion'
-        Assert-True ($gcAt -lt $pg.IndexOf('Get-ProcessSnapshot', [StringComparison]::Ordinal)) 'Linux gc must enter its early branch before process-specific work'
+        Assert-True ($gcAt -ge 0 -and $linuxProofAt -ge 0 -and $gcAt -gt $linuxProofAt) 'gc must remain after the explicit Linux containment-preflight exclusion'
+        Assert-True ($pg.IndexOf('if ($IsLinux -and $Mode -eq ''gc'')', [StringComparison]::Ordinal) -lt 0) 'Linux gc must not retain an unconditional early refusal branch'
+        Assert-True ($pg.IndexOf('ExitCodeLinuxGcUnsupported', [StringComparison]::Ordinal) -lt 0) 'Linux gc must not retain its unconditional unsupported exit'
+        Assert-True ($common.IndexOf('ExitCodeGcUnsafe', [StringComparison]::Ordinal) -ge 0) 'Linux gc must retain a refusal code for incomplete ownership evidence'
+        Assert-True ($pg.IndexOf('Get-LinuxProcessSnapshot', $gcAt, [StringComparison]::Ordinal) -gt $gcAt) 'Linux gc must use the /proc process census'
+        Assert-True ($pg.IndexOf('Remove-LinuxOrphanedBuildProcesses', $gcAt, [StringComparison]::Ordinal) -gt $gcAt) 'Linux gc must run the ownership-aware orphan selector'
+        Assert-True ($pg.IndexOf('Get-LinuxAgedBuildSlotRefusals', $gcAt, [StringComparison]::Ordinal) -gt $gcAt) 'Linux gc must report aged live slot records rather than terminate their holders'
     }
 
     Test-Case 'Linux direct process branch captures child cwd stdout and exit code' {

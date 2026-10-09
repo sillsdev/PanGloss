@@ -15,7 +15,7 @@ mechanism has one clear responsibility.
 | Process priority | `BelowNormal` by default; `Idle` for low-impact helpers | Gives ordinary interactive work preference without changing compiler correctness. |
 | Cache pressure | sccache is started and checked at `BelowNormal` priority | Keeps the cache service from becoming the foreground workload. |
 | Disk pressure | Worktree and target-volume checks | Refuses operations that would exhaust the build volume. |
-| Child cleanup | Direct-process exit cleanup with `taskkill /T /F` | Prevents a failed launcher from leaving its descendant tree behind. |
+| Child cleanup | Direct-process exit cleanup with `taskkill /T /F` on Windows and process-handle cleanup on Linux | Prevents a failed launcher from leaving its direct child behind. |
 
 Admission is deliberately a spawn gate, not a promise that memory remains
 constant for the lifetime of a process. A memory estimate is used to choose a
@@ -44,6 +44,27 @@ the test suite.
 The direct adapter intentionally has no hidden CPU-rate, process-membership,
 or per-invocation memory control. Compiler width and slot admission are the
 controls that remain observable and testable.
+
+## Garbage collection
+
+`pg.ps1 -Mode gc` uses the same ownership markers, worktree liveness, recent-write
+check, and cache-root containment on both platforms. Linux reads process identity
+and ancestry from `/proc`, then matches live compiler and Pangloss processes
+against build and run slot records, their recorded worktree, and their target
+directory. It kills only a same-user process whose direct parent is a recognized
+reaper after that ownership check: PID 1, a WSL init relay (`Relay(<pid>)` or
+`/init` as the executable or argv0), or `systemd --user`. Reaching one of these
+reapers higher in the ancestry does not make a process orphaned while an ordinary
+parent is still alive. Incomplete process or slot evidence refuses the affected
+cleanup and names the reason. An aged slot holder that is still alive remains
+untouched because Linux cannot prove its full process tree is idle.
+Linux target roots come from `PANGLOSS_SSD_CACHE_ROOT`,
+`PANGLOSS_CARGO_CACHE_ROOT`, and `PANGLOSS_TARGET_ROOT`. An explicit
+`CARGO_TARGET_DIR` is swept only when it is a child of one of those roots; an
+out-of-root target is reported and left alone. Incomplete ownership or an
+unscoped explicit target refuses target cleanup with exit code 24. The report
+counts confirmed process exits and file bytes removed from deleted target
+directories.
 
 ## Why the wrapper was removed
 

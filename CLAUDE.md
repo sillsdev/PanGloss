@@ -69,8 +69,8 @@ Nothing enforces these. They are here because they change what a careful agent d
 - **Assume agents self-verify badly.** Re-run their gates with the fix reverted before believing any
   of it. *Scar: two agents shipped regression gates that passed with their own fix removed; one
   reported a feature implemented while its guard sat behind `if false &&`.*
-- **Reap on report.** Kill stray `cargo`/`rustc`/`link`/`pangloss` when an agent finishes.
-  `pg.ps1 -Mode gc` does it; nothing calls it for you.
+- **Reap on report.** Kill verified orphan `cargo`/`rustc`/linker/`pangloss` processes when an
+  agent finishes. `pg.ps1 -Mode gc` does it; Linux ownership checks live in `rust/tools/_linux_gc.ps1`.
 - **Probe pathological grammars single-threaded.** `pangloss batch --threads 1` plus
   `--word-timeout-ms`. *Scar: one probe reached 30+GB RSS and never finished; the same work took ~2
   minutes single-threaded.*
