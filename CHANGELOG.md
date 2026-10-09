@@ -3,6 +3,26 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.8.1
+
+### Words built by merging rules parse faster
+
+- Undoing a narrowing rule during analysis now merges each left-hand-side segment into the surface
+  segment it matched, adding only the leftovers as optional segments, instead of making the whole
+  match optional. Words built from merges (for example consonant plus vowel into one syllable
+  character) explore far fewer paths. Results are unchanged (divergence 087).
+
+### A narrowing rule no longer loses a parse across an optional segment
+
+- Analysis of a narrowing rule used to drop a match wider than its right-hand side, so a word
+  whose underlying form had an optional segment between two right-hand-side segments did not
+  parse. It now does. C# HermitCrab has the same defect (divergence 083).
+
+### The Windows binary builds again
+
+- v0.8.0 was tagged but never published: its Windows build failed. The Windows file check behind
+  the frozen-batch hard-link refusal now builds, and its tests run on Windows as well as Unix.
+
 ## 0.8.0
 
 ### Projects with incomplete phonology run, with provisional definitions
