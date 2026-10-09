@@ -19,32 +19,12 @@ use pg_rules::stratum::{
 };
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::Word;
-use pg_shape::{NodeKind, Shape, ShapeBuilder};
+use pg_shape::Shape;
 
 // ---- shape / word / rule builders (mirrors max_apps_gate.rs) ----------------------------------
 
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
-    let t = &g.char_tables[0];
-    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
-    let w = g.phon_features.len() as u32;
-    let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
-    for (_, kind, cd, _) in seg.interior() {
-        let mut lanes = vec![u64::MAX; w as usize];
-        for (i, &l) in t
-            .get(pg_grammar_model::chardef::CharDefId(cd))
-            .feature_lanes()
-            .iter()
-            .enumerate()
-        {
-            lanes[i] = l;
-        }
-        match kind {
-            NodeKind::Segment => b.push_segment_with_lanes(cd, &lanes),
-            NodeKind::Boundary => b.push_boundary_with_lanes(cd, &lanes),
-            _ => {}
-        }
-    }
-    b.finish()
+    pg_rules::shape_feat::segment_with_features(g, &g.char_tables[0], text).unwrap()
 }
 fn ctx(nc: &str, g: &Grammar) -> SimpleContext {
     common::ctx(common::nat_class(g, nc))

@@ -4,7 +4,6 @@
 mod common;
 
 use common::{load_alpha_grammar, nat_class};
-use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, CompoundingRuleDef, CompoundingSubruleDef,
     Grammar, MorphRuleDef, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
@@ -12,28 +11,13 @@ use pg_grammar_model::model::{
 };
 use pg_rules::morph::{analyze, synthesize};
 use pg_rules::{MorphRecord, Word};
-use pg_shape::{NodeKind, Shape, ShapeBuilder};
+use pg_shape::{NodeKind, Shape};
 
 // ---- shape / word builders -----------------------------------------------------------------
 
 /// Build a feature-bearing shape from `text`, filling per-node lanes so feature matching is real.
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
-    let t = &g.char_tables[0];
-    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
-    let w = g.phon_features.len() as u32;
-    let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
-    for (_, kind, cd, _) in seg.interior() {
-        let mut lanes = vec![u64::MAX; w as usize];
-        for (i, &l) in t.get(CharDefId(cd)).feature_lanes().iter().enumerate() {
-            lanes[i] = l;
-        }
-        match kind {
-            NodeKind::Segment => b.push_segment_with_lanes(cd, &lanes),
-            NodeKind::Boundary => b.push_boundary_with_lanes(cd, &lanes),
-            _ => {}
-        }
-    }
-    b.finish()
+    pg_rules::shape_feat::segment_with_features(g, &g.char_tables[0], text).unwrap()
 }
 
 /// The interior segment/boundary char-def id sequence of a shape (for assertions).

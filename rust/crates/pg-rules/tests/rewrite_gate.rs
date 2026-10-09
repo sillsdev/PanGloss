@@ -8,7 +8,7 @@ use pg_featstruct::FeatureStruct;
 use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::model::AnchorSide;
 use pg_grammar_model::model::{
-    Dir, NatClassId, Pattern, PatternNode, RewriteMode, RewriteRuleDef, RewriteSubruleDef,
+    Dir, Grammar, NatClassId, Pattern, PatternNode, RewriteMode, RewriteRuleDef, RewriteSubruleDef,
 };
 use pg_grammar_model::model::{MprId, MprSet, PRuleId};
 use pg_rules::trace::{FailureReason, TraceSink, TraceType, TreeTraceSink};
@@ -96,10 +96,13 @@ fn seg(g: &pg_grammar_model::model::Grammar, word: &str) -> Shape {
     pg_rules::shape_feat::segment_with_features(g, table(g), word).unwrap()
 }
 
-// Lane constants for the probe grammar ([cons, voi, Type]); every concrete segment here carries Type=Segment (0b01), never a boundary node's lanes.
-const A: [u64; 3] = [0b10, 0b01, 0b01]; // vowel, voiced
-const T: [u64; 3] = [0b01, 0b10, 0b01]; // consonant, voiceless
-const D: [u64; 3] = [0b01, 0b01, 0b01]; // consonant, voiced
+fn phonological_lanes<'a>(g: &Grammar, lanes: &'a [u64]) -> &'a [u64] {
+    &lanes[..g.phon_features.len()]
+}
+
+fn char_feature_lanes(g: &Grammar, xml_id: &str) -> Vec<u64> {
+    table(g).get(char_def(g, xml_id)).feature_lanes().to_vec()
+}
 
 // Feature-change: t -> [+voice] / V _ V (C# FeatureSynthesisRewriteSubruleSpec.ApplyRhs / FeatureAnalysisRewriteRuleSpec.Unapply)
 
@@ -123,9 +126,18 @@ fn feature_change_synthesis_voices_t_between_vowels() {
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3);
-    assert_eq!(got[0].2, A.to_vec(), "left a unchanged");
-    assert_eq!(got[2].2, A.to_vec(), "right a unchanged");
-    assert_eq!(got[1].2, D.to_vec(), "medial t -> [+voi] == d lanes");
+    assert_eq!(
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_a")
+    );
+    assert_eq!(
+        phonological_lanes(&g, &got[2].2),
+        char_feature_lanes(&g, "char_a")
+    );
+    assert_eq!(
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_d")
+    );
     assert_eq!(
         got[1].1,
         pg_shape::NO_CHAR_DEF,
@@ -140,10 +152,19 @@ fn feature_change_synthesis_iterates_over_all_targets() {
     // "atata": both medial t's are between vowels -> both voiced (iterative application).
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "atata"));
     let got = interior(&out[0]);
-    let lanes: Vec<Vec<u64>> = got.iter().map(|x| x.2.clone()).collect();
+    let lanes: Vec<Vec<u64>> = got
+        .iter()
+        .map(|x| phonological_lanes(&g, &x.2).to_vec())
+        .collect();
     assert_eq!(
         lanes,
-        vec![A.to_vec(), D.to_vec(), A.to_vec(), D.to_vec(), A.to_vec()]
+        vec![
+            char_feature_lanes(&g, "char_a"),
+            char_feature_lanes(&g, "char_d"),
+            char_feature_lanes(&g, "char_a"),
+            char_feature_lanes(&g, "char_d"),
+            char_feature_lanes(&g, "char_a"),
+        ]
     );
 }
 
@@ -165,7 +186,7 @@ fn feature_change_analysis_underspecifies_voice() {
     assert_eq!(out.len(), 1, "unapplied");
     let got = interior(&out[0]);
     assert_eq!(
-        got[1].2,
+        phonological_lanes(&g, &got[1].2),
         vec![0b01, 0b11, 0b01],
         "d -> [cons+, voi underspecified, Type=Segment]"
     );
@@ -245,8 +266,13 @@ fn deletion_synthesis_removes_t_between_vowels() {
     let got = interior(&out[0]);
     assert_eq!(got.len(), 2, "t deleted");
     assert_eq!(
-        got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(),
-        vec![A.to_vec(), A.to_vec()]
+        got.iter()
+            .map(|x| phonological_lanes(&g, &x.2).to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            char_feature_lanes(&g, "char_a"),
+            char_feature_lanes(&g, "char_a"),
+        ]
     );
 }
 
@@ -258,7 +284,11 @@ fn deletion_analysis_reinserts_optional_t() {
     let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "aa"), None);
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3, "optional t re-inserted");
-    assert_eq!(got[1].2, T.to_vec(), "re-inserted segment is t");
+    assert_eq!(
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_t"),
+        "re-inserted segment is t"
+    );
     assert!(got[1].3, "re-inserted deletion segment is OPTIONAL");
     assert!(!got[0].3 && !got[2].3, "the vowels stay non-optional");
 }
@@ -276,7 +306,10 @@ fn deletion_round_trip_recovers_original() {
                    // Taking the optional t recovers the original interior a t a.
     let got = interior(&ana);
     assert_eq!(got.len(), 3);
-    assert_eq!(got[1].2, T.to_vec());
+    assert_eq!(
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_t")
+    );
     assert!(got[1].3, "optional");
 }
 
@@ -304,7 +337,10 @@ fn word_initial_deletion_synthesis_removes_leading_t() {
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
     assert_eq!(got.len(), 1, "t deleted");
-    assert_eq!(got[0].2, A.to_vec());
+    assert_eq!(
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_a")
+    );
 }
 
 #[test]
@@ -316,9 +352,16 @@ fn word_initial_deletion_analysis_reinserts_optional_t_at_word_start() {
     assert_eq!(out.len(), 1, "unapplied");
     let got = interior(&out[0]);
     assert_eq!(got.len(), 2, "optional t re-inserted before the vowel");
-    assert_eq!(got[0].2, T.to_vec(), "re-inserted segment is t");
+    assert_eq!(
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_t"),
+        "re-inserted segment is t"
+    );
     assert!(got[0].3, "re-inserted deletion segment is OPTIONAL");
-    assert_eq!(got[1].2, A.to_vec());
+    assert_eq!(
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_a")
+    );
     assert!(!got[1].3, "the vowel stays non-optional");
 }
 
@@ -334,7 +377,10 @@ fn word_initial_deletion_round_trip_recovers_original() {
         .unwrap(); // "(t)a"
     let got = interior(&ana);
     assert_eq!(got.len(), 2);
-    assert_eq!(got[0].2, T.to_vec());
+    assert_eq!(
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_t")
+    );
     assert!(got[0].3, "optional");
 }
 
@@ -365,10 +411,22 @@ fn narrow_synthesis_replacement_segment_is_not_optional() {
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3, "tt coalesced to a single n");
-    assert_eq!(got[0].2, A.to_vec(), "left a unchanged");
-    assert_eq!(got[2].2, A.to_vec(), "right a unchanged");
+    assert_eq!(
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_a"),
+        "left a unchanged"
+    );
+    assert_eq!(
+        phonological_lanes(&g, &got[2].2),
+        char_feature_lanes(&g, "char_a"),
+        "right a unchanged"
+    );
     assert_eq!(got[1].1, char_def(&g, "char_n").0, "coalesced segment is n");
-    assert_eq!(got[1].2, D.to_vec(), "n shares d's [cons+, voi+] lanes");
+    assert_eq!(
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_d"),
+        "n shares d's [cons+, voi+] lanes"
+    );
     assert!(
         !got[1].3,
         "the narrowed RHS segment must NOT be optional (R1)"
@@ -412,8 +470,8 @@ fn narrow_synthesis_resolves_rhs_alpha_variable_from_lhs() {
     let got = interior(&out[0]);
     assert_eq!(got.len(), 1, "coalesced to a single consonant");
     assert_eq!(
-        got[0].2,
-        T.to_vec(),
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_t"),
         "voice resolved from the captured LHS var ('t'), not left unconstrained"
     );
 }
@@ -440,8 +498,14 @@ fn epenthesis_synthesis_inserts_t_between_vowels() {
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3, "one segment epenthesized");
     assert_eq!(
-        got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(),
-        vec![A.to_vec(), T.to_vec(), A.to_vec()]
+        got.iter()
+            .map(|x| phonological_lanes(&g, &x.2).to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            char_feature_lanes(&g, "char_a"),
+            char_feature_lanes(&g, "char_t"),
+            char_feature_lanes(&g, "char_a"),
+        ]
     );
     assert!(!got[1].3, "synthesized epenthetic segment is not optional");
 }
@@ -465,8 +529,14 @@ fn epenthesis_synthesis_word_initial_site() {
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
     assert_eq!(
-        got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(),
-        vec![T.to_vec(), A.to_vec(), A.to_vec()],
+        got.iter()
+            .map(|x| phonological_lanes(&g, &x.2).to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            char_feature_lanes(&g, "char_t"),
+            char_feature_lanes(&g, "char_a"),
+            char_feature_lanes(&g, "char_a"),
+        ],
         "t inserted word-initially, exactly once"
     );
 }
@@ -480,7 +550,10 @@ fn epenthesis_analysis_marks_epenthetic_segment_optional() {
     let got = interior(&out[0]);
     assert_eq!(got.len(), 3);
     assert!(got[1].3, "epenthetic t marked OPTIONAL on unapply");
-    assert_eq!(got[1].2, T.to_vec());
+    assert_eq!(
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_t")
+    );
 }
 
 #[test]
@@ -754,16 +827,18 @@ fn feature_change_analysis_pick_order_depends_on_direction() {
     let got = interior(&out_ltr[0]);
     assert_eq!(got.len(), 3);
     assert_eq!(
-        got[0].2,
-        D.to_vec(),
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_d"),
         "leftmost d untouched -- a LtR-declared rule's analysis scans RtL"
     );
     assert_eq!(
-        got[1].2, unconstrained_voi,
+        phonological_lanes(&g, &got[1].2),
+        unconstrained_voi,
         "middle d unapplied (part of the rightmost pair)"
     );
     assert_eq!(
-        got[2].2, unconstrained_voi,
+        phonological_lanes(&g, &got[2].2),
+        unconstrained_voi,
         "rightmost d unapplied (part of the rightmost pair)"
     );
 
@@ -777,16 +852,18 @@ fn feature_change_analysis_pick_order_depends_on_direction() {
     let got = interior(&out_rtl[0]);
     assert_eq!(got.len(), 3);
     assert_eq!(
-        got[0].2, unconstrained_voi,
+        phonological_lanes(&g, &got[0].2),
+        unconstrained_voi,
         "leftmost d unapplied (part of the leftmost pair)"
     );
     assert_eq!(
-        got[1].2, unconstrained_voi,
+        phonological_lanes(&g, &got[1].2),
+        unconstrained_voi,
         "middle d unapplied (part of the leftmost pair)"
     );
     assert_eq!(
-        got[2].2,
-        D.to_vec(),
+        phonological_lanes(&g, &got[2].2),
+        char_feature_lanes(&g, "char_d"),
         "rightmost d untouched -- a RtL-declared rule's analysis scans LtR"
     );
 }
@@ -810,7 +887,11 @@ fn feature_change_word_final_anchor_environment() {
     // "at": t is word-final and preceded by a vowel -> voiced.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "at"));
     assert_eq!(out.len(), 1, "word-final t voiced");
-    assert_eq!(interior(&out[0])[1].2, D.to_vec());
+    let got = interior(&out[0]);
+    assert_eq!(
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_d")
+    );
 
     // "ata": the t is NOT word-final (an a follows) -> rule must not fire.
     let out2 = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ata"));
@@ -852,8 +933,8 @@ fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_posi
         "no nodes added/removed (Feature-kind rewrite)"
     );
     assert_eq!(
-        got[0].2,
-        D.to_vec(),
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_d"),
         "position 0: subrule 1 (voicing, RightEnvironment=Cons) wins over subrule 2's catch-all, \
          even though subrule 2's own vacuous environment ALSO holds there -- confirming Rust's \
          per-subrule-sequential dirty-carryover reproduces C#'s first-applicable-subrule-wins \
@@ -861,8 +942,8 @@ fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_posi
          reference-grammar rule and every other fixture in this pass happens to have"
     );
     assert_eq!(
-        got[1].2,
-        T.to_vec(),
+        phonological_lanes(&g, &got[1].2),
+        char_feature_lanes(&g, "char_t"),
         "position 1: only subrule 2's catch-all applies (subrule 1's RightEnvironment fails at \
          word end), forcing 'd' to t's exact (voiceless) lanes"
     );
@@ -902,8 +983,16 @@ fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() 
         "both tt pairs coalesced to a single n each (7 nodes -> 5)"
     );
     assert_eq!(
-        got.iter().map(|x| x.2.clone()).collect::<Vec<_>>(),
-        vec![A.to_vec(), D.to_vec(), A.to_vec(), D.to_vec(), A.to_vec()],
+        got.iter()
+            .map(|x| phonological_lanes(&g, &x.2).to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            char_feature_lanes(&g, "char_a"),
+            char_feature_lanes(&g, "char_d"),
+            char_feature_lanes(&g, "char_a"),
+            char_feature_lanes(&g, "char_d"),
+            char_feature_lanes(&g, "char_a"),
+        ],
         "\"anana\": both non-overlapping tt sites narrowed in one Simultaneous pass"
     );
     for (i, node) in got.iter().enumerate() {
@@ -1206,8 +1295,8 @@ fn quantifier_as_whole_lhs_ignores_its_own_multiplicity_but_never_crashes_or_mis
         );
         for (i, node) in got.iter().enumerate() {
             assert_eq!(
-                node.2,
-                T.to_vec(),
+                phonological_lanes(&g, &node.2),
+                char_feature_lanes(&g, "char_t"),
                 "{word:?}: position {i} independently rewritten to t's lanes"
             );
         }
@@ -1239,12 +1328,20 @@ fn epenthesis_natural_class_rhs_round_trips_with_environment() {
         assert_eq!(synth.len(), 1, "{dir:?}: epenthesis must fire (env holds)");
         let got = interior(&synth[0]);
         assert_eq!(got.len(), 3, "{dir:?}: one segment epenthesized");
-        assert_eq!(got[0].2, A.to_vec(), "{dir:?}: left a unchanged");
-        assert_eq!(got[2].2, T.to_vec(), "{dir:?}: right t unchanged");
+        assert_eq!(
+            phonological_lanes(&g, &got[0].2),
+            char_feature_lanes(&g, "char_a"),
+            "{dir:?}: left a unchanged"
+        );
+        assert_eq!(
+            phonological_lanes(&g, &got[2].2),
+            char_feature_lanes(&g, "char_t"),
+            "{dir:?}: right t unchanged"
+        );
         // The inserted segment carries nc_n's own lanes (same bundle as d) but char_def is NO_CHAR_DEF, since a Context RHS has no single concrete identity — the shape this test targets, distinct from the concrete-CharDef epenthesis gates above.
         assert_eq!(
-            got[1].2,
-            D.to_vec(),
+            phonological_lanes(&g, &got[1].2),
+            char_feature_lanes(&g, "char_d"),
             "{dir:?}: inserted segment carries nc_n's own lanes"
         );
         assert_eq!(

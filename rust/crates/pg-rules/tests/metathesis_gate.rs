@@ -30,10 +30,9 @@ fn lanes_of(s: &Shape) -> Vec<Vec<u64>> {
     interior(s).into_iter().map(|x| x.2).collect()
 }
 
-// Lane constants for the probe grammar ([cons, voi, Type]; see `common/mod.rs` for the segment inventory).
-const A: [u64; 3] = [0b10, 0b01, 0b01]; // vowel, voiced
-const T: [u64; 3] = [0b01, 0b10, 0b01]; // consonant, voiceless
-const D: [u64; 3] = [0b01, 0b01, 0b01]; // consonant, voiced
+fn char_defs(s: &Shape) -> Vec<u32> {
+    s.interior().map(|(_, _, cd, _)| cd).collect()
+}
 
 // Bug 1: a reversed switch-tag order (`left_switch` tagging the physically-first node) must not make analysis rebuild a tag-name-driven pattern that searches for the un-swapped arrangement.
 
@@ -62,8 +61,8 @@ fn metathesis_reversed_switch_tag_order_round_trips() {
     let synth = pg_rules::metathesis::synthesize(&g, &r, &input);
     assert_eq!(synth.len(), 1, "rule applies obligatorily");
     assert_eq!(
-        lanes_of(&synth[0]),
-        vec![A.to_vec(), T.to_vec()],
+        char_defs(&synth[0]),
+        vec![char_def(&g, "char_a").0, char_def(&g, "char_t").0],
         "synthesize swaps by PHYSICAL position (t,a -> a,t), tag-name-agnostic -- NOT the vacuous \
          no-op a tag-name-driven convention would predict for this reversed left_switch/right_switch \
          assignment"
@@ -117,8 +116,12 @@ fn metathesis_middle_context_node_round_trips() {
     let synth = pg_rules::metathesis::synthesize(&g, &r, &input);
     assert_eq!(synth.len(), 1, "rule applies obligatorily");
     assert_eq!(
-        lanes_of(&synth[0]),
-        vec![A.to_vec(), D.to_vec(), T.to_vec()],
+        char_defs(&synth[0]),
+        vec![
+            char_def(&g, "char_a").0,
+            char_def(&g, "char_d").0,
+            char_def(&g, "char_t").0,
+        ],
         "synthesize swaps the two endpoints (t,a -> a,t); the middle 'd' keeps its own slot \
          untouched (synthesis_reorder's own doc)"
     );
@@ -136,8 +139,8 @@ fn metathesis_middle_context_node_round_trips() {
     );
     let ana_lanes = lanes_of(&ana[0]);
     assert_eq!(
-        ana_lanes[1],
-        D.to_vec(),
+        char_defs(&ana[0])[1],
+        char_def(&g, "char_d").0,
         "the middle node must be untouched by ana_union (only the two switch endpoints are unioned)"
     );
     let orig_lanes = lanes_of(&input);
