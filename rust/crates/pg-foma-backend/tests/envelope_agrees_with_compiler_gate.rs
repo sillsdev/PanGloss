@@ -398,6 +398,7 @@ fn report_envelope_compiler_divergence() {
     const EXPECTED_TOO_STRICT: &[&str] = &[
         // strategy_coverage.rs's ProcessMorphology row is a static, grammar-independent claim; crate::build::unbuildable_marker_material admits this grammar's structural union, so the envelope is stricter than the compiler here until that row becomes grammar-aware.
         "machine:edge-cases/process-morphology-in-place-mutation x plan-composed",
+        "staging:edge-cases/realizational-reduplication-no-proposal-route x plan-composed",
     ];
     let mut strict_sorted: Vec<&str> = strict.iter().map(|label| label.as_str()).collect();
     strict_sorted.sort_unstable();

@@ -73,8 +73,11 @@ fn backend_seam_shape_key_table_is_pinned() {
         eprintln!("  {id}");
     }
 
-    // Row provenance: seven ids resolve via `GrammarWideCheck` field lookup, `simultaneous.subrule-overlap` via the match's explicit arm, and `strategy-coverage.construct-not-representable` via the sniffing fallback's final default arm alone.
     let expected: BTreeSet<ShapeRow> = [
+        (
+            "reduplication.peel-eligible-rule-kind",
+            "nonregular-process-morphology",
+        ),
         ("simultaneous.subrule-overlap", "wide-phonology"),
         (
             "strategy-coverage.construct-not-representable",

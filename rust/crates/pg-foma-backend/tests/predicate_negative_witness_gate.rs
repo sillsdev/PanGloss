@@ -11,14 +11,12 @@ const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
     "circumfix-output-action.faithful-structural-composite",
     "compounding.non-recursive",
     "epenthesis.structural-composite-route",
-    // Fixed: this predicate's only witness now compiles under TunedSurfaceProbed; see `AllomorphZoneOutcome::OwnZoneElsewhere`.
     "surface-probe.circumfix-zone-exclusive-allomorph",
     "metathesis.faithful-swap-construction",
     "mpr-group.append-output",
     "mpr-group.overwrite-output",
     "multi-table.faithful-table-threading",
     "quantifier.bounded-expansion",
-    "reduplication.peel-eligible-rule-kind",
     "right-to-left-rewrite.faithful-reversal-construction",
     "unordered-application.chain-depth-bounded",
 ];

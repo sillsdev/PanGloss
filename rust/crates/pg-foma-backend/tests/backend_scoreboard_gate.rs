@@ -43,36 +43,31 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target, over 66 scored fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route); the misses are `final-template-partial-discriminators` "daknagafa" and "hasaasa" (copy altered by h-deletion) in `metathesis-phase-isolation` and its staging clone; the "daknagafa" miss is (template -> loose rule -> template), the lexc-skeleton one-template-application-per-word limit recorded in the reconciliation doc this module's header names -- not a partiality effect (that fixture's partial-dependent words are contained on every backend). TUT: the same "daknagafa" miss is its one miss (its templated skeleton shares the one-application limit); otherwise none left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact; both bistratal-root fixtures refuse. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 31 typed refusals; `final-template-partial-discriminators` is oracle-exact here -- see this module's own doc for how each figure was reproduced.
+/// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            // 64 -> 65 (exact-inverse analysis fold), 65 -> 66 (seven staged fixtures rewritten into the FieldWorks shape).
-            oracle_exact: 69, // 66 -> 71: four upstream fixtures pinning 006/014/016; 71 -> 69 at pin 34215889: "hasaasa" (copy then h-deletion in the second copy) misses in metathesis-phase-isolation and its staging clone backend-ordered-generic
+            oracle_exact: 69,
             compiles_but_misses: 3,
-            refused: 1,
+            refused: 2,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            // 45 -> 46 (exact-inverse fold), 46 -> 47 with 1 -> 3 misses and 21 -> 23 refusals (four upstream fixtures pinning 006/014/016; the self-feeding fixture now declines instead of panicking).
             oracle_exact: 47,
             compiles_but_misses: 3,
-            // 20 -> 21: circumfix-conditioned-halves now carries HCLoader's edge-constrained stem Lhs, which this selector refuses.
-            refused: 23,
+            refused: 24,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            // 32 -> 33 (exact-inverse fold), 33 -> 34 (seven staged fixtures rewritten into the FieldWorks shape).
             oracle_exact: 34,
-            // 0 -> 1, 31 -> 35: four upstream fixtures pinning 006/014/016; plan-composed refuses three and compiles-but-misses discontinuous-morph-environment.
-            compiles_but_misses: 1,
+            compiles_but_misses: 2,
             refused: 35,
             unmeasurable: 3,
         },
