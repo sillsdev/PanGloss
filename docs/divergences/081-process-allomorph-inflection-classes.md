@@ -10,8 +10,8 @@ Fixed-in-rust; source-backed FieldWorks loader correction.
 
 ## C# site
 
-FieldWorks `HCLoader.LoadAffixProcessAllomorph`, lines 1094–1097 in the source review
-recorded by `review/parsimony-fixes` commit `1d9e6658`. An inflectional MSA unions the
+FieldWorks `HCLoader.cs:1095–1096`, in `LoadAffixProcessAllomorph`.
+An inflectional MSA unions the
 allomorph's inflection classes into the required MPR features. A derivational MSA does not.
 
 ## Rust site

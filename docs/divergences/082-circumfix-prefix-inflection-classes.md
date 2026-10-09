@@ -10,8 +10,8 @@ Fixed-in-rust; source-backed FieldWorks loader correction.
 
 ## C# site
 
-FieldWorks `HCLoader.LoadCircumfixAffixProcessAllomorph`, lines 1055–1069 in the source
-review recorded by `review/parsimony-fixes` commit `2eea9c55`. For an inflectional MSA
+FieldWorks `HCLoader.cs:1055–1057`, in `LoadCircumfixAffixProcessAllomorph`.
+For an inflectional MSA
 the prefix half supplies required inflection classes. The suffix half's classes are unread.
 
 ## Rust site
