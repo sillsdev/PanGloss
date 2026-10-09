@@ -2175,6 +2175,39 @@ fn work_budget_cache_reuses_equal_limits_and_refuses_before_truncating_tsv() {
 }
 
 #[test]
+fn frozen_cache_refuses_to_relabel_stale_counter_semantics() {
+    let mut snapshot = pg_stats::FrozenRunSnapshot {
+        run_id: 1,
+        schema_version: pg_stats::SCHEMA_VERSION,
+        counter_semantics: pg_stats::COUNTER_SEMANTICS_VERSION,
+        build_info: "fixture".into(),
+        grammar_hash: "grammar".into(),
+        engine: "hc".into(),
+        options_hash: "options".into(),
+        options_json: "{}".into(),
+        word_count: 0,
+        step_cap: None,
+        words: Vec::new(),
+    };
+    let completion = crate::stats_manifest::CompletionCensus {
+        requested: 0,
+        complete: 0,
+        incomplete: 0,
+        invalid_shape: 0,
+        missing: 0,
+        words: Vec::new(),
+    };
+    super::validate_frozen_cache(&snapshot, 1, "grammar", "options", "{}", &completion)
+        .expect("the current counter semantics must be accepted");
+    snapshot.counter_semantics = pg_stats::COUNTER_SEMANTICS_VERSION - 1;
+    let before = snapshot.clone();
+    let error = super::validate_frozen_cache(&snapshot, 1, "grammar", "options", "{}", &completion)
+        .expect_err("a stale frozen run must keep its producing semantics");
+    assert!(error.contains("run identity does not match"), "{error}");
+    assert_eq!(snapshot, before);
+}
+
+#[test]
 fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     let dir = scratch_dir("frozen-manifest");
     let (grammar_xml, word) = primary_fixture();

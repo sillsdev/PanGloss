@@ -34,7 +34,8 @@ The manifest has format pangloss-batch-stats-manifest, version 1, and these sect
 SHA-256 fields that use PanGloss assessment identities are prefixed with sha256:. grammar_hash keeps
 its existing form: the semantic Snapshot digest for Snapshot sources and the unprefixed source-byte
 digest for HC XML. `compile_options_json` records the canonical production `CompileOptions` projection
-for Snapshot inputs, including the resolved substrate policy and `SemanticLossPolicy::Refuse`; it is
+for Snapshot inputs with `SemanticLossPolicy::Refuse`; provisional definitions are unconditional
+and have no option. The projection is
 `null` for legacy HC XML, which does not use the Snapshot compiler. Paths and cache timestamps are
 not recorded as identity.
 

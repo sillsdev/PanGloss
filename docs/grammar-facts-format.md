@@ -254,7 +254,7 @@ The `artifact_meta` singleton records:
 | `grammar_hash` | `Snapshot::grammar_hash()`, excluding conversion provenance. |
 | `model_fingerprint` | `pg_assess::model_fingerprint(SourceKind::Snapshot, source, compiler_version)`. It covers canonical source JSON, including conversion provenance, and compiler version. |
 | `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest` | The caller-supplied evidence context and its identity. |
-| `compile_options_json`, `compile_options_sha256` | The production default options, including the resolved substrate policy and `SemanticLossPolicy::Refuse`. |
+| `compile_options_json`, `compile_options_sha256` | The production default options with `SemanticLossPolicy::Refuse`. Provisional definitions are unconditional and have no option. |
 | `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v8 schema was written and verified. It does not mean every section is available. |
 | `run_manifest_sha256` | Nullable SHA-256 of the exact accepted stats manifest bytes. NULL when no stats run was requested. |
 
