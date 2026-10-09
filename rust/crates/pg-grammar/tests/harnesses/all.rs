@@ -3,6 +3,8 @@
 
 #[path = "../circumfix_conditioning_parity.rs"]
 mod circumfix_conditioning_parity;
+#[path = "../circumfix_inflection_classes.rs"]
+mod circumfix_inflection_classes;
 #[path = "../compile_refusal_gate.rs"]
 mod compile_refusal_gate;
 #[path = "../conversion_inventory_gate.rs"]

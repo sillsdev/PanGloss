@@ -186,6 +186,7 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | C# loader | Rust owner | Pinning integration test | Entry |
 |---|---|---|---|
 | FieldWorks `HCLoader.LoadAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_process_allomorph` | `pg-grammar/tests/process_allomorph_inflection_classes.rs` | 081 |
+| FieldWorks `HCLoader.LoadCircumfixAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `pg-grammar/tests/circumfix_inflection_classes.rs` | 082 |
 
 | C# / Rust seam | Entries | Shared fixtures |
 |---|---|---|

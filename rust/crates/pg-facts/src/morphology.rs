@@ -1,4 +1,3 @@
-use pg_snapshot::feature::{FeatureStructure, FeatureValue, FeatureValueKind};
 use pg_snapshot::lexicon::{LexEntry, Msa};
 use pg_snapshot::morphology::PartOfSpeech;
 use pg_snapshot::{
@@ -476,7 +475,6 @@ fn insert_msa(tx: &Transaction<'_>, entry_guid: &str, msa: &Msa) -> Result<(), F
         Msa::Stem {
             part_of_speech,
             inflection_class,
-            features,
             exception_features,
             from_parts_of_speech,
             slots,
@@ -493,12 +491,10 @@ fn insert_msa(tx: &Transaction<'_>, entry_guid: &str, msa: &Msa) -> Result<(), F
             for (ordinal, guid) in slots.iter().enumerate() {
                 insert_slot(tx, &msa_guid, "clitic_slot", ordinal, guid)?;
             }
-            insert_feature_structure(tx, &msa_guid, "features", features.as_ref())?;
         }
         Msa::Inflectional {
             part_of_speech,
             slots,
-            features,
             exception_features,
             ..
         } => {
@@ -509,13 +505,10 @@ fn insert_msa(tx: &Transaction<'_>, entry_guid: &str, msa: &Msa) -> Result<(), F
             for (ordinal, guid) in exception_features.iter().enumerate() {
                 insert_exception(tx, &msa_guid, "required", ordinal, guid)?;
             }
-            insert_feature_structure(tx, &msa_guid, "features", features.as_ref())?;
         }
         Msa::Derivational {
             from_part_of_speech,
             to_part_of_speech,
-            from_features,
-            to_features,
             from_inflection_class,
             to_inflection_class,
             from_exception_features,
@@ -545,8 +538,6 @@ fn insert_msa(tx: &Transaction<'_>, entry_guid: &str, msa: &Msa) -> Result<(), F
             for (ordinal, guid) in to_exception_features.iter().enumerate() {
                 insert_exception(tx, &msa_guid, "to_required", ordinal, guid)?;
             }
-            insert_feature_structure(tx, &msa_guid, "from_features", from_features.as_ref())?;
-            insert_feature_structure(tx, &msa_guid, "to_features", to_features.as_ref())?;
         }
         Msa::Unclassified { part_of_speech, .. } => {
             insert_optional_category(tx, &msa_guid, "pos", part_of_speech.as_deref())?;
@@ -626,49 +617,6 @@ fn insert_exception(
         params![msa_guid, role, ordinal as i64, guid],
     )?;
     Ok(())
-}
-
-fn insert_feature_structure(
-    tx: &Transaction<'_>,
-    msa_guid: &str,
-    role: &str,
-    structure: Option<&pg_snapshot::feature::FeatureStructure>,
-) -> Result<(), FactsError> {
-    if let Some(structure) = structure {
-        let structure = normalize_feature_structure(structure)?;
-        let value = serde_json::to_value(structure)
-            .map_err(|error| FactsError::Serialization(error.to_string()))?;
-        let json = pg_assess::canonicalize(&value)
-            .map_err(|error| FactsError::Serialization(error.to_string()))?;
-        tx.execute(
-            "INSERT INTO msa_feature_structure(msa_guid, role, feature_structure_json) VALUES (?1, ?2, ?3)",
-            params![msa_guid, role, json],
-        )?;
-    }
-    Ok(())
-}
-
-fn normalize_feature_structure(
-    structure: &FeatureStructure,
-) -> Result<FeatureStructure, FactsError> {
-    let values = structure
-        .values
-        .iter()
-        .map(|item| {
-            Ok(FeatureValue {
-                feature: checked_guid(&item.feature, "MSA feature reference")?,
-                value: match &item.value {
-                    FeatureValueKind::Closed { value } => FeatureValueKind::Closed {
-                        value: checked_guid(value, "MSA feature-value reference")?,
-                    },
-                    FeatureValueKind::Complex { value } => FeatureValueKind::Complex {
-                        value: normalize_feature_structure(value)?,
-                    },
-                },
-            })
-        })
-        .collect::<Result<Vec<_>, FactsError>>()?;
-    Ok(FeatureStructure { values })
 }
 
 fn enum_string<T: serde::Serialize>(value: &T) -> Result<String, FactsError> {

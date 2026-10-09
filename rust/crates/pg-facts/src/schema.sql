@@ -116,6 +116,7 @@ CREATE TABLE allomorph (
     entry_guid TEXT NOT NULL COLLATE BINARY REFERENCES lex_entry(guid),
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
     morph_type TEXT NOT NULL COLLATE BINARY CHECK (morph_type IN ('stem', 'boundStem', 'root', 'boundRoot', 'prefix', 'suffix', 'infix', 'circumfix', 'proclitic', 'enclitic', 'clitic', 'particle', 'phrase', 'discontigPhrase', 'prefixingInterfix', 'infixingInterfix', 'suffixingInterfix')),
+    form_class TEXT NOT NULL COLLATE BINARY CHECK (form_class IN ('stem', 'affix', 'process')),
     is_abstract INTEGER NOT NULL CHECK (is_abstract IN (0, 1)),
     stem_name_guid TEXT COLLATE BINARY,
     UNIQUE (entry_guid, ordinal)
@@ -128,6 +129,22 @@ CREATE TABLE allomorph_form (
     form TEXT NOT NULL,
     PRIMARY KEY (allomorph_guid, ordinal)
 );
+
+-- One row per authored gate value. parser_effect is the compiler's outcome for that gate;
+-- owner_not_loaded means no owner read the allomorph, so the compiler recorded nothing for it.
+-- not_attempted means the compiler has no path that reads this gate on this allomorph kind.
+CREATE TABLE allomorph_gate (
+    allomorph_guid TEXT NOT NULL COLLATE BINARY REFERENCES allomorph(guid),
+    gate_kind TEXT NOT NULL COLLATE BINARY CHECK (gate_kind IN ('inflection_class', 'required_features', 'required_category', 'stem_name')),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    target_guid TEXT COLLATE BINARY,
+    fs_id INTEGER REFERENCES feature_structure(fs_id),
+    parser_effect TEXT NOT NULL COLLATE BINARY CHECK (parser_effect IN ('applied', 'ignored', 'unresolved', 'owner_not_loaded', 'not_attempted')),
+    reason_code TEXT COLLATE BINARY,
+    PRIMARY KEY (allomorph_guid, gate_kind, ordinal),
+    CHECK ((gate_kind = 'required_features') = (fs_id IS NOT NULL))
+);
+CREATE INDEX allomorph_gate_target ON allomorph_gate(target_guid);
 
 CREATE TABLE entry_citation_form (
     entry_guid TEXT NOT NULL COLLATE BINARY REFERENCES lex_entry(guid),
@@ -179,13 +196,6 @@ CREATE TABLE msa_exception_feature (
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
     target_guid TEXT NOT NULL COLLATE BINARY,
     PRIMARY KEY (msa_guid, role, ordinal)
-);
-
-CREATE TABLE msa_feature_structure (
-    msa_guid TEXT NOT NULL COLLATE BINARY REFERENCES msa(msa_guid),
-    role TEXT NOT NULL COLLATE BINARY CHECK (role IN ('features', 'from_features', 'to_features')),
-    feature_structure_json TEXT NOT NULL COLLATE BINARY,
-    PRIMARY KEY (msa_guid, role)
 );
 
 CREATE TABLE sense (

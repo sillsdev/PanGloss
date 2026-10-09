@@ -68,6 +68,8 @@ pub struct CompileOutput {
     pub compiled_mappings: Vec<CompiledMapping>,
     /// Final sibling allomorph order within each source MSA and stratum bucket.
     pub compiled_allomorph_order: Vec<CompiledAllomorphOrder>,
+    /// The effect the compiler gave each authored allomorph gate; a gate with no entry was never read.
+    pub allomorph_gates: Vec<super::AllomorphGateOutcome>,
 }
 
 /// A source identity attached to one compiled output, with the role the source plays for it.
@@ -116,4 +118,6 @@ pub struct ConversionError {
     pub compiled_mappings: Vec<CompiledMapping>,
     /// Final sibling allomorph order published before the refusal decision.
     pub compiled_allomorph_order: Vec<CompiledAllomorphOrder>,
+    /// Allomorph gate effects recorded before the refusal decision.
+    pub allomorph_gates: Vec<super::AllomorphGateOutcome>,
 }

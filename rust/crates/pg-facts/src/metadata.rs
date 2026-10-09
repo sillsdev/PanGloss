@@ -144,7 +144,7 @@ pub(crate) fn fixed_sections(
         SectionStatus {
             section: "allomorphs".into(),
             status: "complete".into(),
-            source_scope: "allomorph identity, entry order, morph type, abstract state, and every supplied form".into(),
+            source_scope: "allomorph identity, entry order, source class, morph type, abstract state, every supplied form, and each authored morphological gate with the compiler's effect on it".into(),
             reason_code: None,
         },
         SectionStatus {

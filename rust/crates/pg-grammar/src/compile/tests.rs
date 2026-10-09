@@ -750,7 +750,7 @@ fn compile_recording_ok(
     pg_snapshot::ConversionInventory,
     Vec<pg_snapshot::ConversionIssue>,
 ) {
-    let (grammar, recorder, _substrate, substrate_issues, owner_warnings, _) =
+    let (grammar, recorder, _substrate, substrate_issues, owner_warnings, _, _) =
         compile_project_recording(snapshot).expect("must compile");
     recorder
         .check_invariants()
@@ -1649,7 +1649,7 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
         _ => panic!("expected the fixture's stem MSA"),
     }
 
-    let (grammar, recorder, _, _, warnings, _) =
+    let (grammar, recorder, _, _, warnings, _, _) =
         compile_project_recording(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     let class_bit = grammar
@@ -1709,7 +1709,7 @@ fn unsupported_affix_process_arity_is_published_without_changing_compilation_war
         output: vec![RuleMapping::CopyFromInput { part: 1 }],
     });
 
-    let (_, recorder, _, _, warnings, _) =
+    let (_, recorder, _, _, warnings, _, _) =
         compile_project_recording(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     let (_, _, decisions) = recorder.finish_with_load_decisions();
@@ -4874,6 +4874,7 @@ fn compile_options_and_output_carry_exactly_their_declared_fields() {
         compiled_outputs: _,
         compiled_mappings: _,
         compiled_allomorph_order: _,
+        allomorph_gates: _,
     } = out;
     assert_eq!(grammar.entries.len(), 1);
     assert!(issues.is_empty());

@@ -16,6 +16,9 @@ use crate::model::{
 };
 
 use super::environment;
+use super::gates::{
+    AllomorphGateEffect as Effect, AllomorphGateKind as Kind, AllomorphGateOutcome,
+};
 use super::inventory::LineageTarget;
 use super::issue_codes;
 use super::roles;
@@ -66,6 +69,9 @@ pub(crate) fn build_affix_rule(
         }
     }
     if rule_form_allos.is_empty() {
+        for allo in allos {
+            record_unbuilt_gates(allo, ctx);
+        }
         return None;
     }
 
@@ -385,6 +391,15 @@ pub(crate) fn build_affix_rule(
                 .collect()
         };
 
+    for allo in allos {
+        let was_built = built
+            .iter()
+            .any(|(sources, _, _)| sources.contains(&allo.guid));
+        if !was_built {
+            record_unbuilt_gates(allo, ctx);
+        }
+    }
+
     let mut allomorphs = Vec::new();
     for (source_guids, placement, def) in built {
         let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
@@ -555,7 +570,14 @@ fn build_circumfix_allomorphs(
         let prefix_form = super::format_form(
             super::best_ws(&prefix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
         );
+        // HCLoader.cs:1055-1069: only the prefix half's classes, and only under an inflectional MSA.
+        let (prefix_infl_mpr, mut prefix_outcomes) =
+            read_inflection_classes(prefix, allomorph_class_reading(msa), ctx);
+        prefix_outcomes.extend(ignored_features(prefix));
+        let required_with_prefix = required_mpr.union(prefix_infl_mpr);
         for suffix in &suffixes {
+            let mut suffix_outcomes = ignored_suffix_classes(suffix);
+            suffix_outcomes.extend(ignored_features(suffix));
             let expansion = InventoryKey::expansion(
                 InventoryKind::Allomorph,
                 prefix.guid.clone(),
@@ -652,6 +674,9 @@ fn build_circumfix_allomorphs(
                             continue;
                         }
                     };
+                    for gate in prefix_outcomes.iter().chain(&suffix_outcomes) {
+                        ctx.record_gate(gate.clone());
+                    }
                     out.push((
                         vec![prefix.guid.clone(), suffix.guid.clone()],
                         SourceMorphPlacement::Append,
@@ -663,7 +688,7 @@ fn build_circumfix_allomorphs(
                                 .fs_interner
                                 .intern(pg_featstruct::FeatureStruct::EMPTY),
                             vars: crate::model::VarTable::default(),
-                            required_mpr,
+                            required_mpr: required_with_prefix,
                             excluded_mpr: crate::model::MprSet::EMPTY,
                             out_mpr,
                             redup_hint: ReduplicationHint::Implicit,
@@ -681,8 +706,40 @@ fn build_circumfix_allomorphs(
             }
         }
     }
-    let _ = msa;
     out
+}
+
+/// The suffix half's inflection classes are never read by HermitCrab (HCLoader.cs:1055-1069).
+fn ignored_suffix_classes(suffix: &Allomorph) -> Vec<AllomorphGateOutcome> {
+    suffix
+        .inflection_classes
+        .iter()
+        .enumerate()
+        .map(|(ordinal, class)| {
+            outcome(
+                suffix,
+                Kind::InflectionClass,
+                ordinal,
+                Some(class),
+                Effect::Ignored,
+                Some("circumfixSuffixClassesNotRead"),
+            )
+        })
+        .collect()
+}
+
+/// A circumfix half's authored features are never read (HCLoader.cs:1273-1332 sets no syntactic structure).
+fn ignored_features(half: &Allomorph) -> Option<AllomorphGateOutcome> {
+    half.ms_env_features.as_ref().map(|_| {
+        outcome(
+            half,
+            Kind::RequiredFeatures,
+            0,
+            None,
+            Effect::Ignored,
+            Some("circumfixIgnoresAllomorphGates"),
+        )
+    })
 }
 
 /// `LoadCircumfixAffixProcessAllomorph`'s Lhs/environment split (HCLoader.cs:1276-1323): each conditioned half's inner (stem-adjacent) context becomes literal nodes next to its `PrefixNull`/`SuffixNull`, and only the outer contexts become one `AllomorphEnvironment`.
@@ -926,6 +983,112 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
     }
 }
 
+/// Whether an MSA reads its allomorphs' inflection classes, and the reason it does not. Only an inflectional MSA does (HCLoader.cs:1094-1123).
+fn allomorph_class_reading(msa: &Msa) -> Result<(), &'static str> {
+    match msa {
+        Msa::Inflectional { .. } => Ok(()),
+        Msa::Derivational { .. } => Err("derivationalMsaIgnoresAlloClasses"),
+        Msa::Stem { .. } => Err("stemMsaIgnoresAlloClasses"),
+        Msa::Unclassified { .. } => Err("unclassifiedMsaIgnoresAlloClasses"),
+    }
+}
+
+/// Resolves `allo`'s class gates under `reading`; the caller records the outcomes only for a built def.
+fn read_inflection_classes(
+    allo: &Allomorph,
+    reading: Result<(), &'static str>,
+    ctx: &Ctx,
+) -> (crate::model::MprSet, Vec<AllomorphGateOutcome>) {
+    let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
+    let mut set = crate::model::MprSet::EMPTY;
+    let mut outcomes = Vec::new();
+    for (ordinal, class) in allo.inflection_classes.iter().enumerate() {
+        let (effect, reason) = match reading {
+            Err(reason) => (Effect::Ignored, Some(reason)),
+            Ok(()) => match ctx.mpr.infl_class_with_descendants(class) {
+                Some(resolved) => {
+                    set = set.union(resolved);
+                    (Effect::Applied, None)
+                }
+                None => {
+                    ctx.note(
+                        issue_codes::ALLOMORPH_INFLECTION_CLASS_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        SourceRef {
+                            kind: pg_snapshot::FwClass::MoForm,
+                            id: allo.guid.clone(),
+                        },
+                        format!(
+                            "Allomorph '{form}' refers to an inflection class that is not defined."
+                        ),
+                    );
+                    (Effect::Unresolved, None)
+                }
+            },
+        };
+        outcomes.push(outcome(
+            allo,
+            Kind::InflectionClass,
+            ordinal,
+            Some(class),
+            effect,
+            reason,
+        ));
+    }
+    (set, outcomes)
+}
+
+/// One gate outcome of `allo`, keyed by its authored position.
+fn outcome(
+    allo: &Allomorph,
+    gate_kind: Kind,
+    ordinal: usize,
+    target: Option<&String>,
+    effect: Effect,
+    reason_code: Option<&'static str>,
+) -> AllomorphGateOutcome {
+    AllomorphGateOutcome {
+        allomorph_guid: allo.guid.clone(),
+        gate_kind,
+        ordinal: ordinal as u32,
+        target_guid: target.cloned(),
+        effect,
+        reason_code,
+    }
+}
+
+/// Records the class gates a built def applies or skips; called only for a def that was built.
+fn record_class_outcomes(outcomes: &[AllomorphGateOutcome], ctx: &Ctx) {
+    for gate in outcomes {
+        ctx.record_gate(gate.clone());
+    }
+}
+
+/// Publishes the gates of an allomorph no def was built from. A built allomorph records its gates where they are decided.
+fn record_unbuilt_gates(allo: &Allomorph, ctx: &Ctx) {
+    let not_represented = Some("allomorphNotRepresented");
+    for (ordinal, class) in allo.inflection_classes.iter().enumerate() {
+        ctx.record_gate(outcome(
+            allo,
+            Kind::InflectionClass,
+            ordinal,
+            Some(class),
+            Effect::Ignored,
+            not_represented,
+        ));
+    }
+    if allo.ms_env_features.is_some() {
+        ctx.record_gate(outcome(
+            allo,
+            Kind::RequiredFeatures,
+            0,
+            None,
+            Effect::Ignored,
+            not_represented,
+        ));
+    }
+}
+
 /// Builds every `AffixAllomorphDef` a single LCM allomorph expands to: one per valid environment (or a single environment-less pass) for a concatenative form, or exactly one for an `MoAffixProcess`. Returns a placeholder with `id` overwritten immediately by the caller.
 fn build_affix_allomorphs_for(
     allo: &Allomorph,
@@ -938,28 +1101,8 @@ fn build_affix_allomorphs_for(
 ) -> Vec<AffixAllomorphDef> {
     let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
 
-    let allo_infl_mpr = if matches!(msa, Msa::Inflectional { .. }) {
-        let mut set = crate::model::MprSet::EMPTY;
-        for ic in &allo.inflection_classes {
-            match ctx.mpr.infl_class_with_descendants(ic) {
-                Some(s) => set = set.union(s),
-                None => ctx.note(
-                    issue_codes::ALLOMORPH_INFLECTION_CLASS_UNRESOLVED,
-                    IssueClass::InvalidSource,
-                    SourceRef {
-                        kind: pg_snapshot::FwClass::MoForm,
-                        id: allo.guid.clone(),
-                    },
-                    format!(
-                        "Allomorph '{form}' refers to an inflection class that is not defined."
-                    ),
-                ),
-            }
-        }
-        set
-    } else {
-        crate::model::MprSet::EMPTY
-    };
+    let (allo_infl_mpr, class_outcomes) =
+        read_inflection_classes(allo, allomorph_class_reading(msa), ctx);
 
     if let Some(process) = &allo.process {
         return match build_process_allomorph(
@@ -971,7 +1114,10 @@ fn build_affix_allomorphs_for(
             ctx,
             acc,
         ) {
-            Ok(def) => vec![def],
+            Ok(def) => {
+                record_class_outcomes(&class_outcomes, ctx);
+                vec![def]
+            }
             Err(_) => {
                 ctx.reject(
                     InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()),
@@ -1011,8 +1157,26 @@ fn build_affix_allomorphs_for(
             Ok((lhs, rhs, environments)) => {
                 let required_syn_fs = match &allo.ms_env_features {
                     Some(fs) => match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
-                        Ok(v) => acc.fs_interner.intern(v),
+                        Ok(v) => {
+                            ctx.record_gate(AllomorphGateOutcome {
+                                allomorph_guid: allo.guid.clone(),
+                                gate_kind: Kind::RequiredFeatures,
+                                ordinal: 0,
+                                target_guid: None,
+                                effect: Effect::Applied,
+                                reason_code: None,
+                            });
+                            acc.fs_interner.intern(v)
+                        }
                         Err(_) => {
+                            ctx.record_gate(AllomorphGateOutcome {
+                                allomorph_guid: allo.guid.clone(),
+                                gate_kind: Kind::RequiredFeatures,
+                                ordinal: 0,
+                                target_guid: None,
+                                effect: Effect::Unresolved,
+                                reason_code: None,
+                            });
                             ctx.note(
                                 issue_codes::ALLOMORPH_FEATURE_BUILD_FAILED,
                                 IssueClass::UnrepresentableForHc,
@@ -1060,6 +1224,9 @@ fn build_affix_allomorphs_for(
                 ),
             ),
         }
+    }
+    if !out.is_empty() {
+        record_class_outcomes(&class_outcomes, ctx);
     }
     // Selected as a rule form but every pass failed to build one: reject it rather than leave it silently unrepresented.
     if out.is_empty() {

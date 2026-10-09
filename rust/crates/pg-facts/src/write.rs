@@ -29,6 +29,7 @@ struct Publication<'a> {
     compiled_outputs: &'a [pg_grammar::compile::CompiledOutput],
     compiled_mappings: &'a [pg_grammar::compile::CompiledMapping],
     compiled_allomorph_order: &'a [pg_grammar::compile::CompiledAllomorphOrder],
+    allomorph_gates: &'a [pg_grammar::compile::AllomorphGateOutcome],
     grammar: Option<&'a pg_grammar::model::Grammar>,
     stats: Option<StatsProjection>,
     sections: Vec<SectionStatus>,
@@ -132,6 +133,7 @@ fn write_facts_inner(
         compiled_outputs,
         compiled_mappings,
         compiled_allomorph_order,
+        allomorph_gates,
         grammar,
     ) = match compile_project_with(&snapshot, options) {
         Ok(output) => (
@@ -143,6 +145,7 @@ fn write_facts_inner(
             output.compiled_outputs,
             output.compiled_mappings,
             output.compiled_allomorph_order,
+            output.allomorph_gates,
             Some(output.grammar),
         ),
         Err(pg_grammar::GrammarError::Conversion(error)) => (
@@ -154,6 +157,7 @@ fn write_facts_inner(
             error.compiled_outputs,
             error.compiled_mappings,
             error.compiled_allomorph_order,
+            error.allomorph_gates,
             None,
         ),
         Err(error) => return Err(FactsError::Compile(error.to_string())),
@@ -218,6 +222,7 @@ fn write_facts_inner(
         compiled_outputs: &compiled_outputs,
         compiled_mappings: &compiled_mappings,
         compiled_allomorph_order: &compiled_allomorph_order,
+        allomorph_gates: &allomorph_gates,
         grammar: grammar.as_ref(),
         stats,
         sections,
@@ -244,6 +249,7 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         compiled_outputs,
         compiled_mappings,
         compiled_allomorph_order,
+        allomorph_gates,
         grammar,
         stats,
         sections,
@@ -311,6 +317,7 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
             compile_status == "completed",
         )?;
         let feature_structures = crate::features::insert_authored(&transaction, snapshot)?;
+        crate::lexicon::insert_gates(&transaction, snapshot, allomorph_gates, &feature_structures)?;
         crate::load::insert_inventory_and_issues(
             &transaction,
             snapshot,

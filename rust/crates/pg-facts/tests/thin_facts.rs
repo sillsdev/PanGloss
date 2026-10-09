@@ -6,10 +6,10 @@ use pg_snapshot::feature::{
     ClosedFeature, FeatureStructure, FeatureSystems, FeatureValue, FeatureValueKind,
     FeatureValueSymbol,
 };
-use pg_snapshot::lexicon::{Allomorph, LexEntry, Lexicon, Msa, Sense};
+use pg_snapshot::lexicon::{AffixProcess, Allomorph, LexEntry, Lexicon, Msa, RuleMapping, Sense};
 use pg_snapshot::morphology::{
     AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundOutcome, CompoundRule,
-    MorphType, Morphology, PartOfSpeech,
+    InflectionClass, MorphType, Morphology, PartOfSpeech, StemName,
 };
 use pg_snapshot::phonology::{
     BoundaryMarker, Environment, NaturalClass, PhonContext, Phoneme, PhonologicalRule, Phonology,
@@ -3586,4 +3586,507 @@ fn uppercase_source_headers_publish_lowercase_facts() {
             "{table} differs between uppercase and lowercase source headers"
         );
     }
+}
+
+const MS_NUMBER: &str = "00000000-0000-0000-0000-0000000000b1";
+const MS_SINGULAR: &str = "00000000-0000-0000-0000-0000000000b2";
+const MS_PLURAL: &str = "00000000-0000-0000-0000-0000000000b3";
+const INFL_CLASS: &str = "00000000-0000-0000-0000-0000000000b4";
+const INFL_CLASS_UNDEFINED: &str = "00000000-0000-0000-0000-0000000000b5";
+const STEM_NAME: &str = "00000000-0000-0000-0000-0000000000b6";
+const STEM_NAME_UNDEFINED: &str = "00000000-0000-0000-0000-0000000000b7";
+const ALLO_PROCESS: &str = "00000000-0000-0000-0000-0000000000b8";
+const ALLO_DERIVED: &str = "00000000-0000-0000-0000-0000000000b9";
+const MSA_DERIVED: &str = "00000000-0000-0000-0000-0000000000ba";
+const ENTRY_DERIVED: &str = "00000000-0000-0000-0000-0000000000bb";
+const SENSE_DERIVED: &str = "00000000-0000-0000-0000-0000000000bc";
+const ENTRY_GATED_ORPHAN: &str = "00000000-0000-0000-0000-0000000000bd";
+const SENSE_GATED_ORPHAN: &str = "00000000-0000-0000-0000-0000000000be";
+const ALLO_GATED_ORPHAN: &str = "00000000-0000-0000-0000-0000000000bf";
+const MSA_GATED_ORPHAN: &str = "00000000-0000-0000-0000-0000000000c0";
+
+fn entry_mut<'a>(source: &'a mut Snapshot, guid: &str) -> &'a mut LexEntry {
+    source
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.guid == guid)
+        .unwrap()
+}
+
+fn allomorph_mut<'a>(source: &'a mut Snapshot, guid: &str) -> &'a mut Allomorph {
+    source
+        .lexicon
+        .entries
+        .iter_mut()
+        .flat_map(|entry| entry.allomorphs.iter_mut())
+        .find(|allomorph| allomorph.guid == guid)
+        .unwrap()
+}
+
+/// The base fixture plus morphosyntactic features, an inflection class and a stem name.
+fn gate_snapshot() -> Snapshot {
+    let mut source = snapshot();
+    source.feature_systems.morphosyntactic.closed_features = vec![ClosedFeature {
+        guid: MS_NUMBER.into(),
+        name: "Number".into(),
+        abbreviation: "num".into(),
+        values: vec![
+            FeatureValueSymbol {
+                guid: MS_SINGULAR.into(),
+                name: "singular".into(),
+                abbreviation: "sg".into(),
+            },
+            FeatureValueSymbol {
+                guid: MS_PLURAL.into(),
+                name: "plural".into(),
+                abbreviation: "pl".into(),
+            },
+        ],
+    }];
+    let pos = &mut source.morphology.parts_of_speech[0];
+    pos.inflection_classes = vec![InflectionClass {
+        guid: INFL_CLASS.into(),
+        name: "Class A".into(),
+        abbreviation: "A".into(),
+        children: Vec::new(),
+    }];
+    pos.stem_names = vec![StemName {
+        guid: STEM_NAME.into(),
+        name: "Region".into(),
+        abbreviation: None,
+        regions: vec![FeatureStructure {
+            values: vec![FeatureValue {
+                feature: MS_NUMBER.into(),
+                value: FeatureValueKind::Closed {
+                    value: MS_SINGULAR.into(),
+                },
+            }],
+        }],
+    }];
+    let suffix = entry_mut(&mut source, ENTRY_SUFFIX);
+    suffix.allomorphs.push(Allomorph {
+        process: Some(AffixProcess {
+            input: vec![PhonContext::Variable, PhonContext::Variable],
+            output: vec![
+                RuleMapping::CopyFromInput { part: 1 },
+                RuleMapping::CopyFromInput { part: 2 },
+            ],
+        }),
+        ..allomorph(ALLO_PROCESS, MorphType::Suffix, "")
+    });
+    source
+}
+
+type GateRow = (String, i64, Option<String>, String, Option<String>);
+
+/// The authored gate rows of one allomorph: kind, ordinal, target, parser effect and reason.
+fn gate_rows(db: &Connection, allomorph: &str) -> Vec<GateRow> {
+    let mut statement = db
+        .prepare(
+            "SELECT gate_kind, ordinal, target_guid, parser_effect, reason_code FROM allomorph_gate \
+             WHERE allomorph_guid = ?1 ORDER BY gate_kind, ordinal",
+        )
+        .unwrap();
+    statement
+        .query_map([allomorph], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+fn gate(
+    kind: &str,
+    ordinal: i64,
+    target: Option<&str>,
+    effect: &str,
+    reason: Option<&str>,
+) -> GateRow {
+    (
+        kind.into(),
+        ordinal,
+        target.map(str::to_owned),
+        effect.into(),
+        reason.map(str::to_owned),
+    )
+}
+
+fn publish_gates(source: &Snapshot, name: &str) -> Connection {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join(name);
+    build(
+        &output,
+        serde_json::to_vec(source).unwrap().as_slice(),
+        context(),
+    )
+    .unwrap();
+    Connection::open(output).unwrap()
+}
+
+#[test]
+fn allomorph_form_class_matches_source_class() {
+    let db = publish_gates(&gate_snapshot(), "form-class.sqlite");
+    let class_of = |guid: &str| -> String {
+        db.query_row(
+            "SELECT form_class FROM allomorph WHERE guid = ?1",
+            [guid],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(class_of(ALLO_ROOT), "stem");
+    assert_eq!(class_of(ALLO_SUFFIX), "affix");
+    assert_eq!(class_of(ALLO_PROCESS), "process");
+}
+
+#[test]
+fn ms_env_part_of_speech_is_an_ignored_gate() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_SUFFIX).ms_env_part_of_speech = Some(POS.into());
+    let db = publish_gates(&source, "part-of-speech.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_SUFFIX),
+        vec![gate(
+            "required_category",
+            0,
+            Some(POS),
+            "ignored",
+            Some("msEnvPartOfSpeechNotRead"),
+        )]
+    );
+}
+
+#[test]
+fn inflection_classes_on_inflectional_affix_are_applied_and_derivational_are_ignored() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_SUFFIX).inflection_classes = vec![INFL_CLASS.into()];
+    let mut derived = allomorph(ALLO_DERIVED, MorphType::Suffix, "ka");
+    derived.inflection_classes = vec![INFL_CLASS.into()];
+    source.lexicon.entries.push(entry(
+        ENTRY_DERIVED,
+        SENSE_DERIVED,
+        derived,
+        Msa::Derivational {
+            guid: MSA_DERIVED.into(),
+            from_part_of_speech: Some(POS.into()),
+            to_part_of_speech: Some(POS.into()),
+            from_features: None,
+            to_features: None,
+            from_inflection_class: None,
+            to_inflection_class: None,
+            from_exception_features: Vec::new(),
+            to_exception_features: Vec::new(),
+            from_stem_name: None,
+        },
+        "derived",
+    ));
+    let db = publish_gates(&source, "inflection-applied.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_SUFFIX),
+        vec![gate(
+            "inflection_class",
+            0,
+            Some(INFL_CLASS),
+            "applied",
+            None
+        )]
+    );
+    assert_eq!(
+        gate_rows(&db, ALLO_DERIVED),
+        vec![gate(
+            "inflection_class",
+            0,
+            Some(INFL_CLASS),
+            "ignored",
+            Some("derivationalMsaIgnoresAlloClasses"),
+        )]
+    );
+}
+
+#[test]
+fn process_allomorph_inflection_classes_are_applied() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_PROCESS).inflection_classes = vec![INFL_CLASS.into()];
+    let db = publish_gates(&source, "process-classes.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_PROCESS),
+        vec![gate(
+            "inflection_class",
+            0,
+            Some(INFL_CLASS),
+            "applied",
+            None
+        )]
+    );
+}
+
+#[test]
+fn unresolved_inflection_class_gate_is_unresolved() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_SUFFIX).inflection_classes = vec![INFL_CLASS_UNDEFINED.into()];
+    let db = publish_gates(&source, "unresolved-class.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_SUFFIX),
+        vec![gate(
+            "inflection_class",
+            0,
+            Some(INFL_CLASS_UNDEFINED),
+            "unresolved",
+            None,
+        )]
+    );
+}
+
+#[test]
+fn required_features_gate_points_at_a_feature_structure() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_SUFFIX).ms_env_features = Some(FeatureStructure {
+        values: vec![FeatureValue {
+            feature: MS_NUMBER.into(),
+            value: FeatureValueKind::Closed {
+                value: MS_PLURAL.into(),
+            },
+        }],
+    });
+    let db = publish_gates(&source, "required-features.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_SUFFIX),
+        vec![gate("required_features", 0, None, "applied", None)]
+    );
+    let (owner_kind, owner_guid, role, value): (String, String, String, String) = db
+        .query_row(
+            "SELECT fs.owner_kind, fs.owner_guid, fs.role, fa.value_guid \
+             FROM allomorph_gate g JOIN feature_structure fs ON fs.fs_id = g.fs_id \
+             JOIN feature_assignment fa ON fa.fs_id = fs.fs_id \
+             WHERE g.allomorph_guid = ?1 AND g.gate_kind = 'required_features'",
+            [ALLO_SUFFIX],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (
+            owner_kind.as_str(),
+            owner_guid.as_str(),
+            role.as_str(),
+            value.as_str()
+        ),
+        ("allomorph", ALLO_SUFFIX, "required_features", MS_PLURAL)
+    );
+}
+
+#[test]
+fn stem_name_gate_is_applied_when_it_resolves_and_unresolved_otherwise() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_ROOT).stem_name = Some(STEM_NAME.into());
+    allomorph_mut(&mut source, ALLO_ROOT_TWO).stem_name = Some(STEM_NAME_UNDEFINED.into());
+    let db = publish_gates(&source, "stem-name.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_ROOT),
+        vec![gate("stem_name", 0, Some(STEM_NAME), "applied", None)]
+    );
+    assert_eq!(
+        gate_rows(&db, ALLO_ROOT_TWO),
+        vec![gate(
+            "stem_name",
+            0,
+            Some(STEM_NAME_UNDEFINED),
+            "unresolved",
+            None,
+        )]
+    );
+}
+
+#[test]
+fn gate_of_an_owner_the_compiler_never_loaded_is_owner_not_loaded() {
+    let mut source = gate_snapshot();
+    let mut orphan = entry(
+        ENTRY_GATED_ORPHAN,
+        SENSE_GATED_ORPHAN,
+        allomorph(ALLO_GATED_ORPHAN, MorphType::Suffix, "ni"),
+        Msa::Inflectional {
+            guid: MSA_GATED_ORPHAN.into(),
+            part_of_speech: Some(POS.into()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        },
+        "orphan",
+    );
+    orphan.msas.clear();
+    orphan.senses[0].msa = None;
+    orphan.allomorphs[0].inflection_classes = vec![INFL_CLASS.into()];
+    source.lexicon.entries.push(orphan);
+    let db = publish_gates(&source, "owner-not-loaded.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_GATED_ORPHAN),
+        vec![gate(
+            "inflection_class",
+            0,
+            Some(INFL_CLASS),
+            "owner_not_loaded",
+            None,
+        )]
+    );
+}
+
+#[test]
+fn msa_features_are_normalized_rows() {
+    let mut source = gate_snapshot();
+    if let Msa::Inflectional { features, .. } = &mut entry_mut(&mut source, ENTRY_SUFFIX).msas[0] {
+        *features = Some(FeatureStructure {
+            values: vec![FeatureValue {
+                feature: MS_NUMBER.into(),
+                value: FeatureValueKind::Closed {
+                    value: MS_PLURAL.into(),
+                },
+            }],
+        });
+    } else {
+        panic!("suffix fixture must have an inflectional MSA");
+    }
+    let db = publish_gates(&source, "msa-features.sqlite");
+    let json_columns: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master m, pragma_table_info(m.name) p \
+             WHERE m.type = 'table' AND p.name LIKE '%structure%' AND p.name LIKE '%json%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(json_columns, 0);
+    let legacy_table: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name = 'msa_feature_structure'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(legacy_table, 0);
+    let (fs_id, role): (i64, String) = db
+        .query_row(
+            "SELECT fs_id, role FROM feature_structure WHERE owner_kind = 'msa' AND owner_guid = ?1",
+            [MSA_SUFFIX],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(role, "features");
+    let value: String = db
+        .query_row(
+            "SELECT value_guid FROM feature_assignment WHERE fs_id = ?1",
+            [fs_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(value, MS_PLURAL);
+}
+
+const ENTRY_GATE_CIRCUMFIX: &str = "00000000-0000-0000-0000-0000000000c1";
+const SENSE_GATE_CIRCUMFIX: &str = "00000000-0000-0000-0000-0000000000c2";
+const MSA_GATE_CIRCUMFIX: &str = "00000000-0000-0000-0000-0000000000c3";
+const ALLO_GATE_PREFIX: &str = "00000000-0000-0000-0000-0000000000c4";
+const ALLO_GATE_SUFFIX: &str = "00000000-0000-0000-0000-0000000000c5";
+
+fn plural_number() -> FeatureStructure {
+    FeatureStructure {
+        values: vec![FeatureValue {
+            feature: MS_NUMBER.into(),
+            value: FeatureValueKind::Closed {
+                value: MS_PLURAL.into(),
+            },
+        }],
+    }
+}
+
+#[test]
+fn circumfix_halves_publish_prefix_classes_applied_and_suffix_gates_ignored() {
+    let mut source = gate_snapshot();
+    let mut prefix = allomorph(ALLO_GATE_PREFIX, MorphType::Prefix, "ma");
+    prefix.inflection_classes = vec![INFL_CLASS.into()];
+    let mut suffix = allomorph(ALLO_GATE_SUFFIX, MorphType::Suffix, "u");
+    suffix.inflection_classes = vec![INFL_CLASS.into()];
+    suffix.ms_env_features = Some(plural_number());
+    let mut circumfix = entry(
+        ENTRY_GATE_CIRCUMFIX,
+        SENSE_GATE_CIRCUMFIX,
+        prefix,
+        Msa::Inflectional {
+            guid: MSA_GATE_CIRCUMFIX.into(),
+            part_of_speech: Some(POS.into()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        },
+        "circumfix",
+    );
+    circumfix.lexeme_morph_type = MorphType::Circumfix;
+    circumfix.allomorphs.push(suffix);
+    source.lexicon.entries.push(circumfix);
+    let db = publish_gates(&source, "circumfix-gates.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_GATE_PREFIX),
+        vec![gate(
+            "inflection_class",
+            0,
+            Some(INFL_CLASS),
+            "applied",
+            None
+        )]
+    );
+    assert_eq!(
+        gate_rows(&db, ALLO_GATE_SUFFIX),
+        vec![
+            gate(
+                "inflection_class",
+                0,
+                Some(INFL_CLASS),
+                "ignored",
+                Some("circumfixSuffixClassesNotRead"),
+            ),
+            gate(
+                "required_features",
+                0,
+                None,
+                "ignored",
+                Some("circumfixIgnoresAllomorphGates"),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn uppercase_allomorph_guid_with_required_features_publishes_its_gate() {
+    let mut source = gate_snapshot();
+    let suffix = allomorph_mut(&mut source, ALLO_SUFFIX);
+    suffix.guid = ALLO_SUFFIX.to_uppercase();
+    suffix.ms_env_features = Some(plural_number());
+    let db = publish_gates(&source, "uppercase-features.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_SUFFIX),
+        vec![gate("required_features", 0, None, "applied", None)]
+    );
+}
+
+#[test]
+fn process_allomorph_required_features_is_not_attempted() {
+    let mut source = gate_snapshot();
+    allomorph_mut(&mut source, ALLO_PROCESS).ms_env_features = Some(plural_number());
+    let db = publish_gates(&source, "process-features.sqlite");
+    assert_eq!(
+        gate_rows(&db, ALLO_PROCESS),
+        vec![gate(
+            "required_features",
+            0,
+            None,
+            "not_attempted",
+            Some("notAnAffixAllomorph"),
+        )]
+    );
 }

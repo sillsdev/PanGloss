@@ -10,6 +10,11 @@ file has no section for.
 - A process allomorph of an inflectional affix now requires its inflection classes, as HermitCrab does;
   earlier releases accepted it with any class.
 
+### Inflectional circumfixes require their prefix half's inflection classes
+
+- An inflectional circumfix now requires its prefix half's inflection classes, as HermitCrab does;
+  earlier releases ignored them. Suffix-half classes stay unread, as in HermitCrab.
+
 ### Reserved FieldWorks word boundaries survive `.fwdata` import
 
 - The importer now recognizes `LangProjectTags.kguidPhRuleWordBdry` by GUID even when a FieldWorks

@@ -13,6 +13,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
+use super::gates::{AllomorphGateEffect, AllomorphGateKind, AllomorphGateOutcome};
 use super::{affixes, issue_codes, roles, Acc, Ctx};
 
 /// Whether `entry` has no senses of its own, so its `EntryRef::Variant`s get walked for a main-entry link.
@@ -503,8 +504,34 @@ fn build_stem_entry(
     Some(lex_id)
 }
 
-/// Uses the pattern-aware segmenter since a root form may carry a lexical lookup pattern (`[C]`-style underspecified segments).
+/// Builds a root allomorph and publishes what became of its stem-name gate, if it has one.
 fn build_root_allomorph(allo: &Allomorph, ctx: &Ctx) -> Result<RootAllomorphDef, String> {
+    let built = build_root_allomorph_shape(allo, ctx);
+    if let Some(stem_name) = &allo.stem_name {
+        let (effect, reason_code) = match &built {
+            Ok(_) if ctx.stem_name_by_guid.contains_key(stem_name) => {
+                (AllomorphGateEffect::Applied, None)
+            }
+            Ok(_) => (AllomorphGateEffect::Unresolved, None),
+            Err(_) => (
+                AllomorphGateEffect::Ignored,
+                Some("allomorphNotRepresented"),
+            ),
+        };
+        ctx.record_gate(AllomorphGateOutcome {
+            allomorph_guid: allo.guid.clone(),
+            gate_kind: AllomorphGateKind::StemName,
+            ordinal: 0,
+            target_guid: Some(stem_name.clone()),
+            effect,
+            reason_code,
+        });
+    }
+    built
+}
+
+/// Uses the pattern-aware segmenter since a root form may carry a lexical lookup pattern (`[C]`-style underspecified segments).
+fn build_root_allomorph_shape(allo: &Allomorph, ctx: &Ctx) -> Result<RootAllomorphDef, String> {
     let form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or("");
     let form = super::format_form(form);
     let shape = crate::segment::segment_with_patterns(ctx.table, natural_class_defs(ctx), &form)

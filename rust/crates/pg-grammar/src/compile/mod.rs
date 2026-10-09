@@ -32,6 +32,7 @@ mod chardef;
 mod compounding;
 mod environment;
 mod features;
+mod gates;
 pub(crate) mod inventory;
 pub(crate) mod issue_codes;
 pub mod issues;
@@ -69,6 +70,8 @@ use pg_snapshot::{
 };
 
 pub use environment::{EnvironmentResolution, EnvironmentResolutionStatus};
+use gates::GateOutcomes;
+pub use gates::{AllomorphGateEffect, AllomorphGateKind, AllomorphGateOutcome};
 use inventory::{Lineage, LineageTarget};
 pub use issues::{CompileOutput, CompiledAllomorphOrder, CompiledMapping};
 use issues::{ConversionError, SubstrateReport};
@@ -178,8 +181,15 @@ pub fn compile_project_with_options_and_import_warnings(
     }
     let mut issues = external_issues.clone();
 
-    let (grammar, recorder, substrate, substrate_issues, owner_warnings, environment_resolutions) =
-        compile_project_recording(snapshot)?;
+    let (
+        grammar,
+        recorder,
+        substrate,
+        substrate_issues,
+        owner_warnings,
+        environment_resolutions,
+        allomorph_gates,
+    ) = compile_project_recording(snapshot)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
@@ -221,6 +231,7 @@ pub fn compile_project_with_options_and_import_warnings(
             compiled_outputs,
             compiled_mappings,
             compiled_allomorph_order,
+            allomorph_gates,
         }
         .into());
     }
@@ -236,6 +247,7 @@ pub fn compile_project_with_options_and_import_warnings(
         compiled_outputs,
         compiled_mappings,
         compiled_allomorph_order,
+        allomorph_gates,
     })
 }
 
@@ -247,6 +259,7 @@ pub(crate) type CompiledProject = (
     Vec<ConversionIssue>,
     Vec<pg_snapshot::Warning>,
     Vec<EnvironmentResolution>,
+    Vec<AllomorphGateOutcome>,
 );
 
 /// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
@@ -379,6 +392,7 @@ pub(crate) fn compile_project_recording(
         owner_warnings: RefCell::new(Vec::new()),
         lineage: RefCell::new(lineage),
         pending_rule_refusals: RefCell::new(Vec::new()),
+        allomorph_gates: RefCell::new(GateOutcomes::default()),
     };
 
     let mut acc = Acc {
@@ -474,6 +488,7 @@ pub(crate) fn compile_project_recording(
     let mut recorder = ctx.recorder.into_inner();
     let lineage = ctx.lineage.into_inner();
     let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
+    let allomorph_gates = ctx.allomorph_gates.into_inner().into_outcomes();
 
     let strata = vec![
         StratumDef {
@@ -573,6 +588,7 @@ pub(crate) fn compile_project_recording(
         substrate_issues,
         owner_warnings,
         environment_resolutions,
+        allomorph_gates,
     ))
 }
 
@@ -870,6 +886,8 @@ pub(crate) struct Ctx<'a> {
     /// context is done) might still prune the primary's own mrule as dead code -- resolved by
     /// `resolve_pending_rule_refusals` once `removed_mrules` is known.
     pub pending_rule_refusals: RefCell<Vec<PendingRuleRefusal>>,
+    /// Per-gate effects the owners that read each allomorph's gates actually applied.
+    pub allomorph_gates: RefCell<GateOutcomes>,
 }
 
 /// A selected constraint issue whose owning rule may be removed by reachability compaction.
@@ -1060,6 +1078,11 @@ impl Ctx<'_> {
                 message,
             },
         );
+    }
+
+    /// Publishes one gate effect; see [`GateOutcomes::record`] for how several reads combine.
+    pub(crate) fn record_gate(&self, outcome: AllomorphGateOutcome) {
+        self.allomorph_gates.borrow_mut().record(outcome);
     }
 
     pub(crate) fn note(

@@ -254,7 +254,7 @@ query result as an empty grammar.
 | `load_accounting` | complete when current source census and all import/compiler inventory subjects have non-unknown decisions; partial otherwise | Typed decisions from the importer, compiler, and compaction. Missing owner decisions remain `unknown` with `decision_unrecorded`; they are not inferred from diagnostics. |
 | `effective_grammar` | partial after compile; unavailable after refusal | V8 carries final mappings and contextual allomorph order, but does not serialize the complete runtime grammar. |
 | `templates` | complete after compile; partial after refusal | Authored slots, templates, and authored side/order; `compiled_order` is compiler-published and nullable when a source slot is not represented. |
-| `allomorphs` | complete | Every allomorph and every form in the supplied Snapshot, preserving entry/form order and writing-system tags. |
+| `allomorphs` | complete | Every allomorph, every form in the supplied Snapshot, and every authored morphological gate with the compiler's `parser_effect`. |
 | `environments` | complete | Every Snapshot environment and allomorph phone/position edge, with parse outcomes for environments the compiler attempted. |
 | `features` | complete | Feature-system definitions plus phoneme and feature-defined natural-class structures. |
 | `phonology` | complete after compile; partial after refusal | Authored phoneme, boundary, class, and constraint facts; final effective class extensions and strata when compilation completes. |
@@ -286,7 +286,8 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `affix_template` | `guid`, owning `category_guid`, `name`, `disabled`, `is_final`. |
 | `template_slot` | `(template_guid, side, ordinal)`, source `slot_guid`, nullable `compiled_order`; `side` is `prefix` or `suffix`. The source slot has no foreign key. Ordinals follow the authored Snapshot vectors. The compiler publishes effective order after dropping unresolved or rule-free slots; a missing order is not reconstructed by the writer. |
 | `lex_entry` | `guid`, `source_ordinal`, `lexeme_morph_type`. |
-| `allomorph` | `guid`, owning `entry_guid`, `ordinal`, `morph_type`, `is_abstract`, nullable `stem_name_guid`. |
+| `allomorph` | `guid`, owning `entry_guid`, `ordinal`, `morph_type`, `form_class` (`stem`, `affix`, or `process`), `is_abstract`, nullable `stem_name_guid`. `form_class` is derived from the morph type and the process realization, because the Snapshot does not carry the source `MoForm` subclass. |
+| `allomorph_gate` | `(allomorph_guid, gate_kind, ordinal)`, nullable `target_guid`, nullable `fs_id` (required features only), `parser_effect`, nullable `reason_code`. `gate_kind` is `inflection_class`, `required_features`, `required_category`, or `stem_name`. `parser_effect` is `applied`, `ignored`, `unresolved`, `owner_not_loaded`, or `not_attempted`. It is the compiler's recorded outcome. `owner_not_loaded` means no owner read the allomorph, so the compiler recorded nothing for it. `not_attempted` means the compiler has no path that reads this gate on this allomorph kind. `required_features` (`MsEnvFeatures`) is an affix-allomorph gate in FieldWorks data; a process or stem allomorph that carries it is published `not_attempted`. A circumfix's prefix-half classes are `applied`; its suffix-half classes are `ignored` with reason `circumfixSuffixClassesNotRead`, and its halves' features are `ignored` with reason `circumfixIgnoresAllomorphGates`. `required_category` (`MsEnvPartOfSpeech`) is always `ignored` with reason `msEnvPartOfSpeechNotRead`, because no compiler path reads it. An allomorph under several MSAs reports its strongest outcome. |
 | `allomorph_form` | `(allomorph_guid, ordinal)`, `writing_system`, `form`; all forms are retained in source order. |
 | `entry_citation_form` | `(entry_guid, ordinal)`, `writing_system`, `form`; the source order is preserved. |
 | `msa` | `msa_guid`, owning `entry_guid`, and `kind` (`stem`, `inflectional`, `derivational`, `unclassified`). |
@@ -295,7 +296,6 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `msa_inflection_class` | `(msa_guid, role)`, `class_guid`; role is `class`, `from_class`, or `to_class`. |
 | `msa_stem_name` | `(msa_guid, role)`, `stem_name_guid`; role is `from_stem_name`. |
 | `msa_exception_feature` | `(msa_guid, role, ordinal)`, `target_guid`; role is `required`, `from_required`, or `to_required`. |
-| `msa_feature_structure` | `(msa_guid, role)`, canonical `feature_structure_json`; role is `features`, `from_features`, or `to_features`. The feature chart and phonological structures are expanded in v4; MSA structures retain their v3 JSON projection. |
 | `sense` | `sense_guid`, owning `entry_guid`, nullable source `msa_guid`. The MSA target is not a foreign key. |
 | `sense_text` | `(sense_guid, kind, ordinal)`, `writing_system`, `text`; kind is `gloss` or `definition`. |
 | `adhoc_prohibition` | `prohibition_guid`, `kind` (`allomorph` or `morpheme`), `disabled`, `adjacency`, `primary_guid`, `target_kind` (`allomorph` or `msa`). |
@@ -314,7 +314,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `boundary_marker`, `boundary_grapheme` | Boundary GUID/name and ordered writing-system spellings. |
 | `feature` | GUID, feature system (`phonological` or `morphosyntactic`), kind (`closed` or `complex`), labels, and nullable feature-type GUID. |
 | `feature_value` | GUID, owning feature, ordinal, name, and abbreviation for a closed value. |
-| `feature_structure` | Integer ID plus feature system, typed source owner, role, and nested path. Feature structures have no source GUID. |
+| `feature_structure` | Integer ID plus feature system, typed source owner, role, and nested path. Owners include `msa` (roles `features`, `from_features`, `to_features`) and `allomorph` (role `required_features`, the allomorph's `MsEnvFeatures`). Feature structures have no source GUID. |
 | `feature_assignment` | `(fs_id, ordinal)`, feature GUID, value kind, and either a closed value GUID or child feature-structure ID. Source feature/value references are retained without foreign keys. |
 | `natural_class` | GUID, kind (`segments` or `features`), abbreviation/name, display name, and nullable feature-structure ID. |
 | `natural_class_member` | `(natural_class_guid, ordinal)`, explicit source phoneme GUID; dangling member references are retained. |

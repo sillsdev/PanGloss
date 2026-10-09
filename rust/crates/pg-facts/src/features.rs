@@ -1,4 +1,5 @@
-use pg_snapshot::feature::{FeatureStructure, FeatureSystem, FeatureValueKind};
+use pg_snapshot::feature::{FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind};
+use pg_snapshot::lexicon::Msa;
 use pg_snapshot::Snapshot;
 use rusqlite::{params, Transaction};
 use std::collections::BTreeMap;
@@ -57,7 +58,94 @@ pub(crate) fn insert_authored(
             ids.insert(("naturalClass".into(), guid.clone(), "features".into()), id);
         }
     }
+    for entry in &snapshot.lexicon.entries {
+        for msa in &entry.msas {
+            let guid = checked_guid(msa.guid(), "lexicon.entries.msas.guid")?;
+            for (role, structure) in msa_structures(msa) {
+                let Some(structure) = structure else { continue };
+                let structure = normalize_feature_structure(structure)?;
+                let id = insert_structure(
+                    tx,
+                    StructureOwner {
+                        system: "morphosyntactic",
+                        kind: "msa",
+                        guid: &guid,
+                        role,
+                    },
+                    "root",
+                    &structure,
+                    &mut next_id,
+                )?;
+                ids.insert(("msa".into(), guid.clone(), role.into()), id);
+            }
+        }
+        for allomorph in &entry.allomorphs {
+            let Some(structure) = &allomorph.ms_env_features else {
+                continue;
+            };
+            let guid = checked_guid(&allomorph.guid, "allomorph.guid")?;
+            let structure = normalize_feature_structure(structure)?;
+            let id = insert_structure(
+                tx,
+                StructureOwner {
+                    system: "morphosyntactic",
+                    kind: "allomorph",
+                    guid: &guid,
+                    role: "required_features",
+                },
+                "root",
+                &structure,
+                &mut next_id,
+            )?;
+            ids.insert(
+                ("allomorph".into(), guid.clone(), "required_features".into()),
+                id,
+            );
+        }
+    }
     Ok(ids)
+}
+
+/// The morphosyntactic structures an MSA carries, by the role each one plays.
+fn msa_structures(msa: &Msa) -> Vec<(&'static str, Option<&FeatureStructure>)> {
+    match msa {
+        Msa::Stem { features, .. } | Msa::Inflectional { features, .. } => {
+            vec![("features", features.as_ref())]
+        }
+        Msa::Derivational {
+            from_features,
+            to_features,
+            ..
+        } => vec![
+            ("from_features", from_features.as_ref()),
+            ("to_features", to_features.as_ref()),
+        ],
+        Msa::Unclassified { .. } => Vec::new(),
+    }
+}
+
+/// Canonicalizes every GUID a structure names, so stored rows match the Snapshot's own identities.
+fn normalize_feature_structure(
+    structure: &FeatureStructure,
+) -> Result<FeatureStructure, FactsError> {
+    let values = structure
+        .values
+        .iter()
+        .map(|item| {
+            Ok(FeatureValue {
+                feature: checked_guid(&item.feature, "MSA feature reference")?,
+                value: match &item.value {
+                    FeatureValueKind::Closed { value } => FeatureValueKind::Closed {
+                        value: checked_guid(value, "MSA feature-value reference")?,
+                    },
+                    FeatureValueKind::Complex { value } => FeatureValueKind::Complex {
+                        value: normalize_feature_structure(value)?,
+                    },
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, FactsError>>()?;
+    Ok(FeatureStructure { values })
 }
 
 fn insert_feature_system(
