@@ -151,6 +151,26 @@ impl ConstructVariant {
             Self::ReduplicationUnrouted => {
                 Some("not authorable in FieldWorks; HC-XML only (HCLoader.cs:976-979)")
             }
+            Self::MetathesisLtrUnlowerable => Some(
+                "not authorable in FieldWorks; HC-XML only (FieldWorks/Src/LexText/Morphology/\
+                 MetaRuleFormulaControl.cs:56-62,402-427; \
+                 FieldWorks/Src/LexText/ParserCore/HCLoader.cs:2103-2150; \
+                 machine/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/\
+                 AnalysisMetathesisRuleSpec.cs:20-52; \
+                 /tmp/pangloss-lanes/metathesis-check/report.md, cases/final/optional-ltr and \
+                 repeated-ltr; rust/crates/pg-foma/src/replace.rs:1175-1240,1310-1330; \
+                 rust/crates/pg-foma/src/capability.rs:822-849)",
+            ),
+            Self::MetathesisRtlUnlowerable => Some(
+                "not authorable in FieldWorks; HC-XML only (FieldWorks/Src/LexText/Morphology/\
+                 MetaRuleFormulaControl.cs:56-62,402-427; \
+                 FieldWorks/Src/LexText/ParserCore/HCLoader.cs:2103-2150; \
+                 machine/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/\
+                 AnalysisMetathesisRuleSpec.cs:20-52; \
+                 /tmp/pangloss-lanes/metathesis-check/report.md, cases/final/optional-rtl and \
+                 repeated-rtl; rust/crates/pg-foma/src/replace.rs:1175-1240,1310-1330; \
+                 rust/crates/pg-foma/src/capability.rs:822-849)",
+            ),
             _ => None,
         }
     }

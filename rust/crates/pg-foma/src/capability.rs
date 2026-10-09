@@ -2407,6 +2407,10 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 ///   the full, evidence-based account of which of these is genuinely reachable): [`PredicateVerdict
 ///   ::Refuse`] — the real compiler already honestly skips (`None`) exactly this rule, never a
 ///   silent wrong compile; overridable via the capability override.
+/// - **Permanent authoring refusal.** Variant evidence is recorded by
+///   `ConstructVariant::permanent_refusal_reason`; Rust-only detection is pinned by
+///   `metathesis_ltr_unlowerable_is_a_documented_rust_only_refusal` and
+///   `metathesis_rtl_unlowerable_is_a_documented_rust_only_refusal`.
 ///
 /// # Provenance
 /// `EvidenceProvenance::Structural`: `swap_construction_attempted` reads directly-inspectable
