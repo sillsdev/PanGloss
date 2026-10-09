@@ -15,4 +15,4 @@ See PanGloss divergence 071 for exact oracle revisions, runs, and revert checks.
 The regression also requires rejecting a second, vacuous unapplication after
 the target has already widened to include both input and output spellings.
 
-Upstream PR link: pending lead publication.
+Upstream PR: [sillsdev/machine#538](https://github.com/sillsdev/machine/pull/538).

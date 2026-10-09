@@ -5,7 +5,7 @@
 # the remaining uma has no preceding x and stays unchanged, yielding xpuma.
 # No morphological rules or head-feature checks participate in this derivation.
 # Machine fix proposal: branch fix/hc-strrep-unapplication, commit a873d60d.
-# The lead supplies the upstream PR link; this local branch is not a posted report.
+# Upstream proposal: https://github.com/sillsdev/machine/pull/538
 language: StrRepRewriteUnapplication
 inspired_by: ["synthetic featureless literal rewrite"]
 requires: [phonology]

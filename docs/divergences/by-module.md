@@ -175,4 +175,4 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |
 | Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `f412c252`) |
 | Deletion unapplication x metathesis across strata | 050 | Missing; repro in Machine #520 |
-| Literal rewrite StrRep nonvacuity and inverse identity | 071 | `strrep-rewrite-unapplication`; synthetic kad/kat comparison; Machine proposal on local `fix/hc-strrep-unapplication`, PR pending lead publication |
+| Literal rewrite StrRep nonvacuity and inverse identity | 071 | `strrep-rewrite-unapplication`; synthetic kad/kat comparison; [Machine PR #538](https://github.com/sillsdev/machine/pull/538) |

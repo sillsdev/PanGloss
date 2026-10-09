@@ -1,7 +1,7 @@
 # 071 — Literal rewrite unapplication needs StrRep identity
 
 Kind: behavioural (shared C#/Rust bug, with an additional Rust divergence)
-Status: open — Rust implements the proposed Machine fix; upstream publication is pending the lead.
+Status: open — Rust implements the proposed Machine fix, [sillsdev/machine#538](https://github.com/sillsdev/machine/pull/538) (opened 2026-10-08).
 
 ## C# site
 
@@ -16,8 +16,8 @@ Machine base `b9e7db4435c325494bdb2c68ec569cadeb10df23` and proposed fix
 The additional synthetic `kad`/`kat` regression is committed at `a57d923d` on
 the same Machine branch; its production code is unchanged from `a873d60d`.
 
-The shared defect is reproduced, rather than inferred from Rust. No issue or PR
-has been opened by this lane; the lead adds the Machine PR link after publication.
+The shared defect is reproduced, rather than inferred from Rust. The fix is proposed
+upstream as [sillsdev/machine#538](https://github.com/sillsdev/machine/pull/538).
 The proposed fix is committed locally, and Rust follows that proposal.
 
 ## Rust site
@@ -104,8 +104,7 @@ PC miss remains a miss; neither its outcome nor any other existing cell was prom
 
 ## Follow-up
 
-The lead publishes the Machine proposal and adds its PR link here and in
-`STAGING.md`; CI confirms Machine's full solution build (CMake is absent locally).
+Track [sillsdev/machine#538](https://github.com/sillsdev/machine/pull/538); its CI confirms Machine's full solution build (CMake was absent locally).
 Keep the staged fixture until upstream acceptance and a PanGloss submodule bump.
 
 Coverage-ledger follow-up: PlanComposed refuses the new fixture safely while HC answers it.
