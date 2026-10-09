@@ -1,5 +1,7 @@
 //! Unit tests for `pg_grammar::compile`, built entirely from code-constructed `Snapshot` values (no `.fwdata`/oracle files).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use pg_snapshot::feature::{
     ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind,
     FeatureValueSymbol,
@@ -1854,6 +1856,161 @@ fn variant_affix_order_joins_variant_entry_to_the_main_entry_msa() {
             && row.bucket == "Morphology"
             && row.compiled_order == Some(0)
     }));
+}
+
+fn variant_affix_sharing_main_msa(snapshot: &mut Snapshot, f: &Fixture) {
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-variant-affix".to_string(),
+        citation_form: vec![ws("sen", "-ku")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph(
+            "allo-variant-affix",
+            MorphType::Suffix,
+            "ku",
+        )],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant-affix".to_string(),
+            component_lexemes: vec![f.suffix_entry.clone()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+}
+
+#[test]
+fn variant_affix_and_main_affix_sharing_an_msa_have_distinct_rule_keys() {
+    let (mut snapshot, f) = fixture();
+    variant_affix_sharing_main_msa(&mut snapshot, &f);
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+
+    let rule_keys: BTreeSet<&str> = output
+        .compiled_mappings
+        .iter()
+        .filter(|m| {
+            m.source_kind == "msa"
+                && m.source_guid.as_deref() == Some(f.suffix_msa.as_str())
+                && m.output_kind == "morphRule"
+        })
+        .map(|m| m.output_key.as_str())
+        .collect();
+    assert_eq!(rule_keys.len(), 2, "rule keys: {rule_keys:?}");
+    assert!(rule_keys.iter().all(|key| key.starts_with("morph_rule:")));
+
+    let allomorph_keys: BTreeSet<&str> = output
+        .compiled_mappings
+        .iter()
+        .filter(|m| {
+            m.source_kind == "allomorph"
+                && m.output_kind == "allomorph"
+                && matches!(
+                    m.source_guid.as_deref(),
+                    Some("allo-suffix" | "allo-variant-affix")
+                )
+        })
+        .map(|m| m.output_key.as_str())
+        .collect();
+    assert_eq!(
+        allomorph_keys.len(),
+        2,
+        "allomorph keys: {allomorph_keys:?}"
+    );
+}
+
+#[test]
+fn variant_stem_with_two_inflection_types_has_two_entry_keys() {
+    let (mut snapshot, f) = fixture();
+    let infl_types = ["infl-plural", "infl-dual"];
+    for guid in infl_types {
+        snapshot
+            .morphology
+            .lex_entry_infl_types
+            .push(LexEntryInflType {
+                guid: guid.to_string(),
+                name: guid.to_string(),
+                abbreviation: guid.to_string(),
+                gloss_prepend: String::new(),
+                gloss_append: format!(".{guid}"),
+                slots: Vec::new(),
+                inflection_features: None,
+            });
+    }
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-variant".to_string(),
+        citation_form: vec![ws("sen", "kumi")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-variant", MorphType::Stem, "kumi")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            variant_entry_types: infl_types.iter().map(|g| g.to_string()).collect(),
+        }],
+    });
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+
+    let entry_keys: BTreeSet<&str> = output
+        .compiled_mappings
+        .iter()
+        .filter(|m| {
+            m.source_kind == "msa"
+                && m.source_guid.as_deref() == Some(f.stem_msa.as_str())
+                && m.output_kind == "lexEntry"
+        })
+        .map(|m| m.output_key.as_str())
+        .collect();
+    assert_eq!(
+        entry_keys.len(),
+        3,
+        "base stem plus two variants: {entry_keys:?}"
+    );
+    let variant_keys: BTreeSet<&str> = output
+        .compiled_mappings
+        .iter()
+        .filter(|m| {
+            m.source_kind == "entry"
+                && m.source_guid.as_deref() == Some("entry-variant")
+                && m.output_kind == "lexEntry"
+        })
+        .map(|m| m.output_key.as_str())
+        .collect();
+    assert_eq!(
+        variant_keys.len(),
+        2,
+        "variant entry keys: {variant_keys:?}"
+    );
+    assert!(variant_keys.iter().all(|key| key.starts_with("lex_entry:")));
+}
+
+#[test]
+fn compiled_mapping_rows_equal_compiled_outputs() {
+    let (mut snapshot, f) = fixture();
+    variant_affix_sharing_main_msa(&mut snapshot, &f);
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+
+    let mut sources_by_key: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for row in &output.compiled_allomorph_order {
+        let (Some(key), Some(source)) = (
+            row.output_key.as_deref(),
+            row.source_allomorph_guid.as_deref(),
+        ) else {
+            continue;
+        };
+        sources_by_key.entry(key).or_default().insert(source);
+        assert!(
+            output.compiled_mappings.iter().any(|m| {
+                m.output_kind == "allomorph"
+                    && m.output_key == key
+                    && m.source_guid.as_deref() == Some(source)
+            }),
+            "order row {key} / {source} has no matching compiled mapping"
+        );
+    }
+    assert!(
+        sources_by_key.values().all(|sources| sources.len() == 1),
+        "an output key names two source allomorphs: {sources_by_key:?}"
+    );
 }
 
 // --- 5. partial entry (MSA without POS) -------------------------------------------------------

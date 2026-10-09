@@ -490,6 +490,10 @@ fn build_stem_entry(
         source_msa_guid: Some(guid.clone()),
         source_msa_class: Some(msa.fw_class()),
         source_infl_type_guid: infl_type.map(|it| it.guid.clone()),
+        owner: Some(crate::model::MorphemeOwner {
+            entry_guid: entry.guid.clone(),
+            keys_by_infl_type: false,
+        }),
         morph_id: None,
         gloss: sense_gloss(entry, guid, ctx).map(str::to_string),
         stratum,
@@ -856,6 +860,10 @@ fn build_variant_stem_entry(
         source_msa_guid: Some(guid.clone()),
         source_msa_class: Some(msa.fw_class()),
         source_infl_type_guid: infl_type.map(|it| it.guid.clone()),
+        owner: Some(crate::model::MorphemeOwner {
+            entry_guid: variant_entry.guid.clone(),
+            keys_by_infl_type: true,
+        }),
         morph_id: None,
         gloss: (!gloss.is_empty()).then_some(gloss),
         stratum: StratumId(0),

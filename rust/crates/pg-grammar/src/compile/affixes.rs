@@ -434,6 +434,10 @@ pub(crate) fn build_affix_rule(
         source_msa_guid: Some(msa_guid.clone()),
         source_msa_class: Some(msa.fw_class()),
         source_infl_type_guid: None,
+        owner: Some(crate::model::MorphemeOwner {
+            entry_guid: entry.guid.clone(),
+            keys_by_infl_type: false,
+        }),
         morph_id: None,
         gloss,
         stratum,

@@ -542,6 +542,9 @@ pub struct MorphemeInfo {
     pub source_msa_class: Option<pg_snapshot::FwClass>,
     /// Authored lexical-entry inflection-type identity for variant-specific morphemes.
     pub source_infl_type_guid: Option<String>,
+    /// The lexical entry this morpheme was built for, when it came from one. Output keys carry it so
+    /// two morphemes that borrow one MSA (a variant and its main entry) keep distinct keys.
+    pub owner: Option<MorphemeOwner>,
     pub morph_id: Option<String>,
     pub gloss: Option<String>,
     /// Which stratum owns this morpheme (C# `Morpheme.Stratum`).
@@ -552,6 +555,14 @@ pub struct MorphemeInfo {
     /// per-allomorph `AllomorphCoOccurrenceRuleDef`s (plan W6, `Allomorph.
     /// CheckAllomorphConstraints`, Allomorph.cs:181-201).
     pub co_occurrence: Vec<MorphemeCoOccurrenceRuleDef>,
+}
+
+/// The owning lexical entry of a [`MorphemeInfo`], as the compiler keys its published outputs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MorphemeOwner {
+    pub entry_guid: String,
+    /// True for a variant stem, whose entry output key also carries its inflection type.
+    pub keys_by_infl_type: bool,
 }
 
 /// Where FieldWorks places a source morph while walking parser annotations.

@@ -124,6 +124,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
         source_msa_guid: None,
         source_msa_class: None,
         source_infl_type_guid: None,
+        owner: None,
         morph_id: None,
         gloss: None,
         stratum: StratumId(0),

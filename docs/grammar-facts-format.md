@@ -41,6 +41,22 @@ exact Snapshot or its compiler-published source associations. The seven logical 
 states come from `pg-rules`' collector API; self-time support is recorded by direction. The artifact
 is rebuilt from source; there is no in-place schema migration.
 
+## Compiled output keys
+
+The `output_key` text of `compiled_mapping` and `compiled_allomorph_order` changed without a schema
+change; the facts schema stays at version 7 because the columns are unchanged. Keys are built from
+the source XML key, the owning lexical entry, and the stratum bucket, so a variant entry that borrows
+its main entry's MSA gets its own keys:
+
+- Affix rule: `morph_rule:{xml_key}#{entry_guid}@{bucket}`.
+- Lexical entry: `lex_entry:{xml_key}#{entry_guid}[~{infl_type_guid}]@{bucket}`. The `[~...]` part
+  appears only for variant stems, one per inflection type.
+- Allomorph: `{owner_key}#allo{index}`, where `owner_key` is the rule or entry key above.
+
+A morpheme with no owning lexical entry (template null affixes and XML-loaded morphemes) keeps the
+bare `xml_key`, which is already unique. Compound rules keep `morph_rule:{xml_id}`. Stats joins use
+`stats_object` keys, which this change does not alter.
+
 ## Invocation and context
 
 ```text

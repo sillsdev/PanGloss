@@ -413,7 +413,7 @@ fn add_unrepresented_root_order(
             Msa::Stem { guid, .. } => Some(guid.as_str()),
             _ => None,
         }) {
-            let owner_key = format!("lex_entry:{msa}@{bucket}");
+            let owner_key = lex_entry_key(msa, Some(&entry.guid), None, bucket);
             let order_key = order_key(&owner_key, Some(guid), None);
             if orders.contains_key(&order_key) {
                 continue;
@@ -498,12 +498,44 @@ fn order_key(owner_key: &str, source_guid: Option<&str>, output_key: Option<&str
     )
 }
 
+// One spelling per key formula, shared by every caller that names an output.
+fn lex_entry_key(
+    xml_key: &str,
+    owner: Option<&str>,
+    infl_type: Option<&str>,
+    bucket: &str,
+) -> String {
+    let owner = owner.map(|guid| format!("#{guid}")).unwrap_or_default();
+    let infl_type = infl_type
+        .map(|guid| format!("[~{guid}]"))
+        .unwrap_or_default();
+    format!("lex_entry:{xml_key}{owner}{infl_type}@{bucket}")
+}
+
+fn morph_rule_key(xml_key: &str, owner: Option<&str>, bucket: &str) -> String {
+    let owner = owner.map(|guid| format!("#{guid}")).unwrap_or_default();
+    format!("morph_rule:{xml_key}{owner}@{bucket}")
+}
+
 fn entry_output_key(morpheme: &crate::model::MorphemeInfo, bucket: &str) -> String {
-    format!("lex_entry:{}@{bucket}", morpheme.xml_key)
+    let owner = morpheme.owner.as_ref();
+    let infl_type = owner
+        .filter(|owner| owner.keys_by_infl_type)
+        .and(morpheme.source_infl_type_guid.as_deref());
+    lex_entry_key(
+        &morpheme.xml_key,
+        owner.map(|owner| owner.entry_guid.as_str()),
+        infl_type,
+        bucket,
+    )
 }
 
 fn rule_output_key(morpheme: &crate::model::MorphemeInfo, bucket: &str) -> String {
-    format!("morph_rule:{}@{bucket}", morpheme.xml_key)
+    let owner = morpheme
+        .owner
+        .as_ref()
+        .map(|owner| owner.entry_guid.as_str());
+    morph_rule_key(&morpheme.xml_key, owner, bucket)
 }
 
 fn allomorph_output_key(owner_key: &str, index: u16) -> String {

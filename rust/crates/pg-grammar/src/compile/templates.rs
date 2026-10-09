@@ -450,6 +450,7 @@ fn build_null_affix_rule(
         source_msa_guid: None,
         source_msa_class: None,
         source_infl_type_guid: Some(it.guid.clone()),
+        owner: None,
         morph_id: None,
         gloss: None,
         stratum: StratumId(0),
