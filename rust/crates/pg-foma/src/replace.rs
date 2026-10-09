@@ -1,298 +1,7 @@
-//! Compiles HC `RewriteRuleDef`s into foma replace-calculus regex source (`A -> B || L _ R`).
-//!
-//! This is the relational encoding of a rewrite rule: the rule stays a relation rather than being
-//! expanded into every surface junction variant at build time the way `crate::junctions` and
-//! `crate::preexpand` do.
-//!
-//! ## Symbol alphabet: char-def IDENTITY, not literal spelling
-//! The engine matches phonological segments by **char-def identity**, never by literal spelling
-//! (`emit.rs`'s module doc, "Surface spelling": a char-def with several `<Representation>`s
-//! matches ANY of its own spellings). `emit.rs` copes with this by cartesian-producting every
-//! spelling variant into literal lexc strings (`crate::emit::surface_variants`). This module
-//! takes the more direct route available once lexc/rules are built from `pg_shape::Shape`
-//! structure rather than raw text: every `CharDefId` used anywhere in the grammar's surface
-//! table is mapped to **one Private-Use-Area codepoint** (`SegAlphabet::token`), and every lexc
-//! entry, rule regex, and query word is built/encoded in that token space. This sidesteps BOTH
-//! footguns literal-string lexc has to work around:
-//! - multi-representation segments (Indonesian's `char28` = {"g","G"}) need no cartesian product
-//!   at all — both spellings segment to the SAME char-def id, hence the SAME token, for free;
-//! - multi-character graphemes ("ng"/"ny"/"sy"/"kh") need no lexc `Multichar_Symbols`
-//!   declaration/registration bookkeeping between the lexc compile and the (separately compiled,
-//!   then composed) rule regexes — each grapheme is already one token, one codepoint, matched by
-//!   plain regex concatenation.
-//! - xre-reserved characters (the morpheme-boundary `+` is foma's Kleene-plus operator!) never
-//!   collide with a token, since PUA codepoints are outside xre's entirely-ASCII reserved set.
-//!
-//! The price: the composed network's own lower tape is not human-legible orthography. That's
-//! fine for the propose→confirm contract: `crate::analyzer::FomaProposer`-equivalent callers only need
-//! the UPPER tape's tag sequence; a query word is transliterated into token space
-//! (`SegAlphabet::encode_query`, reusing `pg_grammar::segment::segment_phonemes_only` — the
-//! same greedy longest-match the engine's own segmentation uses) before `apply_up`, and the
-//! result is decoded via `crate::tags::decode_path` exactly like the mainline proposer.
-//!
-//! ## alpha-variable expansion: tuple-indexed, not per-variable
-//! A rule's alpha-bound slots (RHS/LHS/environment `pg_grammar::model::PatternNode::Context` nodes carrying
-//! `pg_grammar::model::AlphaVar`s) are resolved by `resolve_alpha_tuples`: gather every slot referencing a given
-//! `pg_grammar::model::VarId`, enumerate the CROSS PRODUCT of each slot's own (non-alpha-feature) candidate
-//! members, then keep only the combinations where every pair of same-`VarId` slots satisfies its
-//! own joint `AlphaVar::plus` polarity: `+`/`+` or `-`/`-` must overlap (same symbolic-feature
-//! value) at that variable's lane, `+`/`-` must be disjoint (a different value). This bounds the
-//! count of segment tuples
-//! satisfying the joint constraint (Amharic's 20-variable CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never
-//! v^20) — implemented once, generically over N variables and N slots-per-variable, so the same
-//! code path that resolves Indonesian's single-variable prule4 is what would resolve Amharic's
-//! rule without modification.
-//!
-//! A disagree-polarity occurrence is refused instead when its own natural class does not make
-//! disagreement a FUNCTION -- `crate::lower::class_feature_partition_is_unambiguous`'s own doc has
-//! the reason (a genuine one-to-many relation this branch-union construction was measured
-//! collapsing to a single, often wrong, branch).
-//!
-//! ## What this module does NOT attempt
-//! - `pg_grammar::model::PatternNode::Quantifier` (`OptionalSegmentSequence`) that is inverted (`min > max`, `max`
-//!   concrete), empty, or carries an alpha-bound occurrence anywhere in its own children —
-//!   `pattern_slots` still returns `None`/bails for exactly these configurations (a rule whose
-//!   pattern needs one is reported uncovered, not silently mis-rendered). A FINITELY bounded,
-//!   alpha-free quantifier (`min`/`max` both concrete, `min <= max`) compiles via `Slot::Repeat`,
-//!   and a genuinely UNBOUNDED, alpha-free quantifier (`max ==
-//!   None`, the DTD's `max="-1"` sentinel) now ALSO compiles, via that SAME `Slot::Repeat`
-//!   (`max: Option<u32>`), rendered with foma's native `E*`/`E^>N` operator instead of `E^{min,max}`
-//!   — see that variant's own doc for the construction, and "Bounded quantifiers" below for the
-//!   compiled-vs-still-unsupported line and the confirm-engine finding that motivates it.
-//! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate
-//!   (`crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
-//!   overlap, or an unsupported pattern node in a lowered span) — see "`RewriteMode::Simultaneous`:
-//!   compiling the ADMITTED case" below for the (now real) admitted case.
-//! - MPR gating (`required_mpr`/`excluded_mpr` on a subrule) — flag-diacritic emission is
-//!   out of scope, not attempted in this slice.
-//!
-//! ## `Dir::RightToLeft`: the reversal construction
-//! `Dir::RightToLeft` used to be honestly skipped (the same `None` treatment `Simultaneous`
-//! still gets); this change gives it real, direction-faithful semantics via the STANDARD
-//! finite-state technique for "prefer the rightmost, not leftmost, non-overlapping match" (Beesley
-//! & Karttunen, *Finite State Morphology*, ch. 6 "Directional replacement rules"): reverse ∘
-//! compile(mirror rule) ∘ reverse, NOT "compile as if `LeftToRight`".
-//!
-//! **The mirror rule.** Foma's native `->` only ever prefers the LEFTMOST of several
-//! non-overlapping candidate matches (there is no built-in "prefer rightmost" operator). To get
-//! rightmost preference, `compile_rtl_branch_net` builds the MIRROR IMAGE of the rule — reverse
-//! the LHS's own slot order, reverse the RHS's own slot order, and SWAP the two environments while
-//! ALSO reversing each one's own slot order (`left_env' = reverse(right_env)`, `right_env' =
-//! reverse(left_env)`) — compiles that mirror rule with the SAME plain-`->` machinery
-//! `render_branch_regex` already uses for `LeftToRight`, and then calls `fsm_reverse` on the
-//! resulting `Fsm`. `fsm_reverse`'s own contract (`foma::reverse`'s doc: "all original state
-//! numbers are shifted up by 1... label sides are NOT swapped") means: for a transducer whose own
-//! upper/lower tapes spell `reverse(S)`/`reverse(S')` when read forward, `fsm_reverse` of it spells
-//! `S`/`S'` when read forward — i.e. reversing a network that operates on REVERSED strings gives
-//! back a network that operates on NORMAL strings, but the internal left-to-right preference that
-//! was baked into the mirror compile (over the reversed alphabet) becomes a right-to-left
-//! preference over the real, un-reversed string. Environments keep their ordinary, un-reversed
-//! meaning in the FINAL network (`left_env` is still "precedes the target in the real string") —
-//! the swap+reverse only happens in the INTERMEDIATE mirror-rule text; see
-//! `compile_rtl_branch_net`'s own doc for the worked "aa -> b" example this construction is
-//! checked against.
-//!
-//! **The safety-net union (a documented, conservative judgment call).** `pg_rules::rewrite`'s own
-//! `Iterative` synthesis/analysis loops (`syn_feature`/`syn_narrow`/`ana_feature`/…) pick which
-//! candidate span to act on first via `all_spans`'/`candidates.sort_unstable()`'s own ASCENDING
-//! sort — i.e. this repo's current full-HC oracle is, empirically, direction-BLIND for the "which
-//! overlapping match wins" question (verified directly: a hand-built `aa -> b` rule applied to
-//! `"aaa"` synthesizes to `"ba"` whether the rule is declared `LeftToRight` or
-//! `rightToLeftIterative`). Where the oracle itself is unverified for a configuration, the
-//! configuration is unsupported by definition. Rather than let a THEORETICALLY-faithful
-//! reversal-only compile under-propose relative to what this repo's own confirm engine actually
-//! requires for recall (the reversal-only net for `aa -> b`/`RightToLeft` maps `"aaa"` to `"ab"`,
-//! never `"ba"` — so it would never even PROPOSE the lexical form the current oracle confirms for
-//! surface `"ba"`), `compile_rtl_branch_net` returns `fsm_union(plain_LTR_style_net,
-//! reversed_net)`: the SAME plain construction `render_branch_regex` already gives `LeftToRight`
-//! (a proven-safe floor, since the oracle treats every direction identically today) UNIONED with
-//! the genuinely-reversed net (so the construction really is direction-aware, differs from a plain
-//! `LeftToRight` compile on any input where the two branches disagree, and is READY the day
-//! `pg_rules::rewrite`'s own pick-order gets a direction-aware fix — a follow-on outside this
-//! single-owner file's scope, flagged, not fixed here). Both branches are already COMPLETE,
-//! obligatory replace transducers (each has no "did nothing" identity path at a position its own
-//! context matches), so `fsm_union`ing them adds no spurious third "nothing happened" path — see
-//! `compile_rtl_branch_net`'s own doc for why this differs from the alpha-tuple union-is-wrong
-//! finding above.
-//!
-//! ## `RewriteMode::Simultaneous`: compiling the ADMITTED case
-//! `RewriteMode::Simultaneous` used to be honestly skipped UNCONDITIONALLY (`None` for every
-//! such rule, regardless of subrule shape — the same treatment metathesis and an unsupported
-//! pattern construct get). It still stays that way for a rule whose subrules the
-//! `simultaneous.subrule-overlap` predicate (`crate::capability::
-//! SimultaneousSubruleOverlapPredicate`) cannot prove pairwise
-//! non-overlapping. What changes here: for a rule the predicate DOES admit —
-//! `is_fully_supported_shape` now asks `crate::capability::
-//! simultaneous_rule_admitted_for_compile` (that function's own doc: the SAME proof, freshly
-//! computed, sharing its algorithm with the capability gate's own predicate so the two can never
-//! disagree) — this file's EXISTING plain/iterative sequential-compose machinery is reused UNCHANGED,
-//! not reimplemented: no new branch net construction, no new fold shape, nothing analogous to
-//! `compile_rtl_branch_net`'s mirror-plus-reverse-plus-union.
-//!
-//! **Why reuse, not a new algorithm, is actually correct here (not merely convenient).** The
-//! Admit boundary is defined EXACTLY as "no two subrules' environments can ever match at the same
-//! input position" — precisely the condition under which HC's true `Simultaneous` semantics (find
-//! every match against ONE untouched input snapshot, then apply them all —
-//! `SimultaneousPhonologicalPatternRule.Apply`, HC's own reference behavior) and a sequential
-//! per-subrule fold (this file's existing `Iterative`-labeled machinery) produce IDENTICAL output:
-//! with no shared focus position in contention, subrule application order can never change which
-//! subrule wins where, so "compose subrule 1's net, then subrule 2's net" (what this file already
-//! does for `Iterative`) and "collect all subrules' matches against the original input, then apply
-//! all of them" (true `Simultaneous`) coincide. A second, independently-confirmed reason this
-//! reuse is faithful, not just permitted: a plain foma `->` replace rule is ITSELF a single-pass,
-//! snapshot-style construction (Beesley & Karttunen's classical replace-rule automaton finds every
-//! non-overlapping match against the rule's own input tape and rewrites them all in one
-//! transduction — it cannot self-feed within one compiled expression the way `pg-rules`'
-//! `syn_feature`'s re-scan-after-every-mutation loop can (`syn_epenthesis` is "already
-//! Simultaneous-shaped" for exactly this reason). So
-//! this file's foma-`->`-based compile was ALREADY structurally closer to true `Simultaneous`
-//! semantics than to HC's `Iterative` re-scan semantics, for ANY rule it has ever compiled — the
-//! `Iterative` label on the existing machinery names which HC mode it happens to have been used
-//! for so far, not an inherent re-scan behavior the compiled net exhibits.
-//!
-//! **What `pg_rules::rewrite` (the confirm engine) actually does for `Simultaneous`.** Unlike the
-//! `RightToLeft` case above, `pg_rules::rewrite` is NOT mode-blind here: it dispatches
-//! `Kind::Feature`/`Kind::Narrow` synthesis to genuinely distinct `sim_feature`/`sim_narrow`
-//! functions (vs. `syn_feature`/`syn_narrow` for `Iterative`), and its analysis side wraps
-//! `ana_feature`/`ana_epenthesis` in a repeat-until-fixpoint loop whenever a subrule is
-//! `self_opaquing` — a real, load-bearing mode
-//! dependence, ported and shipped from HC's own reference behavior, not a gap this change needs to
-//! patch around. The
-//! `self_opaquing`-Refuse early-out is exactly what keeps the ADMITTED case inside the region where
-//! this asymmetry never actually bites: `self_opaquing` is REQUIRED true for the repeat-wrapper to
-//! ever trigger, and the admit predicate refuses any pair containing one
-//! (`crate::capability::simultaneous_rule_admitted_for_compile` is additionally stricter still for
-//! a LONE self-opaquing subrule, unlike the predicate's own pairwise-only algorithm). So
-//! for every
-//! rule this file now actually compiles under `Simultaneous`, confirm's analysis side runs
-//! `ana_feature`/`ana_epenthesis` exactly once, per subrule, with no fixpoint loop — the SAME shape
-//! `Iterative` mode's analysis already uses ("`ApplicationMode`
-//! has zero effect on which pattern rule analysis uses" for Feature subrules, HC's own reference
-//! behavior). No safety-net union
-//! is needed here (contrast `compile_rtl_branch_net`'s own documented judgment call): there is no
-//! known faithfulness gap between what this file compiles and what confirm accepts for the admitted
-//! case, so no superset-widening is required to stay recall-safe.
-//!
-//! ## Bounded quantifiers
-//! `pg_grammar::model::PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) used to be `pattern_slots`'
-//! unconditional bail (module doc, "What this module does NOT attempt") regardless of `min`/`max`.
-//! Now a FINITELY bounded, alpha-free quantifier — `max == Some(_)`, `min <= max`, no `Slot::Alpha`
-//! occurrence anywhere in its own (possibly nested)
-//! children — compiles to a new `Slot::Repeat`, rendered as foma's OWN native bounded-repetition
-//! xre operator, `A^{min,max}` (`nfst-xre = "0.1.0"`'s `RepeatNToK`, confirmed by reading that
-//! vendored crate's own `src/lexer.rs`/`src/parser.rs`: `^{N,K}`/`^N,K` lexes to `CatenateNToK`, a
-//! POSTFIX operator over whatever `[...]`-grouped term precedes it) over the quantifier's own
-//! rendered children — never a hand-rolled state-machine construction, so this file inherits
-//! foma's own `fsm_concat_m_n` construction (`foma = "0.4.0"`'s own `src/constructions/boolean.rs`:
-//! `min` mandatory concatenated copies of the child net, then `max - min` further copies each
-//! wrapped in `fsm_optionality` — i.e. **exactly** the "bounded concatenation/optionality"
-//! construction this change's own proposal names, not an approximation of it) for free. Inverted
-//! (`min > max`, `max` concrete, no sound finite construction), empty-children, or alpha-nested
-//! quantifiers are UNCHANGED: still `None`, still honestly reported uncovered by every existing
-//! caller.
-//!
-//! ## Unbounded quantifiers
-//! A genuinely UNBOUNDED, alpha-free quantifier — `max == None`, the DTD's `max="-1"` Kleene
-//! sentinel, the loader's own DEFAULT when the attribute is absent (`XmlLanguageLoader.cs`, the
-//! DTD's own `#IMPLIED` doc: "-1 or higher") — used to be refused for exactly the same reason a
-//! bounded one used to be: `pattern_slots`' unconditional bail, inherited from bounded quantifier
-//! support's own narrower original scope, never a feasibility finding (the unbounded case was
-//! never uncompilable, only out of scope for that first step). It compiles now, via the SAME `Slot::Repeat` (widened to
-//! `max: Option<u32>`), rendered as foma's own native `E*`/`E^>N` xre operator instead of
-//! `E^{min,max}` (`crate::lower::render_slots`'s own doc has the exact operator-selection rule):
-//! `min == 0` ("zero or more") is plain `*` (`nfst-xre`'s `Token::Star`, `foma-0.4.2`'s
-//! `UnaryOp::Star` -> `fsm_kleene_star`); `min >= 1` ("`min` or more") is `E^>(min-1)`
-//! (`nfst-xre`'s `CatenateNPlus`/`RepeatNPlus`, `foma-0.4.2/src/regex.rs:258-268`'s own
-//! `concat(concat_n(net, N), kleene_plus(net))` — **`E^>N` means MORE THAN `N`, i.e. `N+1` or more,
-//! not `N` or more**, the off-by-one `crate::lower::render_slots` is careful to get right by
-//! rendering `min-1`, never `min`). A Kleene star/plus's own compiled net size does not depend on
-//! any repetition count at all, and `max: None` is never coerced to a concrete number anywhere in
-//! this path (a finite cutoff must never masquerade as unbounded semantics — this is the SAME rule
-//! the original refusal existed to enforce, now honored by actually building the unbounded
-//! construction instead of refusing every quantifier that might need it). Inverted-,
-//! empty-children, and alpha-nested quantifiers stay `None` exactly as before.
-//!
-//! **Big-O.** `E*`/`E^>N`'s compiled size is `fsm_kleene_star`/`fsm_kleene_plus`'s own native
-//! construction over the child automaton `E` (a small, constant number of extra states/arcs beyond
-//! `E` itself, `N` sequential copies of `E` for the `E^>N` case's own mandatory prefix) — LINEAR in
-//! `min`, and, unlike the finite `E^{min,max}` case, INDEPENDENT of any upper occurrence count (there
-//! is none to be linear or exponential IN).
-//!
-//! **Big-O.** `A^{min,max}`'s compiled size is `O(max · |A|)` states/arcs (`max` sequential copies
-//! of the child automaton `A`, `fsm_concat_m_n`'s own doc above) — LINEAR in the bound, never
-//! exponential, and independent of `min` (a smaller `min` only changes how many of the `max` copies
-//! are wrapped `fsm_optionality`-skippable, not how many copies exist). A rule combining a
-//! quantifier with alpha variables ELSEWHERE in the same subrule (never inside the quantifier's own
-//! children — disallowed, see `Slot::Repeat`'s own doc) multiplies this bound by
-//! `resolve_alpha_tuples`'s own `surviving` tuple count, exactly the same two-independent-axes
-//! shape; the quantifier axis gets its OWN eager, cheaper-than-any-
-//! `Fsm` characterization rather than a new composition-budget dimension: `pattern_slots` is a pure
-//! structural walk with no `ComposeBudget` threaded through it (every existing caller — this file's
-//! own compile path, `crate::lower::lower_span`, `crate::capability`'s structural probes — calls it
-//! with only a `&Grammar`/`&CharDefTable`), and widening that signature crate-wide for one
-//! dimension's sake was judged a larger, separate follow-on rather than something this single-owner
-//! slice should take on.
-//!
-//! **Confirm-engine finding (recall RTL's own "recall this can have gaps" note): a Quantifier whose
-//! own occurrence count can make it match a PHYSICAL WIDTH other than exactly 1 segment, used as (or
-//! inside) a rule's LHS/RHS focus, cannot be confirmed by `pg_rules::rewrite` at all today** —
-//! `pg_rules::rewrite::width_matches`'s own doc (`rewrite.rs`, "Shared width-mismatch guard")
-//! requires the ACTUAL matched span width to equal the rule's raw `lhs.nodes.len()`
-//! (`Kind::Narrow`) or `rhs.nodes.len()` (`Kind::Feature`) — a plain node COUNT that is always
-//! exactly 1 for "one `Quantifier` node occupies the entire LHS", regardless of how many physical
-//! segments it actually consumes; any occurrence count whose real width differs from that fixed
-//! count (e.g. `max > 1`, or `min == 0`'s zero-occurrence skip) is silently discarded by this guard
-//! before the RHS is ever applied, INDEPENDENT of this change (`width_matches` predates it; the
-//! guard's own doc explains it exists for a DIFFERENT, unrelated scenario — an earlier rule's own
-//! analysis-inserted Optional segment widening a LATER rule's match span — that merely also catches
-//! this one). **A `Quantifier` used inside a rule's `left_env`/`right_env` has no such gap**:
-//! `pg_rules::rewrite::left_env_match`/`right_env_match` compile the environment via the SAME
-//! `PatternBridge::compile_pattern` bridge this crate's own oracle-comparison tests already rely on
-//! being Quantifier-faithful (`pg-rules/src/bridge.rs`'s own doc: "the pg-fst `{min,max}` quantifier
-//! over the compiled children"), and test only FIRST-MATCH EXISTENCE (`Transduce::first_match`), never
-//! a positional per-node array — no width count to mismatch. `tests/phase_c_quantifier.rs`'s own
-//! bounded-quantifier containment fixture therefore places its quantifier in a `right_env`
-//! (`prule3`'s own precedent this module's earlier doc already cited), where exact oracle
-//! containment is provable today; a genuinely LHS/RHS-focus-quantified rule is real, compilable
-//! FST-side, but its full-recall containment against `pg_rules::rewrite` is a documented, pre-
-//! existing gap this change surfaces rather than silently works around — flagged for a follow-on
-//! entirely outside `replace.rs`'s single-owner boundary, exactly like the RTL gap above.
-//!
-//! ## Additional `RightToLeftRewrite` pattern shapes
-//! `pattern_slots` used to refuse `PatternNode::Segments`/`PatternNode::Anchor`
-//! unconditionally, for EVERY caller alike — the RTL predicate's own witness used to list them
-//! alongside a malformed `Quantifier`/a disagree-polarity alpha var as the shapes
-//! `compile_rtl_branch_net` excludes; the latter is admitted too now (below). Re-examining each
-//! one at the reversal construction's own level (`crate::lower::
-//! PatternLowerScope`'s own doc has the full per-consumer boundary this section only summarizes):
-//! - **`Segments` (same or different table).** Same-table literals lower to ordinary
-//!   `crate::lower::Slot::Fixed` atoms. Cross-table literals lower to table-qualified
-//!   `crate::lower::Slot::ForeignFixed` atoms and render as the union of owning-table tokens whose
-//!   feature lanes unify with the foreign segment, matching the oracle without reinterpreting raw
-//!   ids across tables. Both remain atomic under reversal.
-//! - **`Anchor` (word-boundary condition).** Lowers to a new `crate::lower::Slot::Anchor`,
-//!   rendered as foma's own `.#.` xre atom. The slot's position, not the source-side tag, conveys
-//!   word-initial vs. word-final. This is exactly why the mirror-and-reverse construction swaps an
-//!   anchor to the CORRECT opposite edge with ZERO new code in
-//!   `compile_rtl_branch_net`/`reversed_slots` themselves: an anchor
-//!   that is the LAST slot of the original `right_env` becomes, via the EXISTING `reversed_slots`
-//!   (pure position reversal, no anchor-specific case) plus the EXISTING left/right swap, the FIRST
-//!   slot of the mirror's own `left_env` — a leading `.#.` there means "start of the
-//!   mirror/reversed representation", which `fsm_reverse` then correctly turns into "end of the
-//!   real string" for the final network, by the SAME "reversing a network that operates on
-//!   reversed strings gives back a network operating on normal strings" argument this file's own
-//!   RTL section above already makes for ordinary content. Pinned empirically (not just argued):
-//!   `tests/phase_c_right_to_left.rs`'s `rtl_anchor_reversal_swaps_the_correct_edge`.
-//! - **A disagree-polarity alpha var** (`AlphaVar::plus == false`) now lowers to a `Slot::Alpha`
-//!   like any other occurrence, unless its own class makes disagreement ambiguous
-//!   (`crate::lower::class_feature_partition_is_unambiguous`) — this was always orthogonal to
-//!   reversal (`resolve_alpha_tuples`' own joint-polarity filter, the SAME gap for an ordinary
-//!   `LeftToRight` rule, not something the mirror-and-reverse construction has any bearing on
-//!   either way), so admitting it here is exactly as safe under `Dir::RightToLeft` as under
-//!   `Dir::LeftToRight`.
-//! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), not a blanket change:
-//!   `crate::lower::lower_span`'s own callers are unaffected, still passing
-//!   `crate::lower::PatternLowerScope::Baseline`.
+//! Compiles phonological rewrite and metathesis relations over the owning character table.
+//! Alpha branches and RTL reversal provide candidate relations that require confirmation.
+//! Widened repeated environments use optional rewriting so extra matches cannot remove a valid
+//! unchanged candidate. Compilation refusals preserve unsupported rules for the fallback path.
 
 use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
@@ -737,15 +446,23 @@ fn render_branch_regex(
     };
     let has_left = !left_slots.is_empty();
     let has_right = !right_slots.is_empty();
+    // Optional sites retain unchanged roots when widened repeated-variable agreement fails.
+    let arrow = if crate::lower::slots_have_repeated_alpha(left_slots)
+        || crate::lower::slots_have_repeated_alpha(right_slots)
+    {
+        "(->)"
+    } else {
+        "->"
+    };
     if !has_left && !has_right {
-        format!("{lhs_text} -> {rhs_text}")
+        format!("{lhs_text} {arrow} {rhs_text}")
     } else {
         let left_text = render_slots(alphabet, left_slots, asg);
         let right_text = render_slots(alphabet, right_slots, asg);
         match (has_left, has_right) {
-            (true, true) => format!("{lhs_text} -> {rhs_text} || {left_text} _ {right_text}"),
-            (true, false) => format!("{lhs_text} -> {rhs_text} || {left_text} _"),
-            (false, true) => format!("{lhs_text} -> {rhs_text} || _ {right_text}"),
+            (true, true) => format!("{lhs_text} {arrow} {rhs_text} || {left_text} _ {right_text}"),
+            (true, false) => format!("{lhs_text} {arrow} {rhs_text} || {left_text} _"),
+            (false, true) => format!("{lhs_text} {arrow} {rhs_text} || _ {right_text}"),
             (false, false) => unreachable!("has_left || has_right guarded this branch"),
         }
     }
@@ -839,52 +556,36 @@ pub fn rewrite_rule_is_lowerable(g: &Grammar, rule: &RewriteRuleDef) -> bool {
             pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope).is_some()
                 && pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope).is_some()
                 && match &subrule.left_env {
-                    Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope).is_some(),
+                    Some(p) => pattern_slots(
+                        g,
+                        table,
+                        p,
+                        &mut next_occurrence,
+                        crate::lower::PatternLowerScope::RewriteEnvironment,
+                    )
+                    .is_some(),
                     None => true,
                 }
                 && match &subrule.right_env {
-                    Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope).is_some(),
+                    Some(p) => pattern_slots(
+                        g,
+                        table,
+                        p,
+                        &mut next_occurrence,
+                        crate::lower::PatternLowerScope::RewriteEnvironment,
+                    )
+                    .is_some(),
                     None => true,
                 }
         })
 }
 
-/// Identical to `compile_rewrite_rule`, but SKIPS any subrule for which `allowed(subrule_index)`
-/// is `false` (document order, `0`-based into `rule.subrules`) — the MPR/POS gating mechanism
-/// (`crate::gate`): a subrule declaring `requiredPartsOfSpeech`/`requiredMPRFeatures`/
-/// `excludedMPRFeatures` must not compile into a network branch that a NON-eligible lexical entry's
-/// group can reach (module doc "static partition" design in `crate::gate`). Returns `None` if
-/// EVERY subrule is either filtered out or hits an unsupported construct — the caller (per-group
-/// rule cascade builder) treats that identically to "this rule doesn't fire in this group": the
-/// whole rule is simply absent from the group's composed cascade (identity), not an error. This is
-/// the same `None` the pre-gating code already used for "unsupported construct", so no NEW branch
-/// is introduced at any call site — see `compile_and_compose_rules_gated`'s doc for the one
-/// known imprecision this shares with the ungated path (a rule with one unsupported subrule and one
-/// supported-but-gated subrule reports the WHOLE rule uncovered for every group, matching
-/// `compile_rewrite_rule`'s own pre-existing all-or-nothing `?` short-circuit — not a regression).
+/// Compiles only the subrules selected by `allowed`, preserving their authored order.
 ///
-/// **Mode/dir detection:**
-/// `rule.mode`/`rule.dir` are checked FIRST, via `is_fully_supported_shape` -- a rule outside
-/// that shape returns `None` immediately, exactly the same "uncovered, caller reports it
-/// `skipped`" contract `pattern_slots` already uses for an unsupported PATTERN construct (a
-/// malformed `Quantifier` or a disagree-polarity alpha var -- cross-table and same-table
-/// `Segments` plus any `Anchor` no longer disqualify a rewrite rule's own pattern at all, per this
-/// function's own `PatternLowerScope::RewriteRuleCompile` call below). Before this check existed,
-/// an unsupported mode/dir was silently
-/// compiled via plain foma `->` as if it were Iterative/LeftToRight -- a WRONG network with no
-/// signal ("silent mis-map"). `Dir::RightToLeft` used to be gated out here too
-/// (`None`, honestly skipped) until it gained
-/// real semantics (`compile_rtl_branch_net`, module doc) -- both `Iterative` directions now
-/// compile unconditionally. `RewriteMode::Simultaneous` used to be gated out here UNCONDITIONALLY
-/// too, until `is_fully_supported_shape` gained a
-/// per-rule admission check for it (that function's own doc) -- a `Simultaneous` rule whose
-/// subrules the `simultaneous.subrule-overlap` predicate proves pairwise non-overlapping now
-/// compiles via this SAME sequential-compose loop, unmodified; one the predicate cannot clear
-/// stays gated here exactly as before. Every reference-grammar rule (Indonesian/Amharic/Sena) is
-/// already `Iterative`/`LeftToRight`, so none of
-/// these three changes alters any existing grammar's compiled output -- verified by
-/// `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
-/// `tests/f3_parity.rs`'s multiset parity gates staying green.
+/// Returns `None` for unsupported patterns or an empty selection.
+/// Repeated alpha environments widen the proposal and retain optional per-site rewrites;
+/// callers must confirm candidates against the grammar. RTL compilation includes reversal
+/// and a conservative safety relation.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
@@ -915,12 +616,13 @@ pub fn compile_rewrite_rule_subset(
         let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
         let lhs_slots = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)?;
         let rhs_slots = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)?;
+        let environment_scope = crate::lower::PatternLowerScope::RewriteEnvironment;
         let left_slots = match &subrule.left_env {
-            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope)?,
+            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, environment_scope)?,
             None => Vec::new(),
         };
         let right_slots = match &subrule.right_env {
-            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope)?,
+            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, environment_scope)?,
             None => Vec::new(),
         };
 
@@ -1192,7 +894,11 @@ fn slot_candidates(
     match slot {
         Slot::Fixed(cd) => Some(expand(std::slice::from_ref(cd))),
         Slot::Union(members) => Some(expand(members)),
-        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor => None,
+        Slot::ForeignFixed { .. }
+        | Slot::Alpha { .. }
+        | Slot::RepeatedAlpha(_)
+        | Slot::Repeat { .. }
+        | Slot::Anchor => None,
     }
 }
 

@@ -348,16 +348,16 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
-        "citation": "pg-foma/tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, rtl_cross_table_segments_environment_matches_oracle)",
+        "citation": "pg-foma/tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, rtl_cross_table_segments_environment_matches_oracle; pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_matches_recorded_oracle))",
         "strategies": [
-          "plan-composed"
+          "plan-composed",
+          "templated-underlying-tokens"
         ],
-        "note": "Reversal-plus-safety-net-union containment against the real oracle, including a table-qualified cross-table Segments feature constraint."
+        "note": "Reversal-plus-safety-net-union containment against the real oracle, including a table-qualified cross-table Segments constraint and repeated alpha environments."
       },
       "strategies_cannot_represent": [],
       "strategies_unwitnessed": [
-        "tuned-surface-probed",
-        "templated-underlying-tokens"
+        "tuned-surface-probed"
       ]
     },
     {
@@ -827,16 +827,16 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
-        "citation": "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle",
+        "citation": "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle; pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_matches_recorded_oracle)",
         "strategies": [
-          "plan-composed"
+          "plan-composed",
+          "templated-underlying-tokens"
         ],
         "note": "quantifier.bounded-compilable"
       },
       "strategies_cannot_represent": [],
       "strategies_unwitnessed": [
-        "tuned-surface-probed",
-        "templated-underlying-tokens"
+        "tuned-surface-probed"
       ]
     },
     {
@@ -857,16 +857,16 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
-        "citation": "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle",
+        "citation": "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle; pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_matches_recorded_oracle)",
         "strategies": [
-          "plan-composed"
+          "plan-composed",
+          "templated-underlying-tokens"
         ],
         "note": "quantifier.unbounded-compilable"
       },
       "strategies_cannot_represent": [],
       "strategies_unwitnessed": [
-        "tuned-surface-probed",
-        "templated-underlying-tokens"
+        "tuned-surface-probed"
       ]
     },
     {

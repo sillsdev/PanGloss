@@ -9,71 +9,71 @@ words:
   - word: a
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: e
     parses:
       - signature: "ZERO|e"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ca
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ce
     parses:
       - signature: "ONE|ce"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: tca
     parses:
       - signature: "MIXEDONE|tca"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: tce
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ta
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: te
     parses:
       - signature: "TRIG|te"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ttca
     parses:
       - signature: "MIXED|ttca"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ttce
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: tcca
     parses:
       - signature: "ROOT2|tcca"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: tcce
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: tccca
     parses:
       - signature: "ROOT3|tccca"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: tccce
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: taca
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: tace
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"

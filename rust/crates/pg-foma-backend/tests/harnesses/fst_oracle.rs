@@ -27,5 +27,7 @@ mod net_shape_gate;
 mod oracle_step_determinism_gate;
 #[path = "../pk2_eliminate_flag_oracle.rs"]
 mod pk2_eliminate_flag_oracle;
+#[path = "../repeated_alpha_containment.rs"]
+mod repeated_alpha_containment;
 #[path = "../uflexc_compound_loop.rs"]
 mod uflexc_compound_loop;

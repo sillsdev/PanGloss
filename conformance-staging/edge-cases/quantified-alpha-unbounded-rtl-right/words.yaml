@@ -10,105 +10,105 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ecct
     parses:
       - signature: "ROOT2|ecct"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: accct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: acat
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: acct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: et
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: at
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ecat
     parses:
       - signature: "ROOT1|ecat"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: etct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ctat
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ctet
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: accccct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: eccccct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: eccct
     parses:
       - signature: "ROOT3|eccct"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ecet
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: actt
     parses:
       - signature: "MIXED|actt"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ectt
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.unbounded-compilable"
+      - "right-to-left-rewrite.reversal"

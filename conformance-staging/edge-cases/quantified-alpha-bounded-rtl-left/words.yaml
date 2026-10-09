@@ -10,105 +10,105 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tcce
     parses:
       - signature: "ROOT2|tcce"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tccca
     parses:
       - signature: "ROOT3|tccca"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: taca
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tcca
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: te
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ta
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tace
     parses:
       - signature: "ROOT1|tace"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tcte
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tatc
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tetc
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tccccca
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tccccce
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tccce
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: tece
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ttca
     parses:
       - signature: "MIXED|ttca"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"
   - word: ttce
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
-      - "right-to-left-rewrite.unlowerable"
+      - "quantifier.bounded-compilable"
+      - "right-to-left-rewrite.reversal"

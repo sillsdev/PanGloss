@@ -10,88 +10,88 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tcce
     parses:
       - signature: "ROOT2|tcce"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tccca
     parses:
       - signature: "ROOT3|tccca"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: taca
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tcca
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: te
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ta
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tace
     parses:
       - signature: "ROOT1|tace"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tcte
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tatc
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tetc
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tccccca
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tccccce
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tccce
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: tece
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ttca
     parses:
       - signature: "MIXED|ttca"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"
   - word: ttce
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.bounded-unlowerable"
+      - "quantifier.bounded-compilable"

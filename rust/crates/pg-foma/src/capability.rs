@@ -804,13 +804,19 @@ fn rtl_reversal_diagnosis(
             return Err(Some(diagnose_unsupported(g, table, &sr.rhs, scope)));
         }
         if let Some(p) = &sr.left_env {
-            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence, scope).is_none() {
-                return Err(Some(diagnose_unsupported(g, table, p, scope)));
+            let environment_scope = PatternLowerScope::RewriteEnvironment;
+            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence, environment_scope)
+                .is_none()
+            {
+                return Err(Some(diagnose_unsupported(g, table, p, environment_scope)));
             }
         }
         if let Some(p) = &sr.right_env {
-            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence, scope).is_none() {
-                return Err(Some(diagnose_unsupported(g, table, p, scope)));
+            let environment_scope = PatternLowerScope::RewriteEnvironment;
+            if crate::replace::pattern_slots(g, table, p, &mut next_occurrence, environment_scope)
+                .is_none()
+            {
+                return Err(Some(diagnose_unsupported(g, table, p, environment_scope)));
             }
         }
     }
@@ -3290,7 +3296,7 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
 ///   check the real compiler's own `compile_attempted` fact already supersedes.
 /// - **The rule's pattern shape does not compile at all** (`!compile_attempted` — an ambiguous
 ///   disagree-polarity alpha var, an inverted or
-///   alpha-nested or empty-children quantifier elsewhere in the rule's own patterns, or an
+///   alpha-quantified target or empty-children quantifier in the rule's patterns, or an
 ///   unresolvable owning table): `PredicateVerdict::Refuse` — this predicate never claims more
 ///   than the real compiler actually attempts.
 ///
@@ -3379,7 +3385,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
                 construct: format!("prule {} (Quantifier/OptionalSegmentSequence)", rule.0),
                 witness: "some LHS/RHS/environment construct this rule's own patterns use -- \
                           an ambiguous disagree-polarity alpha var, an inverted (min > max, \
-                          both concrete), alpha-nested, or empty-children quantifier, or an \
+                          both concrete), alpha-quantified target, or empty-children quantifier, or an \
                           unresolvable owning character-definition \
                           table -- blocks crate::replace::pattern_slots from accepting this rule's \
                           whole pattern shape at all. (A GENUINELY unbounded quantifier, max=-1, is \

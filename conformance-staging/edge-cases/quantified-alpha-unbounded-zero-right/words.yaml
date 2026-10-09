@@ -9,71 +9,71 @@ words:
   - word: a
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: e
     parses:
       - signature: "ZERO|e"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ac
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ec
     parses:
       - signature: "ONE|ec"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: act
     parses:
       - signature: "MIXEDONE|act"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ect
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: at
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: et
     parses:
       - signature: "TRIG|et"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: actt
     parses:
       - signature: "MIXED|actt"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ectt
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: acct
     parses:
       - signature: "ROOT2|acct"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ecct
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: accct
     parses:
       - signature: "ROOT3|accct"
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: eccct
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: acat
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ecat
     expect_fail: true
     exercises:
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"

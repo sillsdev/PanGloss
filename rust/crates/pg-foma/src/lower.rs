@@ -1,31 +1,7 @@
-//! The shared pattern/environment → FST lowering seam: `lower_span` lowers one subrule's
-//! `left_env · lhs_focus · right_env` triple into foma acceptors, and `spans_overlap` tests two
-//! such spans for a non-empty intersection at the shared focus position — the real
-//! automaton-intersection test behind `crate::capability::SimultaneousSubruleOverlapPredicate`,
-//! replacing a conservative unconditional-`Refuse` fallback.
-//!
-//! This module owns the pattern-lowering vocabulary (`Slot`, `pattern_slots`,
-//! `slots_from_nodes`, `resolve_alpha_tuples`, `render_slots`, `AlphaAssignment`,
-//! `TupleReport`, `class_members`, `slots_contain_alpha`) that
-//! `replace.rs`'s rewrite-rule/metathesis compilation also uses; `replace.rs` re-exports every one
-//! at its own path so existing callers are unaffected by where the logic actually lives.
-//!
-//! `crate::replace::SegAlphabet` (the char-def <-> PUA-token codec) and
-//! `crate::replace::owning_table`/`crate::replace::owning_table_for_metathesis` (rule ->
-//! owning-stratum -> `CharDefTable` resolution) stay in `replace.rs`: the former is general
-//! token-alphabet infrastructure several other modules depend on directly, not something
-//! pattern/environment lowering owns; the latter is rule/stratum bookkeeping that `lower_span`'s
-//! own callers already resolve before calling in, so this module never needs to call it itself.
-//!
-//! `UnsupportedPatternNode` is the typed disposition for a pattern node kind `lower_span`
-//! cannot yet represent — always returned explicitly rather than silently omitting or weakening the
-//! node. Quantifier metadata is partially covered, transparently: `pattern_slots` accepts both a
-//! finitely bounded and a genuinely unbounded (`max: None`) alpha-free `PatternNode::Quantifier`
-//! natively (`Slot::Repeat`), and since `lower_span` calls `pattern_slots` directly rather than
-//! re-deriving pattern coverage, either shape anywhere in `left_env`/`focus`/`right_env` lowers for
-//! free. An inverted-bound (`min > max`), alpha-nested, or empty-children quantifier is not
-//! representable: `pattern_slots` returns `None` for it, and
-//! `UnsupportedPatternNode::Quantifier` is the typed reason `diagnose_unsupported` reports.
+//! Owns pattern slots, alpha assignments, and their rendering for rewrite compilation and
+//! span intersection. Caller scopes separate exact overlap checks from confirmed proposals.
+//! Repeated environment variables widen to independent class membership; confirmation restores
+//! agreement, and optional rewriting preserves analyses where the widened environment overmatches.
 
 use std::collections::HashSet;
 
@@ -69,39 +45,18 @@ fn class_members(
 
 // Pattern -> slot list (one slot per PatternNode, in document order); `None` on any construct this prototype doesn't render.
 
-/// Which additional pattern-node shapes a particular `pattern_slots`/`slots_from_nodes` CALLER
-/// may accept, beyond the floor every caller has always shared (`Context`/`CharDef`/a well-formed
-/// `Quantifier`). `pattern_slots` is a single shared lowering seam deliberately reused by THREE
-/// independent consumers with DIFFERENT verification obligations (module top doc's own "reuse, not
-/// re-derive" discipline: `lower_span` for `crate::capability::SimultaneousSubruleOverlapPredicate`
-/// (an `hc.dll`-oracle-verified span-intersection test), `crate::replace::compile_rewrite_rule_
-/// subset`/`crate::replace::compile_metathesis_rule` for the real rewrite-rule/metathesis compile) --
-/// widening what ONE consumer accepts must never silently widen what an UNRELATED consumer accepts
-/// too, since each consumer's own soundness argument is independently made and independently
-/// verified. This enum makes that boundary an explicit, typed parameter rather than a single shared
-/// default a later change could accidentally loosen for everyone at once.
-///
-/// This split exists because `PatternNode::Segments`/`PatternNode::Anchor` were once an
-/// unconditional `None` for every caller ALIKE.
+/// Caller scope keeps exact span intersection separate from confirmed rewrite proposals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PatternLowerScope {
-    /// The floor: `Segments`/`Anchor` still refuse unconditionally — `lower_span`'s callers and `compile_metathesis_rule` stay on this tier permanently, since widening either's own admitted set is a separately closed question this scope doesn't get to reopen.
+    /// Exact span intersection excludes literal segments and anchors.
     Baseline,
-    /// The widening for the rewrite-rule compile path: additionally accepts a same- or cross-table `Segments` (lowering to `Slot::Fixed`/`Slot::ForeignFixed`) and any `Anchor` (to `Slot::Anchor`); a malformed `Quantifier` is unaffected and stays unsupported — strictly additive, never a blanket accept-everything switch.
+    /// Rewrite targets preserve literal table identity and boundaries.
     RewriteRuleCompile,
+    /// Repeated environment variables widen independently and require confirmation.
+    RewriteEnvironment,
 }
 
-/// One position in a rendered pattern.
-///
-/// `pub(crate)`: this is the canonical definition -- `crate::replace` re-exports it at its OLD path
-/// (`pub(crate) use crate::lower::Slot;`) so `capability.rs`'s `crate::replace::Slot::Alpha`/
-/// `crate::replace::Slot::Repeat` pattern matches and `replace.rs`'s own `slot_candidates`/
-/// `reversed_slots`/`compile_rtl_branch_net` keep compiling unmodified.
-///
-/// `Clone`: `replace.rs`'s RTL reversal
-/// construction needs a REVERSED copy of a subrule's own slot lists (`reversed_slots`, that
-/// file) alongside the original document-order lists it builds the safety-net `LeftToRight`-style
-/// branch from -- see that file's `compile_rtl_branch_net` doc.
+/// A rendered position; occurrence identity keeps separate classes bound by feature value.
 #[derive(Debug, Clone)]
 pub(crate) enum Slot {
     /// A single fixed char-def, from a `CharDef` node or a singleton-class `Context` with no alpha vars.
@@ -110,14 +65,15 @@ pub(crate) enum Slot {
     ForeignFixed { table: TableId, cd: CharDefId },
     /// A natural class with no alpha binding at this occurrence: renders as a `[c1|c2|...]` union.
     Union(Vec<CharDefId>),
+    /// Repeated alpha membership, with agreement deferred to confirmation.
+    RepeatedAlpha(Vec<CharDefId>),
     /// A natural class occurrence bound to one or more alpha variables, resolved per-tuple by `resolve_alpha_tuples`; `occurrence` is this slot instance's own id (unique per occurrence, not per variable, since two occurrences of the same `VarId` can draw from different classes that must only agree on feature value). The `bool` is `AlphaVar::plus` (`true` == agree/`+`, `false` == disagree/`-`).
     Alpha {
         vars: Vec<(VarId, pg_grammar::featsys::FlatIndex, bool)>,
         occurrence: usize,
         base_members: Vec<CharDefId>,
     },
-    /// An alpha-free repetition of `children`'s own rendered slots, finitely or genuinely unboundedly. Renders as foma's native repetition operator, linear in `min` and, for the unbounded case, independent of any repetition count.
-    /// See `docs/research/pg-foma-lower-design-notes.md` for why unbounded is a native construction rather than a scope limit, and why no `Slot::Alpha` may appear inside `children`.
+    /// Repetition renders natively; environment agreement is deferred via `RepeatedAlpha`.
     Repeat {
         min: u32,
         max: Option<u32>,
@@ -127,45 +83,34 @@ pub(crate) enum Slot {
     Anchor,
 }
 
-/// `true` iff `slots`, at any nesting depth through a `Slot::Repeat`'s `children`, contains a `Slot::Alpha` occurrence — checked at every depth so a nested quantifier can never smuggle one past a shallow check.
+/// Exact consumers must preserve alpha constraints at every repetition depth.
 fn slots_contain_alpha(slots: &[Slot]) -> bool {
     slots.iter().any(|s| match s {
-        Slot::Alpha { .. } => true,
+        Slot::Alpha { .. } | Slot::RepeatedAlpha(_) => true,
         Slot::Repeat { children, .. } => slots_contain_alpha(children),
         Slot::Fixed(_) | Slot::ForeignFixed { .. } | Slot::Union(_) | Slot::Anchor => false,
     })
 }
 
-/// Walk `pattern`'s nodes into `Slot`s, numbering each `Alpha` occurrence sequentially from
-/// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
-/// `replace.rs`'s `compile_rewrite_rule`, or this module's own `lower_span`, which resets its own
-/// FRESH counter per span). A `Context` carrying an `AlphaVar` lowers to `Slot::Alpha`; an
-/// agree-polarity occurrence unconditionally, a disagree-polarity one only when
-/// `class_feature_partition_is_unambiguous` holds for its own feature (its own doc has the reason).
-/// Returns `None` (uncovered) on that ambiguous-disagree shape; an out-of-scope `Quantifier`
-/// (inverted/alpha-nested/empty-children — see
-/// `Slot::Repeat`'s own doc; a genuinely UNBOUNDED quantifier is not, by itself, out of
-/// scope); or, when `scope` is
-/// `PatternLowerScope::Baseline`, any `Segments`/`Anchor` node at all (when `scope` is
-/// `PatternLowerScope::RewriteRuleCompile`, both same-table and table-qualified cross-table
-/// `Segments` plus any `Anchor` lower successfully -- see `PatternLowerScope`'s own doc).
-///
-/// `table`: every `Context` node's `NatClassId` is resolved against THIS table
-/// (`class_members`), never an implicit grammar-wide default
-/// ("table zero is never an
-/// implicit default"). The caller is responsible for choosing the RIGHT table — see
-/// `crate::replace::owning_table`'s own doc for how `replace.rs`'s `compile_rewrite_rule_subset`
-/// picks it (the rule's own stratum's `StratumDef::table`), and `lower_span`'s own call sites for
-/// how THIS module picks it (`alphabet.table()`, already the correct per-caller table by that
-/// function's own contract). A `PatternNode::Segments`' OWN declared table is compared against THIS
-/// SAME `table` by pointer identity (`std::ptr::eq`, both being borrowed from the same `g.char_tables`
-/// vec this pattern's own grammar owns) -- cheap, exact, and needs no new `TableId`-threading
-/// through this function's signature.
-///
-/// `pub(crate)`: canonical definition -- `replace.rs`
-/// re-exports it at its OLD path so `capability.rs`'s structural probes and every existing
-/// `crate::replace::pattern_slots`/`pg_foma::replace::pattern_slots` caller keep compiling
-/// unmodified.
+pub(crate) fn slots_have_repeated_alpha(slots: &[Slot]) -> bool {
+    slots.iter().any(|slot| match slot {
+        Slot::RepeatedAlpha(_) => true,
+        Slot::Repeat { children, .. } => slots_have_repeated_alpha(children),
+        _ => false,
+    })
+}
+
+fn widen_repeated_alpha(slots: &mut [Slot]) {
+    for slot in slots {
+        match slot {
+            Slot::Alpha { base_members, .. } => *slot = Slot::RepeatedAlpha(base_members.clone()),
+            Slot::Repeat { children, .. } => widen_repeated_alpha(children),
+            _ => {}
+        }
+    }
+}
+
+/// Uses the caller-selected table and scope, with shared occurrence numbering per subrule.
 pub(crate) fn pattern_slots(
     g: &Grammar,
     table: &CharDefTable,
@@ -244,14 +189,16 @@ fn slots_from_nodes(
                         return None;
                     }
                 }
-                let child_slots = slots_from_nodes(g, table, children, next_occurrence, scope)?;
+                let mut child_slots = slots_from_nodes(g, table, children, next_occurrence, scope)?;
                 if child_slots.is_empty() {
                     // No renderable child at all — nothing to bound-repeat, so honest-unsupported rather than rendering a vacuous group.
                     return None;
                 }
                 if slots_contain_alpha(&child_slots) {
-                    // Alpha-bound occurrence nested inside a quantifier group is out of scope, since resolve_alpha_tuples does not recurse into a Slot::Repeat's own children.
-                    return None;
+                    if scope != PatternLowerScope::RewriteEnvironment {
+                        return None;
+                    }
+                    widen_repeated_alpha(&mut child_slots);
                 }
                 out.push(Slot::Repeat {
                     min: *min,
@@ -263,7 +210,7 @@ fn slots_from_nodes(
                 table: seg_table_id,
                 shape,
             } => {
-                if scope != PatternLowerScope::RewriteRuleCompile {
+                if scope == PatternLowerScope::Baseline {
                     return None;
                 }
                 // Preserve a foreign (TableId, CharDefId) through lowering rather than reinterpreting its dense id in the owning table; same-table Segments keep the existing Fixed path.
@@ -281,7 +228,7 @@ fn slots_from_nodes(
                 }
             }
             PatternNode::Anchor(_) => {
-                if scope != PatternLowerScope::RewriteRuleCompile {
+                if scope == PatternLowerScope::Baseline {
                     return None;
                 }
                 out.push(Slot::Anchor);
@@ -311,34 +258,7 @@ pub struct TupleReport {
     pub surviving: usize,
 }
 
-/// Locate every `Slot::Alpha` occurrence across `slot_lists` (one `Vec<Slot>` per pattern zone:
-/// LHS, RHS, left-env, right-env — in that order, any of which may be empty), and enumerate the
-/// surviving tuple-indexed cross product: the FULL product of every occurrence's OWN candidate
-/// set (never a same-var intersection — see `AlphaAssignment`'s doc for why that shortcut is
-/// wrong), filtered to combinations where every pair of occurrences sharing a `VarId` satisfies
-/// its own joint polarity (`AlphaVar::plus`) at that variable's feature lane: same polarity (`+`/`+`
-/// or `-`/`-`) requires the two chosen segments to unify (bitwise overlap, matching this codebase's
-/// own natural-class-membership idiom, not strict equality, since an underspecified segment's lane
-/// can carry more than one live bit); opposite polarity (`+`/`-`) requires them to be disjoint
-/// (bitwise non-overlap — the general "different value" test regardless of how many symbols the
-/// feature has, since each fully-specified segment pins exactly one value bit per lane). This
-/// bounds the count of segment tuples satisfying the joint constraint (Amharic's 20-var CV-merger:
-/// nc15=59 × nc16=6 ⇒ ≤354, never v^20), implemented generically over N variables and N occurrences
-/// per variable. Returns `(assignments, report)`; a rule with zero alpha slots returns one trivial
-/// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
-///
-/// `table`: every alpha occurrence's feature-lane agreement test (`lane_value`, below) resolves
-/// against THIS table, never an implicit `g.char_tables[0]` default
-/// (the second of two former hardcoded-table sites, alongside `pattern_slots`'s own former
-/// `table_of` call). The
-/// `members: Vec<CharDefId>` each `Slot::Alpha` already carries were themselves resolved against
-/// this SAME table by `pattern_slots` (the caller's job: pass ONE consistent table to both), so
-/// this function's own `table` parameter must be the identical table `pattern_slots` used to
-/// build `slot_lists` in the first place — never a second, independently-chosen one.
-///
-/// `pub(crate)`: canonical definition -- `replace.rs`
-/// re-exports it at its OLD path (`pub(crate) use crate::lower::resolve_alpha_tuples;`) so its own
-/// `compile_rewrite_rule_subset` and every other existing caller keep compiling unmodified.
+/// Occurrence tuples preserve each class while agreeing by feature value, using the same table as lowering.
 pub(crate) fn resolve_alpha_tuples(
     table: &CharDefTable,
     slot_lists: &[&[Slot]],
@@ -477,7 +397,7 @@ pub(crate) fn render_slots(
             Slot::ForeignFixed { table, cd } => {
                 format_union_tokens(&alphabet.render_foreign_constraint_tokens(*table, *cd))
             }
-            Slot::Union(members) => {
+            Slot::Union(members) | Slot::RepeatedAlpha(members) => {
                 let mut chars: Vec<char> = Vec::with_capacity(members.len());
                 for m in members {
                     for c in alphabet.render_tokens(*m) {
@@ -514,25 +434,13 @@ pub(crate) fn render_slots(
     pieces.join(" ")
 }
 
-/// A pattern node kind `lower_span` cannot yet represent — a typed unsupported disposition that
-/// does not omit or weaken the node. Named after the `model.rs` `PatternNode` variant (or, for the
-/// one non-node case, the `pg_grammar::model::AlphaVar` shape) it names, so a caller's diagnostic
-/// can cite the exact construct rather than a generic "pattern too complex" message, carried
-/// through as a typed value instead of a silent `None`.
+/// A typed refusal from the pattern owner.
 ///
-/// Under `PatternLowerScope::Baseline`, any `Segments` or `Anchor` node triggers `Segments`/`Anchor`
-/// respectively; under `PatternLowerScope::RewriteRuleCompile`, both lower successfully instead
-/// (`Segments` preserves table semantics same- or cross-table; `Anchor` always lowers to
-/// `Slot::Anchor`), so those two variants become baseline-scope-only refusals. `Quantifier` covers
-/// an inverted, alpha-nested, or empty-children quantifier — a finitely bounded
-/// or genuinely unbounded, alpha-free quantifier never reaches this variant, since `pattern_slots`
-/// accepts it directly as a `Slot::Repeat`. A disagree-polarity `AlphaVar` occurrence now lowers and
-/// resolves like any other alpha occurrence, UNLESS its own feature does not uniquely determine a
-/// class member (`AlphaAmbiguousDisagree` — `class_feature_partition_is_unambiguous`'s own doc has
-/// the reason).
+/// Exact overlap checks reject literal segments and anchors; confirmed rewrite environments
+/// can widen repeated alpha agreement. Malformed repetition and ambiguous disagreement refuse.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedPatternNode {
-    /// An inverted, alpha-nested, or empty-children `Quantifier`; pinned by `inverted_finite_quantifier_still_unsupported`.
+    /// Malformed repetition or alpha repetition outside the confirmed environment scope.
     Quantifier,
     /// An inline pre-segmented literal `Segments` shape group, under `PatternLowerScope::Baseline` only.
     Segments,
@@ -627,18 +535,18 @@ fn diagnose_unsupported_nodes(
                 if let Some(reason) = diagnose_unsupported_nodes(g, table, children, scope) {
                     return Some(reason);
                 }
-                // Children lower cleanly, but an alpha-bound occurrence anywhere inside them still makes the outer Slot::Repeat unbuildable, so the true reason here is this quantifier.
-                if nodes_contain_alpha_context(children) {
+                // Exact consumers cannot erase agreement between repeated occurrences.
+                if scope != PatternLowerScope::RewriteEnvironment && nodes_contain_alpha_context(children) {
                     return Some(UnsupportedPatternNode::Quantifier);
                 }
             }
             PatternNode::Segments { .. } => {
-                if scope != PatternLowerScope::RewriteRuleCompile {
+                if scope == PatternLowerScope::Baseline {
                     return Some(UnsupportedPatternNode::Segments);
                 }
             }
             PatternNode::Anchor(_) => {
-                if scope != PatternLowerScope::RewriteRuleCompile {
+                if scope == PatternLowerScope::Baseline {
                     return Some(UnsupportedPatternNode::Anchor);
                 }
             }

@@ -195,10 +195,13 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "pg-foma/tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ \
              rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, \
-             rtl_cross_table_segments_environment_matches_oracle)",
-            &[EmissionStrategy::PlanComposed],
+             rtl_cross_table_segments_environment_matches_oracle; \
+             pg-foma-backend/tests/repeated_alpha_containment.rs::\
+             repeated_alpha_propose_confirm_matches_recorded_oracle (+ \
+             templated_repeated_alpha_matches_recorded_oracle))",
+            &[EmissionStrategy::PlanComposed, EmissionStrategy::TemplatedUnderlyingTokens],
             "Reversal-plus-safety-net-union containment against the real oracle, including a \
-             table-qualified cross-table Segments feature constraint.",
+             table-qualified cross-table Segments constraint and repeated alpha environments.",
         ),
         Metathesis => ev(
             Dedicated,
@@ -286,11 +289,14 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             Dedicated,
             "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_\
              oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the \
-             genuinely-unbounded case)",
-            &[EmissionStrategy::PlanComposed],
+             genuinely-unbounded case); \
+             pg-foma-backend/tests/repeated_alpha_containment.rs::\
+             repeated_alpha_propose_confirm_matches_recorded_oracle (+ \
+             templated_repeated_alpha_matches_recorded_oracle)",
+            &[EmissionStrategy::PlanComposed, EmissionStrategy::TemplatedUnderlyingTokens],
             "Bounded- AND unbounded-quantifier containment against the real oracle, both at \
-             min-boundary occurrence counts; an inverted/alpha-nested/empty-children quantifier \
-             stays honestly unsupported.",
+             min-boundary and zero counts, including repeated alpha agreement on both environment \
+             sides and in both directions. Exact target lowering keeps its separate scope.",
         ),
         // `RootAllomorphDef::stem_name`, not `MorphRuleDef::required_stem_name` (folded into Affixation/RealizationalMorphology to avoid double-counting the same ModelLocation::MorphRule occurrence).
         StemName => ev(
@@ -541,11 +547,13 @@ pub fn containment_evidence_for_variant(variant: ConstructVariant) -> Option<Con
             PlanComposed,
         )),
         QuantifierBounded => Some((
-            "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle",
+            "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle; \
+             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_matches_recorded_oracle)",
             PlanComposed,
         )),
         QuantifierUnbounded => Some((
-            "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle",
+            "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle; \
+             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_matches_recorded_oracle)",
             PlanComposed,
         )),
         ReduplicationStructural => Some((
@@ -564,7 +572,15 @@ pub fn containment_evidence_for_variant(variant: ConstructVariant) -> Option<Con
         | MultiTableDisjoint => None,
     };
     match specific {
-        Some((citation, strategy)) => Some(ev(Dedicated, citation, &[strategy], variant.id())),
+        Some((citation, strategy)) => {
+            let strategies = match variant {
+                QuantifierBounded | QuantifierUnbounded => {
+                    vec![strategy, TemplatedUnderlyingTokens]
+                }
+                _ => vec![strategy],
+            };
+            Some(ev(Dedicated, citation, &strategies, variant.id()))
+        }
         None => containment_evidence_for(variant.kind()),
     }
 }

@@ -10,88 +10,88 @@ words:
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ecct
     parses:
       - signature: "ROOT2|ecct"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: accct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: acat
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: acct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: et
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: at
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ecat
     parses:
       - signature: "ROOT1|ecat"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: etct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ctat
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ctet
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: accccct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: eccccct
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: eccct
     parses:
       - signature: "ROOT3|eccct"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ecet
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: actt
     parses:
       - signature: "MIXED|actt"
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"
   - word: ectt
     expect_fail: true
     exercises:
       - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
-      - "quantifier.unbounded-unlowerable"
+      - "quantifier.unbounded-compilable"

@@ -48,7 +48,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
 | `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
-| `Quantifier.cs` (`GenerateNfa`), phonological environment variable matching; FieldWorks `HCLoader.cs` (`LoadPatternNode`, `GetVariables`) | 058 |
+| `Quantifier.cs` (`GenerateNfa`), phonological environment variable matching; FieldWorks `HCLoader.cs` (`LoadPatternNode`, `GetVariables`) | 058, 066 |
 | `RewriteRuleSpec.cs` (`MatchSubrule`), `TraversalMethodBase.cs` (`CheckAcceptingStartState`); FieldWorks `HCLoader.cs` (`LoadPatternNode`) | 065 |
 
 ## By Rust module
@@ -92,6 +92,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-grammar/src/compile/affixes.rs` (`build_circumfix_allomorphs`) | 039 |
 | `pg-foma/src/replace.rs` (`SegAlphabet::render_tokens`, `RepresentationAliasMap`, `compile_rewrite_rule_subset`, `compile_metathesis_swap_net`) | 040 |
 | `pg-foma/src/replace.rs` (`pattern_slots`, `compile_rtl_branch_net`) | 017, 044 |
+| `pg-foma/src/lower.rs` (`PatternLowerScope`, `Slot::RepeatedAlpha`); `replace.rs` (`render_branch_regex`); `capability.rs` (`rtl_reversal_diagnosis`) | 066 |
 | `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
 | `pg-rules/src/cache.rs` (`owning_table_for_prule`/`_metathesis_rule`/`_morpheme`/`_allomorph`/`_mrule`/`_compounding_rule`) | 041 |
 | `pg-rules/src/metathesis.rs` (`synthesize`/`analyze` table resolution) | 041 |
@@ -135,7 +136,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
 | `pg-parse/tests/csharp_port_affix_process.rs` (copy-agreement tests), `pg-rules/tests/stratum_gate.rs` (`copy_agreement_pruning_is_on_by_default`), `machine/conformance` `metathesis-phase-isolation` / `suffixing-extension-slot-ordering` reduplication words | 049 |
 | `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/step_cap_work_gate.rs` | 052 |
-| `conformance-staging/edge-cases/quantified-alpha-*`; `docs/divergences/evidence/058-variant-lowering/` (original reproduction, bound sweep and separate disagreement blocker) | 058 |
+| `conformance-staging/edge-cases/quantified-alpha-*`; `docs/divergences/evidence/058-variant-lowering/` (original reproduction, bound sweep and separate disagreement blocker) | 058, 066 |
 | `conformance-staging/edge-cases/nullable-disagree-*` (nullable environment and plain disagreement control) | 065 |
 | `pg-cli/tests/fwdata_conformance_gate.rs` (`grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics`) | 053 |
 | `pg-grammar/src/compile/tests.rs` provisional-definition snapshot regressions | 072, 073, 074, 075 |
