@@ -103,11 +103,26 @@ namespace XampleProjector
 						var id = (string)el.Attribute("id");
 						RegisterId(seenIds, id, "SegmentNaturalClass");
 						RefuseIfInactive(el, $"SegmentNaturalClass \"{id}\"");
+						var segmentElements = el.Elements("Segment").ToList();
+						var segmentsAttribute = (string)el.Attribute("segments");
+						if (segmentsAttribute != null && segmentElements.Count > 0)
+							throw new GrammarAuthorException($"SegmentNaturalClass \"{id}\": use either the segments attribute or child Segment elements, not both");
+						var segmentIds = segmentsAttribute != null
+							? segmentsAttribute.Split(',').Select(segmentId => segmentId.Trim()).ToList()
+							: segmentElements.Select(segment => (string)segment.Attribute("segment")).ToList();
+						if (segmentsAttribute != null && segmentIds.Any(string.IsNullOrWhiteSpace))
+							throw new GrammarAuthorException($"SegmentNaturalClass \"{id}\": the segments attribute must contain comma-separated segment ids");
+						var phonemeIds = new HashSet<string>(phonemes.Select(phoneme => phoneme.Id));
+						foreach (var segmentId in segmentIds)
+						{
+							if (!phonemeIds.Contains(segmentId))
+								throw new GrammarAuthorException($"SegmentNaturalClass \"{id}\": segment \"{segmentId}\" does not name a SegmentDefinition");
+						}
 						segmentClasses.Add(new SegmentNaturalClassModel
 						{
 							Id = id,
 							Name = (string)el.Element("Name"),
-							SegmentIds = el.Elements("Segment").Select(s => (string)s.Attribute("segment")).ToList(),
+							SegmentIds = segmentIds,
 						});
 					}
 					else

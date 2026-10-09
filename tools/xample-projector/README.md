@@ -322,7 +322,10 @@ Supported:
   authored even when the fixture declares none -- `HCLoader.LoadCharacterDefinitionTable` indexes the
   character table by `"+"` unconditionally (`HCLoader.cs:2712`), so its absence crashes `project`
   with a `KeyNotFoundException` on ANY grammar, not just ones that use it.
-- `NaturalClasses/SegmentNaturalClass` -> `IPhNCSegments`. A `FeatureNaturalClass` with no features,
+- `NaturalClasses/SegmentNaturalClass` -> `IPhNCSegments`. Membership may be written with the
+  standard child form (`<Segment segment="seg0" />`) or the projector's comma-separated
+  `segments="seg0,seg2"` shorthand; every id must resolve to a declared `SegmentDefinition`.
+  A `FeatureNaturalClass` with no features,
   referenced ONLY as the "any stem" pattern (a single `OptionalSegmentSequence min="1" max="-1"` over
   it inside a `MorphologicalInput`) is NOT authored -- `HCLoader` represents an unconstrained affix
   input with its own built-in "any segment" pattern regardless of what LCM natural classes exist, so

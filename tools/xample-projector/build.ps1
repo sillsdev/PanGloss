@@ -857,6 +857,40 @@ if (-not (Test-Path $fieldWorksDir)) {
 	exit 0
 }
 
+# --- SegmentNaturalClass authoring regression: an authored segments="..." list must survive
+#     the complete author -> reopen -> inspect path as PhNCSegments membership. This synthetic
+#     grammar mirrors the C={p,t,b,d} metathesis probe; checking only the grammar model or an
+#     author-response count would miss an empty membership in the saved .fwdata. ---
+$segmentClassGrammar = Join-Path $root 'testdata\segment-natural-class-membership.grammar.xml'
+$segmentClassTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-segment-class-test-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $segmentClassTempRoot -Force | Out-Null
+try {
+	$segmentClassAuthorOut = Join-Path $segmentClassTempRoot 'author'
+	& $exePath author --grammar $segmentClassGrammar --out-dir $segmentClassAuthorOut --name SegmentClass
+	if ($LASTEXITCODE -ne 0) { throw "SegmentNaturalClass author regression: author failed (exit $LASTEXITCODE)." }
+	$segmentClassAuthorResponsePath = Join-Path $segmentClassAuthorOut 'author-response.json'
+	$segmentClassAuthorResponse = Get-Content -LiteralPath $segmentClassAuthorResponsePath -Raw | ConvertFrom-Json
+	$segmentClassFwdata = Join-Path $segmentClassAuthorOut 'SegmentClass\SegmentClass.fwdata'
+	$segmentClassInspectPath = Join-Path $segmentClassTempRoot 'inspect.json'
+	& $exePath inspect --project $segmentClassFwdata --out $segmentClassInspectPath
+	if ($LASTEXITCODE -ne 0) { throw "SegmentNaturalClass author regression: inspect failed (exit $LASTEXITCODE)." }
+	$segmentClassInspect = Get-Content -LiteralPath $segmentClassInspectPath -Raw | ConvertFrom-Json
+	$segmentClassRecord = @($segmentClassInspect.naturalClasses | Where-Object { $_.name -eq 'C' })
+	if ($segmentClassRecord.Count -ne 1) { throw "SegmentNaturalClass author regression: expected exactly one saved class C, found $($segmentClassRecord.Count)." }
+	$expectedSegmentGuids = @(
+		foreach ($segmentId in @('seg0', 'seg2', 'seg3', 'seg4')) { $segmentClassAuthorResponse.guidMap.$segmentId }
+	) | Sort-Object
+	$actualSegmentGuids = @($segmentClassRecord[0].memberGuids | Sort-Object)
+	$membershipDiff = @(Compare-Object -ReferenceObject $expectedSegmentGuids -DifferenceObject $actualSegmentGuids)
+	if ($membershipDiff.Count -ne 0) {
+		throw "SegmentNaturalClass author regression: saved class C members differ from the declared p,t,b,d set. Expected guids [$($expectedSegmentGuids -join ',')]; found [$($actualSegmentGuids -join ',')]."
+	}
+	Write-Host 'SegmentNaturalClass author regression OK: saved class C contains exactly the declared p,t,b,d phonemes.'
+}
+finally {
+	Remove-Item -LiteralPath $segmentClassTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 if (-not (Test-Path $senaFwdata)) {
 	Write-Host "SKIPPED (Sena3 project/inspect live tests): sample project not found at $senaFwdata"
 }
