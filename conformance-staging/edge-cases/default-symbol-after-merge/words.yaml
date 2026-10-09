@@ -1,0 +1,21 @@
+# oracle-provenance: founding-oracle machine-commit=a4b29742b6274a01c7398ca3e800a19fa6d2c9aa verified-date=2026-10-09
+language: NarrowUnapplyT7DefaultSymbolAfterMerge
+inspired_by: ["sillsdev/machine#539 default-symbol-after-merge interaction"]
+sources: ["sillsdev/machine#539; /home/johnm/work/narrow539/briefs/fable-report.md, sections 3, 4, 6 and 7"]
+requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  This fixture declares SymbolicFeature.defaultSymbol, which the checked-in FieldWorks
+  producibility inventory marks not producible: HCLoader.cs:2650-2667 never assigns the
+  SymbolicFeature default. The constructed grammar is therefore HC-engine-only. The omitted
+  nasal value on the merged Fidel is deliberate; the default supplies nasal+ during the later
+  UseDefaults-aware feature-rule match.
+words:
+  - word: f
+    note: "After s+a merges into an underspecified f, the later analysis rule constrains nasal+. The feature default supplies nasal+, matching the concrete value on the unmerged path."
+    parses:
+      - signature: "ROOT|f"
+        rules: [prMerge, prShorten]
+  - word: ca
+    note: "Negative control: the shortening and merge are obligatory."
+    expect_fail: true

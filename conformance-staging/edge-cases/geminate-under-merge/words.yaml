@@ -1,0 +1,15 @@
+# oracle-provenance: founding-oracle machine-commit=a4b29742b6274a01c7398ca3e800a19fa6d2c9aa verified-date=2026-10-09
+language: NarrowUnapplyT5GeminateUnderMerge
+inspired_by: ["sillsdev/machine#539 Amharic geminate-under-merge regression shape"]
+sources: ["sillsdev/machine#539; /home/johnm/work/narrow539/briefs/fable-report.md, sections 3, 4, 6 and 7"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: f
+    note: "The long-consonant root is shortened, then the short consonant and vowel merge into one surface segment. Analysis must still unapply the feature rule after the merge."
+    parses:
+      - signature: "ROOT|f"
+        rules: [prMerge, prShorten]
+  - word: ca
+    note: "Negative control: the shortening and merge are obligatory."
+    expect_fail: true

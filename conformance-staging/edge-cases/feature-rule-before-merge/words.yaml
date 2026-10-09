@@ -1,0 +1,15 @@
+# oracle-provenance: founding-oracle machine-commit=a4b29742b6274a01c7398ca3e800a19fa6d2c9aa verified-date=2026-10-09
+language: NarrowUnapplyT2FeatureRuleBeforeMerge
+inspired_by: ["sillsdev/machine#539 feature rule before merge regression"]
+sources: ["sillsdev/machine#539; /home/johnm/work/narrow539/briefs/fable-report.md, sections 3, 4, 6 and 7"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: butbut
+    note: "The root's i to y change feeds the following yy to t merge; analysis must unapply the merge before unapplying the feature rule."
+    parses:
+      - signature: "ROOT|butbut"
+        rules: [prFeature, prMerge]
+  - word: buiibuii
+    note: "Negative control: both synthesis rules are obligatory, so the unmodified root is not a surface parse."
+    expect_fail: true

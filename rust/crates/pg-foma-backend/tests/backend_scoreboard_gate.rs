@@ -44,12 +44,12 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // 112 rows per strategy: the two boundary fixtures and the six 079 fixtures joined the original 104.
+    // 125 rows per strategy: the two boundary fixtures and the six 079 fixtures joined the original 104, then the 083 and 087 narrowing fixtures.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 107,
-            compiles_but_misses: 3,
+            oracle_exact: 119,
+            compiles_but_misses: 4,
             refused: 2,
             unmeasurable: 0,
         },
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 84,
+            oracle_exact: 97,
             compiles_but_misses: 3,
             refused: 25,
             unmeasurable: 0,
@@ -66,9 +66,9 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 35,
+            oracle_exact: 39,
             compiles_but_misses: 2,
-            refused: 72,
+            refused: 81,
             unmeasurable: 3,
         },
     ),

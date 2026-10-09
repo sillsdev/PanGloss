@@ -1,0 +1,15 @@
+# oracle-provenance: founding-oracle machine-commit=a4b29742b6274a01c7398ca3e800a19fa6d2c9aa verified-date=2026-10-09
+language: NarrowUnapplyT3EpenthesisFedMerge
+inspired_by: ["sillsdev/machine#539 epenthesis-fed merge regression"]
+sources: ["sillsdev/machine#539; /home/johnm/work/narrow539/briefs/fable-report.md, sections 3, 4, 6 and 7"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: bd
+    note: "Synthesis inserts ti after b at the word edge, then merges ti to d. Analysis must make the recovered ti optional so root b remains available."
+    parses:
+      - signature: "ROOT|bd"
+        rules: [prEpenthesis, prMerge]
+  - word: b
+    note: "Negative control: the epenthesis is obligatory at the root's only site."
+    expect_fail: true

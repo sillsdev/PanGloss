@@ -1,0 +1,15 @@
+# oracle-provenance: founding-oracle machine-commit=a4b29742b6274a01c7398ca3e800a19fa6d2c9aa verified-date=2026-10-09
+language: NarrowUnapplyT1SimultaneousExpansion
+inspired_by: ["sillsdev/machine#539 simultaneous expansion termination regression"]
+sources: ["sillsdev/machine#539; /home/johnm/work/narrow539/briefs/fable-report.md, sections 3, 4, 6 and 7"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: biiiibiiii
+    note: "Two simultaneous u to ii expansions must be unapplied to recover the lexical root."
+    parses:
+      - signature: "ROOT|biiiibiiii"
+        rules: [prExpand]
+  - word: buiibuii
+    note: "Negative control: the phonological expansion is obligatory, so the unexpanded lexical form is not a surface parse."
+    expect_fail: true

@@ -2576,7 +2576,7 @@ fn ana_narrow_deletion(
     true
 }
 
-/// The non-empty-RHS branch (narrowing/expansion): matches the RHS's own constraints (not an LHS-vs-RHS union), then splices the reconstructed LHS in as OPTIONAL after the match and marks the matched nodes optional too. True narrowing uses per-position captures to preserve RHS nodes across interposed Optional skips; expansion retains its original width-checked span path. Matches are found against the pristine shape and applied descending, since this port's index-based nodes, unlike C#'s linked list, don't survive insertion.
+/// The non-empty-RHS branch: true narrowing unions Segment-typed LHS nodes into the captured RHS nodes and inserts the rest, boundaries included, as Optional leftovers without dirty marks; expansion keeps the all-Optional form. Matches apply descending because index-based nodes don't survive insertion.
 #[allow(clippy::too_many_arguments)]
 fn ana_narrow_general(
     g: &Grammar,
@@ -2589,14 +2589,16 @@ fn ana_narrow_general(
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
 ) -> bool {
-    // The matched pattern here is the RHS, so its own alpha-variable occurrences get bound during matching (target position k ↔ RHS node k); the reconstructed LHS nodes consume those bindings on insertion.
+    // The matched pattern here is the RHS, so its own alpha-variable occurrences get bound during matching (target position k ↔ RHS node k); the reconstructed LHS nodes consume those bindings before either insertion or union.
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
+    let target_len = sr.rhs.nodes.len();
+    let union_narrowing = target_len > 0 && rule.lhs.nodes.len() > target_len;
     let lhs_template: Vec<MutNode> = rule
         .lhs
         .nodes
         .iter()
-        .map(|n| new_seg_node(g, table, n, true)) // spliced-in reconstruction is OPTIONAL
+        .map(|n| new_seg_node_dirty(g, table, n, true, !union_narrowing)) // true-narrowing leftovers are OPTIONAL but never dirty
         .collect();
 
     // Analysis filter: Segment|Anchor (no boundaries), matching `ana_feature`/the deletion case.
@@ -2642,7 +2644,6 @@ fn ana_narrow_general(
             consider(s, e, target_nodes);
         }
     } else {
-        let target_len = sr.rhs.nodes.len();
         for (s, e) in all_spans(target, &segs) {
             if !pg_fst::work::consume() {
                 return false;
@@ -2660,9 +2661,9 @@ fn ana_narrow_general(
 
     // Apply descending (by match start) so earlier splices don't shift not-yet-applied matches' node indices.
     for (_, _, target_nodes, bindings) in matches.into_iter().rev() {
-        // (1) splice the reconstructed original-LHS material in right after the match, with alpha-variable bindings from the RHS match resolved onto it.
-        let mut insert_nodes = lhs_template.clone();
-        for (k, node) in insert_nodes.iter_mut().enumerate() {
+        // Resolve RHS alpha-variable bindings onto the reconstructed LHS before unioning or inserting it.
+        let mut resolved_lhs = lhs_template.clone();
+        for (k, node) in resolved_lhs.iter_mut().enumerate() {
             for occ in &lhs_vars[k] {
                 if let Some(&(b, _)) = bindings.get(&occ.var) {
                     let mask = full_mask(g, occ.feature);
@@ -2670,14 +2671,57 @@ fn ana_narrow_general(
                 }
             }
         }
-        let insert_at = *target_nodes.last().unwrap() + 1;
-        ms.nodes.splice(insert_at..insert_at, insert_nodes);
-        // (2) mark the originally-matched nodes optional (NOT deleted).
-        for &n in &target_nodes {
-            ms.nodes[n].optional = true;
+
+        if union_narrowing {
+            // A boundary unioned into a segment could never be consumed, so boundaries and surplus segments stay Optional leftovers in LHS order.
+            let mut target_segments = target_nodes.iter().copied();
+            let mut leftovers = Vec::new();
+            for lhs_node in resolved_lhs {
+                if lhs_node.kind == NodeKind::Segment {
+                    if let Some(target_node) = target_segments.next() {
+                        union_narrowing_node(g, table, &mut ms.nodes[target_node], &lhs_node);
+                        continue;
+                    }
+                }
+                leftovers.push(lhs_node);
+            }
+            let insert_at = *target_nodes.last().unwrap() + 1;
+            ms.nodes.splice(insert_at..insert_at, leftovers);
+        } else {
+            // Expansion keeps the prior all-optional representation unchanged.
+            let insert_at = *target_nodes.last().unwrap() + 1;
+            ms.nodes.splice(insert_at..insert_at, resolved_lhs);
+            for &n in &target_nodes {
+                ms.nodes[n].optional = true;
+            }
         }
     }
     true
+}
+
+/// Unions a resolved LHS Segment into a captured RHS Segment: lane-wise OR, and StrRep union unless either side is unrestricted, as `FeatureStruct.Union` drops a missing key.
+fn union_narrowing_node(g: &Grammar, table: &CharDefTable, target: &mut MutNode, lhs: &MutNode) {
+    debug_assert_eq!(target.kind, NodeKind::Segment);
+    debug_assert_eq!(lhs.kind, NodeKind::Segment);
+    debug_assert_eq!(
+        target.lanes.len(),
+        lhs.lanes.len(),
+        "narrowing union nodes must use the same feature-lane width"
+    );
+    let target_has_strrep =
+        target.char_def != pg_shape::NO_CHAR_DEF || matches!(&target.cd_set, CdSet::Members(_));
+    let lhs_has_strrep = lhs.char_def != pg_shape::NO_CHAR_DEF;
+
+    for (target_lane, lhs_lane) in target.lanes.iter_mut().zip(&lhs.lanes) {
+        *target_lane |= lhs_lane;
+    }
+
+    if target_has_strrep && lhs_has_strrep {
+        target.add_strrep(g, table, lhs.char_def);
+    } else {
+        target.char_def = pg_shape::NO_CHAR_DEF;
+        target.cd_set = CdSet::Unrestricted;
+    }
 }
 
 // Epenthesis (LHS empty).
