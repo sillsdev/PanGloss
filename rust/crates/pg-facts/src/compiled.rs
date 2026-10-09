@@ -1,13 +1,25 @@
+use std::collections::BTreeSet;
+
+use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::compile::{CompiledAllomorphOrder, CompiledMapping, CompiledOutput};
+use pg_grammar::model::{
+    AffixAllomorphDef, AllomorphOwner, Grammar, OutputAction, RootAllomorphDef, SegmentedText,
+};
+use pg_shape::NO_CHAR_DEF;
+use pg_snapshot::Snapshot;
 use rusqlite::{params, Transaction};
 
+use crate::phonology::{canonical_key, segment_identity, SourceGuids};
 use crate::FactsError;
 
 pub(crate) fn insert(
     tx: &Transaction<'_>,
+    snapshot: &Snapshot,
     outputs: &[CompiledOutput],
     mappings: &[CompiledMapping],
     allomorph_order: &[CompiledAllomorphOrder],
+    grammar: Option<&Grammar>,
+    allomorph_output_ids: &[Option<u32>],
 ) -> Result<(), FactsError> {
     for output in outputs {
         let conditioning = output.conditioning.as_ref();
@@ -44,5 +56,201 @@ pub(crate) fn insert(
             ],
         )?;
     }
+    if let Some(grammar) = grammar {
+        insert_form_segments(tx, snapshot, grammar, allomorph_output_ids)?;
+    }
     crate::variants::insert_compiled_order(tx, allomorph_order)
+}
+
+/// One `compiled_form_segment` row before it is numbered within its output.
+struct FormSegment {
+    segment_kind: &'static str,
+    phoneme_guid: Option<String>,
+    boundary_guid: Option<String>,
+    natural_class_guid: Option<String>,
+    token_text: Option<String>,
+}
+
+impl FormSegment {
+    fn variable() -> Self {
+        Self {
+            segment_kind: "variable",
+            phoneme_guid: None,
+            boundary_guid: None,
+            natural_class_guid: None,
+            token_text: None,
+        }
+    }
+}
+
+/// Segments each reached allomorph: a root's shape or an affix's RHS in order; a bracket pattern has none.
+fn insert_form_segments(
+    tx: &Transaction<'_>,
+    snapshot: &Snapshot,
+    grammar: &Grammar,
+    allomorph_output_ids: &[Option<u32>],
+) -> Result<(), FactsError> {
+    let sources = SourceGuids::new(snapshot);
+    // A process copy is part of its output; a concatenative copy is the stem it attaches to.
+    let process_guids: BTreeSet<String> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.allomorphs)
+        .filter(|allomorph| allomorph.process.is_some())
+        .map(|allomorph| canonical_key(&allomorph.guid))
+        .collect();
+    for (index, owner) in grammar.allomorph_owners.iter().enumerate() {
+        let Some(output_id) = allomorph_output_ids.get(index).copied().flatten() else {
+            continue;
+        };
+        let segments = match owner {
+            AllomorphOwner::Root(entry, position) => {
+                let entry = &grammar.entries[entry.0 as usize];
+                let allomorph = &entry.allomorphs[usize::from(*position)];
+                let stratum = grammar.morphemes[entry.morpheme.0 as usize].stratum;
+                let table = table_of(grammar, grammar.strata[stratum.0 as usize].table.0)?;
+                root_segments(allomorph, table, &sources)?
+            }
+            AllomorphOwner::Affix(rule, position) => {
+                let allomorph = affix_allomorph(grammar, *rule, *position)?;
+                let process = grammar.allomorph_sources.get(index).is_some_and(|source| {
+                    source
+                        .form_guids
+                        .iter()
+                        .flatten()
+                        .any(|guid| process_guids.contains(&canonical_key(guid)))
+                });
+                affix_segments(grammar, allomorph, process, &sources)?
+            }
+        };
+        let Some(segments) = segments else {
+            continue;
+        };
+        for (ordinal, segment) in segments.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO compiled_form_segment(output_id, ordinal, segment_kind, phoneme_guid, boundary_guid, natural_class_guid, token_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    i64::from(output_id),
+                    ordinal as i64,
+                    segment.segment_kind,
+                    segment.phoneme_guid,
+                    segment.boundary_guid,
+                    segment.natural_class_guid,
+                    segment.token_text,
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn table_of(grammar: &Grammar, table: u16) -> Result<&CharDefTable, FactsError> {
+    grammar
+        .char_tables
+        .get(usize::from(table))
+        .ok_or_else(|| FactsError::Serialization(format!("character table {table} is not defined")))
+}
+
+fn affix_allomorph(
+    grammar: &Grammar,
+    rule: pg_grammar::model::MRuleId,
+    position: u16,
+) -> Result<&AffixAllomorphDef, FactsError> {
+    grammar.mrules[rule.0 as usize]
+        .affix_allomorphs()
+        .and_then(|allomorphs| allomorphs.get(usize::from(position)))
+        .ok_or_else(|| {
+            FactsError::Serialization(format!(
+                "affix allomorph {position} of rule {} is not defined",
+                rule.0
+            ))
+        })
+}
+
+fn root_segments(
+    allomorph: &RootAllomorphDef,
+    table: &CharDefTable,
+    sources: &SourceGuids,
+) -> Result<Option<Vec<FormSegment>>, FactsError> {
+    if allomorph.is_pattern {
+        return Ok(None);
+    }
+    shape_segments(table, &allomorph.shape, sources)
+}
+
+/// A concatenative affix publishes its inserted shape, not the stem copy it attaches to.
+fn affix_segments(
+    grammar: &Grammar,
+    allomorph: &AffixAllomorphDef,
+    process: bool,
+    sources: &SourceGuids,
+) -> Result<Option<Vec<FormSegment>>, FactsError> {
+    let mut segments = Vec::new();
+    for action in &allomorph.rhs {
+        match action {
+            OutputAction::Copy(_) | OutputAction::Modify(..) if !process => {}
+            OutputAction::Copy(_) | OutputAction::Modify(..) => {
+                segments.push(FormSegment::variable());
+            }
+            OutputAction::InsertContext(context) => {
+                let class = grammar
+                    .natural_classes
+                    .get(context.nat_class.0 as usize)
+                    .ok_or_else(|| {
+                        FactsError::Serialization(format!(
+                            "natural class index {} is not defined",
+                            context.nat_class.0
+                        ))
+                    })?;
+                segments.push(FormSegment {
+                    segment_kind: "natural_class",
+                    phoneme_guid: None,
+                    boundary_guid: None,
+                    natural_class_guid: Some(canonical_key(&class.xml_id)),
+                    token_text: None,
+                });
+            }
+            OutputAction::InsertSegments { table, shape } => {
+                let table = table_of(grammar, table.0)?;
+                match shape_segments(table, shape, sources)? {
+                    Some(inserted) => segments.extend(inserted),
+                    None => return Ok(None),
+                }
+            }
+        }
+    }
+    Ok(Some(segments))
+}
+
+/// One row per interior node; a node with no char def makes the whole shape publish nothing.
+fn shape_segments(
+    table: &CharDefTable,
+    shape: &SegmentedText,
+    sources: &SourceGuids,
+) -> Result<Option<Vec<FormSegment>>, FactsError> {
+    let mut segments = Vec::new();
+    for (_, _, char_def, _) in shape.shape.interior() {
+        if char_def == NO_CHAR_DEF {
+            return Ok(None);
+        }
+        segments.push(segment_row(table.get(CharDefId(char_def)), sources)?);
+    }
+    Ok(Some(segments))
+}
+
+fn segment_row(definition: &CharDef, sources: &SourceGuids) -> Result<FormSegment, FactsError> {
+    let identity = segment_identity(definition, sources)?;
+    // The compiler's morpheme boundary is a synthetic boundary definition, kept as kind boundary.
+    let segment_kind = match definition.kind() {
+        CharDefKind::Boundary => "boundary",
+        CharDefKind::Segment => identity.member_kind,
+    };
+    Ok(FormSegment {
+        segment_kind,
+        phoneme_guid: identity.phoneme_guid,
+        boundary_guid: identity.boundary_guid,
+        natural_class_guid: None,
+        token_text: definition.representations().first().cloned(),
+    })
 }

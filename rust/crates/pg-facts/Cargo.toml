@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 pg-assess.workspace = true
 pg-grammar.workspace = true
+pg-shape.workspace = true
 pg-rules.workspace = true
 pg-stats.workspace = true
 pg-snapshot.workspace = true

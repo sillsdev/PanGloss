@@ -1,15 +1,17 @@
 //! Authored allomorph identity, order, and writing-system forms.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pg_grammar::compile::{AllomorphGateKind, AllomorphGateOutcome};
-use pg_snapshot::lexicon::Allomorph;
+use pg_snapshot::lexicon::{AffixProcess, Allomorph, EntryRef, RuleMapping};
 use pg_snapshot::morphology::MorphType;
+use pg_snapshot::phonology::PhonContext;
 use pg_snapshot::Snapshot;
 use rusqlite::{params, Transaction};
 
 use crate::features::FeatureStructureIds;
 use crate::morphology::checked_guid;
+use crate::phonology::{insert_context, insert_pattern_root};
 use crate::FactsError;
 
 pub(crate) fn insert_allomorphs(
@@ -44,6 +46,61 @@ pub(crate) fn insert_allomorphs(
                 params![allomorph_guid, form_ordinal as i64, form.ws, form.form],
             )?;
         }
+        if let Some(process) = &allomorph.process {
+            insert_process(tx, &allomorph_guid, process)?;
+        }
+    }
+    Ok(())
+}
+
+/// Parts are 1-based as `CopyFromInput` refers to them; a concrete part gets a pattern root.
+fn insert_process(
+    tx: &Transaction<'_>,
+    allomorph_guid: &str,
+    process: &AffixProcess,
+) -> Result<(), FactsError> {
+    for (index, context) in process.input.iter().enumerate() {
+        let part = index as i64 + 1;
+        let is_variable = matches!(context, PhonContext::Variable);
+        let pattern_root_id = if is_variable {
+            None
+        } else {
+            let root = insert_pattern_root(
+                tx,
+                "affixProcess",
+                allomorph_guid,
+                "process_input",
+                index,
+                "authored",
+            )?;
+            insert_context(tx, root, None, 0, context)?;
+            Some(root)
+        };
+        tx.execute(
+            "INSERT INTO affix_process_input(allomorph_guid, part, is_variable, pattern_root_id) VALUES (?1, ?2, ?3, ?4)",
+            params![allomorph_guid, part, i64::from(is_variable), pattern_root_id],
+        )?;
+    }
+    for (ordinal, step) in process.output.iter().enumerate() {
+        let (kind, part, natural_class, text): (&str, Option<i64>, Option<&str>, Option<&str>) =
+            match step {
+                RuleMapping::InsertNaturalClass { natural_class } => {
+                    ("insert_class", None, Some(natural_class), None)
+                }
+                RuleMapping::CopyFromInput { part } => ("copy", Some(i64::from(*part)), None, None),
+                RuleMapping::InsertSegments { text } => ("insert_segments", None, None, Some(text)),
+                RuleMapping::ModifyFromInput {
+                    part,
+                    natural_class,
+                } => ("modify", Some(i64::from(*part)), Some(natural_class), None),
+            };
+        let natural_class = natural_class
+            .map(|guid| checked_guid(guid, "affixProcess.output.naturalClass"))
+            .transpose()?;
+        tx.execute(
+            "INSERT INTO affix_process_output(allomorph_guid, ordinal, kind, part, natural_class_guid, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![allomorph_guid, ordinal as i64, kind, part, natural_class, text],
+        )?;
     }
     Ok(())
 }
@@ -182,6 +239,70 @@ pub(crate) fn insert_gates(
                         fs_id: None,
                         outcome,
                     },
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Publishes variant links and their types; complex-form links are not walked by the compiler.
+pub(crate) fn insert_entry_variants(
+    tx: &Transaction<'_>,
+    snapshot: &Snapshot,
+) -> Result<(), FactsError> {
+    let mut entry_guids = BTreeSet::new();
+    let mut sense_guids = BTreeSet::new();
+    for entry in &snapshot.lexicon.entries {
+        entry_guids.insert(checked_guid(&entry.guid, "lexicon.entries.guid")?);
+        for sense in &entry.senses {
+            sense_guids.insert(checked_guid(&sense.guid, "sense.guid")?);
+        }
+    }
+    let infl_type_guids = snapshot
+        .morphology
+        .lex_entry_infl_types
+        .iter()
+        .map(|infl_type| checked_guid(&infl_type.guid, "lexEntryInflType.guid"))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    for entry in &snapshot.lexicon.entries {
+        let variant_entry_guid = checked_guid(&entry.guid, "lexicon.entries.guid")?;
+        for entry_ref in &entry.entry_refs {
+            let EntryRef::Variant {
+                guid,
+                component_lexemes,
+                variant_entry_types,
+            } = entry_ref
+            else {
+                continue;
+            };
+            let ref_guid = checked_guid(guid, "entryRef.guid")?;
+            for (ordinal, component) in component_lexemes.iter().enumerate() {
+                let component_guid = checked_guid(component, "entryRef.componentLexeme")?;
+                let component_kind = if entry_guids.contains(&component_guid) {
+                    "entry"
+                } else if sense_guids.contains(&component_guid) {
+                    "sense"
+                } else {
+                    "unresolved"
+                };
+                tx.execute(
+                    "INSERT INTO entry_variant(variant_entry_guid, ref_guid, ordinal, component_guid, component_kind) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        variant_entry_guid,
+                        ref_guid,
+                        ordinal as i64,
+                        component_guid,
+                        component_kind
+                    ],
+                )?;
+            }
+            for (ordinal, type_guid) in variant_entry_types.iter().enumerate() {
+                let type_guid = checked_guid(type_guid, "entryRef.variantEntryType")?;
+                let is_infl_type = i64::from(infl_type_guids.contains(&type_guid));
+                tx.execute(
+                    "INSERT INTO entry_variant_type(ref_guid, ordinal, type_guid, is_infl_type) VALUES (?1, ?2, ?3, ?4)",
+                    params![ref_guid, ordinal as i64, type_guid, is_infl_type],
                 )?;
             }
         }

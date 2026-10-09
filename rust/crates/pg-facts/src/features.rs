@@ -103,6 +103,52 @@ pub(crate) fn insert_authored(
             );
         }
     }
+    for part_of_speech in
+        crate::morphology::all_parts_of_speech(&snapshot.morphology.parts_of_speech)
+    {
+        for stem_name in &part_of_speech.stem_names {
+            let guid = checked_guid(&stem_name.guid, "stemName.guid")?;
+            for (ordinal, region) in stem_name.regions.iter().enumerate() {
+                let structure = normalize_feature_structure(region)?;
+                let id = insert_structure(
+                    tx,
+                    StructureOwner {
+                        system: "morphosyntactic",
+                        kind: "stemName",
+                        guid: &guid,
+                        role: "region",
+                    },
+                    &ordinal.to_string(),
+                    &structure,
+                    &mut next_id,
+                )?;
+                ids.insert(
+                    ("stemName".into(), guid.clone(), format!("region.{ordinal}")),
+                    id,
+                );
+            }
+        }
+    }
+    for infl_type in &snapshot.morphology.lex_entry_infl_types {
+        let Some(structure) = &infl_type.inflection_features else {
+            continue;
+        };
+        let guid = checked_guid(&infl_type.guid, "lexEntryInflType.guid")?;
+        let structure = normalize_feature_structure(structure)?;
+        let id = insert_structure(
+            tx,
+            StructureOwner {
+                system: "morphosyntactic",
+                kind: "inflType",
+                guid: &guid,
+                role: "features",
+            },
+            "root",
+            &structure,
+            &mut next_id,
+        )?;
+        ids.insert(("inflType".into(), guid.clone(), "features".into()), id);
+    }
     Ok(ids)
 }
 

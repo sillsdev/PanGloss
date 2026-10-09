@@ -797,6 +797,7 @@ dependencies = [
  "pg-grammar",
  "pg-parse",
  "pg-rules",
+ "pg-shape",
  "pg-snapshot",
  "pg-stats",
  "rusqlite",

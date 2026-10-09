@@ -27,6 +27,7 @@ struct Publication<'a> {
     compile_issues: &'a [ConversionIssue],
     environment_resolutions: &'a [pg_grammar::compile::EnvironmentResolution],
     compiled_outputs: &'a [pg_grammar::compile::CompiledOutput],
+    allomorph_output_ids: &'a [Option<u32>],
     compiled_mappings: &'a [pg_grammar::compile::CompiledMapping],
     compiled_allomorph_order: &'a [pg_grammar::compile::CompiledAllomorphOrder],
     allomorph_gates: &'a [pg_grammar::compile::AllomorphGateOutcome],
@@ -135,6 +136,7 @@ fn write_facts_inner(
         compiled_allomorph_order,
         allomorph_gates,
         grammar,
+        allomorph_output_ids,
     ) = match compile_project_with(&snapshot, options) {
         Ok(output) => (
             "completed",
@@ -147,6 +149,7 @@ fn write_facts_inner(
             output.compiled_allomorph_order,
             output.allomorph_gates,
             Some(output.grammar),
+            output.allomorph_output_ids,
         ),
         Err(pg_grammar::GrammarError::Conversion(error)) => (
             "refused",
@@ -159,6 +162,7 @@ fn write_facts_inner(
             error.compiled_allomorph_order,
             error.allomorph_gates,
             None,
+            Vec::new(),
         ),
         Err(error) => return Err(FactsError::Compile(error.to_string())),
     };
@@ -220,6 +224,7 @@ fn write_facts_inner(
         compile_issues: &compile_issues,
         environment_resolutions: &environment_resolutions,
         compiled_outputs: &compiled_outputs,
+        allomorph_output_ids: &allomorph_output_ids,
         compiled_mappings: &compiled_mappings,
         compiled_allomorph_order: &compiled_allomorph_order,
         allomorph_gates: &allomorph_gates,
@@ -247,6 +252,7 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         compile_issues,
         environment_resolutions,
         compiled_outputs,
+        allomorph_output_ids,
         compiled_mappings,
         compiled_allomorph_order,
         allomorph_gates,
@@ -317,6 +323,8 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
             compile_status == "completed",
         )?;
         let feature_structures = crate::features::insert_authored(&transaction, snapshot)?;
+        crate::morphology::insert_definitions(&transaction, snapshot, &feature_structures)?;
+        crate::lexicon::insert_entry_variants(&transaction, snapshot)?;
         crate::lexicon::insert_gates(&transaction, snapshot, allomorph_gates, &feature_structures)?;
         crate::load::insert_inventory_and_issues(
             &transaction,
@@ -335,9 +343,12 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         )?;
         crate::compiled::insert(
             &transaction,
+            snapshot,
             compiled_outputs,
             compiled_mappings,
             compiled_allomorph_order,
+            grammar,
+            allomorph_output_ids,
         )?;
         crate::settings::insert_parser_config(&transaction, snapshot, grammar)?;
         if let Some(stats) = &stats {

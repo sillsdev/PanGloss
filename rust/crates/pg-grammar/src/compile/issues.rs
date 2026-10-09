@@ -64,6 +64,8 @@ pub struct CompileOutput {
     pub environment_resolutions: Vec<EnvironmentResolution>,
     /// Every compiled object's output identity, in compile order, after grammar compaction.
     pub compiled_outputs: Vec<super::lineage::CompiledOutput>,
+    /// The output id of each allomorph, indexed by `AllomorphId`; parallel to `grammar.allomorph_owners`.
+    pub allomorph_output_ids: Vec<Option<u32>>,
     /// Final source-to-output associations published after grammar compaction.
     pub compiled_mappings: Vec<CompiledMapping>,
     /// Final sibling allomorph order within each source MSA and stratum bucket.

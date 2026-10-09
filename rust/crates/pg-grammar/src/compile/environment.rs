@@ -2,8 +2,10 @@
 
 use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SourceRef};
 
+use crate::chardef::CharDefId;
 use crate::model::{
-    AnchorSide, EnvironmentDef, EnvironmentSource, Pattern, PatternNode, SimpleContext,
+    AnchorSide, EnvironmentDef, EnvironmentSource, NatClassId, Pattern, PatternNode, SimpleContext,
+    TableId,
 };
 
 use super::{issue_codes, roles, Ctx};
@@ -25,9 +27,58 @@ pub struct EnvironmentClassToken {
     pub natural_class_index: Option<u32>,
 }
 
+/// One element of a resolved environment side, in the order the compiler matches it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvironmentSideElement {
+    /// A `#` the compiler kept as an anchor; a `#` away from the side's outer edge is dropped.
+    WordBoundary,
+    /// A literal segment, identified by its character definition in the environment's table.
+    Segment(CharDefId),
+    /// A `[class]` reference, by the natural class the compiler resolved it to.
+    NaturalClass(NatClassId),
+    /// A `( ... )` group, matched between `min` and `max` times.
+    Optional {
+        min: u32,
+        max: Option<u32>,
+        children: Vec<EnvironmentSideElement>,
+    },
+}
+
+/// The compiler's resolved elements for one side of an environment; empty when the side is absent.
+pub fn environment_side_elements(pattern: Option<&Pattern>) -> Vec<EnvironmentSideElement> {
+    pattern.map_or_else(Vec::new, |pattern| side_elements(&pattern.nodes))
+}
+
+fn side_elements(nodes: &[PatternNode]) -> Vec<EnvironmentSideElement> {
+    nodes.iter().flat_map(side_element).collect()
+}
+
+fn side_element(node: &PatternNode) -> Vec<EnvironmentSideElement> {
+    match node {
+        PatternNode::Anchor(_) => vec![EnvironmentSideElement::WordBoundary],
+        PatternNode::Context(context) => {
+            vec![EnvironmentSideElement::NaturalClass(context.nat_class)]
+        }
+        PatternNode::CharDef(id) => vec![EnvironmentSideElement::Segment(*id)],
+        PatternNode::Quantifier { min, max, children } => vec![EnvironmentSideElement::Optional {
+            min: *min,
+            max: *max,
+            children: side_elements(children),
+        }],
+        // Literal environment text is segmented by `segment_phonemes_only`, so each node has a char def.
+        PatternNode::Segments { shape, .. } => shape
+            .shape
+            .interior()
+            .map(|(_, _, char_def, _)| EnvironmentSideElement::Segment(CharDefId(char_def)))
+            .collect(),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct EnvironmentResolution {
     pub environment_guid: String,
+    /// The character-definition table the side's segments and class members are read from.
+    pub table: TableId,
     pub status: EnvironmentResolutionStatus,
     pub error: Option<String>,
     pub error_code: Option<String>,
@@ -167,6 +218,7 @@ pub(crate) fn resolve_environment_expression(
         Err(error) => {
             return EnvironmentResolution {
                 environment_guid: guid.into(),
+                table: ctx.table_id,
                 status: EnvironmentResolutionStatus::Invalid,
                 error: Some(error),
                 error_code: Some("invalid_environment".into()),
@@ -184,6 +236,7 @@ pub(crate) fn resolve_environment_expression(
         Err(error) => {
             return EnvironmentResolution {
                 environment_guid: guid.into(),
+                table: ctx.table_id,
                 status: EnvironmentResolutionStatus::Invalid,
                 error: Some(error),
                 error_code: Some("invalid_environment".into()),
@@ -201,6 +254,7 @@ pub(crate) fn resolve_environment_expression(
         Err(error) => {
             return EnvironmentResolution {
                 environment_guid: guid.into(),
+                table: ctx.table_id,
                 status: EnvironmentResolutionStatus::Invalid,
                 error: Some(error),
                 error_code: Some("invalid_environment".into()),
@@ -214,6 +268,7 @@ pub(crate) fn resolve_environment_expression(
     };
     EnvironmentResolution {
         environment_guid: guid.into(),
+        table: ctx.table_id,
         status: EnvironmentResolutionStatus::Valid,
         error: None,
         error_code: None,

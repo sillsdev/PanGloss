@@ -6,10 +6,13 @@ use pg_snapshot::feature::{
     ClosedFeature, FeatureStructure, FeatureSystems, FeatureValue, FeatureValueKind,
     FeatureValueSymbol,
 };
-use pg_snapshot::lexicon::{AffixProcess, Allomorph, LexEntry, Lexicon, Msa, RuleMapping, Sense};
+use pg_snapshot::lexicon::{
+    AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense,
+};
 use pg_snapshot::morphology::{
-    AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundOutcome, CompoundRule,
-    InflectionClass, MorphType, Morphology, PartOfSpeech, StemName,
+    AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
+    CompoundOutcome, CompoundRule, CompoundRuleMaxApplications, ExceptionFeature, InflectionClass,
+    LexEntryInflType, MorphType, Morphology, PartOfSpeech, StemName,
 };
 use pg_snapshot::phonology::{
     BoundaryMarker, Environment, NaturalClass, PhonContext, Phoneme, PhonologicalRule, Phonology,
@@ -1918,6 +1921,36 @@ fn structured_compile_refusal_publishes_authored_facts_and_marks_effective_secti
             .get::<_, i64>(0))
             .unwrap(),
         3
+    );
+}
+
+#[test]
+fn refused_compile_does_not_mark_environment_sides_complete() {
+    let temp = tempfile::tempdir().unwrap();
+    let output = temp.path().join("refused-sides.sqlite");
+    let mut input = side_snapshot();
+    input.conversion_provenance = Default::default();
+
+    let result = build(&output, input.to_json().as_bytes(), context()).unwrap();
+    assert_eq!(result.compile_status, "refused");
+    let db = Connection::open(output).unwrap();
+    let (status, reason): (String, Option<String>) = db
+        .query_row(
+            "SELECT status, reason_code FROM artifact_section WHERE section='environments'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_ne!(
+        status, "complete",
+        "a refused compile publishes no environment sides"
+    );
+    assert_eq!(reason.as_deref(), Some("compile_refused"));
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM environment_side", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
     );
 }
 
@@ -4089,4 +4122,812 @@ fn process_allomorph_required_features_is_not_attempted() {
             Some("notAnAffixAllomorph"),
         )]
     );
+}
+
+type ProcessInputPatternRow = (
+    i64,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+);
+type ProcessOutputRow = (i64, String, Option<i64>, Option<String>, Option<String>);
+type CompoundRuleRow = (String, String, String, i64, Option<i64>, Option<i64>);
+type CompoundSideRow = (String, String, Option<String>, Option<String>);
+
+const PROCESS_ALLO: &str = "00000000-0000-0000-0000-0000000000d1";
+const PROCESS_NC_ALLO: &str = "00000000-0000-0000-0000-0000000000d2";
+const COMPOUND_ENDO: &str = "00000000-0000-0000-0000-0000000000d3";
+const COMPOUND_EXO: &str = "00000000-0000-0000-0000-0000000000d4";
+const COMPOUND_EXCEPTION: &str = "00000000-0000-0000-0000-0000000000d5";
+
+fn process_snapshot(guid: &str, input: Vec<PhonContext>, output: Vec<RuleMapping>) -> Snapshot {
+    let mut source = snapshot();
+    entry_mut(&mut source, ENTRY_SUFFIX)
+        .allomorphs
+        .push(Allomorph {
+            process: Some(AffixProcess { input, output }),
+            ..allomorph(guid, MorphType::Suffix, "")
+        });
+    source
+}
+
+fn rewrite_snapshot() -> Snapshot {
+    let mut source = snapshot();
+    source.phonology.rules = vec![PhonologicalRule::Rewrite(RewriteRule {
+        guid: RULE_REWRITE.into(),
+        name: "k to m before V".into(),
+        direction: RuleDirection::LeftToRight,
+        structural_description: vec![PhonContext::Segment {
+            phoneme: PHONEME_K.into(),
+        }],
+        feature_constraint_variables: Vec::new(),
+        right_hand_sides: vec![RewriteRhs {
+            structural_change: vec![PhonContext::Segment {
+                phoneme: PHONEME_M.into(),
+            }],
+            left_context: Some(PhonContext::Segment {
+                phoneme: PHONEME_K.into(),
+            }),
+            right_context: Some(PhonContext::Boundary {
+                marker: BOUNDARY_PLUS.into(),
+            }),
+            required_parts_of_speech: Vec::new(),
+            required_rule_features: Vec::new(),
+            excluded_rule_features: Vec::new(),
+        }],
+    })];
+    source
+}
+
+#[test]
+fn affix_process_parts_and_outputs_are_published() {
+    let source = process_snapshot(
+        PROCESS_ALLO,
+        vec![PhonContext::Variable],
+        vec![
+            RuleMapping::CopyFromInput { part: 1 },
+            RuleMapping::InsertSegments { text: "u".into() },
+        ],
+    );
+    let db = publish_gates(&source, "process-parts.sqlite");
+    let inputs: Vec<(i64, i64, Option<i64>)> = db
+        .prepare("SELECT part, is_variable, pattern_root_id FROM affix_process_input WHERE allomorph_guid = ?1 ORDER BY part")
+        .unwrap()
+        .query_map([PROCESS_ALLO], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(inputs, vec![(1, 1, None)]);
+    let outputs: Vec<ProcessOutputRow> = db
+        .prepare("SELECT ordinal, kind, part, natural_class_guid, text FROM affix_process_output WHERE allomorph_guid = ?1 ORDER BY ordinal")
+        .unwrap()
+        .query_map([PROCESS_ALLO], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        outputs,
+        vec![
+            (0, "copy".into(), Some(1), None, None),
+            (1, "insert_segments".into(), None, None, Some("u".into())),
+        ]
+    );
+}
+
+#[test]
+fn natural_class_in_a_process_input_has_a_pattern_root() {
+    let mut source = process_snapshot(
+        PROCESS_NC_ALLO,
+        vec![
+            PhonContext::NaturalClass {
+                natural_class: NC_C.into(),
+                plus_variables: Vec::new(),
+                minus_variables: Vec::new(),
+            },
+            PhonContext::Variable,
+        ],
+        vec![
+            RuleMapping::InsertNaturalClass {
+                natural_class: NC_C.into(),
+            },
+            RuleMapping::CopyFromInput { part: 2 },
+        ],
+    );
+    source.phonology.natural_classes = vec![NaturalClass::Segments {
+        guid: NC_C.into(),
+        name: "C".into(),
+        display_name: None,
+        phonemes: vec![PHONEME_K.into()],
+    }];
+    let db = publish_gates(&source, "process-pattern-root.sqlite");
+    let inputs: Vec<ProcessInputPatternRow> = db
+        .prepare(
+            "SELECT i.part, i.is_variable, r.owner_kind, r.role, r.ordinal, n.kind, n.natural_class_guid \
+             FROM affix_process_input i \
+             LEFT JOIN pattern_root r ON r.root_id = i.pattern_root_id \
+             LEFT JOIN pattern_node n ON n.root_id = r.root_id AND n.parent_node_id IS NULL \
+             WHERE i.allomorph_guid = ?1 ORDER BY i.part",
+        )
+        .unwrap()
+        .query_map([PROCESS_NC_ALLO], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+            ))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let root = |kind: &str| Some(kind.to_string());
+    assert_eq!(
+        inputs,
+        vec![
+            (
+                1,
+                0,
+                root("affixProcess"),
+                root("process_input"),
+                Some(0),
+                root("naturalClass"),
+                Some(NC_C.into()),
+            ),
+            (2, 1, None, None, None, None, None),
+        ]
+    );
+    let output_kind: String = db
+        .query_row(
+            "SELECT kind FROM affix_process_output WHERE allomorph_guid = ?1 AND ordinal = 0",
+            [PROCESS_NC_ALLO],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(output_kind, "insert_class");
+}
+
+#[test]
+fn compound_rules_publish_sides_and_head() {
+    let mut source = snapshot();
+    source.morphology.compound_rules = vec![
+        CompoundRule::Endocentric {
+            guid: COMPOUND_ENDO.into(),
+            name: "Endo rule".into(),
+            disabled: false,
+            head_last: true,
+            left: CompoundConstituentRequirement {
+                part_of_speech: Some(POS.into()),
+                exception_features: vec![COMPOUND_EXCEPTION.into()],
+            },
+            right: CompoundConstituentRequirement {
+                part_of_speech: Some(POS_VERB.into()),
+                exception_features: Vec::new(),
+            },
+            overriding: CompoundOutcome {
+                part_of_speech: Some(POS_VERB.into()),
+                inflection_class: Some(INFL_CLASS.into()),
+            },
+        },
+        CompoundRule::Exocentric {
+            guid: COMPOUND_EXO.into(),
+            name: "Exo rule".into(),
+            disabled: true,
+            left: Default::default(),
+            right: Default::default(),
+            to: CompoundOutcome {
+                part_of_speech: Some(POS.into()),
+                inflection_class: None,
+            },
+        },
+    ];
+    source
+        .morphology
+        .parser_parameters
+        .compound_rule_max_applications = vec![CompoundRuleMaxApplications {
+        compound_rule: COMPOUND_ENDO.into(),
+        max_applications: 3,
+    }];
+    let db = publish_gates(&source, "compound-rules.sqlite");
+    let rules: Vec<CompoundRuleRow> = db
+        .prepare("SELECT guid, kind, name, disabled, head_last, max_applications FROM compound_rule ORDER BY guid")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        rules,
+        vec![
+            (
+                COMPOUND_ENDO.into(),
+                "endocentric".into(),
+                "Endo rule".into(),
+                0,
+                Some(1),
+                Some(3)
+            ),
+            (
+                COMPOUND_EXO.into(),
+                "exocentric".into(),
+                "Exo rule".into(),
+                1,
+                None,
+                None
+            ),
+        ]
+    );
+    let sides: Vec<CompoundSideRow> = db
+        .prepare("SELECT rule_guid, side, category_guid, inflection_class_guid FROM compound_rule_side ORDER BY rule_guid, side")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let endo = |side: &str, category: Option<&str>, class: Option<&str>| {
+        (
+            COMPOUND_ENDO.to_string(),
+            side.to_string(),
+            category.map(str::to_owned),
+            class.map(str::to_owned),
+        )
+    };
+    let exo = |side: &str, category: Option<&str>| {
+        (
+            COMPOUND_EXO.to_string(),
+            side.to_string(),
+            category.map(str::to_owned),
+            None,
+        )
+    };
+    assert_eq!(
+        sides,
+        vec![
+            endo("left", Some(POS), None),
+            endo("outcome", Some(POS_VERB), Some(INFL_CLASS)),
+            endo("right", Some(POS_VERB), None),
+            exo("left", None),
+            exo("outcome", Some(POS)),
+            exo("right", None),
+        ]
+    );
+    let exceptions: Vec<(String, String, i64, String)> = db
+        .prepare("SELECT rule_guid, side, ordinal, target_guid FROM compound_rule_exception_feature ORDER BY rule_guid, side, ordinal")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        exceptions,
+        vec![(
+            COMPOUND_ENDO.into(),
+            "left".into(),
+            0,
+            COMPOUND_EXCEPTION.into()
+        )]
+    );
+}
+
+#[test]
+fn rewrite_rhs_links_its_change_and_context_roots() {
+    let db = publish_gates(&rewrite_snapshot(), "rewrite-roots.sqlite");
+    let roots: (Option<i64>, Option<i64>, Option<i64>) = db
+        .query_row(
+            "SELECT change_root_id, left_context_root_id, right_context_root_id FROM rewrite_rhs WHERE rule_guid = ?1 AND ordinal = 0",
+            [RULE_REWRITE],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    let role_of = |root: Option<i64>| -> Option<(String, String, String, i64)> {
+        root.map(|id| {
+            db.query_row(
+                "SELECT owner_kind, owner_guid, role, ordinal FROM pattern_root WHERE root_id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap()
+        })
+    };
+    let owner = |role: &str| {
+        Some((
+            "phonologicalRule".to_string(),
+            RULE_REWRITE.to_string(),
+            role.to_string(),
+            0,
+        ))
+    };
+    assert_eq!(
+        (role_of(roots.0), role_of(roots.1), role_of(roots.2)),
+        (
+            owner("rewrite_sc"),
+            owner("rewrite_left_context"),
+            owner("rewrite_right_context")
+        )
+    );
+}
+
+#[test]
+fn phonological_rules_have_names() {
+    let db = publish_gates(&rewrite_snapshot(), "rule-names.sqlite");
+    let name: String = db
+        .query_row(
+            "SELECT name FROM phonological_rule WHERE guid = ?1",
+            [RULE_REWRITE],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(name, "k to m before V");
+}
+
+const STEM_NAME_EMPTY: &str = "00000000-0000-0000-0000-0000000000d1";
+const EXCEPTION_FEATURE: &str = "00000000-0000-0000-0000-0000000000d2";
+const INFL_TYPE: &str = "00000000-0000-0000-0000-0000000000d3";
+const PLAIN_VARIANT_TYPE: &str = "00000000-0000-0000-0000-0000000000d4";
+const VARIANT_REF: &str = "00000000-0000-0000-0000-0000000000d5";
+const UNRESOLVED_COMPONENT: &str = "00000000-0000-0000-0000-0000000000d6";
+
+fn infl_type(
+    slots: Vec<String>,
+    inflection_features: Option<FeatureStructure>,
+) -> LexEntryInflType {
+    LexEntryInflType {
+        guid: INFL_TYPE.into(),
+        name: "Irregular plural".into(),
+        abbreviation: "irrPl".into(),
+        gloss_prepend: "***".into(),
+        gloss_append: "***".into(),
+        slots,
+        inflection_features,
+    }
+}
+
+#[test]
+fn stem_names_with_regions_are_published() {
+    let mut source = gate_snapshot();
+    source.morphology.parts_of_speech[0]
+        .stem_names
+        .push(StemName {
+            guid: STEM_NAME_EMPTY.into(),
+            name: "Empty".into(),
+            abbreviation: Some("E".into()),
+            regions: vec![FeatureStructure { values: Vec::new() }],
+        });
+    let db = publish_gates(&source, "stem-names.sqlite");
+    let stem = |guid: &str| -> (String, String, Option<String>, i64) {
+        db.query_row(
+            "SELECT category_guid, name, abbreviation, nonempty_region_count FROM stem_name WHERE guid = ?1",
+            [guid],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap()
+    };
+    assert_eq!(stem(STEM_NAME), (POS.into(), "Region".into(), None, 1));
+    assert_eq!(
+        stem(STEM_NAME_EMPTY),
+        (POS.into(), "Empty".into(), Some("E".into()), 0)
+    );
+    let region: (i64, String, String) = db
+        .query_row(
+            "SELECT r.ordinal, f.owner_kind, f.role FROM stem_name_region r \
+             JOIN feature_structure f ON f.fs_id = r.fs_id WHERE r.stem_name_guid = ?1",
+            [STEM_NAME],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(region, (0, "stemName".into(), "region".into()));
+    let empty_region_rows: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM stem_name_region WHERE stem_name_guid = ?1",
+            [STEM_NAME_EMPTY],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(empty_region_rows, 1);
+}
+
+#[test]
+fn exception_features_are_defined() {
+    let mut source = snapshot();
+    source.morphology.exception_features = vec![ExceptionFeature {
+        guid: EXCEPTION_FEATURE.into(),
+        name: "Hard stem".into(),
+        abbreviation: "hard".into(),
+    }];
+    let db = publish_gates(&source, "exception-features.sqlite");
+    let rows: Vec<(String, String, String)> = db
+        .prepare("SELECT guid, name, abbreviation FROM exception_feature")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![(EXCEPTION_FEATURE.into(), "Hard stem".into(), "hard".into())]
+    );
+}
+
+#[test]
+fn irregular_inflection_types_carry_their_slots() {
+    let mut source = snapshot();
+    source.morphology.lex_entry_infl_types = vec![infl_type(
+        vec![SLOT.into(), SLOT_TWO.into()],
+        Some(plural_number()),
+    )];
+    let db = publish_gates(&source, "infl-types.sqlite");
+    let (name, abbreviation, fs_id): (String, String, Option<i64>) = db
+        .query_row(
+            "SELECT name, abbreviation, fs_id FROM lex_entry_infl_type WHERE guid = ?1",
+            [INFL_TYPE],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (name.as_str(), abbreviation.as_str()),
+        ("Irregular plural", "irrPl")
+    );
+    let owner: (String, String) = db
+        .query_row(
+            "SELECT owner_kind, role FROM feature_structure WHERE fs_id = ?1",
+            [fs_id.expect("the infl type's features are published")],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(owner, ("inflType".into(), "features".into()));
+    let slots: Vec<(i64, String)> = db
+        .prepare("SELECT ordinal, slot_guid FROM lex_entry_infl_type_slot WHERE infl_type_guid = ?1 ORDER BY ordinal")
+        .unwrap()
+        .query_map([INFL_TYPE], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(slots, vec![(0, SLOT.into()), (1, SLOT_TWO.into())]);
+}
+
+#[test]
+fn variant_links_name_component_and_types() {
+    let mut source = snapshot();
+    source.morphology.lex_entry_infl_types = vec![infl_type(Vec::new(), None)];
+    entry_mut(&mut source, ENTRY_ROOT_TWO).entry_refs = vec![EntryRef::Variant {
+        guid: VARIANT_REF.into(),
+        component_lexemes: vec![
+            SENSE_ROOT.into(),
+            ENTRY_ROOT.into(),
+            UNRESOLVED_COMPONENT.into(),
+        ],
+        variant_entry_types: vec![INFL_TYPE.into(), PLAIN_VARIANT_TYPE.into()],
+    }];
+    let db = publish_gates(&source, "variants.sqlite");
+    let components: Vec<(String, String, i64, String, String)> = db
+        .prepare("SELECT variant_entry_guid, ref_guid, ordinal, component_guid, component_kind FROM entry_variant ORDER BY ordinal")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let component = |ordinal: i64, guid: &str, kind: &str| {
+        (
+            ENTRY_ROOT_TWO.into(),
+            VARIANT_REF.into(),
+            ordinal,
+            guid.into(),
+            kind.into(),
+        )
+    };
+    assert_eq!(
+        components,
+        vec![
+            component(0, SENSE_ROOT, "sense"),
+            component(1, ENTRY_ROOT, "entry"),
+            component(2, UNRESOLVED_COMPONENT, "unresolved"),
+        ]
+    );
+    let types: Vec<(String, i64, String, i64)> = db
+        .prepare("SELECT ref_guid, ordinal, type_guid, is_infl_type FROM entry_variant_type ORDER BY ordinal")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        types,
+        vec![
+            (VARIANT_REF.into(), 0, INFL_TYPE.into(), 1),
+            (VARIANT_REF.into(), 1, PLAIN_VARIANT_TYPE.into(), 0),
+        ]
+    );
+}
+
+const ENV_SIDE_C_RIGHT: &str = "00000000-0000-0000-0000-0000000000b1";
+const ENV_SIDE_CONSONANT_RIGHT: &str = "00000000-0000-0000-0000-0000000000b2";
+const ENV_SIDE_V_SPACED: &str = "00000000-0000-0000-0000-0000000000b3";
+const ENV_SIDE_V_COMPACT: &str = "00000000-0000-0000-0000-0000000000b4";
+const ENV_SIDE_MULTI: &str = "00000000-0000-0000-0000-0000000000b5";
+const NC_CONSONANT: &str = "00000000-0000-0000-0000-0000000000b6";
+const PHONEME_U: &str = "00000000-0000-0000-0000-000000000102";
+const PHONEME_BARRED_U: &str = "00000000-0000-0000-0000-000000000107";
+const PHONEME_D: &str = "00000000-0000-0000-0000-000000000108";
+
+/// `environment_snapshot` plus side-shape environments, referenced from a valid root allomorph.
+fn side_snapshot() -> Snapshot {
+    let mut authored = environment_snapshot();
+    authored
+        .phonology
+        .natural_classes
+        .push(NaturalClass::Segments {
+            guid: NC_CONSONANT.into(),
+            name: "Consonant".into(),
+            display_name: None,
+            phonemes: vec![PHONEME_M.into(), PHONEME_K.into()],
+        });
+    for (guid, name, representation) in [
+        (ENV_SIDE_C_RIGHT, "Single class", "/_[C]"),
+        (ENV_SIDE_CONSONANT_RIGHT, "Same members", "/_[Consonant]"),
+        (ENV_SIDE_V_SPACED, "Spaced", "/ [V] _"),
+        (ENV_SIDE_V_COMPACT, "Compact", "/[V]_"),
+        (ENV_SIDE_MULTI, "Two classes", "/[C][V]_"),
+    ] {
+        authored.phonology.environments.push(Environment {
+            guid: guid.into(),
+            name: name.into(),
+            representation: representation.into(),
+        });
+        authored.lexicon.entries[0].allomorphs[0]
+            .environments
+            .push(guid.into());
+    }
+    authored
+}
+
+fn side_row(db: &Connection, environment: &str, side: &str) -> (String, String) {
+    db.query_row(
+        "SELECT canonical_key, shape FROM environment_side WHERE environment_guid=?1 AND side=?2",
+        rusqlite::params![environment, side],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap()
+}
+
+fn side_members(db: &Connection, environment: &str, side: &str) -> Vec<(String, Option<String>)> {
+    db.prepare(
+        "SELECT member_kind, phoneme_guid FROM environment_side_member WHERE environment_guid=?1 AND side=?2 ORDER BY member_key",
+    )
+    .unwrap()
+    .query_map(rusqlite::params![environment, side], |row| {
+        Ok((row.get(0)?, row.get(1)?))
+    })
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap()
+}
+
+#[test]
+fn equal_environments_written_differently_share_canonical_keys() {
+    let db = publish_gates(&side_snapshot(), "equal-sides.sqlite");
+    assert_eq!(
+        side_row(&db, ENV_SIDE_V_SPACED, "left").0,
+        side_row(&db, ENV_SIDE_V_COMPACT, "left").0,
+        "spacing does not change the key"
+    );
+    assert_eq!(
+        side_row(&db, ENV_SIDE_C_RIGHT, "right").0,
+        side_row(&db, ENV_SIDE_CONSONANT_RIGHT, "right").0,
+        "classes with the same effective members share a key"
+    );
+    assert_ne!(
+        side_row(&db, ENV_SIDE_C_RIGHT, "right").0,
+        side_row(&db, ENV_SIDE_V_COMPACT, "left").0,
+        "different members give different keys"
+    );
+}
+
+#[test]
+fn single_segment_side_lists_its_members() {
+    let db = publish_gates(&side_snapshot(), "single-segment.sqlite");
+    assert_eq!(side_row(&db, ENV_SIDE_C_RIGHT, "right").1, "single_segment");
+    assert_eq!(
+        side_members(&db, ENV_SIDE_C_RIGHT, "right"),
+        vec![
+            ("phoneme".to_string(), Some(PHONEME_K.to_string())),
+            ("phoneme".to_string(), Some(PHONEME_M.to_string())),
+        ]
+    );
+    assert_eq!(side_row(&db, ENV_RIGHT_ANCHOR, "right").1, "single_segment");
+    assert_eq!(
+        side_members(&db, ENV_RIGHT_ANCHOR, "right"),
+        vec![
+            ("phoneme".to_string(), Some(PHONEME_TS.to_string())),
+            ("boundary".to_string(), None),
+        ],
+        "a word boundary beside the one segment is a member"
+    );
+    assert_eq!(side_row(&db, ENV_VALID, "left").1, "word_boundary");
+    assert_eq!(
+        side_members(&db, ENV_VALID, "left"),
+        vec![("boundary".to_string(), None)]
+    );
+}
+
+#[test]
+fn multi_segment_side_is_complex_without_members() {
+    let db = publish_gates(&side_snapshot(), "complex-side.sqlite");
+    assert_eq!(side_row(&db, ENV_SIDE_MULTI, "left").1, "complex");
+    assert!(side_members(&db, ENV_SIDE_MULTI, "left").is_empty());
+    assert_eq!(side_row(&db, ENV_REPEAT, "left").1, "complex");
+    assert!(side_members(&db, ENV_REPEAT, "left").is_empty());
+    assert_eq!(side_row(&db, ENV_VALID, "right").1, "empty");
+}
+
+#[test]
+fn only_valid_environments_have_sides() {
+    let db = publish_gates(&side_snapshot(), "valid-sides.sqlite");
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM environment_side s JOIN environment e ON e.guid=s.environment_guid WHERE e.parse_status <> 'valid'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM environment_side WHERE environment_guid=?1",
+            [ENV_INVALID],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM environment_side WHERE environment_guid=?1",
+            [ENV_VALID],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap(),
+        2
+    );
+}
+
+#[test]
+fn underspecified_member_has_match_basis_underspecified() {
+    let db = publish_gates(&side_snapshot(), "match-basis.sqlite");
+    let basis = |phoneme: &str| -> String {
+        db.query_row(
+            "SELECT match_basis FROM natural_class_effective_member WHERE natural_class_guid=?1 AND phoneme_guid=?2",
+            rusqlite::params![NC_VOICED, phoneme],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        basis(PHONEME_TS),
+        "underspecified",
+        "ts has no voicing value"
+    );
+    assert_eq!(basis(PHONEME_K), "specified", "k is explicitly voiced");
+    let listed: String = db
+        .query_row(
+            "SELECT match_basis FROM natural_class_effective_member WHERE natural_class_guid=?1 AND phoneme_guid=?2",
+            rusqlite::params![NC_C, PHONEME_M],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(listed, "listed");
+}
+
+#[test]
+fn compiled_form_segments_follow_the_compiler() {
+    let mut source = snapshot();
+    for (guid, rep) in [(PHONEME_BARRED_U, "ɯ"), (PHONEME_D, "d")] {
+        source.phonology.phonemes.push(Phoneme {
+            guid: guid.into(),
+            name: rep.into(),
+            representations: vec![ws("qaa", rep)],
+            features: None,
+            basic_ipa_symbol: None,
+        });
+    }
+    entry_mut(&mut source, ENTRY_SUFFIX).allomorphs[0].forms = vec![ws("qaa", "ɯd")];
+    let db = publish_gates(&source, "compiled-suffix.sqlite");
+    let suffix = output_for_allomorph(&db, ALLO_SUFFIX);
+    assert_eq!(
+        form_segments(&db, suffix),
+        vec![
+            (0, "boundary".to_string(), None),
+            (1, "phoneme".to_string(), Some(PHONEME_BARRED_U.to_string())),
+            (2, "phoneme".to_string(), Some(PHONEME_D.to_string())),
+        ],
+        "a suffix -ɯd is the compiler's morpheme boundary, then the segments ɯ and d"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT token_text FROM compiled_form_segment WHERE output_id=?1 AND ordinal=0",
+            [suffix],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        "+",
+        "the synthetic morpheme boundary is identified by its text"
+    );
+
+    let mut process = process_snapshot(
+        PROCESS_ALLO,
+        vec![PhonContext::Variable],
+        vec![
+            RuleMapping::CopyFromInput { part: 1 },
+            RuleMapping::InsertSegments { text: "u".into() },
+            RuleMapping::InsertNaturalClass {
+                natural_class: NC_C.into(),
+            },
+        ],
+    );
+    process.phonology.natural_classes = vec![NaturalClass::Segments {
+        guid: NC_C.into(),
+        name: "C".into(),
+        display_name: None,
+        phonemes: vec![PHONEME_K.into()],
+    }];
+    let db = publish_gates(&process, "compiled-process.sqlite");
+    let output = output_for_allomorph(&db, PROCESS_ALLO);
+    assert_eq!(
+        db.prepare(
+            "SELECT ordinal, segment_kind FROM compiled_form_segment WHERE output_id=?1 ORDER BY ordinal",
+        )
+        .unwrap()
+        .query_map([output], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap(),
+        vec![
+            (0, "variable".to_string()),
+            (1, "phoneme".to_string()),
+            (2, "natural_class".to_string()),
+        ]
+    );
+    assert_eq!(
+        form_segments(&db, output)[1].2.as_deref(),
+        Some(PHONEME_U),
+        "an inserted literal is the phoneme it segments to"
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT natural_class_guid FROM compiled_form_segment WHERE output_id=?1 AND ordinal=2",
+            [output],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        NC_C
+    );
+}
+
+fn output_for_allomorph(db: &Connection, allomorph: &str) -> i64 {
+    db.query_row(
+        "SELECT m.output_id FROM compiled_mapping m JOIN compiled_output o USING (output_id) WHERE m.source_kind='allomorph' AND m.source_guid=?1 AND o.kind='allomorph'",
+        [allomorph],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+fn form_segments(db: &Connection, output: i64) -> Vec<(i64, String, Option<String>)> {
+    db.prepare(
+        "SELECT ordinal, segment_kind, phoneme_guid FROM compiled_form_segment WHERE output_id=?1 ORDER BY ordinal",
+    )
+    .unwrap()
+    .query_map([output], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+    .unwrap()
+    .collect::<Result<_, _>>()
+    .unwrap()
 }

@@ -213,6 +213,25 @@ CREATE TABLE sense_text (
     PRIMARY KEY (sense_guid, kind, ordinal)
 );
 
+-- component_kind is 'unresolved' when the component is neither a loaded entry nor a sense.
+CREATE TABLE entry_variant (
+    variant_entry_guid TEXT NOT NULL COLLATE BINARY REFERENCES lex_entry(guid),
+    ref_guid TEXT NOT NULL COLLATE BINARY,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    component_guid TEXT NOT NULL COLLATE BINARY,
+    component_kind TEXT NOT NULL COLLATE BINARY CHECK (component_kind IN ('entry', 'sense', 'unresolved')),
+    PRIMARY KEY (variant_entry_guid, ref_guid, ordinal)
+);
+
+-- Variant types live only here; is_infl_type is 1 when the type is a lex_entry_infl_type.
+CREATE TABLE entry_variant_type (
+    ref_guid TEXT NOT NULL COLLATE BINARY,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    type_guid TEXT NOT NULL COLLATE BINARY,
+    is_infl_type INTEGER NOT NULL CHECK (is_infl_type IN (0, 1)),
+    PRIMARY KEY (ref_guid, ordinal)
+);
+
 CREATE TABLE adhoc_prohibition (
     prohibition_guid TEXT PRIMARY KEY COLLATE BINARY,
     kind TEXT NOT NULL CHECK (kind IN ('allomorph', 'morpheme')),
@@ -371,6 +390,23 @@ CREATE TABLE compiled_allomorph_order (
 );
 
 CREATE INDEX compiled_allomorph_order_source ON compiled_allomorph_order(source_entry_guid, source_msa_guid);
+
+-- The segmentation of each compiled form: a root's shape, or an affix's RHS in order. 'variable' is a
+-- copy of the input, 'natural_class' a class insert, 'boundary' a morpheme or word boundary (the compiler's
+-- synthetic morpheme boundary has no GUID and is identified by token_text), and 'synthetic' a segment with no source GUID.
+CREATE TABLE compiled_form_segment (
+    output_id INTEGER NOT NULL REFERENCES compiled_output(output_id),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    segment_kind TEXT NOT NULL COLLATE BINARY CHECK (segment_kind IN ('phoneme', 'boundary', 'natural_class', 'variable', 'synthetic')),
+    phoneme_guid TEXT COLLATE BINARY REFERENCES phoneme(guid),
+    boundary_guid TEXT COLLATE BINARY REFERENCES boundary_marker(guid),
+    natural_class_guid TEXT COLLATE BINARY REFERENCES natural_class(guid),
+    token_text TEXT,
+    PRIMARY KEY (output_id, ordinal),
+    CHECK ((segment_kind = 'phoneme') = (phoneme_guid IS NOT NULL)),
+    CHECK (boundary_guid IS NULL OR segment_kind = 'boundary'),
+    CHECK ((segment_kind = 'natural_class') = (natural_class_guid IS NOT NULL))
+);
 
 -- One frozen P7 cache identity and one declared run. Local dimension IDs below are rebuilt from
 -- typed stable keys for deterministic facts output; original cache IDs remain only in provenance.
@@ -604,6 +640,8 @@ CREATE TABLE natural_class_effective_member (
     phoneme_guid TEXT COLLATE BINARY,
     identity_quality TEXT NOT NULL CHECK (identity_quality IN ('sourceGuid', 'synthetic')),
     match_kind TEXT NOT NULL CHECK (match_kind IN ('segments', 'features')),
+    -- 'underspecified': at least one feature matched only because its lane defaulted to the full mask.
+    match_basis TEXT NOT NULL COLLATE BINARY CHECK (match_basis IN ('listed', 'specified', 'underspecified')),
     PRIMARY KEY (natural_class_guid, table_key, member_key)
 );
 
@@ -644,6 +682,30 @@ CREATE TABLE environment_natural_class (
     CHECK ((result = 'resolved' AND natural_class_guid IS NOT NULL) OR (result <> 'resolved' AND natural_class_guid IS NULL))
 );
 
+-- One row per side of each valid environment. canonical_key is the lowercase hex SHA-256 of the side's
+-- resolved token sequence with each class replaced by its sorted member keys; spacing and names never reach it.
+CREATE TABLE environment_side (
+    environment_guid TEXT NOT NULL COLLATE BINARY REFERENCES environment(guid),
+    side TEXT NOT NULL COLLATE BINARY CHECK (side IN ('left', 'right')),
+    canonical_key TEXT NOT NULL COLLATE BINARY,
+    shape TEXT NOT NULL COLLATE BINARY CHECK (shape IN ('empty', 'single_segment', 'word_boundary', 'complex')),
+    PRIMARY KEY (environment_guid, side)
+);
+
+-- Members of the sides whose shape is single_segment or word_boundary; a side's word boundary is a member too.
+CREATE TABLE environment_side_member (
+    environment_guid TEXT NOT NULL COLLATE BINARY,
+    side TEXT NOT NULL COLLATE BINARY CHECK (side IN ('left', 'right')),
+    member_kind TEXT NOT NULL COLLATE BINARY CHECK (member_kind IN ('phoneme', 'boundary', 'synthetic')),
+    member_key TEXT NOT NULL COLLATE BINARY,
+    phoneme_guid TEXT COLLATE BINARY REFERENCES phoneme(guid),
+    boundary_guid TEXT COLLATE BINARY REFERENCES boundary_marker(guid),
+    PRIMARY KEY (environment_guid, side, member_key),
+    FOREIGN KEY (environment_guid, side) REFERENCES environment_side(environment_guid, side),
+    CHECK ((member_kind = 'phoneme') = (phoneme_guid IS NOT NULL)),
+    CHECK (boundary_guid IS NULL OR member_kind = 'boundary')
+);
+
 CREATE TABLE environment_usage (
     allomorph_guid TEXT NOT NULL COLLATE BINARY REFERENCES allomorph(guid),
     role TEXT NOT NULL CHECK (role IN ('phone', 'position')),
@@ -667,6 +729,7 @@ CREATE TABLE environment_usage (
 
 CREATE TABLE phonological_rule (
     guid TEXT PRIMARY KEY COLLATE BINARY,
+    name TEXT NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('rewrite', 'metathesis')),
     direction TEXT NOT NULL CHECK (direction IN ('leftToRight', 'rightToLeft', 'simultaneous')),
     order_index INTEGER NOT NULL CHECK (order_index >= 0),
@@ -683,6 +746,9 @@ CREATE TABLE phonological_rule_variable (
 CREATE TABLE rewrite_rhs (
     rule_guid TEXT NOT NULL COLLATE BINARY REFERENCES phonological_rule(guid),
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    change_root_id INTEGER REFERENCES pattern_root(root_id),
+    left_context_root_id INTEGER REFERENCES pattern_root(root_id),
+    right_context_root_id INTEGER REFERENCES pattern_root(root_id),
     PRIMARY KEY (rule_guid, ordinal)
 );
 
@@ -746,6 +812,85 @@ CREATE TABLE pattern_node (
     UNIQUE (root_id, node_id),
     FOREIGN KEY (root_id, parent_node_id) REFERENCES pattern_node(root_id, node_id),
     UNIQUE (root_id, parent_node_id, ordinal)
+);
+
+CREATE TABLE affix_process_input (
+    allomorph_guid TEXT NOT NULL COLLATE BINARY REFERENCES allomorph(guid),
+    part INTEGER NOT NULL CHECK (part >= 1),
+    is_variable INTEGER NOT NULL CHECK (is_variable IN (0, 1)),
+    pattern_root_id INTEGER REFERENCES pattern_root(root_id),
+    PRIMARY KEY (allomorph_guid, part)
+);
+
+CREATE TABLE affix_process_output (
+    allomorph_guid TEXT NOT NULL COLLATE BINARY REFERENCES allomorph(guid),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    kind TEXT NOT NULL CHECK (kind IN ('copy', 'insert_segments', 'insert_class', 'modify')),
+    part INTEGER,
+    natural_class_guid TEXT COLLATE BINARY,
+    text TEXT,
+    PRIMARY KEY (allomorph_guid, ordinal)
+);
+
+CREATE TABLE compound_rule (
+    guid TEXT PRIMARY KEY COLLATE BINARY,
+    kind TEXT NOT NULL CHECK (kind IN ('endocentric', 'exocentric')),
+    name TEXT NOT NULL,
+    disabled INTEGER NOT NULL CHECK (disabled IN (0, 1)),
+    head_last INTEGER CHECK (head_last IN (0, 1)),
+    max_applications INTEGER CHECK (max_applications >= 0)
+);
+
+CREATE TABLE compound_rule_side (
+    rule_guid TEXT NOT NULL COLLATE BINARY REFERENCES compound_rule(guid),
+    side TEXT NOT NULL CHECK (side IN ('left', 'right', 'outcome')),
+    category_guid TEXT COLLATE BINARY,
+    inflection_class_guid TEXT COLLATE BINARY,
+    PRIMARY KEY (rule_guid, side)
+);
+
+CREATE TABLE compound_rule_exception_feature (
+    rule_guid TEXT NOT NULL COLLATE BINARY REFERENCES compound_rule(guid),
+    side TEXT NOT NULL CHECK (side IN ('left', 'right')),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    target_guid TEXT NOT NULL COLLATE BINARY,
+    PRIMARY KEY (rule_guid, side, ordinal)
+);
+
+CREATE TABLE stem_name (
+    guid TEXT PRIMARY KEY COLLATE BINARY,
+    category_guid TEXT NOT NULL COLLATE BINARY,
+    name TEXT NOT NULL,
+    abbreviation TEXT,
+    nonempty_region_count INTEGER NOT NULL CHECK (nonempty_region_count >= 0)
+);
+
+-- Each region is a feature_structure owned by ('stemName', stem guid, 'region'); its path is the region ordinal.
+CREATE TABLE stem_name_region (
+    stem_name_guid TEXT NOT NULL COLLATE BINARY REFERENCES stem_name(guid),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    fs_id INTEGER NOT NULL REFERENCES feature_structure(fs_id),
+    PRIMARY KEY (stem_name_guid, ordinal)
+);
+
+CREATE TABLE exception_feature (
+    guid TEXT PRIMARY KEY COLLATE BINARY,
+    name TEXT NOT NULL,
+    abbreviation TEXT NOT NULL
+);
+
+CREATE TABLE lex_entry_infl_type (
+    guid TEXT PRIMARY KEY COLLATE BINARY,
+    name TEXT NOT NULL,
+    abbreviation TEXT NOT NULL,
+    fs_id INTEGER REFERENCES feature_structure(fs_id)
+);
+
+CREATE TABLE lex_entry_infl_type_slot (
+    infl_type_guid TEXT NOT NULL COLLATE BINARY REFERENCES lex_entry_infl_type(guid),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    slot_guid TEXT NOT NULL COLLATE BINARY,
+    PRIMARY KEY (infl_type_guid, ordinal)
 );
 
 CREATE TABLE pattern_variable (

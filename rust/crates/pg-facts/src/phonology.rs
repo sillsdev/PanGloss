@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_grammar::chardef::CharDefKind;
-use pg_grammar::compile::{EnvironmentResolution, EnvironmentResolutionStatus};
+use pg_grammar::chardef::{CharDef, CharDefKind, CharDefTable};
+use pg_grammar::compile::{
+    environment_side_elements, EnvironmentResolution, EnvironmentResolutionStatus,
+    EnvironmentSideElement,
+};
 use pg_grammar::model::{
     NaturalClassKind as CompiledNaturalClassKind, Pattern, PatternNode, PhonRuleDef,
 };
@@ -73,6 +76,7 @@ pub(crate) fn insert_authored(
     insert_allomorph_environments(tx, snapshot)?;
     insert_environment_usage(tx, snapshot, environment_resolutions, decisions)?;
     insert_effective_members(tx, snapshot, grammar)?;
+    insert_environment_sides(tx, snapshot, environment_resolutions, grammar)?;
     insert_phonological_rules(tx, snapshot, grammar)?;
     insert_environment_patterns(tx, environment_resolutions, grammar)?;
     insert_rule_patterns(tx, snapshot)?;
@@ -447,6 +451,96 @@ fn load_decision_link(decision: &LoadDecision) -> Result<LoadDecisionLink, Facts
     ))
 }
 
+/// Canonical source GUIDs of the phonemes and boundary markers, to match a definition to its source.
+pub(crate) struct SourceGuids {
+    phonemes: BTreeSet<String>,
+    boundaries: BTreeSet<String>,
+}
+
+impl SourceGuids {
+    pub(crate) fn new(snapshot: &Snapshot) -> Self {
+        Self {
+            phonemes: snapshot
+                .phonology
+                .phonemes
+                .iter()
+                .map(|phoneme| canonical_key(&phoneme.guid))
+                .collect(),
+            boundaries: snapshot
+                .phonology
+                .boundary_markers
+                .iter()
+                .map(|boundary| canonical_key(&boundary.guid))
+                .collect(),
+        }
+    }
+}
+
+/// How one character definition is keyed: its kind and the member key shared across tables.
+pub(crate) struct SegmentIdentity {
+    pub(crate) member_kind: &'static str,
+    pub(crate) member_key: String,
+    pub(crate) phoneme_guid: Option<String>,
+    pub(crate) boundary_guid: Option<String>,
+}
+
+impl SegmentIdentity {
+    fn word_boundary() -> Result<Self, FactsError> {
+        Ok(Self {
+            member_kind: "boundary",
+            member_key: serde_json::to_string(&serde_json::json!({"kind":"word_boundary"}))
+                .map_err(|error| FactsError::Serialization(error.to_string()))?,
+            phoneme_guid: None,
+            boundary_guid: None,
+        })
+    }
+}
+
+pub(crate) fn segment_identity(
+    definition: &CharDef,
+    sources: &SourceGuids,
+) -> Result<SegmentIdentity, FactsError> {
+    if let Some(guid) = definition.source_guid().map(canonical_key) {
+        match definition.kind() {
+            CharDefKind::Segment if sources.phonemes.contains(&guid) => {
+                return Ok(SegmentIdentity {
+                    member_kind: "phoneme",
+                    member_key: object_identity(&guid)?,
+                    phoneme_guid: Some(guid),
+                    boundary_guid: None,
+                })
+            }
+            CharDefKind::Boundary if sources.boundaries.contains(&guid) => {
+                return Ok(SegmentIdentity {
+                    member_kind: "boundary",
+                    member_key: object_identity(&guid)?,
+                    phoneme_guid: None,
+                    boundary_guid: Some(guid),
+                })
+            }
+            _ => {}
+        }
+    }
+    Ok(SegmentIdentity {
+        member_kind: "synthetic",
+        member_key: synthetic_identity(definition.xml_id())?,
+        phoneme_guid: None,
+        boundary_guid: None,
+    })
+}
+
+fn natural_class_def(
+    grammar: &pg_grammar::model::Grammar,
+    class: pg_grammar::model::NatClassId,
+) -> Result<&pg_grammar::model::NaturalClass, FactsError> {
+    grammar
+        .natural_classes
+        .get(class.0 as usize)
+        .ok_or_else(|| {
+            FactsError::Serialization(format!("natural class index {} is not defined", class.0))
+        })
+}
+
 fn insert_effective_members(
     tx: &Transaction<'_>,
     snapshot: &Snapshot,
@@ -461,12 +555,7 @@ fn insert_effective_members(
         .iter()
         .map(natural_class_guid)
         .collect();
-    let source_phonemes: BTreeSet<_> = snapshot
-        .phonology
-        .phonemes
-        .iter()
-        .map(|phoneme| phoneme.guid.as_str())
-        .collect();
+    let sources = SourceGuids::new(snapshot);
     for class in &grammar.natural_classes {
         if !authored.contains(class.xml_id.as_str()) {
             continue;
@@ -480,29 +569,215 @@ fn insert_effective_members(
                 if !effective_members.contains(&char_id) {
                     continue;
                 }
-                let source_guid = definition
-                    .source_guid()
-                    .filter(|guid| source_phonemes.contains(guid))
-                    .map(str::to_string);
-                let (identity_quality, member_key) = match &source_guid {
-                    Some(guid) => ("sourceGuid", object_identity(guid)?),
-                    None => ("synthetic", synthetic_identity(definition.xml_id())?),
+                let identity = segment_identity(definition, &sources)?;
+                let identity_quality = if identity.member_kind == "synthetic" {
+                    "synthetic"
+                } else {
+                    "sourceGuid"
                 };
                 tx.execute(
-                    "INSERT INTO natural_class_effective_member(natural_class_guid, table_key, member_key, phoneme_guid, identity_quality, match_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO natural_class_effective_member(natural_class_guid, table_key, member_key, phoneme_guid, identity_quality, match_kind, match_basis) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         class.xml_id,
                         table.xml_id(),
-                        member_key,
-                        source_guid,
+                        identity.member_key,
+                        identity.phoneme_guid,
                         identity_quality,
-                        match_kind(class)
+                        match_kind(class),
+                        match_basis(class, definition, grammar),
                     ],
                 )?;
             }
         }
     }
     Ok(())
+}
+
+/// Why a member is in its class: listed by a segment list, specified by its features, or underspecified.
+fn match_basis(
+    class: &pg_grammar::model::NaturalClass,
+    definition: &CharDef,
+    grammar: &pg_grammar::model::Grammar,
+) -> &'static str {
+    match &class.kind {
+        CompiledNaturalClassKind::Segments(_) => "listed",
+        CompiledNaturalClassKind::Feature(pairs) => {
+            let lanes = definition.feature_lanes();
+            let defaulted = pairs.iter().any(|&(feature, _)| {
+                lanes[feature.0 as usize] == grammar.phon_features.mask(feature)
+            });
+            if defaulted {
+                "underspecified"
+            } else {
+                "specified"
+            }
+        }
+    }
+}
+
+/// One row per valid environment side. A refused compile has no grammar, so it publishes none.
+fn insert_environment_sides(
+    tx: &Transaction<'_>,
+    snapshot: &Snapshot,
+    resolutions: &[EnvironmentResolution],
+    grammar: Option<&pg_grammar::model::Grammar>,
+) -> Result<(), FactsError> {
+    let Some(grammar) = grammar else {
+        return Ok(());
+    };
+    let sources = SourceGuids::new(snapshot);
+    for resolution in resolutions
+        .iter()
+        .filter(|resolution| resolution.status == EnvironmentResolutionStatus::Valid)
+    {
+        let environment = checked_guid(&resolution.environment_guid, "phonology.environment.guid")?;
+        let table = grammar
+            .char_tables
+            .get(resolution.table.0 as usize)
+            .ok_or_else(|| {
+                FactsError::Serialization(format!(
+                    "environment {environment} resolves against a missing character table"
+                ))
+            })?;
+        for (side, pattern) in [("left", &resolution.left), ("right", &resolution.right)] {
+            let elements = environment_side_elements(pattern.as_ref());
+            let tokens = elements
+                .iter()
+                .map(|element| side_token(element, table, grammar, &sources))
+                .collect::<Result<Vec<_>, _>>()?;
+            let encoded = serde_json::to_string(&tokens)
+                .map_err(|error| FactsError::Serialization(error.to_string()))?;
+            let shape = side_shape(&elements);
+            tx.execute(
+                "INSERT INTO environment_side(environment_guid, side, canonical_key, shape) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    environment,
+                    side,
+                    pg_assess::sha256_bytes(encoded.as_bytes()).trim_start_matches("sha256:"),
+                    shape,
+                ],
+            )?;
+            if matches!(shape, "single_segment" | "word_boundary") {
+                for member in side_members(&elements, table, grammar, &sources)? {
+                    tx.execute(
+                        "INSERT INTO environment_side_member(environment_guid, side, member_kind, member_key, phoneme_guid, boundary_guid) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            environment,
+                            side,
+                            member.member_kind,
+                            member.member_key,
+                            member.phoneme_guid,
+                            member.boundary_guid,
+                        ],
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The canonical token for one resolved element; a class is its sorted member keys, never its name.
+fn side_token(
+    element: &EnvironmentSideElement,
+    table: &CharDefTable,
+    grammar: &pg_grammar::model::Grammar,
+    sources: &SourceGuids,
+) -> Result<serde_json::Value, FactsError> {
+    Ok(match element {
+        EnvironmentSideElement::WordBoundary => serde_json::json!("word_boundary"),
+        EnvironmentSideElement::Segment(id) => {
+            let definition = table.get(*id);
+            let key = segment_identity(definition, sources)?.member_key;
+            match definition.kind() {
+                CharDefKind::Boundary => serde_json::json!({ "boundary": key }),
+                CharDefKind::Segment => serde_json::json!({ "segment": key }),
+            }
+        }
+        EnvironmentSideElement::NaturalClass(class) => {
+            let keys = class_member_keys(table, grammar, *class, sources)?;
+            serde_json::json!({ "class": keys })
+        }
+        EnvironmentSideElement::Optional { min, max, children } => {
+            let children = children
+                .iter()
+                .map(|child| side_token(child, table, grammar, sources))
+                .collect::<Result<Vec<_>, _>>()?;
+            serde_json::json!({ "optional": { "min": min, "max": max, "children": children } })
+        }
+    })
+}
+
+fn class_member_keys(
+    table: &CharDefTable,
+    grammar: &pg_grammar::model::Grammar,
+    class: pg_grammar::model::NatClassId,
+    sources: &SourceGuids,
+) -> Result<Vec<String>, FactsError> {
+    let definition = natural_class_def(grammar, class)?;
+    let keys = pg_grammar::segment::nat_class_member_ids(table, definition)
+        .into_iter()
+        .map(|id| segment_identity(table.get(id), sources).map(|identity| identity.member_key))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    Ok(keys.into_iter().collect())
+}
+
+/// `single_segment`: one phoneme or class with at most one `#`; `word_boundary`: a lone `#`.
+fn side_shape(elements: &[EnvironmentSideElement]) -> &'static str {
+    if elements.is_empty() {
+        return "empty";
+    }
+    let boundaries = elements
+        .iter()
+        .filter(|element| **element == EnvironmentSideElement::WordBoundary)
+        .count();
+    if boundaries == elements.len() {
+        return if boundaries == 1 {
+            "word_boundary"
+        } else {
+            "complex"
+        };
+    }
+    let phonemic: Vec<_> = elements
+        .iter()
+        .filter(|element| **element != EnvironmentSideElement::WordBoundary)
+        .collect();
+    match phonemic.as_slice() {
+        [EnvironmentSideElement::Segment(_) | EnvironmentSideElement::NaturalClass(_)]
+            if boundaries <= 1 =>
+        {
+            "single_segment"
+        }
+        _ => "complex",
+    }
+}
+
+/// The member rows of a `single_segment` or `word_boundary` side; a side's `#` is a member too.
+fn side_members(
+    elements: &[EnvironmentSideElement],
+    table: &CharDefTable,
+    grammar: &pg_grammar::model::Grammar,
+    sources: &SourceGuids,
+) -> Result<Vec<SegmentIdentity>, FactsError> {
+    let mut members = BTreeMap::new();
+    for element in elements {
+        let identities = match element {
+            EnvironmentSideElement::WordBoundary => vec![SegmentIdentity::word_boundary()?],
+            EnvironmentSideElement::Segment(id) => vec![segment_identity(table.get(*id), sources)?],
+            EnvironmentSideElement::NaturalClass(class) => {
+                let definition = natural_class_def(grammar, *class)?;
+                pg_grammar::segment::nat_class_member_ids(table, definition)
+                    .into_iter()
+                    .map(|id| segment_identity(table.get(id), sources))
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+            EnvironmentSideElement::Optional { .. } => Vec::new(),
+        };
+        for identity in identities {
+            members.insert(identity.member_key.clone(), identity);
+        }
+    }
+    Ok(members.into_values().collect())
 }
 
 fn match_kind(class: &pg_grammar::model::NaturalClass) -> &'static str {
@@ -544,9 +819,13 @@ fn insert_phonological_rules(
             PhonologicalRule::Metathesis(rule) => ("metathesis", direction(rule.direction)),
         };
         let stratum = strata.get(&guid);
+        let name = match rule {
+            PhonologicalRule::Rewrite(rule) => &rule.name,
+            PhonologicalRule::Metathesis(rule) => &rule.name,
+        };
         tx.execute(
-            "INSERT INTO phonological_rule(guid, kind, direction, order_index, effective_stratum_key) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![guid, kind, direction, ordinal as i64, stratum],
+            "INSERT INTO phonological_rule(guid, name, kind, direction, order_index, effective_stratum_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![guid, name, kind, direction, ordinal as i64, stratum],
         )?;
         if let PhonologicalRule::Rewrite(rewrite) = rule {
             for (variable_ordinal, feature_constraint_guid) in
@@ -620,7 +899,7 @@ fn effective_strata(grammar: &pg_grammar::model::Grammar) -> BTreeMap<String, St
 }
 
 /// Map keys are canonical GUIDs, because lookups use `checked_guid`'s lowercase form.
-fn canonical_key(raw: &str) -> String {
+pub(crate) fn canonical_key(raw: &str) -> String {
     pg_snapshot::canonical_guid(raw).unwrap_or_else(|| raw.to_string())
 }
 
@@ -869,6 +1148,7 @@ fn insert_rule_patterns(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(),
                         "authored",
                     )?;
                     insert_contexts(tx, change, &rhs.structural_change)?;
+                    link_rhs_root(tx, &guid, ordinal, "change_root_id", change)?;
                     if let Some(context) = &rhs.left_context {
                         let root = insert_pattern_root(
                             tx,
@@ -879,6 +1159,7 @@ fn insert_rule_patterns(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(),
                             "authored",
                         )?;
                         insert_context(tx, root, None, 0, context)?;
+                        link_rhs_root(tx, &guid, ordinal, "left_context_root_id", root)?;
                     }
                     if let Some(context) = &rhs.right_context {
                         let root = insert_pattern_root(
@@ -890,6 +1171,7 @@ fn insert_rule_patterns(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(),
                             "authored",
                         )?;
                         insert_context(tx, root, None, 0, context)?;
+                        link_rhs_root(tx, &guid, ordinal, "right_context_root_id", root)?;
                     }
                 }
             }
@@ -910,6 +1192,21 @@ fn insert_rule_patterns(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(),
     Ok(())
 }
 
+/// The column is a literal from this module, never input, so formatting it into SQL is safe.
+fn link_rhs_root(
+    tx: &Transaction<'_>,
+    rule_guid: &str,
+    rhs_ordinal: usize,
+    column: &str,
+    root_id: i64,
+) -> Result<(), FactsError> {
+    tx.execute(
+        &format!("UPDATE rewrite_rhs SET {column} = ?1 WHERE rule_guid = ?2 AND ordinal = ?3"),
+        params![root_id, rule_guid, rhs_ordinal as i64],
+    )?;
+    Ok(())
+}
+
 fn insert_contexts(
     tx: &Transaction<'_>,
     root_id: i64,
@@ -921,7 +1218,7 @@ fn insert_contexts(
     Ok(())
 }
 
-fn insert_context(
+pub(crate) fn insert_context(
     tx: &Transaction<'_>,
     root_id: i64,
     parent_node_id: Option<i64>,
@@ -1036,7 +1333,7 @@ fn insert_pattern_node(tx: &Transaction<'_>, row: PatternNodeRow<'_>) -> Result<
     Ok(tx.last_insert_rowid())
 }
 
-fn insert_pattern_root(
+pub(crate) fn insert_pattern_root(
     tx: &Transaction<'_>,
     owner_kind: &str,
     owner_guid: &str,

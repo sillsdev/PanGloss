@@ -69,7 +69,10 @@ use pg_snapshot::{
     SelectionRecorder, Snapshot, SourceInventoryStatus, SourceRef,
 };
 
-pub use environment::{EnvironmentResolution, EnvironmentResolutionStatus};
+pub use environment::{
+    environment_side_elements, EnvironmentResolution, EnvironmentResolutionStatus,
+    EnvironmentSideElement,
+};
 use gates::GateOutcomes;
 pub use gates::{AllomorphGateEffect, AllomorphGateKind, AllomorphGateOutcome};
 use inventory::{Lineage, LineageTarget};
@@ -196,6 +199,9 @@ pub fn compile_project_with_options_and_import_warnings(
     let (recorded_inventory, recorded_issues, load_decisions) =
         recorder.finish_with_load_decisions();
     let compiled_outputs = lineage::compiled_outputs(&grammar);
+    let allomorph_output_ids = (0..grammar.allomorph_owners.len())
+        .map(|index| compiled_outputs.allomorph(AllomorphId(index as u32)))
+        .collect();
     let (compiled_mappings, compiled_allomorph_order) =
         lineage::publish(snapshot, &grammar, &compiled_outputs, &load_decisions);
     let compiled_outputs = compiled_outputs.outputs().to_vec();
@@ -245,6 +251,7 @@ pub fn compile_project_with_options_and_import_warnings(
         load_decisions,
         environment_resolutions,
         compiled_outputs,
+        allomorph_output_ids,
         compiled_mappings,
         compiled_allomorph_order,
         allomorph_gates,

@@ -1,5 +1,7 @@
 use pg_snapshot::lexicon::{LexEntry, Msa};
-use pg_snapshot::morphology::PartOfSpeech;
+use pg_snapshot::morphology::{
+    CompoundConstituentRequirement, CompoundOutcome, CompoundRule, PartOfSpeech,
+};
 use pg_snapshot::{
     canonical_guid, InventoryIdentity, InventoryKind, LoadDecision, LoadDisposition,
     LoadPipelineStage, Snapshot,
@@ -8,6 +10,7 @@ use rusqlite::{params, Transaction};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
+use crate::features::FeatureStructureIds;
 use crate::FactsError;
 
 type TemplateSlotPlacementMap = BTreeMap<(String, String, i64), (String, i64, i64)>;
@@ -185,10 +188,95 @@ pub(crate) fn insert_authored(
         decisions,
         compile_completed,
     )?;
+    insert_compound_rules(tx, snapshot)?;
     for (entry_ordinal, entry) in snapshot.lexicon.entries.iter().enumerate() {
         insert_entry(tx, entry, entry_ordinal)?;
     }
     crate::adhoc::insert_authored(tx, snapshot)
+}
+
+/// Publishes stem names, exception features and irregular inflection types referenced by GUID.
+pub(crate) fn insert_definitions(
+    tx: &Transaction<'_>,
+    snapshot: &Snapshot,
+    feature_structures: &FeatureStructureIds,
+) -> Result<(), FactsError> {
+    for exception in &snapshot.morphology.exception_features {
+        tx.execute(
+            "INSERT INTO exception_feature(guid, name, abbreviation) VALUES (?1, ?2, ?3)",
+            params![
+                checked_guid(&exception.guid, "exceptionFeature.guid")?,
+                exception.name,
+                exception.abbreviation
+            ],
+        )?;
+    }
+    for part_of_speech in all_parts_of_speech(&snapshot.morphology.parts_of_speech) {
+        let category_guid = checked_guid(&part_of_speech.guid, "partOfSpeech.guid")?;
+        for stem_name in &part_of_speech.stem_names {
+            let guid = checked_guid(&stem_name.guid, "stemName.guid")?;
+            let nonempty_region_count = stem_name
+                .regions
+                .iter()
+                .filter(|region| !region.values.is_empty())
+                .count() as i64;
+            tx.execute(
+                "INSERT INTO stem_name(guid, category_guid, name, abbreviation, nonempty_region_count) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    guid,
+                    category_guid,
+                    stem_name.name,
+                    stem_name.abbreviation,
+                    nonempty_region_count
+                ],
+            )?;
+            for ordinal in 0..stem_name.regions.len() {
+                let fs_id = feature_structures
+                    .get(&("stemName".into(), guid.clone(), format!("region.{ordinal}")))
+                    .copied()
+                    .ok_or_else(|| {
+                        FactsError::Serialization(
+                            "stem-name region has no feature structure".into(),
+                        )
+                    })?;
+                tx.execute(
+                    "INSERT INTO stem_name_region(stem_name_guid, ordinal, fs_id) VALUES (?1, ?2, ?3)",
+                    params![guid, ordinal as i64, fs_id],
+                )?;
+            }
+        }
+    }
+    for infl_type in &snapshot.morphology.lex_entry_infl_types {
+        let guid = checked_guid(&infl_type.guid, "lexEntryInflType.guid")?;
+        let fs_id = feature_structures
+            .get(&("inflType".into(), guid.clone(), "features".into()))
+            .copied();
+        tx.execute(
+            "INSERT INTO lex_entry_infl_type(guid, name, abbreviation, fs_id) VALUES (?1, ?2, ?3, ?4)",
+            params![guid, infl_type.name, infl_type.abbreviation, fs_id],
+        )?;
+        for (ordinal, slot) in infl_type.slots.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO lex_entry_infl_type_slot(infl_type_guid, ordinal, slot_guid) VALUES (?1, ?2, ?3)",
+                params![
+                    guid,
+                    ordinal as i64,
+                    checked_guid(slot, "lexEntryInflType.slot")?
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Every part of speech, parents before their subcategories.
+pub(crate) fn all_parts_of_speech(items: &[PartOfSpeech]) -> Vec<&PartOfSpeech> {
+    let mut all = Vec::new();
+    for item in items {
+        all.push(item);
+        all.extend(all_parts_of_speech(&item.children));
+    }
+    all
 }
 
 fn insert_categories(
@@ -222,6 +310,148 @@ fn insert_categories(
         insert_classes(tx, &pos.inflection_classes, &guid, None)?;
         insert_categories(tx, &pos.children, Some(&guid))?;
     }
+    Ok(())
+}
+
+/// Authored compounding rules only; the synthetic defaults the compiler adds are not authored here.
+fn insert_compound_rules(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(), FactsError> {
+    let mut max_applications = BTreeMap::new();
+    for entry in &snapshot
+        .morphology
+        .parser_parameters
+        .compound_rule_max_applications
+    {
+        let rule = checked_guid(
+            &entry.compound_rule,
+            "parserParameters.compoundRuleMaxApplications.compoundRule",
+        )?;
+        max_applications.insert(rule, i64::from(entry.max_applications));
+    }
+    for rule in &snapshot.morphology.compound_rules {
+        let guid = checked_guid(rule.guid(), "compoundRule.guid")?;
+        let limit = max_applications.get(&guid).copied();
+        match rule {
+            CompoundRule::Endocentric {
+                name,
+                disabled,
+                head_last,
+                left,
+                right,
+                overriding,
+                ..
+            } => {
+                insert_compound_rule(
+                    tx,
+                    &guid,
+                    "endocentric",
+                    name,
+                    *disabled,
+                    Some(*head_last),
+                    limit,
+                )?;
+                insert_compound_side(tx, &guid, "left", left)?;
+                insert_compound_side(tx, &guid, "right", right)?;
+                insert_compound_outcome(tx, &guid, overriding)?;
+            }
+            CompoundRule::Exocentric {
+                name,
+                disabled,
+                left,
+                right,
+                to,
+                ..
+            } => {
+                insert_compound_rule(tx, &guid, "exocentric", name, *disabled, None, limit)?;
+                insert_compound_side(tx, &guid, "left", left)?;
+                insert_compound_side(tx, &guid, "right", right)?;
+                insert_compound_outcome(tx, &guid, to)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn insert_compound_rule(
+    tx: &Transaction<'_>,
+    guid: &str,
+    kind: &str,
+    name: &str,
+    disabled: bool,
+    head_last: Option<bool>,
+    max_applications: Option<i64>,
+) -> Result<(), FactsError> {
+    tx.execute(
+        "INSERT INTO compound_rule(guid, kind, name, disabled, head_last, max_applications) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            guid,
+            kind,
+            name,
+            i64::from(disabled),
+            head_last.map(i64::from),
+            max_applications
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_compound_side(
+    tx: &Transaction<'_>,
+    rule_guid: &str,
+    side: &str,
+    requirement: &CompoundConstituentRequirement,
+) -> Result<(), FactsError> {
+    insert_compound_side_row(
+        tx,
+        rule_guid,
+        side,
+        requirement.part_of_speech.as_deref(),
+        None,
+    )?;
+    for (ordinal, feature) in requirement.exception_features.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO compound_rule_exception_feature(rule_guid, side, ordinal, target_guid) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                rule_guid,
+                side,
+                ordinal as i64,
+                checked_guid(feature, "compoundRule.exceptionFeature")?
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_compound_outcome(
+    tx: &Transaction<'_>,
+    rule_guid: &str,
+    outcome: &CompoundOutcome,
+) -> Result<(), FactsError> {
+    insert_compound_side_row(
+        tx,
+        rule_guid,
+        "outcome",
+        outcome.part_of_speech.as_deref(),
+        outcome.inflection_class.as_deref(),
+    )
+}
+
+fn insert_compound_side_row(
+    tx: &Transaction<'_>,
+    rule_guid: &str,
+    side: &str,
+    category: Option<&str>,
+    inflection_class: Option<&str>,
+) -> Result<(), FactsError> {
+    let category = category
+        .map(|guid| checked_guid(guid, "compoundRule.category"))
+        .transpose()?;
+    let inflection_class = inflection_class
+        .map(|guid| checked_guid(guid, "compoundRule.inflectionClass"))
+        .transpose()?;
+    tx.execute(
+        "INSERT INTO compound_rule_side(rule_guid, side, category_guid, inflection_class_guid) VALUES (?1, ?2, ?3, ?4)",
+        params![rule_guid, side, category, inflection_class],
+    )?;
     Ok(())
 }
 

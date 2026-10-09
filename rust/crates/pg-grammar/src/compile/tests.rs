@@ -4872,6 +4872,7 @@ fn compile_options_and_output_carry_exactly_their_declared_fields() {
         load_decisions: _,
         environment_resolutions: _,
         compiled_outputs: _,
+        allomorph_output_ids: _,
         compiled_mappings: _,
         compiled_allomorph_order: _,
         allomorph_gates: _,

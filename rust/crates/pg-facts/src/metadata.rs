@@ -31,12 +31,6 @@ pub(crate) fn fixed_sections(
     load_accounting_complete: bool,
     stats_requested: bool,
 ) -> Vec<SectionStatus> {
-    let unavailable = |section: &str| SectionStatus {
-        section: section.into(),
-        status: "unavailable".into(),
-        source_scope: "not emitted by facts schema v8".into(),
-        reason_code: Some("not_in_facts_v8".into()),
-    };
     vec![
         SectionStatus {
             section: "project".into(),
@@ -124,7 +118,7 @@ pub(crate) fn fixed_sections(
         SectionStatus {
             section: "effective_grammar".into(),
             status: if compile_completed { "partial" } else { "unavailable" }.into(),
-            source_scope: "final source mappings, allomorph order, environment outcomes, class extensions, and strata from production default compiler output".into(),
+            source_scope: "final source mappings, allomorph order, environment outcomes, class extensions, strata, and compiled form segments from production default compiler output".into(),
             reason_code: Some(if compile_completed {
                 "compiled_grammar_partially_exported".into()
             } else {
@@ -149,9 +143,9 @@ pub(crate) fn fixed_sections(
         },
         SectionStatus {
             section: "environments".into(),
-            status: "complete".into(),
-            source_scope: "all authored environment definitions and all allomorph phone/position edges, with compiler resolution status for attempted owners".into(),
-            reason_code: None,
+            status: if compile_completed { "complete" } else { "partial" }.into(),
+            source_scope: "all authored environment definitions and all allomorph phone/position edges, with compiler resolution status for attempted owners; environment sides and their members when compilation completes".into(),
+            reason_code: if compile_completed { None } else { Some("compile_refused".into()) },
         },
         SectionStatus {
             section: "features".into(),
@@ -171,8 +165,18 @@ pub(crate) fn fixed_sections(
             source_scope: "authored rewrite and metathesis patterns plus compiler-resolved patterns for attempted valid environments".into(),
             reason_code: if compile_completed { None } else { Some("compile_refused".into()) },
         },
-        unavailable("compound_rules"),
-        unavailable("affix_processes"),
+        SectionStatus {
+            section: "compound_rules".into(),
+            status: "complete".into(),
+            source_scope: "authored compounding rules: kind, disabled state, head side, constituent and outcome categories and classes, exception features, and the parser's per-rule maximum applications when the Snapshot carries one".into(),
+            reason_code: None,
+        },
+        SectionStatus {
+            section: "affix_processes".into(),
+            status: "complete".into(),
+            source_scope: "authored affix-process input parts with their pattern roots, and ordered output steps".into(),
+            reason_code: None,
+        },
         SectionStatus {
             section: "compiled_mappings".into(),
             status: if compile_completed { "complete" } else { "unavailable" }.into(),
