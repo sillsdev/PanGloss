@@ -11,11 +11,34 @@ use pg_foma_backend::backend_selection::{capability_shape_key_for_test, select_b
 
 /// `(predicate id, shape key)`, deduplicated since construct text is fixture-specific free text a pinned literal should not depend on.
 type ShapeRow = (&'static str, &'static str);
+type PartialFixtureRow = (&'static str, &'static str, &'static str, &'static str);
+type PartialAdmissionRow = (&'static str, &'static str);
 
-fn sweep_shape_keys() -> (BTreeSet<ShapeRow>, BTreeSet<&'static str>) {
+const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
+    "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
+    "staging:edge-cases/partial-class-disagree-unbounded-rtl-left",
+    "staging:edge-cases/partial-class-disagree-bounded-ltr-left",
+    "staging:edge-cases/partial-class-disagree-bounded-rtl-left",
+    "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
+    "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
+];
+
+fn sweep_shape_keys() -> (
+    BTreeSet<ShapeRow>,
+    BTreeSet<&'static str>,
+    BTreeSet<PartialFixtureRow>,
+    BTreeSet<PartialAdmissionRow>,
+) {
     let mut rows = BTreeSet::new();
     let mut predicate_ids = BTreeSet::new();
+    let mut partial_fixture_rows = BTreeSet::new();
+    let mut partial_fixture_admissions = BTreeSet::new();
     for fixture in discover_scoped(ConformanceScope::All) {
+        let label = fixture.label();
+        let partial_label = PARTIAL_CLASS_DISAGREEMENT_FIXTURES
+            .iter()
+            .copied()
+            .find(|partial| *partial == label);
         let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
             continue;
         };
@@ -28,6 +51,11 @@ fn sweep_shape_keys() -> (BTreeSet<ShapeRow>, BTreeSet<&'static str>) {
             let Some(report) = selection.report_for(strategy) else {
                 continue;
             };
+            if let Some(partial_label) = partial_label {
+                if report.can_represent() {
+                    partial_fixture_admissions.insert((partial_label, strategy.label()));
+                }
+            }
             if let CompileDecision::Refuse(diagnostics) = report.decision() {
                 for diagnostic in diagnostics {
                     let shape_key = capability_shape_key_for_test(diagnostic);
@@ -38,11 +66,24 @@ fn sweep_shape_keys() -> (BTreeSet<ShapeRow>, BTreeSet<&'static str>) {
                     );
                     predicate_ids.insert(diagnostic.predicate);
                     rows.insert((diagnostic.predicate, shape_key));
+                    if let Some(partial_label) = partial_label {
+                        partial_fixture_rows.insert((
+                            partial_label,
+                            strategy.label(),
+                            diagnostic.predicate,
+                            shape_key,
+                        ));
+                    }
                 }
             }
         }
     }
-    (rows, predicate_ids)
+    (
+        rows,
+        predicate_ids,
+        partial_fixture_rows,
+        partial_fixture_admissions,
+    )
 }
 
 /// Which of the three dispatchers `EmissionStrategy` names today, pinned so the seam consolidation is checked against a recorded fact rather than an assumption re-derived after the change.
@@ -61,7 +102,8 @@ fn dispatcher_for(strategy: EmissionStrategy) -> &'static str {
 /// The pinned (predicate, shape key) table and predicate-id set this fixture set observes through every `EmissionStrategy`'s `Refuse` diagnostics.
 #[test]
 fn backend_seam_shape_key_table_is_pinned() {
-    let (rows, predicate_ids) = sweep_shape_keys();
+    let (rows, predicate_ids, partial_fixture_rows, partial_fixture_admissions) =
+        sweep_shape_keys();
 
     eprintln!(
         "backend-seam-gate: {} distinct (predicate, shape key) row(s)",
@@ -79,7 +121,6 @@ fn backend_seam_shape_key_table_is_pinned() {
     }
 
     let expected: BTreeSet<ShapeRow> = [
-        // partial-class-disagree-bounded-rtl-right and partial-class-disagree-unbounded-rtl-left witness both refusals.
         ("quantifier.bounded-expansion", "repeated-application"),
         (
             "reduplication.peel-eligible-rule-kind",
@@ -112,7 +153,6 @@ fn backend_seam_shape_key_table_is_pinned() {
             "nonregular-process-morphology",
         ),
         (
-            // Divergence 067 removes alpha-variable-name-collision's TUT observation; partial-class-disagree fixtures still witness this row.
             "templated-route.rule-cascade-uncompilable",
             "nonregular-process-morphology",
         ),
@@ -133,6 +173,40 @@ fn backend_seam_shape_key_table_is_pinned() {
     assert_eq!(
         predicate_ids, expected_ids,
         "the set of predicate ids that ever reach a Refuse diagnostic changed"
+    );
+
+    let expected_partial_admissions: BTreeSet<PartialAdmissionRow> =
+        PARTIAL_CLASS_DISAGREEMENT_FIXTURES
+            .iter()
+            .flat_map(|&fixture| {
+                [
+                    EmissionStrategy::TunedSurfaceProbed,
+                    EmissionStrategy::TemplatedUnderlyingTokens,
+                ]
+                .into_iter()
+                .map(move |strategy| (fixture, strategy.label()))
+            })
+            .collect();
+    assert_eq!(
+        partial_fixture_admissions, expected_partial_admissions,
+        "partial-class fixture admission changed outside the approved TSP/TUT lowering"
+    );
+
+    let expected_partial_refusals: BTreeSet<PartialFixtureRow> =
+        PARTIAL_CLASS_DISAGREEMENT_FIXTURES
+            .iter()
+            .map(|&fixture| {
+                (
+                    fixture,
+                    EmissionStrategy::PlanComposed.label(),
+                    "strategy-materializer.marker-subtree-not-buildable",
+                    "plan-composed-missing-subtrees",
+                )
+            })
+            .collect();
+    assert_eq!(
+        partial_fixture_rows, expected_partial_refusals,
+        "partial-class fixtures must retain only their pinned PlanComposed refusal row"
     );
 }
 

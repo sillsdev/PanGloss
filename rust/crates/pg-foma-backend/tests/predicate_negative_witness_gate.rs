@@ -4,10 +4,10 @@ use std::collections::BTreeSet;
 
 use pg_conformance_fixtures::discover;
 use pg_foma::capability::{default_grammar_wide_checks, default_registry};
+use pg_foma::enumerate::EmissionStrategy;
 use pg_foma_backend::strategy_coverage_join::negative_witness_index;
 
 /// A ratchet, not a target: an entry may only ever be REMOVED, and a stale entry fails the test.
-// partial-class-disagree-bounded-rtl-right and partial-class-disagree-unbounded-rtl-left witness the quantifier and RTL predicates.
 const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
     "circumfix-output-action.faithful-structural-composite",
     "compounding.non-recursive",
@@ -20,11 +20,67 @@ const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
     "unordered-application.chain-depth-bounded",
 ];
 
+const FEATURE_CLASS_NEGATIVE_WITNESSES: &[(&str, &str)] = &[
+    (
+        "quantifier.bounded-expansion",
+        "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
+    ),
+    (
+        "right-to-left-rewrite.faithful-reversal-construction",
+        "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
+    ),
+    (
+        "quantifier.bounded-expansion",
+        "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr",
+    ),
+];
+
 fn registered_ids() -> BTreeSet<&'static str> {
     let registry = default_registry();
     let mut ids: BTreeSet<&'static str> = registry.predicates().iter().map(|p| p.id()).collect();
     ids.extend(default_grammar_wide_checks().iter().map(|c| c.id()));
     ids
+}
+
+#[test]
+fn feature_class_fixtures_remain_negative_witnesses_for_quantifier_and_rtl() {
+    let required_labels: BTreeSet<&str> = FEATURE_CLASS_NEGATIVE_WITNESSES
+        .iter()
+        .map(|(_, label)| *label)
+        .collect();
+    let grammars: Vec<(String, pg_grammar::model::Grammar)> = discover()
+        .into_iter()
+        .filter_map(|fixture| {
+            let label = fixture.label();
+            if !required_labels.contains(label.as_str()) {
+                return None;
+            }
+            pg_grammar::load(&fixture.load_grammar_xml())
+                .ok()
+                .map(|grammar| (label, grammar))
+        })
+        .collect();
+    assert_eq!(
+        grammars.len(),
+        required_labels.len(),
+        "every pinned feature-class witness fixture must be discovered and loadable"
+    );
+    let index = negative_witness_index(
+        grammars
+            .iter()
+            .map(|(label, grammar)| (label.clone(), grammar)),
+    );
+    for (predicate, fixture) in FEATURE_CLASS_NEGATIVE_WITNESSES {
+        assert!(
+            index.get(predicate).is_some_and(|witnesses| {
+                witnesses.iter().any(|(label, strategy)| {
+                    label == fixture && *strategy == EmissionStrategy::PlanComposed
+                })
+            }),
+            "{fixture} no longer refuses {predicate} on PlanComposed; its hc.dll-recorded \
+             expectations and this predicate's negative-witness gate must stay coupled"
+        );
+    }
 }
 
 #[test]

@@ -44,11 +44,11 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Coverage includes `literal-hash-affix-context` and `word-boundary-affix-rewrite` on all three strategies.
+    // 112 rows per strategy: the two boundary fixtures and the six 079 fixtures joined the original 104.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 101,
+            oracle_exact: 107,
             compiles_but_misses: 3,
             refused: 2,
             unmeasurable: 0,
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 78,
+            oracle_exact: 84,
             compiles_but_misses: 3,
             refused: 25,
             unmeasurable: 0,
@@ -68,7 +68,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 35,
             compiles_but_misses: 2,
-            refused: 66,
+            refused: 72,
             unmeasurable: 3,
         },
     ),
@@ -84,6 +84,21 @@ const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
 const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
 
 const AMBIGUOUS_DISAGREEMENT_FIXTURE: &str = "machine:edge-cases/alpha-variable-name-collision";
+
+const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
+    "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
+    "staging:edge-cases/partial-class-disagree-unbounded-rtl-left",
+    "staging:edge-cases/partial-class-disagree-bounded-ltr-left",
+    "staging:edge-cases/partial-class-disagree-bounded-rtl-left",
+    "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
+    "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
+];
+
+const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
+    "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
+
+const FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE: &str =
+    "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
 
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
@@ -106,6 +121,24 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
             "oracle_exact"
         }
         (f, PlanComposed) if f == AMBIGUOUS_DISAGREEMENT_FIXTURE => "refused",
+        (f, TunedSurfaceProbed)
+            if f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
+                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
+        {
+            "oracle_exact"
+        }
+        (f, TemplatedUnderlyingTokens | PlanComposed)
+            if f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
+                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
+        {
+            "refused"
+        }
+        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
+            if PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) =>
+        {
+            "oracle_exact"
+        }
+        (f, PlanComposed) if PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) => "refused",
         (f, s) => panic!("no pinned expectation for ({f}, {s:?})"),
     }
 }
@@ -177,13 +210,28 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                     if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         || row.label == REALIZATIONAL_UNBOUNDED_FIXTURE
                         || row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE
+                        || row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
+                        || row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        || PARTIAL_CLASS_DISAGREEMENT_FIXTURES
+                            .iter()
+                            .any(|fixture| row.label == *fixture)
                     {
                         let f = if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
                             CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         } else if row.label == REALIZATIONAL_UNBOUNDED_FIXTURE {
                             REALIZATIONAL_UNBOUNDED_FIXTURE
-                        } else {
+                        } else if row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE {
                             AMBIGUOUS_DISAGREEMENT_FIXTURE
+                        } else if row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE {
+                            FEATURE_CLASS_BOUNDED_RTL_FIXTURE
+                        } else if row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE {
+                            FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        } else {
+                            PARTIAL_CLASS_DISAGREEMENT_FIXTURES
+                                .iter()
+                                .copied()
+                                .find(|fixture| row.label == *fixture)
+                                .expect("partial class label was checked above")
                         };
                         pinned_outcomes.push((f, cell.strategy, outcome_label(&cell.outcome)));
                     }
@@ -240,8 +288,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        3 * ALL_STRATEGIES.len(),
-        "one of the three pinned fixtures was not measured on every strategy -- has it been renamed, \
+        (5 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len()) * ALL_STRATEGIES.len(),
+        "one of the pinned fixtures was not measured on every strategy -- has it been renamed, \
          removed, or excluded?"
     );
     for (fixture, strategy, label) in &pinned_outcomes {
