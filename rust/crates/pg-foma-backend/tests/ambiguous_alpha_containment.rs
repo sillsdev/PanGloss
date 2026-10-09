@@ -12,6 +12,15 @@ const FIXTURES: &[(&str, bool)] = &[
     ("nullable-disagree-unbounded-rtl-right", true),
 ];
 
+const PARTIAL_CLASS_FIXTURES: &[(&str, bool)] = &[
+    ("partial-class-disagree-bounded-rtl-right", true),
+    ("partial-class-disagree-unbounded-rtl-left", true),
+    ("partial-class-disagree-bounded-ltr-left", true),
+    ("partial-class-disagree-bounded-rtl-left", true),
+    ("partial-class-disagree-unbounded-ltr-right", true),
+    ("partial-class-disagree-unbounded-rtl-right", true),
+];
+
 #[test]
 fn ambiguous_disagreement_is_admitted_for_confirmation() {
     for &(name, quantified) in FIXTURES {
@@ -45,6 +54,42 @@ fn templated_ambiguous_disagreement_matches_recorded_oracle() {
     }
     assert_eq!(checked, 144);
     assert!(positives > 0);
+}
+
+#[test]
+fn partial_class_disagreement_is_admitted_for_confirmation() {
+    for &(name, quantified) in PARTIAL_CLASS_FIXTURES {
+        assert_capabilities(name, quantified);
+    }
+}
+
+#[test]
+fn partial_class_disagreement_propose_confirm_matches_recorded_oracle() {
+    let mut checked = 0;
+    let mut positives = 0;
+    let mut pruned = 0;
+    for &(name, _) in PARTIAL_CLASS_FIXTURES {
+        let counts = verify_owner(name);
+        checked += counts.0;
+        positives += counts.1;
+        pruned += counts.2;
+    }
+    assert_eq!(checked, 96);
+    assert_eq!(positives, 6);
+    assert!(pruned > 0);
+}
+
+#[test]
+fn templated_partial_class_disagreement_matches_recorded_oracle() {
+    let mut checked = 0;
+    let mut positives = 0;
+    for &(name, _) in PARTIAL_CLASS_FIXTURES {
+        let counts = verify_templated(name);
+        checked += counts.0;
+        positives += counts.1;
+    }
+    assert_eq!(checked, 96);
+    assert_eq!(positives, 6);
 }
 
 #[test]

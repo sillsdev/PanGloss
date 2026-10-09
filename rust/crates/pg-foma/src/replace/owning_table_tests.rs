@@ -213,7 +213,7 @@ fn assert_confirmed_ambiguous_fixture(name: &str, expected_words: usize) {
         assert_eq!(
             pg_parse::result_multiset(&outcome.analyses),
             word.expected_multiset(),
-            "{}",
+            "{name}: {}",
             word.word
         );
         positives += usize::from(!outcome.analyses.is_empty());
@@ -226,23 +226,83 @@ fn assert_confirmed_ambiguous_fixture(name: &str, expected_words: usize) {
 }
 
 #[test]
-fn ambiguous_disagreement_with_partial_class_stays_refused() {
-    let fixture =
-        pg_conformance_fixtures::require_fixture("edge-cases", "nullable-disagree-plain-ltr-right");
-    let xml = fixture.load_grammar_xml();
-    let partial = xml.replace("<Segment segment=\"cU\" />", "");
-    assert_ne!(xml, partial, "the refusal control must remove one member");
-    let g = pg_grammar::load(&partial).unwrap();
-    let rule = rewrite_rule_by_xml_id(&g, "prDoubleAlpha");
-    assert!(!rewrite_rule_is_lowerable(&g, rule));
-    assert!(compile_rewrite_rule_subset(&FomaOptions::default(), &g, rule, &|_| true).is_none());
-    assert_eq!(
-        crate::lower::diagnose_unsupported(
-            &g,
-            owning_table(&g, rule).unwrap(),
-            &rule.subrules[0].rhs,
-            crate::lower::PatternLowerScope::RewriteRuleCompile,
-        ),
-        crate::lower::UnsupportedPatternNode::AlphaAmbiguousDisagree
+fn ambiguous_disagreement_with_partial_class_matches_recorded_oracle_after_confirmation() {
+    for name in [
+        "partial-class-disagree-bounded-rtl-right",
+        "partial-class-disagree-unbounded-rtl-left",
+        "partial-class-disagree-bounded-ltr-left",
+        "partial-class-disagree-bounded-rtl-left",
+        "partial-class-disagree-unbounded-ltr-right",
+        "partial-class-disagree-unbounded-rtl-right",
+    ] {
+        assert_confirmed_ambiguous_fixture(name, 16);
+    }
+}
+
+#[test]
+fn ambiguous_disagreement_still_refuses_unsupported_class_shapes() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "partial-class-disagree-bounded-rtl-right",
     );
+    let xml = fixture.load_grammar_xml();
+    let class_start = xml
+        .find("<SegmentNaturalClass id=\"ncVowel\">")
+        .expect("fixture has its explicit vowel class");
+    let class_end = xml[class_start..]
+        .find("</SegmentNaturalClass>")
+        .map(|offset| class_start + offset + "</SegmentNaturalClass>".len())
+        .expect("explicit vowel class closes");
+    let feature_class = "<FeatureNaturalClass id=\"ncVowel\"><Name>vowels</Name>\
+         <FeatureValue feature=\"featRound\" symbolValues=\"rdMinus\" /></FeatureNaturalClass>";
+    let feature_xml = format!(
+        "{}{}{}",
+        &xml[..class_start],
+        feature_class,
+        &xml[class_end..]
+    );
+
+    let nonbinary_xml = xml.replacen(
+        "</Symbols>",
+        "<Symbol id=\"bkThird\">third</Symbol></Symbols>",
+        1,
+    );
+    assert_ne!(xml, nonbinary_xml, "nonbinary control adds a feature value");
+
+    let underspecified_xml = xml.replacen(
+        "<FeatureValue feature=\"featRound\" symbolValues=\"rdMinus\" />",
+        "",
+        2,
+    );
+    assert_ne!(
+        xml, underspecified_xml,
+        "underspecified control removes governed values"
+    );
+
+    for (label, mutated) in [
+        ("feature class", feature_xml),
+        ("nonbinary governed feature", nonbinary_xml),
+        ("underspecified governed value", underspecified_xml),
+    ] {
+        let grammar = pg_grammar::load(&mutated).unwrap_or_else(|error| {
+            panic!("{label} control must remain a loadable grammar: {error}")
+        });
+        let rule = rewrite_rule_by_xml_id(&grammar, "prDoubleAlpha");
+        assert!(!rewrite_rule_is_lowerable(&grammar, rule), "{label}");
+        assert!(
+            compile_rewrite_rule_subset(&FomaOptions::default(), &grammar, rule, &|_| true)
+                .is_none(),
+            "{label}"
+        );
+        assert_eq!(
+            crate::lower::diagnose_unsupported(
+                &grammar,
+                owning_table(&grammar, rule).unwrap(),
+                &rule.subrules[0].rhs,
+                crate::lower::PatternLowerScope::RewriteRuleCompile,
+            ),
+            crate::lower::UnsupportedPatternNode::AlphaAmbiguousDisagree,
+            "{label}"
+        );
+    }
 }

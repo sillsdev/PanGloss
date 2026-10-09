@@ -229,16 +229,22 @@ fn alpha_variable_name_collision_matches_oracle_after_confirmation() {
 }
 
 #[test]
-fn partial_class_disagreement_stays_refused() {
-    let fixture = fixture(Root::Machine, "edge-cases", "alpha-variable-name-collision");
-    let xml = fixture.load_grammar_xml();
-    let partial = xml.replace("<Segment segment=\"cU\" />", "");
-    assert_ne!(
-        xml, partial,
-        "the refusal control must remove one class member"
-    );
-    let grammar = pg_grammar::load(&partial).unwrap();
-    assert!(compile_templated_morphotactics(&grammar).is_err());
+fn partial_class_disagreement_matches_oracle_after_confirmation() {
+    for name in [
+        "partial-class-disagree-bounded-rtl-right",
+        "partial-class-disagree-unbounded-rtl-left",
+        "partial-class-disagree-bounded-ltr-left",
+        "partial-class-disagree-bounded-rtl-left",
+        "partial-class-disagree-unbounded-ltr-right",
+        "partial-class-disagree-unbounded-rtl-right",
+    ] {
+        let fixture = fixture(Root::Staging, "edge-cases", name);
+        assert_eq!(
+            super::confirmed_rewrite_fixture::verify_templated_fixture(&fixture),
+            (16, 1),
+            "{name}"
+        );
+    }
 }
 
 #[test]

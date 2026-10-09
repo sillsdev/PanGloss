@@ -46,6 +46,45 @@ fn provisional_class_membership_reuses_the_model_decision() {
     assert!(!members.contains(&q));
 }
 
+#[test]
+fn explicit_segment_projection_preserves_lane_wise_feature_union() {
+    let grammar = load(EXPLICIT_CLASS_PROJECTION_XML);
+    let table = &grammar.char_tables[0];
+    let class = grammar
+        .natural_classes
+        .iter()
+        .position(|class| class.xml_id == "ncPartial")
+        .map(|index| pg_grammar::model::NatClassId(index as u32))
+        .expect("the probe has its explicit two-member class");
+    let authored = class_members(&grammar, table, class, &HashSet::new());
+    let governed = grammar.phon_features.flat_index("featGoal").unwrap();
+
+    let projected = project_explicit_members(table, &authored, &[governed]);
+    let cross_member = table.lookup_nfd("y").unwrap();
+    let outside_union = table.lookup_nfd("q").unwrap();
+
+    assert!(authored.iter().all(|member| projected.contains(member)));
+    assert!(projected.contains(&cross_member));
+    assert!(!projected.contains(&outside_union));
+}
+
+const EXPLICIT_CLASS_PROJECTION_XML: &str = r#"<HermitCrabInput><Language><Name>ExplicitClassProjection</Name>
+      <PartsOfSpeech><PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
+      <PhonologicalFeatureSystem>
+        <SymbolicFeature id="featGoal"><Name>goal</Name><Symbols><Symbol id="goalMinus">-</Symbol><Symbol id="goalPlus">+</Symbol></Symbols></SymbolicFeature>
+        <SymbolicFeature id="featHeight"><Name>height</Name><Symbols><Symbol id="heightLow">low</Symbol><Symbol id="heightHigh">high</Symbol></Symbols></SymbolicFeature>
+        <SymbolicFeature id="featAtr"><Name>atr</Name><Symbols><Symbol id="atrMinus">-atr</Symbol><Symbol id="atrPlus">+atr</Symbol></Symbols></SymbolicFeature>
+        <SymbolicFeature id="featPlace"><Name>place</Name><Symbols><Symbol id="placeFront">front</Symbol><Symbol id="placeBack">back</Symbol></Symbols></SymbolicFeature>
+      </PhonologicalFeatureSystem>
+      <CharacterDefinitionTable id="tbl"><Name>Main</Name><SegmentDefinitions>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featGoal" symbolValues="goalMinus"/><FeatureValue feature="featHeight" symbolValues="heightLow"/><FeatureValue feature="featAtr" symbolValues="atrMinus"/><FeatureValue feature="featPlace" symbolValues="placeFront"/></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featGoal" symbolValues="goalPlus"/><FeatureValue feature="featHeight" symbolValues="heightHigh"/><FeatureValue feature="featAtr" symbolValues="atrPlus"/><FeatureValue feature="featPlace" symbolValues="placeFront"/></SegmentDefinition>
+        <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations><FeatureValue feature="featGoal" symbolValues="goalMinus"/><FeatureValue feature="featHeight" symbolValues="heightLow"/><FeatureValue feature="featAtr" symbolValues="atrPlus"/><FeatureValue feature="featPlace" symbolValues="placeFront"/></SegmentDefinition>
+        <SegmentDefinition id="cQ"><Representations><Representation>q</Representation></Representations><FeatureValue feature="featGoal" symbolValues="goalMinus"/><FeatureValue feature="featHeight" symbolValues="heightLow"/><FeatureValue feature="featAtr" symbolValues="atrPlus"/><FeatureValue feature="featPlace" symbolValues="placeBack"/></SegmentDefinition>
+      </SegmentDefinitions></CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncPartial"><Name>Partial</Name><Segment segment="cI"/><Segment segment="cA"/></SegmentNaturalClass></NaturalClasses>
+    </Language></HermitCrabInput>"#;
+
 const OVERLAP_LOWER_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>OverlapLowerProbe</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <PhonologicalFeatureSystem>

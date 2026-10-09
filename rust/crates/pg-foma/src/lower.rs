@@ -68,6 +68,8 @@ pub(crate) enum Slot {
     /// Alpha membership, with agreement deferred to confirmation.
     DeferredAlpha {
         members: Vec<CharDefId>,
+        governed_features: Vec<pg_grammar::featsys::FlatIndex>,
+        explicit_segment_class: bool,
         ambiguous_disagree: bool,
     },
     /// A natural class occurrence bound to one or more alpha variables, resolved per-tuple by `resolve_alpha_tuples`; `occurrence` is this slot instance's own id (unique per occurrence, not per variable, since two occurrences of the same `VarId` can draw from different classes that must only agree on feature value). The `bool` is `AlphaVar::plus` (`true` == agree/`+`, `false` == disagree/`-`).
@@ -75,6 +77,7 @@ pub(crate) enum Slot {
         vars: Vec<(VarId, pg_grammar::featsys::FlatIndex, bool)>,
         occurrence: usize,
         base_members: Vec<CharDefId>,
+        explicit_segment_class: bool,
         ambiguous_disagree: bool,
     },
     /// Repetition renders natively; environment agreement is deferred via `DeferredAlpha`.
@@ -117,9 +120,20 @@ pub(crate) fn slots_require_optional_rewrite(slots: &[Slot]) -> bool {
 fn defer_alpha_agreement(slots: &mut [Slot]) {
     for slot in slots {
         match slot {
-            Slot::Alpha { base_members, ambiguous_disagree, .. } => {
+            Slot::Alpha {
+                vars,
+                base_members,
+                explicit_segment_class,
+                ambiguous_disagree,
+                ..
+            } => {
                 *slot = Slot::DeferredAlpha {
                     members: base_members.clone(),
+                    governed_features: vars
+                        .iter()
+                        .map(|(_, feature, _)| *feature)
+                        .collect(),
+                    explicit_segment_class: *explicit_segment_class,
                     ambiguous_disagree: *ambiguous_disagree,
                 };
             }
@@ -129,18 +143,99 @@ fn defer_alpha_agreement(slots: &mut [Slot]) {
     }
 }
 
-/// HC feature unions can match segments outside an occurrence's explicit member list.
+/// Projects an authored class's lane unions without imposing correlations between member lanes.
+fn project_explicit_members(
+    table: &CharDefTable,
+    authored_members: &[CharDefId],
+    governed_features: &[pg_grammar::featsys::FlatIndex],
+) -> Vec<CharDefId> {
+    if authored_members.is_empty() {
+        return Vec::new();
+    }
+    let governed: HashSet<usize> = governed_features
+        .iter()
+        .map(|feature| feature.0 as usize)
+        .collect();
+    let authored_lanes: Vec<_> = authored_members
+        .iter()
+        .map(|member| table.get(*member).feature_lanes())
+        .collect();
+    let feature_count = authored_lanes[0].len();
+    let lane_unions: Vec<Option<u64>> = (0..feature_count)
+        .map(|feature| {
+            if governed.contains(&feature)
+                || authored_lanes.iter().any(|lanes| lanes[feature] == 0)
+            {
+                None
+            } else {
+                Some(authored_lanes.iter().fold(0, |union, lanes| union | lanes[feature]))
+            }
+        })
+        .collect();
+    table
+        .iter()
+        .filter(|(_, candidate)| candidate.kind() == CharDefKind::Segment)
+        .filter(|(_, candidate)| {
+            candidate
+                .feature_lanes()
+                .iter()
+                .zip(&lane_unions)
+                .all(|(candidate_value, authored_union)| {
+                    authored_union.is_none_or(|union| {
+                        *candidate_value == 0 || *candidate_value & union != 0
+                    })
+                })
+        })
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// Defer agreement to HC, using a projected explicit-class set or a table-wide proposal set.
 pub(crate) fn defer_ambiguous_alpha_agreement(slots: &mut [Slot], table: &CharDefTable) {
     for slot in slots {
         match slot {
-            Slot::Alpha { .. } | Slot::DeferredAlpha { .. } => {
-                *slot = Slot::DeferredAlpha {
-                    members: table.iter()
+            Slot::Alpha {
+                vars,
+                base_members,
+                explicit_segment_class,
+                ..
+            } => {
+                let governed_features: Vec<_> = vars
+                    .iter()
+                    .map(|(_, feature, _)| *feature)
+                    .collect();
+                let members = if *explicit_segment_class {
+                    project_explicit_members(table, base_members, &governed_features)
+                } else {
+                    table
+                        .iter()
                         .filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
                         .map(|(id, _)| id)
-                        .collect(),
+                        .collect()
+                };
+                *slot = Slot::DeferredAlpha {
+                    members,
+                    governed_features,
+                    explicit_segment_class: *explicit_segment_class,
                     ambiguous_disagree: true,
                 };
+            }
+            Slot::DeferredAlpha {
+                members,
+                governed_features,
+                explicit_segment_class,
+                ambiguous_disagree,
+            } => {
+                if *explicit_segment_class {
+                    *members = project_explicit_members(table, members, governed_features);
+                } else {
+                    *members = table
+                        .iter()
+                        .filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
+                        .map(|(id, _)| id)
+                        .collect();
+                }
+                *ambiguous_disagree = true;
             }
             Slot::Repeat { children, .. } => defer_ambiguous_alpha_agreement(children, table),
             _ => {}
@@ -193,8 +288,7 @@ fn alpha_members(
     if ambiguous
         && (scope == PatternLowerScope::Baseline
             || !matches!(g.natural_classes[context.nat_class.0 as usize].kind, NaturalClassKind::Segments(_))
-            || !table.iter().filter(|(_, definition)| definition.kind() == CharDefKind::Segment)
-                .all(|(id, _)| members.contains(&id))
+            || members.is_empty()
             || !context.vars.iter().all(|var| {
                 g.phon_features.symbol_count(var.feature) == 2
                     && members.iter().all(|member| {
@@ -228,10 +322,15 @@ fn slots_from_nodes(
                     let occurrence = *next_occurrence;
                     *next_occurrence += 1;
                     let vars = sc.vars.iter().map(|v| (v.var, v.feature, v.plus)).collect();
+                    let explicit_segment_class = matches!(
+                        g.natural_classes[sc.nat_class.0 as usize].kind,
+                        NaturalClassKind::Segments(_)
+                    );
                     out.push(Slot::Alpha {
                         vars,
                         occurrence,
                         base_members: base,
+                        explicit_segment_class,
                         ambiguous_disagree,
                     });
                 }
