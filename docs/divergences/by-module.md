@@ -49,6 +49,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
 | `Quantifier.cs` (`GenerateNfa`), phonological environment variable matching; FieldWorks `HCLoader.cs` (`LoadPatternNode`, `GetVariables`) | 058 |
+| `RewriteRuleSpec.cs` (`MatchSubrule`), `TraversalMethodBase.cs` (`CheckAcceptingStartState`); FieldWorks `HCLoader.cs` (`LoadPatternNode`) | 065 |
 
 ## By Rust module
 
@@ -104,6 +105,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 | `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
 | `pg-rules/src/bridge.rs` (`pattern_var_occurrences`, `simple_context_lanes`); `pg-rules/src/rewrite.rs` (`resolve_bindings`); `pg-foma/src/lower.rs` (refusal research) | 058 |
+| `pg-rules/src/rewrite.rs` (`empty_env_match`); `pg-fst/src/traverse.rs` (`check_accepting_start_state`) | 065 |
 
 ## By fixture / test file
 
@@ -134,6 +136,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/tests/csharp_port_affix_process.rs` (copy-agreement tests), `pg-rules/tests/stratum_gate.rs` (`copy_agreement_pruning_is_on_by_default`), `machine/conformance` `metathesis-phase-isolation` / `suffixing-extension-slot-ordering` reduplication words | 049 |
 | `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/step_cap_work_gate.rs` | 052 |
 | `conformance-staging/edge-cases/quantified-alpha-*`; `docs/divergences/evidence/058-variant-lowering/` (original reproduction, bound sweep and separate disagreement blocker) | 058 |
+| `conformance-staging/edge-cases/nullable-disagree-*` (nullable environment and plain disagreement control) | 065 |
 | `pg-cli/tests/fwdata_conformance_gate.rs` (`grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics`) | 053 |
 | `pg-grammar/src/compile/tests.rs` provisional-definition snapshot regressions | 072, 073, 074, 075 |
 | `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision` | 073, 074 |

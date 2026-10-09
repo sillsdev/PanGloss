@@ -214,6 +214,46 @@ quantified_alpha_fixture!(
     "quantified-alpha-unbounded-zero-right",
     16
 );
+quantified_alpha_fixture!(
+    nullable_disagree_bounded_ltr_left,
+    "nullable-disagree-bounded-ltr-left",
+    16
+);
+quantified_alpha_fixture!(
+    nullable_disagree_bounded_ltr_right,
+    "nullable-disagree-bounded-ltr-right",
+    16
+);
+quantified_alpha_fixture!(
+    nullable_disagree_bounded_rtl_left,
+    "nullable-disagree-bounded-rtl-left",
+    16
+);
+quantified_alpha_fixture!(
+    nullable_disagree_bounded_rtl_right,
+    "nullable-disagree-bounded-rtl-right",
+    16
+);
+quantified_alpha_fixture!(
+    nullable_disagree_unbounded_ltr_left,
+    "nullable-disagree-unbounded-ltr-left",
+    16
+);
+quantified_alpha_fixture!(
+    nullable_disagree_unbounded_ltr_right,
+    "nullable-disagree-unbounded-ltr-right",
+    16
+);
+quantified_alpha_fixture!(
+    nullable_disagree_unbounded_rtl_left,
+    "nullable-disagree-unbounded-rtl-left",
+    16
+);
+quantified_alpha_fixture!(
+    nullable_disagree_unbounded_rtl_right,
+    "nullable-disagree-unbounded-rtl-right",
+    16
+);
 
 /// Fails if the same `(category, name)` fixture identity exists under both roots, enforcing that a fixture accepted upstream has its staged copy deleted in the same change.
 #[test]

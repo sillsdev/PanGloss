@@ -64,14 +64,6 @@ pub(crate) enum AgreementNode {
 }
 
 impl AgreementNode {
-    pub(crate) fn nullable(&self) -> bool {
-        match self {
-            Self::Constraint { .. } => false,
-            Self::Alternation(branches) => branches.iter().any(Self::nullable),
-            Self::Repeat { min, children, .. } => *min == 0 || children.iter().all(Self::nullable),
-        }
-    }
-
     fn compile_node(&self) -> CompileNode {
         match self {
             Self::Constraint { lanes, .. } => CompileNode::Constraint(lanes.clone()),

@@ -1,0 +1,73 @@
+# oracle-provenance: founding-oracle
+# hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
+language: nullable-disagree-unbounded-ltr-left
+inspired_by: ["synthetic feature disagreement at a word edge"]
+sources: ["HCLoader.cs:2338-2344,2745-2770"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ii
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: iy
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ia
+    parses:
+      - signature: "AU|ia"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: iu
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: yi
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: yy
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ya
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: yu
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ai
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ay
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: aa
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: au
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ui
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: uy
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ua
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: uu
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"

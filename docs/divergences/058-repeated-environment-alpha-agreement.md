@@ -131,6 +131,7 @@ bounded control was compared with HC-Rust before the mandatory stop. The respons
 Rust operation has not been diagnosed or changed. This is a reproduced defect, not a
 lowering failure or a fixture expectation to adjust.
 
-Follow-up: allocate a distinct ledger id with the lead (059+ are reserved), fix and
-oracle-pin this separate HC-Rust disagreement defect, then resume repeated-alpha FST
-lowering, permanent-refusal detection tests and coverage/golden/ratchet work.
+The lead allocated entry [065](065-nullable-rewrite-environment.md) for this defect.
+Diagnosis isolated it to the alpha-free nullable word-edge environment, not the
+disagreement binding. That owner fix is now oracle-pinned independently of this entry.
+FST lowering, permanent-refusal detection tests and coverage obligations remain separate.

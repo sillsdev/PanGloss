@@ -615,10 +615,9 @@ fn env_matches(env: &EnvFst, traversal: Transduce<'_>) -> Option<Option<Vec<FstR
 }
 
 fn empty_env_match(env: &EnvFst) -> Option<Option<Vec<FstResult>>> {
-    env.agreement
-        .as_ref()
-        .filter(|nodes| nodes.iter().all(AgreementNode::nullable))
-        .map(|_| Some(Vec::new()))
+    env.fst.states()[env.fst.start() as usize]
+        .accepting
+        .then(|| Some(Vec::new()))
 }
 
 /// Bool projection of `right_env_match` for callers that don't need alpha-variable bindings.
