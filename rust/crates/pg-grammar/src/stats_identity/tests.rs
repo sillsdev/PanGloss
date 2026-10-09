@@ -1,19 +1,10 @@
 use super::*;
-use pg_conformance_fixtures::{discover, FixtureRef};
-
-fn find_fixture<'a>(fixtures: &'a [FixtureRef], category: &str, name: &str) -> &'a FixtureRef {
-    fixtures
-        .iter()
-        .find(|f| f.category == category && f.name == name)
-        .unwrap_or_else(|| panic!("fixture {category}/{name} must be discoverable"))
-}
+use pg_conformance_fixtures::{discover, require_fixture};
 
 /// Two structurally different fixtures already used by `pg-parse`'s own conformance gate.
 fn two_sample_grammars() -> [crate::model::Grammar; 2] {
-    let fixtures = discover();
-    assert!(!fixtures.is_empty(), "no conformance fixtures discovered");
-    let a = find_fixture(&fixtures, "languages", "metathesis-phase-isolation");
-    let b = find_fixture(&fixtures, "edge-cases", "truncate-morphotactic");
+    let a = require_fixture("languages", "metathesis-phase-isolation");
+    let b = require_fixture("edge-cases", "truncate-morphotactic");
     [
         crate::load(&a.load_grammar_xml()).expect("fixture a must load"),
         crate::load(&b.load_grammar_xml()).expect("fixture b must load"),
@@ -190,8 +181,7 @@ fn every_object_in_two_fixtures_resolves_non_empty_with_expected_quality() {
 
 #[test]
 fn identities_are_stable_across_two_loads_of_the_same_grammar() {
-    let fixtures = discover();
-    let f = find_fixture(&fixtures, "languages", "metathesis-phase-isolation");
+    let f = require_fixture("languages", "metathesis-phase-isolation");
     let xml = f.load_grammar_xml();
     let g1 = crate::load(&xml).unwrap();
     let g2 = crate::load(&xml).unwrap();

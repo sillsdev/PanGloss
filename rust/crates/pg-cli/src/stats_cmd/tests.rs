@@ -83,11 +83,7 @@ mod flag_spec_drives_the_parser {
 
 /// One conformance fixture's grammar plus a word guaranteed not `expect_skip`.
 fn fixture_grammar_and_word(category: &str, name: &str) -> (String, String) {
-    let fixtures = pg_conformance_fixtures::discover();
-    let f = fixtures
-        .iter()
-        .find(|f| f.category == category && f.name == name)
-        .unwrap_or_else(|| panic!("fixture {category}/{name} must be discoverable"));
+    let f = pg_conformance_fixtures::require_fixture(category, name);
     let words = f.load_words_yaml();
     let word = words
         .words

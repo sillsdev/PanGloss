@@ -73,12 +73,8 @@ fn stats_persists_the_executable_build_revision_from_outside_its_checkout() {
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).expect("create test directory");
 
-    let fixture = pg_conformance_fixtures::discover()
-        .into_iter()
-        .find(|fixture| {
-            fixture.category == "languages" && fixture.name == "metathesis-phase-isolation"
-        })
-        .expect("HC grammar fixture is discoverable");
+    let fixture =
+        pg_conformance_fixtures::require_fixture("languages", "metathesis-phase-isolation");
     let word = fixture
         .load_words_yaml()
         .words

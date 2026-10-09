@@ -3,7 +3,7 @@
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 
-use pg_conformance_fixtures::discover;
+use pg_conformance_fixtures::require_fixture;
 use pg_grammar_model::model::PhonRuleDef;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
@@ -18,15 +18,8 @@ struct Case {
 
 /// The two fixtures this gate replays, each with its own word list.
 fn fixture_cases() -> Vec<(pg_grammar_model::model::Grammar, Vec<Case>)> {
-    let fixtures = discover();
-    let austronesian = fixtures
-        .iter()
-        .find(|f| f.category == "languages" && f.name == "metathesis-phase-isolation")
-        .expect("languages/metathesis-phase-isolation must be discoverable");
-    let truncate = fixtures
-        .iter()
-        .find(|f| f.category == "edge-cases" && f.name == "truncate-morphotactic")
-        .expect("edge-cases/truncate-morphotactic must be discoverable");
+    let austronesian = require_fixture("languages", "metathesis-phase-isolation");
+    let truncate = require_fixture("edge-cases", "truncate-morphotactic");
 
     vec![
         (
