@@ -159,8 +159,9 @@ fn reachable_variant_coverage_does_not_regress() {
         "variant inventory changed; review the new obligations"
     );
     assert!(
-        missing_fixture <= 6,
-        "{missing_fixture} obligations lack passing fixtures, exceeding 6"
+        // partial-class-disagree-bounded-rtl-right and partial-class-disagree-unbounded-rtl-left cover the three unlowerable variant fixture gaps.
+        missing_fixture <= 3,
+        "{missing_fixture} obligations lack passing fixtures, exceeding 3"
     );
     assert!(
         missing_containment <= 11,

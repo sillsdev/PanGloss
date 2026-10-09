@@ -7,6 +7,7 @@ use pg_foma::capability::{default_grammar_wide_checks, default_registry};
 use pg_foma_backend::strategy_coverage_join::negative_witness_index;
 
 /// A ratchet, not a target: an entry may only ever be REMOVED, and a stale entry fails the test.
+// partial-class-disagree-bounded-rtl-right and partial-class-disagree-unbounded-rtl-left witness the quantifier and RTL predicates.
 const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
     "circumfix-output-action.faithful-structural-composite",
     "compounding.non-recursive",
@@ -16,8 +17,6 @@ const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
     "mpr-group.append-output",
     "mpr-group.overwrite-output",
     "multi-table.faithful-table-threading",
-    "quantifier.bounded-expansion",
-    "right-to-left-rewrite.faithful-reversal-construction",
     "unordered-application.chain-depth-bounded",
 ];
 

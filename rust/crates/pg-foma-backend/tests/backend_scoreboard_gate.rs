@@ -44,10 +44,11 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
+    // Quantified-alpha, nullable-disagree, partial-class-disagree, overridden-alpha and ambiguous-disagree fixtures add 29 rows; divergence 067 upgrades alpha-variable-name-collision's TUT cell.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 70,
+            oracle_exact: 99,
             compiles_but_misses: 3,
             refused: 2,
             unmeasurable: 0,
@@ -56,9 +57,9 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 48,
+            oracle_exact: 76,
             compiles_but_misses: 3,
-            refused: 24,
+            refused: 25,
             unmeasurable: 0,
         },
     ),
@@ -67,7 +68,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 34,
             compiles_but_misses: 2,
-            refused: 36,
+            refused: 65,
             unmeasurable: 3,
         },
     ),
@@ -81,6 +82,8 @@ const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
     "staging:edge-cases/circumfix-non-first-allomorph-selection";
 
 const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
+
+const AMBIGUOUS_DISAGREEMENT_FIXTURE: &str = "machine:edge-cases/alpha-variable-name-collision";
 
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
@@ -96,6 +99,13 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
         (f, TemplatedUnderlyingTokens | PlanComposed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => {
             "refused"
         }
+        // Divergence 067 requires HC-confirmed oracle equality for the admitted ambiguous-disagree shape.
+        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
+            if f == AMBIGUOUS_DISAGREEMENT_FIXTURE =>
+        {
+            "oracle_exact"
+        }
+        (f, PlanComposed) if f == AMBIGUOUS_DISAGREEMENT_FIXTURE => "refused",
         (f, s) => panic!("no pinned expectation for ({f}, {s:?})"),
     }
 }
@@ -166,11 +176,14 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                     }
                     if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         || row.label == REALIZATIONAL_UNBOUNDED_FIXTURE
+                        || row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE
                     {
                         let f = if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
                             CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
-                        } else {
+                        } else if row.label == REALIZATIONAL_UNBOUNDED_FIXTURE {
                             REALIZATIONAL_UNBOUNDED_FIXTURE
+                        } else {
+                            AMBIGUOUS_DISAGREEMENT_FIXTURE
                         };
                         pinned_outcomes.push((f, cell.strategy, outcome_label(&cell.outcome)));
                     }
@@ -227,8 +240,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        2 * ALL_STRATEGIES.len(),
-        "one of the two pinned fixtures was not measured on every strategy -- has it been renamed, \
+        3 * ALL_STRATEGIES.len(),
+        "one of the three pinned fixtures was not measured on every strategy -- has it been renamed, \
          removed, or excluded?"
     );
     for (fixture, strategy, label) in &pinned_outcomes {

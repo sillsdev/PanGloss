@@ -79,9 +79,15 @@ fn backend_seam_shape_key_table_is_pinned() {
     }
 
     let expected: BTreeSet<ShapeRow> = [
+        // partial-class-disagree-bounded-rtl-right and partial-class-disagree-unbounded-rtl-left witness both refusals.
+        ("quantifier.bounded-expansion", "repeated-application"),
         (
             "reduplication.peel-eligible-rule-kind",
             "nonregular-process-morphology",
+        ),
+        (
+            "right-to-left-rewrite.faithful-reversal-construction",
+            "wide-phonology",
         ),
         ("simultaneous.subrule-overlap", "wide-phonology"),
         (
@@ -106,6 +112,7 @@ fn backend_seam_shape_key_table_is_pinned() {
             "nonregular-process-morphology",
         ),
         (
+            // Divergence 067 removes alpha-variable-name-collision's TUT observation; partial-class-disagree fixtures still witness this row.
             "templated-route.rule-cascade-uncompilable",
             "nonregular-process-morphology",
         ),
