@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 3,
+  "comparisonProfile": "underdefined-machine-word-analysis/v2",
+  "caseName": "08-rule-context",
+  "state": "on",
+  "engineVersion": "3.8.2.0",
+  "partOfSpeechSymbols": [
+    {
+      "id": "pos67",
+      "name": "N",
+      "stableGuid": "9e0ccf20-41c6-4b07-b804-f3a12ac531b1"
+    }
+  ],
+  "provenance": {
+    "harnessSourceSha256": "5bdf3591279dca7aa9bb3f2344a2b1336fd2d4f0e277c56bbf6d8b20dc1af7f1",
+    "harnessProjectSha256": "268ef99d2833d891f1a7c854070b8566f75435328856401ce8a1208fb746a0ed",
+    "silMachineSha256": "88626412ec2cf919a6b162443a143e0989ec8a8db0f14145521310cb6b8a0587",
+    "hermitCrabSha256": "f8f12eafd970c760e2e4112daae8cd9c373fd48f92c3e05c90c603411d266fe3",
+    "inputXmlSha256": "5b68602136163e65465fa755280c0341cee7c9523c2dfc1dca601292ec613e14",
+    "inputWordsSha256": "178ab770fde9dfd82fe189be62d7ad8797c73ad3bd557c2f88f7bff637c49505",
+    "legacyCaptureSha256": "48dfa707746c9e956776aca90b8800515eff0a66056ed5469354de9c672f94ee",
+    "inputInvocationSha256": "aea43aa66ef33589054c4845962213745dbd548dac34b0a49ddd9ea774b417d5",
+    "parseSolverSolutionCount": 1,
+    "sourceProjectPath": "08-rule-context/fieldworks-on/project.fwdata",
+    "sourceProjectSha256": "26393d7b5c048066725ab122b05bce425ad3f5772b7aac10e297b2419aa156a6",
+    "partOfSpeechCrosswalkEvidence": [
+      {
+        "machineId": "pos67",
+        "name": "N",
+        "stableGuid": "9e0ccf20-41c6-4b07-b804-f3a12ac531b1",
+        "hcXmlPath": "08-rule-context/measurements/on/Probe.hc.xml",
+        "hcXmlSha256": "5b68602136163e65465fa755280c0341cee7c9523c2dfc1dca601292ec613e14",
+        "hcXmlIdLine": 7,
+        "hcXmlIdLineText": "      \u003CPartOfSpeech id=\u0022pos67\u0022\u003E",
+        "hcXmlNameLine": 8,
+        "hcXmlNameLineText": "        \u003CName\u003EN\u003C/Name\u003E",
+        "fieldWorksProjectPath": "08-rule-context/fieldworks-on/project.fwdata",
+        "fieldWorksProjectSha256": "26393d7b5c048066725ab122b05bce425ad3f5772b7aac10e297b2419aa156a6",
+        "fieldWorksCandidateClass": "PartOfSpeech",
+        "fieldWorksCandidateLine": 1004,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022PartOfSpeech\u0022 guid=\u00229e0ccf20-41c6-4b07-b804-f3a12ac531b1\u0022 ownerguid=\u0022220d0488-cd91-4025-8c57-2791307514ca\u0022\u003E",
+        "fieldWorksNameLine": 1021,
+        "fieldWorksNameLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "fieldWorksAbbreviationLine": 1006,
+        "fieldWorksAbbreviationLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "matchingCandidateGuids": [
+          "9e0ccf20-41c6-4b07-b804-f3a12ac531b1"
+        ]
+      }
+    ],
+    "staticCrosswalkEvidence": []
+  },
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [],
+      "engineError": null
+    },
+    {
+      "word": "xuma",
+      "analyses": [],
+      "engineError": null
+    },
+    {
+      "word": "xmuma",
+      "analyses": [],
+      "engineError": null
+    },
+    {
+      "word": "xpuma",
+      "analyses": [],
+      "engineError": null
+    },
+    {
+      "word": "xpumas",
+      "analyses": [],
+      "engineError": null
+    }
+  ]
+}

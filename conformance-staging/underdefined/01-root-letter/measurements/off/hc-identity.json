@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 3,
+  "comparisonProfile": "underdefined-machine-word-analysis/v2",
+  "caseName": "01-root-letter",
+  "state": "off",
+  "engineVersion": "3.8.2.0",
+  "partOfSpeechSymbols": [
+    {
+      "id": "pos47",
+      "name": "N",
+      "stableGuid": "6ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5"
+    }
+  ],
+  "provenance": {
+    "harnessSourceSha256": "5bdf3591279dca7aa9bb3f2344a2b1336fd2d4f0e277c56bbf6d8b20dc1af7f1",
+    "harnessProjectSha256": "268ef99d2833d891f1a7c854070b8566f75435328856401ce8a1208fb746a0ed",
+    "silMachineSha256": "88626412ec2cf919a6b162443a143e0989ec8a8db0f14145521310cb6b8a0587",
+    "hermitCrabSha256": "f8f12eafd970c760e2e4112daae8cd9c373fd48f92c3e05c90c603411d266fe3",
+    "inputXmlSha256": "5b9bf72dd9c9f609c17a39a56d723439366fc386b1f7c6711bded2a238b09711",
+    "inputWordsSha256": "ed11c090ce9c59d58a5b787bf556e377e1c0a0a8d71584119285ebec7e85db34",
+    "legacyCaptureSha256": "b4b38f53f3b9578e4c13ed8565ae9018e9eb651e957fda6269f193eb1767170c",
+    "inputInvocationSha256": "0df8e49a3890186f43b102a69ec95ba3038850f19fa2238e819511d0fb85a063",
+    "parseSolverSolutionCount": 1,
+    "sourceProjectPath": "01-root-letter/fieldworks/project.fwdata",
+    "sourceProjectSha256": "ff6a95d2ee2bd3607a4aaca6c377aea47018577ea952a6c0dda2d10901c49b53",
+    "partOfSpeechCrosswalkEvidence": [
+      {
+        "machineId": "pos47",
+        "name": "N",
+        "stableGuid": "6ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5",
+        "hcXmlPath": "01-root-letter/measurements/off/Probe.hc.xml",
+        "hcXmlSha256": "5b9bf72dd9c9f609c17a39a56d723439366fc386b1f7c6711bded2a238b09711",
+        "hcXmlIdLine": 7,
+        "hcXmlIdLineText": "      \u003CPartOfSpeech id=\u0022pos47\u0022\u003E",
+        "hcXmlNameLine": 8,
+        "hcXmlNameLineText": "        \u003CName\u003EN\u003C/Name\u003E",
+        "fieldWorksProjectPath": "01-root-letter/fieldworks/project.fwdata",
+        "fieldWorksProjectSha256": "ff6a95d2ee2bd3607a4aaca6c377aea47018577ea952a6c0dda2d10901c49b53",
+        "fieldWorksCandidateClass": "PartOfSpeech",
+        "fieldWorksCandidateLine": 678,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022PartOfSpeech\u0022 guid=\u00226ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5\u0022 ownerguid=\u00222ea0993c-7633-49fd-943b-bb4b1ad1a8b1\u0022\u003E",
+        "fieldWorksNameLine": 695,
+        "fieldWorksNameLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "fieldWorksAbbreviationLine": 680,
+        "fieldWorksAbbreviationLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "matchingCandidateGuids": [
+          "6ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5"
+        ]
+      }
+    ],
+    "staticCrosswalkEvidence": []
+  },
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msaGuid": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7"
+            ],
+            "rootIndex": 0,
+            "category": "6ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5"
+          },
+          "machineMorphemeIds": [
+            "53"
+          ],
+          "machineCategoryId": "pos47",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "22",
+              "morphemeId": "53",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mumas",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "301f4e39-53c3-47ea-92ac-c05142d3f014",
+              "msaGuid": "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "3db97d3b-f5a6-4f67-96be-59024ec21563",
+              "msaGuid": "2642e3af-ffeb-4877-b12a-630d7d01f02f",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "7cc78c14-8a8d-44a2-815f-7cfa1b8f46d7",
+              "2642e3af-ffeb-4877-b12a-630d7d01f02f"
+            ],
+            "rootIndex": 0,
+            "category": "6ded05a0-93dd-4441-b0b7-2f6eb1bc2eb5"
+          },
+          "machineMorphemeIds": [
+            "53",
+            "14"
+          ],
+          "machineCategoryId": "pos47",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "22",
+              "morphemeId": "53",
+              "inflectionTypeId": null
+            },
+            {
+              "allomorphId": "28",
+              "morphemeId": "14",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "xuma",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xuma, contains an undefined phoneme at 0."
+    },
+    {
+      "word": "xumas",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumas, contains an undefined phoneme at 0."
+    },
+    {
+      "word": "xumu",
+      "analyses": [],
+      "engineError": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumu, contains an undefined phoneme at 0."
+    }
+  ]
+}

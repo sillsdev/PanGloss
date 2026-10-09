@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 3,
+  "comparisonProfile": "underdefined-machine-word-analysis/v2",
+  "caseName": "04-combining-mark",
+  "state": "on",
+  "engineVersion": "3.8.2.0",
+  "partOfSpeechSymbols": [
+    {
+      "id": "pos46",
+      "name": "N",
+      "stableGuid": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+    }
+  ],
+  "provenance": {
+    "harnessSourceSha256": "5bdf3591279dca7aa9bb3f2344a2b1336fd2d4f0e277c56bbf6d8b20dc1af7f1",
+    "harnessProjectSha256": "268ef99d2833d891f1a7c854070b8566f75435328856401ce8a1208fb746a0ed",
+    "silMachineSha256": "88626412ec2cf919a6b162443a143e0989ec8a8db0f14145521310cb6b8a0587",
+    "hermitCrabSha256": "f8f12eafd970c760e2e4112daae8cd9c373fd48f92c3e05c90c603411d266fe3",
+    "inputXmlSha256": "92e73e15f6e6c6213b572fbd3d4e59bebc86d5a2515267d752cd0f3182d8bb92",
+    "inputWordsSha256": "dcd4a8615d3e3e3f09d62827322e5114bc881fc36701b441f19db414282b8afb",
+    "legacyCaptureSha256": "62df5782e85be172b2dec1ccd2bbadc589d1f47ea00f2a22fbb4651f99630f73",
+    "inputInvocationSha256": "afb8b49c7a5aadbaf8b9b9f5ecf0f2a3838f92019823107bfae7377ec36a65fa",
+    "parseSolverSolutionCount": 1,
+    "sourceProjectPath": "04-combining-mark/fieldworks-on/project.fwdata",
+    "sourceProjectSha256": "cb0fb25efccc9189c29ad17b016bee46d466e90deca013e1dfc1017d6c05ec1e",
+    "partOfSpeechCrosswalkEvidence": [
+      {
+        "machineId": "pos46",
+        "name": "N",
+        "stableGuid": "8cb6a357-533d-4d49-8b44-7aaf74784de6",
+        "hcXmlPath": "04-combining-mark/measurements/on/Probe.hc.xml",
+        "hcXmlSha256": "92e73e15f6e6c6213b572fbd3d4e59bebc86d5a2515267d752cd0f3182d8bb92",
+        "hcXmlIdLine": 7,
+        "hcXmlIdLineText": "      \u003CPartOfSpeech id=\u0022pos46\u0022\u003E",
+        "hcXmlNameLine": 8,
+        "hcXmlNameLineText": "        \u003CName\u003EN\u003C/Name\u003E",
+        "fieldWorksProjectPath": "04-combining-mark/fieldworks-on/project.fwdata",
+        "fieldWorksProjectSha256": "cb0fb25efccc9189c29ad17b016bee46d466e90deca013e1dfc1017d6c05ec1e",
+        "fieldWorksCandidateClass": "PartOfSpeech",
+        "fieldWorksCandidateLine": 758,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022PartOfSpeech\u0022 guid=\u00228cb6a357-533d-4d49-8b44-7aaf74784de6\u0022 ownerguid=\u0022c501f641-4d05-4bcb-8c8d-c76ba8ad3aa5\u0022\u003E",
+        "fieldWorksNameLine": 775,
+        "fieldWorksNameLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "fieldWorksAbbreviationLine": 760,
+        "fieldWorksAbbreviationLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "matchingCandidateGuids": [
+          "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+        ]
+      }
+    ],
+    "staticCrosswalkEvidence": []
+  },
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "d5d0631d-74ce-4ac8-87c7-c4f7b19a05e9",
+              "msaGuid": "dea4539f-5523-4544-8e8f-5ae6ea5c6f14",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "dea4539f-5523-4544-8e8f-5ae6ea5c6f14"
+            ],
+            "rootIndex": 0,
+            "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+          },
+          "machineMorphemeIds": [
+            "99"
+          ],
+          "machineCategoryId": "pos46",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "77",
+              "morphemeId": "99",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "ma\u0303ma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+            ],
+            "rootIndex": 0,
+            "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+          },
+          "machineMorphemeIds": [
+            "3"
+          ],
+          "machineCategoryId": "pos46",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "79",
+              "morphemeId": "3",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "ma\u0303mas",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+              "msaGuid": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
+            ],
+            "rootIndex": 0,
+            "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+          },
+          "machineMorphemeIds": [
+            "3",
+            "7"
+          ],
+          "machineCategoryId": "pos46",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "79",
+              "morphemeId": "3",
+              "inflectionTypeId": null
+            },
+            {
+              "allomorphId": "73",
+              "morphemeId": "7",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "m\u00E3ma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+            ],
+            "rootIndex": 0,
+            "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+          },
+          "machineMorphemeIds": [
+            "3"
+          ],
+          "machineCategoryId": "pos46",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "79",
+              "morphemeId": "3",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "m\u00E3mas",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+              "msaGuid": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+              "msaGuid": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e",
+              "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
+            ],
+            "rootIndex": 0,
+            "category": "8cb6a357-533d-4d49-8b44-7aaf74784de6"
+          },
+          "machineMorphemeIds": [
+            "3",
+            "7"
+          ],
+          "machineCategoryId": "pos46",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "79",
+              "morphemeId": "3",
+              "inflectionTypeId": null
+            },
+            {
+              "allomorphId": "73",
+              "morphemeId": "7",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    }
+  ]
+}

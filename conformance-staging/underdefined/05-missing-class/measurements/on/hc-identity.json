@@ -1,0 +1,294 @@
+{
+  "schemaVersion": 3,
+  "comparisonProfile": "underdefined-machine-word-analysis/v2",
+  "caseName": "05-missing-class",
+  "state": "on",
+  "engineVersion": "3.8.2.0",
+  "partOfSpeechSymbols": [
+    {
+      "id": "pos66",
+      "name": "N",
+      "stableGuid": "a035560d-8e82-44fc-9344-6236e855fd10"
+    }
+  ],
+  "provenance": {
+    "harnessSourceSha256": "5bdf3591279dca7aa9bb3f2344a2b1336fd2d4f0e277c56bbf6d8b20dc1af7f1",
+    "harnessProjectSha256": "268ef99d2833d891f1a7c854070b8566f75435328856401ce8a1208fb746a0ed",
+    "silMachineSha256": "88626412ec2cf919a6b162443a143e0989ec8a8db0f14145521310cb6b8a0587",
+    "hermitCrabSha256": "f8f12eafd970c760e2e4112daae8cd9c373fd48f92c3e05c90c603411d266fe3",
+    "inputXmlSha256": "6a328f32bf6086d3cc98bf03f4a3a639c96e55372d02a0f628074f29a13f2080",
+    "inputWordsSha256": "83d17eacc94ac3eee790adaa0bde3d4fad40e724b62ba50f5b5398067da5f721",
+    "legacyCaptureSha256": "2d1e9005feb8a6fc5ecf91ff3b1871579a79dd02c01d672f579ee073ea3d4181",
+    "inputInvocationSha256": "6c22c22e783618855b3940ce4b9cbbb52799be502a63dcb1e0337e929133d63a",
+    "parseSolverSolutionCount": 1,
+    "sourceProjectPath": "05-missing-class/fieldworks-on/project.fwdata",
+    "sourceProjectSha256": "b798cceee4f05144086e4683e283b9579d53b9ee14f68ff148557d51d4c71285",
+    "partOfSpeechCrosswalkEvidence": [
+      {
+        "machineId": "pos66",
+        "name": "N",
+        "stableGuid": "a035560d-8e82-44fc-9344-6236e855fd10",
+        "hcXmlPath": "05-missing-class/measurements/on/Probe.hc.xml",
+        "hcXmlSha256": "6a328f32bf6086d3cc98bf03f4a3a639c96e55372d02a0f628074f29a13f2080",
+        "hcXmlIdLine": 7,
+        "hcXmlIdLineText": "      \u003CPartOfSpeech id=\u0022pos66\u0022\u003E",
+        "hcXmlNameLine": 8,
+        "hcXmlNameLineText": "        \u003CName\u003EN\u003C/Name\u003E",
+        "fieldWorksProjectPath": "05-missing-class/fieldworks-on/project.fwdata",
+        "fieldWorksProjectSha256": "b798cceee4f05144086e4683e283b9579d53b9ee14f68ff148557d51d4c71285",
+        "fieldWorksCandidateClass": "PartOfSpeech",
+        "fieldWorksCandidateLine": 1017,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022PartOfSpeech\u0022 guid=\u0022a035560d-8e82-44fc-9344-6236e855fd10\u0022 ownerguid=\u0022de0bc731-711d-494a-b64b-8788be3f3929\u0022\u003E",
+        "fieldWorksNameLine": 1034,
+        "fieldWorksNameLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "fieldWorksAbbreviationLine": 1019,
+        "fieldWorksAbbreviationLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "matchingCandidateGuids": [
+          "a035560d-8e82-44fc-9344-6236e855fd10"
+        ]
+      }
+    ],
+    "staticCrosswalkEvidence": []
+  },
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "0238c538-5c82-4e99-bcb5-d97a3088f0d6",
+              "msaGuid": "816a5e4d-6147-4928-8026-bf14caf3b841",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "816a5e4d-6147-4928-8026-bf14caf3b841"
+            ],
+            "rootIndex": 0,
+            "category": "a035560d-8e82-44fc-9344-6236e855fd10"
+          },
+          "machineMorphemeIds": [
+            "54"
+          ],
+          "machineCategoryId": "pos66",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "2",
+              "morphemeId": "54",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mumas",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "0238c538-5c82-4e99-bcb5-d97a3088f0d6",
+              "msaGuid": "816a5e4d-6147-4928-8026-bf14caf3b841",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "2c496f5a-6b24-4bfa-add7-90f2f4be498f",
+              "msaGuid": "f89e7277-1794-464f-9fa1-04287d88fff8",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "816a5e4d-6147-4928-8026-bf14caf3b841",
+              "f89e7277-1794-464f-9fa1-04287d88fff8"
+            ],
+            "rootIndex": 0,
+            "category": "a035560d-8e82-44fc-9344-6236e855fd10"
+          },
+          "machineMorphemeIds": [
+            "54",
+            "107"
+          ],
+          "machineCategoryId": "pos66",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "2",
+              "morphemeId": "54",
+              "inflectionTypeId": null
+            },
+            {
+              "allomorphId": "17",
+              "morphemeId": "107",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mum",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "1ad78d31-5c47-4020-a285-a90327cdb720",
+              "msaGuid": "7f565b9c-edc4-45ec-b8f1-c71e30a276f9",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "7f565b9c-edc4-45ec-b8f1-c71e30a276f9"
+            ],
+            "rootIndex": 0,
+            "category": "a035560d-8e82-44fc-9344-6236e855fd10"
+          },
+          "machineMorphemeIds": [
+            "50"
+          ],
+          "machineCategoryId": "pos66",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "12",
+              "morphemeId": "50",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mums",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "1ad78d31-5c47-4020-a285-a90327cdb720",
+              "msaGuid": "7f565b9c-edc4-45ec-b8f1-c71e30a276f9",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "2c496f5a-6b24-4bfa-add7-90f2f4be498f",
+              "msaGuid": "f89e7277-1794-464f-9fa1-04287d88fff8",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "7f565b9c-edc4-45ec-b8f1-c71e30a276f9",
+              "f89e7277-1794-464f-9fa1-04287d88fff8"
+            ],
+            "rootIndex": 0,
+            "category": "a035560d-8e82-44fc-9344-6236e855fd10"
+          },
+          "machineMorphemeIds": [
+            "50",
+            "107"
+          ],
+          "machineCategoryId": "pos66",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "12",
+              "morphemeId": "50",
+              "inflectionTypeId": null
+            },
+            {
+              "allomorphId": "17",
+              "morphemeId": "107",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mux",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "e8cadf3c-8a59-4b0e-ae59-1c4c55ca713f",
+              "msaGuid": "cc087c49-2baf-4a25-b9f4-34f4ceb35587",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "cc087c49-2baf-4a25-b9f4-34f4ceb35587"
+            ],
+            "rootIndex": 0,
+            "category": "a035560d-8e82-44fc-9344-6236e855fd10"
+          },
+          "machineMorphemeIds": [
+            "78"
+          ],
+          "machineCategoryId": "pos66",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "102",
+              "morphemeId": "78",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "muxs",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "e8cadf3c-8a59-4b0e-ae59-1c4c55ca713f",
+              "msaGuid": "cc087c49-2baf-4a25-b9f4-34f4ceb35587",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "2c496f5a-6b24-4bfa-add7-90f2f4be498f",
+              "msaGuid": "f89e7277-1794-464f-9fa1-04287d88fff8",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "cc087c49-2baf-4a25-b9f4-34f4ceb35587",
+              "f89e7277-1794-464f-9fa1-04287d88fff8"
+            ],
+            "rootIndex": 0,
+            "category": "a035560d-8e82-44fc-9344-6236e855fd10"
+          },
+          "machineMorphemeIds": [
+            "78",
+            "107"
+          ],
+          "machineCategoryId": "pos66",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "102",
+              "morphemeId": "78",
+              "inflectionTypeId": null
+            },
+            {
+              "allomorphId": "17",
+              "morphemeId": "107",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "s",
+      "analyses": [],
+      "engineError": null
+    }
+  ]
+}

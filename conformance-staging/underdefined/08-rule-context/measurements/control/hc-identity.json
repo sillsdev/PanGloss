@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 3,
+  "comparisonProfile": "underdefined-machine-word-analysis/v2",
+  "caseName": "08-rule-context",
+  "state": "control",
+  "engineVersion": "3.8.2.0",
+  "partOfSpeechSymbols": [
+    {
+      "id": "pos70",
+      "name": "N",
+      "stableGuid": "9e0ccf20-41c6-4b07-b804-f3a12ac531b1"
+    }
+  ],
+  "provenance": {
+    "harnessSourceSha256": "5bdf3591279dca7aa9bb3f2344a2b1336fd2d4f0e277c56bbf6d8b20dc1af7f1",
+    "harnessProjectSha256": "268ef99d2833d891f1a7c854070b8566f75435328856401ce8a1208fb746a0ed",
+    "silMachineSha256": "88626412ec2cf919a6b162443a143e0989ec8a8db0f14145521310cb6b8a0587",
+    "hermitCrabSha256": "f8f12eafd970c760e2e4112daae8cd9c373fd48f92c3e05c90c603411d266fe3",
+    "inputXmlSha256": "6ca520ea4660af6a4ef344143081723da12f3e7fac7d9811547c37c5aa08cd1c",
+    "inputWordsSha256": "178ab770fde9dfd82fe189be62d7ad8797c73ad3bd557c2f88f7bff637c49505",
+    "legacyCaptureSha256": "2b288b933ecfc86fc348066f1b655a1e5e6f7860214270651aeaba7befdfbacd",
+    "inputInvocationSha256": "5d9a1a74ac9267a69a013f5e684e12586302e5f2ef1d9f075659e64483a0965e",
+    "parseSolverSolutionCount": 1,
+    "sourceProjectPath": "08-rule-context/fieldworks-control/project.fwdata",
+    "sourceProjectSha256": "5683862eb73f91ca319ba6c79ed7eb94c7518845ae376e7dcb7e01fbcacfeb83",
+    "partOfSpeechCrosswalkEvidence": [
+      {
+        "machineId": "pos70",
+        "name": "N",
+        "stableGuid": "9e0ccf20-41c6-4b07-b804-f3a12ac531b1",
+        "hcXmlPath": "08-rule-context/measurements/control/Probe.hc.xml",
+        "hcXmlSha256": "6ca520ea4660af6a4ef344143081723da12f3e7fac7d9811547c37c5aa08cd1c",
+        "hcXmlIdLine": 7,
+        "hcXmlIdLineText": "      \u003CPartOfSpeech id=\u0022pos70\u0022\u003E",
+        "hcXmlNameLine": 8,
+        "hcXmlNameLineText": "        \u003CName\u003EN\u003C/Name\u003E",
+        "fieldWorksProjectPath": "08-rule-context/fieldworks-control/project.fwdata",
+        "fieldWorksProjectSha256": "5683862eb73f91ca319ba6c79ed7eb94c7518845ae376e7dcb7e01fbcacfeb83",
+        "fieldWorksCandidateClass": "PartOfSpeech",
+        "fieldWorksCandidateLine": 1010,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022PartOfSpeech\u0022 guid=\u00229e0ccf20-41c6-4b07-b804-f3a12ac531b1\u0022 ownerguid=\u0022220d0488-cd91-4025-8c57-2791307514ca\u0022\u003E",
+        "fieldWorksNameLine": 1027,
+        "fieldWorksNameLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "fieldWorksAbbreviationLine": 1012,
+        "fieldWorksAbbreviationLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "matchingCandidateGuids": [
+          "9e0ccf20-41c6-4b07-b804-f3a12ac531b1"
+        ]
+      }
+    ],
+    "staticCrosswalkEvidence": []
+  },
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+              "msaGuid": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "cbb849b1-13ac-4b86-9a5a-a4a5e950d164"
+            ],
+            "rootIndex": 0,
+            "category": "9e0ccf20-41c6-4b07-b804-f3a12ac531b1"
+          },
+          "machineMorphemeIds": [
+            "88"
+          ],
+          "machineCategoryId": "pos70",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "42",
+              "morphemeId": "88",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "xuma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+              "msaGuid": "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "1e40e644-88dd-4429-8a13-3fa5c49abd2f"
+            ],
+            "rootIndex": 0,
+            "category": "9e0ccf20-41c6-4b07-b804-f3a12ac531b1"
+          },
+          "machineMorphemeIds": [
+            "13"
+          ],
+          "machineCategoryId": "pos70",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "82",
+              "morphemeId": "13",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "xmuma",
+      "analyses": [],
+      "engineError": null
+    },
+    {
+      "word": "xpuma",
+      "analyses": [],
+      "engineError": null
+    },
+    {
+      "word": "xpumas",
+      "analyses": [],
+      "engineError": null
+    }
+  ]
+}

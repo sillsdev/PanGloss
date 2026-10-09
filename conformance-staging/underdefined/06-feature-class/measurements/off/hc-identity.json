@@ -1,0 +1,418 @@
+{
+  "schemaVersion": 3,
+  "comparisonProfile": "underdefined-machine-word-analysis/v2",
+  "caseName": "06-feature-class",
+  "state": "off",
+  "engineVersion": "3.8.2.0",
+  "partOfSpeechSymbols": [
+    {
+      "id": "pos124",
+      "name": "N",
+      "stableGuid": "f596676a-837c-4007-aad7-3c2118073f20"
+    }
+  ],
+  "provenance": {
+    "harnessSourceSha256": "5bdf3591279dca7aa9bb3f2344a2b1336fd2d4f0e277c56bbf6d8b20dc1af7f1",
+    "harnessProjectSha256": "268ef99d2833d891f1a7c854070b8566f75435328856401ce8a1208fb746a0ed",
+    "silMachineSha256": "88626412ec2cf919a6b162443a143e0989ec8a8db0f14145521310cb6b8a0587",
+    "hermitCrabSha256": "f8f12eafd970c760e2e4112daae8cd9c373fd48f92c3e05c90c603411d266fe3",
+    "inputXmlSha256": "bb8bcac3847408cd908708d60bb055f5237b647b913595b75538cfca4453a982",
+    "inputWordsSha256": "b5df8c5544d16611c82d5f6a6054865e738189a4e1024693be07da495d1dde3c",
+    "legacyCaptureSha256": "df8bb937c0672b1cc34eae87376daaefd77075a218450332d377433cd109c134",
+    "inputInvocationSha256": "2bc05210d8466b20586bf89da365f0942ba68dff1d98ff3002076895c08f660f",
+    "parseSolverSolutionCount": 2,
+    "sourceProjectPath": "06-feature-class/fieldworks/project.fwdata",
+    "sourceProjectSha256": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+    "partOfSpeechCrosswalkEvidence": [
+      {
+        "machineId": "pos124",
+        "name": "N",
+        "stableGuid": "f596676a-837c-4007-aad7-3c2118073f20",
+        "hcXmlPath": "06-feature-class/measurements/off/Probe.hc.xml",
+        "hcXmlSha256": "bb8bcac3847408cd908708d60bb055f5237b647b913595b75538cfca4453a982",
+        "hcXmlIdLine": 7,
+        "hcXmlIdLineText": "      \u003CPartOfSpeech id=\u0022pos124\u0022\u003E",
+        "hcXmlNameLine": 8,
+        "hcXmlNameLineText": "        \u003CName\u003EN\u003C/Name\u003E",
+        "fieldWorksProjectPath": "06-feature-class/fieldworks/project.fwdata",
+        "fieldWorksProjectSha256": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+        "fieldWorksCandidateClass": "PartOfSpeech",
+        "fieldWorksCandidateLine": 1821,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022PartOfSpeech\u0022 guid=\u0022f596676a-837c-4007-aad7-3c2118073f20\u0022 ownerguid=\u0022e76385e5-66bd-42cc-a33e-1b0cbe7bd010\u0022\u003E",
+        "fieldWorksNameLine": 1838,
+        "fieldWorksNameLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "fieldWorksAbbreviationLine": 1823,
+        "fieldWorksAbbreviationLineText": "\u003CAUni ws=\u0022en\u0022\u003EN\u003C/AUni\u003E",
+        "matchingCandidateGuids": [
+          "f596676a-837c-4007-aad7-3c2118073f20"
+        ]
+      }
+    ],
+    "staticCrosswalkEvidence": [
+      {
+        "kind": "allomorph",
+        "sourceId": "37",
+        "stableGuid": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+        "parseSolverCandidates": [
+          "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+          "7770f82d-e36a-47ba-8356-84c91e7feb1b"
+        ],
+        "resolution": "unique FieldWorks allomorph Form and entry sense Gloss match; selected GUID is a parse-solver candidate",
+        "hcXmlPath": "06-feature-class/measurements/off/Probe.hc.xml",
+        "hcXmlSha256": "bb8bcac3847408cd908708d60bb055f5237b647b913595b75538cfca4453a982",
+        "hcXmlIdLine": 181,
+        "hcXmlIdLineText": "                  \u003CProperty name=\u0022ID\u0022\u003E37\u003C/Property\u003E",
+        "hcXmlForm": "mum",
+        "hcXmlFormLine": 179,
+        "hcXmlFormLineText": "                \u003CPhoneticShape\u003Emum\u003C/PhoneticShape\u003E",
+        "hcXmlGloss": "R1",
+        "hcXmlGlossLine": 185,
+        "hcXmlGlossLineText": "            \u003CGloss\u003ER1\u003C/Gloss\u003E",
+        "fieldWorksProjectPath": "06-feature-class/fieldworks/project.fwdata",
+        "fieldWorksProjectSha256": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+        "fieldWorksCandidateClass": "MoStemAllomorph",
+        "fieldWorksCandidateLine": 488,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022MoStemAllomorph\u0022 guid=\u0022463385bb-7dd9-4228-ac6c-a98cfa73ae2e\u0022 ownerguid=\u0022fe20b7d8-ac1a-4504-b7e0-c8fc1980a380\u0022\u003E",
+        "fieldWorksForm": "mum",
+        "fieldWorksFormLine": 490,
+        "fieldWorksFormLineText": "\u003CAUni ws=\u0022en\u0022\u003Emum\u003C/AUni\u003E",
+        "fieldWorksSenseGloss": "R1",
+        "fieldWorksSenseGlossLine": 474,
+        "fieldWorksSenseGlossLineText": "\u003CAUni ws=\u0022en\u0022\u003ER1\u003C/AUni\u003E",
+        "pairedAllomorphs": []
+      },
+      {
+        "kind": "allomorph",
+        "sourceId": "61",
+        "stableGuid": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+        "parseSolverCandidates": [
+          "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+          "7770f82d-e36a-47ba-8356-84c91e7feb1b"
+        ],
+        "resolution": "unique FieldWorks allomorph Form and entry sense Gloss match; selected GUID is a parse-solver candidate",
+        "hcXmlPath": "06-feature-class/measurements/off/Probe.hc.xml",
+        "hcXmlSha256": "bb8bcac3847408cd908708d60bb055f5237b647b913595b75538cfca4453a982",
+        "hcXmlIdLine": 167,
+        "hcXmlIdLineText": "                  \u003CProperty name=\u0022ID\u0022\u003E61\u003C/Property\u003E",
+        "hcXmlForm": "mux",
+        "hcXmlFormLine": 165,
+        "hcXmlFormLineText": "                \u003CPhoneticShape\u003Emux\u003C/PhoneticShape\u003E",
+        "hcXmlGloss": "R2",
+        "hcXmlGlossLine": 171,
+        "hcXmlGlossLineText": "            \u003CGloss\u003ER2\u003C/Gloss\u003E",
+        "fieldWorksProjectPath": "06-feature-class/fieldworks/project.fwdata",
+        "fieldWorksProjectSha256": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+        "fieldWorksCandidateClass": "MoStemAllomorph",
+        "fieldWorksCandidateLine": 790,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022MoStemAllomorph\u0022 guid=\u00227770f82d-e36a-47ba-8356-84c91e7feb1b\u0022 ownerguid=\u00225fd795ba-2fed-49e6-bc0b-34ff5a2f281b\u0022\u003E",
+        "fieldWorksForm": "mux",
+        "fieldWorksFormLine": 792,
+        "fieldWorksFormLineText": "\u003CAUni ws=\u0022en\u0022\u003Emux\u003C/AUni\u003E",
+        "fieldWorksSenseGloss": "R2",
+        "fieldWorksSenseGlossLine": 1708,
+        "fieldWorksSenseGlossLineText": "\u003CAUni ws=\u0022en\u0022\u003ER2\u003C/AUni\u003E",
+        "pairedAllomorphs": []
+      },
+      {
+        "kind": "morpheme",
+        "sourceId": "70",
+        "stableGuid": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+        "parseSolverCandidates": [
+          "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+          "864d2c36-ad9e-44c9-862d-80c5c120066e"
+        ],
+        "resolution": "unique entry sense Gloss match and shared entry with the paired Form-matched allomorph; selected GUID is a parse-solver candidate",
+        "hcXmlPath": "06-feature-class/measurements/off/Probe.hc.xml",
+        "hcXmlSha256": "bb8bcac3847408cd908708d60bb055f5237b647b913595b75538cfca4453a982",
+        "hcXmlIdLine": 187,
+        "hcXmlIdLineText": "              \u003CProperty name=\u0022ID\u0022\u003E70\u003C/Property\u003E",
+        "hcXmlForm": null,
+        "hcXmlFormLine": null,
+        "hcXmlFormLineText": null,
+        "hcXmlGloss": "R1",
+        "hcXmlGlossLine": 185,
+        "hcXmlGlossLineText": "            \u003CGloss\u003ER1\u003C/Gloss\u003E",
+        "fieldWorksProjectPath": "06-feature-class/fieldworks/project.fwdata",
+        "fieldWorksProjectSha256": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+        "fieldWorksCandidateClass": "MoStemMsa",
+        "fieldWorksCandidateLine": 944,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022MoStemMsa\u0022 guid=\u0022846a0d7a-9e28-4677-9c49-37fbeeeaf99f\u0022 ownerguid=\u0022fe20b7d8-ac1a-4504-b7e0-c8fc1980a380\u0022\u003E",
+        "fieldWorksForm": null,
+        "fieldWorksFormLine": null,
+        "fieldWorksFormLineText": null,
+        "fieldWorksSenseGloss": "R1",
+        "fieldWorksSenseGlossLine": 474,
+        "fieldWorksSenseGlossLineText": "\u003CAUni ws=\u0022en\u0022\u003ER1\u003C/AUni\u003E",
+        "pairedAllomorphs": [
+          {
+            "guid": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+            "className": "MoStemAllomorph",
+            "candidateLine": 488,
+            "candidateLineText": "\u003Crt class=\u0022MoStemAllomorph\u0022 guid=\u0022463385bb-7dd9-4228-ac6c-a98cfa73ae2e\u0022 ownerguid=\u0022fe20b7d8-ac1a-4504-b7e0-c8fc1980a380\u0022\u003E",
+            "form": "mum",
+            "formLine": 490,
+            "formLineText": "\u003CAUni ws=\u0022en\u0022\u003Emum\u003C/AUni\u003E",
+            "senseGloss": "R1",
+            "senseGlossLine": 474,
+            "senseGlossLineText": "\u003CAUni ws=\u0022en\u0022\u003ER1\u003C/AUni\u003E"
+          }
+        ]
+      },
+      {
+        "kind": "morpheme",
+        "sourceId": "71",
+        "stableGuid": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+        "parseSolverCandidates": [
+          "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+          "864d2c36-ad9e-44c9-862d-80c5c120066e"
+        ],
+        "resolution": "unique entry sense Gloss match and shared entry with the paired Form-matched allomorph; selected GUID is a parse-solver candidate",
+        "hcXmlPath": "06-feature-class/measurements/off/Probe.hc.xml",
+        "hcXmlSha256": "bb8bcac3847408cd908708d60bb055f5237b647b913595b75538cfca4453a982",
+        "hcXmlIdLine": 173,
+        "hcXmlIdLineText": "              \u003CProperty name=\u0022ID\u0022\u003E71\u003C/Property\u003E",
+        "hcXmlForm": null,
+        "hcXmlFormLine": null,
+        "hcXmlFormLineText": null,
+        "hcXmlGloss": "R2",
+        "hcXmlGlossLine": 171,
+        "hcXmlGlossLineText": "            \u003CGloss\u003ER2\u003C/Gloss\u003E",
+        "fieldWorksProjectPath": "06-feature-class/fieldworks/project.fwdata",
+        "fieldWorksProjectSha256": "aa48f9c65137048593077fd8b5c3508f74c2f1ca0be119116b39e3f92d5231f8",
+        "fieldWorksCandidateClass": "MoStemMsa",
+        "fieldWorksCandidateLine": 949,
+        "fieldWorksCandidateLineText": "\u003Crt class=\u0022MoStemMsa\u0022 guid=\u0022864d2c36-ad9e-44c9-862d-80c5c120066e\u0022 ownerguid=\u00225fd795ba-2fed-49e6-bc0b-34ff5a2f281b\u0022\u003E",
+        "fieldWorksForm": null,
+        "fieldWorksFormLine": null,
+        "fieldWorksFormLineText": null,
+        "fieldWorksSenseGloss": "R2",
+        "fieldWorksSenseGlossLine": 1708,
+        "fieldWorksSenseGlossLineText": "\u003CAUni ws=\u0022en\u0022\u003ER2\u003C/AUni\u003E",
+        "pairedAllomorphs": [
+          {
+            "guid": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+            "className": "MoStemAllomorph",
+            "candidateLine": 790,
+            "candidateLineText": "\u003Crt class=\u0022MoStemAllomorph\u0022 guid=\u00227770f82d-e36a-47ba-8356-84c91e7feb1b\u0022 ownerguid=\u00225fd795ba-2fed-49e6-bc0b-34ff5a2f281b\u0022\u003E",
+            "form": "mux",
+            "formLine": 792,
+            "formLineText": "\u003CAUni ws=\u0022en\u0022\u003Emux\u003C/AUni\u003E",
+            "senseGloss": "R2",
+            "senseGlossLine": 1708,
+            "senseGlossLineText": "\u003CAUni ws=\u0022en\u0022\u003ER2\u003C/AUni\u003E"
+          }
+        ]
+      }
+    ]
+  },
+  "words": [
+    {
+      "word": "muma",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "14180160-3cf5-4a77-9c34-41abbb853719",
+              "msaGuid": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "eb251db2-4bb8-4c4a-9fa8-f58b4164a992"
+            ],
+            "rootIndex": 0,
+            "category": "f596676a-837c-4007-aad7-3c2118073f20"
+          },
+          "machineMorphemeIds": [
+            "121"
+          ],
+          "machineCategoryId": "pos124",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "12",
+              "morphemeId": "121",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mumas",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "14180160-3cf5-4a77-9c34-41abbb853719",
+              "msaGuid": "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+              "inflectionTypeGuid": null
+            },
+            {
+              "allomorphGuid": "2cc6e062-c88a-4a45-b411-f2500d5b74bc",
+              "msaGuid": "17908116-f32e-49c8-82bf-de58562ed503",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "eb251db2-4bb8-4c4a-9fa8-f58b4164a992",
+              "17908116-f32e-49c8-82bf-de58562ed503"
+            ],
+            "rootIndex": 0,
+            "category": "f596676a-837c-4007-aad7-3c2118073f20"
+          },
+          "machineMorphemeIds": [
+            "121",
+            "13"
+          ],
+          "machineCategoryId": "pos124",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "12",
+              "morphemeId": "121",
+              "inflectionTypeId": null
+            },
+            {
+              "allomorphId": "24",
+              "morphemeId": "13",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mum",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+              "msaGuid": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "846a0d7a-9e28-4677-9c49-37fbeeeaf99f"
+            ],
+            "rootIndex": 0,
+            "category": "f596676a-837c-4007-aad7-3c2118073f20"
+          },
+          "machineMorphemeIds": [
+            "70"
+          ],
+          "machineCategoryId": "pos124",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "37",
+              "morphemeId": "70",
+              "inflectionTypeId": null
+            }
+          ]
+        },
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+              "msaGuid": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "864d2c36-ad9e-44c9-862d-80c5c120066e"
+            ],
+            "rootIndex": 0,
+            "category": "f596676a-837c-4007-aad7-3c2118073f20"
+          },
+          "machineMorphemeIds": [
+            "71"
+          ],
+          "machineCategoryId": "pos124",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "61",
+              "morphemeId": "71",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "mums",
+      "analyses": [],
+      "engineError": null
+    },
+    {
+      "word": "mux",
+      "analyses": [
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "463385bb-7dd9-4228-ac6c-a98cfa73ae2e",
+              "msaGuid": "846a0d7a-9e28-4677-9c49-37fbeeeaf99f",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "846a0d7a-9e28-4677-9c49-37fbeeeaf99f"
+            ],
+            "rootIndex": 0,
+            "category": "f596676a-837c-4007-aad7-3c2118073f20"
+          },
+          "machineMorphemeIds": [
+            "70"
+          ],
+          "machineCategoryId": "pos124",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "37",
+              "morphemeId": "70",
+              "inflectionTypeId": null
+            }
+          ]
+        },
+        {
+          "storedAnalysisKey": [
+            {
+              "allomorphGuid": "7770f82d-e36a-47ba-8356-84c91e7feb1b",
+              "msaGuid": "864d2c36-ad9e-44c9-862d-80c5c120066e",
+              "inflectionTypeGuid": null
+            }
+          ],
+          "identity": {
+            "morphemes": [
+              "864d2c36-ad9e-44c9-862d-80c5c120066e"
+            ],
+            "rootIndex": 0,
+            "category": "f596676a-837c-4007-aad7-3c2118073f20"
+          },
+          "machineMorphemeIds": [
+            "71"
+          ],
+          "machineCategoryId": "pos124",
+          "machineStoredMorphIds": [
+            {
+              "allomorphId": "61",
+              "morphemeId": "71",
+              "inflectionTypeId": null
+            }
+          ]
+        }
+      ],
+      "engineError": null
+    },
+    {
+      "word": "muxs",
+      "analyses": [],
+      "engineError": null
+    }
+  ]
+}
