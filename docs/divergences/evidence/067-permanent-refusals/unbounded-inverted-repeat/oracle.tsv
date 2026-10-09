@@ -1,0 +1,34 @@
+0	acet	STARTED
+0	acet	32	ok	-
+1	ecct	STARTED
+1	ecct	0	ok	-
+2	accct	STARTED
+2	accct	14	ok	-
+3	acat	STARTED
+3	acat	0	ok	ROOT1|acat
+4	acct	STARTED
+4	acct	0	ok	ROOT2|acct
+5	et	STARTED
+5	et	0	ok	-
+6	at	STARTED
+6	at	0	ok	-
+7	ecat	STARTED
+7	ecat	0	ok	-
+8	etct	STARTED
+8	etct	0	ok	-
+9	ctat	STARTED
+9	ctat	0	ok	-
+10	ctet	STARTED
+10	ctet	0	ok	-
+11	accccct	STARTED
+11	accccct	0	ok	-
+12	eccccct	STARTED
+12	eccccct	2	ok	-
+13	eccct	STARTED
+13	eccct	0	ok	ROOT3|eccct
+14	ecet	STARTED
+14	ecet	0	ok	-
+15	actt	STARTED
+15	actt	0	ok	-
+16	ectt	STARTED
+16	ectt	0	ok	-

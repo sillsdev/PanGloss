@@ -184,7 +184,7 @@ fn slots_from_nodes(
             PatternNode::Quantifier { min, max, children } => {
                 // A genuinely unbounded quantifier is accepted here: it has its own native, finite-size foma construction, so refusing it would be a scope line, not a feasibility finding. The inverted-bound check applies only to a finite bound and is skipped for `None`.
                 if let Some(max_v) = max {
-                    // Inverted bound: no sound finite construction exists for it; honest-unsupported rather than silently swapping/clamping min/max.
+                    // Inverted bounds are malformed authoring data, so their interpretation is not guessed.
                     if min > max_v {
                         return None;
                     }
