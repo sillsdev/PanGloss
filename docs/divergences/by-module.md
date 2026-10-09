@@ -23,6 +23,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `SynthesisRewriteRuleSpec.cs` (empty-LHS pattern walk) | 011, 013 |
 | `PatternNode.GenerateNfa` | 012 |
 | `FeatureAnalysisRewriteRuleSpec.cs` (`Group`) | 015 |
+| `FeatureAnalysisRewriteRuleSpec.cs` (inverse StrRep, `IsUnapplicationNonvacuous`), `StringFeatureValue.cs` (`IsSupersetOf`) | 071 |
 | `NaturalClass.cs` (ctor `Type` stamping) | 013 |
 | `TraversalMethodBase.cs` (`Initialize`) | 013 (cited as not-a-bug) |
 | `SimultaneousPhonologicalPatternRule.cs` (`Apply`) | 016 |
@@ -64,7 +65,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/morph.rs` (`copy_part`) | 007 |
 | `pg-shape/src/lib.rs` (`Shape::node_cd_set`) | 007 |
 | `pg-parse/src/surface.rs` (`matching_str_reps`, `matching_reps_for_node`) | 007, 010 |
-| `pg-rules/src/rewrite.rs` (`ana_feature`) | 009, 015 |
+| `pg-rules/src/rewrite.rs` (`ana_feature`) | 009, 015, 071 |
+| `pg-rules/src/rewrite.rs` (`MutShape`, literal synthesis and inverse targets); `pg-rules/src/bridge.rs` (`StrRepMatcher`, `PatternBridge`) | 071 |
 | `pg-parse/src/root_trie.rs` (`RootAllomorphIndex::search`, `RootAllomorphTrie::build`) | 009, 019 |
 | `pg-grammar/src/chardef.rs` (`unif_closure`/`unifiable_cds`) | 010 |
 | `pg-rules/src/rewrite.rs` (`syn_epenthesis`, `ana_epenthesis`) | 011, 013, 014 |
@@ -115,6 +117,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/tests/rewrite_gate.rs` | 011, 012 |
 | `machine/conformance/edge-cases/simultaneous-feeding/`, `simultaneous-feeding-control-iterative/` | 016 |
 | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` | 024 |
+| `conformance-staging/edge-cases/strrep-rewrite-unapplication/`, `pg-parse/tests/conformance_fixtures_gate.rs`, `pg-cli/src/tests.rs` (`analyses_sidecar_projects_source_guids_from_fwdata`), Machine `StrRepRewriteRuleTests.cs`, `pg-foma-backend/tests/backend_scoreboard_gate.rs` | 071 |
 
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `parity_divergence_census.rs` | 028 |
@@ -172,3 +175,4 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |
 | Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `f412c252`) |
 | Deletion unapplication x metathesis across strata | 050 | Missing; repro in Machine #520 |
+| Literal rewrite StrRep nonvacuity and inverse identity | 071 | `strrep-rewrite-unapplication`; synthetic kad/kat comparison; Machine proposal on local `fix/hc-strrep-unapplication`, PR pending lead publication |

@@ -1,9 +1,15 @@
 {
-  "_comment": "Exact reviewed oracle mismatch evidence. A fixture ID alone never waives a failure; changed reason text fails closed for review. Forward-synthesis entries additionally require the fixture provenance marker. These records narrow previously existing waivers without changing expectations.",
+  "_comment": "Exact reviewed oracle mismatch evidence. A fixture ID alone never waives a failure; changed reason text fails closed for review. Forward-synthesis entries additionally require the fixture provenance marker.",
   "machine_commit": "25ddf914c0edb739a4445f9a088f7e06492a808d",
   "machine_branch": "integrate-conformance-framework",
   "measured_date": "2026-09-03",
   "divergences": [
+    {
+      "fixture": "edge-cases/strrep-rewrite-unapplication",
+      "kind": "forward-synthesis",
+      "reason": "1/6 word(s) mismatched: xpuma: expected [XMUMA|xpuma] got []",
+      "note": "Exact reviewed original-spec observation: Machine b9e7db44 rewrite spec on master engine 721c6043 with official 25ddf914 adapter/self-check compatibility build. Five words are oracle-recorded; only xpuma is forward-derived. Proposed a873d60d spec passes all six. See docs/divergences/071-strrep-rewrite-unapplication.md and evidence/071 for the build limitations and full transcripts; this does not claim a pinned-engine run."
+    },
     {
       "fixture": "edge-cases/head-ambiguous-compounding",
       "kind": "rules-attribution-only",

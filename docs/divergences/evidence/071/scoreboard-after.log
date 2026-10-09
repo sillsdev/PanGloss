@@ -1,0 +1,351 @@
+----- pg preflight -----
+mode: test  profile: pg-test-opt
+worktree: /home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication  (slug: strrep-unapplication)
+HEAD: aa59f3d01c2ffa61827d75c8aaa361362e142a77  dirty files: 11
+base check (unverified): no recorded base (worktree predates metadata, or metadata unreadable) -- unverified
+target dir: <cargo default>
+free space: 806GB free (>= 5GB reserve)
+free memory: 27GB available (>= 2GB reserve)
+host cgroup: bounded (9663676416 bytes effective cap) -- host cgroup cap: 9663676416 bytes (mapped root /sys/fs/cgroup, current /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/run-p2533545-i6741522.scope)
+build slots in use:
+  build slot 0: pid 22 (conformance-test in integrate2) -- alive since 23:10:25
+sccache: not-installed -- sccache not found on PATH
+conformance submodule (already-present): machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)
+slot limits: 2 build, 4 run (machine-wide convention -- see Enter-ResourceSlot)
+cargo jobs: 15 per build (memory-bound (cpu budget would allow 18); 1.5GB/job assumed over a 3.9GB reserve)
+test threads: 9 concurrent test processes (default would be 20) -- memory-bound (cpu budget would allow 18), 2.5GB/process assumed
+build priority: BelowNormal (host-service-owned; unapplied by pg)
+-------------------------
+[pg] rustfmt: cached clean.
+[pg] comment hygiene: clean (0.6s).
+[pg] -TestTarget backend_scoreboard_gate lives in harness 'backend_strategy'; running only its 'backend_scoreboard_gate::' tests.
+[pg] conformance scope: all
+[build-env] waiting for a build slot (2 concurrent across all worktrees)...
+[build-env]   build slot 0: pid 22 (conformance-test in integrate2) -- alive since 23:10:25
+[pg] lint gate: cargo clippy --all-targets --profile pg-test-opt --features pg-foma-backend/examples -p pg-foma-backend -- -D warnings
+[pg] host cgroup preflight: host cgroup cap: 9663676416 bytes (mapped root /sys/fs/cgroup, current /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/run-p2533545-i6741522.scope)
+    Finished `pg-test-opt` profile [optimized + debuginfo] target(s) in 0.05s
+[pg] cargo test --profile pg-test-opt -p pg-foma-backend --test backend_strategy --no-fail-fast -- backend_scoreboard_gate:: --test-threads 9 --nocapture  (target-dir: <default>, runner: cargo test)
+[pg] host cgroup preflight: host cgroup cap: 9663676416 bytes (mapped root /sys/fs/cgroup, current /sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/app.slice/run-p2533545-i6741522.scope)
+   Compiling pg-rules v0.6.1 (/home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication/rust/crates/pg-rules)
+   Compiling pg-parse v0.6.1 (/home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication/rust/crates/pg-parse)
+   Compiling pg-foma-runtime v0.6.1 (/home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication/rust/crates/pg-foma-runtime)
+   Compiling pg-conformance-fixtures v0.6.1 (/home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication/rust/crates/pg-conformance-fixtures)
+   Compiling pg-grammar-gen v0.6.1 (/home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication/rust/crates/pg-grammar-gen)
+   Compiling pg-foma v0.6.1 (/home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication/rust/crates/pg-foma)
+   Compiling pg-foma-backend v0.6.1 (/home/johnm/work/PanGloss.worktrees/fix/strrep-unapplication/rust/crates/pg-foma-backend)
+    Finished `pg-test-opt` profile [optimized + debuginfo] target(s) in 24.98s
+     Running tests/harnesses/backend_strategy.rs (target/pg-test-opt/deps/backend_strategy-6bc1e1c67793bf5c)
+
+running 1 test
+SCOREBOARD_CELL	machine:edge-cases/alpha-variable-name-collision	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/alpha-variable-name-collision	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/alpha-variable-name-collision	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/bistratal-overlapping-segment-representation	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/bistratal-overlapping-segment-representation	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/bistratal-overlapping-segment-representation	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/chained-output-feature-override-loss	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/chained-output-feature-override-loss	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/chained-output-feature-override-loss	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/compounding-breadth	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/compounding-breadth	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/compounding-breadth	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/cross-table-root-respelling	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/cross-table-root-respelling	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/cross-table-root-respelling	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/deep-optional-affix-nesting	PlanComposed	unmeasurable
+SCOREBOARD_CELL	machine:edge-cases/deep-optional-affix-nesting	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/deep-optional-affix-nesting	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/diacritic-segments	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/diacritic-segments	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/diacritic-segments	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/discontinuous-morph-environment	PlanComposed	compiles_but_misses
+SCOREBOARD_CELL	machine:edge-cases/discontinuous-morph-environment	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/discontinuous-morph-environment	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/disjunctive-recheck	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/disjunctive-recheck	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/disjunctive-recheck	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/feature-gating-breadth	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/feature-gating-breadth	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/feature-gating-breadth	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/feature-system-breadth	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/feature-system-breadth	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/feature-system-breadth	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/final-template-partial-discriminators	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/final-template-partial-discriminators	TunedSurfaceProbed	compiles_but_misses
+SCOREBOARD_CELL	machine:edge-cases/final-template-partial-discriminators	TemplatedUnderlyingTokens	compiles_but_misses
+SCOREBOARD_CELL	machine:edge-cases/free-fluctuating-allomorph-pair	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/free-fluctuating-allomorph-pair	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/free-fluctuating-allomorph-pair	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/iterative-epenthesis-cascade	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/iterative-epenthesis-cascade	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/iterative-epenthesis-cascade	TemplatedUnderlyingTokens	compiles_but_misses
+SCOREBOARD_CELL	machine:edge-cases/loader-default-symbol	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/loader-default-symbol	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-default-symbol	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-isactive	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-isactive	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-isactive	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-isactive-breadth	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-isactive-breadth	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-isactive-breadth	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-pattern-shapes	PlanComposed	unmeasurable
+SCOREBOARD_CELL	machine:edge-cases/loader-pattern-shapes	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/loader-pattern-shapes	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/metathesis-comparison-crash	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/metathesis-comparison-crash	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/metathesis-comparison-crash	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/morphotactic-attribute-breadth	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/morphotactic-attribute-breadth	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/morphotactic-attribute-breadth	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-gated-exception	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/mpr-gated-exception	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-gated-exception	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-group-overwrite-without-realizational	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-group-overwrite-without-realizational	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-group-overwrite-without-realizational	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-overwrite-order-dependence	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-overwrite-order-dependence	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/mpr-overwrite-order-dependence	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/process-morphology-in-place-mutation	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/process-morphology-in-place-mutation	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/process-morphology-in-place-mutation	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/rewrite-analysis-feature-neutralization	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/rewrite-analysis-feature-neutralization	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/rewrite-analysis-feature-neutralization	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/right-to-left-anchor-environment	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/right-to-left-anchor-environment	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/right-to-left-anchor-environment	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/shared-template-unconstrained-suffix	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/shared-template-unconstrained-suffix	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/shared-template-unconstrained-suffix	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/simultaneous-feeding	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/simultaneous-feeding	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/simultaneous-feeding	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/simultaneous-feeding-control-iterative	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/simultaneous-feeding-control-iterative	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/simultaneous-feeding-control-iterative	TemplatedUnderlyingTokens	compiles_but_misses
+SCOREBOARD_CELL	machine:edge-cases/stem-name-restricted-root-allomorph	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/stem-name-restricted-root-allomorph	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/stem-name-restricted-root-allomorph	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/strrep-identity	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/strrep-identity	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/strrep-identity	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/subrule-morphosyntactic-gating	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/subrule-morphosyntactic-gating	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/subrule-morphosyntactic-gating	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/synthesis-stratum-render-stale-table	PlanComposed	refused
+SCOREBOARD_CELL	machine:edge-cases/synthesis-stratum-render-stale-table	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/synthesis-stratum-render-stale-table	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:edge-cases/template-category-sharing	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/template-category-sharing	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/template-category-sharing	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/truncate-morphotactic	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/truncate-morphotactic	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:edge-cases/truncate-morphotactic	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:languages/fusional-realizational-morphology	PlanComposed	refused
+SCOREBOARD_CELL	machine:languages/fusional-realizational-morphology	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:languages/fusional-realizational-morphology	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:languages/metathesis-phase-isolation	PlanComposed	refused
+SCOREBOARD_CELL	machine:languages/metathesis-phase-isolation	TunedSurfaceProbed	compiles_but_misses
+SCOREBOARD_CELL	machine:languages/metathesis-phase-isolation	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:languages/polysynthetic-stratal-derivation-chain	PlanComposed	refused
+SCOREBOARD_CELL	machine:languages/polysynthetic-stratal-derivation-chain	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:languages/polysynthetic-stratal-derivation-chain	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:languages/prefixal-discontinuous-slot-dependency	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:languages/prefixal-discontinuous-slot-dependency	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:languages/prefixal-discontinuous-slot-dependency	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:languages/suffixing-evidential-adjacency-chain	PlanComposed	oracle_exact
+SCOREBOARD_CELL	machine:languages/suffixing-evidential-adjacency-chain	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:languages/suffixing-evidential-adjacency-chain	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	machine:languages/suffixing-extension-slot-ordering	PlanComposed	refused
+SCOREBOARD_CELL	machine:languages/suffixing-extension-slot-ordering	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:languages/suffixing-extension-slot-ordering	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:languages/suffixing-vowel-harmony	PlanComposed	refused
+SCOREBOARD_CELL	machine:languages/suffixing-vowel-harmony	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:languages/suffixing-vowel-harmony	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	machine:languages/templatic-root-modification	PlanComposed	refused
+SCOREBOARD_CELL	machine:languages/templatic-root-modification	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	machine:languages/templatic-root-modification	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/backend-gated-generic	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/backend-gated-generic	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/backend-gated-generic	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/backend-ordered-generic	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/backend-ordered-generic	TunedSurfaceProbed	compiles_but_misses
+SCOREBOARD_CELL	staging:edge-cases/backend-ordered-generic	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/backend-strata-generic	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/backend-strata-generic	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/backend-strata-generic	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/backend-template-generic	PlanComposed	unmeasurable
+SCOREBOARD_CELL	staging:edge-cases/backend-template-generic	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/backend-template-generic	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-conditioned-halves	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-conditioned-halves	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-conditioned-halves	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/circumfix-cross-product-and-infix-drop	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/circumfix-cross-product-and-infix-drop	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-cross-product-and-infix-drop	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/circumfix-in-template-slot	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/circumfix-in-template-slot	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-in-template-slot	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-infix-interior-action-precedence	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-infix-interior-action-precedence	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-infix-interior-action-precedence	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/circumfix-non-first-allomorph-selection	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-non-first-allomorph-selection	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-non-first-allomorph-selection	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-reduplication-precedence	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-reduplication-precedence	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/circumfix-reduplication-precedence	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/compounding-non-recursive	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/compounding-non-recursive	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/compounding-non-recursive	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/cross-stem-material-determination	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/cross-stem-material-determination	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/cross-stem-material-determination	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/deletion-reduplication-exception-composite	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/deletion-reduplication-exception-composite	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/deletion-reduplication-exception-composite	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/guesser-pattern-root-fallback	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/guesser-pattern-root-fallback	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/guesser-pattern-root-fallback	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/head-ambiguous-compounding	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/head-ambiguous-compounding	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/head-ambiguous-compounding	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/infix-interdigitation	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/infix-interdigitation	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/infix-interdigitation	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/multi-table-metathesis-shared-representation	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/multi-table-metathesis-shared-representation	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/multi-table-metathesis-shared-representation	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/optional-template-composite	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/optional-template-composite	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/optional-template-composite	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/pattern-root-required-environment	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/pattern-root-required-environment	TunedSurfaceProbed	refused
+SCOREBOARD_CELL	staging:edge-cases/pattern-root-required-environment	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/recursive-endocentric-compounding	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/recursive-endocentric-compounding	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/recursive-endocentric-compounding	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-bounded-quantifier-rewrite	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-bounded-quantifier-rewrite	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-bounded-quantifier-rewrite	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-cross-table-segments-environment	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-cross-table-segments-environment	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-cross-table-segments-environment	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-metathesis-reversal	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-metathesis-reversal	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-metathesis-reversal	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-segments-environment	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-segments-environment	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/right-to-left-segments-environment	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/segment-natural-class-table-binding	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/segment-natural-class-table-binding	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/segment-natural-class-table-binding	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/simultaneous-subrule-genuine-overlap	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/simultaneous-subrule-genuine-overlap	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/simultaneous-subrule-genuine-overlap	TemplatedUnderlyingTokens	refused
+SCOREBOARD_CELL	staging:edge-cases/standalone-combining-mark	PlanComposed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/standalone-combining-mark	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/standalone-combining-mark	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/strrep-rewrite-unapplication	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/strrep-rewrite-unapplication	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/strrep-rewrite-unapplication	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/two-table-shared-representation-recall	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/two-table-shared-representation-recall	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/two-table-shared-representation-recall	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/unbounded-iterative-quantifier-expansion	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/unbounded-iterative-quantifier-expansion	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/unbounded-iterative-quantifier-expansion	TemplatedUnderlyingTokens	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/zero-width-morpheme-identity-stability	PlanComposed	refused
+SCOREBOARD_CELL	staging:edge-cases/zero-width-morpheme-identity-stability	TunedSurfaceProbed	oracle_exact
+SCOREBOARD_CELL	staging:edge-cases/zero-width-morpheme-identity-stability	TemplatedUnderlyingTokens	oracle_exact
+backend_scoreboard_gate: cells that are not oracle_exact:
+  machine:edge-cases/alpha-variable-name-collision [PlanComposed]: refused
+  machine:edge-cases/alpha-variable-name-collision [TemplatedUnderlyingTokens]: refused
+  machine:edge-cases/bistratal-overlapping-segment-representation [TemplatedUnderlyingTokens]: refused
+  machine:edge-cases/cross-table-root-respelling [TemplatedUnderlyingTokens]: refused
+  machine:edge-cases/deep-optional-affix-nesting [PlanComposed]: unmeasurable
+  machine:edge-cases/discontinuous-morph-environment [PlanComposed]: compiles_but_misses
+  machine:edge-cases/discontinuous-morph-environment [TemplatedUnderlyingTokens]: refused
+  machine:edge-cases/feature-system-breadth [PlanComposed]: refused
+  machine:edge-cases/final-template-partial-discriminators [TemplatedUnderlyingTokens]: compiles_but_misses
+  machine:edge-cases/final-template-partial-discriminators [TunedSurfaceProbed]: compiles_but_misses
+  machine:edge-cases/iterative-epenthesis-cascade [PlanComposed]: refused
+  machine:edge-cases/iterative-epenthesis-cascade [TemplatedUnderlyingTokens]: compiles_but_misses
+  machine:edge-cases/loader-default-symbol [PlanComposed]: refused
+  machine:edge-cases/loader-pattern-shapes [PlanComposed]: unmeasurable
+  machine:edge-cases/metathesis-comparison-crash [PlanComposed]: refused
+  machine:edge-cases/mpr-gated-exception [PlanComposed]: refused
+  machine:edge-cases/process-morphology-in-place-mutation [TemplatedUnderlyingTokens]: refused
+  machine:edge-cases/rewrite-analysis-feature-neutralization [PlanComposed]: refused
+  machine:edge-cases/rewrite-analysis-feature-neutralization [TemplatedUnderlyingTokens]: refused
+  machine:edge-cases/right-to-left-anchor-environment [PlanComposed]: refused
+  machine:edge-cases/simultaneous-feeding [PlanComposed]: refused
+  machine:edge-cases/simultaneous-feeding [TemplatedUnderlyingTokens]: refused
+  machine:edge-cases/simultaneous-feeding-control-iterative [PlanComposed]: refused
+  machine:edge-cases/simultaneous-feeding-control-iterative [TemplatedUnderlyingTokens]: compiles_but_misses
+  machine:edge-cases/subrule-morphosyntactic-gating [PlanComposed]: refused
+  machine:edge-cases/synthesis-stratum-render-stale-table [PlanComposed]: refused
+  machine:edge-cases/synthesis-stratum-render-stale-table [TemplatedUnderlyingTokens]: refused
+  machine:languages/fusional-realizational-morphology [PlanComposed]: refused
+  machine:languages/fusional-realizational-morphology [TemplatedUnderlyingTokens]: refused
+  machine:languages/metathesis-phase-isolation [PlanComposed]: refused
+  machine:languages/metathesis-phase-isolation [TemplatedUnderlyingTokens]: refused
+  machine:languages/metathesis-phase-isolation [TunedSurfaceProbed]: compiles_but_misses
+  machine:languages/polysynthetic-stratal-derivation-chain [PlanComposed]: refused
+  machine:languages/suffixing-extension-slot-ordering [PlanComposed]: refused
+  machine:languages/suffixing-extension-slot-ordering [TemplatedUnderlyingTokens]: refused
+  machine:languages/suffixing-vowel-harmony [PlanComposed]: refused
+  machine:languages/suffixing-vowel-harmony [TemplatedUnderlyingTokens]: refused
+  machine:languages/templatic-root-modification [PlanComposed]: refused
+  machine:languages/templatic-root-modification [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/backend-gated-generic [PlanComposed]: refused
+  staging:edge-cases/backend-ordered-generic [PlanComposed]: refused
+  staging:edge-cases/backend-ordered-generic [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/backend-ordered-generic [TunedSurfaceProbed]: compiles_but_misses
+  staging:edge-cases/backend-strata-generic [PlanComposed]: refused
+  staging:edge-cases/backend-template-generic [PlanComposed]: unmeasurable
+  staging:edge-cases/circumfix-conditioned-halves [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/circumfix-cross-product-and-infix-drop [PlanComposed]: refused
+  staging:edge-cases/circumfix-cross-product-and-infix-drop [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/circumfix-in-template-slot [PlanComposed]: refused
+  staging:edge-cases/circumfix-infix-interior-action-precedence [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/circumfix-reduplication-precedence [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/deletion-reduplication-exception-composite [PlanComposed]: refused
+  staging:edge-cases/deletion-reduplication-exception-composite [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/infix-interdigitation [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/multi-table-metathesis-shared-representation [PlanComposed]: refused
+  staging:edge-cases/optional-template-composite [PlanComposed]: refused
+  staging:edge-cases/pattern-root-required-environment [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/pattern-root-required-environment [TunedSurfaceProbed]: refused
+  staging:edge-cases/right-to-left-bounded-quantifier-rewrite [PlanComposed]: refused
+  staging:edge-cases/right-to-left-cross-table-segments-environment [PlanComposed]: refused
+  staging:edge-cases/right-to-left-metathesis-reversal [PlanComposed]: refused
+  staging:edge-cases/right-to-left-segments-environment [PlanComposed]: refused
+  staging:edge-cases/segment-natural-class-table-binding [PlanComposed]: refused
+  staging:edge-cases/segment-natural-class-table-binding [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/simultaneous-subrule-genuine-overlap [PlanComposed]: refused
+  staging:edge-cases/simultaneous-subrule-genuine-overlap [TemplatedUnderlyingTokens]: refused
+  staging:edge-cases/strrep-rewrite-unapplication [PlanComposed]: refused
+  staging:edge-cases/two-table-shared-representation-recall [PlanComposed]: refused
+  staging:edge-cases/unbounded-iterative-quantifier-expansion [PlanComposed]: refused
+  staging:edge-cases/zero-width-morpheme-identity-stability [PlanComposed]: refused
+
+thread 'backend_scoreboard_gate::backend_scoreboard_matches_the_ratchet_in_both_directions' (811) panicked at crates/pg-foma-backend/tests/harnesses/../backend_scoreboard_gate.rs:216:9:
+assertion `left == right` failed: TunedSurfaceProbed: measured Bucket { oracle_exact: 70, compiles_but_misses: 3, refused: 1, unmeasurable: 0 } but the ratchet says Bucket { oracle_exact: 69, compiles_but_misses: 3, refused: 1, unmeasurable: 0 } -- a WORSENED count is a regression, an IMPROVED one means this constant is stale and must be updated deliberately (see this module's own reconciliation note); the non-exact cells are listed on stderr above
+  left: Bucket { oracle_exact: 70, compiles_but_misses: 3, refused: 1, unmeasurable: 0 }
+ right: Bucket { oracle_exact: 69, compiles_but_misses: 3, refused: 1, unmeasurable: 0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test backend_scoreboard_gate::backend_scoreboard_matches_the_ratchet_in_both_directions ... FAILED
+
+failures:
+
+failures:
+    backend_scoreboard_gate::backend_scoreboard_matches_the_ratchet_in_both_directions
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 68 filtered out; finished in 44.65s
+
+error: test failed, to rerun pass `-p pg-foma-backend --test backend_strategy`
+error: 1 target failed:
+    `-p pg-foma-backend --test backend_strategy`

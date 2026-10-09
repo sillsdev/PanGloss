@@ -1,0 +1,22 @@
+Original: 73 scored fixtures, 219 cells.
+Proposed: 74 scored fixtures, 222 cells.
+Existing cells checked: 219.
+Existing cells changed state: 0.
+Existing cells removed: 0.
+Added cells: 3.
+Added: staging:edge-cases/strrep-rewrite-unapplication	PlanComposed	refused
+Added: staging:edge-cases/strrep-rewrite-unapplication	TemplatedUnderlyingTokens	oracle_exact
+Added: staging:edge-cases/strrep-rewrite-unapplication	TunedSurfaceProbed	oracle_exact
+TunedSurfaceProbed before: oracle_exact=69, compiles_but_misses=3, refused=1, unmeasurable=0
+TunedSurfaceProbed after: oracle_exact=70, compiles_but_misses=3, refused=1, unmeasurable=0
+TemplatedUnderlyingTokens before: oracle_exact=47, compiles_but_misses=3, refused=23, unmeasurable=0
+TemplatedUnderlyingTokens after: oracle_exact=48, compiles_but_misses=3, refused=23, unmeasurable=0
+PlanComposed before: oracle_exact=34, compiles_but_misses=1, refused=35, unmeasurable=3
+PlanComposed after: oracle_exact=34, compiles_but_misses=1, refused=36, unmeasurable=3
+Original focused gate exit: 0.
+Proposed focused gate exit with original ratchet retained: 101 (approved inventory addition).
+Both temporary diagnostic checks exit: 0.
+Measurement emits every owner-measured cell; --nocapture preserves passing-test output.
+Original measurement restores aa59f3d0 bridge.rs/rewrite.rs and removes only the new fixture.
+Proposed measurement uses the port and the new fixture. All sources and the fixture restored in finally.
+No expectation changed before this comparison.

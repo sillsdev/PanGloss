@@ -1,44 +1,7 @@
-//! Part 1 — the pattern → FST compile bridge (plan §5.4/§5.5).
-//!
-//! Translates an authored `pg_grammar_model::model::Pattern` (its `PatternNode` tree) into
-//! `pg_fst::CompileInput` and compiles it to a frozen `pg_fst::Fst`. This is the seam the
-//! module doc of `pg-fst`'s `compile.rs` describes: pg-fst deliberately does *not* depend on
-//! pg-grammar; **this** module owns the grammar-aware resolution (natural classes, char-def
-//! feature bundles, alpha variables) down to the canonical `u64` symbolic-feature lanes that
-//! `CompileNode::Constraint` consumes.
-//!
-//! ## Node mapping (C# `PatternNode` → `CompileNode`)
-//! - `PatternNode::Context` (`<SimpleContext>`): resolve its `NatClassId` to a per-lane
-//!   constraint. `NaturalClassKind::Feature` → each `(FlatIndex, SymbolBits)` sets that lane;
-//!   unmentioned lanes stay `UNCONSTRAINED`. `NaturalClassKind::Segments` → the lane-wise **union**
-//!   (OR) of the listed char-defs' feature bundles (a segment class matches any listed segment, and
-//!   under unification matching the union bundle is unifiable with each member).
-//! - **Alpha variables** (`SimpleContext.vars`): the real Indonesian and Amharic phonological rules
-//!   *do* use these (nasal/place assimilation etc. — census: Indonesian 1 rule, Amharic several,
-//!   one with 14 variable features). pg-fst's frozen FSA path carries **no** variable bindings (its
-//!   determinism predicate is literally `!hasVariables`) — a **flagged frozen-contract gap**. We do
-//!   not edit pg-fst; instead the bridge lowers every variable-governed feature lane to
-//!   `UNCONSTRAINED`, making the compiled FST a **sound over-approximation**: it accepts a superset
-//!   of the true match set, and the `CompiledPattern::uses_alpha_vars` flag tells the rule driver
-//!   the span it found must still be agreement-checked (binding a variable on first sight, verifying
-//!   it after) before the RHS is applied. The hand-built Part-2 gate rules use no variables; the
-//!   agreement post-filter for the real grammars is described in the report as the remaining work.
-//! - `PatternNode::CharDef`: that char-def's `feature_lanes()` as the constraint (match =
-//!   feature unifiability, **not** char-def identity). **Stale-claim correction (plan §W1.5):**
-//!   boundary char-defs do **not** have empty feature lanes / match-any semantics — every char-def,
-//!   segment or boundary, carries a full `feat_sys.len()`-wide lane row with its `Type` lane always
-//!   pinned to `Segment`-only or `Boundary`-only bits (plan §13.1 Tier-1 #1,
-//!   `pg_grammar_model::chardef::CharDef::feature_lanes` doc, `2f238cee`); a boundary constraint here
-//!   matches only boundary nodes, exactly like any other pinned lane.
-//! - `PatternNode::Quantifier`: the pg-fst `{min,max}` quantifier over the compiled children.
-//! - `PatternNode::Segments`: a sequence of per-node constraints taken from the pre-segmented
-//!   shape's interior char-defs.
-//! - `PatternNode::Anchor`: pg-fst has no anchor *node* — anchoring is the `start_anchor`/
-//!   `end_anchor` flags on the traversal (see `pg-fst` compile.rs docs). A left/right anchor node
-//!   therefore lifts to a flag on the returned `CompiledPattern`, not a `CompileNode`.
+//! Compiles grammar patterns to FST constraints with literal identities and deferred alpha-variable agreement.
 
 use pg_fst::{CompileInput, CompileNode, Fst};
-use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::chardef::{CharDefId, CharDefTable};
 use pg_grammar_model::model::{
     AnchorSide, Grammar, NatClassId, NaturalClassKind, Pattern, PatternNode, SimpleContext, TableId,
 };
@@ -139,14 +102,62 @@ pub struct PatternBridge<'g> {
     grammar: &'g Grammar,
     table: TableId,
     deterministic: bool,
-    /// P10 `StrRep` identity lane: when `true`, `Segments`/char-def constraints carry an extra synthetic membership-bitset lane; off by default since only id-lane-aware compile sites feed matching inputs.
-    /// See `docs/research/pg-rules-p10-identity-lane-design-notes.md` for the full C# correspondence and the on/off safety argument.
+    // Allomorph identity inputs: docs/research/pg-rules-p10-identity-lane-design-notes.md.
     id_lane: bool,
+    strrep: Option<StrRepMatcher>,
 }
 
-/// The P10 identity lane's index for `table`, or `None` when the table cannot be represented
+/// Exact literal membership for featureless segments, with 63 character ids per FST lane.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct StrRepMatcher {
+    width: usize,
+    count: usize,
+}
+
+impl StrRepMatcher {
+    pub(crate) fn new(grammar: &Grammar, table: &CharDefTable) -> Option<Self> {
+        grammar.phon_features.is_empty().then_some(Self {
+            width: pg_grammar_model::membership::width(&grammar.phon_features),
+            count: table.len(),
+        })
+    }
+
+    pub(crate) fn constrain(self, lanes: &mut Vec<u64>, cd: u32) {
+        assert!(
+            (cd as usize) < self.count,
+            "StrRep constraint is outside its table"
+        );
+        lanes.resize(self.width + self.count.div_ceil(63), UNCONSTRAINED);
+        lanes[self.width + cd as usize / 63] = 1 << (cd % 63);
+    }
+
+    pub(crate) fn input(self, lanes: &mut Vec<u64>, cd: u32, set: &pg_shape::CdSet) {
+        let chunks = self.count.div_ceil(63);
+        if cd == pg_shape::NO_CHAR_DEF && matches!(set, pg_shape::CdSet::Unrestricted) {
+            lanes.resize(self.width + chunks, UNCONSTRAINED);
+            return;
+        }
+        // The high bit keeps an unrelated chunk nonempty without matching any literal constraint.
+        lanes.resize(self.width + chunks, 1 << 63);
+        if cd != pg_shape::NO_CHAR_DEF {
+            assert!(
+                (cd as usize) < self.count,
+                "StrRep input is outside its table"
+            );
+            lanes[self.width + cd as usize / 63] |= 1 << (cd % 63);
+        } else if let pg_shape::CdSet::Members(bits) = set {
+            for id in 0..self.count as u32 {
+                if bits.contains(id) {
+                    lanes[self.width + id as usize / 63] |= 1 << (id % 63);
+                }
+            }
+        }
+    }
+}
+
+/// The allomorph identity lane's index for `table`, or `None` when the table cannot be represented
 /// exactly in one `u64` (> 64 char-defs — Amharic's 422-def table): identity discrimination is
-/// then disabled wholesale (constraints and inputs both omit the lane), preserving the pre-P10
+/// then disabled wholesale (constraints and inputs both omit the lane), preserving the feature-only
 /// over-approximation rather than silently truncating membership. The lane follows the shared
 /// matching lanes (`membership::width`), so it cannot collide with phonological or eligibility lanes.
 pub(crate) fn id_lane_width(grammar: &Grammar, table: TableId) -> Option<usize> {
@@ -176,6 +187,7 @@ impl<'g> PatternBridge<'g> {
             table: TableId(0),
             deterministic: true,
             id_lane: false,
+            strrep: None,
         }
     }
 
@@ -185,10 +197,22 @@ impl<'g> PatternBridge<'g> {
         self
     }
 
-    /// Opt in to the P10 `StrRep` identity lane (see the field doc). Callers must feed the
+    /// Opt in to the allomorph `StrRep` identity lane (see the field doc). Callers must feed the
     /// resulting FSTs inputs built with the same lane (`crate::morph::segs_of`).
     pub fn id_lane(mut self, on: bool) -> Self {
         self.id_lane = on;
+        self
+    }
+
+    pub(crate) fn strrep(mut self, on: bool) -> Self {
+        self.strrep = on
+            .then(|| {
+                StrRepMatcher::new(
+                    self.grammar,
+                    &self.grammar.char_tables[self.table.0 as usize],
+                )
+            })
+            .flatten();
         self
     }
 
@@ -203,8 +227,7 @@ impl<'g> PatternBridge<'g> {
         pg_grammar_model::membership::width(&self.grammar.phon_features)
     }
 
-    /// Resolve a natural-class constraint to canonical `u64` lanes. `Segments`-kind lanes are a union over members and so over-approximate real membership on id-lane-off paths; P10's identity lane closes most of this, and P7 censused the rest as inert on every reference grammar.
-    /// See `docs/research/pg-rules-p10-identity-lane-design-notes.md` for the residual gap, the census evidence, and why it is scoped out rather than fixed here.
+    // Feature-lane unions overapproximate member correlation; identity constraints preserve exact membership.
     fn nat_class_lanes(&self, id: NatClassId) -> Result<Vec<u64>, BridgeError> {
         let nc = self
             .grammar
@@ -242,7 +265,7 @@ impl<'g> PatternBridge<'g> {
                     nc,
                     self.grammar.phon_features.type_flat(),
                 );
-                // P10 `StrRep` identity lane (see the `id_lane` field doc): the member-set bitset makes membership exact where the lane union alone over-approximates.
+                // Member-set bits preserve identity where feature unions lose correlation.
                 if self.id_lane {
                     if let Some(idw) = id_lane_width(self.grammar, self.table) {
                         let bits = segs.iter().fold(0u64, |acc, cd| acc | (1u64 << cd.0));
@@ -273,11 +296,14 @@ impl<'g> PatternBridge<'g> {
             return Err(BridgeError::BadCharDef(cd));
         }
         let mut lanes = table.get(cd).literal_constraint_lanes();
-        // P10 `StrRep` identity lane (see the `id_lane` doc): a concrete char-def constraint matches only that char-def in C#, not any feature-unifiable segment.
+        // Literal membership is narrower than feature unifiability.
         if self.id_lane {
             if let Some(idw) = id_lane_width(self.grammar, self.table) {
                 push_id_lane(&mut lanes, idw, 1u64 << cd.0);
             }
+        }
+        if let Some(strrep) = self.strrep {
+            strrep.constrain(&mut lanes, cd.0);
         }
         Ok(lanes)
     }
@@ -296,7 +322,23 @@ impl<'g> PatternBridge<'g> {
                 PatternNode::Context(sc) => {
                     let (lanes, had_vars) = self.simple_context_lanes(sc)?;
                     *uses_vars |= had_vars;
-                    out.push(CompileNode::Constraint(lanes));
+                    if let (Some(strrep), NaturalClassKind::Segments(members)) = (
+                        self.strrep,
+                        &self.grammar.natural_classes[sc.nat_class.0 as usize].kind,
+                    ) {
+                        out.push(CompileNode::Alternation(
+                            members
+                                .iter()
+                                .map(|cd| {
+                                    let mut member = lanes.clone();
+                                    strrep.constrain(&mut member, cd.0);
+                                    vec![CompileNode::Constraint(member)]
+                                })
+                                .collect(),
+                        ));
+                    } else {
+                        out.push(CompileNode::Constraint(lanes));
+                    }
                 }
                 PatternNode::CharDef(cd) => {
                     out.push(CompileNode::Constraint(self.char_def_lanes(*cd)?));
@@ -319,11 +361,14 @@ impl<'g> PatternBridge<'g> {
                         let mut lanes = seg_table
                             .get(CharDefId(char_def))
                             .literal_constraint_lanes();
-                        // P10 `StrRep` identity lane, same rationale as `char_def_lanes`, only when the node's table IS the bridge's table: id bits live in one table's char-def id space.
+                        // Membership bits use the owning table's character-definition ids.
                         if self.id_lane && *table == self.table {
                             if let Some(idw) = id_lane_width(self.grammar, *table) {
                                 push_id_lane(&mut lanes, idw, 1u64 << char_def);
                             }
+                        }
+                        if let Some(strrep) = self.strrep.filter(|_| *table == self.table) {
+                            strrep.constrain(&mut lanes, char_def);
                         }
                         out.push(CompileNode::Constraint(lanes));
                     }

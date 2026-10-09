@@ -18,15 +18,17 @@ use pg_featstruct::{FeatureStruct, FeatureValue};
 use pg_fst::{
     CompileInput, CompileNode, Direction, Fst, FstResult, Segment, Transduce, ENTIRE_MATCH,
 };
-use pg_grammar_model::chardef::{CharDefKind, CharDefTable};
+use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
     Grammar, MprSet, NaturalClassKind, PRuleId, Pattern, PatternNode, RewriteMode, RewriteRuleDef,
     RewriteSubruleDef, StratumId, TableId,
 };
-use pg_shape::{NodeFlags, NodeKind, Shape, ShapeBuilder};
+use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeFlags, NodeKind, Shape, ShapeBuilder};
 
-use crate::bridge::{pattern_var_occurrences, PatternBridge, VarOccur, UNCONSTRAINED};
+use crate::bridge::{
+    pattern_var_occurrences, PatternBridge, StrRepMatcher, VarOccur, UNCONSTRAINED,
+};
 use crate::stats::PRuleStatsCtx;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::Word;
@@ -39,6 +41,7 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 pub(crate) struct MutNode {
     pub(crate) kind: NodeKind,
     pub(crate) char_def: u32,
+    pub(crate) cd_set: CdSet,
     pub(crate) lanes: Vec<u64>,
     pub(crate) optional: bool,
     /// C# `Annotation.FeatureStruct[Deletion] == Deleted` (synthesis narrow marks then filters).
@@ -48,10 +51,54 @@ pub(crate) struct MutNode {
     pub(crate) dirty: bool,
 }
 
+impl MutNode {
+    fn contains_strrep(&self, cd: u32) -> bool {
+        if self.char_def != pg_shape::NO_CHAR_DEF {
+            self.char_def == cd
+        } else {
+            match &self.cd_set {
+                CdSet::Unrestricted => true,
+                CdSet::Members(bits) => bits.contains(cd),
+            }
+        }
+    }
+
+    fn add_strrep(&mut self, g: &Grammar, table: &CharDefTable, cd: u32) {
+        if self.char_def != pg_shape::NO_CHAR_DEF {
+            self.cd_set = CdSet::Members(CdBits::from_ids([self.char_def, cd]));
+        } else if let CdSet::Members(bits) = &mut self.cd_set {
+            bits.insert(cd);
+        }
+        self.char_def = pg_shape::NO_CHAR_DEF;
+        self.lanes[pg_grammar_model::membership::width(&g.phon_features) - 1] |=
+            table.get(CharDefId(cd)).membership_bits();
+    }
+
+    fn rewrite_identity(
+        &mut self,
+        g: &Grammar,
+        table: &CharDefTable,
+        rhs: &PatternNode,
+        strrep: bool,
+    ) {
+        if strrep {
+            if let PatternNode::CharDef(cd) = rhs {
+                self.char_def = cd.0;
+                self.cd_set = CdSet::Unrestricted;
+                self.lanes[pg_grammar_model::membership::width(&g.phon_features) - 1] =
+                    table.get(*cd).membership_bits();
+            }
+        } else {
+            self.char_def = pg_shape::NO_CHAR_DEF;
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct MutShape {
     pub(crate) w: usize,
     pub(crate) nodes: Vec<MutNode>,
+    strrep: Option<StrRepMatcher>,
 }
 
 impl MutShape {
@@ -61,13 +108,31 @@ impl MutShape {
             .map(|i| MutNode {
                 kind: s.kind(i),
                 char_def: s.char_def(i),
+                cd_set: CdSet::Unrestricted,
                 lanes: s.node_lanes(i).to_vec(),
                 optional: s.flags(i).is_optional(),
                 deleted: false,
                 dirty: false,
             })
             .collect();
-        MutShape { w, nodes }
+        MutShape {
+            w,
+            nodes,
+            strrep: None,
+        }
+    }
+
+    fn for_rewrite(g: &Grammar, table: &CharDefTable, s: &Shape) -> Self {
+        let mut result = Self::from_shape(s);
+        result.strrep = StrRepMatcher::new(g, table);
+        if result.strrep.is_some() {
+            for (i, node) in result.nodes.iter_mut().enumerate() {
+                if let EffectiveCdSet::Members(bits) = s.node_cd_set(i) {
+                    node.cd_set = CdSet::Members(bits.clone());
+                }
+            }
+        }
+        result
     }
 
     /// Freeze back to an immutable `Shape`: drop deleted nodes, carry Optional (segments via the
@@ -85,6 +150,9 @@ impl MutShape {
         let mut b = ShapeBuilder::with_features_capacity(w, interior.len());
         for n in &interior {
             match n.kind {
+                NodeKind::Segment if n.char_def == pg_shape::NO_CHAR_DEF => {
+                    b.push_segment_with_lanes_and_set(&n.lanes, n.cd_set.clone());
+                }
                 NodeKind::Segment => b.push_segment_with_lanes(n.char_def, &n.lanes),
                 NodeKind::Boundary => b.push_boundary_with_lanes(n.char_def, &n.lanes),
                 _ => unreachable!(),
@@ -103,13 +171,22 @@ impl MutShape {
             for idx in optional_positions {
                 let n = interior[idx - 1];
                 m.delete(idx);
-                m.insert(
-                    idx,
-                    NodeKind::Segment,
-                    n.char_def,
-                    NodeFlags(NodeFlags::OPTIONAL),
-                    &n.lanes,
-                );
+                if n.char_def == pg_shape::NO_CHAR_DEF {
+                    m.insert_with_set(
+                        idx,
+                        NodeFlags(NodeFlags::OPTIONAL),
+                        &n.lanes,
+                        n.cd_set.clone(),
+                    );
+                } else {
+                    m.insert(
+                        idx,
+                        NodeKind::Segment,
+                        n.char_def,
+                        NodeFlags(NodeFlags::OPTIONAL),
+                        &n.lanes,
+                    );
+                }
             }
             shape = m.freeze();
         }
@@ -130,17 +207,23 @@ impl MutShape {
             if n.deleted {
                 continue;
             }
+            let mut lanes = n.lanes.clone();
+            if let Some(strrep) = self.strrep {
+                if matches!(n.kind, NodeKind::Segment | NodeKind::Boundary) {
+                    strrep.input(&mut lanes, n.char_def, &n.cd_set);
+                }
+            }
             match n.kind {
                 NodeKind::Segment => {
                     segs.push(if n.optional {
-                        Segment::optional(n.lanes.clone())
+                        Segment::optional(lanes)
                     } else {
-                        Segment::new(n.lanes.clone())
+                        Segment::new(lanes)
                     });
                     node_of.push(i);
                 }
                 NodeKind::Boundary if include_boundaries => {
-                    segs.push(Segment::optional(n.lanes.clone()));
+                    segs.push(Segment::optional(lanes));
                     node_of.push(i);
                 }
                 _ => {}
@@ -330,10 +413,8 @@ pub(crate) fn compile_env(g: &Grammar, table_id: TableId, env: Option<&Pattern>)
     compile_env_impl(g, table_id, env, false, false)
 }
 
-/// `compile_env` with the `StrRep` identity lane enabled, for **allomorph** environments only,
-/// whose match inputs come from `crate::morph::segs_of` and carry the same lane. Phonological-rule
-/// environments must keep plain `compile_env`: their inputs are the rewrite driver's own lane-less
-/// node lanes, and an id-lane constraint against those mis-fires on determinized negated arcs.
+/// Allomorph environments use the identity lane carried by `crate::morph::segs_of`.
+/// Rewrite environments use `compile_env` and its featureless literal encoding instead.
 ///
 /// The split is not merely about precision. Allomorph environments feed the disjunctive re-check,
 /// where an environment that OVER-matches flips into wrongly REJECTING the word — a passed-over
@@ -394,7 +475,10 @@ fn compile_env_impl(
     } else {
         env
     };
-    let bridge = PatternBridge::new(g).with_table(table_id).id_lane(id_lane);
+    let bridge = PatternBridge::new(g)
+        .with_table(table_id)
+        .id_lane(id_lane)
+        .strrep(!id_lane);
     let mut compiled = bridge
         .compile_pattern(pat_ref)
         .expect("environment compiles");
@@ -638,7 +722,7 @@ fn pattern_defaults_ok(
 ) -> bool {
     for (k, row) in pattern_lanes.iter().enumerate() {
         let node = target_nodes[k];
-        for (f, &bits) in row.iter().enumerate() {
+        for (f, &bits) in row.iter().take(g.phon_features.len()).enumerate() {
             let mask = full_mask(g, f);
             if bits == mask {
                 continue; // unpinned at this position -- nothing for UseDefaults to confirm
@@ -743,7 +827,7 @@ pub fn synthesize_with_mpr(
 ) -> Vec<Shape> {
     let table_id = TableId(0);
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::for_rewrite(g, table, input);
     let mut applied = false;
 
     for sr in &rule.subrules {
@@ -807,7 +891,7 @@ pub(crate) fn synthesize_with_mpr_cached(
     // `pid` resolves this rule's own owning-stratum table, never an implicit table zero; the fallback applies only to an orphaned prule.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::for_rewrite(g, table, input);
     let mut applied = false;
     let pc = cache.prule_rewrite(pid);
 
@@ -960,7 +1044,7 @@ pub fn synthesize_with_mpr_traced(
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::for_rewrite(g, table, input);
     let mut applied = false;
     let mut outcomes: Vec<SubruleOutcome> = Vec::with_capacity(rule.subrules.len());
 
@@ -1052,7 +1136,7 @@ pub fn synthesize_with_mpr_cached_traced(
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(&input.shape);
+    let mut ms = MutShape::for_rewrite(g, table, &input.shape);
     let mut applied = false;
     let pc = cache.prule_rewrite(pid);
     let mut outcomes: Vec<SubruleOutcome> = Vec::with_capacity(rule.subrules.len());
@@ -1169,7 +1253,7 @@ pub fn analyze(
     }
     let table_id = TableId(0);
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::for_rewrite(g, table, input);
     let mut applied = false;
 
     for sr in &rule.subrules {
@@ -1268,7 +1352,7 @@ pub(crate) fn analyze_cached(
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::for_rewrite(g, table, input);
     let mut applied = false;
     let pc = cache.prule_rewrite(pid);
 
@@ -1403,7 +1487,7 @@ pub fn analyze_traced(
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::for_rewrite(g, table, input);
     let mut applied = false;
 
     for (i, sr) in rule.subrules.iter().enumerate() {
@@ -1516,7 +1600,7 @@ pub fn analyze_cached_traced(
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::for_rewrite(g, table, input);
     let mut applied = false;
     let pc = cache.prule_rewrite(pid);
 
@@ -1731,8 +1815,7 @@ fn syn_feature(
                     }
                 }
                 ms.nodes[node].dirty = true;
-                // Rewriting a node's features breaks the correspondence between its literal `char_def` and its current lanes (C#'s `GetMatchingStrReps` re-derives from current features every time); clear to `u32::MAX` so lookup falls back to lane unification instead of the stale literal's own fixed representations — untouched nodes keep their identity lock, so this can't reopen the empty-lanes match-everything bug that lock exists to prevent.
-                ms.nodes[node].char_def = u32::MAX;
+                ms.nodes[node].rewrite_identity(g, table, &sr.rhs.nodes[k], ms.strrep.is_some());
             }
             applied = true;
             acted = true;
@@ -1831,8 +1914,7 @@ fn sim_feature(
                 }
             }
             ms.nodes[node].dirty = true;
-            // See `syn_feature`'s identical step for the full char_def-staleness rationale.
-            ms.nodes[node].char_def = u32::MAX;
+            ms.nodes[node].rewrite_identity(g, table, &sr.rhs.nodes[k], ms.strrep.is_some());
         }
     }
     true
@@ -1859,7 +1941,15 @@ fn ana_feature_target_lanes(
             for occ in &rhs_vars[k] {
                 lanes[occ.feature] = full_mask(g, occ.feature);
             }
-            to_fst_lanes(g, &lanes)
+            let mut lanes = to_fst_lanes(g, &lanes);
+            if let Some(strrep) = StrRepMatcher::new(g, table) {
+                if let PatternNode::CharDef(cd) = rhs_n {
+                    strrep.constrain(&mut lanes, cd.0);
+                } else if let PatternNode::CharDef(cd) = lhs_n {
+                    strrep.constrain(&mut lanes, cd.0);
+                }
+            }
+            lanes
         })
         .collect()
 }
@@ -1879,6 +1969,16 @@ fn ana_feature(
 ) -> bool {
     // RHS alpha-variable occurrences, positionally aligned to `sr.rhs.nodes` (needed by the target pattern, see `ana_feature_target_lanes`, and the changed-feature set below).
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
+
+    let input_spellings: Vec<Option<u32>> = rule
+        .lhs
+        .nodes
+        .iter()
+        .map(|node| match (ms.strrep, node) {
+            (Some(_), PatternNode::CharDef(cd)) => Some(cd.0),
+            _ => None,
+        })
+        .collect();
 
     // Recomputed rather than threaded in: the same recompile-per-call tradeoff `analyze` makes.
     let target_lanes = ana_feature_target_lanes(g, table, rule, sr);
@@ -1990,6 +2090,7 @@ fn ana_feature(
                 changed[k]
                     .iter()
                     .any(|&(f, neg)| ms.nodes[node].lanes[f] & neg != neg)
+                    || input_spellings[k].is_some_and(|cd| !ms.nodes[node].contains_strrep(cd))
             });
             if !nonvacuous {
                 rejected.insert(s);
@@ -2000,8 +2101,11 @@ fn ana_feature(
                     ms.nodes[node].lanes[f] |= neg;
                 }
                 ms.nodes[node].dirty = true;
-                // Mirrors `syn_feature`'s identical `char_def` clearing (see its doc): an unapplied node's literal identity would otherwise survive the lane-widening above and mismatch its now-current lanes, so `RootAllomorphIndex::search`'s char_def-equality gate could never find a root whose underlying segment differs from the surface. Clearing to `NO_CHAR_DEF` falls through to `CdSet::Unrestricted`, matching C#'s always-re-derived `GetMatchingStrReps`.
-                ms.nodes[node].char_def = pg_shape::NO_CHAR_DEF;
+                if let Some(cd) = input_spellings[k] {
+                    ms.nodes[node].add_strrep(g, table, cd);
+                } else if ms.strrep.is_none() {
+                    ms.nodes[node].char_def = pg_shape::NO_CHAR_DEF;
+                }
             }
             applied = true;
             acted = true;
@@ -2474,7 +2578,13 @@ fn ana_epenthesis_target_lanes(
     sr.rhs
         .nodes
         .iter()
-        .map(|n| to_fst_lanes(g, &node_full_lanes(g, table, n)))
+        .map(|n| {
+            let mut lanes = to_fst_lanes(g, &node_full_lanes(g, table, n));
+            if let (Some(strrep), PatternNode::CharDef(cd)) = (StrRepMatcher::new(g, table), n) {
+                strrep.constrain(&mut lanes, cd.0);
+            }
+            lanes
+        })
         .collect()
 }
 
@@ -2623,6 +2733,7 @@ fn lhs_fst(
 ) -> Fst {
     let bridge = PatternBridge::new(g)
         .with_table(table_id)
+        .strrep(true)
         .deterministic(deterministic);
     let compiled = bridge.compile_pattern(lhs).expect("LHS compiles");
     compiled.input.compile_with_direction(dir)
@@ -2656,6 +2767,7 @@ fn new_seg_node_dirty(
     MutNode {
         kind,
         char_def,
+        cd_set: CdSet::Unrestricted,
         lanes: node_full_lanes(g, table, node),
         optional,
         deleted: false,

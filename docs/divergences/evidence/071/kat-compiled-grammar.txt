@@ -1,0 +1,25 @@
+syn_features=3 pos=0 head=Some(1)
+  feat[0] id=__pos__ name=partsOfSpeech Symbolic symbols=2 default=None
+  feat[1] id=__head__ name=head Complex
+  feat[2] id=00000000-0000-0000-0000-000000000007 name=num Symbolic symbols=2 default=None
+mpr_features=1
+  mpr[0] Latinate
+mpr_groups=1
+  group[0] name=Some("exceptionFeatures") match=All output=Overwrite members=0b1
+natural_classes=2
+  nc[0] id=00000000-0000-0000-0000-000000000016 name=Some("V") Segments segs=1
+  nc[1] id=__any__ name=Some("Any") Feature lanes=1
+prules=1
+  prule[0] id=00000000-0000-0000-0000-000000000018 mode=Iterative dir=LeftToRight lhs_nodes=1 subrules=1
+mrules=2
+  mrule[0] Compounding id=Default Left Head Compounding subrules=1
+  mrule[1] Compounding id=Default Right Head Compounding subrules=1
+templates=0
+entries=1 root_allomorphs=1
+strata=3
+  stratum[0] name=Some("Morphology") order=Unordered table=0 prules=0 mrules=2 templates=0 entries=1
+  stratum[1] name=Some("Clitics") order=Unordered table=0 prules=1 mrules=0 templates=0 entries=0
+  stratum[2] name=Some("Surface") order=Linear table=0 prules=0 mrules=0 templates=0 entries=0
+morphemes=1
+allomorphs=1
+fs_interned=4

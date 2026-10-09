@@ -1,0 +1,27 @@
+Parsing "kat"
+No valid parses.
+Parse time: 51ms
+
+Parsing "kad"
+No valid parses.
+Parse time: 1ms
+
+Parsing "kak"
+No valid parses.
+Parse time: 0ms
+
+Parsing "dat"
+No valid parses.
+Parse time: 0ms
+
+Parsing "tat"
+No valid parses.
+Parse time: 0ms
+
+Parsing "kta"
+No valid parses.
+Parse time: 0ms
+
+Parsing "ka"
+No valid parses.
+Parse time: 0ms

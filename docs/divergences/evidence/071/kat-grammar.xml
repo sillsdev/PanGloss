@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>KatFixtureReachableGrammar</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="N"><Name>Noun</Name></PartOfSpeech>
+      <PartOfSpeech id="V"><Name>Verb</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="num"><Name>Number</Name><Symbols><Symbol id="sg">singular</Symbol><Symbol id="pl">plural</Symbol></Symbols></SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="table">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="t"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="d"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="k"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions><BoundaryDefinition id="plus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="a" /></SegmentNaturalClass>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="voicing">
+        <Name>Voicing</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="t" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="d" /></PhoneticSequence></PhoneticOutput>
+            <Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="table" morphologicalRuleOrder="unordered">
+        <Name>Morphology</Name>
+        <LexicalEntries>
+          <LexicalEntry id="rootKat" partOfSpeech="N">
+            <Allomorphs><Allomorph id="alloKat"><PhoneticShape>kat</PhoneticShape></Allomorph></Allomorphs>
+            <AssignedHeadFeatures><FeatureValue feature="num" symbolValues="pl" /></AssignedHeadFeatures>
+            <MorphemeId>00000000-0000-0000-0000-000000000032</MorphemeId>
+            <Gloss>cat</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="table" morphologicalRuleOrder="unordered" phonologicalRules="voicing"><Name>Clitics</Name></Stratum>
+      <Stratum characterDefinitionTable="table" morphologicalRuleOrder="linear"><Name>Surface</Name></Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

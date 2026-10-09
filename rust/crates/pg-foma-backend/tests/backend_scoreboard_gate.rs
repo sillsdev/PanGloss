@@ -1,5 +1,4 @@
-//! Ratchets `pg_foma::scoreboard`'s per-(fixture, backend) measurement in both directions.
-//! See docs/research/backend-scoreboard-extraction-reconciliation.md for how `EXPECTED` was derived.
+//! Ratchets the backend scoreboard in both directions; evidence: docs/research/backend-scoreboard-extraction-reconciliation.md.
 use pg_conformance_fixtures::discover;
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
@@ -48,7 +47,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 69,
+            oracle_exact: 70,
             compiles_but_misses: 3,
             refused: 2,
             unmeasurable: 0,
@@ -57,7 +56,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 47,
+            oracle_exact: 48,
             compiles_but_misses: 3,
             refused: 24,
             unmeasurable: 0,
@@ -68,7 +67,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 34,
             compiles_but_misses: 2,
-            refused: 35,
+            refused: 36,
             unmeasurable: 3,
         },
     ),
@@ -81,7 +80,6 @@ const EXPECTED_EXCLUDED: &[&str] = &["machine:edge-cases/simultaneous-epenthesis
 const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
     "staging:edge-cases/circumfix-non-first-allomorph-selection";
 
-/// See docs/research/backend-scoreboard-extraction-reconciliation.md's own section on this fixture for the hc.dll reading behind TSP's `refused` -> `oracle_exact` move.
 const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
 
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.

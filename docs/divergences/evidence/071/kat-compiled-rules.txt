@@ -1,0 +1,60 @@
+[
+    Rewrite(
+        RewriteRuleDef {
+            xml_id: "00000000-0000-0000-0000-000000000018",
+            name: Some(
+                "Voicing",
+            ),
+            mode: Iterative,
+            dir: LeftToRight,
+            vars: VarTable {
+                vars: [],
+            },
+            lhs: Pattern {
+                nodes: [
+                    CharDef(
+                        CharDefId(
+                            1,
+                        ),
+                    ),
+                ],
+            },
+            subrules: [
+                RewriteSubruleDef {
+                    required_pos: None,
+                    required_mpr: MprSet(
+                        0,
+                    ),
+                    excluded_mpr: MprSet(
+                        0,
+                    ),
+                    rhs: Pattern {
+                        nodes: [
+                            CharDef(
+                                CharDefId(
+                                    2,
+                                ),
+                            ),
+                        ],
+                    },
+                    left_env: Some(
+                        Pattern {
+                            nodes: [
+                                Context(
+                                    SimpleContext {
+                                        nat_class: NatClassId(
+                                            0,
+                                        ),
+                                        vars: [],
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                    right_env: None,
+                    self_opaquing: false,
+                },
+            ],
+        },
+    ),
+]

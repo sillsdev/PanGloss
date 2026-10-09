@@ -177,3 +177,36 @@ ordered word inputs, changing only the language name. The clone is another score
 the same TSP outcome. Measured after the sync: TunedSurfaceProbed 69 exact / 3 misses / 1 refusal,
 and 20 failed (kind, backend) faithfulness pairs (the clone repeats the same six pairs), with
 soundness still 0. Both ratchets were set to those values.
+
+## StrRep rewrite unapplication fixture
+
+`staging:edge-cases/strrep-rewrite-unapplication` adds one scored fixture per backend,
+increasing the inventory from 73 to 74 fixtures (219 to 222 cells). The gate emitted every
+cell with `--nocapture` for original `aa59f3d0` code and inventory, then for the port with
+this fixture. All 219 existing fixture/backend cells kept the same state; none was removed.
+Only these three cells were added:
+
+| Backend | Added cell | Ratchet change |
+|---|---|---|
+| TunedSurfaceProbed | `oracle_exact` | exact 69 to 70 |
+| TemplatedUnderlyingTokens | `oracle_exact` | exact 47 to 48 |
+| PlanComposed | `refused` | refused 35 to 36 |
+
+Miss and unmeasurable counts are unchanged. Both runs passed the soundness assertion;
+the proposed inventory failed only the original count assertion before the approved update.
+[Ledger 071 evidence](../divergences/evidence/071/README.md) preserves the full gate output,
+cell TSVs, comparison and measurement script. Temporary diagnostics were removed and
+original-source probing restored in `finally` before updating the three counts.
+
+PlanComposed's refusal is safe because HC supplies the fixture's answers. Extending that
+backend's coverage is a coverage-ledger follow-up; this change leaves its refusal policy intact.
+
+### Replay onto integrate/v2
+
+The source branch's totals above were remeasured on the integration branch at `abe66e44`.
+Every one of its 222 existing cells kept its state; only the three cells for
+`strrep-rewrite-unapplication` were added, for a total of 225. The updated buckets are
+TSP `(70 exact, 3 misses, 2 refused, 0 unmeasurable)`, TUT `(48, 3, 24, 0)`, and
+PC `(34, 2, 36, 3)`. The earlier realizational-reduplication fixture's two refusals and PC miss
+remain intact. [The integrated cell comparison](../divergences/evidence/071/integrate-v2-scoreboard-comparison.txt)
+links the before/after inventory; the gate now emits every owner-measured cell for future comparisons.

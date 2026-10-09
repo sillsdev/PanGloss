@@ -1,0 +1,29 @@
+Parsing "kat"
+No valid parses.
+Parse time: 56ms
+
+Parsing "kad"
+Parse 1
+Morphs: kad
+Gloss:  cat
+Parse time: 6ms
+
+Parsing "kak"
+No valid parses.
+Parse time: 0ms
+
+Parsing "dat"
+No valid parses.
+Parse time: 0ms
+
+Parsing "tat"
+No valid parses.
+Parse time: 0ms
+
+Parsing "kta"
+No valid parses.
+Parse time: 0ms
+
+Parsing "ka"
+No valid parses.
+Parse time: 0ms

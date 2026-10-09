@@ -300,11 +300,17 @@ fn analyses_sidecar_keeps_closed_rows_and_duplicate_word_indexes() {
 #[test]
 fn analyses_sidecar_projects_source_guids_from_fwdata() {
     let fixture = fwdata_fixture_with_k();
-    let rows = run_batch_sidecar_path("analyses-fwdata-source-guids", &fixture, "kat\n", &[]);
-    assert_eq!(rows.len(), 1);
+    // The literal rewrite makes kad the surface; see docs/divergences/071-strrep-rewrite-unapplication.md.
+    let rows = run_batch_sidecar_path("analyses-fwdata-source-guids", &fixture, "kad\nkat\n", &[]);
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        assert_eq!(row["capped"], false);
+        assert_eq!(row["timedOut"], false);
+        assert_eq!(row["invalidShape"], false);
+        assert_eq!(row["unavailable"], serde_json::json!([]));
+    }
     let row = &rows[0];
-    assert_eq!(row["invalidShape"], false);
-    assert_eq!(row["unavailable"], serde_json::json!([]));
+    assert_eq!(row["word"], "kad");
     assert_eq!(row["analyses"].as_array().unwrap().len(), 1);
     let morph = row["analyses"][0]["morphs"][0]
         .as_object()
@@ -313,6 +319,8 @@ fn analyses_sidecar_projects_source_guids_from_fwdata() {
     assert_eq!(morph["msa"], "00000000-0000-0000-0000-000000000032");
     assert_eq!(morph["inflType"], serde_json::Value::Null);
     assert_eq!(morph["guessedString"], serde_json::Value::Null);
+    assert_eq!(rows[1]["word"], "kat");
+    assert_eq!(rows[1]["analyses"], serde_json::json!([]));
 }
 
 #[test]

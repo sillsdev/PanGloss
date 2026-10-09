@@ -1,0 +1,8 @@
+discovered 1 fixture(s) under '.review/strrep-fixtures'
+
+engine: self-check, capabilities: [phonology]
+
+[FAIL] edge-cases/strrep-rewrite-unapplication (150ms) 1/6 word(s) mismatched: xpuma: expected [XMUMA|xpuma] got []
+    word 'xpuma': expected [XMUMA|xpuma] got []
+
+totals: 0 passed, 1 failed, 0 skipped (of 1 attempted)

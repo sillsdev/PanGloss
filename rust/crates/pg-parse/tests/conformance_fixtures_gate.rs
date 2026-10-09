@@ -1,11 +1,148 @@
-//! Dual-root conformance fixture replay: every fixture discovered under both `machine/conformance/**` and `conformance-staging/**` is loaded and every `words.yaml` word checked against `pg_parse::Morpher`.
-//! See docs/conformance-staging-plan.md for the design and `machine/conformance/PROTOCOL.md` for the fixture format.
+//! Replays discovered upstream and staged conformance fixtures against HC-Rust.
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, discover, graduation_guard_violations, producibility_census,
     replay_against_oracle, require_fixture, OracleProvenance,
 };
 use pg_parse::Morpher;
+
+#[test]
+fn strrep_rewrite_tracks_membership_when_a_provisional_literal_changes_identity() {
+    use pg_grammar_model::model::PhonRuleDef;
+    use pg_rules::{rewrite, shape_feat::segment_with_features};
+
+    let fixture = require_fixture("edge-cases", "strrep-rewrite-unapplication");
+    let mut grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let m = grammar.char_tables[0].lookup_nfd("m").unwrap();
+    grammar.char_tables[0].mark_provisional(m);
+    let segment = |text| segment_with_features(&grammar, &grammar.char_tables[0], text).unwrap();
+    let PhonRuleDef::Rewrite(rule) = &grammar.prules[0] else {
+        panic!("fixture must contain a rewrite")
+    };
+    let underlying = segment("xmuma");
+    let surface = segment("xpuma");
+    let analyzed = rewrite::analyze(&grammar, rule, &surface, None);
+    assert_eq!(analyzed.len(), 1);
+    assert!(
+        pg_featstruct::flat_unifiable(underlying.node_lanes(2), analyzed[0].node_lanes(2)),
+        "unapplication must retain the provisional input as an eligible literal"
+    );
+    assert_eq!(
+        rewrite::synthesize(&grammar, rule, &underlying),
+        vec![surface],
+        "the authored output must carry its own definition's membership"
+    );
+}
+
+#[test]
+fn strrep_rewrite_preserves_provisional_named_class_exclusion() {
+    use pg_grammar_model::model::{
+        NatClassId, NaturalClass, NaturalClassKind, PatternNode, PhonRuleDef, SimpleContext,
+    };
+    use pg_rules::{rewrite, shape_feat::segment_with_features};
+
+    let fixture = require_fixture("edge-cases", "strrep-rewrite-unapplication");
+    let mut grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let x = grammar.char_tables[0].lookup_nfd("x").unwrap();
+    let class = NatClassId(grammar.natural_classes.len() as u32);
+    grammar.natural_classes.push(NaturalClass {
+        xml_id: "named-x".into(),
+        name: Some("Named x".into()),
+        kind: NaturalClassKind::Segments(vec![x]),
+    });
+    let PhonRuleDef::Rewrite(rule) = &mut grammar.prules[0] else {
+        panic!("fixture must contain a rewrite")
+    };
+    rule.subrules[0].left_env.as_mut().unwrap().nodes = vec![PatternNode::Context(SimpleContext {
+        nat_class: class,
+        vars: vec![],
+    })];
+    let check = |grammar: &pg_grammar_model::model::Grammar| {
+        let PhonRuleDef::Rewrite(rule) = &grammar.prules[0] else {
+            unreachable!()
+        };
+        let segment = |text| segment_with_features(grammar, &grammar.char_tables[0], text).unwrap();
+        (
+            rewrite::synthesize(grammar, rule, &segment("xmuma")),
+            rewrite::analyze(grammar, rule, &segment("xpuma"), None),
+            segment("xpuma"),
+        )
+    };
+    let (synthesized, analyzed, surface) = check(&grammar);
+    assert_eq!(synthesized, vec![surface]);
+    assert_eq!(analyzed.len(), 1);
+
+    grammar.char_tables[0].mark_provisional(x);
+    let (synthesized, analyzed, _) = check(&grammar);
+    assert!(
+        synthesized.is_empty(),
+        "a named class cannot match provisional x"
+    );
+    assert!(
+        analyzed.is_empty(),
+        "the same exclusion applies during unapplication"
+    );
+}
+
+#[test]
+fn strrep_rewrite_preserves_literal_identity_and_rejects_vacuous_unapplication() {
+    use pg_grammar_model::model::{Dir, PhonRuleDef, RewriteMode};
+    use pg_rules::{rewrite, shape_feat::segment_with_features};
+
+    let fixture = require_fixture("edge-cases", "strrep-rewrite-unapplication");
+    let source = fixture.load_grammar_xml();
+    for padding in [0, 62, 70] {
+        let extra: String = (0..padding).map(|i| format!(
+            "<SegmentDefinition id=\"pad{i}\"><Representations><Representation>z{i}</Representation></Representations></SegmentDefinition>"
+        )).collect();
+        let xml = source.replace(
+            "<SegmentDefinitions>",
+            &format!("<SegmentDefinitions>{extra}"),
+        );
+        let mut grammar = pg_grammar::load(&xml).unwrap();
+        for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+            for dir in [Dir::LeftToRight, Dir::RightToLeft] {
+                let PhonRuleDef::Rewrite(rule) = &mut grammar.prules[0] else {
+                    panic!("fixture must contain a rewrite")
+                };
+                rule.mode = mode;
+                rule.dir = dir;
+                let PhonRuleDef::Rewrite(rule) = &grammar.prules[0] else {
+                    unreachable!()
+                };
+                let segment =
+                    |text| segment_with_features(&grammar, &grammar.char_tables[0], text).unwrap();
+                let underlying = segment("xmuma");
+                let surface = segment("xpuma");
+                assert_eq!(
+                    rewrite::synthesize(&grammar, rule, &underlying),
+                    vec![surface.clone()]
+                );
+                let widened = rewrite::analyze(&grammar, rule, &surface, None);
+                assert_eq!(widened.len(), 1);
+                let table = &grammar.char_tables[0];
+                for spelling in ["m", "p"] {
+                    assert!(widened[0]
+                        .node_cd_set(2)
+                        .contains(table.lookup_nfd(spelling).unwrap().0));
+                }
+                for spelling in ["x", "u", "a"] {
+                    assert!(!widened[0]
+                        .node_cd_set(2)
+                        .contains(table.lookup_nfd(spelling).unwrap().0));
+                }
+                assert!(rewrite::analyze(&grammar, rule, &widened[0], None).is_empty());
+                assert!(rewrite::analyze(&grammar, rule, &segment("puma"), None).is_empty());
+                assert_eq!(
+                    Morpher::new(&grammar, usize::MAX)
+                        .parse_word("xpuma")
+                        .signature(),
+                    "XMUMA|xpuma"
+                );
+            }
+        }
+    }
+}
 
 /// Fails if the same `(category, name)` fixture identity exists under both roots, enforcing that a fixture accepted upstream has its staged copy deleted in the same change.
 #[test]

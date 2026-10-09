@@ -1,0 +1,21 @@
+Baseline: integrate/v2 at abe66e444aa19113a2ab59ba82c62882654304b6.
+Before port: 74 scored fixtures, 222 cells.
+After port: 75 scored fixtures, 225 cells.
+Existing cells checked: 222.
+Existing cells changed state: 0.
+Existing cells removed: 0.
+Added cells: 3.
+Added: staging:edge-cases/strrep-rewrite-unapplication	PlanComposed	refused
+Added: staging:edge-cases/strrep-rewrite-unapplication	TemplatedUnderlyingTokens	oracle_exact
+Added: staging:edge-cases/strrep-rewrite-unapplication	TunedSurfaceProbed	oracle_exact
+TunedSurfaceProbed before: oracle_exact=69, compiles_but_misses=3, refused=2, unmeasurable=0
+TunedSurfaceProbed after: oracle_exact=70, compiles_but_misses=3, refused=2, unmeasurable=0
+TemplatedUnderlyingTokens before: oracle_exact=47, compiles_but_misses=3, refused=24, unmeasurable=0
+TemplatedUnderlyingTokens after: oracle_exact=48, compiles_but_misses=3, refused=24, unmeasurable=0
+PlanComposed before: oracle_exact=34, compiles_but_misses=2, refused=35, unmeasurable=3
+PlanComposed after: oracle_exact=34, compiles_but_misses=2, refused=36, unmeasurable=3
+Pre-port focused gate exit: 0.
+Post-port focused gate with pre-port ratchet retained exit: 101.
+Both runs emit every owner-measured cell with --nocapture.
+The post-port failure is the three approved new fixture cells only.
+No existing state was changed, removed, reclassified, or excluded.

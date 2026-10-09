@@ -54,6 +54,13 @@ not executed XAMPLE or C#. Machine source revision inspected locally is
 `pg-rules/src/bridge.rs`, `morph.rs`, and `rewrite.rs` share that decision. Foma's
 `lower.rs::class_members` and `structural_allomorph.rs::context_members` call the model owner.
 
+The literal rewrite identity encoding from [071](071-strrep-rewrite-unapplication.md) follows
+the shared matching lanes, including eligibility. Synthesis takes the replacement definition's
+`CharDef::membership_bits`; inverse widening retains the input definition's bits as well.
+The integration regressions `strrep_rewrite_preserves_provisional_named_class_exclusion` and
+`strrep_rewrite_tracks_membership_when_a_provisional_literal_changes_identity` cover exclusion
+and both rewrite directions. Each failed with its corresponding integration fix removed.
+
 An intermediate implementation excluded featureless segments from an authored empty
 FeatureNaturalClass because the loader adds Type=Segment. This broke
 `machine:edge-cases/chained-output-feature-override-loss`, word `zudi`: baseline/oracle

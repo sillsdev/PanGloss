@@ -1,0 +1,1639 @@
+{
+  "format": "pangloss-project",
+  "version": 1,
+  "project": {
+    "name": "fixture-with-k",
+    "vernacularWritingSystems": [
+      "fx"
+    ],
+    "analysisWritingSystems": [
+      "en"
+    ]
+  },
+  "featureSystems": {
+    "phonological": {
+      "closedFeatures": [],
+      "complexFeatures": []
+    },
+    "morphosyntactic": {
+      "closedFeatures": [
+        {
+          "guid": "00000000-0000-0000-0000-000000000007",
+          "name": "Number",
+          "abbreviation": "num",
+          "values": [
+            {
+              "guid": "00000000-0000-0000-0000-000000000008",
+              "name": "singular",
+              "abbreviation": "sg"
+            },
+            {
+              "guid": "00000000-0000-0000-0000-000000000009",
+              "name": "plural",
+              "abbreviation": "pl"
+            }
+          ]
+        }
+      ],
+      "complexFeatures": []
+    }
+  },
+  "phonology": {
+    "phonemeSet": "00000000-0000-0000-0000-00000000000f",
+    "phonemes": [
+      {
+        "guid": "00000000-0000-0000-0000-000000000010",
+        "name": "a",
+        "representations": [
+          {
+            "ws": "fx",
+            "form": "a"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "00000000-0000-0000-0000-000000000012",
+        "name": "t",
+        "representations": [
+          {
+            "ws": "fx",
+            "form": "t"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "00000000-0000-0000-0000-00000000001b",
+        "name": "d",
+        "representations": [
+          {
+            "ws": "fx",
+            "form": "d"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "00000000-0000-0000-0000-000000000025",
+        "name": "k",
+        "representations": [
+          {
+            "ws": "fx",
+            "form": "k"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      }
+    ],
+    "boundaryMarkers": [
+      {
+        "guid": "00000000-0000-0000-0000-000000000014",
+        "name": "plus",
+        "representations": [
+          {
+            "ws": "fx",
+            "form": "+"
+          }
+        ]
+      }
+    ],
+    "naturalClasses": [
+      {
+        "kind": "segments",
+        "guid": "00000000-0000-0000-0000-000000000016",
+        "name": "V",
+        "display_name": "Vowels",
+        "phonemes": [
+          "00000000-0000-0000-0000-000000000010"
+        ]
+      }
+    ],
+    "environments": [
+      {
+        "guid": "00000000-0000-0000-0000-000000000017",
+        "name": "afterVowel",
+        "representation": "/[V]_"
+      }
+    ],
+    "rules": [
+      {
+        "kind": "rewrite",
+        "guid": "00000000-0000-0000-0000-000000000018",
+        "name": "Voicing",
+        "direction": "leftToRight",
+        "structuralDescription": [
+          {
+            "kind": "segment",
+            "phoneme": "00000000-0000-0000-0000-000000000012"
+          }
+        ],
+        "rightHandSides": [
+          {
+            "structuralChange": [
+              {
+                "kind": "segment",
+                "phoneme": "00000000-0000-0000-0000-00000000001b"
+              }
+            ],
+            "leftContext": {
+              "kind": "naturalClass",
+              "natural_class": "00000000-0000-0000-0000-000000000016"
+            }
+          }
+        ]
+      }
+    ],
+    "featureConstraints": []
+  },
+  "morphology": {
+    "partsOfSpeech": [
+      {
+        "guid": "00000000-0000-0000-0000-00000000000b",
+        "name": "Noun",
+        "abbreviation": "n"
+      },
+      {
+        "guid": "00000000-0000-0000-0000-00000000000c",
+        "name": "Verb",
+        "abbreviation": "v",
+        "affixSlots": [
+          {
+            "guid": "00000000-0000-0000-0000-00000000000d",
+            "name": "Tense",
+            "optional": false
+          }
+        ],
+        "affixTemplates": [
+          {
+            "guid": "00000000-0000-0000-0000-00000000000e",
+            "name": "VerbTemplate",
+            "disabled": false,
+            "suffixSlots": [
+              "00000000-0000-0000-0000-00000000000d"
+            ],
+            "isFinal": true
+          }
+        ]
+      }
+    ],
+    "compoundRules": [],
+    "adhocProhibitions": [],
+    "exceptionFeatures": [
+      {
+        "guid": "00000000-0000-0000-0000-000000000020",
+        "name": "Latinate",
+        "abbreviation": "lat"
+      }
+    ],
+    "lexEntryInflTypes": [],
+    "parserParameters": {
+      "notOnClitics": false,
+      "acceptUnspecifiedGraphemes": false,
+      "noDefaultCompounding": false,
+      "strata": "",
+      "activeParser": "hc",
+      "xample": {
+        "maxNulls": 1,
+        "maxPrefixes": 2,
+        "maxAnalysesToReturn": 10
+      }
+    }
+  },
+  "lexicon": {
+    "entries": [
+      {
+        "guid": "00000000-0000-0000-0000-000000000030",
+        "citationForm": [
+          {
+            "ws": "fx",
+            "form": "kat"
+          }
+        ],
+        "lexemeMorphType": "stem",
+        "allomorphs": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000031",
+            "morphType": "stem",
+            "isAbstract": false,
+            "forms": [
+              {
+                "ws": "fx",
+                "form": "kat"
+              }
+            ]
+          }
+        ],
+        "msas": [
+          {
+            "kind": "stem",
+            "guid": "00000000-0000-0000-0000-000000000032",
+            "part_of_speech": "00000000-0000-0000-0000-00000000000b",
+            "features": {
+              "values": [
+                {
+                  "feature": "00000000-0000-0000-0000-000000000007",
+                  "value": {
+                    "kind": "closed",
+                    "value": "00000000-0000-0000-0000-000000000009"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "senses": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000033",
+            "gloss": [
+              {
+                "ws": "en",
+                "form": "cat"
+              }
+            ],
+            "msa": "00000000-0000-0000-0000-000000000032"
+          }
+        ]
+      },
+      {
+        "guid": "00000000-0000-0000-0000-000000000040",
+        "citationForm": [
+          {
+            "ws": "fx",
+            "form": "ranna"
+          }
+        ],
+        "lexemeMorphType": "stem",
+        "allomorphs": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000041",
+            "morphType": "stem",
+            "isAbstract": false,
+            "forms": [
+              {
+                "ws": "fx",
+                "form": "ranna"
+              }
+            ]
+          }
+        ],
+        "msas": [
+          {
+            "kind": "stem",
+            "guid": "00000000-0000-0000-0000-000000000042",
+            "part_of_speech": "00000000-0000-0000-0000-00000000000c"
+          }
+        ],
+        "senses": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000043",
+            "gloss": [
+              {
+                "ws": "en",
+                "form": "run"
+              }
+            ],
+            "msa": "00000000-0000-0000-0000-000000000042"
+          }
+        ]
+      },
+      {
+        "guid": "00000000-0000-0000-0000-000000000050",
+        "citationForm": [
+          {
+            "ws": "fx",
+            "form": "-s"
+          }
+        ],
+        "lexemeMorphType": "suffix",
+        "allomorphs": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000051",
+            "morphType": "suffix",
+            "isAbstract": false,
+            "forms": [
+              {
+                "ws": "fx",
+                "form": "s"
+              }
+            ],
+            "environments": [
+              "00000000-0000-0000-0000-000000000017"
+            ]
+          }
+        ],
+        "msas": [
+          {
+            "kind": "inflectional",
+            "guid": "00000000-0000-0000-0000-000000000052",
+            "part_of_speech": "00000000-0000-0000-0000-00000000000c",
+            "slots": [
+              "00000000-0000-0000-0000-00000000000d"
+            ],
+            "features": {
+              "values": [
+                {
+                  "feature": "00000000-0000-0000-0000-000000000007",
+                  "value": {
+                    "kind": "closed",
+                    "value": "00000000-0000-0000-0000-000000000009"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "senses": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000053",
+            "gloss": [
+              {
+                "ws": "en",
+                "form": "3SG"
+              }
+            ],
+            "msa": "00000000-0000-0000-0000-000000000052"
+          }
+        ]
+      }
+    ]
+  },
+  "conversionProvenance": {
+    "schemaVersion": 1,
+    "sourceInventoryStatus": "importedComplete",
+    "sourceCensus": {
+      "totalOccurrences": 52,
+      "classOccurrences": {
+        "CmPossibility": 1,
+        "CmPossibilityList": 3,
+        "FsClosedFeature": 1,
+        "FsClosedValue": 2,
+        "FsFeatStruc": 2,
+        "FsFeatureSystem": 2,
+        "FsSymFeatVal": 2,
+        "LangProject": 1,
+        "LexDb": 1,
+        "LexEntry": 3,
+        "LexSense": 3,
+        "MoAffixAllomorph": 1,
+        "MoInflAffMsa": 1,
+        "MoInflAffixSlot": 1,
+        "MoInflAffixTemplate": 1,
+        "MoMorphData": 1,
+        "MoStemAllomorph": 3,
+        "MoStemMsa": 2,
+        "PartOfSpeech": 2,
+        "PhBdryMarker": 1,
+        "PhCode": 5,
+        "PhEnvironment": 1,
+        "PhNCSegments": 1,
+        "PhPhonData": 1,
+        "PhPhoneme": 4,
+        "PhPhonemeSet": 1,
+        "PhRegularRule": 1,
+        "PhSegRuleRHS": 1,
+        "PhSimpleContextNC": 1,
+        "PhSimpleContextSeg": 2
+      },
+      "unhandledClassOccurrences": {},
+      "orderedHeaderSha256": "9e52745927ef3538b25cd26c81c25d442321d1b82583a6688bd819ff1bb43b5a"
+    },
+    "graphToSnapshot": {
+      "authored": [
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000030"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000040"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000050"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000033"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000043"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000053"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000032"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000042"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000052"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000031"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000041"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000044"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000051"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000017"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000051",
+            "target_guid": "00000000-0000-0000-0000-000000000017",
+            "role": "environment"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000010"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000012"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001b"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000025"
+          }
+        },
+        {
+          "kind": "boundaryMarker",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000014"
+          }
+        },
+        {
+          "kind": "naturalClass",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000016"
+          }
+        },
+        {
+          "kind": "featureDefinition",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000007"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000008"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000009"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000008",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000009",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000034"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000054"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000019"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001d"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001e"
+          }
+        },
+        {
+          "kind": "phonologicalRule",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000018"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000b"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000c"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "ActiveParser"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxAnalysesToReturn"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxNulls"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxPrefixes"
+          }
+        },
+        {
+          "kind": "strataConfiguration",
+          "identity": {
+            "kind": "setting",
+            "name": "Strata"
+          }
+        },
+        {
+          "kind": "template",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000e"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000d"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-00000000000e",
+            "target_guid": "00000000-0000-0000-0000-00000000000d",
+            "role": "slot"
+          }
+        }
+      ],
+      "considered": [
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000030"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000040"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000050"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000033"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000043"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000053"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000032"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000042"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000052"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000031"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000041"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000044"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000051"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000017"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000051",
+            "target_guid": "00000000-0000-0000-0000-000000000017",
+            "role": "environment"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000010"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000012"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001b"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000025"
+          }
+        },
+        {
+          "kind": "boundaryMarker",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000014"
+          }
+        },
+        {
+          "kind": "naturalClass",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000016"
+          }
+        },
+        {
+          "kind": "featureDefinition",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000007"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000008"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000009"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000008",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000009",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000034"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000054"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000019"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001d"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001e"
+          }
+        },
+        {
+          "kind": "phonologicalRule",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000018"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000b"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000c"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "ActiveParser"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxAnalysesToReturn"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxNulls"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxPrefixes"
+          }
+        },
+        {
+          "kind": "strataConfiguration",
+          "identity": {
+            "kind": "setting",
+            "name": "Strata"
+          }
+        },
+        {
+          "kind": "template",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000e"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000d"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-00000000000e",
+            "target_guid": "00000000-0000-0000-0000-00000000000d",
+            "role": "slot"
+          }
+        }
+      ],
+      "selected": [
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000030"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000040"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000050"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000033"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000043"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000053"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000032"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000042"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000052"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000031"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000041"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000044"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000051"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000017"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000051",
+            "target_guid": "00000000-0000-0000-0000-000000000017",
+            "role": "environment"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000010"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000012"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001b"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000025"
+          }
+        },
+        {
+          "kind": "boundaryMarker",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000014"
+          }
+        },
+        {
+          "kind": "naturalClass",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000016"
+          }
+        },
+        {
+          "kind": "featureDefinition",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000007"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000008"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000009"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000008",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000009",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000034"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000054"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000019"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001d"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001e"
+          }
+        },
+        {
+          "kind": "phonologicalRule",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000018"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000b"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000c"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "ActiveParser"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxAnalysesToReturn"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxNulls"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxPrefixes"
+          }
+        },
+        {
+          "kind": "strataConfiguration",
+          "identity": {
+            "kind": "setting",
+            "name": "Strata"
+          }
+        },
+        {
+          "kind": "template",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000e"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000d"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-00000000000e",
+            "target_guid": "00000000-0000-0000-0000-00000000000d",
+            "role": "slot"
+          }
+        }
+      ],
+      "represented": [
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000030"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000040"
+          }
+        },
+        {
+          "kind": "entry",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000050"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000033"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000043"
+          }
+        },
+        {
+          "kind": "sense",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000053"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000032"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000042"
+          }
+        },
+        {
+          "kind": "msa",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000052"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000031"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000041"
+          }
+        },
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000051"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000017"
+          }
+        },
+        {
+          "kind": "environment",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000051",
+            "target_guid": "00000000-0000-0000-0000-000000000017",
+            "role": "environment"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000010"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000012"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001b"
+          }
+        },
+        {
+          "kind": "phoneme",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000025"
+          }
+        },
+        {
+          "kind": "boundaryMarker",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000014"
+          }
+        },
+        {
+          "kind": "naturalClass",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000016"
+          }
+        },
+        {
+          "kind": "featureDefinition",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000007"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000008"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000009"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000008",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureValue",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-000000000007",
+            "target_guid": "00000000-0000-0000-0000-000000000009",
+            "role": "value"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000034"
+          }
+        },
+        {
+          "kind": "featureStructure",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000054"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000019"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001d"
+          }
+        },
+        {
+          "kind": "phonologicalContext",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000001e"
+          }
+        },
+        {
+          "kind": "phonologicalRule",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000018"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000b"
+          }
+        },
+        {
+          "kind": "partOfSpeech",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000c"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "ActiveParser"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxAnalysesToReturn"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxNulls"
+          }
+        },
+        {
+          "kind": "parserSetting",
+          "identity": {
+            "kind": "setting",
+            "name": "XAmple.MaxPrefixes"
+          }
+        },
+        {
+          "kind": "strataConfiguration",
+          "identity": {
+            "kind": "setting",
+            "name": "Strata"
+          }
+        },
+        {
+          "kind": "template",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000e"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-00000000000d"
+          }
+        },
+        {
+          "kind": "templateSlot",
+          "identity": {
+            "kind": "attachment",
+            "owner_guid": "00000000-0000-0000-0000-00000000000e",
+            "target_guid": "00000000-0000-0000-0000-00000000000d",
+            "role": "slot"
+          }
+        }
+      ],
+      "rejected": [
+        {
+          "kind": "allomorph",
+          "identity": {
+            "kind": "object",
+            "guid": "00000000-0000-0000-0000-000000000044"
+          }
+        }
+      ],
+      "synthesized": []
+    },
+    "importIssues": [
+      {
+        "code": "fwdata.unknown-morph-type-guid",
+        "class": "unrepresentableForHc",
+        "source": {
+          "kind": "MoForm",
+          "id": "00000000-0000-0000-0000-000000000044"
+        },
+        "fatal": false,
+        "message": "Allomorph 'xxx' has an unknown morph type and was skipped."
+      }
+    ]
+  }
+}
