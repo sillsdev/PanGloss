@@ -1,0 +1,79 @@
+# oracle-provenance: founding-oracle
+# hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
+language: quantified-alpha-bounded-zero-left
+inspired_by: ["synthetic zero-count repeated feature agreement"]
+sources: ["HCLoader.cs:2338-2344,2745-2770"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: a
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: e
+    parses:
+      - signature: "ZERO|e"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ca
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ce
+    parses:
+      - signature: "ONE|ce"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: tca
+    parses:
+      - signature: "MIXEDONE|tca"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: tce
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ta
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: te
+    parses:
+      - signature: "TRIG|te"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ttca
+    parses:
+      - signature: "MIXED|ttca"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: ttce
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: tcca
+    parses:
+      - signature: "ROOT2|tcca"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: tcce
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: tccca
+    parses:
+      - signature: "ROOT3|tccca"
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: tccce
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: taca
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"
+  - word: tace
+    expect_fail: true
+    exercises:
+      - "quantifier.bounded-unlowerable"

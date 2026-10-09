@@ -27,7 +27,7 @@ use pg_grammar_model::model::{
 use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeFlags, NodeKind, Shape, ShapeBuilder};
 
 use crate::bridge::{
-    pattern_var_occurrences, PatternBridge, StrRepMatcher, VarOccur, UNCONSTRAINED,
+    pattern_var_occurrences, AgreementNode, PatternBridge, StrRepMatcher, VarOccur, UNCONSTRAINED,
 };
 use crate::stats::PRuleStatsCtx;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
@@ -399,10 +399,10 @@ pub(crate) struct EnvFst {
     anchor_end: bool,
     /// The env is a bare word-boundary anchor (`#`) with no segment constraints.
     only_anchor: bool,
-    /// Per-top-level-pattern-node alpha-variable occurrences; a quantifier's own entry is always empty, since nested-in-quantifier variables are a separate limitation of `pattern_var_occurrences`.
     node_vars: Vec<Vec<VarOccur>>,
     /// The capture-group name for each var-bearing `node_vars` entry (`None` if unwrapped); recovers which segment a quantifier elsewhere in the pattern let that node consume, since compilation erases variable-governed lanes before the FST is built and C# needs no such recovery (its arcs bind variables live).
     group_names: Vec<Option<String>>,
+    agreement: Option<Vec<AgreementNode>>,
 }
 
 /// Compile an environment for **synthesis**, and for the allomorph-environment gate, which shares
@@ -483,6 +483,11 @@ fn compile_env_impl(
         .compile_pattern(pat_ref)
         .expect("environment compiles");
     let only_anchor = compiled.top_level_len == 0 && (compiled.anchor_start || compiled.anchor_end);
+    let agreement = compiled
+        .agreement_nodes
+        .iter()
+        .any(AgreementNode::has_repeated_vars)
+        .then(|| compiled.agreement_nodes.clone());
 
     // Wrap each var-bearing top-level node in a named capture group so its matched segment is recoverable independent of any quantifier elsewhere in the pattern; see `EnvFst::group_names`.
     let group_names: Vec<Option<String>> = compiled
@@ -519,6 +524,7 @@ fn compile_env_impl(
         only_anchor,
         node_vars: compiled.node_vars,
         group_names,
+        agreement,
     })
 }
 
@@ -556,19 +562,17 @@ pub(crate) fn left_env_match(
     env: &Option<EnvFst>,
     segs: &[Segment],
     left_end: usize,
-) -> Option<Option<FstResult>> {
+) -> Option<Option<Vec<FstResult>>> {
     let Some(env) = env else { return Some(None) };
     if env.only_anchor {
         return if left_end == 0 { Some(None) } else { None };
     }
     if left_end == 0 {
-        return None; // no left context for a segment-bearing env to match
+        return empty_env_match(env);
     }
     let slice = segs[..left_end].to_vec();
-    Transduce::new(&env.fst, slice)
-        .anchored(env.anchor_start, true)
-        .first_match()
-        .map(Some)
+    let traversal = Transduce::new(&env.fst, slice).anchored(env.anchor_start, true);
+    env_matches(env, traversal)
 }
 
 /// Bool projection of `left_env_match` for callers that don't need alpha-variable bindings
@@ -584,7 +588,7 @@ pub(crate) fn right_env_match(
     env: &Option<EnvFst>,
     segs: &[Segment],
     right_start: usize,
-) -> Option<Option<FstResult>> {
+) -> Option<Option<Vec<FstResult>>> {
     let Some(env) = env else { return Some(None) };
     if env.only_anchor {
         return if right_start == segs.len() {
@@ -594,13 +598,27 @@ pub(crate) fn right_env_match(
         };
     }
     if right_start >= segs.len() {
-        return None;
+        return empty_env_match(env);
     }
     let slice = segs[right_start..].to_vec();
-    Transduce::new(&env.fst, slice)
-        .anchored(true, env.anchor_end)
-        .first_match()
-        .map(Some)
+    let traversal = Transduce::new(&env.fst, slice).anchored(true, env.anchor_end);
+    env_matches(env, traversal)
+}
+
+fn env_matches(env: &EnvFst, traversal: Transduce<'_>) -> Option<Option<Vec<FstResult>>> {
+    let matches = if env.agreement.is_some() {
+        traversal.all_matches()
+    } else {
+        traversal.first_match().into_iter().collect()
+    };
+    (!matches.is_empty()).then_some(Some(matches))
+}
+
+fn empty_env_match(env: &EnvFst) -> Option<Option<Vec<FstResult>>> {
+    env.agreement
+        .as_ref()
+        .filter(|nodes| nodes.iter().all(AgreementNode::nullable))
+        .map(|_| Some(Vec::new()))
 }
 
 /// Bool projection of `right_env_match` for callers that don't need alpha-variable bindings.
@@ -645,9 +663,9 @@ fn resolve_bindings(
     e: usize,
     lhs_vars: &[Vec<VarOccur>],
     left: &Option<EnvFst>,
-    left_match: &Option<FstResult>,
+    left_match: &Option<Vec<FstResult>>,
     right: &Option<EnvFst>,
-    right_match: &Option<FstResult>,
+    right_match: &Option<Vec<FstResult>>,
 ) -> Option<Bindings> {
     let mut bindings: Bindings = HashMap::default();
 
@@ -661,55 +679,160 @@ fn resolve_bindings(
         }
     }
 
-    // (2) left environment: each var-bearing node's matched segment comes from its capture group (`EnvFst::group_names`), immune to a variable-width quantifier elsewhere shifting segment counts; the env FST is `LeftToRight` over `segs[..s]`, so a captured offset is already absolute.
-    if let (Some(env), Some(result)) = (left, left_match) {
-        for (i, occs) in env.node_vars.iter().enumerate() {
-            if occs.is_empty() {
-                continue;
-            }
-            let name = env.group_names[i]
-                .as_deref()
-                .expect("a var-bearing node was wrapped in a capture group at compile time");
-            let Some((a, _b)) = env.fst.get_offsets(name, &result.registers) else {
-                // Zero-width/unset capture: fail open (skip) rather than mis-bind against a stale node; not expected for the only node kind that carries `node_vars`.
-                continue;
-            };
-            let pos = a as usize;
-            let node = node_of[pos];
-            for occ in occs {
-                if !bind_or_check(g, &mut bindings, occ, ms.nodes[node].lanes[occ.feature]) {
-                    return None;
-                }
-            }
-        }
+    if let (Some(env), Some(matches)) = (left, left_match) {
+        bindings = bind_environment(g, ms, node_of, env, matches, (0, true), &bindings)?;
     }
-
-    // (3) right environment: same capture-based recovery over `segs[e..]`; add `e` to convert a slice-relative offset back into `segs`/`node_of` space.
-    if let (Some(env), Some(result)) = (right, right_match) {
-        for (i, occs) in env.node_vars.iter().enumerate() {
-            if occs.is_empty() {
-                continue;
-            }
-            let name = env.group_names[i]
-                .as_deref()
-                .expect("a var-bearing node was wrapped in a capture group at compile time");
-            let Some((a, _b)) = env.fst.get_offsets(name, &result.registers) else {
-                continue;
-            };
-            let pos = e + a as usize;
-            if pos >= node_of.len() {
-                continue;
-            }
-            let node = node_of[pos];
-            for occ in occs {
-                if !bind_or_check(g, &mut bindings, occ, ms.nodes[node].lanes[occ.feature]) {
-                    return None;
-                }
-            }
-        }
+    if let (Some(env), Some(matches)) = (right, right_match) {
+        bindings = bind_environment(g, ms, node_of, env, matches, (e, false), &bindings)?;
     }
 
     Some(bindings)
+}
+
+fn bind_environment(
+    g: &Grammar,
+    ms: &MutShape,
+    node_of: &[usize],
+    env: &EnvFst,
+    matches: &[FstResult],
+    location: (usize, bool),
+    bindings: &Bindings,
+) -> Option<Bindings> {
+    let (offset, reverse) = location;
+    if matches.is_empty() {
+        return Some(bindings.clone()); // The nullable environment consumed no variable occurrences.
+    }
+    for result in matches {
+        if let Some(nodes) = &env.agreement {
+            let (a, b) = env.fst.get_offsets(ENTIRE_MATCH, &result.registers)?;
+            let start = offset + a as usize;
+            let end = offset + b as usize;
+            let mut input: Vec<&MutNode> = node_of
+                .get(start..end)?
+                .iter()
+                .map(|&i| &ms.nodes[i])
+                .collect();
+            if reverse {
+                input.reverse();
+            }
+            if let Some((_, found)) =
+                agreement_sequence(g, nodes, &input, reverse, vec![(0, bindings.clone())])
+                    .into_iter()
+                    .find(|(pos, _)| input[*pos..].iter().all(|n| n.optional))
+            {
+                return Some(found);
+            }
+        } else {
+            let mut found = bindings.clone();
+            for (i, occs) in env.node_vars.iter().enumerate() {
+                if occs.is_empty() {
+                    continue;
+                }
+                let name = env.group_names[i]
+                    .as_deref()
+                    .expect("variable capture installed");
+                let Some((a, _)) = env.fst.get_offsets(name, &result.registers) else {
+                    continue;
+                };
+                let Some(&node) = node_of.get(offset + a as usize) else {
+                    continue;
+                };
+                for occ in occs {
+                    if !bind_or_check(g, &mut found, occ, ms.nodes[node].lanes[occ.feature]) {
+                        return None;
+                    }
+                }
+            }
+            return Some(found);
+        }
+    }
+    None
+}
+
+type AgreementState = (usize, Bindings);
+
+fn agreement_sequence(
+    g: &Grammar,
+    nodes: &[AgreementNode],
+    input: &[&MutNode],
+    reverse: bool,
+    mut states: Vec<AgreementState>,
+) -> Vec<AgreementState> {
+    for i in 0..nodes.len() {
+        let node = &nodes[if reverse { nodes.len() - 1 - i } else { i }];
+        states = states
+            .into_iter()
+            .flat_map(|state| agreement_node(g, node, input, reverse, state))
+            .collect();
+        if pg_fst::work::stopped() {
+            return Vec::new();
+        }
+    }
+    states
+}
+
+fn agreement_node(
+    g: &Grammar,
+    node: &AgreementNode,
+    input: &[&MutNode],
+    reverse: bool,
+    state: AgreementState,
+) -> Vec<AgreementState> {
+    if !pg_fst::work::consume() {
+        return Vec::new();
+    }
+    match node {
+        AgreementNode::Alternation(branches) => branches
+            .iter()
+            .flat_map(|branch| agreement_node(g, branch, input, reverse, state.clone()))
+            .collect(),
+        AgreementNode::Constraint { lanes, vars } => {
+            let (mut pos, bindings) = state;
+            let mut matched = Vec::new();
+            while let Some(segment) = input.get(pos) {
+                let mut found = bindings.clone();
+                if pg_featstruct::flat_unifiable(&segment.lanes, lanes)
+                    && vars
+                        .iter()
+                        .all(|occ| bind_or_check(g, &mut found, occ, segment.lanes[occ.feature]))
+                {
+                    matched.push((pos + 1, found));
+                }
+                if !segment.optional {
+                    break;
+                }
+                pos += 1;
+            }
+            matched
+        }
+        AgreementNode::Repeat { min, max, children } => {
+            let limit =
+                max.map_or_else(|| input.len().saturating_add(*min as usize), |m| m as usize);
+            let mut layers = vec![vec![state]];
+            for count in 1..=limit {
+                let previous = layers.last().expect("initial repetition layer");
+                let next = agreement_sequence(g, children, input, reverse, previous.clone());
+                if pg_fst::work::stopped() {
+                    return Vec::new();
+                }
+                if next.is_empty() {
+                    break;
+                }
+                let unchanged = next.iter().all(|s| previous.contains(s));
+                layers.push(next);
+                if unchanged && count >= *min as usize {
+                    break;
+                }
+            }
+            layers
+                .into_iter()
+                .enumerate()
+                .rev()
+                .filter(|(count, _)| *count >= *min as usize)
+                .flat_map(|(_, states)| states)
+                .collect()
+        }
+    }
 }
 
 /// docs/research/rewrite-usedefaults-confirm.md

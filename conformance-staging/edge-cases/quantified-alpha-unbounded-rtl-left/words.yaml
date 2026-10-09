@@ -1,0 +1,114 @@
+# oracle-provenance: founding-oracle
+# Recorded with hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
+language: quantified-alpha-unbounded-rtl-left
+inspired_by: ["synthetic repeated feature agreement"]
+sources: ["HCLoader.cs:2338-2344,2745-2770"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: teca
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tcce
+    parses:
+      - signature: "ROOT2|tcce"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tccca
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: taca
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tcca
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: te
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: ta
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tace
+    parses:
+      - signature: "ROOT1|tace"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tcte
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tatc
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tetc
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tccccca
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tccccce
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tccce
+    parses:
+      - signature: "ROOT3|tccce"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: tece
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: ttca
+    parses:
+      - signature: "MIXED|ttca"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"
+  - word: ttce
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+      - "right-to-left-rewrite.unlowerable"

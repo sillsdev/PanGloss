@@ -1,0 +1,79 @@
+# oracle-provenance: founding-oracle
+# hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
+language: quantified-alpha-unbounded-zero-right
+inspired_by: ["synthetic zero-count repeated feature agreement"]
+sources: ["HCLoader.cs:2338-2344,2745-2770"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: a
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: e
+    parses:
+      - signature: "ZERO|e"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ac
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ec
+    parses:
+      - signature: "ONE|ec"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: act
+    parses:
+      - signature: "MIXEDONE|act"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ect
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: at
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: et
+    parses:
+      - signature: "TRIG|et"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: actt
+    parses:
+      - signature: "MIXED|actt"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ectt
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: acct
+    parses:
+      - signature: "ROOT2|acct"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ecct
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: accct
+    parses:
+      - signature: "ROOT3|accct"
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: eccct
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: acat
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"
+  - word: ecat
+    expect_fail: true
+    exercises:
+      - "quantifier.unbounded-unlowerable"

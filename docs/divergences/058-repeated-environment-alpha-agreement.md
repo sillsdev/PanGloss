@@ -2,8 +2,9 @@
 
 ## Kind and status
 
-Behavioural, open; reproduced Rust-only correctness defect.
-FST lowering work stopped before implementation under the delegated lane's parity rule.
+Behavioural, fixed in this branch; reproduced Rust-only correctness defect.
+FST lowering remains unchanged: the resumed research found a separate ambiguous-disagreement
+parity blocker, documented below, and stopped under the delegated lane's parity rule.
 
 ## Refusal research before lowering
 
@@ -24,8 +25,8 @@ The six compile-error controls intentionally have no completed result rows.
 
 | Concrete reason / probe suffix | Actual FST trigger and variants | C# observation | Can FieldWorks author it? Source evidence | Classification / disposition |
 |---|---|---|---|---|
-| `ambiguous-disagree` | A minus alpha occurrence whose class has two members sharing its governed feature value; `lower.rs:243-254`. All three requested variants when a quantifier accompanies it. | All 17 words rejected, exit 0. This focus rewrites voice without preserving a realizable vowel; no positive witness was established before the stop. | Yes: feature constraints, direction, and simple contexts: HCLoader.cs:2003-2089,2745-2770. | Authorable candidate; oracle non-vacuity incomplete. Keep refused pending discriminating evidence and correct ambiguous-output lowering. Not a permanent refusal. |
-| `alpha-in-repeat` | Any alpha occurrence anywhere inside a repetition, including deeper nested repetitions; `lower.rs:282-285`. All three requested variants. | Bounded/RTL: `ecct -> ROOT2\|ecct`, `accct -> ROOT3\|accct`, `ecat -> ROOT1\|ecat`, `actt -> MIXED\|actt`; `ectt` rejected. Unbounded also rewrites ROOT3 to `eccct`. All exit 0. | Yes: HCLoader.cs:2338-2344 passes the loaded child and authored bounds to Quantifier; 2745-2770 supplies alpha variables. The word-final anchor comes from 2085-2086. | (a), but **blocked by a reproduced HC-Rust parity bug**. Keep refused in this lane. |
+| `ambiguous-disagree` | A minus alpha occurrence whose class has two members sharing its governed feature value; `lower.rs:243-254`. All three requested variants when a quantifier accompanies it. | Initial voice probe: all 17 words rejected. Resumed back/round probe: C# accepts `ia -> AU\|ia`, rejects `au`; bounded, unbounded, RTL and plain controls complete 16 rows each, exit 0. | Yes: feature constraints, direction, and simple contexts: HCLoader.cs:2003-2089,2745-2770. | Authorable, positive witness established; **new HC-Rust parity blocker** on bounded witness. Keep refused until that separate defect is fixed. Not a permanent refusal. |
+| `alpha-in-repeat` | Any alpha occurrence anywhere inside a repetition, including deeper nested repetitions; `lower.rs:282-285`. All three requested variants. | Bounded/RTL: `ecct -> ROOT2\|ecct`, `accct -> ROOT3\|accct`, `ecat -> ROOT1\|ecat`, `actt -> MIXED\|actt`; `ectt` rejected. Unbounded also rewrites ROOT3 to `eccct`. All exit 0. | Yes: HCLoader.cs:2338-2344 passes the loaded child and authored bounds to Quantifier; 2745-2770 supplies alpha variables. The word-final anchor comes from 2085-2086. | (a). HC-Rust agreement is now fixed and oracle-pinned. FST admission unchanged after the separate ambiguous-disagreement stop. |
 | `inverted-repeat` | Finite `min > max`, even when another quantifier is unbounded; `lower.rs:266-272`. All three requested variants. | Minimum 3, maximum 2 behaves as exactly 3 mandatory copies: `eccct -> ROOT3\|eccct`; `acat`, `acct` unchanged. Exit 0. | Loader can pass stored numbers unchanged (HCLoader.cs:2343), but the authoring dialog refuses inverted values: OccurrenceDlg.cs:217-223. RegRuleFormulaControl.cs:731-742 stores accepted values. | (b) for ordinary authoring: documented permanent refusal of malformed stored bounds; C# acceptance is not evidence of UI authorability. |
 | `empty-repeat` | Child slot list empty; `lower.rs:275-281`. All three requested variants. | Empty body contributes epsilon: `acet -> ROOT1\|acet`, ROOT2/ROOT3 unchanged; exit 0. | No: HCLoader.cs:2321-2336 rejects an empty sequence; 2338-2346 only constructs a quantifier when loading its child succeeds. | (b): documented permanent refusal; HC-XML-only loader permissiveness. Empty OptionalSegmentSequence is also outside the DTD (`HermitCrabInput.dtd:560`). |
 | `no-owning-table` | Rule missing from grammar or unattached to any stratum; `replace.rs:629-634`, `owning_table_id_for_prule_position`; `capability.rs:792-794`. All three requested variants for structural probes. | Unattached rule is inert: raw ROOT1/ROOT2/ROOT3 parse, rewritten surfaces rejected; exit 0. | No: HCLoader.cs:227-233 constructs strata with m_table; 310-318 attaches each admitted rewrite rule to a stratum. A dangling rule is not a reachable variant in a production plan. | (b): permanent refusal of unowned structural calls. Do not guess table zero. |
@@ -62,7 +63,7 @@ rewrites a to e, loses the valid unchanged parse, and invents the rewritten pars
 `pattern_var_occurrences`; `bridge.rs:249-258` removes their feature constraint.
 `rewrite.rs::resolve_bindings` then has no repeated-variable occurrences to check.
 This is evidence of a Rust-only correctness defect, not an FST optimization opportunity.
-Machine issue: none; network closed and this lane is forbidden to absorb the parity fix.
+Machine issue: none; this defect is Rust-only. The lead explicitly authorized its owner fix.
 
 ## Evidence and follow-up
 
@@ -75,15 +76,61 @@ word rows and process exits; a timeout is an error, not an expected rejection.
 `bounded-alpha-in-repeat/{grammar.xml,words.txt,oracle.tsv,rust.tsv}` preserves the
 exact Rust/C# reproduction (17 completed rows each, 15 matching, 2 divergent).
 
-Fixture presence: research XML only; no conformance-staging fixture or test was added.
-Regression coverage: no fix-removed demonstration; the defect is reproduced against
-the unchanged baseline. No admission or coverage-golden update was made.
+Fixture presence: twelve oracle-recorded synthetic fixtures under
+`conformance-staging/edge-cases/quantified-alpha-*`. Eight cover bounded/unbounded,
+LTR/RTL, left/right environments; four add zero-count environments at both word edges.
+All XML is well formed. Their words carry `founding-oracle` provenance naming hc.dll
+and its exact Machine revision, with no hand-derived expectations.
+Regression coverage: every one of the twelve `quantified_alpha_*` parse tests fails
+with both owner files restored to the pre-fix revision, then passes with the fix.
+No admission or coverage-golden update was made.
 No Machine issue or PR was opened: network is closed and this is a Rust-only defect.
 Permanent refusal dispositions above follow D7 in
 `openspec/changes/archive/2026-08-06-plan-construct-coverage-completion/design.md`;
 they do not turn the authorable repeated-alpha variant into a permanent refusal.
 
-Fix repeated-variable binding in the HermitCrab port in a separate change, pin both
-divergence directions against hc.dll, and only then resume FST lowering and coverage
-work. Re-establish positive ambiguous-disagreement witnesses before admitting that
-reason: the all-negative exploratory probes do not prove non-vacuity.
+## Owner fix and verification
+
+`pg-rules/src/bridge.rs` retains alpha occurrences in a recursive agreement tree while
+deriving the same widened frozen-FST pattern from that tree. Constraint resolution has
+one owner. `rewrite.rs::resolve_bindings` checks each consumed occurrence in C#'s
+target/left/right binding order, reversing left-environment traversal. It considers
+subsequent environment matches when a widened FST match violates agreement.
+Nullable repeated-variable environments at a word edge consume no occurrences.
+The recursive agreement walk charges the existing FST work budget; no limit was raised.
+
+The original eight fixtures complete 136 word rows, and the four zero-count fixtures
+complete 64 more. A further bounded/unbounded × left/right × minimum 0/1 ×
+bare/trigger environment sweep completes 256 rows with exact C#/HC-Rust status and
+signature agreement. `bound-sweep.py` and `bound-sweep-oracle.json` preserve that evidence.
+Full `pg.ps1 -Mode conformance-test -Scope local` exits 0; the parse harness exits 0
+(84 passed, 10 existing ignored); managed check and quick pass.
+
+The first full local run exposed pre-existing named-fixture lookups through scoped
+discovery in CLI stats, build provenance, grammar identities and parse statistics.
+A fix-removed full local run reproduced the same failures, plus the new regression failures.
+Those named pins now call `pg_conformance_fixtures::require_fixture`, as prescribed by
+`docs/design/fixture-pins.md`; generic sweeps retain their requested scope.
+No expectations, ignores or gate thresholds were changed.
+
+## Separate blocker found while resuming lowering
+
+The discriminating two-variable back/round witness has underlying `au`. C# preserves
+each target segment's non-variable feature while flipping the variable feature: `ia`.
+The bounded environment allows zero or one vowel before a final word boundary.
+
+| Word | hc.dll | PanGloss HermitCrab path after repeated-alpha fix |
+|---|---|---|
+| `ia` | `ok`, `AU\|ia` | `ok`, `-` |
+| `au` | `ok`, `-` | `ok`, `AU\|au` |
+
+Both engines complete all sixteen two-segment words; fourteen agree. Evidence is in
+`evidence/058-variant-lowering/ambiguous-disagree-parity-blocker/` (XML, words, both TSVs).
+`ambiguous-witness.py` reproduces the C# plain/bounded/unbounded/RTL controls. Only the
+bounded control was compared with HC-Rust before the mandatory stop. The responsible
+Rust operation has not been diagnosed or changed. This is a reproduced defect, not a
+lowering failure or a fixture expectation to adjust.
+
+Follow-up: allocate a distinct ledger id with the lead (059+ are reserved), fix and
+oracle-pin this separate HC-Rust disagreement defect, then resume repeated-alpha FST
+lowering, permanent-refusal detection tests and coverage/golden/ratchet work.

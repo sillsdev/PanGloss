@@ -1,0 +1,97 @@
+# oracle-provenance: founding-oracle
+# Recorded with hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
+language: quantified-alpha-unbounded-ltr-right
+inspired_by: ["synthetic repeated feature agreement"]
+sources: ["HCLoader.cs:2338-2344,2745-2770"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: acet
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: ecct
+    parses:
+      - signature: "ROOT2|ecct"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: accct
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: acat
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: acct
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: et
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: at
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: ecat
+    parses:
+      - signature: "ROOT1|ecat"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: etct
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: ctat
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: ctet
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: accccct
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: eccccct
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: eccct
+    parses:
+      - signature: "ROOT3|eccct"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: ecet
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: actt
+    parses:
+      - signature: "MIXED|actt"
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"
+  - word: ectt
+    expect_fail: true
+    exercises:
+      - "CharacterDefinitionTable pattern shapes: optional group / Kleene star"
+      - "quantifier.unbounded-unlowerable"

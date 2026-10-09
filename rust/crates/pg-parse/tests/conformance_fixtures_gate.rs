@@ -1,8 +1,8 @@
 //! Replays discovered upstream and staged conformance fixtures against HC-Rust.
 
 use pg_conformance_fixtures::{
-    all_staged_fixtures, discover, graduation_guard_violations, producibility_census,
-    replay_against_oracle, require_fixture, OracleProvenance,
+    all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
+    producibility_census, replay_against_oracle, require_fixture, OracleProvenance,
 };
 use pg_parse::Morpher;
 
@@ -143,6 +143,77 @@ fn strrep_rewrite_preserves_literal_identity_and_rejects_vacuous_unapplication()
         }
     }
 }
+
+macro_rules! quantified_alpha_fixture {
+    ($test:ident, $fixture:literal) => {
+        quantified_alpha_fixture!($test, $fixture, 17);
+    };
+    ($test:ident, $fixture:literal, $rows:literal) => {
+        #[test]
+        fn $test() {
+            let fixture = require_fixture("edge-cases", $fixture);
+            let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+            let morpher = Morpher::new(&grammar, usize::MAX);
+            assert_eq!(
+                assert_matches_oracle(&fixture.label(), &fixture.load_words_yaml(), &morpher),
+                $rows
+            );
+        }
+    };
+}
+
+quantified_alpha_fixture!(
+    quantified_alpha_bounded_ltr_left,
+    "quantified-alpha-bounded-ltr-left"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_bounded_ltr_right,
+    "quantified-alpha-bounded-ltr-right"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_bounded_rtl_left,
+    "quantified-alpha-bounded-rtl-left"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_bounded_rtl_right,
+    "quantified-alpha-bounded-rtl-right"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_unbounded_ltr_left,
+    "quantified-alpha-unbounded-ltr-left"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_unbounded_ltr_right,
+    "quantified-alpha-unbounded-ltr-right"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_unbounded_rtl_left,
+    "quantified-alpha-unbounded-rtl-left"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_unbounded_rtl_right,
+    "quantified-alpha-unbounded-rtl-right"
+);
+quantified_alpha_fixture!(
+    quantified_alpha_bounded_zero_left,
+    "quantified-alpha-bounded-zero-left",
+    16
+);
+quantified_alpha_fixture!(
+    quantified_alpha_bounded_zero_right,
+    "quantified-alpha-bounded-zero-right",
+    16
+);
+quantified_alpha_fixture!(
+    quantified_alpha_unbounded_zero_left,
+    "quantified-alpha-unbounded-zero-left",
+    16
+);
+quantified_alpha_fixture!(
+    quantified_alpha_unbounded_zero_right,
+    "quantified-alpha-unbounded-zero-right",
+    16
+);
 
 /// Fails if the same `(category, name)` fixture identity exists under both roots, enforcing that a fixture accepted upstream has its staged copy deleted in the same change.
 #[test]

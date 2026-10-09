@@ -24,27 +24,82 @@ pub struct VarOccur {
     pub plus: bool,
 }
 
-/// Per-(non-anchor top-level) pattern-node alpha-variable occurrences, aligned positionally to the
-/// pattern's segment-matching nodes (so node `k` of a quantifier-free pattern ↔ segment `k` of a
-/// match span). Quantifier-nested variables are not tracked here (a flagged limitation).
+/// Variables on top-level constraints, aligned with rewrite targets and replacements.
+/// Environment repetition variables are retained in the compiled agreement tree.
 pub fn pattern_var_occurrences(pattern: &Pattern) -> Vec<Vec<VarOccur>> {
     pattern
         .nodes
         .iter()
         .filter(|n| !matches!(n, PatternNode::Anchor(_)))
         .map(|n| match n {
-            PatternNode::Context(sc) => sc
-                .vars
-                .iter()
-                .map(|av| VarOccur {
-                    feature: av.feature.0 as usize,
-                    var: av.var.0,
-                    plus: av.plus,
-                })
-                .collect(),
+            PatternNode::Context(sc) => context_vars(sc),
             _ => Vec::new(),
         })
         .collect()
+}
+
+fn context_vars(sc: &pg_grammar_model::model::SimpleContext) -> Vec<VarOccur> {
+    sc.vars
+        .iter()
+        .map(|av| VarOccur {
+            feature: av.feature.0 as usize,
+            var: av.var.0,
+            plus: av.plus,
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum AgreementNode {
+    Constraint {
+        lanes: Vec<u64>,
+        vars: Vec<VarOccur>,
+    },
+    Alternation(Vec<AgreementNode>),
+    Repeat {
+        min: u32,
+        max: Option<u32>,
+        children: Vec<AgreementNode>,
+    },
+}
+
+impl AgreementNode {
+    pub(crate) fn nullable(&self) -> bool {
+        match self {
+            Self::Constraint { .. } => false,
+            Self::Alternation(branches) => branches.iter().any(Self::nullable),
+            Self::Repeat { min, children, .. } => *min == 0 || children.iter().all(Self::nullable),
+        }
+    }
+
+    fn compile_node(&self) -> CompileNode {
+        match self {
+            Self::Constraint { lanes, .. } => CompileNode::Constraint(lanes.clone()),
+            Self::Alternation(branches) => CompileNode::Alternation(
+                branches
+                    .iter()
+                    .map(|node| vec![node.compile_node()])
+                    .collect(),
+            ),
+            Self::Repeat { min, max, children } => CompileNode::Quantifier {
+                min: *min,
+                max: *max,
+                children: children.iter().map(Self::compile_node).collect(),
+            },
+        }
+    }
+
+    pub(crate) fn has_vars(&self) -> bool {
+        match self {
+            Self::Constraint { vars, .. } => !vars.is_empty(),
+            Self::Alternation(branches) => branches.iter().any(Self::has_vars),
+            Self::Repeat { children, .. } => children.iter().any(Self::has_vars),
+        }
+    }
+
+    pub(crate) fn has_repeated_vars(&self) -> bool {
+        matches!(self, Self::Repeat { children, .. } if children.iter().any(Self::has_vars))
+    }
 }
 
 /// A construct in an authored pattern that the frozen pg-fst FSA path cannot express (flag, don't
@@ -72,6 +127,7 @@ impl std::error::Error for BridgeError {}
 /// `PatternNode::Anchor` nodes (which pg-fst expresses as traversal flags, not nodes).
 #[derive(Clone, Debug)]
 pub struct CompiledPattern {
+    pub(crate) agreement_nodes: Vec<AgreementNode>,
     pub input: CompileInput,
     pub anchor_start: bool,
     pub anchor_end: bool,
@@ -312,7 +368,7 @@ impl<'g> PatternBridge<'g> {
     fn compile_nodes(
         &self,
         nodes: &[PatternNode],
-        out: &mut Vec<CompileNode>,
+        out: &mut Vec<AgreementNode>,
         anchor_start: &mut bool,
         anchor_end: &mut bool,
         uses_vars: &mut bool,
@@ -326,29 +382,38 @@ impl<'g> PatternBridge<'g> {
                         self.strrep,
                         &self.grammar.natural_classes[sc.nat_class.0 as usize].kind,
                     ) {
-                        out.push(CompileNode::Alternation(
+                        out.push(AgreementNode::Alternation(
                             members
                                 .iter()
                                 .map(|cd| {
                                     let mut member = lanes.clone();
                                     strrep.constrain(&mut member, cd.0);
-                                    vec![CompileNode::Constraint(member)]
+                                    AgreementNode::Constraint {
+                                        lanes: member,
+                                        vars: context_vars(sc),
+                                    }
                                 })
                                 .collect(),
                         ));
                     } else {
-                        out.push(CompileNode::Constraint(lanes));
+                        out.push(AgreementNode::Constraint {
+                            lanes,
+                            vars: context_vars(sc),
+                        });
                     }
                 }
                 PatternNode::CharDef(cd) => {
-                    out.push(CompileNode::Constraint(self.char_def_lanes(*cd)?));
+                    out.push(AgreementNode::Constraint {
+                        lanes: self.char_def_lanes(*cd)?,
+                        vars: Vec::new(),
+                    });
                 }
                 PatternNode::Quantifier { min, max, children } => {
                     let mut child_nodes = Vec::new();
                     // A quantifier body can't itself contain a template anchor in HC's grammar, so the recursion's own anchor flags are throwaway and stay false for real data.
                     let (mut cs, mut ce) = (false, false);
                     self.compile_nodes(children, &mut child_nodes, &mut cs, &mut ce, uses_vars)?;
-                    out.push(CompileNode::Quantifier {
+                    out.push(AgreementNode::Repeat {
                         min: *min,
                         max: *max,
                         children: child_nodes,
@@ -370,7 +435,10 @@ impl<'g> PatternBridge<'g> {
                         if let Some(strrep) = self.strrep.filter(|_| *table == self.table) {
                             strrep.constrain(&mut lanes, char_def);
                         }
-                        out.push(CompileNode::Constraint(lanes));
+                        out.push(AgreementNode::Constraint {
+                            lanes,
+                            vars: Vec::new(),
+                        });
                     }
                 }
                 PatternNode::Anchor(AnchorSide::Left) => *anchor_start = true,
@@ -395,8 +463,10 @@ impl<'g> PatternBridge<'g> {
         )?;
         let top_level_len = nodes.len();
         let node_vars = pattern_var_occurrences(pattern);
-        let input = CompileInput::new(nodes).deterministic(self.deterministic);
+        let input = CompileInput::new(nodes.iter().map(AgreementNode::compile_node).collect())
+            .deterministic(self.deterministic);
         Ok(CompiledPattern {
+            agreement_nodes: nodes,
             input,
             anchor_start,
             anchor_end,
