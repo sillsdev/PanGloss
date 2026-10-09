@@ -36,7 +36,8 @@ the reporting owner and whole-environment regression are recorded in
 
 XAMPLE/C# measurements and staged fixtures are on `feat/xample-measure`
 and are integrated into `integrate/v2` (`conformance-staging/underdefined/`). Their
-unconditional XAMPLE-minimum gate currently exposes seven word rows that conflict with
-authored phonology or provisional literal environments; no native expectation was changed.
+XAMPLE-minimum gate permits exactly seven reviewed losses caused by authored phonology or
+provisional literal environments, with exact exceptions recorded in
+[078](078-xample-minimum-authored-phonology.md); no native expectation was changed.
 The policy is under discussion upstream in
 [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).

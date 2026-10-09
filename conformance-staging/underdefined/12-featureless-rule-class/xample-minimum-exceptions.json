@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "exceptions": [
+    {
+      "loss": {
+        "case": "12-featureless-rule-class",
+        "word": "muma",
+        "key": [
+          {
+            "allomorph": "099bb5b8-80ad-4673-8144-e6e0df7b1c67",
+            "inflection_type": null,
+            "msa": "22944e36-1b47-4b6a-83ef-dd23b444f738"
+          }
+        ],
+        "xample_count": 1,
+        "pangloss_count": 0
+      },
+      "reason": "Authored m-to-p after V=[voc +] applies at m following u; XAMPLE ignores phonological rules, and featureless x does not change this derivation.",
+      "ledger": "078-xample-minimum-authored-phonology.md"
+    },
+    {
+      "loss": {
+        "case": "12-featureless-rule-class",
+        "word": "xmuma",
+        "key": [
+          {
+            "allomorph": "6b13eb01-44e4-44ad-bc99-168adc22d63c",
+            "inflection_type": null,
+            "msa": "95814806-412e-4e8a-995a-0a57892891d4"
+          }
+        ],
+        "xample_count": 1,
+        "pangloss_count": 0
+      },
+      "reason": "Authored m-to-p after V=[voc +] applies at m following u; XAMPLE ignores phonological rules, and featureless x does not change this derivation.",
+      "ledger": "078-xample-minimum-authored-phonology.md"
+    },
+    {
+      "loss": {
+        "case": "12-featureless-rule-class",
+        "word": "xuma",
+        "key": [
+          {
+            "allomorph": "a7c08446-d98b-431c-b38a-d28ceadb4bee",
+            "inflection_type": null,
+            "msa": "d53918cb-330f-4068-b9bd-3dbde34e7349"
+          }
+        ],
+        "xample_count": 1,
+        "pangloss_count": 0
+      },
+      "reason": "Authored m-to-p after V=[voc +] applies at m following u; XAMPLE ignores phonological rules, and featureless x does not change this derivation.",
+      "ledger": "078-xample-minimum-authored-phonology.md"
+    }
+  ]
+}

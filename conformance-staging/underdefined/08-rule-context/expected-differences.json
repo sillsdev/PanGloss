@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "expected_differences": [
+    {
+      "difference": {
+        "word": "xuma",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xuma, contains an undefined phoneme at 0.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "075-provisional-definitions-always-on.md",
+      "reason": "C# input segmentation throws on undefined x; PanGloss supplies its authored provisional literal before applying the surviving authored rule. These rows compare captured status, without treating no-analysis as an HC exception."
+    },
+    {
+      "difference": {
+        "word": "xmuma",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xmuma, contains an undefined phoneme at 0.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "075-provisional-definitions-always-on.md",
+      "reason": "C# input segmentation throws on undefined x; PanGloss supplies its authored provisional literal before applying the surviving authored rule. These rows compare captured status, without treating no-analysis as an HC exception."
+    },
+    {
+      "difference": {
+        "word": "xpuma",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xpuma, contains an undefined phoneme at 0.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "075-provisional-definitions-always-on.md",
+      "reason": "C# input segmentation throws on undefined x; PanGloss supplies its authored provisional literal before applying the surviving authored rule. These rows compare captured status, without treating no-analysis as an HC exception."
+    },
+    {
+      "difference": {
+        "word": "xpumas",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xpumas, contains an undefined phoneme at 0.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "075-provisional-definitions-always-on.md",
+      "reason": "C# input segmentation throws on undefined x; PanGloss supplies its authored provisional literal before applying the surviving authored rule. These rows compare captured status, without treating no-analysis as an HC exception."
+    }
+  ]
+}

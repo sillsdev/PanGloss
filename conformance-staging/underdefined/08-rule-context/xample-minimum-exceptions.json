@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "exceptions": [
+    {
+      "loss": {
+        "case": "08-rule-context",
+        "word": "muma",
+        "key": [
+          {
+            "allomorph": "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+            "inflection_type": null,
+            "msa": "cbb849b1-13ac-4b86-9a5a-a4a5e950d164"
+          }
+        ],
+        "xample_count": 1,
+        "pangloss_count": 0
+      },
+      "reason": "Deleting the structured context reference leaves authored m-to-p unconditional; XAMPLE ignores phonological rules.",
+      "ledger": "078-xample-minimum-authored-phonology.md"
+    },
+    {
+      "loss": {
+        "case": "08-rule-context",
+        "word": "xuma",
+        "key": [
+          {
+            "allomorph": "b7002eed-ba64-4ec2-baa2-f877369b535b",
+            "inflection_type": null,
+            "msa": "1e40e644-88dd-4429-8a13-3fa5c49abd2f"
+          }
+        ],
+        "xample_count": 1,
+        "pangloss_count": 0
+      },
+      "reason": "Deleting the structured context reference leaves authored m-to-p unconditional; XAMPLE ignores phonological rules.",
+      "ledger": "078-xample-minimum-authored-phonology.md"
+    },
+    {
+      "loss": {
+        "case": "08-rule-context",
+        "word": "xmuma",
+        "key": [
+          {
+            "allomorph": "391454a0-50fb-4cec-a965-26ef4db345f2",
+            "inflection_type": null,
+            "msa": "dfb85f97-d422-47ae-94b8-1b3dee2b8111"
+          }
+        ],
+        "xample_count": 1,
+        "pangloss_count": 0
+      },
+      "reason": "Deleting the structured context reference leaves authored m-to-p unconditional; XAMPLE ignores phonological rules.",
+      "ledger": "078-xample-minimum-authored-phonology.md"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "expected_differences": [
+    {
+      "difference": {
+        "word": "mupa",
+        "key": [
+          {
+            "allomorph": "a7c08446-d98b-431c-b38a-d28ceadb4bee",
+            "inflection_type": null,
+            "msa": "d53918cb-330f-4068-b9bd-3dbde34e7349"
+          }
+        ],
+        "csharp_count": 1,
+        "pangloss_count": 0,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "076-underdefined-natural-class-membership-decision.md",
+      "reason": "C# analysis-side unification yields the extra xuma root for mupa through featureless x; ledger 076 records this case and the analysis-side extra-root mechanism."
+    }
+  ]
+}

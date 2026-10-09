@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "expected_differences": [
+    {
+      "difference": {
+        "word": "mum",
+        "key": [
+          {
+            "allomorph": "071cf99d-afbd-45df-bdb3-c544f2f35ef2",
+            "inflection_type": null,
+            "msa": "99a4fd88-0ca8-4a12-8714-0f8d25594de1"
+          }
+        ],
+        "csharp_count": 1,
+        "pangloss_count": 0,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "076-underdefined-natural-class-membership-decision.md",
+      "reason": "C# analysis-side unification admits an extra root identity through the featureless x; PanGloss retains literal constraints. Ledger 076 explicitly records this staged witness and the extra-root unification divergence."
+    },
+    {
+      "difference": {
+        "word": "mux",
+        "key": [
+          {
+            "allomorph": "32bca18c-5674-4d46-93cb-799d27ce70b5",
+            "inflection_type": null,
+            "msa": "fbd31f71-be00-4ffe-93f3-83855d8d6d25"
+          }
+        ],
+        "csharp_count": 1,
+        "pangloss_count": 0,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "076-underdefined-natural-class-membership-decision.md",
+      "reason": "C# analysis-side unification admits an extra root identity through the featureless x; PanGloss retains literal constraints. Ledger 076 explicitly records this staged witness and the extra-root unification divergence."
+    }
+  ]
+}

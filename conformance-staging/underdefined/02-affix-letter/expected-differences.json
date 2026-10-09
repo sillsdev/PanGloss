@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "expected_differences": [
+    {
+      "difference": {
+        "word": "mumax",
+        "key": [
+          {
+            "allomorph": "7a03d086-5a3f-48a6-b87c-9d6e81f56875",
+            "inflection_type": null,
+            "msa": "1b63a76b-1fa0-4fda-8f8e-8244f9ce9180"
+          },
+          {
+            "allomorph": "1ca1ff06-195c-4b6e-a4c5-a6b599b6e067",
+            "inflection_type": null,
+            "msa": "6adcbf23-e9c9-4699-85e6-522329e865de"
+          }
+        ],
+        "csharp_count": 0,
+        "pangloss_count": 1,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "075-provisional-definitions-always-on.md",
+      "reason": "C# throws for undefined input letters and drops an unsegmentable suffix; PanGloss completes authored literal x. Unreferenced y remains invalid, returned as an invalid-shape result rather than an HC exception."
+    },
+    {
+      "difference": {
+        "word": "mumax",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumax, contains an undefined phoneme at 4.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "075-provisional-definitions-always-on.md",
+      "reason": "C# throws for undefined input letters and drops an unsegmentable suffix; PanGloss completes authored literal x. Unreferenced y remains invalid, returned as an invalid-shape result rather than an HC exception."
+    },
+    {
+      "difference": {
+        "word": "mumay",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumay, contains an undefined phoneme at 4.",
+        "pangloss_invalid_shape": true
+      },
+      "ledger": "075-provisional-definitions-always-on.md",
+      "reason": "C# throws for undefined input letters and drops an unsegmentable suffix; PanGloss completes authored literal x. Unreferenced y remains invalid, returned as an invalid-shape result rather than an HC exception."
+    }
+  ]
+}

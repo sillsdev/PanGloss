@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "comparison_profile": "underdefined-stored-keys-and-status/v1",
+  "expected_differences": [
+    {
+      "difference": {
+        "word": "mãma",
+        "key": [
+          {
+            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+            "inflection_type": null,
+            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+          }
+        ],
+        "csharp_count": 0,
+        "pangloss_count": 1,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    },
+    {
+      "difference": {
+        "word": "mãma",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    },
+    {
+      "difference": {
+        "word": "mãmas",
+        "key": [
+          {
+            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+            "inflection_type": null,
+            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+          },
+          {
+            "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+            "inflection_type": null,
+            "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
+          }
+        ],
+        "csharp_count": 0,
+        "pangloss_count": 1,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    },
+    {
+      "difference": {
+        "word": "mãmas",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    },
+    {
+      "difference": {
+        "word": "mãma",
+        "key": [
+          {
+            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+            "inflection_type": null,
+            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+          }
+        ],
+        "csharp_count": 0,
+        "pangloss_count": 1,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    },
+    {
+      "difference": {
+        "word": "mãma",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    },
+    {
+      "difference": {
+        "word": "mãmas",
+        "key": [
+          {
+            "allomorph": "d71c5dde-47ef-443a-ba25-4c897b8ae92f",
+            "inflection_type": null,
+            "msa": "08a51dc2-499b-4dc0-900e-a6e27e7ffc7e"
+          },
+          {
+            "allomorph": "c8b3e769-9af1-42e9-9164-b7fa0fc44e9d",
+            "inflection_type": null,
+            "msa": "153f76c4-f2a3-4817-a66a-c3a1ff0f2758"
+          }
+        ],
+        "csharp_count": 0,
+        "pangloss_count": 1,
+        "csharp_error": null,
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    },
+    {
+      "difference": {
+        "word": "mãmas",
+        "key": null,
+        "csharp_count": 0,
+        "pangloss_count": 0,
+        "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
+        "pangloss_invalid_shape": false
+      },
+      "ledger": "072-provisional-letter-unit.md",
+      "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
+    }
+  ]
+}

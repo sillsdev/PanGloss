@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "exceptions": [
+    {
+      "loss": {
+        "case": "10-undefined-environment-letter",
+        "word": "mumas",
+        "key": [
+          {
+            "allomorph": "eca2cccb-df8a-4003-8d0f-1550b844c6ae",
+            "inflection_type": null,
+            "msa": "6707c385-af97-48f6-88a6-f332fdaa9ff6"
+          },
+          {
+            "allomorph": "bbbd807a-969a-4cd2-b242-6c3ab4dad8ce",
+            "inflection_type": null,
+            "msa": "23577d24-75d0-4079-aedb-563309c3f68e"
+          }
+        ],
+        "xample_count": 1,
+        "pangloss_count": 0
+      },
+      "reason": "ADR 0008 provisional literal x retains suffix s restriction / x _; preceding a fails, while native loaders discard the unreadable environment.",
+      "ledger": "078-xample-minimum-authored-phonology.md"
+    }
+  ]
+}

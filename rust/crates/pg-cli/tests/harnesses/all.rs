@@ -37,3 +37,6 @@ mod default_dependency_closure;
 
 #[path = "../underdefined_measurement_integrity_gate.rs"]
 mod underdefined_measurement_integrity_gate;
+
+#[path = "../underdefined_stored_keys_gate.rs"]
+mod underdefined_stored_keys_gate;

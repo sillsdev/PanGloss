@@ -44,9 +44,10 @@ The separate measurement lane produced these native captures. `feat/xample-measu
 available locally and its twelve staged cases are integrated into `integrate/v2`. The
 integration replay executed PanGloss over all 61 words using the saved OFF projects and
 the parse owner's ordered allomorph/MSA/inflection-type projection. Native XAMPLE/C# were
-not rerun by the Linux integration lane. Its strict minimum gate currently fails seven
-word rows involving authored phonology or provisional literal environments; exact keys and
-statuses are recorded in the integration report, without changing native expectations.
+not rerun by the Linux integration lane. Its minimum gate preserves all native XAMPLE keys
+except seven exact reviewed losses caused by authored phonology or provisional literal
+environments, recorded in [078](078-xample-minimum-authored-phonology.md). Exact C# key/status
+differences are listed per case, without changing native expectations.
 The captures omit C# root position/category, so this is not full C# structured-identity
 parity. The native binary hashes, versions, saved projects and outputs remain staged.
 Machine source revision inspected locally is
@@ -109,8 +110,8 @@ inventory. After correction: zero mismatches, with unchanged expectations. Three
 pathological/crash fixtures are outside generic replay. The complete census and managed
 command results are in `/tmp/pangloss-lanes/udp-core.md` and its referenced logs/CSV.
 That original replay did not include the separate branch's two staged witnesses. The later
-integration replay of the twelve measured cases is described above; its pending strict
-minimum gate is distinct from the unchanged generic fixture replay.
+integration replay of the twelve measured cases is described above; its dedicated minimum
+and captured-key/status gate is distinct from the unchanged generic fixture replay.
 
 ## Literal surface matching and engine parity
 

@@ -1,9 +1,12 @@
 # Underdefined FieldWorks measurement staging
 
 These 12 synthetic witnesses record native XAMPLE and C# HC observations. The integration lane
-has replayed all 61 words against PanGloss. Its unconditional XAMPLE-minimum gate currently
-fails seven word rows, pending the lead's reconciliation with ADR 0008. No native expectation
-has been changed to hide that failure. Original per-case provenance describes the native capture
+has replayed all 61 words against PanGloss. The XAMPLE stored-key minimum is unconditional except
+for the seven reviewed rows in per-case `xample-minimum-exceptions.json` tables, each naming
+[ledger 078](../../docs/divergences/078-xample-minimum-authored-phonology.md). Authored phonological
+rules apply, and a provisional literal keeps an authored environment restriction. An unlisted
+minimum loss or a listed loss that disappears fails. No native expectation has been changed.
+Original per-case provenance describes the native capture
 before this integration replay; it is not a claim that PanGloss has never run these cases.
 
 Each case has supported author input `grammar.xml`, its real LibLCM-authored project, the control,
@@ -43,9 +46,14 @@ are recorded in each measurement.json. Project .fwdata bytes are unchanged; comp
 checks real stored-key multisets, errors, diagnostics and segment counts. No UI metadata equivalence
 is claimed.
 
+The gate uses the comparison profile **stored-analysis key plus captured status**,
+`underdefined-stored-keys-and-status/v1`. Each case's `expected-differences.json` lists exact
+key multiplicities and captured HC-error/PanGloss-invalid-shape differences, with a ledger entry
+covering each mechanism. Unlisted and disappeared differences fail; empty tables assert none.
 The captures preserve ordered allomorph/MSA/inflection-type keys and engine errors, but do not
 record C# root position or category. Comparing their keys/statuses is not full C# structured
-analysis parity under CONTEXT.md. Full-identity capture coverage remains pending; it cannot be
+analysis parity under CONTEXT.md. A Windows projector rerun to capture C# root position/category
+and enforce full structured identity is an open follow-up; the missing observation cannot be
 reconstructed as an observation from PanGloss output. The gate retains source-identity fields
 and analysis multiplicity rather than comparing rendered signatures or numeric compiler ids.
 
