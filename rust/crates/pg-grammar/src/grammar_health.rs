@@ -31,6 +31,7 @@ pub enum GrammarHealthCode {
     UnclassifiedAffix,
     PartialReasonUnspecified,
     ProvisionalPhonemeFeatures,
+    StoredAnalysisNoLongerParses,
     ImportWarning(String),
 }
 
@@ -44,6 +45,7 @@ impl GrammarHealthCode {
         Self::UnclassifiedAffix,
         Self::PartialReasonUnspecified,
         Self::ProvisionalPhonemeFeatures,
+        Self::StoredAnalysisNoLongerParses,
     ];
 
     /// The stable wire string for this diagnostic code.
@@ -58,6 +60,7 @@ impl GrammarHealthCode {
             Self::UnclassifiedAffix => "hc-unclassified-affix",
             Self::PartialReasonUnspecified => "hc-partial-reason-unspecified",
             Self::ProvisionalPhonemeFeatures => "provisional.phoneme-features",
+            Self::StoredAnalysisNoLongerParses => "grammar.stored-analysis.no-longer-parses",
             Self::ImportWarning(code) => code,
         }
     }
@@ -144,6 +147,12 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
             "In Grammar > Phonemes, select the named phoneme and assign its Phonological Features to replace this provisional definition.",
             vec![place("phonemeEdit", "Phonological Features")], ALLOMORPHS_HELP,
         ),
+        GrammarHealthCode::StoredAnalysisNoLongerParses => (
+            "Stored analysis changed", Info,
+            "A FieldWorks stored analysis is absent from PanGloss's confirmed analyses for its wordform. The reported forward-synthesis trace shows authored phonological rules that changed the surface, or explains why the loss could not be attributed to a rule.",
+            "Check whether the named rule is meant to apply to these morphs. If so, update or remove the stored analysis in Lexicon > Lexicon Edit. If not, restrict the rule's environment in Grammar > Phonological Rules.",
+            vec![place("PhonologicalRuleEdit", "Environment"), place("lexiconEdit", "Analysis")], ALLOMORPHS_HELP,
+        ),
         GrammarHealthCode::ImportWarning(_) => return None,
     };
     Some(CheckDiagnosticMetadata {
@@ -210,6 +219,7 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
             "hc-unclassified-affix" => Self::UnclassifiedAffix,
             "hc-partial-reason-unspecified" => Self::PartialReasonUnspecified,
             "provisional.phoneme-features" => Self::ProvisionalPhonemeFeatures,
+            "grammar.stored-analysis.no-longer-parses" => Self::StoredAnalysisNoLongerParses,
             _ => Self::ImportWarning(wire),
         })
     }
@@ -536,6 +546,19 @@ impl GrammarHealthDiagnostic {
                 .map(GrammarHealthSubject::from_source)
                 .collect(),
         }
+    }
+
+    /// Builds a check finding from FieldWorks source subjects using the registered diagnostic metadata.
+    pub fn from_check(
+        code: GrammarHealthCode,
+        message: impl Into<String>,
+        sources: Vec<FwObjectRef>,
+    ) -> Self {
+        let subjects = sources
+            .into_iter()
+            .map(GrammarHealthSubject::from_source)
+            .collect();
+        Self::checked(code, message.into(), subjects)
     }
 
     fn checked(

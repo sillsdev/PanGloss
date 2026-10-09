@@ -75,6 +75,10 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
             crate::print_substrate_report(&loaded.substrate);
             let mut diagnostics = check_grammar_health_diagnostics(&loaded.grammar)
                 .map_err(|error| format!("run grammar health checks: {error}"))?;
+            diagnostics.extend(crate::stored_analysis_health::check(
+                &loaded.grammar,
+                &loaded.stored_analyses,
+            )?);
             diagnostics.extend(
                 loaded
                     .warnings

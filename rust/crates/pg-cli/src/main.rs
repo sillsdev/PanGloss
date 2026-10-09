@@ -150,6 +150,7 @@ mod recipe_optimize;
 mod rich_trace;
 mod stats_cmd;
 mod stats_manifest;
+mod stored_analysis_health;
 mod surface;
 mod trace_render;
 
@@ -516,6 +517,7 @@ fn run_import(args: &[String]) -> Result<(), String> {
 struct LoadedGrammar {
     grammar: Grammar,
     warnings: Vec<pg_snapshot::Warning>,
+    stored_analyses: Vec<pg_fwdata::StoredAnalysis>,
     metadata: Option<rich_trace::TraceMetadata>,
     stats_source_identity: Option<stats_manifest::SourceIdentity>,
     substrate: pg_grammar::compile::issues::SubstrateReport,
@@ -555,6 +557,7 @@ fn load_grammar_impl(
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,
+                stored_analyses: Vec::new(),
                 metadata,
                 stats_source_identity,
                 substrate: output.substrate,
@@ -568,6 +571,7 @@ fn load_grammar_impl(
             };
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
+            let stored_analyses = report.stored_analyses;
             if let Some(source_bytes) = source_bytes.as_deref() {
                 let bytes_after_import =
                     fs::read(path).map_err(|e| format!("read {path} after import: {e}"))?;
@@ -601,6 +605,7 @@ fn load_grammar_impl(
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,
+                stored_analyses,
                 metadata,
                 stats_source_identity,
                 substrate: output.substrate,
@@ -632,6 +637,7 @@ fn load_grammar_impl(
             Ok(LoadedGrammar {
                 grammar,
                 warnings: Vec::new(),
+                stored_analyses: Vec::new(),
                 metadata,
                 stats_source_identity,
                 substrate: Default::default(),

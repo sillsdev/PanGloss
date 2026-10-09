@@ -1,6 +1,7 @@
 use super::*;
 use pg_grammar::grammar_health::check_grammar_health;
 use pg_grammar::model::Grammar;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Same clean, zero-diagnostics shape `fst_health.rs`'s own fixture uses.
 const CLEAN_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -57,6 +58,17 @@ const PARTIAL_ENTRY_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?
   </Language>
 </HermitCrabInput>
 "#;
+
+const STORED_ANALYSIS_CODE: &str = "grammar.stored-analysis.no-longer-parses";
+static STORED_ANALYSIS_TEST_ID: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Clone, Copy)]
+struct StoredAnalysisFixture {
+    wordform: &'static str,
+    allomorph: &'static str,
+    msa: &'static str,
+    expected_surface: &'static str,
+}
 
 fn grammar(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture grammar failed to load: {e}"))
@@ -261,6 +273,311 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         }));
 
     let _ = fs::remove_dir_all(scratch);
+}
+
+fn append_stored_analyses(
+    project: &str,
+    writing_system: &str,
+    analyses: &[StoredAnalysisFixture],
+) -> String {
+    let mut records = String::new();
+    for (index, analysis) in analyses.iter().enumerate() {
+        let wordform_guid = format!("e0000000-0000-0000-0000-{index:012x}");
+        let analysis_guid = format!("f0000000-0000-0000-0000-{index:012x}");
+        let bundle_guid = format!("c0000000-0000-0000-0000-{index:012x}");
+        records.push_str(&format!(
+            "<rt class=\"WfiWordform\" guid=\"{wordform_guid}\"><Form><AUni ws=\"{writing_system}\">{wordform}</AUni></Form><Analyses><objsur guid=\"{analysis_guid}\" t=\"r\" /></Analyses></rt>\
+             <rt class=\"WfiAnalysis\" guid=\"{analysis_guid}\"><MorphBundles><objsur guid=\"{bundle_guid}\" t=\"o\" /></MorphBundles></rt>\
+             <rt class=\"WfiMorphBundle\" guid=\"{bundle_guid}\"><Morph><objsur guid=\"{allomorph}\" t=\"r\" /></Morph><Msa><objsur guid=\"{msa}\" t=\"r\" /></Msa></rt>",
+            wordform = analysis.wordform,
+            allomorph = analysis.allomorph,
+            msa = analysis.msa,
+        ));
+    }
+    let insertion = project
+        .rfind("</languageproject>")
+        .expect("FieldWorks project has a root closing tag");
+    let mut result = project.to_string();
+    result.insert_str(insertion, &records);
+    result
+}
+
+fn run_stored_analysis_health(
+    label: &str,
+    project: &str,
+    writing_system: &str,
+    analyses: &[StoredAnalysisFixture],
+) -> serde_json::Value {
+    let scratch = std::env::temp_dir().join(format!(
+        "pangloss-stored-analysis-{label}-{}-{}",
+        std::process::id(),
+        STORED_ANALYSIS_TEST_ID.fetch_add(1, Ordering::Relaxed),
+    ));
+    fs::create_dir_all(&scratch).expect("create stored-analysis fixture directory");
+    let project_path = scratch.join("project.fwdata");
+    let output_path = scratch.join("report.json");
+    fs::write(
+        &project_path,
+        append_stored_analyses(project, writing_system, analyses),
+    )
+    .expect("write stored-analysis project");
+    run_grammar_health(&[
+        project_path.to_string_lossy().into_owned(),
+        output_path.to_string_lossy().into_owned(),
+    ])
+    .unwrap_or_else(|error| panic!("grammar health failed for {label}: {error}"));
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(&output_path).expect("read stored-analysis report"))
+            .expect("stored-analysis report is JSON");
+    fs::remove_dir_all(&scratch).expect("remove stored-analysis fixture directory");
+    report
+}
+
+fn run_stored_analysis_health_with_synthesis_cap(
+    project: &str,
+    writing_system: &str,
+    analyses: &[StoredAnalysisFixture],
+    work_cap: usize,
+) -> Vec<pg_grammar::grammar_health::GrammarHealthDiagnostic> {
+    let scratch = std::env::temp_dir().join(format!(
+        "pangloss-stored-analysis-cap-{}-{}",
+        std::process::id(),
+        STORED_ANALYSIS_TEST_ID.fetch_add(1, Ordering::Relaxed),
+    ));
+    fs::create_dir_all(&scratch).expect("create capped stored-analysis fixture directory");
+    let project_path = scratch.join("project.fwdata");
+    fs::write(
+        &project_path,
+        append_stored_analyses(project, writing_system, analyses),
+    )
+    .expect("write capped stored-analysis project");
+    let path = project_path.to_string_lossy().into_owned();
+    let loaded = crate::load_grammar_impl(&path, false, false)
+        .unwrap_or_else(|error| panic!("load capped stored-analysis fixture: {error}"));
+    let diagnostics = crate::stored_analysis_health::check_with_synthesis_work_cap(
+        &loaded.grammar,
+        &loaded.stored_analyses,
+        work_cap,
+    )
+    .expect("capped synthesis is reported as a finding");
+    fs::remove_dir_all(&scratch).expect("remove capped stored-analysis fixture directory");
+    diagnostics
+}
+
+fn staged_underdefined_project(folder: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance-staging/underdefined")
+        .join(folder)
+        .join("fieldworks/project.fwdata");
+    fs::read_to_string(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()))
+}
+
+fn assert_rule_attributed_findings(
+    report: &serde_json::Value,
+    expected: &[StoredAnalysisFixture],
+    rule_guid: &str,
+) {
+    let diagnostics = report["diagnostics"].as_array().expect("diagnostic array");
+    let findings: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == STORED_ANALYSIS_CODE)
+        .collect();
+    assert_eq!(findings.len(), expected.len(), "{findings:#?}");
+    for analysis in expected {
+        let finding = findings
+            .iter()
+            .find(|finding| {
+                finding["description"]
+                    .as_str()
+                    .is_some_and(|text| text.contains(&format!("wordform {:?}", analysis.wordform)))
+            })
+            .unwrap_or_else(|| {
+                panic!("missing finding for {:?}: {findings:#?}", analysis.wordform)
+            });
+        assert_eq!(finding["level"], "info");
+        let description = finding["description"].as_str().expect("description");
+        assert!(description.contains(analysis.allomorph), "{description}");
+        assert!(description.contains(analysis.msa), "{description}");
+        assert!(description.contains("probe-rewrite"), "{description}");
+        assert!(description.contains(rule_guid), "{description}");
+        assert!(
+            description.contains(analysis.expected_surface),
+            "{description}"
+        );
+        assert!(
+            description.contains(&format!(
+                "forward-synthesized surfaces: {:?}",
+                analysis.expected_surface
+            )),
+            "{description}"
+        );
+        assert!(!description.contains("unattributed:"), "{description}");
+    }
+}
+
+#[test]
+fn grammar_health_attributes_rule_context_stored_analysis_losses() {
+    let analyses = [
+        StoredAnalysisFixture {
+            wordform: "muma",
+            allomorph: "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+            msa: "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+            expected_surface: "pupa",
+        },
+        StoredAnalysisFixture {
+            wordform: "xuma",
+            allomorph: "b7002eed-ba64-4ec2-baa2-f877369b535b",
+            msa: "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+            expected_surface: "xupa",
+        },
+        StoredAnalysisFixture {
+            wordform: "xmuma",
+            allomorph: "391454a0-50fb-4cec-a965-26ef4db345f2",
+            msa: "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
+            expected_surface: "xpupa",
+        },
+    ];
+    let report = run_stored_analysis_health(
+        "08-rule-context",
+        &staged_underdefined_project("08-rule-context"),
+        "en",
+        &analyses,
+    );
+    assert_rule_attributed_findings(&report, &analyses, "f6e5d881-e704-40d0-ad59-d1466817443b");
+}
+
+#[test]
+fn grammar_health_attributes_featureless_rule_class_stored_analysis_losses() {
+    let analyses = [
+        StoredAnalysisFixture {
+            wordform: "muma",
+            allomorph: "099bb5b8-80ad-4673-8144-e6e0df7b1c67",
+            msa: "22944e36-1b47-4b6a-83ef-dd23b444f738",
+            expected_surface: "mupa",
+        },
+        StoredAnalysisFixture {
+            wordform: "xuma",
+            allomorph: "a7c08446-d98b-431c-b38a-d28ceadb4bee",
+            msa: "d53918cb-330f-4068-b9bd-3dbde34e7349",
+            expected_surface: "xupa",
+        },
+        StoredAnalysisFixture {
+            wordform: "xmuma",
+            allomorph: "6b13eb01-44e4-44ad-bc99-168adc22d63c",
+            msa: "95814806-412e-4e8a-995a-0a57892891d4",
+            expected_surface: "xmupa",
+        },
+    ];
+    let report = run_stored_analysis_health(
+        "12-featureless-rule-class",
+        &staged_underdefined_project("12-featureless-rule-class"),
+        "en",
+        &analyses,
+    );
+    assert_rule_attributed_findings(&report, &analyses, "d2dbfb44-5405-45f6-8fde-60df386f8eaf");
+    let findings = report["diagnostics"].as_array().expect("diagnostic array");
+    for (wordform, ordinary_surface, actual_surface) in [
+        ("muma", "xxxx", "mupa"),
+        ("xuma", "xxxx", "xupa"),
+        ("xmuma", "xxxxx", "xmupa"),
+    ] {
+        let description = findings
+            .iter()
+            .find(|finding| {
+                finding["code"] == STORED_ANALYSIS_CODE
+                    && finding["description"]
+                        .as_str()
+                        .is_some_and(|text| text.contains(&format!("wordform {wordform:?}")))
+            })
+            .expect("featureless wordform finding")["description"]
+            .as_str()
+            .expect("description");
+        assert!(description.contains(actual_surface), "{description}");
+        assert!(
+            description.contains(&format!(
+                "ordinary surface renderer displays {ordinary_surface:?}"
+            )),
+            "{description}"
+        );
+    }
+}
+
+#[test]
+fn grammar_health_reports_unattributed_stored_analysis_loss_and_keeps_control() {
+    const FIXTURE: &str = include_str!("../../../pg-fwdata/tests/data/fixture.fwdata");
+    let analyses = [
+        StoredAnalysisFixture {
+            wordform: "kat",
+            allomorph: "00000000-0000-0000-0000-000000000031",
+            msa: "00000000-0000-0000-0000-000000000032",
+            expected_surface: "kat",
+        },
+        StoredAnalysisFixture {
+            wordform: "missing",
+            allomorph: "00000000-0000-0000-0000-000000000031",
+            msa: "00000000-0000-0000-0000-000000000032",
+            expected_surface: "kat",
+        },
+    ];
+    let fixed_fixture = FIXTURE.replace(
+        "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+        "guid=\"00000000-0000-0000-0000-000000000017\"",
+    );
+    let no_rules_fixture = fixed_fixture.replace(
+        "<objsur guid=\"00000000-0000-0000-0000-000000000018\" t=\"o\" />",
+        "",
+    );
+    let report = run_stored_analysis_health("unattributed", &no_rules_fixture, "fx", &analyses);
+    let findings: Vec<_> = report["diagnostics"]
+        .as_array()
+        .expect("diagnostic array")
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == STORED_ANALYSIS_CODE)
+        .collect();
+    assert_eq!(findings.len(), 1, "{findings:#?}");
+    let description = findings[0]["description"].as_str().expect("description");
+    assert!(
+        description.contains("wordform \"missing\""),
+        "{description}"
+    );
+    assert!(description.contains("unattributed:"), "{description}");
+    assert!(
+        description.contains("no authored phonological rule application"),
+        "{description}"
+    );
+    assert!(
+        description.contains("forward-synthesized surfaces: \"kat\""),
+        "{description}"
+    );
+    assert!(!description.contains("wordform \"kat\""), "{description}");
+}
+
+#[test]
+fn grammar_health_reports_synthesis_budget_as_unattributed() {
+    let analysis = [StoredAnalysisFixture {
+        wordform: "muma",
+        allomorph: "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+        msa: "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+        expected_surface: "pupa",
+    }];
+    let diagnostics = run_stored_analysis_health_with_synthesis_cap(
+        &staged_underdefined_project("08-rule-context"),
+        "en",
+        &analysis,
+        0,
+    );
+    let finding = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.wire() == STORED_ANALYSIS_CODE)
+        .expect("stored-analysis finding");
+    assert!(
+        finding
+            .message
+            .contains("unattributed: synthesis step budget reached"),
+        "{}",
+        finding.message
+    );
+    assert!(!finding.message.contains("authored phonological rule"));
 }
 
 #[test]

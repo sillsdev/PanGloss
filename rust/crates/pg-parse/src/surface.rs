@@ -204,6 +204,32 @@ pub fn to_plain_string(table: &CharDefTable, shape: &Shape, include_boundaries: 
     sb
 }
 
+/// Render an exact surface for diagnostics when a traced rule supplies segment spellings that a
+/// feature-only output shape no longer identifies.
+pub(crate) fn to_diagnostic_string(
+    table: &CharDefTable,
+    shape: &Shape,
+    spellings: &std::collections::BTreeMap<usize, String>,
+) -> (String, bool) {
+    let mut rendered = String::new();
+    let mut unresolved = false;
+    for i in 0..shape.len() {
+        if shape.kind(i) != NodeKind::Segment {
+            continue;
+        }
+        if let Some(spelling) = spellings.get(&i) {
+            rendered.push_str(spelling);
+            continue;
+        }
+        let matches = matching_str_reps(table, shape, i, false);
+        unresolved |= matches.len() > 1;
+        if let Some(first) = matches.first() {
+            rendered.push_str(first);
+        }
+    }
+    (rendered, unresolved)
+}
+
 /// `CharacterDefinitionTable.IsMatch(word, shape)` (CharacterDefinitionTable.cs:274): does the NFD
 /// input word match the shape's node sequence (each node an alternation of its matching NFD
 /// representations, optional nodes skippable), anchored start-to-end. See module docs.

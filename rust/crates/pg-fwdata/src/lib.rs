@@ -65,6 +65,27 @@ pub enum ImportError {
 pub struct ImportReport {
     pub warnings: Vec<Warning>,
     pub provenance: ConversionProvenance,
+    /// Analyses retained in FieldWorks wordforms; grammar compilation does not consume them.
+    pub stored_analyses: Vec<StoredAnalysis>,
+}
+
+/// One FieldWorks `WfiAnalysis` attached to a wordform.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredAnalysis {
+    pub wordform_guid: String,
+    pub wordform: Option<String>,
+    pub analysis_guid: String,
+    pub morphs: Vec<StoredAnalysisMorph>,
+    pub issue: Option<String>,
+}
+
+/// The FieldWorks stored-analysis key and its display form for one morph bundle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredAnalysisMorph {
+    pub allomorph_guid: Option<String>,
+    pub msa_guid: Option<String>,
+    pub inflection_type_guid: Option<String>,
+    pub form: Option<String>,
 }
 
 /// Import a `.fwdata` project file or `.fwbackup` archive into a `Snapshot` plus an `ImportReport`
@@ -85,6 +106,8 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     let filename_stem = file_stem(path);
     let (mut snapshot, mut warnings) = extract::extract(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
+    let stored_analyses =
+        extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
     fwbackup::apply_exemplars(&mut snapshot, &ldml);
     warnings.extend(ldml_warning);
@@ -93,6 +116,7 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
         ImportReport {
             warnings,
             provenance,
+            stored_analyses,
         },
     ))
 }
@@ -115,6 +139,8 @@ pub fn import_file_measured(
     let (mut snapshot, mut warnings, recorder) =
         extract::extract_recording(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
+    let stored_analyses =
+        extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
     fwbackup::apply_exemplars(&mut snapshot, &ldml);
     warnings.extend(ldml_warning);
@@ -127,6 +153,7 @@ pub fn import_file_measured(
         ImportReport {
             warnings,
             provenance,
+            stored_analyses,
         },
         InventoryDelta::from_stage(inventory, issues),
     ))

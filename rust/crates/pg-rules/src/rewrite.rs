@@ -1130,12 +1130,13 @@ fn report_subrule_outcomes(
     parent: TraceHandle,
     pid: PRuleId,
     outcomes: &[SubruleOutcome],
+    input: &Word,
     out_word: &Word,
 ) {
     for (i, outcome) in outcomes.iter().enumerate() {
         match outcome {
             SubruleOutcome::Applied => {
-                trace.phonological_rule_applied(parent, pid, i as i32, out_word);
+                trace.phonological_rule_applied(parent, pid, i as i32, input, out_word);
                 break;
             }
             SubruleOutcome::NotApplied(reason) => {
@@ -1223,7 +1224,10 @@ pub fn synthesize_with_mpr_traced(
     let mut out_word = Word::new(out_shape.clone(), StratumId(0));
     out_word.syn_fs = syn_fs.clone();
     out_word.mpr = mpr;
-    report_subrule_outcomes(trace, parent, pid, &outcomes, &out_word);
+    let mut in_word = Word::new(input.clone(), StratumId(0));
+    in_word.syn_fs = syn_fs.clone();
+    in_word.mpr = mpr;
+    report_subrule_outcomes(trace, parent, pid, &outcomes, &in_word, &out_word);
 
     if applied {
         vec![out_shape]
@@ -1349,7 +1353,7 @@ pub fn synthesize_with_mpr_cached_traced(
     let mut out_word = input.clone();
     out_word.shape = out_shape.clone();
     let node_parent = input.trace.unwrap_or(parent);
-    report_subrule_outcomes(trace, node_parent, pid, &outcomes, &out_word);
+    report_subrule_outcomes(trace, node_parent, pid, &outcomes, input, &out_word);
 
     if applied {
         vec![out_shape]

@@ -66,12 +66,15 @@ pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), I
     let (graph, stem, ldml) = read_backup(path)?;
     let (mut snapshot, warnings) = extract::extract(&graph, &stem)?;
     let provenance = snapshot.conversion_provenance.clone();
+    let stored_analyses =
+        extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     apply_exemplars(&mut snapshot, &ldml);
     Ok((
         snapshot,
         ImportReport {
             warnings,
             provenance,
+            stored_analyses,
         },
     ))
 }
@@ -83,6 +86,8 @@ pub(crate) fn import_fwbackup_measured(
     let (graph, stem, ldml) = read_backup(path)?;
     let (mut snapshot, warnings, recorder) = extract::extract_recording(&graph, &stem)?;
     let provenance = snapshot.conversion_provenance.clone();
+    let stored_analyses =
+        extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     apply_exemplars(&mut snapshot, &ldml);
     if let Err(violation) = recorder.check_invariants() {
         panic!("import_fwbackup_measured: selection recorder invariant violated: {violation}");
@@ -93,6 +98,7 @@ pub(crate) fn import_fwbackup_measured(
         ImportReport {
             warnings,
             provenance,
+            stored_analyses,
         },
         InventoryDelta::from_stage(inventory, issues),
     ))

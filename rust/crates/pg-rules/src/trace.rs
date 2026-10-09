@@ -452,6 +452,7 @@ pub trait TraceSink {
         parent: TraceHandle,
         rule: PRuleId,
         subrule: i32,
+        input: &Word,
         output: &Word,
     ) -> TraceHandle;
     fn phonological_rule_not_applied(
@@ -644,6 +645,7 @@ impl TraceSink for NoopSink {
         _p: TraceHandle,
         _r: PRuleId,
         _s: i32,
+        _i: &Word,
         _o: &Word,
     ) -> TraceHandle {
         unreachable!()
@@ -1100,6 +1102,7 @@ impl TraceSink for TreeTraceSink {
         parent: TraceHandle,
         rule: PRuleId,
         subrule: i32,
+        input: &Word,
         output: &Word,
     ) -> TraceHandle {
         let mut n = TraceNode::new(
@@ -1107,6 +1110,7 @@ impl TraceSink for TreeTraceSink {
             TraceSource::PhonRule(rule),
         );
         n.subrule_index = Some(subrule);
+        n.input = Some(input.clone());
         n.output = Some(output.clone());
         self.append(parent, n)
     }

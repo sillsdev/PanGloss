@@ -62,6 +62,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 |---|---|
 | _(was `pg-memo/src/lib.rs`, deleted)_ | 023, 025, 045 |
 | `pg-cli/src/main.rs` (`run_batch`, `parse_batch_with_stats`) | 048 |
+| `pg-cli/src/stored_analysis_health.rs`, `pg-cli/src/grammar_health.rs` | 086 |
 | `pg-cli/src/stats_cmd.rs` (`prepare_batch_stats_hc`, `finish_batch_stats_hc`) | 048 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
@@ -179,6 +180,7 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 |---|---|---|
 | `FxtM3ParserToXAmpleADCtl.xsl`, `NatClassStringToHvo` (feature class exported as `[]`) | `pg-grammar/src/compile/environment.rs::load_environment_pattern` | [070](070-xample-feature-class-environment.md) |
 | XAMPLE ignores authored phonology; FieldWorks/HC discard unreadable literal environments | authored rewrite rules and provisional literal environment; `pg-cli/tests/underdefined_stored_keys_gate.rs` | [078](078-xample-minimum-authored-phonology.md) |
+| XAMPLE ignores authored phonology; FieldWorks stores analyses under `WfiWordform` | `pg-fwdata` stored-analysis extraction; `pg-parse` traced synthesis; `pg-cli` grammar health | [086](086-stored-analyses-lost-to-authored-phonology.md) |
 
 ## Optimization and shared-correctness follow-up
 

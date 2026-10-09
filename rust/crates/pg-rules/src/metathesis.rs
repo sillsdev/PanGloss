@@ -498,7 +498,7 @@ pub(crate) fn synthesize_cached_traced(
                 FailureReason::Pattern,
             );
         } else {
-            trace.phonological_rule_applied(node_parent, pid, -1, &out_word);
+            trace.phonological_rule_applied(node_parent, pid, -1, input, &out_word);
         }
     }
     result
@@ -515,8 +515,9 @@ fn report_metathesis_synth(
 ) {
     match result.first() {
         Some(out_shape) => {
+            let in_word = Word::new(input.clone(), StratumId(0));
             let snap = Word::new(out_shape.clone(), StratumId(0));
-            trace.phonological_rule_applied(parent, pid, -1, &snap);
+            trace.phonological_rule_applied(parent, pid, -1, &in_word, &snap);
         }
         None => {
             let snap = Word::new(input.clone(), StratumId(0));

@@ -166,6 +166,10 @@ pub(crate) const ALLOWED_CLASSES: &[&str] = &[
     "MoUnclassifiedAffixMsa",
     "LexSense",
     "LexEntryRef",
+    // stored analyses
+    "WfiWordform",
+    "WfiAnalysis",
+    "WfiMorphBundle",
 ];
 
 fn class_allowed(class: &str) -> bool {

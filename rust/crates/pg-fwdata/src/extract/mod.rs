@@ -6,10 +6,12 @@ mod lexicon;
 mod morphology;
 mod phonology;
 mod project;
+mod stored_analyses;
 
 pub(crate) mod codes;
 
 pub(crate) use inventory::tracked_kind;
+pub(crate) use stored_analyses::extract as stored_analyses;
 
 use pg_snapshot::{
     ConversionProvenance, FwClass, FwObjectRef, ImportWarningCode, InventoryKey, IssueClass,

@@ -98,11 +98,12 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [conversion.unsupported-construct](diagnostics/conversion.unsupported-construct.md) | Reduplication inventory check is unsupported | In Lexicon > Lexicon Edit, inspect the allomorph form. Keep an accurate pattern and report it; change it only if an equivalent supported representation is known. |
 | [substrate.position-unmapped](diagnostics/substrate.position-unmapped.md) | Allomorph character position is unmapped | In Lexicon > Lexicon Edit, inspect the named position in the form. Correct an unintended character; if FieldWorks displays the intended spelling, report the mapping problem and diagnostic details. |
 
-## Information (9)
+## Information (10)
 
 | Code | Title | What to do |
 |---|---|---|
 | [provisional.phoneme-features](diagnostics/provisional.phoneme-features.md) | Phoneme has no features | In Grammar > Phonemes, select the named phoneme and assign its Phonological Features to replace this provisional definition. |
+| [grammar.stored-analysis.no-longer-parses](diagnostics/grammar.stored-analysis.no-longer-parses.md) | Stored analysis changed | Check whether the named rule is meant to apply to these morphs. If so, update or remove the stored analysis in Lexicon > Lexicon Edit. If not, restrict the rule's environment in Grammar > Phonological Rules. |
 | [fwdata.only-first-used](diagnostics/fwdata.only-first-used.md) | Only the first phoneme set is used | In Grammar > Phonemes, check that the intended inventory appears in the first set. If it does, no change is needed; otherwise report the limitation before reorganizing the project. |
 | [grammar.allomorph.morph-type-unsupported-as-rule-form](diagnostics/grammar.allomorph.morph-type-unsupported-as-rule-form.md) | Loaded through separate parts | In Lexicon > Lexicon Edit, no change is needed when the separate parts are the intended parser representation. |
 | [grammar.environment.missing-natural-class](diagnostics/grammar.environment.missing-natural-class.md) | Environment names a missing natural class | In Grammar > Natural Classes, define the named class or correct its abbreviation in Grammar > Environments. Check the allomorph's intended distribution in Lexicon > Lexicon Edit > Allomorphs > Environments. |

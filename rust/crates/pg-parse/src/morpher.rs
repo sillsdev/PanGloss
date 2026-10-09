@@ -9,14 +9,17 @@ use std::time::Duration;
 use pg_featstruct::{FeatId, FeatureStruct, FeatureValue, FsId};
 use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, MprSet,
-    StratumId,
+    PatternNode, PhonRuleDef, StratumId,
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stats::OverlayPhase;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use pg_rules::stratum::{FinalTemplateAnalysisPolicy, FinalTemplateSynthesisPolicy};
-use pg_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
+use pg_rules::trace::{
+    FailureReason, NoopSink, TraceHandle, TraceNode, TraceSink, TraceSource, TraceType,
+    TreeTraceSink,
+};
 use pg_rules::word::{MorphRecord, ResolvedRoot, RuntimeRoot, Word, WordKey};
 use rustc_hash::FxHashMap as HashMap;
 
@@ -123,6 +126,16 @@ pub struct ParseOutcome {
     pub candidates_generated: usize,
 }
 
+/// Forward surfaces produced for one stored analysis, with an explicit signal when tracing could
+/// not finish every synthesis step.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TracedSynthesisOutcome {
+    pub surfaces: Vec<String>,
+    pub incomplete_reason: Option<&'static str>,
+    /// Explains when normal rendering lost spelling identity or remained ambiguous.
+    pub renderer_notes: Vec<String>,
+}
+
 impl ParseOutcome {
     /// The batch signature (`BatchCommand.BuildSignature`): sorted, `;`-joined, `-` when empty.
     pub fn signature(&self) -> String {
@@ -143,6 +156,199 @@ fn empty_outcome(invalid_shape: bool) -> ParseOutcome {
         guessed: false,
         candidates_generated: 0,
     }
+}
+
+fn diagnostic_surface(
+    grammar: &Grammar,
+    word: &Word,
+    trace: &TreeTraceSink,
+) -> (String, Vec<String>) {
+    let Some(stratum) = grammar.strata.get(word.stratum.0 as usize) else {
+        return (
+            String::new(),
+            vec!["surface display limit: output stratum has no character table".to_string()],
+        );
+    };
+    let Some(table) = grammar.char_tables.get(stratum.table.0 as usize) else {
+        return (
+            String::new(),
+            vec![
+                "surface display limit: output stratum character table is unavailable".to_string(),
+            ],
+        );
+    };
+    let ordinary = surface::to_plain_string(table, &word.shape, false);
+    let mut notes = Vec::new();
+    let mut spellings = std::collections::BTreeMap::new();
+    for index in 0..word.shape.len() {
+        if word.shape.kind(index) != pg_shape::NodeKind::Segment {
+            continue;
+        }
+        let char_def = word.shape.char_def(index);
+        if char_def == pg_shape::NO_CHAR_DEF || char_def as usize >= table.len() {
+            continue;
+        }
+        if let Some(representation) = table
+            .get(pg_grammar_model::chardef::CharDefId(char_def))
+            .representations()
+            .first()
+        {
+            spellings.insert(index, representation.clone());
+        }
+    }
+    let Some(root) = trace.root() else {
+        return (
+            ordinary,
+            vec!["surface display limit: the synthesis trace has no root".to_string()],
+        );
+    };
+    let mut trace_nodes = Vec::new();
+    collect_trace_nodes(trace, root, &mut trace_nodes);
+    let mut found_output = false;
+    let mut conflicting_spellings = std::collections::BTreeSet::new();
+    for node in trace_nodes {
+        if node.type_ != TraceType::PhonologicalRuleSynthesis {
+            continue;
+        }
+        let TraceSource::PhonRule(rule_id) = node.source else {
+            continue;
+        };
+        let (Some(input), Some(output)) = (node.input.as_ref(), node.output.as_ref()) else {
+            continue;
+        };
+        if output.shape != word.shape {
+            continue;
+        }
+        found_output = true;
+        if input.shape.len() != output.shape.len() {
+            notes.push(
+                "surface display limit: an applied rule changed shape length and its output spellings could not be aligned".to_string(),
+            );
+            spellings.clear();
+            continue;
+        }
+        let changed: Vec<_> = (0..output.shape.len())
+            .filter(|&index| {
+                input.shape.kind(index) == pg_shape::NodeKind::Segment
+                    && output.shape.kind(index) == pg_shape::NodeKind::Segment
+                    && output.shape.char_def(index) == pg_shape::NO_CHAR_DEF
+                    && (input.shape.char_def(index) != output.shape.char_def(index)
+                        || input.shape.node_lanes(index) != output.shape.node_lanes(index))
+            })
+            .collect();
+        if changed.is_empty() {
+            continue;
+        }
+        let Some((rule_table, rhs)) = exact_rewrite_rhs(grammar, rule_id, node.subrule_index)
+        else {
+            notes.push(
+                "surface display limit: an applied rule changed an underspecified segment without a literal output spelling".to_string(),
+            );
+            continue;
+        };
+        if rule_table != stratum.table {
+            notes.push(
+                "surface display limit: the rule and output use different character tables, so the literal output spelling cannot be carried forward".to_string(),
+            );
+            continue;
+        }
+        if rhs.is_empty() || (rhs.len() != 1 && rhs.len() != changed.len()) {
+            notes.push(
+                "surface display limit: the applied rule's literal output cannot be aligned to every changed segment".to_string(),
+            );
+            continue;
+        }
+        for (index, target_id) in changed.iter().zip(rhs.iter().cycle()) {
+            let representation = table
+                .get(pg_grammar_model::chardef::CharDefId(*target_id))
+                .representations()
+                .first();
+            let Some(representation) = representation else {
+                notes.push(
+                    "surface display limit: an applied rule's output phoneme has no representation"
+                        .to_string(),
+                );
+                continue;
+            };
+            if conflicting_spellings.contains(index) {
+                continue;
+            }
+            if spellings
+                .get(index)
+                .is_some_and(|existing| existing != representation)
+            {
+                spellings.remove(index);
+                conflicting_spellings.insert(*index);
+            } else {
+                spellings.insert(*index, representation.clone());
+            }
+        }
+    }
+    if !conflicting_spellings.is_empty() {
+        notes.push(
+            "surface display limit: matching trace paths assign different literal spellings to the same output segment".to_string(),
+        );
+    }
+
+    let (rendered, unresolved) = surface::to_diagnostic_string(table, &word.shape, &spellings);
+    if !found_output && unresolved {
+        notes.push(
+            "surface display limit: the synthesis trace has no applied-rule snapshot for this final shape".to_string(),
+        );
+    }
+    if rendered != ordinary {
+        notes.push(format!(
+            "the ordinary surface renderer displays {ordinary:?}; the finding uses the exact applied-rule spelling {rendered:?}"
+        ));
+    }
+    if unresolved {
+        notes.push(format!(
+            "surface display limit: the rule trace leaves an ambiguous segment; its ordinary first-match rendering is {ordinary:?}"
+        ));
+    }
+    (rendered, notes)
+}
+
+fn collect_trace_nodes(trace: &TreeTraceSink, current: TraceHandle, nodes: &mut Vec<TraceNode>) {
+    let node = trace.node(current);
+    nodes.push(node.clone());
+    for child in node.children {
+        collect_trace_nodes(trace, child, nodes);
+    }
+}
+
+fn exact_rewrite_rhs(
+    grammar: &Grammar,
+    rule_id: pg_grammar_model::model::PRuleId,
+    subrule_index: Option<i32>,
+) -> Option<(pg_grammar_model::model::TableId, Vec<u32>)> {
+    let subrule = match grammar.prules.get(rule_id.0 as usize)? {
+        PhonRuleDef::Rewrite(rule) => rule.subrules.get(subrule_index? as usize)?,
+        PhonRuleDef::Metathesis(_) => return None,
+    };
+    let table_id = grammar
+        .strata
+        .iter()
+        .find(|stratum| stratum.prules.contains(&rule_id))?
+        .table;
+    let mut char_defs = Vec::new();
+    for node in &subrule.rhs.nodes {
+        match node {
+            PatternNode::CharDef(id) => char_defs.push(id.0),
+            PatternNode::Segments { shape, .. } => {
+                for (_, kind, char_def, _) in shape.shape.interior() {
+                    if kind == pg_shape::NodeKind::Segment {
+                        if char_def == pg_shape::NO_CHAR_DEF {
+                            return None;
+                        }
+                        char_defs.push(char_def);
+                    }
+                }
+            }
+            _ => return None,
+        }
+    }
+    Some((table_id, char_defs))
 }
 
 /// Per-call parse knobs — C#'s per-call `guessRoot` parameter rather than a construction-time
@@ -1330,6 +1536,35 @@ fn interleavings<T: Clone>(left: &[T], right: &[T]) -> Vec<Vec<T>> {
     out
 }
 
+/// Visit merges lazily; `false` stops once synthesis cannot continue.
+fn visit_interleavings<T: Clone>(
+    left: &[T],
+    right: &[T],
+    acc: &mut Vec<T>,
+    visit: &mut impl FnMut(&[T]) -> bool,
+) -> bool {
+    if left.is_empty() && right.is_empty() {
+        return visit(acc);
+    }
+    if let Some((head, rest)) = left.split_first() {
+        acc.push(head.clone());
+        let keep_going = visit_interleavings(rest, right, acc, visit);
+        acc.pop();
+        if !keep_going {
+            return false;
+        }
+    }
+    if let Some((head, rest)) = right.split_first() {
+        acc.push(head.clone());
+        let keep_going = visit_interleavings(left, rest, acc, visit);
+        acc.pop();
+        if !keep_going {
+            return false;
+        }
+    }
+    true
+}
+
 impl<'g> Morpher<'g> {
     /// C# `Morpher.GenerateWords`: one seed per `(root allomorph, other-morpheme permutation)`
     /// pair, kept if `Self::is_word_valid` passes. Must NOT apply the surface-match gate — there is
@@ -1427,6 +1662,142 @@ impl<'g> Morpher<'g> {
         words.into_iter().collect()
     }
 
+    /// Synthesizes one structured analysis through the ordinary rule pipeline and records the
+    /// input/output words for each applied phonological rule.
+    pub fn generate_words_from_analysis_traced(
+        &self,
+        wa: &WordAnalysis,
+        trace: &TreeTraceSink,
+    ) -> Result<TracedSynthesisOutcome, String> {
+        if wa.morpheme_ids.is_empty()
+            || wa.root_morpheme_index < 0
+            || wa.root_morpheme_index as usize >= wa.morpheme_ids.len()
+        {
+            return Err("stored analysis has no valid root morpheme".to_string());
+        }
+        let g = self.g;
+        let root_idx = wa.root_morpheme_index as usize;
+        let root_morpheme = MorphemeId(wa.morpheme_ids[root_idx]);
+        let root_allomorph = wa
+            .morph_occurrences
+            .iter()
+            .find(|occurrence| occurrence.morpheme_id == root_morpheme.0)
+            .map(|occurrence| AllomorphId(occurrence.allomorph_id));
+        let Some(root_allomorph) = root_allomorph else {
+            return Err("stored analysis has no root allomorph occurrence".to_string());
+        };
+        let Some(MorphemeOwner::Root(root_entry)) = resolve_morpheme(g, root_morpheme) else {
+            return Err("stored analysis root does not resolve to a lexical entry".to_string());
+        };
+        let Some(AllomorphOwner::Root(owner_entry, _)) =
+            g.allomorph_owners.get(root_allomorph.0 as usize).copied()
+        else {
+            return Err(
+                "stored analysis root allomorph does not resolve to a lexical entry".to_string(),
+            );
+        };
+        if owner_entry != root_entry {
+            return Err(
+                "stored analysis root allomorph belongs to a different lexical entry".to_string(),
+            );
+        }
+
+        let exact_other = |index: usize| -> Option<PermItem> {
+            let morpheme = MorphemeId(wa.morpheme_ids[index]);
+            match resolve_morpheme(g, morpheme)? {
+                MorphemeOwner::Rule(rule) => Some(PermItem::Rule(rule)),
+                MorphemeOwner::Root(_) => {
+                    let allomorph = wa
+                        .morph_occurrences
+                        .iter()
+                        .find(|occurrence| occurrence.morpheme_id == morpheme.0)?
+                        .allomorph_id;
+                    let id = AllomorphId(allomorph);
+                    matches!(
+                        g.allomorph_owners.get(id.0 as usize),
+                        Some(AllomorphOwner::Root(_, _))
+                    )
+                    .then_some(PermItem::NonHead(id))
+                }
+            }
+        };
+        let mut left = (0..root_idx).map(exact_other).collect::<Option<Vec<_>>>();
+        let Some(mut left) = left.take() else {
+            return Err(
+                "stored analysis has a non-root morpheme without its exact allomorph".to_string(),
+            );
+        };
+        left.reverse();
+        let Some(right) = (root_idx + 1..wa.morpheme_ids.len())
+            .map(exact_other)
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Err(
+                "stored analysis has a non-root morpheme without its exact allomorph".to_string(),
+            );
+        };
+        let root = if trace.is_tracing() {
+            trace.generate_words()
+        } else {
+            TraceHandle::DUMMY
+        };
+        let mut words = std::collections::BTreeSet::new();
+        let mut renderer_notes = std::collections::BTreeSet::new();
+        let budget = pg_rules::stratum::StepBudget::with_limits(usize::MAX, self.work_cap)
+            .with_timeout(self.word_timeout)
+            .with_synthesis_counting();
+        let mut permutation_count = 0usize;
+        let mut permutation_capped = false;
+        visit_interleavings(&left, &right, &mut Vec::new(), &mut |permutation| {
+            if budget.capped() || budget.timed_out() {
+                return false;
+            }
+            if permutation_count >= self.work_cap {
+                permutation_capped = true;
+                return false;
+            }
+            permutation_count = permutation_count.saturating_add(1);
+            let mut seed = self.build_allomorph_seed(root_allomorph, FeatureStruct::EMPTY);
+            for item in permutation {
+                match *item {
+                    PermItem::Rule(id) => {
+                        seed.morphological_rule_unapplied(is_realizational_rule(g, id), Some(id));
+                    }
+                    PermItem::NonHead(allomorph) => {
+                        seed.morphological_rule_unapplied(false, None);
+                        seed.non_head_unapplied(
+                            self.build_allomorph_seed(allomorph, FeatureStruct::EMPTY),
+                        );
+                    }
+                }
+            }
+            let generated = self.synthesis_pipeline_traced(
+                seed,
+                trace,
+                root,
+                &budget,
+                None,
+                FinalTemplateSynthesisPolicy {
+                    always_enforce: self.always_enforce_final_templates,
+                },
+            );
+            self.collect_valid_traced_surfaces(generated, trace, &mut words, &mut renderer_notes);
+            !budget.capped() && !budget.timed_out()
+        });
+        let incomplete_reason = if budget.capped() || permutation_capped {
+            Some("synthesis step budget reached")
+        } else if budget.timed_out() {
+            Some("synthesis timed out")
+        } else {
+            None
+        };
+        Ok(TracedSynthesisOutcome {
+            surfaces: words.into_iter().collect(),
+            incomplete_reason,
+            renderer_notes: renderer_notes.into_iter().collect(),
+        })
+    }
+
     /// `Self::generate_words_from_analysis` for runtime-rooted non-root slots, which have no `LexEntryId` to permute; replays the single recorded derivation instead.
     fn generate_analysis_with_runtime_non_heads(
         &self,
@@ -1510,6 +1881,23 @@ impl<'g> Morpher<'g> {
             if self.is_word_valid(&w) {
                 out.insert(self.generated_surface_of(&w));
             }
+        }
+    }
+
+    fn collect_valid_traced_surfaces(
+        &self,
+        generated: Vec<Word>,
+        trace: &TreeTraceSink,
+        out: &mut std::collections::BTreeSet<String>,
+        renderer_notes: &mut std::collections::BTreeSet<String>,
+    ) {
+        for word in generated {
+            if !self.is_word_valid(&word) {
+                continue;
+            }
+            let (surface, notes) = diagnostic_surface(self.g, &word, trace);
+            out.insert(surface);
+            renderer_notes.extend(notes);
         }
     }
 
