@@ -1,4 +1,4 @@
-# 054: Provisional letters do not match classes with letter or feature conditions
+# 073: Provisional letters do not match classes with letter or feature conditions
 
 Kind: behavioural.
 Status: open — implemented in Rust; cross-engine measurements pending.

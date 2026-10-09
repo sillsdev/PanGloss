@@ -129,20 +129,20 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/tests/csharp_port_affix_process.rs` (copy-agreement tests), `pg-rules/tests/stratum_gate.rs` (`copy_agreement_pruning_is_on_by_default`), `machine/conformance` `metathesis-phase-isolation` / `suffixing-extension-slot-ordering` reduplication words | 049 |
 | `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/step_cap_work_gate.rs` | 052 |
 | `pg-cli/tests/fwdata_conformance_gate.rs` (`grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics`) | 053 |
-| `pg-grammar/src/compile/tests.rs` provisional-definition snapshot regressions | 053, 054, 055, 056 |
-| `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision` | 054, 055 |
-| `pg-grammar/src/compile/tests.rs` membership and unconstrained wildcard regressions; `machine/conformance/edge-cases/chained-output-feature-override-loss`; separate-lane `underdefined/07-featureless-phoneme`, `underdefined/12-featureless-rule-class` on `feat/xample-measure` | 057 |
-| `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 057 |
+| `pg-grammar/src/compile/tests.rs` provisional-definition snapshot regressions | 072, 073, 074, 075 |
+| `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision` | 073, 074 |
+| `pg-grammar/src/compile/tests.rs` membership and unconstrained wildcard regressions; `machine/conformance/edge-cases/chained-output-feature-override-loss`; separate-lane `underdefined/07-featureless-phoneme`, `underdefined/12-featureless-rule-class` on `feat/xample-measure` | 076 |
+| `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 076 |
 
 ## Provisional-definition seams
 
 | C# site | Rust site | Entries |
 |---|---|---|
-| `CharacterDefinitionTable.GetShapeNodes`, `Segment` | `pg-grammar/src/compile/substrate.rs`, `mod.rs`, `options.rs` | [053](053-provisional-letter-unit.md), [056](056-provisional-definitions-always-on.md) |
-| `CharacterDefinitionTable.Add`, feature unification | `pg-grammar-model/src/chardef.rs`, `membership.rs`, `segment.rs`; `pg-rules/src/bridge.rs`, `morph.rs`, `rewrite.rs` | [054](054-provisional-letter-no-natural-class.md), [055](055-featureless-phoneme-no-feature-class.md) |
-| `CharacterDefinitionTable.Add`, feature unification | `pg-foma/src/lower.rs::class_members`, `structural_allomorph.rs::context_members` | [054](054-provisional-letter-no-natural-class.md), [055](055-featureless-phoneme-no-feature-class.md) |
-| constrained-class subsumption / analysis-side unification | `pg-grammar-model/src/membership.rs::class_bits`, `segment.rs::nat_class_cd_set_with_constraints`; `pg-rules` matching and Foma owner calls | [057](057-underdefined-natural-class-membership-decision.md) |
-| literal representation unification | `pg-parse/src/surface.rs::matching_reps_for_node`; `pg-grammar-model/src/membership.rs::literal_lanes`, `chardef.rs::literal_constraint_lanes` | [057](057-underdefined-natural-class-membership-decision.md) |
+| `CharacterDefinitionTable.GetShapeNodes`, `Segment` | `pg-grammar/src/compile/substrate.rs`, `mod.rs`, `options.rs` | [072](072-provisional-letter-unit.md), [075](075-provisional-definitions-always-on.md) |
+| `CharacterDefinitionTable.Add`, feature unification | `pg-grammar-model/src/chardef.rs`, `membership.rs`, `segment.rs`; `pg-rules/src/bridge.rs`, `morph.rs`, `rewrite.rs` | [073](073-provisional-letter-no-natural-class.md), [074](074-featureless-phoneme-no-feature-class.md) |
+| `CharacterDefinitionTable.Add`, feature unification | `pg-foma/src/lower.rs::class_members`, `structural_allomorph.rs::context_members` | [073](073-provisional-letter-no-natural-class.md), [074](074-featureless-phoneme-no-feature-class.md) |
+| constrained-class subsumption / analysis-side unification | `pg-grammar-model/src/membership.rs::class_bits`, `segment.rs::nat_class_cd_set_with_constraints`; `pg-rules` matching and Foma owner calls | [076](076-underdefined-natural-class-membership-decision.md) |
+| literal representation unification | `pg-parse/src/surface.rs::matching_reps_for_node`; `pg-grammar-model/src/membership.rs::literal_lanes`, `chardef.rs::literal_constraint_lanes` | [076](076-underdefined-natural-class-membership-decision.md) |
 
 XAMPLE/C# measurements and staged fixtures for these entries come from a separate lane.
 

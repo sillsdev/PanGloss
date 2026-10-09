@@ -1,4 +1,4 @@
-# 057: Natural-class membership in underdefined projects
+# 076: Natural-class membership in underdefined projects
 
 Kind: behavioural.
 Status: deliberate divergence — upstream discussion open: [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).
@@ -19,10 +19,10 @@ phoneme receives one finding, regardless of class count. A wildcard-only or segm
 grammar does not produce that finding; the membership owner supplies the triggering fact.
 
 This entry records the combined membership decision in addition to the individual
-provisional-letter and featureless-phoneme entries [054](054-provisional-letter-no-natural-class.md)
-and [055](055-featureless-phoneme-no-feature-class.md). Letter-unit and always-on behavior
-remain separate decisions, [053](053-provisional-letter-unit.md) and
-[056](056-provisional-definitions-always-on.md).
+provisional-letter and featureless-phoneme entries [073](073-provisional-letter-no-natural-class.md)
+and [074](074-featureless-phoneme-no-feature-class.md). Letter-unit and always-on behavior
+remain separate decisions, [072](072-provisional-letter-unit.md) and
+[075](075-provisional-definitions-always-on.md).
 
 ## Measured C# behavior and remaining divergence
 

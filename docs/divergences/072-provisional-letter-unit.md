@@ -1,4 +1,4 @@
-# 053: Provisional letters use extended grapheme clusters
+# 072: Provisional letters use extended grapheme clusters
 
 Kind: behavioural.
 Status: open — implemented in Rust; cross-engine measurements pending.

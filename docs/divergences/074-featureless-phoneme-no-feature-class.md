@@ -1,4 +1,4 @@
-# 055: Featureless authored phonemes do not match classes requiring feature values
+# 074: Featureless authored phonemes do not match classes requiring feature values
 
 Kind: behavioural.
 Status: open — implemented in Rust; upstream discussion open: [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).
