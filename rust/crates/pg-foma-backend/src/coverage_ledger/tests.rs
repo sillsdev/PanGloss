@@ -186,7 +186,7 @@ fn the_ledger_reports_the_live_whole_construct_hole() {
     );
 }
 
-/// `NaturalClassDefinition` and `FreeFluctuation` are the deliberate, documented `None`s; a future edit that starts or stops returning evidence for either must be a reviewed, visible change.
+/// `NaturalClassDefinition` is the deliberate, documented `None`; a future edit that starts returning evidence for it must be a reviewed, visible change.
 #[test]
 fn every_kind_without_a_containment_witness_is_named_and_justified() {
     let missing: Vec<CharacteristicKind> = CharacteristicKind::ALL
@@ -196,12 +196,7 @@ fn every_kind_without_a_containment_witness_is_named_and_justified() {
         .collect();
     assert_eq!(
         missing,
-        vec![
-            CharacteristicKind::NaturalClassDefinition,
-            CharacteristicKind::FreeFluctuation,
-            // No test drives an ablaut grammar through propose-then-confirm on ANY backend.
-            CharacteristicKind::ProcessMorphology
-        ],
+        vec![CharacteristicKind::NaturalClassDefinition],
         "every kind without a containment witness must be named here with a reason -- an \
          unexplained addition means somebody added a construct and skipped its witness"
     );

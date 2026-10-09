@@ -951,10 +951,17 @@
         "Disjunctive allomorphs / free-fluctuation"
       ],
       "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "pg-foma-backend/tests/free_fluctuation_containment.rs::disjunctive_recheck_proposes_and_confirms_free_fluctuating_allomorphs",
+        "strategies": [
+          "tuned-surface-probed"
+        ],
+        "note": "TunedSurfaceProbed proposal and confirmation for the C#-recorded gray/grey free-fluctuation pair, with disjunctive-rejection controls also checked against the same oracle multiset."
+      },
       "strategies_cannot_represent": [],
       "strategies_unwitnessed": [
         "plan-composed",
-        "tuned-surface-probed",
         "templated-underlying-tokens"
       ]
     },
@@ -969,13 +976,19 @@
         "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
       ],
       "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "pg-foma-backend/tests/process_morphology_route_gate.rs::tsp_admits_and_certifies_the_pure_ablaut_rule",
+        "strategies": [
+          "tuned-surface-probed"
+        ],
+        "note": "TunedSurfaceProbed's full-fixture proposal and confirmation for the pure ablaut Process rule, certified oracle-exact with zero candidate-only identities."
+      },
       "strategies_cannot_represent": [
         "plan-composed",
         "templated-underlying-tokens"
       ],
-      "strategies_unwitnessed": [
-        "tuned-surface-probed"
-      ]
+      "strategies_unwitnessed": []
     }
   ]
 }

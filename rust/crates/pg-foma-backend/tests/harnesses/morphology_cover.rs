@@ -29,6 +29,8 @@ mod cover_unordered_morph_rules;
 mod deletion_reduplication_exception_fixture;
 #[path = "../epenthesis_structural_route_containment.rs"]
 mod epenthesis_structural_route_containment;
+#[path = "../free_fluctuation_containment.rs"]
+mod free_fluctuation_containment;
 #[path = "../late_structural_anchor_recall.rs"]
 mod late_structural_anchor_recall;
 #[path = "../mentanukam_multiplicity_recovered_by_confirm.rs"]

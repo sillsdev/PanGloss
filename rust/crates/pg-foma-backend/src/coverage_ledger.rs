@@ -314,10 +314,21 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              default-allomorph-excluded-by-a-restricted-sibling case) -- the FST proposes every \
              stem-restricted allomorph unconditionally; confirm's stem_name_gate_reason prunes.",
         ),
-        // No dedicated FST-propose-then-confirm witness exists for the disjunctive-allomorph re-check; only oracle-level conformance fixtures exercise it, a different evidence axis. Honest gap, not a fabricated citation.
-        FreeFluctuation => return None,
-        // No test drives an ablaut grammar through propose-then-confirm; None surfaces that as a gap.
-        ProcessMorphology => return None,
+        FreeFluctuation => ev(
+            Dedicated,
+            "pg-foma-backend/tests/free_fluctuation_containment.rs::disjunctive_recheck_proposes_and_confirms_free_fluctuating_allomorphs",
+            &[EmissionStrategy::TunedSurfaceProbed],
+            "TunedSurfaceProbed proposal and confirmation for the C#-recorded gray/grey free-\
+             fluctuation pair, with disjunctive-rejection controls also checked against the same \
+             oracle multiset.",
+        ),
+        ProcessMorphology => ev(
+            Dedicated,
+            "pg-foma-backend/tests/process_morphology_route_gate.rs::tsp_admits_and_certifies_the_pure_ablaut_rule",
+            &[EmissionStrategy::TunedSurfaceProbed],
+            "TunedSurfaceProbed's full-fixture proposal and confirmation for the pure ablaut \
+             Process rule, certified oracle-exact with zero candidate-only identities.",
+        ),
     })
 }
 
