@@ -22,3 +22,8 @@ rust/crates/pg-snapshot/help/*.md text eol=lf
 conformance-staging/**/grammar.xml text eol=lf
 rust/crates/pg-cli/tests/data/*.xml text eol=lf
 rust/crates/pg-fwdata/tests/data/fixture.fwdata text eol=lf
+
+# Native measurements bind these exact bytes through their recorded SHA-256 hashes.
+conformance-staging/underdefined/**/*.fwdata -text
+conformance-staging/underdefined/**/*.ldml -text
+conformance-staging/underdefined/**/grammar.xml -text

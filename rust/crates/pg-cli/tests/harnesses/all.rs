@@ -34,3 +34,6 @@ mod skills_never_instruct_bare_cargo;
 
 #[path = "../default_dependency_closure.rs"]
 mod default_dependency_closure;
+
+#[path = "../underdefined_measurement_integrity_gate.rs"]
+mod underdefined_measurement_integrity_gate;

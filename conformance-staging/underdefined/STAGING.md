@@ -79,3 +79,12 @@ both measured engines. The regenerated stylesheets are at
 The original captures are immutable comparison evidence; fresh engine output belongs in scratch.
 This regeneration recipe was inspected, not executed by the Linux integration lane, which has
 no pinned Windows FieldWorks installation inside its authorized worktree.
+
+The `.fwdata`, LDML and author `grammar.xml` witnesses retain their measured CRLF bytes through
+scoped `.gitattributes` exclusions from text normalization. The incoming Git blobs had been
+normalized to LF; restoring CRLF reproduces every recorded project, grammar and staged LDML
+hash exactly, without changing any hash or engine expectation. The integration integrity gate
+checks 48 project hashes, 12 authored-grammar hashes, 144 measured writing-system hashes, each
+engine capture's source hash, and the OFF observations used by all 61 staged word rows. Its
+SHA-256 computation uses the assessment owner's exact-byte function, not a normalized grammar
+fingerprint. These saved bytes remain stable on either platform.
