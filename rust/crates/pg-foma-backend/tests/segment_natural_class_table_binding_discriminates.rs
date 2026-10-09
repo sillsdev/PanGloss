@@ -91,7 +91,7 @@ fn fixture_shape_is_the_deliberately_misaligned_two_table_probe_it_claims_to_be(
 fn nat_class_k_resolved_against_the_wrong_table_stops_matching_a_real_table_1_k_segment() {
     let g = load();
     let rule = devoice_rule(&g);
-    let real_k_lanes = g.char_tables[1].get(CharDefId(0)).feature_lanes().to_vec();
+    let real_k_lanes = g.char_tables[1].get(CharDefId(0)).matching_lanes();
 
     // Correct: resolved against table 1, matching `RuleCache::build`'s production resolution.
     let correct = PatternBridge::new(&g)
@@ -143,9 +143,9 @@ fn nat_class_k_resolved_against_the_wrong_table_stops_matching_a_real_table_1_k_
     );
 
     // OUTPUT 2 (the bug): resolved against table 0, the constraint becomes "z" and no longer matches.
-    let t0_z_lanes = g.char_tables[0].get(CharDefId(0)).feature_lanes();
+    let t0_z_lanes = g.char_tables[0].get(CharDefId(0)).matching_lanes();
     assert_eq!(
-        wrong_lanes, t0_z_lanes,
+        wrong_lanes, &t0_z_lanes,
         "resolved against table 0 (the bug), ncK's compiled constraint must equal table 0's own \
          \"z\" lanes (raw index 0 there) -- exactly what an implicit table-zero default would grab"
     );
