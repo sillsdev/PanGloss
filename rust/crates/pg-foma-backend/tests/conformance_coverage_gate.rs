@@ -152,16 +152,102 @@ fn reachable_variant_coverage_does_not_regress() {
         "variant inventory changed; review the new obligations"
     );
     assert!(
-        missing_fixture <= 7,
-        "{missing_fixture} obligations lack passing fixtures, exceeding 7"
+        missing_fixture <= 6,
+        "{missing_fixture} obligations lack passing fixtures, exceeding 6"
     );
     assert!(
         missing_containment <= 11,
         "{missing_containment} obligations lack containment citations, exceeding 11"
     );
+    assert!(unmet <= 9, "{unmet} variant obligations unmet, exceeding 9");
+}
+
+fn assert_hc_xml_permanent_refusal_fixture(
+    name: &str,
+    variant: pg_foma::capability::ConstructVariant,
+    predicate: &str,
+    refusal: &str,
+    loader_citation: &str,
+) {
+    use pg_conformance_fixtures::{
+        assert_matches_oracle, require_fixture, FieldworksProducibility,
+    };
+    use pg_foma::capability::{
+        compose_envelope, default_registry, observed_variants, CompileDecision,
+    };
+    use pg_foma::enumerate::{enumerate_default, prules_in_order};
+    use pg_foma::junctions::PhonologyProbe;
+    use pg_foma_backend::coverage_ledger::{build_ledger, obligation_met};
+    use pg_foma_backend::fixture_coverage::coverage_for_grammar;
+    use std::collections::HashSet;
+
+    let fixture = require_fixture("edge-cases", name);
+    let words = fixture.load_words_yaml();
+    let FieldworksProducibility::EngineOnly { notes } = &words.fieldworks_producible else {
+        panic!(
+            "{} must identify its HCLoader-only authoring gap",
+            fixture.label()
+        );
+    };
+    assert!(notes.contains(loader_citation), "{notes}");
+
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml())
+        .unwrap_or_else(|error| panic!("{}: {error}", fixture.label()));
+    let registry = default_registry();
+    assert_eq!(
+        observed_variants(&grammar, &registry),
+        HashSet::from([variant]),
+        "{} must exercise exactly {}",
+        fixture.label(),
+        variant.id()
+    );
+
+    let rewrite_rules = prules_in_order(&grammar);
+    let phonology = PhonologyProbe::new(&grammar);
+    let plan = enumerate_default(&grammar, &rewrite_rules, phonology.as_ref());
+    let CompileDecision::Refuse(diagnostics) = compose_envelope(&grammar, &plan, &registry) else {
+        panic!("{} must be refused by FST capability", fixture.label());
+    };
+    assert_eq!(diagnostics.len(), 1, "{}: {diagnostics:?}", fixture.label());
+    assert_eq!(diagnostics[0].predicate, predicate, "{diagnostics:?}");
+
+    let coverage = coverage_for_grammar(&fixture.label(), &grammar, &words);
+    assert!(coverage.invalid_variant_tags.is_empty(), "{coverage:?}");
     assert!(
-        unmet <= 10,
-        "{unmet} variant obligations unmet, exceeding 10"
+        coverage.passing_constructs.contains(variant.id()),
+        "{} does not pass with its exact variant tag",
+        fixture.label()
+    );
+
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    assert_eq!(
+        assert_matches_oracle(&fixture.label(), &words, &morpher),
+        words.words.len(),
+        "every oracle word must be exercised"
+    );
+
+    let covered: HashSet<&str> = coverage
+        .passing_constructs
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let ledger = build_ledger(&registry, &covered);
+    let row = ledger
+        .row(variant.kind(), Some(variant.id()))
+        .expect("the variant must remain in the ledger");
+    assert_eq!(row.conformance_status, CoverageStatus::Covered);
+    assert_eq!(row.permanent_refusal.as_deref(), Some(refusal));
+    assert!(obligation_met(row), "{row:?}");
+}
+
+#[test]
+fn realizational_reduplication_has_a_permanent_hc_xml_only_refusal_fixture() {
+    assert_hc_xml_permanent_refusal_fixture(
+        "realizational-reduplication-no-proposal-route",
+        pg_foma::capability::ConstructVariant::ReduplicationUnrouted,
+        "reduplication.peel-eligible-rule-kind",
+        "not authorable in FieldWorks; HC-XML only (HCLoader.cs:976-979)",
+        "HCLoader.cs:976-979",
     );
 }
 

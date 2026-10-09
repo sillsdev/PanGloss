@@ -483,7 +483,9 @@ pub fn build_ledger(
                     kind,
                     variant: variant.map(|v| v.id().to_string()),
                     variant_disposition: variant.map(ConstructVariant::disposition),
-                    permanent_refusal: None,
+                    permanent_refusal: variant
+                        .and_then(ConstructVariant::permanent_refusal_reason)
+                        .map(str::to_string),
                     disposition,
                     discharging_predicates,
                     construct_ids,

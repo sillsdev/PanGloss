@@ -139,6 +139,16 @@ impl ConstructVariant {
             Self::QuantifierUnboundedUnlowerable => VariantDisposition::Refuse,
         }
     }
+
+    /// Permanent authoring-based refusal, when one has been established.
+    pub fn permanent_refusal_reason(self) -> Option<&'static str> {
+        match self {
+            Self::ReduplicationUnrouted => {
+                Some("not authorable in FieldWorks; HC-XML only (HCLoader.cs:976-979)")
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Calls each occurrence's predicate, including lowering; missing or inconsistent inventories panic.
