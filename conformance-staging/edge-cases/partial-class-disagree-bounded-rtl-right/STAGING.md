@@ -1,9 +1,8 @@
 # partial-class-disagree-bounded-rtl-right
 
-Synthetic partial vowel class with ambiguous minus alpha variables. C# still requires
-rewritten ia and rejects au despite the omitted u in the explicit class.
-Oracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; sixteen complete rows.
-This remains a documented FST refusal pending lowering proof, not a permanent carve-out.
-Entry: docs/divergences/067-ambiguous-disagreement-proposals.md.
-FieldWorks: HCLoader.cs:2338-2344,2745-2770.
+Synthetic partial vowel class with ambiguous minus alpha variables. The explicit class omits `u`; hc.dll accepts `ia` as `AU|ia` and rejects the other fifteen words.
+
+Oracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; sixteen complete rows. Evidence: `docs/divergences/evidence/067-ambiguous-disagreement/`.
+FieldWorks: HCLoader.cs:2338-2344, 2745-2770, 2799-2808.
+Ledger: docs/divergences/079-partial-explicit-class-disagreement.md.
 Upstream PR: none (network closed).

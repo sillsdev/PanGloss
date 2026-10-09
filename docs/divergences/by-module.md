@@ -54,6 +54,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Word.cs` (`CurrentNonHead`) | 004 |
 | `Word.cs` (`ExpandAlternatives`, realizational-FS diff) | 018 |
 | `Word.cs` (`GetMorphs`/`MarkMorphs`) | 006 |
+| `RewriteRuleSpec.MatchSubrule`; FieldWorks `HCLoader.cs` explicit segment-class member lists | 079 |
 
 ## By Rust module
 
@@ -64,7 +65,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-cli/src/stats_cmd.rs` (`prepare_batch_stats_hc`, `finish_batch_stats_hc`) | 048 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
-| `pg-foma/src/lower.rs` (`alpha_members`); `replace.rs` (`compile_rewrite_rule_subset`) | 067 |
+| `pg-foma/src/lower.rs` (`alpha_members`); `replace.rs` (`compile_rewrite_rule_subset`) | 067, 079 |
+| `pg-foma/src/lower.rs` (`project_explicit_members`, deferred alpha slots) | 079 |
 | `pg-foma/src/lower.rs` (`PatternLowerScope`, `Slot::RepeatedAlpha`); `replace.rs` (`render_branch_regex`); `capability.rs` (`rtl_reversal_diagnosis`) | 066 |
 | `pg-foma/src/lower.rs` (`slots_from_nodes`); `replace.rs` (`owning_table`, `rewrite_rule_is_lowerable`) | 068 |
 | `pg-foma/src/replace.rs` (`pattern_slots`, `compile_rtl_branch_net`) | 017, 044 |

@@ -1,0 +1,14 @@
+founding oracle: hc.dll
+Machine revision: 18cf242f4b114b0eb9bac304b4b171ca2f499a39
+command: /home/johnm/work/machine.worktrees/w529-conf-base/src/SIL.Machine.Morphology.HermitCrab.Tool/bin/Release/net10.0/hc.dll -i grammar.xml -s hc.script
+working directory: conformance-staging/edge-cases/ambiguous-disagree-feature-class-unbounded-ltr
+TMPDIR: /tmp/fst-partial
+exit code: 0
+hc.script: batch "/tmp/fst-partial/ambiguous-disagree-feature-class-unbounded-ltr.words.txt" "/home/johnm/work/PanGloss.worktrees/feat/fst-partial-class/conformance-staging/edge-cases/ambiguous-disagree-feature-class-unbounded-ltr/oracle.tsv"
+
+Reading configuration file "grammar.xml"... done.
+Compiling rules... done.
+ambiguous-disagree-feature-class-unbounded-ltr loaded.
+
+[0/16]
+batch complete: 16 words parsed (0 skipped), 121ms total

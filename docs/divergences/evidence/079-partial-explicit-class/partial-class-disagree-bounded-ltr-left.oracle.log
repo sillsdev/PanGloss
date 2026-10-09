@@ -1,0 +1,13 @@
+founding oracle: hc.dll
+Machine revision: 18cf242f4b114b0eb9bac304b4b171ca2f499a39
+command: /home/johnm/.dotnet/dotnet /home/johnm/work/machine.worktrees/w529-conf-base/src/SIL.Machine.Morphology.HermitCrab.Tool/bin/Release/net10.0/hc.dll -i grammar.xml -s hc.script
+working directory: /tmp/fst-partial/partial-class-disagree-bounded-ltr-left
+TMPDIR: /tmp/fst-partial
+exit code: 0
+
+Reading configuration file "grammar.xml"... done.
+Compiling rules... done.
+partial-class-disagree-bounded-ltr-left loaded.
+
+[0/16]
+batch complete: 16 words parsed (0 skipped), 70ms total

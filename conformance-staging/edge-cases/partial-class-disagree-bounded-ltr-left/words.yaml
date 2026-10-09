@@ -1,8 +1,8 @@
 # oracle-provenance: founding-oracle
 # hc.dll, Machine 18cf242f4b114b0eb9bac304b4b171ca2f499a39.
-language: partial-class-disagree-bounded-rtl-right
-inspired_by: ["synthetic feature disagreement with a partial class"]
-sources: ["HCLoader.cs:2338-2344,2745-2770"]
+language: partial-class-disagree-bounded-ltr-left
+inspired_by: ["synthetic feature disagreement with a two-member partial segment class"]
+sources: ["HCLoader.cs:2338-2344,2745-2770,2799-2808"]
 requires: [phonology]
 fieldworks_producible: true
 words:
@@ -10,80 +10,64 @@ words:
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: iy
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: ia
     parses:
       - signature: "AU|ia"
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: iu
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: yi
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: yy
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: ya
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: yu
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: ai
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: ay
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: aa
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: au
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: ui
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: uy
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: ua
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
   - word: uu
     expect_fail: true
     exercises:
       - "quantifier.bounded-compilable"
-      - "right-to-left-rewrite.reversal"
