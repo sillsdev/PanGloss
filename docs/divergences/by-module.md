@@ -50,7 +50,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
 | `Quantifier.cs` (`GenerateNfa`), phonological environment variable matching; FieldWorks `HCLoader.cs` (`LoadPatternNode`, `GetVariables`) | 058, 066 |
 | `RewriteRuleSpec.cs` (`MatchSubrule`), `TraversalMethodBase.cs` (`CheckAcceptingStartState`); FieldWorks `HCLoader.cs` (`LoadPatternNode`) | 065 |
-| `Quantifier.cs` (`GenerateNfa`), `PatternNodeCastExtensions.cs`; FieldWorks `HCLoader.cs`, `OccurrenceDlg.cs` | 067 |
+| `Quantifier.cs` (`GenerateNfa`), `PatternNodeCastExtensions.cs`; FieldWorks `HCLoader.cs`, `OccurrenceDlg.cs` | 068 |
+| C# rewrite alpha binding / `RewriteRuleSpec.MatchSubrule` | 067 |
 
 ## By Rust module
 
@@ -94,7 +95,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-foma/src/replace.rs` (`SegAlphabet::render_tokens`, `RepresentationAliasMap`, `compile_rewrite_rule_subset`, `compile_metathesis_swap_net`) | 040 |
 | `pg-foma/src/replace.rs` (`pattern_slots`, `compile_rtl_branch_net`) | 017, 044 |
 | `pg-foma/src/lower.rs` (`PatternLowerScope`, `Slot::RepeatedAlpha`); `replace.rs` (`render_branch_regex`); `capability.rs` (`rtl_reversal_diagnosis`) | 066 |
-| `pg-foma/src/lower.rs` (`slots_from_nodes`); `replace.rs` (`owning_table`, `rewrite_rule_is_lowerable`) | 067 |
+| `pg-foma/src/lower.rs` (`slots_from_nodes`); `replace.rs` (`owning_table`, `rewrite_rule_is_lowerable`) | 068 |
+| `pg-foma/src/lower.rs` (`alpha_members`); `replace.rs` (`compile_rewrite_rule_subset`) | 067 |
 | `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
 | `pg-rules/src/cache.rs` (`owning_table_for_prule`/`_metathesis_rule`/`_morpheme`/`_allomorph`/`_mrule`/`_compounding_rule`) | 041 |
 | `pg-rules/src/metathesis.rs` (`synthesize`/`analyze` table resolution) | 041 |

@@ -1,4 +1,4 @@
-# 067 — Permanent refusal reasons for unauthorable rewrite variants
+# 068 — Permanent refusal reasons for unauthorable rewrite variants
 
 ## Kind and status
 
@@ -27,7 +27,7 @@ FieldWorks source `089eb9027b6d81be7883c40960f0de3ffa04b699`.
 
 Original minimal XML/words generator and complete C# records:
 `evidence/058-variant-lowering/probe.py` and `oracle-results.json`; all fifteen individual XML,
-word lists, results and rejection logs are preserved in `evidence/067-permanent-refusals/`.
+word lists, results and rejection logs are preserved in `evidence/068-permanent-refusals/`.
 These inputs are synthetic and well-formed
 XML; empty and nested bodies can still violate the stricter DTD, as explicitly recorded.
 
