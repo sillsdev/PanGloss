@@ -102,7 +102,13 @@ function Enter-ResourceSlot {
         Pool = $Pool
         Prefix = $contract.Prefix
     }
-    try { Write-SlotHolder -Pool $Pool -Slot $index } catch {}
+    try {
+        Write-SlotHolder -Pool $Pool -Slot $index
+    } catch {
+        try { $mutexes[$index].ReleaseMutex() } catch {}
+        foreach ($m in $mutexes) { $m.Dispose() }
+        throw "could not record ownership of the acquired $Pool slot: $($_.Exception.Message)"
+    }
     return $slot
 }
 
@@ -136,7 +142,18 @@ function Write-SlotHolder {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     if (-not $Mode) { $Mode = if ($script:CurrentPgMode) { $script:CurrentPgMode } else { 'build' } }
     if (-not $Worktree) { $Worktree = try { Split-Path (Get-RepoRoot) -Leaf } catch { 'unknown' } }
-    [PSCustomObject]@{ Pid = $PID; Mode = $Mode; Worktree = $Worktree; AcquiredAt = (Get-Date).ToString('HH:mm:ss') } |
+    $worktreePath = try { Get-RepoRoot } catch { '' }
+    $startTicks = ''
+    if ($IsLinux) {
+        $self = Get-LinuxProcessRecord -ProcessId $PID
+        if ($null -eq $self.StartTicks -or $null -eq $self.Uid) { throw 'cannot identify the current Linux process in /proc' }
+        $startTicks = [string]$self.StartTicks
+    }
+    [PSCustomObject]@{
+        Pid = $PID; Mode = $Mode; Worktree = $Worktree; WorktreePath = $worktreePath
+        TargetDir = [string]$env:CARGO_TARGET_DIR; ProcStartTicks = $startTicks
+        AcquiredAt = (Get-Date).ToString('HH:mm:ss'); AcquiredAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+    } |
         ConvertTo-Json -Compress | Set-Content -Path (Join-Path $dir "slot$Slot.json") -Encoding UTF8
 }
 
@@ -154,13 +171,25 @@ function Get-SlotHolders {
         try {
             $e = Get-Content $f.FullName -Raw | ConvertFrom-Json
             $alive = $false
-            try { $alive = $null -ne (Get-Process -Id $e.Pid -ErrorAction Stop) } catch { $alive = $false }
+            $startTicks = [string]$e.ProcStartTicks
+            if ($IsLinux -and (Get-Command Get-LinuxProcessRecord -ErrorAction SilentlyContinue)) {
+                try {
+                    $process = Get-LinuxProcessRecord -ProcessId ([int]$e.Pid)
+                    $alive = $null -ne $process.Uid -and $process.Uid -eq (Get-LinuxEffectiveUid)
+                    if ($alive -and $startTicks -and $startTicks -ne [string]$process.StartTicks) { $alive = $false }
+                } catch { $alive = $false }
+            } else {
+                try { $alive = $null -ne (Get-Process -Id $e.Pid -ErrorAction Stop) } catch { $alive = $false }
+            }
             $out += [PSCustomObject]@{
                 Pool       = $Pool
                 Slot       = ($f.BaseName -replace '^slot', '')
                 Pid        = [int]$e.Pid
                 Mode       = [string]$e.Mode
                 Worktree   = [string]$e.Worktree
+                WorktreePath = [string]$e.WorktreePath
+                TargetDir = [string]$e.TargetDir
+                ProcStartTicks = $startTicks
                 AcquiredAt = [string]$e.AcquiredAt
                 Alive      = $alive
             }

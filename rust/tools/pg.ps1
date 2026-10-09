@@ -76,9 +76,9 @@
                   (without failing on) any Resource-Exhaustion-Detector history from the last 7
                   days -- see Get-ResourceExhaustionEvents in _common.ps1.
     gc            reports (dry-run, the default) or removes (-Apply) managed target directories
-                  this repository owns and no longer needs. Never touches an unmarked, other-repo,
-                  or still-live directory -- see Get-TargetClassification/Invoke-TargetGc in
-                  _common.ps1.
+                  this repository owns and no longer needs. -WhatIf keeps every cleanup action dry.
+                  Linux also reaps only verified orphan processes, using the build-slot records and
+                  /proc; see _linux_gc.ps1. Target ownership remains marker- and worktree-based.
     run           runs an arbitrary PanGloss binary -- an example, a workspace bin, or an
                   already-built .exe through the same managed process seam as a Cargo launch,
                   instead of an unmanaged direct invocation. Exactly ONE of -Example / -Bin / -Exe is required:
@@ -108,7 +108,8 @@
     rust\tools\pg.ps1 -Mode doc            # rustdoc; the only thing that enforces the doc-link deny
     rust\tools\pg.ps1 -Mode doctor
     rust\tools\pg.ps1 -Mode gc            # dry run, reports only
-    rust\tools\pg.ps1 -Mode gc -Apply     # actually deletes disposable targets
+    rust\tools\pg.ps1 -Mode gc -WhatIf    # explicit dry run
+    rust\tools\pg.ps1 -Mode gc -Apply     # reaps verified orphans and deletes disposable targets
     rust\tools\pg.ps1 -Mode run -Package pg-foma-backend -Example predict_census -- --grammar foo.xml
     rust\tools\pg.ps1 -Mode run -Bin pangloss -- batch --threads 1 --word-timeout-ms 5000
     rust\tools\pg.ps1 -Mode run -Exe C:\path\to\already-built.exe -- --some-flag
@@ -193,6 +194,7 @@ param(
     [switch]$NoSccache,
     [ValidateSet('strict', 'development', 'off')][string]$BaseMode = 'development',
     [switch]$Apply,
+    [switch]$WhatIf,
     # gc only: also reclaim fully-committed worktrees idle this many days; 0 (default) leaves them alone.
     [int]$StaleWorktreeDays = 0,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs = @()
@@ -204,9 +206,9 @@ if (-not $IsWindows -and -not $IsLinux) {
     Write-Host '[pg] unsupported platform: this tool supports Windows and Linux only.' -ForegroundColor Red
     exit $script:ExitCodeUnsupportedPlatform
 }
-if ($IsLinux -and $Mode -eq 'gc') {
-    Write-Host '[pg] Linux gc is unsupported: a safe native process census/reaper is not implemented.' -ForegroundColor Red
-    exit $script:ExitCodeLinuxGcUnsupported
+if ($WhatIf -and $Mode -ne 'gc') {
+    Write-Host '[pg] -WhatIf applies to -Mode gc only.' -ForegroundColor Red
+    exit 2
 }
 
 # FIRST thing after loading the library: every mode below resolves paths from the CWD-derived repo root.
@@ -698,30 +700,92 @@ if ($Mode -eq 'doctor') {
 }
 
 if ($Mode -eq 'gc') {
-    # Reap dead-parent orphans first, regardless of -Apply: an orphaned rustc/link holding file locks would fail a real deletion below.
-    $procSnapshot = Get-ProcessSnapshot
-    Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
-    # Separate sweep: reaping a compiler can destroy work another worktree awaits; reaping a scanner cannot.
-    Remove-OrphanedScanProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
-    # A live-but-stuck build-slot holder (see Test-BuildSlotHolderStale) blocks every other worktree's builds until reaped.
-    Remove-StaleBuildSlotHolders -WhatIfOnly:(-not $Apply)
+    $gcApply = $Apply -and -not $WhatIf
+    $gcRootError = ''
+    if ($IsLinux) {
+        try { $gcRoots = @(Get-LinuxGcTargetRoots) } catch { $gcRootError = $_.Exception.Message; $gcRoots = @() }
+    } else {
+        $gcRoots = @($script:SsdCacheRoot, $script:HddCacheRoot)
+    }
+    $unscannedTargetDir = ''
+    if ($IsLinux -and $env:CARGO_TARGET_DIR) {
+        try {
+            if (-not [System.IO.Path]::IsPathRooted($env:CARGO_TARGET_DIR)) { throw 'path is not absolute' }
+            $explicitTargetDir = [System.IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
+            $insideManagedRoot = @($gcRoots | Where-Object {
+                $normalizedRoot = ([string]$_).TrimEnd('/')
+                $explicitTargetDir.StartsWith($normalizedRoot + '/', [StringComparison]::Ordinal)
+            }).Count -gt 0
+            if (-not $insideManagedRoot) { $unscannedTargetDir = $explicitTargetDir }
+        } catch { $gcRootError = "CARGO_TARGET_DIR is not a usable absolute path ($($env:CARGO_TARGET_DIR)): $($_.Exception.Message)" }
+    }
+    $procSnapshot = $null
+    if ($IsLinux) {
+        $procSnapshot = Get-LinuxProcessSnapshot
+        if ($procSnapshot.Failures.Count -gt 0 -or $null -eq $procSnapshot.EffectiveUid) {
+            $reason = if ($procSnapshot.Failures.Count -gt 0) { $procSnapshot.Failures -join '; ' } else { 'effective UID could not be established' }
+            Write-Host "[gc] refused: Linux process census is incomplete: $reason" -ForegroundColor Red
+            exit $script:ExitCodeGcUnsafe
+        }
+        $processGc = Remove-LinuxOrphanedBuildProcesses -ProcessSnapshot $procSnapshot -Apply:$gcApply
+        Write-Host "[gc] process sweep: killed $($processGc.Killed.Count); would reap $($processGc.WouldKill.Count); refused $($processGc.Refused.Count); other-user processes left untouched $($processGc.OtherUsers.Count)" -ForegroundColor Cyan
+        foreach ($p in $processGc.Killed) { Write-Host "[gc] reaped PID $($p.ProcessId) ($($p.Name))" -ForegroundColor Yellow }
+        foreach ($p in $processGc.WouldKill) { Write-Host "[gc] would reap PID $($p.ProcessId) ($($p.Name))" -ForegroundColor Yellow }
+        foreach ($p in $processGc.Refused) { Write-Host "[gc] left PID $($p.ProcessId) ($($p.Name)): $($p.Reason)" -ForegroundColor DarkYellow }
+        foreach ($p in $processGc.OtherUsers) { Write-Host "[gc] left PID $($p.ProcessId) ($($p.Name)): $($p.Reason)" -ForegroundColor DarkYellow }
+        if ($processGc.SlotFailures.Count -gt 0) {
+            foreach ($failure in $processGc.SlotFailures) { Write-Host "[gc] refused slot ownership: $failure" -ForegroundColor Red }
+            exit $script:ExitCodeGcUnsafe
+        }
+        $slotGc = Get-LinuxAgedBuildSlotRefusals -ProcessSnapshot $procSnapshot
+        Write-Host "[gc] aged live build slots left running: $($slotGc.Refused.Count)" -ForegroundColor Cyan
+        foreach ($p in $slotGc.Refused) { Write-Host "[gc] left build-slot PID $($p.ProcessId): $($p.Reason)" -ForegroundColor DarkYellow }
+        $procSnapshot = Get-LinuxProcessSnapshot
+        if ($procSnapshot.Failures.Count -gt 0 -or $null -eq $procSnapshot.EffectiveUid) {
+            $reason = if ($procSnapshot.Failures.Count -gt 0) { $procSnapshot.Failures -join '; ' } else { 'effective UID could not be established' }
+            Write-Host "[gc] refused target cleanup: Linux process census is incomplete: $reason" -ForegroundColor Red
+            exit $script:ExitCodeGcUnsafe
+        }
+    } else {
+        $procSnapshot = Get-ProcessSnapshot
+        Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $gcApply) -Snapshot $procSnapshot
+        Remove-OrphanedScanProcesses -WhatIfOnly:(-not $gcApply) -Snapshot $procSnapshot
+        Remove-StaleBuildSlotHolders -WhatIfOnly:(-not $gcApply)
+    }
 
     # Worktrees first: a target dir stays `live` while its worktree is registered, so the reverse order would report the dirs this frees as untouchable.
+    if ($StaleWorktreeDays -gt 0 -and $gcRoots.Count -eq 0) {
+        Write-Host '[gc] refused stale worktree cleanup: no managed-target root is available for its target-directory containment check.' -ForegroundColor Red
+        exit $script:ExitCodeGcUnsafe
+    }
     if ($StaleWorktreeDays -gt 0) {
         $stale = @(Get-StaleWorktreeCandidates -RepoRoot $repoRoot -IdleDays $StaleWorktreeDays)
         Write-Host "[gc] $($stale.Count) worktree(s) fully committed and idle $StaleWorktreeDays+ days" -ForegroundColor Cyan
         foreach ($w in $stale) {
-            $r = Remove-ManagedWorktree -RepoRoot $repoRoot -Path $w.Path -Apply:$Apply -RepositoryId $repoId -BusyProcesses @(Get-LiveBuildProcesses)
+            $busyWorktreeProcesses = if ($gcApply) { @(Get-LiveBuildProcesses -Snapshot $(if ($IsLinux) { $procSnapshot.Processes } else { $null })) } else { @() }
+            $r = Remove-ManagedWorktree -RepoRoot $repoRoot -Path $w.Path -Apply:$gcApply -RepositoryId $repoId -BusyProcesses $busyWorktreeProcesses -Roots $gcRoots
             if (-not $r.Ok) {
                 Write-Host "[gc] skipped $($w.Name) ($($r.Refusal)): $($r.Detail)" -ForegroundColor Yellow
                 continue
             }
-            $verb = if ($Apply) { 'removed' } else { 'would remove' }
+            $verb = if ($gcApply) { 'removed' } else { 'would remove' }
             Write-Host "[gc] $verb worktree $($w.Name) [$($w.Branch)], $($w.IdleDays)d idle -- $($r.TargetsFreedGB)GB of target dirs" -ForegroundColor Yellow
         }
     }
 
-    $classification = Get-TargetClassification -RepositoryId $repoId
+    if ($gcRootError) {
+        $classification = @()
+        Write-Host "[gc] target-directory cleanup refused: $gcRootError" -ForegroundColor Red
+    } elseif ($gcRoots.Count -eq 0) {
+        $classification = @()
+        if ($unscannedTargetDir) {
+        Write-Host "[gc] target-directory cleanup refused: CARGO_TARGET_DIR is not a target-directory child of a configured PanGloss cache root: $unscannedTargetDir" -ForegroundColor DarkYellow
+        } else {
+            Write-Host '[gc] no Linux managed-target roots are configured; target-directory cleanup did not run.' -ForegroundColor DarkYellow
+        }
+    } else {
+        $classification = Get-TargetClassification -RepositoryId $repoId -Roots $gcRoots
+    }
     foreach ($c in ($classification | Sort-Object Class, Path)) {
         $color = switch ($c.Class) {
             'disposable' { 'Yellow' }
@@ -731,14 +795,27 @@ if ($Mode -eq 'gc') {
         Write-Host "[gc] $($c.Class): $($c.Path) ($($c.SizeGB)GB) -- $($c.Detail)" -ForegroundColor $color
     }
 
-    $busy = if ($Apply) { @(Get-LiveBuildProcesses) } else { @() }
-    $gcResult = Invoke-TargetGc -Classification $classification -Apply:$Apply -BusyProcesses $busy
-    $plural = if ($gcResult.Disposable.Count -eq 1) { 'y' } else { 'ies' }
-    if ($gcResult.Skipped) {
-        Write-Host "[gc] $($gcResult.SkipReason) ($($gcResult.Disposable.Count) disposable director$plural found)" -ForegroundColor $(if ($Apply) { 'Red' } else { 'Cyan' })
+    $busy = @(Get-LiveBuildProcesses -Snapshot $(if ($IsLinux) { $procSnapshot.Processes } else { $null }))
+    $gcResult = if ($gcRoots.Count -gt 0) {
+        Invoke-TargetGc -Classification $classification -Apply:$gcApply -BusyProcesses $busy -Roots $gcRoots
     } else {
-        Write-Host "[gc] removed $($gcResult.Deleted.Count) director$plural." -ForegroundColor Yellow
+        [PSCustomObject]@{
+            Disposable = @(); Deleted = @(); SkippedDirs = @(); BytesFreed = [long]0; BytesWouldFree = [long]0
+            Skipped = $true; SkipReason = 'no configured managed-target roots'
+        }
     }
+    $plural = if ($gcResult.Disposable.Count -eq 1) { 'y' } else { 'ies' }
+    if (-not $gcApply) {
+        Write-Host "[gc] would free $($gcResult.BytesWouldFree) file bytes from $($gcResult.Disposable.Count) disposable director$plural; nothing deleted." -ForegroundColor Cyan
+    } elseif ($gcResult.Skipped) {
+        Write-Host "[gc] $($gcResult.SkipReason) ($($gcResult.Disposable.Count) disposable director$plural found)" -ForegroundColor Red
+    } else {
+        Write-Host "[gc] removed $($gcResult.Deleted.Count) director$plural; freed $($gcResult.BytesFreed) file bytes." -ForegroundColor Yellow
+    }
+    foreach ($skipped in @($gcResult.SkippedDirs)) {
+        Write-Host "[gc] left target directory $($skipped.Path): $($skipped.Reason)" -ForegroundColor DarkYellow
+    }
+    if ($gcRootError -or $unscannedTargetDir) { exit $script:ExitCodeGcUnsafe }
     exit 0
 }
 

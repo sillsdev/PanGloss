@@ -34,8 +34,8 @@
   Get-TargetClassification sorts every managed target dir under the configured roots into exactly one
   of four classes -- unknown (no marker), other-repo, live (marker's worktree still exists),
   disposable (this repo's, worktree gone) -- and Invoke-TargetGc (`pg.ps1 -Mode gc -Apply`) ever
-  deletes only the last one, and only when no cargo/rustc/link/sccache process is running anywhere on
-  the machine. A target dir is a CACHE and carries no deliverable: `-Mode release` copies the binary
+  deletes only the last one, after checking its process and recent-write claims. A target dir is a
+  CACHE and carries no deliverable: `-Mode release` copies the binary
   out to dist/ (Export-ReleaseArtifact) precisely so nothing here has to survive its worktree.
   There was a fifth class, `preserved`, set on any target dir a release build had ever touched and
   never cleared. It protected 16 research caches (~110 GB) that held nothing, and did not protect the
@@ -1040,6 +1040,10 @@ function Get-LiveBuildProcesses {
       A reclaimer that can never reclaim is the same defect as a gate that never gates. sccache also
       writes only its own cache directory, never a managed target dir, so it cannot be raced with.
     #>
+    param([object[]]$Snapshot = $null)
+    if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') {
+        return @(Get-LinuxLiveBuildProcesses -Snapshot $Snapshot)
+    }
     $filter = @($script:GcBusyBuildProcessNames | ForEach-Object { "Name='$_'" }) -join ' or '
     Get-CimInstance Win32_Process -Filter $filter
 }
@@ -1053,12 +1057,28 @@ function Get-BusyTargetPaths {
       worktree's garbage on disk.
     #>
     param([object[]]$BusyProcesses)
-    $out = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
+    $pathComparer = if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') { [StringComparer]::Ordinal } else { [StringComparer]::OrdinalIgnoreCase }
+    $out = New-Object System.Collections.Generic.HashSet[string] ($pathComparer)
     foreach ($p in @($BusyProcesses)) {
+        if ($p.TargetDir) { [void]$out.Add(([string]$p.TargetDir).TrimEnd('\', '/')) }
+        if ($p.Cwd) { [void]$out.Add(([string]$p.Cwd).TrimEnd('\', '/')) }
         $cl = $p.CommandLine
         if (-not $cl) { continue }
         foreach ($m in [regex]::Matches($cl, '[A-Za-z]:\\[^"'']+')) {
             [void]$out.Add($m.Value.TrimEnd('\', '"', "'"))
+        }
+        if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') {
+            $tokens = if ($p.Arguments) { @($p.Arguments) } else { @($cl -split '\s+') }
+            foreach ($token in $tokens) {
+                $pathToken = [string]$token
+                if ($pathToken -match '^[^=]+=(/.*)$') { $pathToken = $Matches[1] }
+                if ([System.IO.Path]::IsPathRooted($pathToken)) { [void]$out.Add($pathToken.TrimEnd('/')) }
+            }
+        }
+    }
+    foreach ($pool in @('build', 'run')) {
+        foreach ($holder in @(Get-SlotHolders -Pool $pool | Where-Object { $_.Alive -and $_.TargetDir })) {
+            [void]$out.Add(([string]$holder.TargetDir).TrimEnd('\', '/'))
         }
     }
     $out
@@ -1079,9 +1099,15 @@ function Test-TargetDirInUse {
         [object]$BusyPaths,
         [int]$RecentWriteMinutes = 15
     )
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    $pathComparison = if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    $normalizedPath = $Path.TrimEnd([char[]]@([char]92, [char]47))
     foreach ($busy in $BusyPaths) {
-        if ($busy -eq $Path -or $busy.StartsWith($Path + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            return "a live build process names it on its command line"
+        $normalizedBusy = ([string]$busy).TrimEnd([char[]]@([char]92, [char]47))
+        if ($normalizedBusy.Equals($normalizedPath, $pathComparison) -or
+            $normalizedBusy.StartsWith($normalizedPath + $separator, $pathComparison) -or
+            $normalizedPath.StartsWith($normalizedBusy + $separator, $pathComparison)) {
+            return 'a live build process uses or names this path'
         }
     }
     $cutoff = (Get-Date).AddMinutes(-$RecentWriteMinutes)
@@ -1111,7 +1137,7 @@ $script:ExitCodeConformanceScopeUnclaimed = 20
 # Linux managed spawning requires proof that this wrapper is already under a finite host cgroup cap.
 $script:ExitCodeLinuxHostContainment = 21
 $script:ExitCodeUnsupportedPlatform = 23
-$script:ExitCodeLinuxGcUnsupported = 24
+$script:ExitCodeGcUnsafe = 24
 # oracle-conformance.ps1: dotnet or hc-conformance.exe not found -- "I could not look" must exit loud.
 $script:ExitCodeOracleUnavailable = 25
 # oracle-conformance.ps1: a signature/load-failure mismatch outside the known-divergence baseline.
@@ -2110,6 +2136,17 @@ function Get-TargetClassification {
     return $out
 }
 
+function Get-TargetFileByteCount {
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        $bytes = (Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction Stop |
+            Measure-Object -Property Length -Sum).Sum
+        return [PSCustomObject]@{ Ok = $true; Bytes = [long]$(if ($null -eq $bytes) { 0 } else { $bytes }); Detail = '' }
+    } catch {
+        return [PSCustomObject]@{ Ok = $false; Bytes = [long]0; Detail = $_.Exception.Message }
+    }
+}
+
 function Invoke-TargetGc {
     <#
       .DESCRIPTION
@@ -2129,26 +2166,26 @@ function Invoke-TargetGc {
     $result = [ordered]@{
         Disposable = $disposable
         Deleted    = @()
+        SkippedDirs = @()
+        BytesFreed = [long]0
+        BytesWouldFree = [long]0
         Skipped    = $false
         SkipReason = ''
     }
-    if (-not $Apply) {
-        $result.Skipped = $true
-        $result.SkipReason = 'dry run (-Apply not passed) -- nothing deleted'
-        return [PSCustomObject]$result
-    }
-    # Per-directory, never machine-wide: abstaining while ANY build lives reclaimed nothing here.
     $busyPaths = Get-BusyTargetPaths -BusyProcesses $BusyProcesses
+    $pathComparison = if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    $eligible = @()
     foreach ($d in $disposable) {
+        if (-not (Test-Path -LiteralPath $d.Path -PathType Container)) { continue }
         $claim = Test-TargetDirInUse -Path $d.Path -BusyPaths $busyPaths
         if ($claim) {
-            $result.SkipReason = "skipped $($d.Path): $claim"
+            $result.SkippedDirs += [PSCustomObject]@{ Path = $d.Path; Reason = $claim }
             continue
         }
         # Re-validate containment at deletion time, guarding a future caller that hand-builds a classification list.
         $resolved = (Resolve-Path -LiteralPath $d.Path -ErrorAction SilentlyContinue)
         if (-not $resolved) {
-            $result.SkipReason = "skipped $($d.Path): no longer resolvable"
+            $result.SkippedDirs += [PSCustomObject]@{ Path = $d.Path; Reason = 'no longer resolvable' }
             continue
         }
         $full = $resolved.ProviderPath
@@ -2157,8 +2194,8 @@ function Invoke-TargetGc {
             $rootResolved = (Resolve-Path -LiteralPath $root -ErrorAction SilentlyContinue)
             if (-not $rootResolved) { continue }
             $rootFull = $rootResolved.ProviderPath.TrimEnd('\')
-            # Compare against "<root>\" so a sibling root sharing a name prefix can never be mistaken for being inside this one.
-            if ($full.StartsWith($rootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+            # Compare against a separator suffix so a sibling root sharing a name prefix is never treated as a child.
+            if ($full.StartsWith($rootFull + [System.IO.Path]::DirectorySeparatorChar, $pathComparison)) {
                 $contained = $true
                 break
             }
@@ -2166,8 +2203,62 @@ function Invoke-TargetGc {
         if (-not $contained) {
             throw "refusing to delete '$full': not contained in any configured cache root ($($Roots -join ', ')). This guards against a caller handing Invoke-TargetGc a path it did not enumerate."
         }
-        Remove-Item -Recurse -Force -LiteralPath $full
-        $result.Deleted += $d.Path
+        $measurement = Get-TargetFileByteCount -Path $full
+        if (-not $measurement.Ok) {
+            $result.SkippedDirs += [PSCustomObject]@{ Path = $d.Path; Reason = "file sizes could not be measured: $($measurement.Detail)" }
+            continue
+        }
+        $eligible += [PSCustomObject]@{ RequestedPath = $d.Path; ResolvedPath = $full; Bytes = $measurement.Bytes }
+        $result.BytesWouldFree += $measurement.Bytes
+    }
+    if (-not $Apply) {
+        $result.Skipped = $true
+        $result.SkipReason = 'dry run (-Apply not passed) -- nothing deleted'
+        return [PSCustomObject]$result
+    }
+    # Per-directory, never machine-wide: abstaining while ANY build lives reclaimed nothing here.
+    foreach ($item in $eligible) {
+        $resolved = (Resolve-Path -LiteralPath $item.RequestedPath -ErrorAction SilentlyContinue)
+        if (-not $resolved) {
+            $result.SkippedDirs += [PSCustomObject]@{ Path = $item.RequestedPath; Reason = 'no longer resolvable' }
+            continue
+        }
+        $full = $resolved.ProviderPath
+        $contained = $false
+        foreach ($root in $Roots) {
+            $rootResolved = (Resolve-Path -LiteralPath $root -ErrorAction SilentlyContinue)
+            if (-not $rootResolved) { continue }
+            $rootFull = $rootResolved.ProviderPath.TrimEnd([char[]]@([char]92, [char]47))
+            if ($full.StartsWith($rootFull + [System.IO.Path]::DirectorySeparatorChar, $pathComparison)) {
+                $contained = $true
+                break
+            }
+        }
+        if (-not $contained) {
+            $result.SkippedDirs += [PSCustomObject]@{ Path = $item.RequestedPath; Reason = 'no longer contained in a configured cache root' }
+            continue
+        }
+        $before = Get-TargetFileByteCount -Path $full
+        if (-not $before.Ok) {
+            $result.SkippedDirs += [PSCustomObject]@{ Path = $item.RequestedPath; Reason = "file sizes could not be rechecked before removal: $($before.Detail)" }
+            continue
+        }
+        $removeError = ''
+        try {
+            Remove-Item -Recurse -Force -LiteralPath $full -ErrorAction Stop
+        } catch { $removeError = $_.Exception.Message }
+        if (-not (Test-Path -LiteralPath $item.RequestedPath)) {
+            $result.Deleted += $item.RequestedPath
+            $result.BytesFreed += $before.Bytes
+            continue
+        }
+        $after = Get-TargetFileByteCount -Path $item.RequestedPath
+        if ($after.Ok -and $before.Bytes -gt $after.Bytes) {
+            $result.BytesFreed += ($before.Bytes - $after.Bytes)
+        }
+        $detail = if ($removeError) { $removeError } else { 'the directory remained after removal' }
+        if (-not $after.Ok) { $detail += "; remaining file sizes could not be measured: $($after.Detail)" }
+        $result.SkippedDirs += [PSCustomObject]@{ Path = $item.RequestedPath; Reason = "removal incomplete: $detail" }
     }
     return [PSCustomObject]$result
 }
@@ -2175,6 +2266,7 @@ function Invoke-TargetGc {
 # Load the native implementation only on the host that executes it: Windows never loads the Linux adapter implicitly, and Linux uses the same importer fixture callers do so the production and contract seams cannot drift.
 if ($IsLinux) {
     $script:PanGlossPlatformAdapter = Import-PanGlossPlatformAdapter -Platform Linux -ToolRoot $PSScriptRoot
+    . (Join-Path $PSScriptRoot '_linux_gc.ps1')
 } elseif ($IsWindows) {
     $script:PanGlossPlatformAdapter = Import-PanGlossPlatformAdapter -Platform Windows -ToolRoot $PSScriptRoot
 } else {
