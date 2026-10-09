@@ -31,6 +31,11 @@ fn sweep_shape_keys() -> (BTreeSet<ShapeRow>, BTreeSet<&'static str>) {
             if let CompileDecision::Refuse(diagnostics) = report.decision() {
                 for diagnostic in diagnostics {
                     let shape_key = capability_shape_key_for_test(diagnostic);
+                    eprintln!(
+                        "SEAM_ROW\t{}\t{strategy:?}\t{}\t{shape_key}",
+                        fixture.label(),
+                        diagnostic.predicate
+                    );
                     predicate_ids.insert(diagnostic.predicate);
                     rows.insert((diagnostic.predicate, shape_key));
                 }
