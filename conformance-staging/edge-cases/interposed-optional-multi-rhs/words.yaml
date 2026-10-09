@@ -1,0 +1,21 @@
+# oracle-provenance: forward-synthesis
+# The positive is intentionally red against C#: its existing narrowing unapply loses this parse.
+# The C# result was not rerun in this lane; the expected parse is independently forward-derived.
+# Trace: root ABC/abc -> merge abc to de -> x deletion is vacuous -> surface de (ABC|de).
+# Inverse deletion can interpose optional x between d/e; merge must capture both real RHS positions.
+language: interposed-optional-multi-rhs
+sources: ["HCLoader.cs:2362-2374 (literal contexts), 2745-2786 (natural classes), 2005-2011 and 2765-2773 (alpha variables); machine/conformance/fieldworks-producibility.tsv"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: de
+    parses:
+      - signature: "ABC|de"
+  - word: abc
+    expect_fail: true
+  - word: dex
+    expect_fail: true
+  - word: dxe
+    expect_fail: true
+  - word: dd
+    expect_fail: true

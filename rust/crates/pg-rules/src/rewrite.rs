@@ -347,9 +347,9 @@ fn compile_lane_fst_grouped(
 /// **Residual.** The guard assumes a tight, exactly-`pattern_len`-wide alternative always survives
 /// alongside the over-wide one. That is false when an earlier rule's unapply has interposed an
 /// Optional segment between every candidate pair of this pattern's real target positions — then no
-/// tight alternative exists and the match is lost. `ana_feature` sidesteps this entirely by
-/// recovering its rows through `compile_lane_fst_grouped`'s per-row captures; the three remaining
-/// callers are exposed in principle. Fixing one means giving it the same group-capture treatment.
+/// tight alternative exists and the match is lost. `ana_feature` and `ana_narrow_general` instead
+/// recover their rows through `compile_lane_fst_grouped`'s per-row captures; other positional
+/// callers remain exposed in principle.
 ///
 /// **A bounded `Quantifier` spanning the whole LHS or RHS is deliberately unsupported.** Such a
 /// pattern has one node whatever its min/max, so every caller's plain node count rejects any real
@@ -379,6 +379,36 @@ pub(crate) fn all_spans(fst: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
     spans.sort_unstable();
     spans.dedup();
     spans
+}
+
+/// Finds each target row's real segment position despite Optional skips.
+fn grouped_target_positions(target: &Fst, names: &[String], segs: &[Segment]) -> Vec<Vec<usize>> {
+    let rtl = target.direction() == Direction::RightToLeft;
+    let mut rows: Vec<_> = Transduce::new(target, segs.to_vec())
+        .all_matches()
+        .iter()
+        .map(|r| {
+            names
+                .iter()
+                .map(|name| {
+                    let (a, b) = target
+                        .get_offsets(name, &r.registers)
+                        .unwrap_or_else(|| panic!("target capture {name} was not resolved"));
+                    let pos = if rtl { b - 1 } else { a };
+                    let pos = usize::try_from(pos)
+                        .expect("target capture must identify a nonnegative node");
+                    assert!(
+                        pos < segs.len(),
+                        "target capture {name} exceeds the segment sequence"
+                    );
+                    pos
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    rows.sort_unstable();
+    rows.dedup();
+    rows
 }
 
 /// `all_spans`, reordered to the direction-side-first scan order an Iterative pick-one-then-rescan loop needs; keyed off `target.direction()` so synthesis (compiled in the rule's direction) and analysis (compiled reversed) both scan correctly through one function.
@@ -1406,11 +1436,26 @@ pub fn analyze(
                 let right = compile_env_analysis(g, table_id, sr.right_env.as_ref());
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &left, &right)
+                } else if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                    let lanes = ana_epenthesis_target_lanes(g, table, sr);
+                    let (target, names) =
+                        compile_lane_fst_grouped(&lanes, reverse(dir_of(rule)), false);
+                    ana_narrow_general(
+                        g,
+                        table,
+                        rule,
+                        sr,
+                        &mut ms,
+                        &target,
+                        Some(&names),
+                        &left,
+                        &right,
+                    )
                 } else {
                     // Reuse the epenthesis target-lane formula ("the RHS segment sequence, FST-facing"); see `ana_narrow_general`'s doc.
                     let lanes = ana_epenthesis_target_lanes(g, table, sr);
                     let target = compile_lane_fst(&lanes, reverse(dir_of(rule)), false);
-                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, &left, &right)
+                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, None, &left, &right)
                 }
             }
             Kind::Epenthesis => {
@@ -1532,6 +1577,15 @@ pub(crate) fn analyze_cached(
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &sc.ana_left, &sc.ana_right)
                 } else {
+                    let names = if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                        Some(
+                            sc.ana_target_names
+                                .as_deref()
+                                .expect("Narrow-general subrule always has compiled group names"),
+                        )
+                    } else {
+                        None
+                    };
                     ana_narrow_general(
                         g,
                         table,
@@ -1541,6 +1595,7 @@ pub(crate) fn analyze_cached(
                         sc.ana_target
                             .as_ref()
                             .expect("Narrow-general subrule always has a compiled ana target"),
+                        names,
                         &sc.ana_left,
                         &sc.ana_right,
                     )
@@ -1642,10 +1697,25 @@ pub fn analyze_traced(
                 let right = compile_env_analysis(g, table_id, sr.right_env.as_ref());
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &left, &right)
+                } else if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                    let lanes = ana_epenthesis_target_lanes(g, table, sr);
+                    let (target, names) =
+                        compile_lane_fst_grouped(&lanes, reverse(dir_of(rule)), false);
+                    ana_narrow_general(
+                        g,
+                        table,
+                        rule,
+                        sr,
+                        &mut ms,
+                        &target,
+                        Some(&names),
+                        &left,
+                        &right,
+                    )
                 } else {
                     let lanes = ana_epenthesis_target_lanes(g, table, sr);
                     let target = compile_lane_fst(&lanes, reverse(dir_of(rule)), false);
-                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, &left, &right)
+                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, None, &left, &right)
                 }
             }
             Kind::Epenthesis => {
@@ -1779,6 +1849,15 @@ pub fn analyze_cached_traced(
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &sc.ana_left, &sc.ana_right)
                 } else {
+                    let names = if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                        Some(
+                            sc.ana_target_names
+                                .as_deref()
+                                .expect("Narrow-general subrule always has compiled group names"),
+                        )
+                    } else {
+                        None
+                    };
                     ana_narrow_general(
                         g,
                         table,
@@ -1788,6 +1867,7 @@ pub fn analyze_cached_traced(
                         sc.ana_target
                             .as_ref()
                             .expect("Narrow-general subrule always has a compiled ana target"),
+                        names,
                         &sc.ana_left,
                         &sc.ana_right,
                     )
@@ -2496,7 +2576,7 @@ fn ana_narrow_deletion(
     true
 }
 
-/// The non-empty-RHS branch (narrowing/expansion): matches the RHS's own constraints (not an LHS-vs-RHS union), then splices the reconstructed LHS in as OPTIONAL after the match and marks the matched nodes optional too; matches are found against the pristine shape and applied descending, since this port's index-based nodes, unlike C#'s linked list, don't survive insertion.
+/// The non-empty-RHS branch (narrowing/expansion): matches the RHS's own constraints (not an LHS-vs-RHS union), then splices the reconstructed LHS in as OPTIONAL after the match and marks the matched nodes optional too. True narrowing uses per-position captures to preserve RHS nodes across interposed Optional skips; expansion retains its original width-checked span path. Matches are found against the pristine shape and applied descending, since this port's index-based nodes, unlike C#'s linked list, don't survive insertion.
 #[allow(clippy::too_many_arguments)]
 fn ana_narrow_general(
     g: &Grammar,
@@ -2505,6 +2585,7 @@ fn ana_narrow_general(
     sr: &RewriteSubruleDef,
     ms: &mut MutShape,
     target: &Fst,
+    names: Option<&[String]>,
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
 ) -> bool {
@@ -2518,26 +2599,15 @@ fn ana_narrow_general(
         .map(|n| new_seg_node(g, table, n, true)) // spliced-in reconstruction is OPTIONAL
         .collect();
 
-    // A correctly-aligned RHS match spans exactly one segment node per RHS node.
-    let target_len = sr.rhs.nodes.len();
-
     // Analysis filter: Segment|Anchor (no boundaries), matching `ana_feature`/the deletion case.
     let (segs, node_of) = ms.segs(false);
-    let mut matches: Vec<(usize, usize, Bindings)> = Vec::new();
-    for (s, e) in all_spans(target, &segs) {
-        if !pg_fst::work::consume() {
-            return false;
-        }
-        let target_nodes: Vec<usize> = node_of[s..e].to_vec();
-        // Dropping an over-wide span here only discards a duplicate, since `all_spans` also reports the tight match; without the guard, a single-node target on an Optional-flooded shape spuriously matches whole multi-segment windows and reconstructs at every one — a flood C#'s per-position group capture avoids entirely.
-        if !width_matches(&target_nodes, target_len) {
-            continue;
-        }
+    let mut matches: Vec<(usize, usize, Vec<usize>, Bindings)> = Vec::new();
+    let mut consider = |s: usize, e: usize, target_nodes: Vec<usize>| {
         let Some(left_match) = left_env_match(left, &segs, s) else {
-            continue;
+            return;
         };
         let Some(right_match) = right_env_match(right, &segs, e) else {
-            continue;
+            return;
         };
         let Some(bindings) = resolve_bindings(
             g,
@@ -2551,17 +2621,45 @@ fn ana_narrow_general(
             right,
             &right_match,
         ) else {
-            continue;
+            return;
         };
-        matches.push((s, e, bindings));
+        matches.push((s, e, target_nodes, bindings));
+    };
+
+    if let Some(names) = names {
+        for positions in grouped_target_positions(target, names, &segs) {
+            if !pg_fst::work::consume() {
+                return false;
+            }
+            let s = *positions
+                .first()
+                .expect("narrowing target must capture each non-empty RHS position");
+            let e = positions
+                .last()
+                .expect("narrowing target must capture each non-empty RHS position")
+                + 1;
+            let target_nodes: Vec<usize> = positions.iter().map(|&pos| node_of[pos]).collect();
+            consider(s, e, target_nodes);
+        }
+    } else {
+        let target_len = sr.rhs.nodes.len();
+        for (s, e) in all_spans(target, &segs) {
+            if !pg_fst::work::consume() {
+                return false;
+            }
+            let target_nodes: Vec<usize> = node_of[s..e].to_vec();
+            if !width_matches(&target_nodes, target_len) {
+                continue;
+            }
+            consider(s, e, target_nodes);
+        }
     }
     if matches.is_empty() {
         return false;
     }
 
     // Apply descending (by match start) so earlier splices don't shift not-yet-applied matches' node indices.
-    for (s, e, bindings) in matches.into_iter().rev() {
-        let target_nodes: Vec<usize> = node_of[s..e].to_vec();
+    for (_, _, target_nodes, bindings) in matches.into_iter().rev() {
         // (1) splice the reconstructed original-LHS material in right after the match, with alpha-variable bindings from the RHS match resolved onto it.
         let mut insert_nodes = lhs_template.clone();
         for (k, node) in insert_nodes.iter_mut().enumerate() {
@@ -2932,10 +3030,10 @@ pub(crate) struct SubruleCache {
     pub(crate) ana_left: Option<EnvFst>,
     pub(crate) ana_right: Option<EnvFst>,
     pub(crate) ana_target: Option<Fst>,
-    /// `Some` (one name per `ana_target` row, "g0".."g{N-1}") iff this subrule is `Kind::Feature` --
-    /// see `compile_lane_fst_grouped`'s doc / `ana_feature`'s per-row Group-capture fix. `None`
-    /// for `Kind::Epenthesis`/`Kind::Narrow`, whose `ana_target` is still the ungrouped
-    /// `compile_lane_fst` (only `ana_feature`'s specific multi-row adjacency search needed this).
+    /// `Some` (one name per `ana_target` row, "g0".."g{N-1}") for `Kind::Feature` and true
+    /// narrowing rules (LHS wider than RHS); see `compile_lane_fst_grouped`'s doc and their
+    /// per-position capture paths. `None` for epenthesis and expansion, whose existing analysis
+    /// paths do not need per-position target recovery.
     pub(crate) ana_target_names: Option<Vec<String>>,
 }
 
@@ -2983,6 +3081,11 @@ pub(crate) fn build_prule_cache(
                 Kind::Narrow => {
                     if sr.rhs.nodes.is_empty() {
                         (None, None)
+                    } else if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                        let lanes = ana_epenthesis_target_lanes(g, table, sr);
+                        let (fst, names) =
+                            compile_lane_fst_grouped(&lanes, reverse(dir_of(rule)), false);
+                        (Some(fst), Some(names))
                     } else {
                         let lanes = ana_epenthesis_target_lanes(g, table, sr);
                         (
