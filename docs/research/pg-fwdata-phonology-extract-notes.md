@@ -67,8 +67,8 @@ environments (this module) and `MoAffixProcess.InputOS` (`extract::lexicon`) —
 
 The well-known word-boundary marker (`LangProjectTags.kguidPhRuleWordBdry`,
 HCLoader.cs:2351/2489-2498) is excluded from `boundaryMarkers` (`LoadCharacterDefinitionTable`,
-HCLoader.cs:2698) — it never appears as its own `PhBdryMarker` record a user could define, so
-"doesn't resolve to a real `PhBdryMarker`" is exactly the structural signature of the `#` anchor.
-This also means a genuinely dangling ordinary boundary reference degrades to the same harmless `#`
-interpretation rather than silently vanishing from the pattern — preferable to dropping the rule's
-shape entirely.
+HCLoader.cs:2698`). A `.fwdata` export can store that reserved GUID as an owned `PhBdryMarker` record.
+The reserved GUID itself identifies the word-boundary anchor, whether or not a `PhBdryMarker`
+record resolves. Other resolved marker GUIDs remain literal boundaries. An unresolved ordinary
+boundary reference retains the existing `WordBoundary` fallback rather than silently removing the
+rule's shape.

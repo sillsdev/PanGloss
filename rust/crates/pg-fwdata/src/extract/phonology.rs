@@ -11,6 +11,8 @@ use super::Ctx;
 use crate::node::strip_dotted_circles;
 use crate::xml::Record;
 
+const WORD_BOUNDARY_MARKER_GUID: &str = "7db635e0-9ef3-4167-a594-12551ed89aaa";
+
 pub fn extract_phonology(
     ctx: &mut Ctx,
     lang_project: Option<&Record>,
@@ -134,6 +136,7 @@ fn extract_phoneme_set(
         .node
         .objsur_list("BoundaryMarkers")
         .into_iter()
+        .filter(|guid| guid != WORD_BOUNDARY_MARKER_GUID)
         .filter_map(|g| extract_boundary_marker(ctx, &g, set))
         .collect();
     (phonemes, boundary_markers)
@@ -750,11 +753,13 @@ pub(crate) fn resolve_phon_context(
         "PhSimpleContextBdry" => {
             let marker = required_context_reference(ctx, rec, "FeatureStructure")?;
             record_represented(ctx);
-            // The well-known word-boundary marker never appears as its own `PhBdryMarker` record, so failing to resolve one is the `#` anchor's own signature.
-            // See `docs/research/pg-fwdata-phonology-extract-notes.md`.
-            match ctx.get(&marker) {
-                Some(m) if m.class == "PhBdryMarker" => Some(PhonContext::Boundary { marker }),
-                _ => Some(PhonContext::WordBoundary),
+            if marker == WORD_BOUNDARY_MARKER_GUID {
+                Some(PhonContext::WordBoundary)
+            } else {
+                match ctx.get(&marker) {
+                    Some(m) if m.class == "PhBdryMarker" => Some(PhonContext::Boundary { marker }),
+                    _ => Some(PhonContext::WordBoundary),
+                }
             }
         }
         "PhVariable" => Some(PhonContext::Variable),

@@ -3,6 +3,15 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Reserved FieldWorks word boundaries survive `.fwdata` import
+
+- The importer now recognizes `LangProjectTags.kguidPhRuleWordBdry` by GUID even when a FieldWorks
+  export stores it as an owned `PhBdryMarker` record. It excludes that reserved marker from the
+  ordinary marker table while preserving user-defined literal `#` markers.
+- Divergence 054 records the importer correction and its FWData regression coverage.
+
 ## 0.7.0
 
 ### `pangloss facts` publishes what the parser actually loaded
