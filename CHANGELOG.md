@@ -3,7 +3,73 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.8.0
+
+### Projects with incomplete phonology run, with provisional definitions
+
+- A FieldWorks project whose phonology leaves something undefined now parses anyway. A letter with
+  no segment definition, a phoneme with no features, or an environment naming a missing natural
+  class no longer stops the grammar. PanGloss supplies a provisional definition and reports each
+  one as an Info finding naming what was undefined and what it assumed. This holds whichever
+  parser FieldWorks has selected. See `docs/adr/0008-provisional-definitions.md` and divergences
+  072–078.
+- A provisional letter, and a phoneme with no features, belong to no natural class that names
+  letters or requires a feature value. A class with no conditions still matches them.
+- An environment that names a missing natural class is dropped whole, as FieldWorks and HermitCrab
+  drop it, and grammar health now says so (divergence 077).
+- Phonological rules the author wrote apply even where XAMPLE never ran them (divergence 078).
+
+### Grammar health names the rule behind a stored analysis that no longer parses
+
+- When a project's stored analysis no longer parses, grammar health reports
+  `grammar.stored-analysis.no-longer-parses`. The finding names the wordform, the stored morphs and
+  the authored phonological rule whose application changes the form. A loss no rule explains, or a
+  synthesis that reaches its step budget, is reported as unattributed with the reason
+  (divergence 086).
+
+### Parses now match HermitCrab in four more rule shapes
+
+- A literal rewrite rule in a project whose phonemes have no features now analyzes its output, as
+  forward synthesis produces it. HermitCrab has the same defect; the fix is proposed upstream in
+  sillsdev/machine#538 (divergence 071).
+- Analysis binds an alpha variable from a rule's effective target (divergence 069), a rewrite
+  environment that can be empty matches at a word edge (divergence 065), and alpha agreement holds
+  inside repeated environments (divergence 058).
+
+### The FST proposer covers more rewrite rules
+
+- Rewrite rules with repeated alpha variables, ambiguous alpha disagreement, and classes that list
+  only some segments now compile into the FST proposer. HermitCrab confirms every proposal, so
+  results are unchanged (divergences 066, 067, 079).
+- Rule shapes FieldWorks cannot author, or HermitCrab cannot load, stay refused, and each refusal
+  names its reason (divergences 059, 068).
+
+### Assessment commands are removed from the CLI
+
+- `pangloss compare`, `golden-diff` and `investigate` are removed. The `pg-assess` library and the
+  schemas in `docs/grammar-assessment-schemas.md` remain for existing artifacts.
+- Readiness verdicts reject malformed inputs and refused or ambiguous assessment states, and report
+  only the thresholds they measured.
+
+### Import refuses fatal source problems
+
+- `pangloss import` refuses to write a snapshot when the project has fatal or malformed source
+  issues, and reports them in the same JSON shape as a compile error (`docs/compile-errors.md`).
+
+### Statistics record phonological rule uses and reject unknown identities
+
+- `batch --stats` records which phonological rules each accepted parse used.
+- An unknown stats identity is an error, not a guessed allomorph, and a frozen stats cache is tied
+  to the run that produced its counters.
+
+### Boundary and affix forms use the selected writing system
+
+- Boundary markers and affix forms are read in the project's selected vernacular writing system.
+
+### Development
+
+- `rust/tools/pg.ps1 -Mode gc` now works on Linux and WSL. It reaps orphaned build processes that no
+  live managed build owns, reports each process it left alone and why, and reports bytes freed.
 
 ### Process allomorphs of inflectional affixes keep their inflection classes
 
