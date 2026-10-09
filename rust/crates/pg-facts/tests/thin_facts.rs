@@ -4808,7 +4808,31 @@ fn only_valid_environments_have_sides() {
 
 #[test]
 fn underspecified_member_has_match_basis_underspecified() {
-    let db = publish_gates(&side_snapshot(), "match-basis.sqlite");
+    let mut source = side_snapshot();
+    let feature_guid = "00000000-0000-0000-0000-0000000001b0";
+    let value_guid = "00000000-0000-0000-0000-0000000001b1";
+    source
+        .feature_systems
+        .phonological
+        .closed_features
+        .push(ClosedFeature {
+            guid: feature_guid.into(),
+            name: "Place".into(),
+            abbreviation: "place".into(),
+            values: vec![FeatureValueSymbol {
+                guid: value_guid.into(),
+                name: "Coronal".into(),
+                abbreviation: "cor".into(),
+            }],
+        });
+    source
+        .phonology
+        .phonemes
+        .iter_mut()
+        .find(|phoneme| phoneme.guid == PHONEME_TS)
+        .unwrap()
+        .features = Some(closed_structure(feature_guid, value_guid));
+    let db = publish_gates(&source, "match-basis.sqlite");
     let basis = |phoneme: &str| -> String {
         db.query_row(
             "SELECT match_basis FROM natural_class_effective_member WHERE natural_class_guid=?1 AND phoneme_guid=?2",
