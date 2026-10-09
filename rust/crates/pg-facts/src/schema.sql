@@ -233,7 +233,7 @@ CREATE TABLE sense_text (
     writing_system TEXT NOT NULL COLLATE BINARY,
     text TEXT NOT NULL,
     PRIMARY KEY (sense_guid, kind, ordinal)
-);
+) WITHOUT ROWID;
 
 -- component_kind is 'unresolved' when the component is neither a loaded entry nor a sense.
 CREATE TABLE entry_variant (
@@ -320,7 +320,7 @@ CREATE TABLE source_object (
     duplicate INTEGER NOT NULL CHECK (duplicate IN (0, 1)),
     CHECK (canonical_guid IS NULL OR length(canonical_guid) = 36),
     CHECK (retained = 0 OR handled = 1)
-);
+) WITHOUT ROWID;
 
 CREATE INDEX source_object_canonical_guid ON source_object(canonical_guid COLLATE BINARY);
 
@@ -331,7 +331,7 @@ CREATE TABLE conversion_item (
     subject_key TEXT NOT NULL COLLATE BINARY,
     subject_guid TEXT COLLATE BINARY,
     PRIMARY KEY (pipeline_stage, inventory_stage, subject_kind, subject_key)
-);
+) WITHOUT ROWID;
 
 CREATE TABLE conversion_stage (
     pipeline_stage TEXT NOT NULL CHECK (pipeline_stage IN ('import', 'snapshot', 'compile', 'compact')),
@@ -364,7 +364,7 @@ CREATE TABLE load_fact (
     effective_value_json TEXT COLLATE BINARY,
     issue_key TEXT COLLATE BINARY REFERENCES conversion_issue(issue_key),
     PRIMARY KEY (subject_kind, subject_key, pipeline_stage, context_key, decision_ordinal)
-);
+) WITHOUT ROWID;
 
 CREATE INDEX load_fact_subject_guid ON load_fact(subject_guid COLLATE BINARY);
 
@@ -411,7 +411,7 @@ CREATE TABLE compiled_mapping (
     source_ordinal INTEGER NOT NULL CHECK (source_ordinal >= 0),
     identity_quality TEXT NOT NULL CHECK (identity_quality IN ('authored', 'structural', 'synthetic')),
     PRIMARY KEY (source_kind, source_key, output_id, relation_role, source_ordinal)
-);
+) WITHOUT ROWID;
 
 CREATE TABLE compiled_allomorph_order (
     owner_output_id INTEGER REFERENCES compiled_output(output_id),

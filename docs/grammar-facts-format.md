@@ -43,36 +43,57 @@ is rebuilt from source; there is no in-place schema migration.
 
 ## Changes from v7
 
-Schema v8 increments `artifact_meta.schema_version` and `PRAGMA user_version` from 7 to 8. It
-carries grammar objects in the source census and drops the per-occurrence rows for every other
-class: `source_object` and the `sourceObject` rows of `load_fact` exist only where `inventory_kind`
-is not null. `source_class_count` and the `source_census` total still count every occurrence, so a
-text or wordform is visible as a count. The text-side data comes from the project itself, not from
-these facts. No CLI option restores a full census. The Snapshot is compiled exactly as the parser
-compiles it, so `grammar_hash` and compiled keys match the parser's. Every GUID in the stored rows is
-lowercased when the rows are written, including GUIDs embedded in key and message text. The one
-exemption is `source_object.raw_guid`, which keeps the importer's spelling. The artifact is rebuilt
-from source; there is no in-place schema migration.
+Schema v8 increments `artifact_meta.schema_version` and `PRAGMA user_version` from 7 to 8. No v7 reader
+remains, and there is no in-place migration: the artifact is rebuilt from source. A v7 consumer ports
+table by table, using the lists below.
 
-The v8 changes, in the order they landed:
+**Removed**
 
-- The source census keeps grammar objects only, and every stored GUID is lowercased when written.
-- Compiled grammar objects share one output identity across `compiled_output`, `compiled_mapping`,
-  `compiled_allomorph_order` and the stats tables.
-- Allomorph gates record the compiler's effect on each gate, and the gate vocabulary includes
-  `not_attempted`. MSA features move into the normalized feature rows.
-- Affix-process parts and outputs, compound rules, and rewrite-rule roots and rule names are published.
-- Stem names, exception features, irregular inflection types and variant links are published with the
-  references that name them.
-- Environment sides, natural-class match bases and compiled form segments are published. An
-  environments section is partial after a refused compile.
-- `statement_reference` is keyed by target. A test requires every GUID column that is not exempt to be
-  published there.
-- Compiled form segments, feature-matched class members and descendant classes are published. Dangling
-  rule features are published as `mprFeature` references, and form segments are computed once per
-  publish.
-- `object_state`, the category and inflection-class ancestor closures, and the reverse-lookup indexes
-  are published. See "Final object state, closures, and reverse indexes".
+- `msa_feature_structure`. MSA features are `feature_structure` rows with owner `msa` and roles
+  `features`, `from_features` and `to_features`.
+
+**Reshaped**
+
+- `compiled_mapping`: `(source_kind, source_key, output_kind, output_key)` becomes
+  `(source_kind, source_key, output_id, relation_role, source_ordinal)`. Read the kind and key from
+  `compiled_output` through `output_id`. The table is `WITHOUT ROWID`.
+- `compiled_allomorph_order`: `owner_key`, `bucket`, `output_key` and `is_final_elsewhere_case` are removed.
+  Rows join `compiled_output` through `output_id` and `owner_output_id`, both NULL for a root whose entry
+  the compiler did not represent.
+- `stats_object` and `stats_allomorph`: `key` now uses the `compiled_output.key` spelling, and a nullable
+  `output_id` joins it. v7 keys are not comparable with v8 keys, and a v7 stats cache is recreated.
+
+**Added columns**
+
+- `allomorph.form_class`, `natural_class_effective_member.match_basis`, `phonological_rule.name`,
+  `template_slot.surface_ordinal`.
+- `rewrite_rhs.change_root_id`, `left_context_root_id` and `right_context_root_id`.
+- `stats_object.output_id` and `stats_allomorph.output_id` (see Reshaped).
+
+**Same columns, different contents or storage**
+
+- `conversion_item`, `load_fact`, `source_object`, `sense_text` and `compiled_mapping` are `WITHOUT ROWID`.
+  Their columns are otherwise unchanged (`compiled_mapping` is also reshaped, above), and no query may use rowid.
+- The source census keeps grammar objects only. `source_object` and the source rows of `load_fact` exist
+  only where `inventory_kind` is not null. `source_class_count` and the census total still count every
+  occurrence.
+- Every GUID column and every key that embeds a GUID is lowercase. Free text and JSON values keep the source
+  spelling: `source_object.raw_guid`, `conversion_issue.message`, `load_fact.effective_value_json` and the
+  stats run options. Join only on GUID and key columns.
+- The Snapshot is compiled exactly as the parser compiles it, so `grammar_hash` and compiled keys match
+  the parser's.
+
+**Added tables**
+
+- Entries and gates: `allomorph_gate`, `entry_variant`, `entry_variant_type`, `stem_name`,
+  `stem_name_region`, `exception_feature`, `lex_entry_infl_type`, `lex_entry_infl_type_slot`.
+- Morphology and compounds: `affix_process_input`, `affix_process_output`, `compound_rule`,
+  `compound_rule_side`, `compound_rule_exception_feature`, `category_ancestor`,
+  `inflection_class_ancestor`.
+- Phonology: `environment_side`, `environment_side_member`, `compiled_form_segment`.
+- Compiled output and references: `compiled_output`, `object_state`, `statement_reference`.
+
+Each added table is described under Tables, with its key, columns and section.
 
 ## Compiled output keys
 
@@ -225,7 +246,7 @@ The `artifact_meta` singleton records:
 
 | Column | Meaning |
 |---|---|
-| `application_id`, `schema_version`, `format` | File identity: `1346848321`, `7`, and `pangloss-grammar-facts`. These mirror `PRAGMA application_id` and `PRAGMA user_version`. |
+| `application_id`, `schema_version`, `format` | File identity: `1346848321`, `8`, and `pangloss-grammar-facts`. These mirror `PRAGMA application_id` and `PRAGMA user_version`. |
 | `writer_version`, `compiler_version`, `source_revision`, `build_identity` | Producer build identity. |
 | `snapshot_format`, `snapshot_version` | The input envelope identity. |
 | `provenance_schema_version`, `source_inventory_status` | The Snapshot's importer provenance version and status. |
@@ -292,6 +313,17 @@ lowercase hyphenated `TEXT`. Ordinals are zero-based and nonnegative. Booleans a
 Generated parent rows use foreign keys; source-reference targets intentionally do not, so dangling
 category, class, slot, MSA, allomorph and prohibition references remain visible.
 
+### Artifact, sections and derived state
+
+| Table | Key and columns |
+|---|---|
+| `artifact_meta` | `singleton`, `application_id`, `schema_version`, `format`, `writer_version`, `compiler_version`, `source_revision`, `build_identity`, `snapshot_format`, `snapshot_version`, `provenance_schema_version`, `source_inventory_status`, `source_sha256`, `grammar_hash`, `model_fingerprint`, `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest`, `compile_options_json`, `compile_options_sha256`, `compile_status`, `complete`, and `run_manifest_sha256`. One singleton row; each column is described under Identity and publication. |
+| `artifact_section` | `section`, `status`, `source_scope`, and nullable `reason_code`. One row per v8 section; see Sections. |
+| `compiled_output` | `output_id`, `kind`, `key`, nullable `owner_output_id`, nullable `stratum_key`, `bucket`, nullable `compiled_order`, `identity_quality`, and the allomorph shape columns `realization_kind`, `has_phone_condition`, `has_morph_gate`, `gate_signature`, and `is_unconditioned`. Column meanings are under Compiled output keys. |
+| `object_state` | `subject_kind`, `subject_guid`, `final_stage`, nullable `loaded`, `dispositions`, and `primary_reason`, derived by the rule under Final object state. |
+| `category_ancestor` | `category_guid`, `ancestor_guid`, and `depth`; the ancestor closure described under Final object state. |
+| `inflection_class_ancestor` | `inflection_class_guid`, `ancestor_guid`, and `depth`; the ancestor closure described under Final object state. |
+
 ### Authored facts
 
 | Table | Key and columns |
@@ -305,7 +337,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `inflection_class` | `guid`, owning `owner_category_guid`, nullable class `parent_guid`, `sibling_ordinal`, `name`, `abbreviation`. |
 | `affix_slot` | `guid`, owning `category_guid`, `name`, `optional`. |
 | `affix_template` | `guid`, owning `category_guid`, `name`, `disabled`, `is_final`. |
-| `template_slot` | `(template_guid, side, ordinal)`, source `slot_guid`, nullable `compiled_order`; `side` is `prefix` or `suffix`. The source slot has no foreign key. Ordinals follow the authored Snapshot vectors. The compiler publishes effective order after dropping unresolved or rule-free slots; a missing order is not reconstructed by the writer. |
+| `template_slot` | `(template_guid, side, ordinal)`, source `slot_guid`, nullable `compiled_order`, and nullable `surface_ordinal`; `side` is `prefix` or `suffix`. The source slot has no foreign key. Ordinals follow the authored Snapshot vectors. The compiler publishes effective order after dropping unresolved or rule-free slots; a missing order is not reconstructed by the writer. |
 | `lex_entry` | `guid`, `source_ordinal`, `lexeme_morph_type`. |
 | `allomorph` | `guid`, owning `entry_guid`, `ordinal`, `morph_type`, `form_class` (`stem`, `affix`, or `process`), `is_abstract`, nullable `stem_name_guid`. `form_class` is derived from the morph type and the process realization, because the Snapshot does not carry the source `MoForm` subclass. |
 | `allomorph_gate` | `(allomorph_guid, gate_kind, ordinal)`, nullable `target_guid`, nullable `fs_id` (required features only), `parser_effect`, nullable `reason_code`. `gate_kind` is `inflection_class`, `required_features`, `required_category`, or `stem_name`. `parser_effect` is `applied`, `ignored`, `unresolved`, `owner_not_loaded`, or `not_attempted`. It is the compiler's recorded outcome. `owner_not_loaded` means no owner read the allomorph, so the compiler recorded nothing for it. `not_attempted` means the compiler has no path that reads this gate on this allomorph kind. `required_features` (`MsEnvFeatures`) is an affix-allomorph gate in FieldWorks data; a process or stem allomorph that carries it is published `not_attempted`. A circumfix's prefix-half classes are `applied`; its suffix-half classes are `ignored` with reason `circumfixSuffixClassesNotRead`, and its halves' features are `ignored` with reason `circumfixIgnoresAllomorphGates`. `required_category` (`MsEnvPartOfSpeech`) is always `ignored` with reason `msEnvPartOfSpeechNotRead`, because no compiler path reads it. An allomorph under several MSAs reports its strongest outcome. The reason codes that no other row names are: `derivationalMsaIgnoresAlloClasses`, `stemMsaIgnoresAlloClasses` and `unclassifiedMsaIgnoresAlloClasses` (`ignored` on an `inflection_class` gate that a non-inflectional MSA does not read); `allomorphNotRepresented` (`ignored` on a gate of an allomorph that no compiled object was built from); and `notAnAffixAllomorph` (`not_attempted` on a `required_features` gate of a non-affix allomorph). |
@@ -325,7 +357,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `sense` | `sense_guid`, owning `entry_guid`, nullable source `msa_guid`. The MSA target is not a foreign key. |
 | `entry_variant` | `(variant_entry_guid, ref_guid, ordinal)`, `component_guid`, and `component_kind` (`entry`, `sense`, or `unresolved`). Each row is one component lexeme of a variant link (`LexEntryRef` with variant types); a component that is neither a loaded entry nor a sense is `unresolved`. Complex-form links are not published. |
 | `entry_variant_type` | `(ref_guid, ordinal)`, `type_guid`, and `is_infl_type` (1 when the type is a `lex_entry_infl_type`). This is the only table that holds variant types. |
-| `sense_text` | `(sense_guid, kind, ordinal)`, `writing_system`, `text`; kind is `gloss` or `definition`. |
+| `sense_text` | `(sense_guid, kind, ordinal)`, `writing_system`, `text`; kind is `gloss` or `definition`. The table is `WITHOUT ROWID`. |
 | `adhoc_prohibition` | `prohibition_guid`, `kind` (`allomorph` or `morpheme`), `disabled`, `adjacency`, `primary_guid`, `target_kind` (`allomorph` or `msa`). |
 | `adhoc_other` | `(prohibition_guid, ordinal)`, `target_guid`, `target_kind`. The ordinal and conjunctive target order are preserved. |
 | `adhoc_group` | `group_guid`; one row per authored group present in the Snapshot. |
@@ -336,35 +368,35 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 
 | Table | Key and columns |
 |---|---|
-| `phoneme_set` | Singleton and nullable first phoneme-set GUID from the Snapshot. |
-| `phoneme` | GUID, nullable feature-structure ID, name, and optional basic IPA symbol. |
-| `phoneme_grapheme` | `(phoneme_guid, ordinal)`, writing-system tag, and grapheme; order follows Snapshot forms. |
-| `boundary_marker`, `boundary_grapheme` | Boundary GUID/name and ordered writing-system spellings. |
-| `feature` | GUID, feature system (`phonological` or `morphosyntactic`), kind (`closed` or `complex`), labels, and nullable feature-type GUID. |
-| `feature_value` | GUID, owning feature, ordinal, name, and abbreviation for a closed value. |
-| `feature_structure` | Integer ID plus feature system, typed source owner, role, and nested path. Owners include `msa` (roles `features`, `from_features`, `to_features`), `allomorph` (role `required_features`, the allomorph's `MsEnvFeatures`), `stemName` (role `region`), and `inflType` (role `features`). Feature structures have no source GUID. |
-| `feature_assignment` | `(fs_id, ordinal)`, feature GUID, value kind, and either a closed value GUID or child feature-structure ID. Source feature/value references are retained without foreign keys. |
-| `natural_class` | GUID, kind (`segments` or `features`), abbreviation/name, display name, and nullable feature-structure ID. |
-| `natural_class_member` | `(natural_class_guid, ordinal)`, explicit source phoneme GUID; dangling member references are retained. |
-| `natural_class_effective_member` | `(natural_class_guid, table_key, member_key)`, the compiler's final class extension for each character table. `member_key` is typed JSON identity (`object` with a source GUID or `synthetic` with a compiler key); `phoneme_guid` is set only for source phonemes. `match_kind` records segment-list or feature matching. `match_basis` is `listed` for a segment list, `specified` when a feature match came from a value the member has, and `underspecified` when at least one feature matched only because the member's lane defaulted to the full mask. |
-| `feature_constraint` | GUID and feature GUID for alpha-variable constraints. |
-| `allomorph_environment` | `(allomorph_guid, role, ordinal)`, with role `phone` or `position`; the environment target is deliberately not a foreign key so dangling references remain visible. |
-| `environment` | GUID, name, raw representation, parse status (`valid`, `invalid`, `not_attempted`, or `unavailable`), and nullable parse error code/text. An invalid status means the compiler rejected the whole expression. |
-| `environment_usage` | `(allomorph_guid, role, ordinal, compile_context_key)`, raw and resolved environment GUIDs, `compiled`, outcome (`represented`, `invalid`, `unresolved`, `owner_not_loaded`, or `not_attempted`), and optional exact compiler load-decision identity. `compiled=1` is reserved for a represented compiler decision. |
-| `environment_natural_class` | `(environment_guid, compile_context_key, side, token_path)`, token text, context-side Unicode-scalar span, nullable winning natural-class GUID, and token result. Repeated class tokens remain separate rows. The winner and whole-expression result come from the compiler's shared resolution computation. |
+| `phoneme_set` | `singleton` and nullable first phoneme-set `guid` from the Snapshot. |
+| `phoneme` | `guid`, nullable `feature_structure_id`, `name`, and optional `basic_ipa_symbol`. |
+| `phoneme_grapheme` | `(phoneme_guid, ordinal)`, `writing_system` tag, and `grapheme`; order follows Snapshot forms. |
+| `boundary_marker`, `boundary_grapheme` | `boundary_marker`: `guid`, `name`; `boundary_grapheme`: `(boundary_guid, ordinal)`, `writing_system`, and `grapheme`. Ordered writing-system spellings. |
+| `feature` | `guid`, feature `system` (`phonological` or `morphosyntactic`), `kind` (`closed` or `complex`), `name`, `abbreviation`, and nullable `feature_type_guid`. |
+| `feature_value` | `guid`, owning `feature_guid`, `ordinal`, `name`, and `abbreviation` for a closed value. |
+| `feature_structure` | Integer `fs_id` plus `system`, typed source owner `owner_kind` and `owner_guid`, `role`, and nested `path`. Owners include `msa` (roles `features`, `from_features`, `to_features`), `allomorph` (role `required_features`, the allomorph's `MsEnvFeatures`), `stemName` (role `region`), and `inflType` (role `features`). Feature structures have no source GUID. |
+| `feature_assignment` | `(fs_id, ordinal)`, `feature_guid`, `value_kind`, and either a closed `value_guid` or `child_fs_id`. Source feature/value references are retained without foreign keys. |
+| `natural_class` | `guid`, `kind` (`segments` or `features`), `name`, nullable `display_name`, and nullable `feature_structure_id`. |
+| `natural_class_member` | `(natural_class_guid, ordinal)`, explicit source `phoneme_guid`; dangling member references are retained. |
+| `natural_class_effective_member` | `(natural_class_guid, table_key, member_key)`, `phoneme_guid`, `identity_quality`, `match_kind`, and `match_basis`: the compiler's final class extension for each character table. `member_key` is typed JSON identity (`object` with a source GUID or `synthetic` with a compiler key); `phoneme_guid` is set only for source phonemes. `identity_quality` is `sourceGuid` or `synthetic`. `match_kind` records segment-list or feature matching. `match_basis` is `listed` for a segment list, `specified` when a feature match came from a value the member has, and `underspecified` when at least one feature matched only because the member's lane defaulted to the full mask. |
+| `feature_constraint` | `guid` and `feature_guid` for alpha-variable constraints. |
+| `allomorph_environment` | `(allomorph_guid, role, ordinal)`, `environment_guid`, with role `phone` or `position`; the environment target is deliberately not a foreign key so dangling references remain visible. |
+| `environment` | `guid`, `name`, `representation` (the raw expression), `parse_status` (`valid`, `invalid`, `not_attempted`, or `unavailable`), and nullable `parse_error_code` and `parse_error_text`. An invalid status means the compiler rejected the whole expression. |
+| `environment_usage` | `(allomorph_guid, role, ordinal, compile_context_key)`, `environment_guid` and `resolved_environment_guid`, `compiled`, `result` (`represented`, `invalid`, `unresolved`, `owner_not_loaded`, or `not_attempted`), and optional exact compiler load-decision identity in `load_subject_kind`, `load_subject_key`, `load_pipeline_stage`, `load_context_key`, and `load_decision_ordinal`. `compiled=1` is reserved for a represented compiler decision. |
+| `environment_natural_class` | `(environment_guid, compile_context_key, side, token_path)`, `token_text`, context-side Unicode-scalar span `source_start` and `source_end`, nullable winning `natural_class_guid`, and token `result`. Repeated class tokens remain separate rows. The winner and whole-expression result come from the compiler's shared resolution computation. |
 | `environment_side` | `(environment_guid, side)` for valid environments only, with `canonical_key`, the lowercase SHA-256 of the side's resolved tokens, and `shape`. Each class token is replaced by its sorted member keys, and spacing and class names never reach the key. `shape` is `empty`, `word_boundary` (only `#`), `single_segment` (one segment or class, with at most one `#`), or `complex`. An optional `( ... )` group is `complex` wherever it appears. Interior `#` is dropped by the compiler, as HCLoader drops it, so `X#` and `X` key alike on a side where the `#` is not at the outer edge. |
-| `environment_side_member` | Members of `single_segment` and `word_boundary` sides only: `member_kind` (`phoneme`, `boundary` or `synthetic`), `member_key` (the same identity as `natural_class_effective_member`, and `{"kind":"word_boundary"}` for a `#`), and nullable `phoneme_guid` and `boundary_guid`. A complex side has no member rows, so containment for it is reported as not checked. |
-| `phonological_rule` | GUID, name, kind (`rewrite` or `metathesis`), direction, source order, and nullable effective stratum key. |
-| `phonological_rule_variable`, `rewrite_rhs`, `rewrite_rhs_pos`, `rewrite_rhs_rule_feature` | Ordered rewrite variables, RHS branches, required POS values, and required/excluded rule-feature targets with target kind (`inflectionClass`, `exceptionFeature`, `featureValue`, or `unresolved`). Each `rewrite_rhs` row carries nullable `change_root_id`, `left_context_root_id` and `right_context_root_id`, each a `pattern_root` ID for that side when the RHS has it. |
+| `environment_side_member` | `(environment_guid, side, member_key)`, `member_kind`, `phoneme_guid`, and `boundary_guid`. Members of `single_segment` and `word_boundary` sides only: `member_kind` (`phoneme`, `boundary` or `synthetic`), `member_key` (the same identity as `natural_class_effective_member`, and `{"kind":"word_boundary"}` for a `#`), and nullable `phoneme_guid` and `boundary_guid`. A complex side has no member rows, so containment for it is reported as not checked. |
+| `phonological_rule` | `guid`, `name`, `kind` (`rewrite` or `metathesis`), `direction`, source `order_index`, and nullable `effective_stratum_key`. |
+| `phonological_rule_variable`, `rewrite_rhs`, `rewrite_rhs_pos`, `rewrite_rhs_rule_feature` | `phonological_rule_variable`: `(rule_guid, ordinal)`, `feature_constraint_guid`; `rewrite_rhs`: `(rule_guid, ordinal)`, `change_root_id`, `left_context_root_id`, and `right_context_root_id`; `rewrite_rhs_pos`: `(rule_guid, rhs_ordinal, ordinal)` and `category_guid`; `rewrite_rhs_rule_feature`: `(rule_guid, rhs_ordinal, polarity, ordinal)`, `target_guid`, and `target_kind`. Ordered rewrite variables, RHS branches, required POS values, and required/excluded rule-feature targets with target kind (`inflectionClass`, `exceptionFeature`, `featureValue`, or `unresolved`). Each `rewrite_rhs` row carries nullable `change_root_id`, `left_context_root_id` and `right_context_root_id`, each a `pattern_root` ID for that side when the RHS has it. |
 | `affix_process_input` | `(allomorph_guid, part)`, 1-based part number as `CopyFromInput` and `ModifyFromInput` refer to it, `is_variable` (1 for a wildcard `Variable` part), and nullable `pattern_root_id` for a concrete context (`owner_kind='affixProcess'`, `role='process_input'`, ordinal `part - 1`). |
 | `affix_process_output` | `(allomorph_guid, ordinal)`, `kind` (`copy`, `insert_segments`, `insert_class`, or `modify`), nullable input `part` (copy and modify), nullable `natural_class_guid` (insert_class and modify), and nullable literal `text` (insert_segments). |
-| `compound_rule` | GUID, `kind` (`endocentric` or `exocentric`), name, `disabled`, nullable `head_last` (endocentric only; 1 means the right constituent is the head), and nullable `max_applications` from the Snapshot's per-rule parser parameter. `max_applications` is NULL when the Snapshot carries no value for the rule, so the compiler's default of one is not written here. |
+| `compound_rule` | `guid`, `kind` (`endocentric` or `exocentric`), `name`, `disabled`, nullable `head_last` (endocentric only; 1 means the right constituent is the head), and nullable `max_applications` from the Snapshot's per-rule parser parameter. `max_applications` is NULL when the Snapshot carries no value for the rule, so the compiler's default of one is not written here. |
 | `compound_rule_side` | `(rule_guid, side)`, `side` is `left`, `right` or `outcome`, nullable `category_guid`, and nullable `inflection_class_guid` (outcome only). Constituent sides carry only a category. |
 | `compound_rule_exception_feature` | `(rule_guid, side, ordinal)`, `side` is `left` or `right`, and `target_guid`. Exception features are constituent requirements, so the outcome has none. Linker and to-product restriction are not in the Snapshot and are not published. |
-| `stratum`, `rule_stratum` | Compiler stratum key/order/name/table and each rewrite rule's order within it. Generated stratum keys are not GUIDs. |
-| `pattern_root` | Integer ID, owner kind/GUID, role, ordinal, and source kind (`authored` or `resolved_environment`). |
-| `pattern_node` | Integer ID, root and nullable parent node, sibling ordinal, pattern kind, quantifier bounds, and optional source phoneme/class/boundary or literal token. Compiled literal-segment nodes have ordered phoneme/boundary children showing the compiler's segmentation. A parent foreign key keeps each tree attached to its root. |
-| `pattern_variable` | `(node_id, polarity, ordinal)`, feature-constraint GUID for plus/minus variables. |
+| `stratum`, `rule_stratum` | `stratum`: `stratum_key`, `ordinal`, `name`, `table_key`; `rule_stratum`: `(rule_guid, stratum_key)` and `ordinal`, each rewrite rule's order within its stratum. Generated stratum keys are not GUIDs. |
+| `pattern_root` | Integer `root_id`, owner `owner_kind` and `owner_guid`, `role`, `ordinal`, and `source_kind` (`authored` or `resolved_environment`). |
+| `pattern_node` | Integer `node_id`, `root_id`, nullable `parent_node_id`, sibling `ordinal`, pattern `kind`, quantifier bounds `min` and `max`, and optional `phoneme_guid`, `natural_class_guid`, `boundary_guid`, or `token_text`. Compiled literal-segment nodes have ordered phoneme/boundary children showing the compiler's segmentation. A parent foreign key keeps each tree attached to its root. |
+| `pattern_variable` | `(node_id, polarity, ordinal)`, `feature_constraint_guid` for plus/minus variables. |
 
 Pattern roots use `environment_left` and `environment_right` for resolved environment sides,
 `rewrite_lhs`, `rewrite_sc`, `rewrite_left_context`, and `rewrite_right_context` for rewrite rules,
@@ -486,7 +518,7 @@ writer walks the Snapshot. It is not a source position. Read the source table fo
 
 `parser_effect` is the compiler's outcome for the referrer. A `via_ancestor` row carries the effect of the
 reference it expands. A rule feature the Snapshot does not define is published with target kind
-`unresolved` and the rule's own effect, so it is `unresolved` when the rule was loaded:
+`mprFeature` and the rule's own effect, so it is `unresolved` when the rule was loaded:
 
 - An allomorph gate row carries the gate's own `parser_effect`. `required_category`
   (`MsEnvPartOfSpeech`) is always `ignored`. A required-features reference carries the gate
@@ -549,17 +581,17 @@ character tables are not built. Check those sections before treating an absent r
 
 | Table | Key and columns |
 |---|---|
-| `source_census` | Singleton `total_occurrences` and `ordered_header_sha256` from Snapshot provenance. |
+| `source_census` | `singleton`, `total_occurrences` and `ordered_header_sha256` from Snapshot provenance. |
 | `source_class_count` | `class_name`, `occurrences`, `unhandled_occurrences`. |
 | `source_object` | Grammar objects only (`inventory_kind` not null): `source_key`, 1-based `source_ordinal`, raw `class_name` and `raw_guid`, nullable `canonical_guid` and `inventory_kind`, plus `handled`, `retained`, and `duplicate` flags from the source reader. |
 | `conversion_item` | `(pipeline_stage, inventory_stage, subject_kind, subject_key)`, nullable `subject_guid`. Pipeline stage is `import`, `snapshot`, `compile`, or `compact`; inventory stage is `authored`, `considered`, `selected`, `represented`, `rejected`, or `synthesized`. |
 | `conversion_stage` | `(pipeline_stage, inventory_stage)`, `item_count`; includes zero-count rows for declared stage pairs. |
-| `conversion_issue` | `issue_key`, `pipeline_stage`, stable code/class/fatal fields, optional source kind/GUID, and message. |
-| `load_fact` | `(subject_kind, subject_key, pipeline_stage, context_key, decision_ordinal)`, optional GUID, disposition, nullable `loaded`, required `reason_code`, optional effective JSON and issue link. |
-| `compiled_mapping` | `(source_kind, source_key, output_kind, output_key)`, optional source GUID, and output identity quality (`authored`, `structural`, or `synthetic`). Rows are emitted from final compiler associations after compaction; circumfix source halves can map to the same output, and one source can map to several expanded outputs. |
-| `compiled_allomorph_order` | `(owner_key, source_allomorph_key, output_key)`, source entry/MSA and bucket, nullable source allomorph GUID, nullable final order, and `is_final_elsewhere_case`. Order follows the final compiler vector. A circumfix product can have one row per source half at the same order; group by `owner_key` and `output_key` to count compiler outputs. Empty `source_allomorph_key` or `output_key` denotes an absent optional identity. `is_final_elsewhere_case` is set only for the final sibling when its compiled environment list is empty; it identifies the possible unconditioned fallback in that ordered set. A NULL order marks an owner-published source candidate that has no compiled output in that context. Include `bucket` in queries because one source allomorph can be considered in both morphology and clitic buckets. |
-| `compiled_form_segment` | `(output_id, ordinal)`, the segments of each compiled allomorph, with `segment_kind` `phoneme`, `boundary`, `synthetic`, `natural_class` (a class insert, with `natural_class_guid`) or `variable` (a copy or modify of the input, in process outputs only). A `boundary` row carries `boundary_guid` when the boundary is a source marker; the compiler's synthetic morpheme boundary, which is inserted at an affix's seam, has no GUID and is identified by `token_text` `+`. A root publishes its shape, and a bracket pattern publishes none. A concatenative affix publishes its inserted shape, including its boundary, but not its copy of the stem. `token_text` is the character definition's first representation; it is NULL for `variable` and `natural_class` rows. A root or affix whose shape has a node with no character definition publishes no rows for that allomorph. |
-| `parser_config` | Setting key, normalized Snapshot value, effective compiled value, and source-presence status. `not_retained` means the Snapshot did not preserve the original XML presence/default distinction. |
+| `conversion_issue` | `issue_key`, `pipeline_stage`, `code`, `issue_class`, `fatal`, optional `source_kind` and `source_guid`, and `message`. |
+| `load_fact` | `(subject_kind, subject_key, pipeline_stage, context_key, decision_ordinal)`, nullable `subject_guid`, `disposition`, nullable `loaded`, required `reason_code`, nullable `effective_value_json`, and nullable `issue_key`. |
+| `compiled_mapping` | `(source_kind, source_key, output_id, relation_role, source_ordinal)`, nullable `source_guid`, and `identity_quality` (`authored`, `structural`, or `synthetic`). Rows are emitted from final compiler associations after compaction; circumfix source halves can map to the same output, and one source can map to several expanded outputs. The table is `WITHOUT ROWID`. |
+| `compiled_allomorph_order` | `(owner_output_id, source_allomorph_key, output_id)`, `source_entry_guid`, `source_msa_guid`, nullable `source_allomorph_guid`, and nullable `compiled_order`. Order follows the final compiler vector. A circumfix product can have one row per source half at the same order; group by `output_id` to count compiler outputs. A NULL order marks an owner-published source candidate that has no compiled output in that context. Rows for a root whose entry the compiler did not represent have `owner_output_id` and `output_id` NULL. |
+| `compiled_form_segment` | `(output_id, ordinal)`, `segment_kind`, `phoneme_guid`, `boundary_guid`, `natural_class_guid`, and `token_text`. `segment_kind` is `phoneme`, `boundary`, `synthetic`, `natural_class` (a class insert), or `variable` (a copy or modify of the input, in process outputs only). A `boundary` row has a NULL `boundary_guid`, because the compiler gives boundary character definitions no GUID (see Statement references). `token_text` identifies it: a source marker's first representation, or `+` for the compiler's synthetic morpheme boundary, which is inserted at an affix's seam. A root publishes its shape, and a bracket pattern publishes none. A concatenative affix publishes its inserted shape, including its boundary, but not its copy of the stem. `token_text` is the character definition's first representation; it is NULL for `variable` and `natural_class` rows. A root or affix whose shape has a node with no character definition publishes no rows for that allomorph. |
+| `parser_config` | `setting_key`, normalized Snapshot `source_value_json`, `effective_value_json`, and `source_presence` status. `not_retained` means the Snapshot did not preserve the original XML presence/default distinction. |
 
 `subject_key` is JCS serialization of the complete typed compiler `InventoryKey`; `subject_kind`
 uses its camelCase enum value. `context_key` is empty for global decisions; allomorph form-bucket
@@ -629,13 +661,13 @@ checked before using those words as completed parser evidence.
 |---|---|
 | `stats_cache_identity` | `(singleton INTEGER PRIMARY KEY CHECK(singleton=1), cache_sha256 TEXT NOT NULL, cache_bytes INTEGER NOT NULL CHECK(cache_bytes>=0), schema_version INTEGER NOT NULL CHECK(schema_version>0), counter_semantics INTEGER NOT NULL CHECK(counter_semantics>0), engine TEXT NOT NULL CHECK(engine='hc'), grammar_hash TEXT NOT NULL)`. One row records the closed cache bytes. |
 | `stats_run` | `run_id INTEGER PRIMARY KEY CHECK(run_id>0)`; `engine`, `grammar_hash`, `options_hash`, `options_json`, `created_utc`, nullable `step_cap`, `cache_word_count`, `requested_word_count`, and `batch_options_json`. Engine is `hc`; cap is NULL, `-1`, or positive; counts are nonnegative and requested count is at least cache count. One row records exact run metadata and manifest batch options. |
-| `stats_morpheme`, `stats_stratum`, `stats_allomorph` | Each has a nonnegative integer primary-key ID, nullable `key TEXT`, `label TEXT`, and `identity_quality TEXT` checked against `authored`, `structural`, `synthetic`. ID zero has NULL key and quality; positive IDs require key, label, and quality. ID zero is the not-applicable dimension sentinel. Guessed-root dimensions use synthetic identities; strata and compiled allomorphs use structural identities. |
-| `stats_object` | `object_id INTEGER PRIMARY KEY CHECK(object_id>0)`, nonnull `key`, `kind` checked against `morph_rule`, `phon_rule`, `lex_entry`, `root_index`, `guesser`, `overlay`, nonnull `label`, `identity_quality` checked against `authored`, `structural`, `synthetic`, and `morpheme_id` referencing `stats_morpheme`; `(kind,key)` is unique. |
+| `stats_morpheme`, `stats_stratum`, `stats_allomorph` | Each has a nonnegative integer primary key `morpheme_id`, `stratum_id`, or `allomorph_id`, nullable `key`, `label`, and `identity_quality` (checked against `authored`, `structural`, `synthetic`), and `allomorph_id` also has nullable `output_id`, referencing `compiled_output`. ID zero has NULL key and quality; positive IDs require key, label, and quality. ID zero is the not-applicable dimension sentinel. Guessed-root dimensions use synthetic identities; strata and compiled allomorphs use structural identities. |
+| `stats_object` | `object_id INTEGER PRIMARY KEY CHECK(object_id>0)`, nonnull `key`, `kind` checked against `morph_rule`, `phon_rule`, `lex_entry`, `root_index`, `guesser`, `overlay`, nonnull `label`, `identity_quality` checked against `authored`, `structural`, `synthetic`, `morpheme_id` referencing `stats_morpheme`, nullable `output_id` referencing `compiled_output`; `(kind,key)` is unique. |
 | `stats_object_source` | `(object_id, source_kind, source_guid, role)` primary key, `object_id` references `stats_object`; `source_kind` is `entry`, `msa`, `phonologicalRule`, or `compoundRule`. Roles are `owner_entry`, `morpheme_msa`, `msa_owner_entry`, `source_form_owner_entry`, `phonological_rule`, or `compound_rule`. GUIDs have no foreign key. It is `WITHOUT ROWID`, with index `stats_object_source_guid(source_kind,source_guid)`. |
-| `stats_allomorph_source` | `(allomorph_id, source_ordinal)` primary key; `allomorph_id` references `stats_allomorph`; ordinal is nonnegative; GUID is nullable; `omitted` is 0/1 and can be 1 only with NULL GUID. Circumfix products retain both source halves in order. Omitted forms use role `null_affix`; unresolved compiler source forms use `unresolved_source_form`; other roles are `stem`, `bound_stem`, `root`, `bound_root`, `prefix`, `suffix`, `infix`, `circumfix`, `proclitic`, `enclitic`, `clitic`, `particle`, `phrase`, `discontig_phrase`, `prefixing_interfix`, `infixing_interfix`, or `suffixing_interfix`. `WITHOUT ROWID`, with index `stats_allomorph_source_guid(source_allomorph_guid)`. |
-| `stats_word` | Positive integer `word_id` primary key; `run_id` references `stats_run`; exact `form`; status checked against `complete`, `incomplete`, `invalid_shape`, `not_attempted`; nullable nonnegative `elapsed_ns`, `attempts`, `passes`; nullable 0/1 `capped`, `timed_out`, `invalid_shape`. `(run_id,form)` is unique. `not_attempted` rows have all measurements NULL; other statuses require all measurements and flags non-NULL. |
-| `stats_fact` | `(word_id, object_id, stratum_id, allomorph_id, direction)` primary key; all four IDs reference their dimension/object tables; direction is `analysis` or `synthesis`; attempts, work, outputs, not-applied, no-root, surface-mismatch, uses, self-time nanoseconds are nonnegative `INTEGER NOT NULL`. `WITHOUT ROWID`, with indexes `stats_fact_object(object_id,direction)`, `stats_fact_stratum(stratum_id,direction)`, and `stats_fact_allomorph(allomorph_id,direction)`. |
-| `stats_counter_support` | `(engine, counter_semantics, object_kind, counter, direction)` primary key; engine `hc`; object kinds as `stats_object.kind`; counter is attempts, work, outputs, not-applied, no-root, surface-mismatch, uses, or self-time; direction is `both`, `analysis`, or `synthesis`; support is `measured`, `not_applicable`, or `not_wired`. Logical counters use `both`; self-time rows require one concrete direction. `WITHOUT ROWID`. |
+| `stats_allomorph_source` | `(allomorph_id, source_ordinal)` primary key; `role` takes the values below; `allomorph_id` references `stats_allomorph`; ordinal is nonnegative; `source_allomorph_guid` is nullable; `omitted` is 0/1 and can be 1 only with NULL GUID. Circumfix products retain both source halves in order. Omitted forms use role `null_affix`; unresolved compiler source forms use `unresolved_source_form`; other roles are `stem`, `bound_stem`, `root`, `bound_root`, `prefix`, `suffix`, `infix`, `circumfix`, `proclitic`, `enclitic`, `clitic`, `particle`, `phrase`, `discontig_phrase`, `prefixing_interfix`, `infixing_interfix`, or `suffixing_interfix`. `WITHOUT ROWID`, with index `stats_allomorph_source_guid(source_allomorph_guid)`. |
+| `stats_word` | Positive integer `word_id` primary key; `run_id` references `stats_run`; exact `form`; `status` checked against `complete`, `incomplete`, `invalid_shape`, `not_attempted`; nullable nonnegative `elapsed_ns`, `attempts`, `passes`; nullable 0/1 `capped`, `timed_out`, `invalid_shape`. `(run_id,form)` is unique. `not_attempted` rows have all measurements NULL; other statuses require all measurements and flags non-NULL. |
+| `stats_fact` | `(word_id, object_id, stratum_id, allomorph_id, direction)` primary key; all four IDs reference their dimension/object tables; direction is `analysis` or `synthesis`; `attempts`, `work`, `outputs`, `not_applied`, `no_root`, `surface_mismatch`, `uses`, and `self_time_ns` (nanoseconds) are nonnegative `INTEGER NOT NULL`. `WITHOUT ROWID`, with indexes `stats_fact_object(object_id,direction)`, `stats_fact_stratum(stratum_id,direction)`, and `stats_fact_allomorph(allomorph_id,direction)`. |
+| `stats_counter_support` | `(engine, counter_semantics, object_kind, counter, direction)` primary key; engine `hc`; object kinds as `stats_object.kind`; counter is attempts, work, outputs, not-applied, no-root, surface-mismatch, uses, or self-time; direction is `both`, `analysis`, or `synthesis`; `support` is `measured`, `not_applicable`, or `not_wired`. Logical counters use `both`; self-time rows require one concrete direction. `WITHOUT ROWID`. |
 
 The checked-in DDL is normative for SQLite types, nullability, checks, keys, foreign keys, and
 indexes. The cache's dense integer handles are not copied as identities. Object and dimension rows

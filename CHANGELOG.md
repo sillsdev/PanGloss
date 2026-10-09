@@ -15,6 +15,39 @@ file has no section for.
 - An inflectional circumfix now requires its prefix half's inflection classes, as HermitCrab does;
   earlier releases ignored them. Suffix-half classes stay unread, as in HermitCrab.
 
+### Grammar facts schema v8 is a breaking change
+
+- `pangloss facts` writes schema v8, and no v7 reader remains. Motif reads exactly v8, and
+  `describe --json` reports `8`. The artifact is rebuilt from source; there is no migration.
+  `docs/grammar-facts-format.md` ("Changes from v7") lists every table a v7 consumer must port.
+- `msa_feature_structure` is removed; MSA features are `feature_structure` rows with owner `msa`.
+- `compiled_mapping` and `compiled_allomorph_order` are reshaped around `compiled_output`, which
+  every compiled object's `output_id` joins.
+- New tables cover the compiled outputs and their form segments, object state, statement
+  references, allomorph gates, stem names and region features, exception features, variant links,
+  irregular inflection types, affix-process parts, compound rules, rewrite roots, environment sides
+  and their members, and category and inflection-class ancestors.
+- The source census keeps grammar objects only. `source_class_count` and the census total still
+  count every occurrence.
+- Every GUID column and every key that embeds a GUID is lowercase. Free text and JSON values, and
+  `source_object.raw_guid`, keep the source spelling.
+- `conversion_item`, `load_fact`, `source_object`, `sense_text` and `compiled_mapping` are
+  `WITHOUT ROWID`, so each composite key is stored once.
+
+### Stats object and allomorph keys join compiled output, and the stats cache is version 8
+
+- `batch --stats` object and allomorph keys use the `compiled_output` spelling, and the stats
+  tables carry `output_id`. A stats cache written by an earlier release is recreated, not reused.
+
+### Environments no compiler path consumed publish as not attempted
+
+- Grammar facts no longer report an environment that the parser never consumed as used.
+
+### Frozen batch runs refuse hard-linked files
+
+- `batch --stats-manifest` refuses a stats cache or manifest that is a hard link to another file,
+  so a validated cache cannot be changed through a second name.
+
 ### Reserved FieldWorks word boundaries survive `.fwdata` import
 
 - The importer now recognizes `LangProjectTags.kguidPhRuleWordBdry` by GUID even when a FieldWorks
