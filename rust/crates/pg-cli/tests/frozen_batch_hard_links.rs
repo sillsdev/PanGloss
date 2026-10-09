@@ -1,6 +1,6 @@
 //! A frozen batch run refuses an output that is a hard link to one of its inputs, before writing.
 
-#![cfg(unix)]
+#![cfg(any(unix, windows))]
 
 use std::path::Path;
 use std::process::{Command, Output};
