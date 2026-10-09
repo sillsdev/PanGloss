@@ -883,3 +883,22 @@ impl RawHandleExt for OwnedHandle {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+    let file = File::open(path).ok()?;
+    let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+    // SAFETY: the handle is live for the call and the out-pointer addresses writable storage for one record.
+    let found = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
+    if found == 0 {
+        return None;
+    }
+    // SAFETY: GetFileInformationByHandle returned nonzero, which means it filled the record.
+    let info = unsafe { info.assume_init() };
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Some((u64::from(info.dwVolumeSerialNumber), index))
+}

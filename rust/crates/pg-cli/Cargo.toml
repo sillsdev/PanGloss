@@ -76,10 +76,6 @@ pg-stats.workspace = true
 rusqlite.workspace = true
 tempfile.workspace = true
 
-# Target-scoped so non-Windows builds do not acquire Windows APIs; the file index identifies a hard-linked output.
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
-
 [dev-dependencies]
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

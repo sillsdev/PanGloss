@@ -15,6 +15,27 @@ mod linux;
 #[cfg(all(not(windows), not(target_os = "linux")))]
 mod unsupported;
 
+/// The volume and file index that identify an existing file, so two paths naming one file (such as a
+/// hard link) compare equal; `None` when the file cannot be opened or the platform has no identity.
+pub fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path)
+            .ok()
+            .map(|meta| (meta.dev(), meta.ino()))
+    }
+    #[cfg(windows)]
+    {
+        windows::file_identity(path)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 /// Whether `process_rss_bytes` can measure anything on this target; a caller enforcing a memory limit must refuse when false.
 pub const PROCESS_RSS_SUPPORTED: bool = cfg!(any(windows, target_os = "linux"));
 
