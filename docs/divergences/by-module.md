@@ -146,6 +146,12 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 XAMPLE/C# measurements and staged fixtures for these entries come from a separate lane.
 
+## FieldWorks authorability
+
+| FieldWorks / Machine site | Rust site | Entry |
+|---|---|---|
+| `HCLoader.cs` `LoadMetathesisRule`, affix-process loading; `AnalysisMetathesisRuleSpec.cs` | `pg-foma/src/capability/variants.rs::permanent_refusal_reason`; `pg-foma-backend/tests/conformance_coverage_gate.rs` | [059](059-fieldworks-unauthorable-variants.md) |
+
 ## XAMPLE comparisons
 
 | XAMPLE / FieldWorks export site | Rust site | Entry |

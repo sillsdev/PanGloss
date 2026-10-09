@@ -13,6 +13,7 @@ fn refused(strategy: EmissionStrategy) -> BackendReport {
             witness: "synthetic".to_string(),
         }]),
     )
+    .expect("a refusal with one registered predicate is a valid refused report")
 }
 
 #[test]

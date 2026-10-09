@@ -246,7 +246,8 @@ fn realizational_reduplication_has_a_permanent_hc_xml_only_refusal_fixture() {
         "realizational-reduplication-no-proposal-route",
         pg_foma::capability::ConstructVariant::ReduplicationUnrouted,
         "reduplication.peel-eligible-rule-kind",
-        "not authorable in FieldWorks; HC-XML only (HCLoader.cs:976-979)",
+        "not authorable in FieldWorks; HC-XML only \
+         (docs/divergences/059-fieldworks-unauthorable-variants.md)",
         "HCLoader.cs:976-979",
     );
 }
@@ -258,9 +259,8 @@ fn circumfix_unrouted_has_a_permanent_hc_xml_only_refusal() {
     use std::collections::HashSet;
 
     let variant = ConstructVariant::CircumfixUnrouted;
-    let reason = "not authorable in FieldWorks; HC-XML only (HCLoader.cs:1273-1311,1334-1420; \
-                 emission_support.rs:248-251,273-335,357-370,424-471; \
-                 capability.rs:970-982,1135-1147,2700-2719; emit.rs:2958-2986)";
+    let reason = "not authorable in FieldWorks; HC-XML only \
+         (docs/divergences/059-fieldworks-unauthorable-variants.md)";
     assert_eq!(variant.permanent_refusal_reason(), Some(reason));
 
     let ledger = build_ledger(&default_registry(), &HashSet::new());

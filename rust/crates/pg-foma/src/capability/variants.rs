@@ -143,39 +143,13 @@ impl ConstructVariant {
     /// Permanent authoring-based refusal, when one has been established.
     pub fn permanent_refusal_reason(self) -> Option<&'static str> {
         match self {
-            Self::CircumfixUnrouted => Some(
-                "not authorable in FieldWorks; HC-XML only (HCLoader.cs:1273-1311,1334-1420; \
-                 emission_support.rs:248-251,273-335,357-370,424-471; \
-                 capability.rs:970-982,1135-1147,2700-2719; emit.rs:2958-2986)",
+            Self::CircumfixUnrouted | Self::ReduplicationUnrouted => Some(
+                "not authorable in FieldWorks; HC-XML only \
+                 (docs/divergences/059-fieldworks-unauthorable-variants.md)",
             ),
-            Self::ReduplicationUnrouted => {
-                Some("not authorable in FieldWorks; HC-XML only (HCLoader.cs:976-979)")
-            }
-            Self::MetathesisLtrUnlowerable => Some(
-                "not authorable in FieldWorks; HC-XML only (FieldWorks/Src/LexText/Morphology/\
-                 MetaRuleFormulaControl.cs:56-62,402-427; \
-                 FieldWorks/Src/LexText/ParserCore/HCLoader.cs:2103-2150; \
-                 LT-22826 (alpha-variable HCLoader null-reference crash, \
-                 https://jira.sil.org/browse/LT-22826); LT-22827 (out-of-range switch index emits \
-                 malformed HC XML, https://jira.sil.org/browse/LT-22827); \
-                 machine/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/\
-                 AnalysisMetathesisRuleSpec.cs:20-52; \
-                 /tmp/pangloss-lanes/metathesis-check/report.md, cases/final/optional-ltr and \
-                 repeated-ltr; rust/crates/pg-foma/src/replace.rs:1175-1240,1310-1330; \
-                 rust/crates/pg-foma/src/capability.rs:822-849)",
-            ),
-            Self::MetathesisRtlUnlowerable => Some(
-                "not authorable in FieldWorks; HC-XML only (FieldWorks/Src/LexText/Morphology/\
-                 MetaRuleFormulaControl.cs:56-62,402-427; \
-                 FieldWorks/Src/LexText/ParserCore/HCLoader.cs:2103-2150; \
-                 LT-22826 (alpha-variable HCLoader null-reference crash, \
-                 https://jira.sil.org/browse/LT-22826); LT-22827 (out-of-range switch index emits \
-                 malformed HC XML, https://jira.sil.org/browse/LT-22827); \
-                 machine/src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/\
-                 AnalysisMetathesisRuleSpec.cs:20-52; \
-                 /tmp/pangloss-lanes/metathesis-check/report.md, cases/final/optional-rtl and \
-                 repeated-rtl; rust/crates/pg-foma/src/replace.rs:1175-1240,1310-1330; \
-                 rust/crates/pg-foma/src/capability.rs:822-849)",
+            Self::MetathesisLtrUnlowerable | Self::MetathesisRtlUnlowerable => Some(
+                "not authorable in FieldWorks, and C# HermitCrab cannot load it; LT-22826, LT-22827 \
+                 (docs/divergences/059-fieldworks-unauthorable-variants.md)",
             ),
             _ => None,
         }
