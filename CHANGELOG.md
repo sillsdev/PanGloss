@@ -5,6 +5,11 @@ file has no section for.
 
 ## Unreleased
 
+### Process allomorphs of inflectional affixes keep their inflection classes
+
+- A process allomorph of an inflectional affix now requires its inflection classes, as HermitCrab does;
+  earlier releases accepted it with any class.
+
 ### Reserved FieldWorks word boundaries survive `.fwdata` import
 
 - The importer now recognizes `LangProjectTags.kguidPhRuleWordBdry` by GUID even when a FieldWorks

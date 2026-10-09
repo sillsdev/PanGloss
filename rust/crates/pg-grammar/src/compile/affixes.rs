@@ -936,8 +936,41 @@ fn build_affix_allomorphs_for(
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Vec<AffixAllomorphDef> {
+    let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
+
+    let allo_infl_mpr = if matches!(msa, Msa::Inflectional { .. }) {
+        let mut set = crate::model::MprSet::EMPTY;
+        for ic in &allo.inflection_classes {
+            match ctx.mpr.infl_class_with_descendants(ic) {
+                Some(s) => set = set.union(s),
+                None => ctx.note(
+                    issue_codes::ALLOMORPH_INFLECTION_CLASS_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    SourceRef {
+                        kind: pg_snapshot::FwClass::MoForm,
+                        id: allo.guid.clone(),
+                    },
+                    format!(
+                        "Allomorph '{form}' refers to an inflection class that is not defined."
+                    ),
+                ),
+            }
+        }
+        set
+    } else {
+        crate::model::MprSet::EMPTY
+    };
+
     if let Some(process) = &allo.process {
-        return match build_process_allomorph(allo, process, required_mpr, out_mpr, ctx, acc) {
+        return match build_process_allomorph(
+            allo,
+            process,
+            required_mpr,
+            allo_infl_mpr,
+            out_mpr,
+            ctx,
+            acc,
+        ) {
             Ok(def) => vec![def],
             Err(_) => {
                 ctx.reject(
@@ -962,31 +995,6 @@ fn build_affix_allomorphs_for(
             ),
         );
         return Vec::new();
-    };
-
-    let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
-
-    let allo_infl_mpr = if matches!(msa, Msa::Inflectional { .. }) {
-        let mut set = crate::model::MprSet::EMPTY;
-        for ic in &allo.inflection_classes {
-            match ctx.mpr.infl_class_with_descendants(ic) {
-                Some(s) => set = set.union(s),
-                None => ctx.note(
-                    issue_codes::ALLOMORPH_INFLECTION_CLASS_UNRESOLVED,
-                    IssueClass::InvalidSource,
-                    SourceRef {
-                        kind: pg_snapshot::FwClass::MoForm,
-                        id: allo.guid.clone(),
-                    },
-                    format!(
-                        "Allomorph '{form}' refers to an inflection class that is not defined."
-                    ),
-                ),
-            }
-        }
-        set
-    } else {
-        crate::model::MprSet::EMPTY
     };
 
     let combined_env_guids: Vec<&str> = allo
@@ -1315,6 +1323,7 @@ fn build_process_allomorph(
     allo: &Allomorph,
     process: &pg_snapshot::lexicon::AffixProcess,
     required_mpr: crate::model::MprSet,
+    allo_infl_mpr: crate::model::MprSet,
     out_mpr: crate::model::MprSet,
     ctx: &Ctx,
     acc: &mut Acc,
@@ -1384,7 +1393,7 @@ fn build_process_allomorph(
         co_occurrence: Vec::new(),
         required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
         vars: crate::model::VarTable::default(),
-        required_mpr,
+        required_mpr: required_mpr.union(allo_infl_mpr),
         excluded_mpr: crate::model::MprSet::EMPTY,
         out_mpr,
         redup_hint,

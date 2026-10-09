@@ -183,6 +183,10 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 
 ## Optimization and shared-correctness follow-up
 
+| C# loader | Rust owner | Pinning integration test | Entry |
+|---|---|---|---|
+| FieldWorks `HCLoader.LoadAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_process_allomorph` | `pg-grammar/tests/process_allomorph_inflection_classes.rs` | 081 |
+
 | C# / Rust seam | Entries | Shared fixtures |
 |---|---|---|
 | Analysis cascade _(memo removed, 045)_ | 031, 045 | Cache-hit fixture never existed; now a C#-only coverage question |

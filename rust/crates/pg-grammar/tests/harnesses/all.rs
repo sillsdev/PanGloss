@@ -13,3 +13,5 @@ mod lossless_conversion_gate;
 mod measure_only_confinement_gate;
 #[path = "../p5_closure_property.rs"]
 mod p5_closure_property;
+#[path = "../process_allomorph_inflection_classes.rs"]
+mod process_allomorph_inflection_classes;
