@@ -30,8 +30,13 @@ in the udp-core lane report. The obsolete policy API tests were deleted by owner
 Undefined natural-class environments retain current behaviour; ADR completion of that
 construct is a separate seam and is not implemented here.
 The lead reports that FieldWorks/XAMPLE and C# HC both drop an environment naming a
-nonexistent class whole. PanGloss keeps that drop; its Info finding remains later work.
+nonexistent class whole. PanGloss keeps that drop and reports the missing class at Info;
+the reporting owner and whole-environment regression are recorded in
+[077](077-missing-natural-class-environment-info.md).
 
 XAMPLE/C# measurements and staged fixtures are on `feat/xample-measure`
-(`conformance-staging/underdefined/`). The policy is under discussion upstream in
+and are integrated into `integrate/v2` (`conformance-staging/underdefined/`). Their
+unconditional XAMPLE-minimum gate currently exposes seven word rows that conflict with
+authored phonology or provisional literal environments; no native expectation was changed.
+The policy is under discussion upstream in
 [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).

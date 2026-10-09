@@ -40,10 +40,16 @@ Reported staged witnesses on `feat/xample-measure`:
 - `conformance-staging/underdefined/07-featureless-phoneme`
 - `conformance-staging/underdefined/12-featureless-rule-class`
 
-Their measurements and staged artifacts are owned by the separate lane. That branch is
-not available as a local ref in this worktree, so this entry records the lead's supplied
-provenance; it does not claim these fixtures were present or replayed here. This lane has
-not executed XAMPLE or C#. Machine source revision inspected locally is
+The separate measurement lane produced these native captures. `feat/xample-measure` is now
+available locally and its twelve staged cases are integrated into `integrate/v2`. The
+integration replay executed PanGloss over all 61 words using the saved OFF projects and
+the parse owner's ordered allomorph/MSA/inflection-type projection. Native XAMPLE/C# were
+not rerun by the Linux integration lane. Its strict minimum gate currently fails seven
+word rows involving authored phonology or provisional literal environments; exact keys and
+statuses are recorded in the integration report, without changing native expectations.
+The captures omit C# root position/category, so this is not full C# structured-identity
+parity. The native binary hashes, versions, saved projects and outputs remain staged.
+Machine source revision inspected locally is
 `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; no measurement revision is inferred from that inspection.
 
 ## Rust site and wildcard regression
@@ -102,7 +108,9 @@ Before correction: 130 word mismatches across 29 fixtures in the 727-word, 71-fi
 inventory. After correction: zero mismatches, with unchanged expectations. Three existing
 pathological/crash fixtures are outside generic replay. The complete census and managed
 command results are in `/tmp/pangloss-lanes/udp-core.md` and its referenced logs/CSV.
-This replay does not include the separate branch's two reported staged witnesses.
+That original replay did not include the separate branch's two staged witnesses. The later
+integration replay of the twelve measured cases is described above; its pending strict
+minimum gate is distinct from the unchanged generic fixture replay.
 
 ## Literal surface matching and engine parity
 
