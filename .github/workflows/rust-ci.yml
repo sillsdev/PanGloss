@@ -59,7 +59,7 @@ jobs:
 
   windows:
     # The Linux gates never compile cfg(windows) code; v0.8.0's Windows release build broke unseen.
-    name: Windows clippy, build + hard-link tests (required)
+    name: Windows clippy, build, tool + hard-link tests (required)
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -80,6 +80,9 @@ jobs:
         run: cargo clippy --all-targets --features pg-cli/examples --locked -- -D warnings
       - name: Build the release binary
         run: cargo build --release -p pg-cli --locked
+      - name: PowerShell tool tests
+        shell: pwsh
+        run: pwsh -NoProfile -File tools/tests/run-all.ps1
       - name: Run the Windows file-identity tests
         shell: bash
         # A filter that matches nothing still passes, so require the two tests by count.
