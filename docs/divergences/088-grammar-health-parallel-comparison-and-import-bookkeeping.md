@@ -51,8 +51,10 @@ Import provenance bookkeeping did the same work twice, or quadratically:
   parent commit `c8f9505a`.
 - `grammar_health::tests::stored_analysis_comparison_is_identical_at_every_thread_count` compares
   1, 2, 3 and 8 workers on 24 wordforms over the staged `08-rule-context` project.
-  `stored_analysis_comparison_reports_the_first_capped_wordform_at_every_thread_count` requires
-  the alphabetically first wordform's cap error at 1, 2 and 8 workers. Folding results in
+  `stored_analysis_comparison_reports_the_first_capped_wordform_at_every_thread_count` required
+  the alphabetically first wordform's cap error at 1, 2 and 8 workers. [089](089-grammar-health-bounded-stored-analysis-comparison.md)
+  replaced that error path with per-word findings and renamed the test
+  `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count`. Folding results in
   completion order instead of wordform order made both fail.
 - `has_load_decision_matches_a_scan_of_every_recorded_decision` compares the index with a scan
   across kinds, stages and context keys. It fails if the query is an exact lookup of the empty

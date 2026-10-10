@@ -1,6 +1,10 @@
-//! `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`: run
-//! the ported `hc-*` HermitCrab grammar-authoring checks (`pg_grammar::grammar_health`) and
-//! print/serialize the diagnostics.
+//! `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
+//! [--stored-analyses bounded|all|off]`: run the ported `hc-*` HermitCrab grammar-authoring checks
+//! (`pg_grammar::grammar_health`) and print/serialize the diagnostics.
+//!
+//! The checks that do not parse always run to completion. The FieldWorks stored-analysis
+//! comparison parses wordforms, so by default it stops at a fixed total work budget; a wordform it
+//! cannot finish, and the wordforms past the budget, are reported as findings, never dropped.
 //!
 //! Deliberately a SEPARATE command from `fst-health`, not a section added to it: the two answer
 //! different questions (grammar authoring correctness vs. FST compilation/production readiness),
@@ -17,13 +21,24 @@ use pg_grammar::grammar_health::{
 };
 use pg_snapshot::DiagnosticLevel;
 
-/// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`;
-/// `<out.json>` omitted prints the versioned report to stdout instead of a file. Diagnostics are
-/// also logged one per line on stderr.
+use crate::stored_analysis_health::{Coverage, Limits};
+
+/// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
+/// [--stored-analyses bounded|all|off]`; `<out.json>` omitted prints the versioned report to stdout
+/// instead of a file. Diagnostics are also logged one per line on stderr.
 pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
+    run_grammar_health_with_limits(args, Limits::DEFAULT)
+}
+
+/// `run_grammar_health` with the stored-analysis comparison's work limits.
+pub(crate) fn run_grammar_health_with_limits(
+    args: &[String],
+    limits: Limits,
+) -> Result<(), String> {
     let mut positionals = Vec::new();
     let mut fieldworks_project = None;
     let mut log_guids = false;
+    let mut coverage = Coverage::Budget(limits.work_budget);
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -40,6 +55,17 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
                 }
                 fieldworks_project = Some(value.as_str());
                 index += 2;
+            }
+            "--stored-analyses" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "--stored-analyses requires bounded, all or off".to_string())?;
+                coverage = Coverage::parse(value, limits)?;
+                index += 2;
+            }
+            arg if arg.starts_with("--stored-analyses=") => {
+                coverage = Coverage::parse(arg.trim_start_matches("--stored-analyses="), limits)?;
+                index += 1;
             }
             arg if arg.starts_with("--fw-project=") => {
                 let value = arg.trim_start_matches("--fw-project=");
@@ -63,7 +89,7 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
         [grammar, output] => (*grammar, Some(*output)),
         _ => {
             return Err(
-                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]"
+                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off]"
                     .to_string(),
             );
         }
@@ -78,7 +104,9 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
             diagnostics.extend(crate::stored_analysis_health::check(
                 &loaded.grammar,
                 &loaded.stored_analyses,
-            )?);
+                limits.step_cap,
+                coverage,
+            ));
             diagnostics.extend(
                 loaded
                     .warnings

@@ -32,6 +32,8 @@ pub enum GrammarHealthCode {
     PartialReasonUnspecified,
     ProvisionalPhonemeFeatures,
     StoredAnalysisNoLongerParses,
+    StoredAnalysisIncomplete,
+    StoredAnalysisBudgetReached,
     ImportWarning(String),
 }
 
@@ -46,6 +48,8 @@ impl GrammarHealthCode {
         Self::PartialReasonUnspecified,
         Self::ProvisionalPhonemeFeatures,
         Self::StoredAnalysisNoLongerParses,
+        Self::StoredAnalysisIncomplete,
+        Self::StoredAnalysisBudgetReached,
     ];
 
     /// The stable wire string for this diagnostic code.
@@ -61,6 +65,8 @@ impl GrammarHealthCode {
             Self::PartialReasonUnspecified => "hc-partial-reason-unspecified",
             Self::ProvisionalPhonemeFeatures => "provisional.phoneme-features",
             Self::StoredAnalysisNoLongerParses => "grammar.stored-analysis.no-longer-parses",
+            Self::StoredAnalysisIncomplete => "grammar.stored-analysis.incomplete",
+            Self::StoredAnalysisBudgetReached => "grammar.stored-analysis.budget-reached",
             Self::ImportWarning(code) => code,
         }
     }
@@ -102,7 +108,7 @@ struct CheckDiagnosticMetadata {
 
 /// Each level's rationale is in docs/grammar-diagnostics.md.
 fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnosticMetadata> {
-    use pg_snapshot::warning_metadata::{ALLOMORPHS_HELP, MODELLING_HELP, STEMS_HELP};
+    use pg_snapshot::warning_metadata::{ALLOMORPHS_HELP, MODELLING_HELP, PARSER_HELP, STEMS_HELP};
     use DiagnosticLevel::{Error, Info, Warning};
     let (title, level, explanation, guidance, places, help) = match code {
         GrammarHealthCode::UndeclaredSegment => (
@@ -152,6 +158,18 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
             "A FieldWorks stored analysis is absent from PanGloss's confirmed analyses for its wordform. The reported forward-synthesis trace shows authored phonological rules that changed the surface, or explains why the loss could not be attributed to a rule.",
             "Check whether the named rule is meant to apply to these morphs. If so, update or remove the stored analysis in Lexicon > Lexicon Edit. If not, restrict the rule's environment in Grammar > Phonological Rules.",
             vec![place("PhonologicalRuleEdit", "Environment"), place("lexiconEdit", "Analysis")], ALLOMORPHS_HELP,
+        ),
+        GrammarHealthCode::StoredAnalysisIncomplete => (
+            "Stored analysis not checked", Warning,
+            "PanGloss could not finish comparing a wordform's FieldWorks stored analyses with its own analyses, usually because analyzing the wordform reached the parser's work cap. The description names the wordform and the reason. Whether those stored analyses still parse is unknown; the other wordforms were still compared.",
+            "No FieldWorks correction is established: the stored analyses may still parse. If the wordform should analyze quickly, look for rules or affixes that can apply to it many times, such as optional phonological rules or null affixes. If the grammar is correct, report the wordform with its description and PanGloss version.",
+            vec![], PARSER_HELP,
+        ),
+        GrammarHealthCode::StoredAnalysisBudgetReached => (
+            "Analysis check stopped early", Info,
+            "The default grammar check compares FieldWorks stored analyses with PanGloss's analyses in sorted wordform order, and stops once a fixed total amount of analysis work is spent so that the check stays fast. The description names the first wordform that was not compared and how many remain. Whether their stored analyses still parse is unknown.",
+            "No FieldWorks correction is needed. To compare every wordform, run pangloss grammar-health with --stored-analyses=all; on a large project that can take minutes.",
+            vec![], PARSER_HELP,
         ),
         GrammarHealthCode::ImportWarning(_) => return None,
     };
@@ -220,6 +238,8 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
             "hc-partial-reason-unspecified" => Self::PartialReasonUnspecified,
             "provisional.phoneme-features" => Self::ProvisionalPhonemeFeatures,
             "grammar.stored-analysis.no-longer-parses" => Self::StoredAnalysisNoLongerParses,
+            "grammar.stored-analysis.incomplete" => Self::StoredAnalysisIncomplete,
+            "grammar.stored-analysis.budget-reached" => Self::StoredAnalysisBudgetReached,
             _ => Self::ImportWarning(wire),
         })
     }

@@ -1,6 +1,7 @@
 use super::*;
 use pg_grammar::grammar_health::check_grammar_health;
 use pg_grammar::model::Grammar;
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Same clean, zero-diagnostics shape `fst_health.rs`'s own fixture uses.
@@ -60,6 +61,8 @@ const PARTIAL_ENTRY_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?
 "#;
 
 const STORED_ANALYSIS_CODE: &str = "grammar.stored-analysis.no-longer-parses";
+const INCOMPLETE_CODE: &str = "grammar.stored-analysis.incomplete";
+const BUDGET_CODE: &str = "grammar.stored-analysis.budget-reached";
 static STORED_ANALYSIS_TEST_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy)]
@@ -308,6 +311,24 @@ fn run_stored_analysis_health(
     writing_system: &str,
     analyses: &[StoredAnalysisFixture],
 ) -> serde_json::Value {
+    run_stored_analysis_health_at(
+        label,
+        project,
+        writing_system,
+        analyses,
+        crate::stored_analysis_health::Limits::DEFAULT,
+        &[],
+    )
+}
+
+fn run_stored_analysis_health_at(
+    label: &str,
+    project: &str,
+    writing_system: &str,
+    analyses: &[StoredAnalysisFixture],
+    limits: crate::stored_analysis_health::Limits,
+    extra_args: &[&str],
+) -> serde_json::Value {
     let scratch = std::env::temp_dir().join(format!(
         "pangloss-stored-analysis-{label}-{}-{}",
         std::process::id(),
@@ -321,11 +342,13 @@ fn run_stored_analysis_health(
         append_stored_analyses(project, writing_system, analyses),
     )
     .expect("write stored-analysis project");
-    run_grammar_health(&[
+    let mut args = vec![
         project_path.to_string_lossy().into_owned(),
         output_path.to_string_lossy().into_owned(),
-    ])
-    .unwrap_or_else(|error| panic!("grammar health failed for {label}: {error}"));
+    ];
+    args.extend(extra_args.iter().map(|arg| arg.to_string()));
+    run_grammar_health_with_limits(&args, limits)
+        .unwrap_or_else(|error| panic!("grammar health failed for {label}: {error}"));
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(&output_path).expect("read stored-analysis report"))
             .expect("stored-analysis report is JSON");
@@ -360,6 +383,7 @@ fn run_stored_analysis_health_with_synthesis_cap(
         crate::stored_analysis_health::ANALYSIS_STEP_CAP,
         work_cap,
         1,
+        None,
     )
     .expect("capped synthesis is reported as a finding");
     fs::remove_dir_all(&scratch).expect("remove capped stored-analysis fixture directory");
@@ -372,6 +396,7 @@ fn compare_stored_analyses_at(
     writing_system: &str,
     analyses: &[StoredAnalysisFixture],
     step_cap: usize,
+    work_budget: Option<usize>,
     thread_counts: &[usize],
 ) -> Vec<Result<Vec<pg_grammar::grammar_health::GrammarHealthDiagnostic>, String>> {
     let scratch = std::env::temp_dir().join(format!(
@@ -399,6 +424,7 @@ fn compare_stored_analyses_at(
                 step_cap,
                 pg_rules::stratum::default_work_cap(step_cap),
                 threads,
+                work_budget,
             )
         })
         .collect();
@@ -432,6 +458,7 @@ fn stored_analysis_comparison_is_identical_at_every_thread_count() {
         "en",
         &analyses,
         crate::stored_analysis_health::ANALYSIS_STEP_CAP,
+        None,
         &[1, 2, 3, 8],
     );
     let sequential = results[0].as_ref().expect("sequential comparison succeeds");
@@ -457,30 +484,284 @@ fn stored_analysis_comparison_is_identical_at_every_thread_count() {
 }
 
 #[test]
-fn stored_analysis_comparison_reports_the_first_capped_wordform_at_every_thread_count() {
+fn stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count() {
     let analyses = many_wordform_fixtures();
-    let first_wordform = analyses
-        .iter()
-        .map(|analysis| analysis.wordform)
-        .min()
-        .expect("fixture has wordforms");
     let results = compare_stored_analyses_at(
         &staged_underdefined_project("08-rule-context"),
         "en",
         &analyses,
         1,
+        None,
         &[1, 2, 8],
     );
-    for (result, threads) in results.into_iter().zip([1, 2, 8]) {
-        let error = result.expect_err("a one-step cap leaves every comparison incomplete");
+    let mut wordforms: Vec<_> = analyses.iter().map(|analysis| analysis.wordform).collect();
+    wordforms.sort_unstable();
+    let sequential = results[0]
+        .as_ref()
+        .expect("a capped comparison still completes");
+    let reported: Vec<_> = sequential
+        .iter()
+        .map(|finding| {
+            assert_eq!(finding.code.wire(), INCOMPLETE_CODE, "{}", finding.message);
+            finding
+                .message
+                .split("for wordform \"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .expect("finding names its wordform")
+        })
+        .collect();
+    assert_eq!(reported, wordforms, "one finding per wordform, in order");
+    for (result, threads) in results.iter().zip([1, 2, 8]).skip(1) {
         assert_eq!(
-            error,
-            format!(
-                "stored-analysis comparison for {first_wordform:?} is incomplete: PanGloss hit its analysis work cap"
-            ),
-            "{threads} threads"
+            result
+                .as_ref()
+                .expect("a capped comparison still completes"),
+            sequential,
+            "{threads} threads diverged from the sequential comparison"
         );
     }
+}
+
+#[test]
+fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
+    const STEP_CAP: usize = 2;
+    let compared = [
+        StoredAnalysisFixture {
+            wordform: "muma",
+            allomorph: "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+            msa: "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+            expected_surface: "pupa",
+        },
+        StoredAnalysisFixture {
+            wordform: "xuma",
+            allomorph: "b7002eed-ba64-4ec2-baa2-f877369b535b",
+            msa: "1e40e644-88dd-4429-8a13-3fa5c49abd2f",
+            expected_surface: "xupa",
+        },
+    ];
+    let capped = StoredAnalysisFixture {
+        wordform: "xmupa",
+        allomorph: "391454a0-50fb-4cec-a965-26ef4db345f2",
+        msa: "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
+        expected_surface: "xpupa",
+    };
+    let mut analyses = compared.to_vec();
+    analyses.push(capped);
+    let project = staged_underdefined_project("08-rule-context");
+    let limits = crate::stored_analysis_health::Limits {
+        step_cap: STEP_CAP,
+        ..crate::stored_analysis_health::Limits::DEFAULT
+    };
+    let report = run_stored_analysis_health_at("capped", &project, "en", &analyses, limits, &[]);
+    let uncapped = run_stored_analysis_health("uncapped", &project, "en", &compared);
+
+    let diagnostics = report["diagnostics"].as_array().expect("diagnostic array");
+    let incomplete: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == INCOMPLETE_CODE)
+        .collect();
+    assert_eq!(incomplete.len(), 1, "{incomplete:#?}");
+    let description = incomplete[0]["description"].as_str().expect("description");
+    assert!(description.contains("wordform \"xmupa\""), "{description}");
+    assert!(
+        description.contains(&format!(
+            "per-word analysis cap ({STEP_CAP} analysis steps or"
+        )),
+        "{description}"
+    );
+    assert_eq!(incomplete[0]["level"], "warning");
+    assert_eq!(incomplete[0]["scope"], "object");
+
+    let lost = |report: &serde_json::Value| -> Vec<serde_json::Value> {
+        report["diagnostics"]
+            .as_array()
+            .expect("diagnostic array")
+            .iter()
+            .filter(|diagnostic| diagnostic["code"] == STORED_ANALYSIS_CODE)
+            .cloned()
+            .collect()
+    };
+    assert!(
+        lost(&report)
+            .iter()
+            .all(|finding| !finding["description"].as_str().unwrap().contains("xmupa")),
+        "the capped wordform is not reported as lost"
+    );
+    assert_eq!(
+        lost(&report),
+        lost(&uncapped),
+        "the other wordforms are compared exactly as without the capped one"
+    );
+    assert_rule_attributed_findings(&report, &compared, "f6e5d881-e704-40d0-ad59-d1466817443b");
+}
+
+#[test]
+fn stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count() {
+    let analyses = many_wordform_fixtures();
+    let project = staged_underdefined_project("08-rule-context");
+    let step_cap = crate::stored_analysis_health::ANALYSIS_STEP_CAP;
+    let full = compare_stored_analyses_at(&project, "en", &analyses, step_cap, None, &[1])
+        .remove(0)
+        .expect("full comparison succeeds");
+    assert!(full
+        .iter()
+        .all(|finding| finding.code.wire() == STORED_ANALYSIS_CODE));
+    let mut wordforms: Vec<_> = analyses.iter().map(|analysis| analysis.wordform).collect();
+    wordforms.sort_unstable();
+    let mut cutoffs = BTreeSet::new();
+    for budget in [1, 10, 30, 100, 300, 1_000, 3_000] {
+        let results = compare_stored_analyses_at(
+            &project,
+            "en",
+            &analyses,
+            step_cap,
+            Some(budget),
+            &[1, 2, 8],
+        );
+        let sequential = results[0]
+            .as_ref()
+            .expect("a budgeted comparison completes");
+        for (result, threads) in results.iter().zip([1, 2, 8]).skip(1) {
+            assert_eq!(
+                result.as_ref().expect("a budgeted comparison completes"),
+                sequential,
+                "budget {budget}: {threads} threads diverged from the sequential comparison"
+            );
+        }
+        let (stopped, compared): (Vec<_>, Vec<_>) = sequential
+            .iter()
+            .partition(|finding| finding.code.wire() == BUDGET_CODE);
+        assert!(stopped.len() <= 1, "budget {budget}: {stopped:#?}");
+        let cutoff = stopped.first().map_or(wordforms.len(), |finding| {
+            let first = finding
+                .message
+                .split("from \"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .expect("budget finding names the first uncompared wordform");
+            let cutoff = wordforms
+                .iter()
+                .position(|wordform| *wordform == first)
+                .expect("named wordform is a stored wordform");
+            assert!(
+                finding.message.contains(&format!(
+                    "{} of {} wordforms",
+                    wordforms.len() - cutoff,
+                    wordforms.len()
+                )),
+                "{}",
+                finding.message
+            );
+            assert_eq!(finding.subjects.len(), 1);
+            assert_eq!(finding.subjects[0].kind, pg_snapshot::FwClass::Project);
+            cutoff
+        });
+        assert!(cutoff >= 1, "the first wordform is always compared");
+        let expected: Vec<_> = full
+            .iter()
+            .filter(|finding| {
+                wordforms[..cutoff].iter().any(|wordform| {
+                    finding
+                        .message
+                        .contains(&format!("for wordform {wordform:?}"))
+                })
+            })
+            .collect();
+        assert_eq!(
+            compared, expected,
+            "budget {budget}: compared words match the full run"
+        );
+        cutoffs.insert(cutoff);
+    }
+    assert!(
+        cutoffs.contains(&1),
+        "a one-unit budget compares only the first wordform"
+    );
+    assert!(
+        cutoffs
+            .iter()
+            .any(|cutoff| *cutoff > 1 && *cutoff < wordforms.len()),
+        "some budget stops mid-way: {cutoffs:?}"
+    );
+}
+
+#[test]
+fn grammar_health_stored_analyses_flag_selects_the_comparison() {
+    let analyses = many_wordform_fixtures();
+    let project = staged_underdefined_project("08-rule-context");
+    let codes = |extra: &[&str]| -> Vec<String> {
+        run_stored_analysis_health_at(
+            "flag",
+            &project,
+            "en",
+            &analyses,
+            crate::stored_analysis_health::Limits::DEFAULT,
+            extra,
+        )["diagnostics"]
+            .as_array()
+            .expect("diagnostic array")
+            .iter()
+            .filter_map(|diagnostic| diagnostic["code"].as_str())
+            .filter(|code| code.starts_with("grammar.stored-analysis."))
+            .map(str::to_string)
+            .collect()
+    };
+    let bounded = codes(&[]);
+    assert!(!bounded.is_empty());
+    assert_eq!(codes(&["--stored-analyses=bounded"]), bounded);
+    assert_eq!(codes(&["--stored-analyses", "all"]), bounded);
+    assert_eq!(codes(&["--stored-analyses=off"]), Vec::<String>::new());
+    let error = run_grammar_health(&[
+        "unused.fwdata".to_string(),
+        "--stored-analyses=some".to_string(),
+    ])
+    .expect_err("an unknown comparison mode is refused");
+    assert!(error.contains("bounded, all or off"), "{error}");
+}
+
+#[test]
+fn grammar_health_writes_the_report_when_the_work_budget_is_spent() {
+    let analyses = many_wordform_fixtures();
+    let project = staged_underdefined_project("08-rule-context");
+    let limits = crate::stored_analysis_health::Limits {
+        work_budget: 1,
+        ..crate::stored_analysis_health::Limits::DEFAULT
+    };
+    let report = run_stored_analysis_health_at("budget", &project, "en", &analyses, limits, &[]);
+    let diagnostics = report["diagnostics"].as_array().expect("diagnostic array");
+    let stopped: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == BUDGET_CODE)
+        .collect();
+    assert_eq!(stopped.len(), 1, "{stopped:#?}");
+    assert_eq!(stopped[0]["level"], "info");
+    assert_eq!(stopped[0]["scope"], "project_settings");
+    let description = stopped[0]["description"].as_str().expect("description");
+    assert!(
+        description.contains(&format!(
+            "{} of {} wordforms",
+            analyses.len() - 1,
+            analyses.len()
+        )),
+        "{description}"
+    );
+    let full = run_stored_analysis_health_at(
+        "budget-all",
+        &project,
+        "en",
+        &analyses,
+        limits,
+        &["--stored-analyses=all"],
+    );
+    assert!(
+        full["diagnostics"]
+            .as_array()
+            .expect("diagnostic array")
+            .iter()
+            .all(|diagnostic| diagnostic["code"] != BUDGET_CODE),
+        "all ignores the budget"
+    );
 }
 
 fn staged_underdefined_project(folder: &str) -> String {

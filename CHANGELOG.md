@@ -3,6 +3,21 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Grammar health always finishes and always writes its report
+
+- `pangloss grammar-health` no longer exits with an empty report when one wordform's stored
+  analysis reaches the parser's analysis cap. That wordform is reported as
+  `grammar.stored-analysis.incomplete` (warning), naming the wordform and the cap, and the remaining
+  wordforms are still compared. The aweti and mbugwe sample projects previously returned no report.
+- The stored-analysis comparison now stops by default after a fixed total amount of parse work, so
+  grammar health stays fast on large projects. The wordforms it did not reach are reported in one
+  `grammar.stored-analysis.budget-reached` finding (info). `--stored-analyses all` compares every
+  wordform, and `--stored-analyses off` runs only the checks that do not parse.
+- Both codes are additive within grammar-health schema version 4. Reports for projects that
+  completed before are unchanged.
+
 ## 0.8.2
 
 ### Grammar facts account for the reserved FieldWorks word boundary

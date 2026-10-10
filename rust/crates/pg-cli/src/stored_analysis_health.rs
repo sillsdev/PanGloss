@@ -9,6 +9,56 @@ use pg_snapshot::{FwClass, FwObjectRef};
 
 pub(crate) const ANALYSIS_STEP_CAP: usize = 100_000;
 
+/// Parse work units the default comparison spends across all wordforms before it stops.
+pub(crate) const DEFAULT_WORK_BUDGET: usize = 32_000_000;
+
+/// How much of the stored-analysis comparison `grammar-health` runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Coverage {
+    /// Compare wordforms in order until this many parse work units are spent.
+    Budget(usize),
+    /// Compare every wordform; each is still bounded by the per-word analysis cap.
+    All,
+    /// Run only the checks that do not parse.
+    Off,
+}
+
+/// The comparison's work limits; tests shrink them to reach each limit on a small fixture.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Limits {
+    /// Per-word analysis step cap; the per-word work cap derives from it.
+    pub(crate) step_cap: usize,
+    /// Total parse work units `bounded` spends.
+    pub(crate) work_budget: usize,
+}
+
+impl Limits {
+    pub(crate) const DEFAULT: Self = Self {
+        step_cap: ANALYSIS_STEP_CAP,
+        work_budget: DEFAULT_WORK_BUDGET,
+    };
+}
+
+impl Coverage {
+    pub(crate) fn parse(value: &str, limits: Limits) -> Result<Self, String> {
+        match value {
+            "bounded" => Ok(Self::Budget(limits.work_budget)),
+            "all" => Ok(Self::All),
+            "off" => Ok(Self::Off),
+            _ => Err(format!(
+                "--stored-analyses must be bounded, all or off, not {value:?}"
+            )),
+        }
+    }
+
+    fn work_budget(self) -> Option<usize> {
+        match self {
+            Self::Budget(budget) => Some(budget),
+            Self::All | Self::Off => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct StoredKeyMorph {
     allomorph: String,
@@ -30,17 +80,34 @@ struct ResolvedMorph {
     morpheme: u32,
 }
 
-pub fn check(
+/// Never fails: a comparison that cannot run is itself an incomplete finding beside the others.
+pub(crate) fn check(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
-) -> Result<Vec<GrammarHealthDiagnostic>, String> {
+    step_cap: usize,
+    coverage: Coverage,
+) -> Vec<GrammarHealthDiagnostic> {
+    if coverage == Coverage::Off {
+        return Vec::new();
+    }
     check_with_options(
         grammar,
         stored_analyses,
-        ANALYSIS_STEP_CAP,
-        pg_rules::stratum::default_work_cap(ANALYSIS_STEP_CAP),
+        step_cap,
+        pg_rules::stratum::default_work_cap(step_cap),
         default_threads(),
+        coverage.work_budget(),
     )
+    .unwrap_or_else(|error| {
+        vec![GrammarHealthDiagnostic::from_check(
+            GrammarHealthCode::StoredAnalysisIncomplete,
+            format!(
+                "No stored analysis was compared ({} stored): {error}.",
+                stored_analyses.len()
+            ),
+            project_subject(grammar),
+        )]
+    })
 }
 
 /// Logical CPUs capped at 8, `batch`'s own default: per-word memory multiplies by thread count.
@@ -51,13 +118,14 @@ fn default_threads() -> usize {
         .unwrap_or(1)
 }
 
-/// Parallel per wordform, folded in wordform order: step caps count steps, never a clock.
+/// Parallel per wordform, folded in wordform order: caps and the budget count work, never a clock.
 pub(crate) fn check_with_options(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
     step_cap: usize,
     synthesis_work_cap: usize,
     threads: usize,
+    work_budget: Option<usize>,
 ) -> Result<Vec<GrammarHealthDiagnostic>, String> {
     if stored_analyses.is_empty() {
         return Ok(Vec::new());
@@ -90,48 +158,99 @@ pub(crate) fn check_with_options(
     }
     let words: Vec<_> = by_word.into_iter().collect();
 
-    let results = compare_words_in_order(&words, threads, |wordform, analyses| {
-        compare_word(grammar, &parser, &synthesizer, wordform, analyses)
+    let budget = work_budget.unwrap_or(usize::MAX);
+    let compared = compare_words_in_order(&words, threads, budget, |wordform, analyses| {
+        compare_word(grammar, &parser, &synthesizer, step_cap, wordform, analyses)
     })?;
-    for (index, result) in results.into_iter().enumerate() {
+    let cutoff = compared.cutoff;
+    for (index, result) in compared.results.into_iter().take(cutoff).enumerate() {
         match result {
-            Some(result) => diagnostics.extend(result?),
+            Some((result, _)) => diagnostics.extend(result),
             None => panic!(
-                "stored-analysis comparison skipped word {index} ({:?}) before any earlier word failed",
+                "stored-analysis comparison never compared word {index} ({:?})",
                 words[index].0
             ),
         }
     }
+    if let Some((first, _)) = words.get(cutoff) {
+        let skipped = &words[cutoff..];
+        let analyses: usize = skipped.iter().map(|(_, analyses)| analyses.len()).sum();
+        diagnostics.push(GrammarHealthDiagnostic::from_check(
+            GrammarHealthCode::StoredAnalysisBudgetReached,
+            format!(
+                "The stored-analysis comparison stopped at its work budget of {budget} parse work units ({} spent): {} of {} wordforms, from {first:?} onward in wordform order, were not compared ({analyses} stored analyses). Run grammar-health with --stored-analyses=all to compare them.",
+                compared.spent,
+                skipped.len(),
+                words.len(),
+            ),
+            project_subject(grammar),
+        ));
+    }
     Ok(diagnostics)
 }
 
-type WordResult = Result<Vec<GrammarHealthDiagnostic>, String>;
+/// Each word's findings and the parse work units it spent.
+type WordResult = (Vec<GrammarHealthDiagnostic>, usize);
 
-/// Words are claimed in index order, so past the first failure each worker finishes at most one word.
+struct Compared {
+    /// `results[i]` is `Some` for every `i < cutoff`; later entries are discarded.
+    results: Vec<Option<WordResult>>,
+    /// The first word whose predecessors together spent the budget, or the word count.
+    cutoff: usize,
+    spent: usize,
+}
+
+/// Running sum of per-word work, advanced strictly in word order.
+struct WorkFold {
+    next: usize,
+    spent: usize,
+    pending: BTreeMap<usize, usize>,
+}
+
+/// Word `i` is compared iff words `0..i` spent less than `budget`, whatever finishes first.
 fn compare_words_in_order<'a, F>(
     words: &'a [(String, Vec<&'a pg_fwdata::StoredAnalysis>)],
     threads: usize,
+    budget: usize,
     compare: F,
-) -> Result<Vec<Option<WordResult>>, String>
+) -> Result<Compared, String>
 where
     F: Fn(&'a str, &'a [&'a pg_fwdata::StoredAnalysis]) -> WordResult + Sync,
 {
     let next = AtomicUsize::new(0);
-    // Lowest failing word index seen so far; a word after it cannot reach the output.
-    let first_error = AtomicUsize::new(usize::MAX);
+    let cutoff = AtomicUsize::new(words.len());
+    let fold = std::sync::Mutex::new(WorkFold {
+        next: 0,
+        spent: 0,
+        pending: BTreeMap::new(),
+    });
     let worker = || {
         let mut done = Vec::new();
         loop {
             let index = next.fetch_add(1, Ordering::Relaxed);
-            if index >= words.len() || index > first_error.load(Ordering::Relaxed) {
+            if index >= cutoff.load(Ordering::Relaxed) {
                 return done;
             }
             let (wordform, analyses) = &words[index];
             let result = compare(wordform, analyses);
-            if result.is_err() {
-                first_error.fetch_min(index, Ordering::Relaxed);
-            }
+            let work = result.1;
             done.push((index, result));
+            let mut fold = fold
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            fold.pending.insert(index, work);
+            loop {
+                if fold.spent >= budget {
+                    cutoff.fetch_min(fold.next, Ordering::Relaxed);
+                    break;
+                }
+                let position = fold.next;
+                let Some(work) = fold.pending.remove(&position) else {
+                    break;
+                };
+                fold.spent = fold.spent.saturating_add(work);
+                fold.next += 1;
+            }
         }
     };
     let mut results: Vec<Option<WordResult>> = (0..words.len()).map(|_| None).collect();
@@ -154,27 +273,55 @@ where
         }
         Ok::<_, String>(())
     })?;
-    Ok(results)
+    let cutoff = cutoff.into_inner();
+    // Work folded past the cutoff belongs to discarded words; only the in-budget prefix counts.
+    let spent = results[..cutoff]
+        .iter()
+        .map(|result| result.as_ref().map_or(0, |(_, work)| *work))
+        .fold(0usize, usize::saturating_add);
+    Ok(Compared {
+        results,
+        cutoff,
+        spent,
+    })
 }
 
 fn compare_word(
     grammar: &Grammar,
     parser: &Morpher<'_>,
     synthesizer: &Morpher<'_>,
+    step_cap: usize,
     wordform: &str,
     analyses: &[&pg_fwdata::StoredAnalysis],
-) -> Result<Vec<GrammarHealthDiagnostic>, String> {
+) -> WordResult {
     let outcome = parser.parse_word(wordform);
+    let work = outcome.work_steps;
     if outcome.capped || outcome.timed_out {
-        return Err(format!(
-            "stored-analysis comparison for {wordform:?} is incomplete: PanGloss hit its analysis work cap"
-        ));
+        let limit = if outcome.capped {
+            format!(
+                "PanGloss reached its per-word analysis cap ({step_cap} analysis steps or {} work units) after {work} work units",
+                pg_rules::stratum::default_work_cap(step_cap),
+            )
+        } else {
+            "PanGloss reached its per-word analysis time limit".to_string()
+        };
+        return (
+            incomplete_findings(grammar, wordform, analyses, &limit),
+            work,
+        );
     }
     let mut produced = BTreeMap::<StoredKey, usize>::new();
     for parsed in &outcome.structured {
-        let projection = pg_parse::project_parse_analysis(parsed, grammar).map_err(|error| {
-            format!("stored-analysis comparison for {wordform:?} could not project a confirmed analysis: {error}")
-        })?;
+        let projection = match pg_parse::project_parse_analysis(parsed, grammar) {
+            Ok(projection) => projection,
+            Err(error) => {
+                let reason = format!("PanGloss could not project a confirmed analysis: {error}");
+                return (
+                    incomplete_findings(grammar, wordform, analyses, &reason),
+                    work,
+                );
+            }
+        };
         let key = projection
             .morphs
             .into_iter()
@@ -207,9 +354,41 @@ fn compare_word(
             synthesizer,
             analysis,
             wordform,
-        )?);
+        ));
     }
-    Ok(diagnostics)
+    (diagnostics, work)
+}
+
+/// A project-wide finding's subject: the comparison as a whole, not one stored object.
+fn project_subject(grammar: &Grammar) -> Vec<FwObjectRef> {
+    let mut project = FwObjectRef::new(FwClass::Project).project_settings();
+    if let Some(name) = grammar.name.as_deref() {
+        project = project.name(name);
+    }
+    vec![project.field("Wordforms")]
+}
+
+/// One finding per stored analysis of a wordform the comparison could not finish.
+fn incomplete_findings(
+    grammar: &Grammar,
+    wordform: &str,
+    analyses: &[&pg_fwdata::StoredAnalysis],
+    reason: &str,
+) -> Vec<GrammarHealthDiagnostic> {
+    analyses
+        .iter()
+        .map(|analysis| {
+            let message = format!(
+                "Stored analysis {} for wordform {:?} (WfiWordform GUID {}) was not compared: {reason}. Whether it still parses is unknown.",
+                analysis.analysis_guid, wordform, analysis.wordform_guid,
+            );
+            GrammarHealthDiagnostic::from_check(
+                GrammarHealthCode::StoredAnalysisIncomplete,
+                message,
+                source_subjects(grammar, analysis, std::iter::empty()),
+            )
+        })
+        .collect()
 }
 
 fn stored_key(analysis: &pg_fwdata::StoredAnalysis) -> Option<StoredKey> {
@@ -234,7 +413,7 @@ fn finding_for_missing(
     morpher: &Morpher<'_>,
     analysis: &pg_fwdata::StoredAnalysis,
     wordform: &str,
-) -> Result<GrammarHealthDiagnostic, String> {
+) -> GrammarHealthDiagnostic {
     let key = stored_key(analysis);
     let resolution = key
         .as_ref()
@@ -337,11 +516,11 @@ fn finding_for_missing(
         attribution,
         generated_display,
     );
-    Ok(GrammarHealthDiagnostic::from_check(
+    GrammarHealthDiagnostic::from_check(
         GrammarHealthCode::StoredAnalysisNoLongerParses,
         message,
         source_subjects(grammar, analysis, effects.iter()),
-    ))
+    )
 }
 
 fn resolve_analysis(

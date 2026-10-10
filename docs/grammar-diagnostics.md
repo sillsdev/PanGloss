@@ -1,7 +1,8 @@
 # Grammar diagnostics
 
-`pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]` reports
-problems in a grammar that its author should fix in FieldWorks. This document explains how each
+`pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
+[--stored-analyses bounded|all|off]` reports problems in a grammar that its author should fix in
+FieldWorks. This document explains how each
 diagnostic's level is chosen and what the report looks like. For every code, with its level and
 fix, see the generated [grammar-diagnostics-reference.md](grammar-diagnostics-reference.md).
 
@@ -12,6 +13,9 @@ The diagnostics come from two sources:
   `hc-partial-morpheme` is split into one code per reason.
 - **Import codes** (`fwdata.*`, `grammar.*`, `conversion.*`, and so on) are raised while a FieldWorks
   project is converted into a grammar.
+
+For a FieldWorks project, grammar health also compares the project's stored analyses with
+PanGloss's own analyses; see [Stored-analysis comparison](#stored-analysis-comparison).
 
 Reporting never changes a parse. These levels describe the existing importer and compiler outcomes;
 consult each code's explanation for whether a restriction, alternative, or whole item was omitted.
@@ -89,6 +93,31 @@ Some codes stay warnings until they are split or verified:
   before either half can be an error.
 - `hc-undeclared-segment` stays a warning until the parser's behaviour on an undeclared segment is
   verified.
+
+## Stored-analysis comparison
+
+The checks that do not parse always run to completion and are always written. The stored-analysis
+comparison does parse: it analyzes each FieldWorks wordform that has a stored analysis and reports
+`grammar.stored-analysis.no-longer-parses` for a stored analysis PanGloss no longer produces.
+Parsing a project's wordforms can take minutes, so `--stored-analyses` selects how much of it runs:
+
+| Value | Effect |
+|---|---|
+| `bounded` (default) | Compare wordforms in sorted order until 32,000,000 parse work units are spent (about nine CPU-seconds), then stop. |
+| `all` | Compare every wordform. Each wordform is still bounded by the per-word analysis cap. |
+| `off` | Skip the comparison; only the checks that do not parse run. |
+
+The comparison never aborts the report and never drops a wordform silently:
+
+- A wordform whose analysis reaches the per-word cap (100,000 analysis steps or 10,000,000 work
+  units) gets one `grammar.stored-analysis.incomplete` warning per stored analysis, naming the
+  wordform and the cap. The other wordforms are still compared.
+- When the `bounded` budget is spent, one `grammar.stored-analysis.budget-reached` info finding
+  names the first wordform not compared and how many wordforms and stored analyses remain.
+
+Both limits count deterministic parse work, never time. The default report is therefore the same
+on every machine and at every thread count. Neither finding is an error, so neither changes the exit
+status. Both codes are additive within schema version 4.
 
 ## Report format
 

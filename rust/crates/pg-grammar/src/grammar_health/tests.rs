@@ -443,6 +443,8 @@ fn every_catalog_kind_delivers_advice_or_has_a_documented_correction_limit() {
         ("conversion.source-provenance-unknown", "Conversion provenance is not an editable FieldWorks identity field."),
         ("grammar.compile.failed", "An early loader failure names no individual FieldWorks object; its description is the only locator."),
         ("hc-partial-reason-unspecified", "A partial morpheme without a recorded cause identifies no specific missing FieldWorks field."),
+        ("grammar.stored-analysis.incomplete", "An unfinished comparison shows no source defect; the stored analyses may still parse."),
+        ("grammar.stored-analysis.budget-reached", "A bounded default run shows no source defect; the remedy is a full comparison, not an edit."),
     ];
     let verified_menu_destinations = [
         "File > Restore a Project...",
@@ -1384,7 +1386,7 @@ fn an_empty_report_remains_valid() {
 
 #[test]
 fn every_code_variant_occurs_once_in_all() {
-    assert_eq!(GrammarHealthCode::ALL.len(), 8);
+    assert_eq!(GrammarHealthCode::ALL.len(), 10);
     for code in [
         GrammarHealthCode::UndeclaredSegment,
         GrammarHealthCode::DuplicateFeatureBundle,
@@ -1394,6 +1396,8 @@ fn every_code_variant_occurs_once_in_all() {
         GrammarHealthCode::PartialReasonUnspecified,
         GrammarHealthCode::ProvisionalPhonemeFeatures,
         GrammarHealthCode::StoredAnalysisNoLongerParses,
+        GrammarHealthCode::StoredAnalysisIncomplete,
+        GrammarHealthCode::StoredAnalysisBudgetReached,
     ] {
         assert_eq!(
             GrammarHealthCode::ALL

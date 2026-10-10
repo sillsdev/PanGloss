@@ -38,11 +38,12 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [substrate.classification-ambiguous](diagnostics/substrate.classification-ambiguous.md) | Allomorph contains an unclassifiable character | In Lexicon > Lexicon Edit, check the named allomorph's spelling and remove any unintended control character. If a letter still cannot be segmented, check its representations in Grammar > Phonemes. |
 | [migration.inferred-segment-with-feature-rule](diagnostics/migration.inferred-segment-with-feature-rule.md) | Unlisted character matches a feature class | If the character is a language phoneme, define its In Orthography as and Phonological Features in Grammar > Phonemes. Otherwise correct the unintended allomorph spelling in Lexicon > Lexicon Edit. |
 
-## Warnings (55)
+## Warnings (56)
 
 | Code | Title | What to do |
 |---|---|---|
 | [hc-undeclared-segment](diagnostics/hc-undeclared-segment.md) | Missing segment definition | In Lexicon > Lexicon Edit, check the named form's spelling. If the spelling is intended, add its phoneme and grapheme representation in Grammar > Phonemes; for an inserted compound-rule segment, check the named rule in Grammar > Compound Rules instead. |
+| [grammar.stored-analysis.incomplete](diagnostics/grammar.stored-analysis.incomplete.md) | Stored analysis not checked | No FieldWorks correction is established: the stored analyses may still parse. If the wordform should analyze quickly, look for rules or affixes that can apply to it many times, such as optional phonological rules or null affixes. If the grammar is correct, report the wordform with its description and PanGloss version. |
 | [fwdata.dangling-reference](diagnostics/fwdata.dangling-reference.md) | Reference to a missing item | Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged. |
 | [fwdata.unexpected-class](diagnostics/fwdata.unexpected-class.md) | Item of an unexpected type | Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged. |
 | [fwdata.missing-required-field](diagnostics/fwdata.missing-required-field.md) | Required source value is missing | Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged. |
@@ -98,12 +99,13 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [conversion.unsupported-construct](diagnostics/conversion.unsupported-construct.md) | Reduplication inventory check is unsupported | In Lexicon > Lexicon Edit, inspect the allomorph form. Keep an accurate pattern and report it; change it only if an equivalent supported representation is known. |
 | [substrate.position-unmapped](diagnostics/substrate.position-unmapped.md) | Allomorph character position is unmapped | In Lexicon > Lexicon Edit, inspect the named position in the form. Correct an unintended character; if FieldWorks displays the intended spelling, report the mapping problem and diagnostic details. |
 
-## Information (10)
+## Information (11)
 
 | Code | Title | What to do |
 |---|---|---|
 | [provisional.phoneme-features](diagnostics/provisional.phoneme-features.md) | Phoneme has no features | In Grammar > Phonemes, select the named phoneme and assign its Phonological Features to replace this provisional definition. |
 | [grammar.stored-analysis.no-longer-parses](diagnostics/grammar.stored-analysis.no-longer-parses.md) | Stored analysis changed | Check whether the named rule is meant to apply to these morphs. If so, update or remove the stored analysis in Lexicon > Lexicon Edit. If not, restrict the rule's environment in Grammar > Phonological Rules. |
+| [grammar.stored-analysis.budget-reached](diagnostics/grammar.stored-analysis.budget-reached.md) | Analysis check stopped early | No FieldWorks correction is needed. To compare every wordform, run pangloss grammar-health with --stored-analyses=all; on a large project that can take minutes. |
 | [fwdata.only-first-used](diagnostics/fwdata.only-first-used.md) | Only the first phoneme set is used | In Grammar > Phonemes, check that the intended inventory appears in the first set. If it does, no change is needed; otherwise report the limitation before reorganizing the project. |
 | [grammar.allomorph.morph-type-unsupported-as-rule-form](diagnostics/grammar.allomorph.morph-type-unsupported-as-rule-form.md) | Loaded through separate parts | In Lexicon > Lexicon Edit, no change is needed when the separate parts are the intended parser representation. |
 | [grammar.environment.missing-natural-class](diagnostics/grammar.environment.missing-natural-class.md) | Environment names a missing natural class | In Grammar > Natural Classes, define the named class or correct its abbreviation in Grammar > Environments. Check the allomorph's intended distribution in Lexicon > Lexicon Edit > Allomorphs > Environments. |

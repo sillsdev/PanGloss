@@ -343,6 +343,11 @@ const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
         takes_value: false,
         summary: "append each item's FieldWorks GUID to its human-readable log title.",
     },
+    FlagSpec {
+        name: "--stored-analyses",
+        takes_value: true,
+        summary: "bounded (default): compare FieldWorks stored analyses until a fixed work budget is spent; all: compare every wordform; off: skip the comparison.",
+    },
 ];
 
 #[cfg(feature = "foma-tools")]
