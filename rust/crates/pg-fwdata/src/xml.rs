@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::sync::OnceLock;
 
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
@@ -61,20 +62,24 @@ impl RawGraph {
 
     /// Tallies every header in document order; `ordered_header_sha256` hashes the canonical `"{class}\t{guid}\n"` byte stream per header, in order, as lowercase hex SHA-256.
     pub fn census(&self) -> RawSourceCensus {
-        let mut class_occurrences = BTreeMap::new();
-        let mut unhandled_class_occurrences = BTreeMap::new();
+        let mut class_occurrences = BTreeMap::<&str, u64>::new();
         let mut hasher = Sha256::new();
         for header in &self.headers {
-            *class_occurrences
-                .entry(header.class.clone())
-                .or_insert(0u64) += 1;
-            if !class_allowed(&header.class) {
-                *unhandled_class_occurrences
-                    .entry(header.class.clone())
-                    .or_insert(0u64) += 1;
-            }
-            hasher.update(format!("{}\t{}\n", header.class, header.guid).as_bytes());
+            *class_occurrences.entry(header.class.as_str()).or_default() += 1;
+            hasher.update(header.class.as_bytes());
+            hasher.update(b"\t");
+            hasher.update(header.guid.as_bytes());
+            hasher.update(b"\n");
         }
+        let unhandled_class_occurrences = class_occurrences
+            .iter()
+            .filter(|(class, _)| !class_allowed(class))
+            .map(|(class, count)| (class.to_string(), *count))
+            .collect();
+        let class_occurrences = class_occurrences
+            .into_iter()
+            .map(|(class, count)| (class.to_string(), count))
+            .collect();
         RawSourceCensus {
             total_occurrences: self.headers.len() as u64,
             class_occurrences,
@@ -173,7 +178,10 @@ pub(crate) const ALLOWED_CLASSES: &[&str] = &[
 ];
 
 fn class_allowed(class: &str) -> bool {
-    ALLOWED_CLASSES.contains(&class)
+    static ALLOWED: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    ALLOWED
+        .get_or_init(|| ALLOWED_CLASSES.iter().copied().collect())
+        .contains(class)
 }
 
 /// Skip past a recognized `<rt>` record's body, discarding it without building a `Node`.
@@ -226,8 +234,8 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                 saw_any_rt = true;
                 let ordinal = graph.headers.len() as u64 + 1;
                 let duplicate = !guid.is_empty() && !seen_guids.insert(guid.clone());
-                let retained =
-                    class_allowed(&class) && !guid.is_empty() && !graph.records.contains_key(&guid);
+                let allowed = class_allowed(&class);
+                let retained = allowed && !guid.is_empty() && !graph.records.contains_key(&guid);
                 graph.headers.push(RawRecordHeader {
                     ordinal,
                     class: class.clone(),
@@ -235,7 +243,7 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                     retained,
                     duplicate,
                 });
-                if class_allowed(&class) {
+                if allowed {
                     if guid.is_empty() {
                         skip_rt_body(&mut reader, e.name())?;
                         graph.issues.push(missing_guid_issue(&class, ordinal));
@@ -262,8 +270,8 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                 saw_any_rt = true;
                 let ordinal = graph.headers.len() as u64 + 1;
                 let duplicate = !guid.is_empty() && !seen_guids.insert(guid.clone());
-                let retained =
-                    class_allowed(&class) && !guid.is_empty() && !graph.records.contains_key(&guid);
+                let allowed = class_allowed(&class);
+                let retained = allowed && !guid.is_empty() && !graph.records.contains_key(&guid);
                 graph.headers.push(RawRecordHeader {
                     ordinal,
                     class: class.clone(),
@@ -271,7 +279,7 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                     retained,
                     duplicate,
                 });
-                if class_allowed(&class) {
+                if allowed {
                     if guid.is_empty() {
                         graph.issues.push(missing_guid_issue(&class, ordinal));
                     } else if !graph.records.contains_key(&guid) {
@@ -319,9 +327,19 @@ fn missing_guid_issue(class: &str, ordinal: u64) -> ConversionIssue {
 
 /// One fatal issue per guid shared by two or more headers (recognized or unknown class), naming every occurrence.
 fn push_duplicate_guid_issues(graph: &mut RawGraph) {
+    // The parser marks every repeat occurrence of a guid, so only marked guids can have two headers.
+    let duplicated: HashSet<&str> = graph
+        .headers
+        .iter()
+        .filter(|header| header.duplicate)
+        .map(|header| header.guid.as_str())
+        .collect();
+    if duplicated.is_empty() {
+        return;
+    }
     let mut by_guid: HashMap<String, Vec<(u64, String)>> = HashMap::new();
     for (index, header) in graph.headers.iter().enumerate() {
-        if header.guid.is_empty() {
+        if header.guid.is_empty() || !duplicated.contains(header.guid.as_str()) {
             continue;
         }
         by_guid

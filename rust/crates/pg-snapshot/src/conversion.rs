@@ -367,9 +367,11 @@ impl SelectionRecorder {
 
     /// Whether an owner has already published a decision for `subject` at `stage`.
     pub fn has_load_decision(&self, subject: &InventoryKey, stage: LoadPipelineStage) -> bool {
-        self.load_decisions
-            .iter()
-            .any(|decision| decision.subject == *subject && decision.pipeline_stage == stage)
+        // Every recorded decision has an ordinal key, and `String::new()` sorts first among context keys.
+        self.load_decision_ordinals
+            .range((subject.clone(), stage, String::new())..)
+            .next()
+            .is_some_and(|((key, key_stage, _), _)| key == subject && *key_stage == stage)
     }
 
     /// Records an issue about retained output without changing its inventory status.
@@ -463,11 +465,13 @@ impl SelectionRecorder {
     pub fn finish_with_load_decisions(
         self,
     ) -> (ConversionInventory, Vec<ConversionIssue>, Vec<LoadDecision>) {
-        let result = self.check_invariants();
-        debug_assert!(
-            result.is_ok(),
-            "selection recorder invariant violated: {result:?}"
-        );
+        if cfg!(debug_assertions) {
+            let result = self.check_invariants();
+            assert!(
+                result.is_ok(),
+                "selection recorder invariant violated: {result:?}"
+            );
+        }
         (self.inventory, self.issues, self.load_decisions)
     }
 }

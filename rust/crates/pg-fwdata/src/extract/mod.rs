@@ -351,15 +351,25 @@ pub fn extract(
     graph: &RawGraph,
     filename_stem: &str,
 ) -> Result<(Snapshot, Vec<Warning>), ImportError> {
-    let (snapshot, warnings, _recorder) = extract_recording(graph, filename_stem)?;
+    let (snapshot, warnings, _) = extract_with(graph, filename_stem, false)?;
     Ok((snapshot, warnings))
 }
 
-/// As [`extract`], but also returns the unfinished [`SelectionRecorder`] `import_file_measured` reads into an `InventoryDelta`; `conversion_provenance` itself comes from an independently finished clone, so this changes nothing about `extract`'s own behaviour.
+/// As [`extract`], but also returns the unfinished [`SelectionRecorder`] `import_file_measured` reads into an `InventoryDelta`; `conversion_provenance` itself comes from an independently finished recorder, so this changes nothing about `extract`'s own behaviour.
 pub(crate) fn extract_recording(
     graph: &RawGraph,
     filename_stem: &str,
 ) -> Result<(Snapshot, Vec<Warning>, SelectionRecorder), ImportError> {
+    let (snapshot, warnings, recorder) = extract_with(graph, filename_stem, true)?;
+    let recorder = recorder.expect("extract_with keeps the recorder when asked to");
+    Ok((snapshot, warnings, recorder))
+}
+
+fn extract_with(
+    graph: &RawGraph,
+    filename_stem: &str,
+    keep_recorder: bool,
+) -> Result<(Snapshot, Vec<Warning>, Option<SelectionRecorder>), ImportError> {
     let mut ctx = Ctx::new(graph);
 
     let lang_project = project::find_lang_project(&mut ctx, filename_stem);
@@ -377,16 +387,8 @@ pub(crate) fn extract_recording(
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
     finalize_unrecorded_tracked_objects(&mut ctx);
 
-    let (graph_to_snapshot, recorder_issues, _) = ctx.recorder.clone().finish_with_load_decisions();
-    let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
-    let mut import_issues = graph.issues.clone();
-    import_issues.extend(recorder_issues);
-    let source_inventory_status = if import_issues.iter().any(|issue| issue.fatal) {
-        SourceInventoryStatus::ImportedWithFatalIssues
-    } else {
-        SourceInventoryStatus::ImportedComplete
-    };
-    for source_object in graph.source_objects() {
+    let source_objects = graph.source_objects();
+    for source_object in &source_objects {
         let decision = if !source_object.handled {
             Some((LoadReasonCode::UnknownClass, None))
         } else if source_object.raw_guid.is_empty() {
@@ -414,17 +416,28 @@ pub(crate) fn extract_recording(
             );
         }
     }
-    let (_, _, import_load_decisions) = ctx.recorder.clone().finish_with_load_decisions();
+    let recorder = keep_recorder.then(|| ctx.recorder.clone());
+    // Source decisions add load decisions only, so one finish yields the inventory and issues too.
+    let (graph_to_snapshot, recorder_issues, import_load_decisions) =
+        std::mem::take(&mut ctx.recorder).finish_with_load_decisions();
+    let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
+    let mut import_issues = graph.issues.clone();
+    import_issues.extend(recorder_issues);
+    let source_inventory_status = if import_issues.iter().any(|issue| issue.fatal) {
+        SourceInventoryStatus::ImportedWithFatalIssues
+    } else {
+        SourceInventoryStatus::ImportedComplete
+    };
     snapshot.conversion_provenance = ConversionProvenance {
         schema_version: CONVERSION_PROVENANCE_SCHEMA_VERSION,
         source_inventory_status,
         source_census: graph.census(),
-        source_objects: graph.source_objects(),
+        source_objects,
         graph_to_snapshot,
         import_load_decisions,
         import_issues,
     };
-    Ok((snapshot, ctx.warnings, ctx.recorder))
+    Ok((snapshot, ctx.warnings, recorder))
 }
 
 /// Finalizes tracked source objects that normal extraction did not reach.

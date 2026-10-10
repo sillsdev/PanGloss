@@ -443,3 +443,63 @@ fn from_stage_derives_exactly_the_three_loss_categories() {
     assert_eq!(delta.inventory, inventory);
     assert!(delta.issues.is_empty());
 }
+
+#[test]
+fn has_load_decision_matches_a_scan_of_every_recorded_decision() {
+    let mut r = SelectionRecorder::default();
+    let kinds = [
+        InventoryKind::Entry,
+        InventoryKind::Msa,
+        InventoryKind::RuleFeature,
+    ];
+    let stages = [
+        LoadPipelineStage::Import,
+        LoadPipelineStage::Compile,
+        LoadPipelineStage::Compact,
+    ];
+    let guids = ["a", "b", "b0", "c"];
+    for (index, guid) in guids.iter().enumerate() {
+        for (kind_index, kind) in kinds.iter().enumerate() {
+            if (index + kind_index) % 2 == 0 {
+                continue;
+            }
+            let stage = stages[(index + kind_index) % stages.len()];
+            let context_keys: &[&str] = match (index + kind_index) % 3 {
+                0 => &["", "owner:x"],
+                1 => &["owner:x"],
+                _ => &["\u{0}", "z"],
+            };
+            for context_key in context_keys {
+                r.record_load_decision(LoadDecisionDraft {
+                    subject: InventoryKey::object(*kind, *guid),
+                    pipeline_stage: stage,
+                    context_key: (*context_key).into(),
+                    disposition: LoadDisposition::MetadataOnly,
+                    loaded: None,
+                    reason_code: LoadReasonCode::MetadataOnly,
+                    effective_value_json: None,
+                    issue_code: None,
+                });
+            }
+        }
+    }
+    let mut hits = 0;
+    for guid in guids.iter().chain(&["", "aa", "d"]) {
+        for kind in kinds {
+            for stage in stages {
+                let key = InventoryKey::object(kind, *guid);
+                let scanned = r
+                    .load_decisions
+                    .iter()
+                    .any(|decision| decision.subject == key && decision.pipeline_stage == stage);
+                assert_eq!(
+                    r.has_load_decision(&key, stage),
+                    scanned,
+                    "{key:?} {stage:?}"
+                );
+                hits += usize::from(scanned);
+            }
+        }
+    }
+    assert!(hits > 0 && hits < guids.len() * kinds.len() * stages.len());
+}

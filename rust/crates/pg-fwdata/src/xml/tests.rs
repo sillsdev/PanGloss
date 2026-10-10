@@ -171,3 +171,36 @@ fn missing_guid_on_an_unknown_class_is_census_only_with_no_issue() {
         Some(&1)
     );
 }
+
+#[test]
+fn duplicate_guid_issues_name_every_occurrence_in_first_occurrence_order() {
+    let xml = br#"<?xml version="1.0"?><languageproject>
+<rt class="LexDb" guid="00000000-0000-0000-0000-00000000000b"/>
+<rt class="ZzUnknown" guid="00000000-0000-0000-0000-00000000000a"/>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-00000000000c"/>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-00000000000a"/>
+<rt class="ZzUnknown" guid="00000000-0000-0000-0000-00000000000b"/>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-00000000000a"/>
+<rt class="LexEntry"/>
+</languageproject>"#;
+    let graph = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
+    let duplicate_messages: Vec<_> = graph
+        .issues
+        .iter()
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::InvalidSourceDuplicateGuid)
+        .map(|i| (i.source.as_ref().unwrap().kind, i.message.as_str()))
+        .collect();
+    assert_eq!(
+        duplicate_messages,
+        [
+            (
+                pg_snapshot::FwClass::from_wire("LexDb"),
+                "guid 00000000-0000-0000-0000-00000000000b appears on 2 records: rt#1 (LexDb), rt#5 (ZzUnknown)"
+            ),
+            (
+                pg_snapshot::FwClass::Unknown,
+                "guid 00000000-0000-0000-0000-00000000000a appears on 3 records: rt#2 (ZzUnknown), rt#4 (MoStemMsa), rt#6 (LexEntry)"
+            ),
+        ]
+    );
+}
