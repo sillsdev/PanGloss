@@ -16,13 +16,23 @@ $ErrorActionPreference = 'Stop'
 $script:TestResults = @()
 
 function Test-Case {
-    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][scriptblock]$Body)
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][scriptblock]$Body,
+        # Why the case only means something on Windows; elsewhere it is reported as skipped, never passed.
+        [string]$WindowsOnly = ''
+    )
+    if ($WindowsOnly -and -not $IsWindows) {
+        $script:TestResults += [PSCustomObject]@{ Name = $Name; Pass = $true; Skipped = $true; Error = $WindowsOnly }
+        Write-Host "  SKIP  $Name (Windows-only: $WindowsOnly)" -ForegroundColor Yellow
+        return
+    }
     try {
         & $Body
-        $script:TestResults += [PSCustomObject]@{ Name = $Name; Pass = $true; Error = $null }
+        $script:TestResults += [PSCustomObject]@{ Name = $Name; Pass = $true; Skipped = $false; Error = $null }
         Write-Host "  PASS  $Name" -ForegroundColor Green
     } catch {
-        $script:TestResults += [PSCustomObject]@{ Name = $Name; Pass = $false; Error = $_.Exception.Message }
+        $script:TestResults += [PSCustomObject]@{ Name = $Name; Pass = $false; Skipped = $false; Error = $_.Exception.Message }
         Write-Host "  FAIL  $Name" -ForegroundColor Red
         Write-Host "        $($_.Exception.Message)" -ForegroundColor Red
     }
@@ -62,9 +72,10 @@ function New-TestTempDir {
 
 function Write-TestSummary {
     $failed = @($script:TestResults | Where-Object { -not $_.Pass })
+    $skipped = @($script:TestResults | Where-Object { $_.Skipped })
     Write-Host ''
     $color = if ($failed.Count -eq 0) { 'Green' } else { 'Red' }
-    Write-Host "$($script:TestResults.Count) test(s), $($failed.Count) failed" -ForegroundColor $color
+    Write-Host "$($script:TestResults.Count) test(s), $($failed.Count) failed, $($skipped.Count) skipped" -ForegroundColor $color
     if ($failed.Count -gt 0) {
         Write-Host 'Failed:' -ForegroundColor Red
         foreach ($f in $failed) { Write-Host "  - $($f.Name): $($f.Error)" -ForegroundColor Red }

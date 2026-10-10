@@ -236,7 +236,7 @@ Test-Case 'hostile path characters remain safely quoted and an in-tree destinati
     }
 }
 
-Test-Case 'source and destination reparse chains never receive move advice' {
+Test-Case 'source and destination reparse chains never receive move advice' -WindowsOnly 'needs NTFS junctions' {
     $fixture = New-TestTempDir -Prefix 'pg-sandbox-refresh-reparse'
     try {
         $actualRuntime = Join-Path $fixture 'actual-runtime'

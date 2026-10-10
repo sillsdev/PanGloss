@@ -2,7 +2,7 @@
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"
 
-Test-Case 'managed Cargo launches the payload directly, applies priority, and preserves its exit code' {
+Test-Case 'managed Cargo launches the payload directly, applies priority, and preserves its exit code' -WindowsOnly 'mocks Start-Process, which only the Windows launch path uses' {
     $originalStartProcess = Get-Item Function:\script:Start-Process -ErrorAction SilentlyContinue
     $script:CapturedStart = $null
     $script:FakeWaitArguments = @()

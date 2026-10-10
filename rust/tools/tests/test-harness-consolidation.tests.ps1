@@ -52,7 +52,10 @@ $crateSpecs = @(
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-foma-backend'
         MinTargets = 9
         MaxTargets = 9
+        # Helper modules that more than one harness imports on purpose.
+        SharedSourceNames = @('confirmed_rewrite_fixture.rs')
         ExpectedSourceNames = @(
+            'ambiguous_alpha_containment.rs', 'confirmed_rewrite_fixture.rs', 'free_fluctuation_containment.rs', 'permanent_variant_refusals.rs', 'repeated_alpha_containment.rs', 'rewrite_oracle_fixtures.rs',
             'admission_single_owner_gate.rs', 'advice_catalog_contract.rs',
             'apply_path_refusal_gate.rs', 'atomic_template_slot_carrier_gate.rs',
             'backend_accuracy_gate.rs', 'backend_capability_cards_contract.rs',
@@ -114,6 +117,7 @@ $crateSpecs = @(
         MinTargets = 3
         MaxTargets = 3
         ExpectedSourceNames = @(
+            'effective_analysis_target.rs', 'step_cap_work_gate.rs', 'trace_template_outcomes.rs',
             'batch_determinism.rs', 'cd_set_gate.rs', 'conformance_fixtures_gate.rs',
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',
             'csharp_port_affix_template.rs', 'csharp_port_compounding.rs',
@@ -157,6 +161,7 @@ $crateSpecs = @(
         MinTargets = 2
         MaxTargets = 2
         ExpectedSourceNames = @(
+            'facts_command.rs', 'frozen_batch_hard_links.rs', 'reserved_word_boundary.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
             'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'compile_errors_contract.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'skills_never_instruct_bare_cargo.rs')
     }
     @{
@@ -186,7 +191,8 @@ $crateSpecs = @(
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-grammar'
         MinTargets = 1
         MaxTargets = 1
-        ExpectedSourceNames = @('circumfix_conditioning_parity.rs', 'compile_refusal_gate.rs', 'conversion_inventory_gate.rs', 'lossless_conversion_gate.rs', 'measure_only_confinement_gate.rs', 'p5_closure_property.rs')
+        ExpectedSourceNames = @(
+            'circumfix_inflection_classes.rs', 'process_allomorph_inflection_classes.rs','circumfix_conditioning_parity.rs', 'compile_refusal_gate.rs', 'conversion_inventory_gate.rs', 'lossless_conversion_gate.rs', 'measure_only_confinement_gate.rs', 'p5_closure_property.rs')
     }
     @{
         Name = 'pg-lexicon'
@@ -260,7 +266,10 @@ foreach ($spec in $crateSpecs) {
         $extra = @($imports | Where-Object {
             $expectedPaths -notcontains $_.Path -or -not (Test-Path -LiteralPath $_.Path)
         })
-        $duplicates = @($imports | Group-Object Path | Where-Object Count -gt 1)
+        $sharedPaths = @(@($spec.SharedSourceNames) | Where-Object { $_ } | ForEach-Object {
+            [System.IO.Path]::GetFullPath((Join-Path $testsRoot $_))
+        })
+        $duplicates = @($imports | Group-Object Path | Where-Object { $_.Count -gt 1 -and $sharedPaths -notcontains $_.Name })
         $missingText = @($missing | ForEach-Object { Get-RelativeTestPath $testsRoot $_ })
         $extraText = @($extra | ForEach-Object {
             "$($_.Target):$($_.Module) -> $(Get-RelativeTestPath $testsRoot $_.Path)"

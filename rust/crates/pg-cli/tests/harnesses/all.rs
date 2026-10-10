@@ -43,3 +43,9 @@ mod underdefined_measurement_integrity_gate;
 
 #[path = "../underdefined_stored_keys_gate.rs"]
 mod underdefined_stored_keys_gate;
+
+#[path = "../facts_command.rs"]
+mod facts_command;
+
+#[path = "../reserved_word_boundary.rs"]
+mod reserved_word_boundary;

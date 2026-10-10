@@ -258,11 +258,14 @@ Test-Case 'a bare -- in the spec is preserved for cargo, not eaten' {
 
 # --- CaptureStdoutPath: judged by bytes on disk, never by the flag being accepted ---
 
+$probeShell = if ($IsWindows) { 'cmd.exe' } else { '/bin/sh' }
+$probeFlag = if ($IsWindows) { '/c' } else { '-c' }
+
 Test-Case 'Invoke-ManagedProcess with CaptureStdoutPath actually writes the child stdout to disk' {
     # `run` used to pass no capture path, so an outer PowerShell redirect captured nothing and two long censuses lost their output.
     $out = Join-Path ([System.IO.Path]::GetTempPath()) "pg-capture-probe-$PID.txt"
     if (Test-Path $out) { [System.IO.File]::Delete($out) }
-    $code = Invoke-ManagedProcess -Exe 'cmd.exe' -CmdArgs @('/c', 'echo pangloss-capture-probe') `
+    $code = Invoke-ManagedProcess -Exe $probeShell -CmdArgs @($probeFlag, 'echo pangloss-capture-probe') `
         -WorkingDirectory ([System.IO.Path]::GetTempPath()) -Priority 'BelowNormal' -CaptureStdoutPath $out
     Assert-Equal 0 $code 'the probe process must exit cleanly'
     Assert-True (Test-Path $out) 'CaptureStdoutPath must produce a file'
@@ -275,7 +278,7 @@ Test-Case 'Invoke-ManagedProcess with CaptureStdoutPath actually writes the chil
 Test-Case 'without CaptureStdoutPath no file is produced (the default stays live-console)' {
     $out = Join-Path ([System.IO.Path]::GetTempPath()) "pg-capture-absent-$PID.txt"
     if (Test-Path $out) { [System.IO.File]::Delete($out) }
-    $code = Invoke-ManagedProcess -Exe 'cmd.exe' -CmdArgs @('/c', 'echo no-capture') `
+    $code = Invoke-ManagedProcess -Exe $probeShell -CmdArgs @($probeFlag, 'echo no-capture') `
         -WorkingDirectory ([System.IO.Path]::GetTempPath()) -Priority 'BelowNormal'
     Assert-Equal 0 $code 'the probe process must exit cleanly'
     Assert-False (Test-Path $out) 'no capture path was passed, so nothing may be written'

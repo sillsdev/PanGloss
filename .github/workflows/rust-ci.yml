@@ -57,6 +57,37 @@ jobs:
       - name: Build and run required HC smoke in a bounded managed service
         run: bash tools/linux-containment-ci.sh --wasm-js-smoke
 
+  windows:
+    # The Linux gates never compile cfg(windows) code; v0.8.0's Windows release build broke unseen.
+    name: Windows clippy, build + hard-link tests (required)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Clippy, as the Linux gate runs it
+        run: cargo clippy --all-targets --features pg-cli/examples --locked -- -D warnings
+      - name: Build the release binary
+        run: cargo build --release -p pg-cli --locked
+      - name: Run the Windows file-identity tests
+        shell: bash
+        # A filter that matches nothing still passes, so require the two tests by count.
+        run: |
+          set -o pipefail
+          cargo test --profile pg-test-opt -p pg-cli --test all --locked -- frozen_batch_hard_links | tee hard-links.log
+          grep -q 'test result: ok\. 2 passed' hard-links.log
+
   coverage:
     name: coverage (codecov)
     runs-on: ubuntu-latest

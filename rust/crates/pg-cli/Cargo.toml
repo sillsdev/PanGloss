@@ -19,14 +19,6 @@ name = "recipe_optimize_timeout"
 path = "tests/recipe_optimize_timeout.rs"
 required-features = ["foma-tools"]
 
-[[test]]
-name = "facts_command"
-path = "tests/facts_command.rs"
-
-[[test]]
-name = "reserved_word_boundary"
-path = "tests/reserved_word_boundary.rs"
-
 [features]
 examples = []
 foma-tools = ["dep:pg-foma", "dep:pg-foma-backend", "pg-assess/foma-tools", "pg-pack/foma-tools"]
