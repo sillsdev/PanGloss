@@ -12,6 +12,15 @@ file has no section for.
   marker had no import decision, which made `load_accounting` partial on every FieldWorks project.
   The facts schema (v8) and stats cache version (8) are unchanged.
 
+### Bare word-boundary environments and right-to-left rules match HermitCrab
+
+- A bare `#` environment now skips optional segments at the word edge, as HermitCrab does, so a
+  segment that a deletion rule re-inserts during analysis no longer hides the edge.
+- A right-to-left rule with a multi-segment left-hand side now fires; its target was compiled
+  unreversed and matched only its mirror image. Some words parse that did not, and some that did
+  no longer do, matching HermitCrab.
+- The FST backends still miss one such parse; the coverage ratchets record it.
+
 ## 0.8.1
 
 ### Words built by merging rules parse faster
