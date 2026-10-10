@@ -354,14 +354,133 @@ fn run_stored_analysis_health_with_synthesis_cap(
     let path = project_path.to_string_lossy().into_owned();
     let loaded = crate::load_grammar_impl(&path, false, false)
         .unwrap_or_else(|error| panic!("load capped stored-analysis fixture: {error}"));
-    let diagnostics = crate::stored_analysis_health::check_with_synthesis_work_cap(
+    let diagnostics = crate::stored_analysis_health::check_with_options(
         &loaded.grammar,
         &loaded.stored_analyses,
+        crate::stored_analysis_health::ANALYSIS_STEP_CAP,
         work_cap,
+        1,
     )
     .expect("capped synthesis is reported as a finding");
     fs::remove_dir_all(&scratch).expect("remove capped stored-analysis fixture directory");
     diagnostics
+}
+
+/// Runs only the stored-analysis comparison, once per entry of `thread_counts`, on one loaded project.
+fn compare_stored_analyses_at(
+    project: &str,
+    writing_system: &str,
+    analyses: &[StoredAnalysisFixture],
+    step_cap: usize,
+    thread_counts: &[usize],
+) -> Vec<Result<Vec<pg_grammar::grammar_health::GrammarHealthDiagnostic>, String>> {
+    let scratch = std::env::temp_dir().join(format!(
+        "pangloss-stored-analysis-threads-{}-{}",
+        std::process::id(),
+        STORED_ANALYSIS_TEST_ID.fetch_add(1, Ordering::Relaxed),
+    ));
+    fs::create_dir_all(&scratch).expect("create threaded stored-analysis fixture directory");
+    let project_path = scratch.join("project.fwdata");
+    fs::write(
+        &project_path,
+        append_stored_analyses(project, writing_system, analyses),
+    )
+    .expect("write threaded stored-analysis project");
+    let path = project_path.to_string_lossy().into_owned();
+    let loaded = crate::load_grammar_impl(&path, false, false)
+        .unwrap_or_else(|error| panic!("load threaded stored-analysis fixture: {error}"));
+    assert_eq!(loaded.stored_analyses.len(), analyses.len());
+    let results = thread_counts
+        .iter()
+        .map(|&threads| {
+            crate::stored_analysis_health::check_with_options(
+                &loaded.grammar,
+                &loaded.stored_analyses,
+                step_cap,
+                pg_rules::stratum::default_work_cap(step_cap),
+                threads,
+            )
+        })
+        .collect();
+    fs::remove_dir_all(&scratch).expect("remove threaded stored-analysis fixture directory");
+    results
+}
+
+/// Distinct wordforms over the 08-rule-context inventory, each claiming the `muma` root analysis.
+fn many_wordform_fixtures() -> Vec<StoredAnalysisFixture> {
+    const WORDFORMS: [&str; 24] = [
+        "muma", "xuma", "xmuma", "pupa", "xupa", "xpupa", "mu", "ma", "pu", "pa", "xu", "xa",
+        "umu", "apa", "mupa", "puma", "xmupa", "xpuma", "mumu", "papa", "xxuma", "muxa", "amu",
+        "upu",
+    ];
+    WORDFORMS
+        .iter()
+        .map(|&wordform| StoredAnalysisFixture {
+            wordform,
+            allomorph: "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+            msa: "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+            expected_surface: "pupa",
+        })
+        .collect()
+}
+
+#[test]
+fn stored_analysis_comparison_is_identical_at_every_thread_count() {
+    let analyses = many_wordform_fixtures();
+    let results = compare_stored_analyses_at(
+        &staged_underdefined_project("08-rule-context"),
+        "en",
+        &analyses,
+        crate::stored_analysis_health::ANALYSIS_STEP_CAP,
+        &[1, 2, 3, 8],
+    );
+    let sequential = results[0].as_ref().expect("sequential comparison succeeds");
+    assert!(
+        sequential.len() >= analyses.len() / 2,
+        "the fixture must produce many findings to discriminate orderings: {}",
+        sequential.len()
+    );
+    let wordform_order: Vec<_> = sequential
+        .iter()
+        .filter_map(|finding| finding.message.split("for wordform ").nth(1))
+        .collect();
+    let mut sorted = wordform_order.clone();
+    sorted.sort();
+    assert_eq!(wordform_order, sorted, "findings follow wordform order");
+    for (result, threads) in results.iter().zip([1, 2, 3, 8]).skip(1) {
+        assert_eq!(
+            result.as_ref().expect("threaded comparison succeeds"),
+            sequential,
+            "{threads} threads diverged from the sequential comparison"
+        );
+    }
+}
+
+#[test]
+fn stored_analysis_comparison_reports_the_first_capped_wordform_at_every_thread_count() {
+    let analyses = many_wordform_fixtures();
+    let first_wordform = analyses
+        .iter()
+        .map(|analysis| analysis.wordform)
+        .min()
+        .expect("fixture has wordforms");
+    let results = compare_stored_analyses_at(
+        &staged_underdefined_project("08-rule-context"),
+        "en",
+        &analyses,
+        1,
+        &[1, 2, 8],
+    );
+    for (result, threads) in results.into_iter().zip([1, 2, 8]) {
+        let error = result.expect_err("a one-step cap leaves every comparison incomplete");
+        assert_eq!(
+            error,
+            format!(
+                "stored-analysis comparison for {first_wordform:?} is incomplete: PanGloss hit its analysis work cap"
+            ),
+            "{threads} threads"
+        );
+    }
 }
 
 fn staged_underdefined_project(folder: &str) -> String {

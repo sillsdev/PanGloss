@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use pg_grammar::grammar_health::{GrammarHealthCode, GrammarHealthDiagnostic};
 use pg_grammar::model::{AllomorphOwner, Grammar, MorphRuleDef, PhonRuleDef};
@@ -6,7 +7,7 @@ use pg_parse::{AnalysisProvenance, Morpher, WordAnalysis};
 use pg_rules::trace::{TraceSource, TraceType, TreeTraceSink};
 use pg_snapshot::{FwClass, FwObjectRef};
 
-const ANALYSIS_STEP_CAP: usize = 100_000;
+pub(crate) const ANALYSIS_STEP_CAP: usize = 100_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct StoredKeyMorph {
@@ -33,24 +34,44 @@ pub fn check(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
 ) -> Result<Vec<GrammarHealthDiagnostic>, String> {
-    check_with_synthesis_work_cap(
+    check_with_options(
         grammar,
         stored_analyses,
+        ANALYSIS_STEP_CAP,
         pg_rules::stratum::default_work_cap(ANALYSIS_STEP_CAP),
+        default_threads(),
     )
 }
 
-pub(crate) fn check_with_synthesis_work_cap(
+/// Logical CPUs capped at 8, `batch`'s own default: per-word memory multiplies by thread count.
+fn default_threads() -> usize {
+    const DEFAULT_THREAD_CAP: usize = 8;
+    std::thread::available_parallelism()
+        .map(|n| n.get().min(DEFAULT_THREAD_CAP))
+        .unwrap_or(1)
+}
+
+/// Parallel per wordform, folded in wordform order: step caps count steps, never a clock.
+pub(crate) fn check_with_options(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
+    step_cap: usize,
     synthesis_work_cap: usize,
+    threads: usize,
 ) -> Result<Vec<GrammarHealthDiagnostic>, String> {
     if stored_analyses.is_empty() {
         return Ok(Vec::new());
     }
 
-    let parser = Morpher::new(grammar, ANALYSIS_STEP_CAP);
-    let synthesizer = Morpher::new(grammar, ANALYSIS_STEP_CAP).with_work_cap(synthesis_work_cap);
+    let (parser, synthesizer) = std::thread::scope(|scope| {
+        let synthesizer =
+            scope.spawn(|| Morpher::new(grammar, step_cap).with_work_cap(synthesis_work_cap));
+        let parser = Morpher::new(grammar, step_cap);
+        let synthesizer = synthesizer
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        (parser, synthesizer)
+    });
     let mut by_word = BTreeMap::<String, Vec<&pg_fwdata::StoredAnalysis>>::new();
     let mut diagnostics = Vec::new();
     for analysis in stored_analyses {
@@ -67,52 +88,126 @@ pub(crate) fn check_with_synthesis_work_cap(
             .or_default()
             .push(analysis);
     }
+    let words: Vec<_> = by_word.into_iter().collect();
 
-    for (wordform, analyses) in by_word {
-        let outcome = parser.parse_word(&wordform);
-        if outcome.capped || outcome.timed_out {
-            return Err(format!(
-                "stored-analysis comparison for {wordform:?} is incomplete: PanGloss hit its analysis work cap"
-            ));
+    let results = compare_words_in_order(&words, threads, |wordform, analyses| {
+        compare_word(grammar, &parser, &synthesizer, wordform, analyses)
+    })?;
+    for (index, result) in results.into_iter().enumerate() {
+        match result {
+            Some(result) => diagnostics.extend(result?),
+            None => panic!(
+                "stored-analysis comparison skipped word {index} ({:?}) before any earlier word failed",
+                words[index].0
+            ),
         }
-        let mut produced = BTreeMap::<StoredKey, usize>::new();
-        for parsed in &outcome.structured {
-            let projection = pg_parse::project_parse_analysis(parsed, grammar).map_err(|error| {
-                format!("stored-analysis comparison for {wordform:?} could not project a confirmed analysis: {error}")
-            })?;
-            let key = projection
-                .morphs
-                .into_iter()
-                .map(|morph| {
-                    Some(StoredKeyMorph {
-                        allomorph: morph.form?,
-                        msa: morph.msa?,
-                        inflection_type: morph.infl_type,
-                    })
-                })
-                .collect::<Option<StoredKey>>();
-            if let Some(key) = key {
-                *produced.entry(key).or_default() += 1;
+    }
+    Ok(diagnostics)
+}
+
+type WordResult = Result<Vec<GrammarHealthDiagnostic>, String>;
+
+/// Words are claimed in index order, so past the first failure each worker finishes at most one word.
+fn compare_words_in_order<'a, F>(
+    words: &'a [(String, Vec<&'a pg_fwdata::StoredAnalysis>)],
+    threads: usize,
+    compare: F,
+) -> Result<Vec<Option<WordResult>>, String>
+where
+    F: Fn(&'a str, &'a [&'a pg_fwdata::StoredAnalysis]) -> WordResult + Sync,
+{
+    let next = AtomicUsize::new(0);
+    // Lowest failing word index seen so far; a word after it cannot reach the output.
+    let first_error = AtomicUsize::new(usize::MAX);
+    let worker = || {
+        let mut done = Vec::new();
+        loop {
+            let index = next.fetch_add(1, Ordering::Relaxed);
+            if index >= words.len() || index > first_error.load(Ordering::Relaxed) {
+                return done;
+            }
+            let (wordform, analyses) = &words[index];
+            let result = compare(wordform, analyses);
+            if result.is_err() {
+                first_error.fetch_min(index, Ordering::Relaxed);
+            }
+            done.push((index, result));
+        }
+    };
+    let mut results: Vec<Option<WordResult>> = (0..words.len()).map(|_| None).collect();
+    std::thread::scope(|scope| {
+        let handles = (0..threads.clamp(1, words.len().max(1)))
+            .map(|_| {
+                std::thread::Builder::new()
+                    .stack_size(1 << 30)
+                    .spawn_scoped(scope, worker)
+                    .map_err(|error| format!("spawn stored-analysis comparison worker: {error}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for handle in handles {
+            let done = handle
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            for (index, result) in done {
+                results[index] = Some(result);
             }
         }
+        Ok::<_, String>(())
+    })?;
+    Ok(results)
+}
 
-        for analysis in analyses {
-            let key = stored_key(analysis);
-            if let Some(key) = key {
-                if let Some(count) = produced.get_mut(&key) {
-                    if *count > 0 {
-                        *count -= 1;
-                        continue;
-                    }
+fn compare_word(
+    grammar: &Grammar,
+    parser: &Morpher<'_>,
+    synthesizer: &Morpher<'_>,
+    wordform: &str,
+    analyses: &[&pg_fwdata::StoredAnalysis],
+) -> Result<Vec<GrammarHealthDiagnostic>, String> {
+    let outcome = parser.parse_word(wordform);
+    if outcome.capped || outcome.timed_out {
+        return Err(format!(
+            "stored-analysis comparison for {wordform:?} is incomplete: PanGloss hit its analysis work cap"
+        ));
+    }
+    let mut produced = BTreeMap::<StoredKey, usize>::new();
+    for parsed in &outcome.structured {
+        let projection = pg_parse::project_parse_analysis(parsed, grammar).map_err(|error| {
+            format!("stored-analysis comparison for {wordform:?} could not project a confirmed analysis: {error}")
+        })?;
+        let key = projection
+            .morphs
+            .into_iter()
+            .map(|morph| {
+                Some(StoredKeyMorph {
+                    allomorph: morph.form?,
+                    msa: morph.msa?,
+                    inflection_type: morph.infl_type,
+                })
+            })
+            .collect::<Option<StoredKey>>();
+        if let Some(key) = key {
+            *produced.entry(key).or_default() += 1;
+        }
+    }
+
+    let mut diagnostics = Vec::new();
+    for analysis in analyses {
+        let key = stored_key(analysis);
+        if let Some(key) = key {
+            if let Some(count) = produced.get_mut(&key) {
+                if *count > 0 {
+                    *count -= 1;
+                    continue;
                 }
             }
-            diagnostics.push(finding_for_missing(
-                grammar,
-                &synthesizer,
-                analysis,
-                &wordform,
-            )?);
         }
+        diagnostics.push(finding_for_missing(
+            grammar,
+            synthesizer,
+            analysis,
+            wordform,
+        )?);
     }
     Ok(diagnostics)
 }
