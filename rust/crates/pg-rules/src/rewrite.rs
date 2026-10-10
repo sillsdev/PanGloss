@@ -595,7 +595,8 @@ pub(crate) fn left_env_match(
 ) -> Option<Option<Vec<FstResult>>> {
     let Some(env) = env else { return Some(None) };
     if env.only_anchor {
-        return if left_end == 0 { Some(None) } else { None };
+        // C#'s anchored traversal skips Optional annotations, so only optional segments may precede the target.
+        return segs[..left_end].iter().all(|s| s.optional).then_some(None);
     }
     if left_end == 0 {
         return empty_env_match(env);
@@ -621,11 +622,11 @@ pub(crate) fn right_env_match(
 ) -> Option<Option<Vec<FstResult>>> {
     let Some(env) = env else { return Some(None) };
     if env.only_anchor {
-        return if right_start == segs.len() {
-            Some(None)
-        } else {
-            None
-        };
+        // Mirror of `left_env_match`: a re-inserted Optional segment after the target must not hide the word end.
+        return segs[right_start.min(segs.len())..]
+            .iter()
+            .all(|s| s.optional)
+            .then_some(None);
     }
     if right_start >= segs.len() {
         return empty_env_match(env);
@@ -3018,7 +3019,11 @@ fn lhs_fst(
         .with_table(table_id)
         .strrep(true)
         .deterministic(deterministic);
-    let compiled = bridge.compile_pattern(lhs).expect("LHS compiles");
+    let mut compiled = bridge.compile_pattern(lhs).expect("LHS compiles");
+    // `pg_fst` never reorders internally (see `compile_lane_fst`); unreversed, a right-to-left multi-segment LHS matches only its own mirror image.
+    if dir == Direction::RightToLeft {
+        compiled.input.nodes.reverse();
+    }
     compiled.input.compile_with_direction(dir)
 }
 

@@ -56,18 +56,23 @@ This is an argued property, not a proof for every grammar. Evidence:
 
 `conformance-staging/edge-cases/`: `simultaneous-expansion-terminates`, `feature-rule-before-merge`,
 `epenthesis-fed-merge`, `geminate-under-merge`, `default-symbol-after-merge` (forward-derived guards
-against the PR's regressions), and seven regression-hunt fixtures whose expectations come from C#
+against the PR's regressions), and nine regression-hunt fixtures whose expectations come from C#
 master: `expansion-overlapping-targets`, `merge-then-metathesis`, `two-merges-cascade-env`,
 `boundary-first-in-narrowing-lhs`, `boundary-first-in-narrowing-lhs-strrep`,
-`boundary-mid-in-narrowing-lhs-strrep`, `boundary-leftover-in-narrowing-lhs-strrep`.
+`boundary-mid-in-narrowing-lhs-strrep`, `boundary-leftover-in-narrowing-lhs-strrep`,
+`deletion-reinserted-feature-unapply`, `merge-subrules-pos-rtl-template`.
 
-Two further hunt fixtures are held back because PanGloss `main` already disagrees with C# on
-them, independently of this change: `deletion-reinserted-feature-unapply` (`bak` misses `BAG`)
-and `merge-subrules-pos-rtl-template` (`F`, `Gs`, `FF` find no parse). They need their own entries.
+The last two exposed two older PanGloss bugs, independent of this change and fixed with their
+staging, so they are not divergences: a bare `#` environment did not skip Optional segments
+(`bak` missed `BAG` behind the re-inserted `t`), and a right-to-left synthesis target was
+compiled unreversed, so a multi-segment `rightToLeftIterative` LHS never matched (`F`, `Gs`,
+`FF` found no parse).
 
 FST backends: the new fixtures enter the backend scoreboard ratchet
 (`pg-foma-backend/tests/backend_scoreboard_gate.rs`). HC-Rust is exact on all of them; the
-`PlanComposed` backend refuses nine (typed refusals), and `TunedSurfaceProbed` misses a parse on
+`PlanComposed` backend refuses eleven (typed refusals), and `TunedSurfaceProbed` misses a parse on
 `boundary-first-in-narrowing-lhs-strrep`, an FST coverage gap on a feature-less boundary rule.
+Both FST strategies also miss on `merge-subrules-pos-rtl-template` in every application order,
+a separate gap with part-of-speech-gated narrowing subrules.
 
 Related: 083 (interposed Optional; [Machine PR #540](https://github.com/sillsdev/machine/pull/540)).

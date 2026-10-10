@@ -44,12 +44,12 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // 125 rows per strategy: the two boundary fixtures and the six 079 fixtures joined the original 104, then the 083 and 087 narrowing fixtures.
+    // 127 rows per strategy: the two boundary fixtures and the six 079 fixtures joined the original 104, then the 083 and 087 narrowing fixtures; `merge-subrules-pos-rtl-template` is a miss in both FST strategies whatever its application order.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 119,
-            compiles_but_misses: 4,
+            oracle_exact: 120,
+            compiles_but_misses: 5,
             refused: 2,
             unmeasurable: 0,
         },
@@ -57,8 +57,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 97,
-            compiles_but_misses: 3,
+            oracle_exact: 98,
+            compiles_but_misses: 4,
             refused: 25,
             unmeasurable: 0,
         },
@@ -68,7 +68,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 39,
             compiles_but_misses: 2,
-            refused: 81,
+            refused: 83,
             unmeasurable: 3,
         },
     ),
