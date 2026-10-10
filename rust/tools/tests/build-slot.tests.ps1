@@ -251,8 +251,13 @@ Test-Case 'commit charge is reported and is internally consistent' {
     if ($null -ne $c) {
         Assert-True ($c.LimitGB -gt 0) 'commit limit must be positive'
         Assert-True ($c.CommittedGB -ge 0)
-        Assert-True ($c.CommittedGB -le $c.LimitGB) 'committed cannot exceed the limit'
-        Assert-True ($c.PercentUsed -ge 0 -and $c.PercentUsed -le 100) "percent out of range: $($c.PercentUsed)"
+        Assert-True ($c.PercentUsed -ge 0) "percent out of range: $($c.PercentUsed)"
+        # Linux enforces CommitLimit only in strict mode (vm.overcommit_memory=2); otherwise Committed_AS may exceed it.
+        $limitEnforced = -not $IsLinux -or ((Get-Content -Raw '/proc/sys/vm/overcommit_memory').Trim() -eq '2')
+        if ($limitEnforced) {
+            Assert-True ($c.CommittedGB -le $c.LimitGB) 'committed cannot exceed an enforced limit'
+            Assert-True ($c.PercentUsed -le 100) "percent out of range: $($c.PercentUsed)"
+        }
     }
 }
 
