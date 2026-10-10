@@ -58,6 +58,12 @@ does. That establishes the importer behavior on the regression fixture but does 
 reported Motif file changed behavior. The change is confined to the Rust `.fwdata` importer; no
 `pg-parse` or `pg-rules` code changed. No Machine issue or upstream change is indicated.
 
+## Load accounting
+Excluding the reserved record from the marker table must not leave it unaccounted. The importer
+records it as considered, selected and represented, since it is represented as the word edge.
+`pg-cli/tests/reserved_word_boundary.rs::reserved_word_boundary_record_is_accounted_so_load_accounting_is_complete`
+pins that `pangloss facts` reports complete load accounting for a project that owns the record.
+
 ## Upstream
 No Machine issue or upstream change is needed. This corrects PanGloss import behavior to match the
 existing FieldWorks loader contract.

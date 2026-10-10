@@ -136,10 +136,26 @@ fn extract_phoneme_set(
         .node
         .objsur_list("BoundaryMarkers")
         .into_iter()
-        .filter(|guid| guid != WORD_BOUNDARY_MARKER_GUID)
-        .filter_map(|g| extract_boundary_marker(ctx, &g, set))
+        .filter_map(|g| {
+            if g == WORD_BOUNDARY_MARKER_GUID {
+                record_reserved_word_boundary(ctx, &g);
+                return None;
+            }
+            extract_boundary_marker(ctx, &g, set)
+        })
         .collect();
     (phonemes, boundary_markers)
+}
+
+/// The reserved word-boundary record is represented as `PhonContext::WordBoundary`, not as a marker.
+fn record_reserved_word_boundary(ctx: &mut Ctx, guid: &str) {
+    if !ctx.get(guid).is_some_and(|rec| rec.class == "PhBdryMarker") {
+        return;
+    }
+    let key = InventoryKey::object(InventoryKind::BoundaryMarker, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    ctx.represented(key);
 }
 
 fn extract_phoneme(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Phoneme> {

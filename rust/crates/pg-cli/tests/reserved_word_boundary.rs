@@ -255,3 +255,71 @@ fn reserved_word_boundary_record_is_a_word_anchor_and_literal_hash_remains_liter
         }
     }
 }
+
+#[test]
+fn reserved_word_boundary_record_is_accounted_so_load_accounting_is_complete() {
+    let dir = tempfile::tempdir().expect("create fixture directory");
+    let path = reserved_boundary_fixture(dir.path(), false);
+    let (snapshot, _) = pg_fwdata::import_file(&path).expect("fixture imports");
+    let snapshot_path = dir.path().join("snapshot.json");
+    let context_path = dir.path().join("context.json");
+    let facts_path = dir.path().join("facts.sqlite");
+    std::fs::write(&snapshot_path, snapshot.to_json()).expect("write snapshot");
+    std::fs::write(
+        &context_path,
+        br#"{"format":"pangloss-facts-context","version":1,"baselineToken":{"id":"reserved-boundary"},"inputKind":"baseline","dryRunDigest":null}"#,
+    )
+    .expect("write context");
+
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_pangloss"))
+        .arg("facts")
+        .arg(&snapshot_path)
+        .arg("--out")
+        .arg(&facts_path)
+        .arg("--context")
+        .arg(&context_path)
+        .arg("--json")
+        .output()
+        .expect("run pangloss facts");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let db = rusqlite::Connection::open(&facts_path).expect("open facts");
+    let reserved: Vec<(String, String, String)> = db
+        .prepare(
+            "SELECT pipeline_stage, disposition, reason_code FROM load_fact \
+             WHERE subject_guid = ?1 ORDER BY pipeline_stage",
+        )
+        .unwrap()
+        .query_map([WORD_BOUNDARY_GUID], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(
+        reserved
+            .iter()
+            .any(|(stage, disposition, _)| stage == "import" && disposition == "represented"),
+        "reserved word boundary needs an import decision: {reserved:?}"
+    );
+    let unknown: Vec<(String, String)> = db
+        .prepare("SELECT subject_key, reason_code FROM load_fact WHERE disposition = 'unknown'")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert!(unknown.is_empty(), "unknown load facts: {unknown:?}");
+    let status: String = db
+        .query_row(
+            "SELECT status FROM artifact_section WHERE section = 'load_accounting'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "complete");
+}

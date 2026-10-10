@@ -3,6 +3,15 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.8.2
+
+### Grammar facts account for the reserved FieldWorks word boundary
+
+- The importer records the reserved word-boundary marker as represented (it becomes the word
+  edge), so `pangloss facts` reports `load_accounting` as complete again. In 0.8.0 and 0.8.1 that
+  marker had no import decision, which made `load_accounting` partial on every FieldWorks project.
+  The facts schema (v8) and stats cache version (8) are unchanged.
+
 ## 0.8.1
 
 ### Words built by merging rules parse faster
