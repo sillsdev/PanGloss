@@ -132,10 +132,14 @@ Test-Case 'an idle machine is NOT throttled: the gate costs nothing when memory 
 Test-Case 'a machine under real pressure IS throttled below the cores-only cap' {
     # The half that does the protecting: same budgets, but most memory is already spoken for by something else.
     $cpu = Get-CargoJobBudget -MaxConcurrent 2
+    # Pressure is relative to this machine's cores: leave room for one process fewer than they allow.
+    if ($cpu -le 1) { throw "cores-only cap is $cpu, so no memory pressure can bind below it; this host cannot exercise the case" }
+    $reserve = Get-InteractiveReserveGB
     foreach ($perProc in @((Get-MemoryPerProcessGB), (Get-MemoryPerProcessGB -FatLto), $script:MemoryPerTestProcessGB)) {
-        $n = Get-MemoryProcessBudget -AvailableGB 14 -PerProcessGB $perProc -MaxConcurrent 2
+        $available = $reserve + $perProc * 2 * ($cpu - 1)
+        $n = Get-MemoryProcessBudget -AvailableGB $available -PerProcessGB $perProc -MaxConcurrent 2
         $r = Resolve-ConcurrencyBudget -CpuBudget $cpu -MemoryBudget $n
-        Assert-Equal 'memory' $r.Bound "with only 14GB available, a ${perProc}GB/process budget must bind before the cores-only cap (cpu=$cpu memory=$n)"
+        Assert-Equal 'memory' $r.Bound "with only ${available}GB available, a ${perProc}GB/process budget must bind before the cores-only cap (cpu=$cpu memory=$n)"
     }
 }
 
