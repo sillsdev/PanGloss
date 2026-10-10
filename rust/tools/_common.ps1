@@ -386,6 +386,25 @@ function Get-TopMemoryConsumers {
     }
 }
 
+function Split-CargoFeatureArgs {
+    <# .DESCRIPTION Splits Cargo feature selection from other passthrough args, stopping at libtest's `--` separator. #>
+    param([string[]]$ExtraArgs = @())
+    $cargo = @()
+    for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
+        $arg = $ExtraArgs[$i]
+        if ($arg -eq '--') { break }
+        if ($arg -eq '--features' -or $arg -eq '-F') {
+            if ($i + 1 -ge $ExtraArgs.Count -or $ExtraArgs[$i + 1].StartsWith('-')) {
+                throw "Cargo feature selection $arg requires a feature list"
+            }
+            $cargo += @($arg, $ExtraArgs[++$i])
+        } elseif ($arg -match '^(--features|-F)=' -or $arg -in @('--all-features', '--no-default-features')) {
+            $cargo += $arg
+        }
+    }
+    [PSCustomObject]@{ CargoArgs = @($cargo) }
+}
+
 function Get-CargoTestInvocation {
     param(
         [ValidateSet('quick', 'test', 'corpus-test', 'conformance-test')][Parameter(Mandatory)][string]$Mode,

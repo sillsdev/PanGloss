@@ -47,6 +47,21 @@ Test-Case 'check runs clippy and every other cargo mode runs the lint gate first
     Assert-True ($pgScript -match '\$code = \$script:ExitCodeLint') 'a failed lint gate must exit with ExitCodeLint'
 }
 
+Test-Case 'the lint gate passes the selected Cargo features and no runner args' {
+    $split = Split-CargoFeatureArgs -ExtraArgs @('--features', 'developer-tools', '-F', 'x', '--features=y', '--all-features', '--no-default-features', '--no-capture', '--', '--features', 'late')
+    $lint = @(Get-ClippyInvocation -Package pg-cli -ExtraArgs $split.CargoArgs -ExamplePackages @())
+    Assert-Equal 'developer-tools' $lint[([array]::IndexOf($lint, '--features') + 1)] 'the selected feature list must reach clippy'
+    foreach ($a in @('-F', '--features=y', '--all-features', '--no-default-features')) { Assert-Contains $lint $a "$a must reach clippy" }
+    Assert-False ($lint -contains '--no-capture') 'runner flags cannot reach clippy'
+    Assert-False ($lint -contains 'late') 'nothing after the libtest separator reaches clippy'
+    Assert-True ([array]::IndexOf($lint, 'developer-tools') -lt [array]::IndexOf($lint, '--')) 'features must precede the -- separator'
+}
+
+Test-Case 'pg.ps1 feeds the selected features into the pre-build lint gate' {
+    Assert-True ($pgScript -match '\$lintArgs = @\(Get-ClippyInvocation [^\n]*-ExtraArgs @\(\(Split-CargoFeatureArgs -ExtraArgs \$ExtraArgs\)\.CargoArgs\)\)') `
+        'the lint gate must receive the features selected for the build/test command'
+}
+
 Test-Case 'comment hygiene is fatal in every compile mode' {
     Assert-True ($pgScript -match "(?s)Invoke-CommentHygieneReport -ToolRoot \`$PSScriptRoot\)\)\s*\{.{0,300}exit \`$script:ExitCodeCommentHygiene") `
         'a hygiene violation must exit with ExitCodeCommentHygiene before cargo starts'

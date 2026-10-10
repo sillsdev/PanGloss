@@ -62,20 +62,14 @@ fn production_commands_reject_developer_flags_as_unknown_options() {
 #[cfg(feature = "developer-tools")]
 #[test]
 fn developer_build_accepts_flags_without_building_a_grammar() {
-    for args in [vec![
-        "make-report",
-        "missing.xml",
-        "out.md",
-        "--allow-unproven",
-    ]] {
-        let output = pangloss(&args);
-        let text = combined_output(&output);
-        assert!(
-            !text.contains("unknown option"),
-            "developer build must parse {:?} before grammar loading: {text}",
-            args
-        );
-    }
+    let args = ["make-report", "missing.xml", "out.md", "--allow-unproven"];
+    let output = pangloss(&args);
+    let text = combined_output(&output);
+    assert!(
+        !text.contains("unknown option"),
+        "developer build must parse {:?} before grammar loading: {text}",
+        args
+    );
 }
 
 #[cfg(feature = "developer-tools")]

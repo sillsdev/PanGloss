@@ -876,7 +876,7 @@ if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
 # Every other compile mode runs the same clippy first, so a tree CI's clippy job would refuse stops here.
 $lintArgs = $null
 if ($Mode -in @('quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release') -and -not $HygieneBootstrap) {
-    $lintArgs = @(Get-ClippyInvocation -Package $Package -DebugProfile:$DebugProfile)
+    $lintArgs = @(Get-ClippyInvocation -Package $Package -DebugProfile:$DebugProfile -ExtraArgs @((Split-CargoFeatureArgs -ExtraArgs $ExtraArgs).CargoArgs))
 }
 
 } # end: if ($Mode -ne 'run')
