@@ -3,7 +3,7 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.8.3
 
 ### Grammar health always finishes and always writes its report
 
@@ -17,6 +17,21 @@ file has no section for.
   wordform, and `--stored-analyses off` runs only the checks that do not parse.
 - Both codes are additive within grammar-health schema version 4. Reports for projects that
   completed before are unchanged.
+
+### Grammar health and FieldWorks import are faster
+
+- `pangloss grammar-health` compares stored analyses on parallel workers and folds the results in
+  wordform order, so reports are unchanged: about 4.4x faster on the amharic sample, 3.0x on
+  indonesian and 1.4x on sena. Peak memory rises while workers parse at the same time.
+- FieldWorks import drops a quadratic load-decision lookup and some redundant bookkeeping, which
+  speeds up every `.fwdata` import. The imported snapshot is unchanged (divergence 088).
+
+### Development
+
+- `rust/tools/pg.ps1` lints with the Cargo features you select, so code behind `developer-tools`
+  is linted before tests run.
+- The build-slot tool test asserts the commit limit only where the kernel enforces it, so it no
+  longer fails on a busy Linux host.
 
 ## 0.8.2
 
