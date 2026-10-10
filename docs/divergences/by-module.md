@@ -7,7 +7,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 | C# file | Entry ids |
 |---|---|
-| (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
+| (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048, 088 |
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
 | `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030 |
 | `AnalysisAffixProcessRule.cs` | 001 |
@@ -64,7 +64,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 |---|---|
 | _(was `pg-memo/src/lib.rs`, deleted)_ | 023, 025, 045 |
 | `pg-cli/src/main.rs` (`run_batch`, `parse_batch_with_stats`) | 048 |
-| `pg-cli/src/stored_analysis_health.rs`, `pg-cli/src/grammar_health.rs` | 086 |
+| `pg-cli/src/stored_analysis_health.rs`, `pg-cli/src/grammar_health.rs` | 086, 088 |
 | `pg-cli/src/stats_cmd.rs` (`prepare_batch_stats_hc`, `finish_batch_stats_hc`) | 048 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
@@ -77,6 +77,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-foma/src/replace.rs` (`SegAlphabet::render_tokens`, `RepresentationAliasMap`, `compile_rewrite_rule_subset`, `compile_metathesis_swap_net`) | 040 |
 | `pg-fst` (`Transduce::initialize`) | 013 (cited as not-a-bug) |
 | `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
+| `pg-fwdata/src/extract/mod.rs` (`extract_with`), `pg-fwdata/src/xml.rs` (`push_duplicate_guid_issues`, `class_allowed`, `RawGraph::census`) | 088 |
 | `pg-fwdata/src/extract/phonology.rs` (`extract_phoneme_set`, `resolve_phon_context`) | 054 |
 | `pg-fwdata/src/xml.rs` (`ALLOWED_CLASSES`), `pg-fwdata/src/extract/inventory.rs` (`class_role`), `pg-fwdata/src/extract/morphology.rs` (`extract_adhoc_prohibitions`) | 053 |
 | `pg-grammar/src/chardef.rs` (`unif_closure`/`unifiable_cds`) | 010 |
@@ -87,6 +88,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
 | `pg-parse/src/root_trie.rs` (`RootAllomorphIndex::search`, `RootAllomorphTrie::build`) | 009, 019 |
 | `pg-parse/src/surface.rs` (`matching_str_reps`, `matching_reps_for_node`) | 007, 010 |
+| `pg-snapshot/src/conversion.rs` (`SelectionRecorder::has_load_decision`, `finish_with_load_decisions`) | 088 |
 | `pg-rules/src/analysis_state_key.rs` | 024, 045 |
 | `pg-rules/src/bridge.rs` (`pattern_var_occurrences`, `simple_context_lanes`); `pg-rules/src/rewrite.rs` (`resolve_bindings`); `pg-foma/src/lower.rs` (refusal research) | 058 |
 | `pg-rules/src/bridge.rs` (`PatternBridge::nat_class_lanes`) | 013 |
@@ -146,6 +148,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `machine/conformance/edge-cases/simultaneous-feeding/`, `simultaneous-feeding-control-iterative/` | 016 |
 | `parity_divergence_census.rs` | 028 |
 | `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
+| `pg-cli/src/grammar_health/tests.rs` (`stored_analysis_comparison_is_identical_at_every_thread_count`, `stored_analysis_comparison_reports_the_first_capped_wordform_at_every_thread_count`); `pg-snapshot` `has_load_decision_matches_a_scan_of_every_recorded_decision`; `pg-fwdata` `duplicate_guid_issues_name_every_occurrence_in_first_occurrence_order` | 088 |
 | `pg-cli/tests/fwdata_conformance_gate.rs` (`grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics`) | 053 |
 | `pg-cli/tests/reserved_word_boundary.rs` (`reserved_word_boundary_record_is_a_word_anchor_and_literal_hash_remains_literal`); staged word-boundary and literal-hash oracle fixtures | 054 |
 | `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision` | 073, 074 |
