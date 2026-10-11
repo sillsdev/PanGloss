@@ -1,3 +1,7 @@
+# Text is stored and checked out with LF everywhere, so a Windows checkout matches CI and WSL.
+# Same policy as Motif. The explicit rules below still apply; `-text` keeps frozen bytes exact.
+* text=auto eol=lf
+
 # Golden fixtures that tests compare byte-for-byte (assert_eq!) against LF-only generated
 # output (serde_json::to_string_pretty, or hand-built strings using "\n") must never be
 # reformatted to CRLF on checkout, or the comparison spuriously fails on content that has not
