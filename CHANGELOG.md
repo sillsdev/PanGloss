@@ -3,6 +3,16 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Writing a facts file is about 25 times faster
+
+- `pangloss facts` creates its SQLite schema in the same transaction as the facts rows, so a write
+  makes one commit instead of about 124. Measured per write: 423 ms to 17 ms on Windows with
+  Defender scanning the output folder, 723 ms to 22 ms on Linux.
+- The stored schema and facts are unchanged. Only the SQLite header's two commit counters differ, so
+  `output_sha256` for the same input differs from 0.8.3's.
+
 ## 0.8.3
 
 ### Grammar health always finishes and always writes its report

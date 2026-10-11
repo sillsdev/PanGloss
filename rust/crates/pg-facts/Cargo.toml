@@ -22,6 +22,7 @@ sha2.workspace = true
 [dev-dependencies]
 pg-fwdata.workspace = true
 pg-parse.workspace = true
+rusqlite = { workspace = true, features = ["hooks"] }
 
 [lints]
 workspace = true

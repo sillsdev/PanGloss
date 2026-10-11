@@ -57,7 +57,14 @@ pub fn write_facts(
     output_path: impl AsRef<Path>,
     producer: ProducerIdentity<'_>,
 ) -> Result<FactsResult, FactsError> {
-    write_facts_inner(source_bytes, context_bytes, output_path, producer, None)
+    write_facts_inner(
+        source_bytes,
+        context_bytes,
+        output_path,
+        producer,
+        None,
+        |_| {},
+    )
 }
 
 /// Builds a facts file and attaches exactly one manifest-bound frozen stats run.
@@ -74,16 +81,21 @@ pub fn write_facts_with_stats(
         output_path,
         producer,
         Some(stats_input),
+        |_| {},
     )
 }
 
-fn write_facts_inner(
+fn write_facts_inner<F>(
     source_bytes: &[u8],
     context_bytes: &[u8],
     output_path: impl AsRef<Path>,
     producer: ProducerIdentity<'_>,
     stats_input: Option<StatsInput<'_>>,
-) -> Result<FactsResult, FactsError> {
+    before_schema: F,
+) -> Result<FactsResult, FactsError>
+where
+    F: FnOnce(&Connection),
+{
     let context = FactsContext::parse(context_bytes)?;
     let source = std::str::from_utf8(source_bytes)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
@@ -208,34 +220,40 @@ fn write_facts_inner(
         load_accounting_complete,
         stats.is_some(),
     );
-    let result = publish(Publication {
-        output_path: output_path.as_ref(),
-        snapshot: &snapshot,
-        context: &context,
-        producer,
-        source_sha256: &source_sha256,
-        grammar_hash: &grammar_hash,
-        model_fingerprint: &model_fingerprint,
-        options_json: &options_json,
-        options_sha256: &options_sha256,
-        compile_status,
-        inventory: &inventory,
-        decisions: &decisions,
-        compile_issues: &compile_issues,
-        environment_resolutions: &environment_resolutions,
-        compiled_outputs: &compiled_outputs,
-        allomorph_output_ids: &allomorph_output_ids,
-        compiled_mappings: &compiled_mappings,
-        compiled_allomorph_order: &compiled_allomorph_order,
-        allomorph_gates: &allomorph_gates,
-        grammar: grammar.as_ref(),
-        stats,
-        sections,
-    })?;
+    let result = publish(
+        Publication {
+            output_path: output_path.as_ref(),
+            snapshot: &snapshot,
+            context: &context,
+            producer,
+            source_sha256: &source_sha256,
+            grammar_hash: &grammar_hash,
+            model_fingerprint: &model_fingerprint,
+            options_json: &options_json,
+            options_sha256: &options_sha256,
+            compile_status,
+            inventory: &inventory,
+            decisions: &decisions,
+            compile_issues: &compile_issues,
+            environment_resolutions: &environment_resolutions,
+            compiled_outputs: &compiled_outputs,
+            allomorph_output_ids: &allomorph_output_ids,
+            compiled_mappings: &compiled_mappings,
+            compiled_allomorph_order: &compiled_allomorph_order,
+            allomorph_gates: &allomorph_gates,
+            grammar: grammar.as_ref(),
+            stats,
+            sections,
+        },
+        before_schema,
+    )?;
     Ok(result)
 }
 
-fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
+fn publish<F>(publication: Publication<'_>, before_schema: F) -> Result<FactsResult, FactsError>
+where
+    F: FnOnce(&Connection),
+{
     let Publication {
         output_path,
         snapshot,
@@ -285,8 +303,9 @@ fn publish(publication: Publication<'_>) -> Result<FactsResult, FactsError> {
         };
         let mut connection = Connection::open(temporary_path)?;
         configure_database(&connection)?;
-        connection.execute_batch(include_str!("schema.sql"))?;
+        before_schema(&connection);
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(include_str!("schema.sql"))?;
         // Authored and compiled rows may spell one GUID in two cases until the canonical pass runs.
         transaction.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         insert_metadata(
@@ -505,4 +524,89 @@ fn sync_parent(parent: &Path) -> Result<(), FactsError> {
 #[cfg(not(unix))]
 fn sync_parent(_parent: &Path) -> Result<(), FactsError> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use pg_snapshot::{
+        BoundaryMarker, FeatureSystems, Lexicon, Morphology, Phoneme, Phonology, Project, Snapshot,
+        WsForm,
+    };
+    use tempfile::tempdir;
+
+    use super::write_facts_inner;
+    use crate::metadata::ProducerIdentity;
+
+    const CONTEXT: &[u8] = br#"{"format":"pangloss-facts-context","version":1,"baselineToken":{"id":"commit-count"},"inputKind":"baseline","dryRunDigest":null}"#;
+
+    #[test]
+    fn facts_write_commits_schema_and_rows_once() {
+        let snapshot = Snapshot::new(
+            Project {
+                name: "Commit-count fixture".into(),
+                vernacular_writing_systems: vec!["qaa".into()],
+                analysis_writing_systems: vec!["en".into()],
+                ..Project::default()
+            },
+            FeatureSystems::default(),
+            Phonology {
+                phonemes: vec![Phoneme {
+                    guid: "00000000-0000-0000-0000-000000000001".into(),
+                    name: "a".into(),
+                    representations: vec![WsForm {
+                        ws: "qaa".into(),
+                        form: "a".into(),
+                    }],
+                    features: None,
+                    basic_ipa_symbol: None,
+                }],
+                boundary_markers: vec![BoundaryMarker {
+                    guid: "00000000-0000-0000-0000-000000000002".into(),
+                    name: "Morpheme boundary".into(),
+                    representations: vec![WsForm {
+                        ws: "qaa".into(),
+                        form: "+".into(),
+                    }],
+                }],
+                ..Phonology::default()
+            },
+            Morphology::default(),
+            Lexicon::default(),
+        );
+        let source = snapshot.to_json().into_bytes();
+        let temporary = tempdir().unwrap();
+        let output = temporary.path().join("facts.sqlite");
+        let commits = Arc::new(AtomicUsize::new(0));
+        let hook_commits = Arc::clone(&commits);
+
+        write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            ProducerIdentity {
+                compiler_version: "0.8.3",
+                source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
+            None,
+            move |connection| {
+                connection.commit_hook(Some(move || {
+                    hook_commits.fetch_add(1, Ordering::SeqCst);
+                    false
+                }));
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            commits.load(Ordering::SeqCst),
+            1,
+            "schema and facts rows should share one write transaction"
+        );
+    }
 }
