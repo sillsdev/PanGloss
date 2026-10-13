@@ -95,8 +95,7 @@ fn to_stats_quality(q: pg_grammar::stats_identity::IdentityQuality) -> pg_stats:
     }
 }
 
-/// Resolves the collector's one-based, owner-local allomorph/subrule position to a stable cache
-/// locator. `StatsRow::allomorph` is not a grammar-wide `AllomorphId`.
+/// Resolves an owner's local allomorph position to its stable cache locator.
 fn stats_row_allomorph_locator(
     grammar: &Grammar,
     identities: &StatsIdentityCatalog,
@@ -107,19 +106,23 @@ fn stats_row_allomorph_locator(
     }
     let local_index = (row.allomorph - 1) as usize;
     let id = match row.kind {
-        pg_rules::stats::ObjectKind::LexEntry => grammar
-            .entries
-            .get(row.object_index as usize)
-            .unwrap_or_else(|| panic!("stats row has unknown lexical entry {}", row.object_index))
-            .allomorphs
-            .get(local_index)
-            .unwrap_or_else(|| {
-                panic!(
-                    "stats row has unknown allomorph position {} for lexical entry {}",
-                    row.allomorph, row.object_index
-                )
-            })
-            .id,
+        pg_rules::stats::ObjectKind::LexEntry => {
+            grammar
+                .entries
+                .get(row.object_index as usize)
+                .unwrap_or_else(|| {
+                    panic!("stats row has unknown lexical entry {}", row.object_index)
+                })
+                .allomorphs
+                .get(local_index)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "stats row has unknown allomorph position {} for lexical entry {}",
+                        row.allomorph, row.object_index
+                    )
+                })
+                .id
+        }
         pg_rules::stats::ObjectKind::MorphRule => {
             let rule_id = MRuleId(row.object_index);
             let rule = grammar

@@ -320,10 +320,8 @@ fn root_allomorph_grammar(entries: &[(&str, &[&str])]) -> String {
 
 #[test]
 fn batch_stats_resolves_each_entries_second_allomorph_to_its_stable_identity() {
-    let grammar_xml = root_allomorph_grammar(&[
-        ("entry-first", &["a", "b"]),
-        ("entry-second", &["c", "d"]),
-    ]);
+    let grammar_xml =
+        root_allomorph_grammar(&[("entry-first", &["a", "b"]), ("entry-second", &["c", "d"])]);
     let grammar = pg_grammar::load(&grammar_xml).expect("the two-entry grammar must load");
     let identities = StatsIdentityCatalog::new(&grammar);
     let first_entry = identities.lex_entry(LexEntryId(0)).key.clone();
