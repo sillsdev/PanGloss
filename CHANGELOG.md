@@ -5,6 +5,12 @@ file has no section for.
 
 ## Unreleased
 
+### Batch statistics identify the allomorph owned by each object
+
+- `pangloss batch --stats --cache` resolves the collector's owner-local allomorph position to
+  the corresponding lexical or affix allomorph identity. Compounding subrules use a stable
+  locator based on their rule and position. The stats counter semantics version is now 5.
+
 ### Writing a facts file is about 25 times faster
 
 - `pangloss facts` creates its SQLite schema in the same transaction as the facts rows, so a write

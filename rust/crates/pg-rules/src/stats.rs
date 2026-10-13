@@ -20,7 +20,7 @@ use rustc_hash::FxHashMap as HashMap;
 pub const ALLOMORPH_NONE: u32 = 0;
 
 /// Counter meaning and instrumentation support recorded by each statistics run.
-pub const COUNTER_SEMANTICS_VERSION: i64 = 4;
+pub const COUNTER_SEMANTICS_VERSION: i64 = 5;
 
 /// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
 /// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key
@@ -116,6 +116,8 @@ pub struct StatsRow {
     /// index for `RootIndex`, which has no id of its own).
     pub object_index: u32,
     pub stratum: StratumId,
+    /// `ALLOMORPH_NONE`, or a one-based position local to the owning entry/rule. Compounding
+    /// rules use this dimension for their subrule position.
     pub allomorph: u32,
     pub direction: Direction,
     pub counters: Counters,

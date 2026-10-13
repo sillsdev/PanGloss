@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MRuleId, PRuleId};
+use pg_grammar::model::{Grammar, LexEntryId, MRuleId, PRuleId};
 use pg_grammar::stats_identity::StatsIdentityCatalog;
 use pg_stats::StepCap;
 use serde::Serialize;
@@ -95,7 +95,84 @@ fn to_stats_quality(q: pg_grammar::stats_identity::IdentityQuality) -> pg_stats:
     }
 }
 
-/// Maps one collector row's runtime ids to durable identities via `pg_grammar::stats_identity`, treating `row` as opaque otherwise.
+/// Resolves the collector's one-based, owner-local allomorph/subrule position to a stable cache
+/// locator. `StatsRow::allomorph` is not a grammar-wide `AllomorphId`.
+fn stats_row_allomorph_locator(
+    grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
+    row: &pg_rules::stats::StatsRow,
+) -> Option<pg_stats::StructuralLocator> {
+    if row.allomorph == pg_rules::stats::ALLOMORPH_NONE {
+        return None;
+    }
+    let local_index = (row.allomorph - 1) as usize;
+    let id = match row.kind {
+        pg_rules::stats::ObjectKind::LexEntry => grammar
+            .entries
+            .get(row.object_index as usize)
+            .unwrap_or_else(|| panic!("stats row has unknown lexical entry {}", row.object_index))
+            .allomorphs
+            .get(local_index)
+            .unwrap_or_else(|| {
+                panic!(
+                    "stats row has unknown allomorph position {} for lexical entry {}",
+                    row.allomorph, row.object_index
+                )
+            })
+            .id,
+        pg_rules::stats::ObjectKind::MorphRule => {
+            let rule_id = MRuleId(row.object_index);
+            let rule = grammar
+                .mrules
+                .get(row.object_index as usize)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "stats row has unknown morphological rule {}",
+                        row.object_index
+                    )
+                });
+            if let pg_grammar::model::MorphRuleDef::Compounding(def) = rule {
+                let _subrule = def.subrules.get(local_index).unwrap_or_else(|| {
+                    panic!(
+                        "stats row has unknown subrule position {} for morphological rule {}",
+                        row.allomorph, row.object_index
+                    )
+                });
+                let identity = identities.morph_rule(rule_id);
+                return Some(pg_stats::StructuralLocator::new(
+                    format!("{}#subrule:{}", identity.key, row.allomorph),
+                    format!("{} subrule {}", identity.label, row.allomorph),
+                ));
+            }
+            rule.affix_allomorphs()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "stats row has an allomorph position for unsupported morphological rule {}",
+                        row.object_index
+                    )
+                })
+                .get(local_index)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "stats row has unknown allomorph position {} for morphological rule {}",
+                        row.allomorph, row.object_index
+                    )
+                })
+                .id
+        }
+        _ => panic!(
+            "stats row has an allomorph position for unsupported object kind {:?}",
+            row.kind
+        ),
+    };
+    let identity = identities.allomorph(id);
+    Some(pg_stats::StructuralLocator::new(
+        identity.key,
+        identity.label,
+    ))
+}
+
+/// Maps a collector row's runtime ids and owner-local allomorph position to durable identities.
 fn fact_record_from_stats_row(
     grammar: &Grammar,
     identities: &StatsIdentityCatalog,
@@ -123,12 +200,7 @@ fn fact_record_from_stats_row(
         ),
     };
     let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
-    let allomorph = if row.allomorph == pg_rules::stats::ALLOMORPH_NONE {
-        None
-    } else {
-        let a = identities.allomorph(AllomorphId(row.allomorph));
-        Some(pg_stats::StructuralLocator::new(a.key, a.label))
-    };
+    let allomorph = stats_row_allomorph_locator(grammar, identities, row);
     // Only a `lex_entry` object realizes a single morpheme; every other kind carries no locator.
     let morpheme = if row.kind == pg_rules::stats::ObjectKind::LexEntry {
         let morpheme_id = grammar.entries[row.object_index as usize].morpheme;

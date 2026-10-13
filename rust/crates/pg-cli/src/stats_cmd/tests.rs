@@ -292,6 +292,108 @@ fn stable_cache_snapshot(path: &std::path::Path) -> (Vec<Vec<String>>, Vec<Vec<S
     (words, facts)
 }
 
+fn root_allomorph_grammar(entries: &[(&str, &[&str])]) -> String {
+    let mut segment_definitions = String::new();
+    let mut lexical_entries = String::new();
+    for (entry_index, (entry_id, forms)) in entries.iter().enumerate() {
+        let allomorphs = forms
+            .iter()
+            .enumerate()
+            .map(|(allomorph_index, form)| {
+                let segment_id = format!("segment-{entry_index}-{allomorph_index}");
+                segment_definitions.push_str(&format!(
+                    "<SegmentDefinition id=\"{segment_id}\"><Representations><Representation>{form}</Representation></Representations></SegmentDefinition>"
+                ));
+                format!(
+                    "<Allomorph id=\"{entry_id}-allo-{allomorph_index}\"><PhoneticShape>{form}</PhoneticShape></Allomorph>"
+                )
+            })
+            .collect::<String>();
+        lexical_entries.push_str(&format!(
+            "<LexicalEntry id=\"{entry_id}\" partOfSpeech=\"root\"><Allomorphs>{allomorphs}</Allomorphs><Gloss>{entry_id}</Gloss></LexicalEntry>"
+        ));
+    }
+    format!(
+        "<HermitCrabInput><Language><Name>stats-allomorph-identity</Name><PartsOfSpeech><PartOfSpeech id=\"root\"><Name>root</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id=\"table\"><Name>main</Name><SegmentDefinitions>{segment_definitions}</SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable=\"table\" morphologicalRuleOrder=\"linear\"><Name>main</Name><LexicalEntries>{lexical_entries}</LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"
+    )
+}
+
+#[test]
+fn batch_stats_resolves_each_entries_second_allomorph_to_its_stable_identity() {
+    let grammar_xml = root_allomorph_grammar(&[
+        ("entry-first", &["a", "b"]),
+        ("entry-second", &["c", "d"]),
+    ]);
+    let grammar = pg_grammar::load(&grammar_xml).expect("the two-entry grammar must load");
+    let identities = StatsIdentityCatalog::new(&grammar);
+    let first_entry = identities.lex_entry(LexEntryId(0)).key.clone();
+    let second_entry = identities.lex_entry(LexEntryId(1)).key.clone();
+    let first_second_allomorph = identities
+        .allomorph(grammar.entries[0].allomorphs[1].id)
+        .key;
+    let second_second_allomorph = identities
+        .allomorph(grammar.entries[1].allomorphs[1].id)
+        .key;
+
+    let dir = scratch_dir("second-allomorph-identity");
+    let cache_path = dir.join("cache.sqlite3");
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        "b\nd\n",
+        &["--stats", "--cache", cache_path.to_str().unwrap()],
+    );
+    crate::run_batch(&args).expect("batch stats must record both second allomorphs");
+
+    let conn = rusqlite::Connection::open(&cache_path).expect("open stats cache");
+    let facts: Vec<(String, String, String)> = conn
+        .prepare(
+            "SELECT DISTINCT w.form, o.key, a.key \
+             FROM fact f \
+             JOIN word w ON w.word_id = f.word_id \
+             JOIN object o ON o.object_id = f.object_id \
+             JOIN allomorph a ON a.allomorph_id = f.allomorph_id \
+             WHERE o.kind = 'lex_entry' \
+             ORDER BY w.form, o.key, a.key",
+        )
+        .expect("prepare allomorph facts query")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .expect("query allomorph facts")
+        .collect::<Result<_, _>>()
+        .expect("read allomorph facts");
+
+    for (form, entry_key, expected_allomorph_key) in [
+        ("b", first_entry, first_second_allomorph),
+        ("d", second_entry, second_second_allomorph),
+    ] {
+        assert!(
+            facts
+                .iter()
+                .any(|(actual_form, actual_entry, actual_allomorph)| {
+                    actual_form == form
+                        && actual_entry == &entry_key
+                        && actual_allomorph == &expected_allomorph_key
+                }),
+            "stats for {form:?} / {entry_key:?} must name {expected_allomorph_key:?}; facts: {facts:?}"
+        );
+    }
+}
+
+#[test]
+fn batch_stats_does_not_panic_for_a_grammar_with_one_allomorph() {
+    let grammar_xml = root_allomorph_grammar(&[("only-entry", &["a"])]);
+    let dir = scratch_dir("one-allomorph-identity");
+    let cache_path = dir.join("cache.sqlite3");
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        "a\n",
+        &["--stats", "--cache", cache_path.to_str().unwrap()],
+    );
+
+    crate::run_batch(&args).expect("one-allomorph stats must complete without panic");
+}
+
 #[test]
 fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() {
     let (grammar_xml, word) = primary_fixture();
