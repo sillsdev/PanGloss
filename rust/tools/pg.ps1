@@ -248,13 +248,13 @@ $script:TestOptProfile = 'pg-test-opt'
 $repoRoot = Get-RepoRoot
 $rustRoot = Get-RustRoot
 
-# Linux establishes the host's finite cgroup bound before any Cargo path runs.
+# Validates cgroup evidence; ordinary builds use native memory admission rather than a host cap.
 $linuxHostProof = $null
 if ($IsLinux -and $Mode -notin @('gc', 'new-worktree', 'remove-worktree')) {
     $linuxHostProof = Get-LinuxHostCgroupPreflight
     if (-not $linuxHostProof.Ok -and $Mode -ne 'doctor') {
-        Write-Host "[pg] Linux host containment preflight failed BEFORE Cargo: $($linuxHostProof.Detail)" -ForegroundColor Red
-        Write-Host '[pg] recovery: run inside the configured finite cgroup-v2 service hierarchy.' -ForegroundColor Yellow
+        Write-Host "[pg] Linux host cgroup preflight failed BEFORE Cargo: $($linuxHostProof.Detail)" -ForegroundColor Red
+        Write-Host '[pg] recovery: use a valid cgroup-v2 hierarchy with readable memory.max evidence; ordinary managed builds do not require a finite cap.' -ForegroundColor Yellow
         exit $script:ExitCodeLinuxHostContainment
     }
 }

@@ -286,14 +286,17 @@ Committed_AS:   2048 kB
         Assert-False $r.Ok 'a missing current cgroup memory.max must fail closed'
     }
 
-    Test-Case 'Linux cgroup preflight rejects a completely unbounded visible ancestor chain' {
+    Test-Case 'Linux cgroup preflight accepts a valid completely unbounded visible ancestor chain' {
         Assert-LinuxAdapterReady
         $files = @{} + $validCgroupFiles
         $files['/cg d/memory.max'] = "max`n"
         $files['/cg d/supervisor/memory.max'] = "max`n"
         $r = Get-LinuxHostCgroupPreflight -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo `
             -ReadFile (New-Reader -Files $files)
-        Assert-False $r.Ok 'the complete visible ancestor chain must contain a finite cap'
+        Assert-True $r.Ok $r.Detail
+        Assert-False $r.MemoryBounded 'a valid unbounded hierarchy must not claim a memory cap'
+        Assert-Equal $null $r.EffectiveMemoryCapBytes 'an unbounded hierarchy must expose no effective cap'
+        Assert-True ($r.Detail -match 'unbounded') "the preflight must report the unbounded state: $($r.Detail)"
     }
 
     Test-Case 'Linux cgroup preflight rejects malformed or unreadable cgroup data' {
@@ -301,18 +304,24 @@ Committed_AS:   2048 kB
         $malformed = Get-LinuxHostCgroupPreflight -SelfCgroupText 'not a cgroup record' `
             -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles)
         Assert-False $malformed.Ok 'malformed /proc/self/cgroup must fail closed'
+        Assert-True ($malformed.Detail -match 'malformed /proc/self/cgroup record') `
+            "malformed membership must retain its diagnostic: $($malformed.Detail)"
 
         $unreadable = @{} + $validCgroupFiles
         $unreadable['/cg d/supervisor/memory.max'] = [System.IO.IOException]::new('permission denied')
         $r = Get-LinuxHostCgroupPreflight -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo `
             -ReadFile (New-Reader -Files $unreadable)
         Assert-False $r.Ok 'an unreadable ancestor memory.max must fail closed'
+        Assert-True ($r.Detail -match 'could not read .*/memory\.max.*permission denied') `
+            "an unreadable memory.max must retain its path and cause: $($r.Detail)"
 
         $malformedCap = @{} + $validCgroupFiles
         $malformedCap['/cg d/supervisor/memory.max'] = "not-a-number`n"
         $r = Get-LinuxHostCgroupPreflight -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo `
             -ReadFile (New-Reader -Files $malformedCap)
         Assert-False $r.Ok 'a malformed ancestor memory.max must fail closed'
+        Assert-True ($r.Detail -match 'malformed memory\.max at .*/memory\.max') `
+            "a malformed memory.max must retain its path and cause: $($r.Detail)"
     }
 
     Test-Case 'Linux cgroup preflight rejects ambiguous or absent cgroup2 mount mapping' {
@@ -473,9 +482,9 @@ Committed_AS:   2048 kB
         }
     }
 
-    Test-Case 'Host cgroup proof report names host-owned scheduling without Windows priority claims' {
+    Test-Case 'Finite host cgroup proof report names host-owned scheduling without Windows priority claims' {
         Assert-LinuxAdapterReady
-        $proof = [PSCustomObject]@{ Ok = $true; EffectiveMemoryCapBytes = 4194304; Detail = 'fixture host cgroup' }
+        $proof = [PSCustomObject]@{ Ok = $true; MemoryBounded = $true; EffectiveMemoryCapBytes = 4194304; Detail = 'fixture host cgroup' }
         $base = [PSCustomObject]@{ Checked = $true; Ok = $true; Detail = 'fixture'; Expected = ''; Actual = '' }
         $sccache = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
         $disk = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
@@ -490,6 +499,54 @@ Committed_AS:   2048 kB
         }
         Assert-True ($text -match 'host-service-owned|unapplied') 'Linux host proof report must say scheduling priority is host-service-owned/unapplied'
         Assert-False ($text -match 'event-2004') 'Linux host proof report must not claim Windows event enforcement anywhere'
+    }
+
+    Test-Case 'Unbounded host cgroup proof retains native memory reports and inherited priority' {
+        Assert-LinuxAdapterReady
+        $proof = [PSCustomObject]@{
+            Ok = $true; MemoryBounded = $false; EffectiveMemoryCapBytes = $null
+            Detail = 'valid cgroup ancestry is unbounded'
+        }
+        $base = [PSCustomObject]@{ Checked = $true; Ok = $true; Detail = 'fixture'; Expected = ''; Actual = '' }
+        $sccache = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
+        $disk = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
+        $memory = [PSCustomObject]@{ Ok = $true; Detail = '3GB available (>= 1GB reserve)' }
+        $repoForReport = Split-Path (Split-Path $toolRoot -Parent) -Parent
+        $originalHolders = (Get-Command Get-SlotHolders -CommandType Function).ScriptBlock
+        $originalTotal = (Get-Command Get-TotalMemoryGB -CommandType Function).ScriptBlock
+        $originalCommit = (Get-Command Get-CommitChargeGB -CommandType Function).ScriptBlock
+        $memoryReads = [System.Collections.Generic.List[string]]::new()
+        try {
+            Set-Item Function:\script:Get-SlotHolders -Value { @() }
+            Set-Item Function:\global:Get-TotalMemoryGB -Value {
+                [void]$memoryReads.Add('total')
+                return 16.0
+            }.GetNewClosure()
+            Set-Item Function:\global:Get-CommitChargeGB -Value {
+                [void]$memoryReads.Add('commit')
+                return [PSCustomObject]@{
+                    CommittedGB = 4.0; LimitGB = 16.0; PercentUsed = 25; FreeGB = 12.0
+                }
+            }.GetNewClosure()
+            $text = (Write-Preflight -Mode check -Profile test -RepoRoot $repoForReport -TargetDir '/var/tmp/target' `
+                -BaseCheck $base -SccacheHealth $sccache -FreeGB 1 -DiskCheck $disk -MemoryCheck $memory `
+                -MaxConcurrent 2 -Jobs 2 -Priority BelowNormal -HostCgroupProof $proof *>&1 | Out-String)
+        } finally {
+            Set-Item Function:\script:Get-SlotHolders -Value $originalHolders
+            Set-Item Function:\global:Get-TotalMemoryGB -Value $originalTotal
+            Set-Item Function:\global:Get-CommitChargeGB -Value $originalCommit
+        }
+        Assert-True ($memoryReads.Contains('total')) 'unbounded proof must preserve native total-memory observation'
+        Assert-True ($memoryReads.Contains('commit')) 'unbounded proof must preserve native commit-charge observation'
+        Assert-True ($text -match '3GB available \(>= 1GB reserve\) of 16GB total') `
+            'preflight must show available and total native memory for an unbounded scope'
+        Assert-True ($text -match 'commit charge: 4GB of 16GB limit \(25% used, 12GB uncommitted\)') `
+            'preflight must show native commit charge for an unbounded scope'
+        Assert-True ($text -match 'host cgroup: unbounded .*valid cgroup ancestry is unbounded') `
+            'preflight must report the validated but unbounded cgroup state'
+        Assert-True ($text -match 'build priority: BelowNormal \(inherited by rustc/link\.exe') `
+            'an unbounded scope must retain inherited low-priority reporting'
+        Assert-False ($text -match 'host-service-owned') 'an unbounded scope must not claim the host owns a cap'
     }
 
     Test-Case 'Unsupported platforms refuse early and Linux gc uses its proc adapter' {
@@ -662,7 +719,7 @@ exit 1
         Assert-Equal 'test' $calls[0].Arguments[0]
     }
 
-    Test-Case 'Linux managed process refuses before the process seam when host containment is unproven' {
+    Test-Case 'Linux managed process refuses before the process seam when cgroup evidence is malformed' {
         Assert-LinuxAdapterReady
         $called = @{ Value = $false }
         $runner = {
@@ -671,16 +728,20 @@ exit 1
             return 0
         }.GetNewClosure()
         $invalidFiles = @{} + $validCgroupFiles
-        $invalidFiles['/cg d/memory.max'] = "max`n"
-        $invalidFiles['/cg d/supervisor/memory.max'] = "max`n"
-        $invalidFiles['/cg d/supervisor/worker/memory.max'] = "max`n"
+        $invalidFiles['/cg d/supervisor/worker/memory.max'] = "not-a-number`n"
         $threw = $false
+        $detail = ''
         try {
             Invoke-ManagedProcess -Exe 'cargo' -CmdArgs @('build') -WorkingDirectory $fixtureRoot `
                 -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo `
                 -ReadFile (New-Reader -Files $invalidFiles) -ProcessInvoker $runner
-        } catch { $threw = $true }
-        Assert-True $threw 'an unproven host cgroup must refuse before process launch'
+        } catch {
+            $threw = $true
+            $detail = $_.Exception.Message
+        }
+        Assert-True $threw 'malformed cgroup evidence must refuse before process launch'
+        Assert-True ($detail -match 'malformed memory\.max at .*/memory\.max') `
+            "the refusal must preserve the malformed memory.max diagnostic: $detail"
         Assert-False $called.Value 'the process must never be called after a failed host proof'
     }
 } finally {

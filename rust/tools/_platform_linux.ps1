@@ -192,11 +192,28 @@ function global:Get-LinuxHostCgroupPreflight {
             $slash = $current.LastIndexOf('/')
             $current = if ($slash -le 0) { '/' } else { $current.Substring(0, $slash) }
         }
-        if ($caps.Count -eq 0) { throw 'no finite memory.max cap in visible current cgroup ancestry' }
+        if ($caps.Count -eq 0) {
+            return [PSCustomObject]@{
+                Ok = $true
+                MemoryBounded = $false
+                EffectiveMemoryCapBytes = $null
+                Detail = "valid cgroup ancestry is unbounded (mapped root $rootMapped, current $mapped)"
+            }
+        }
         $effective = ($caps | Measure-Object -Minimum).Minimum
-        return [PSCustomObject]@{ Ok = $true; EffectiveMemoryCapBytes = [long]$effective; Detail = "host cgroup cap: $effective bytes (mapped root $rootMapped, current $mapped)" }
+        return [PSCustomObject]@{
+            Ok = $true
+            MemoryBounded = $true
+            EffectiveMemoryCapBytes = [long]$effective
+            Detail = "host cgroup cap: $effective bytes (mapped root $rootMapped, current $mapped)"
+        }
     } catch {
-        return [PSCustomObject]@{ Ok = $false; EffectiveMemoryCapBytes = $null; Detail = $_.Exception.Message }
+        return [PSCustomObject]@{
+            Ok = $false
+            MemoryBounded = $false
+            EffectiveMemoryCapBytes = $null
+            Detail = $_.Exception.Message
+        }
     }
 }
 

@@ -1153,7 +1153,7 @@ $script:ExitCodeConformanceSubmoduleMissing = 18
 $script:ExitCodeWorktreeMismatch = 19
 # conformance-test invoked without -Scope; recovery is a caller decision, not an environment repair.
 $script:ExitCodeConformanceScopeUnclaimed = 20
-# Linux managed spawning requires proof that this wrapper is already under a finite host cgroup cap.
+# Exit 21: invalid cgroup evidence; ordinary managed builds do not require a finite host cap.
 $script:ExitCodeLinuxHostContainment = 21
 $script:ExitCodeUnsupportedPlatform = 23
 $script:ExitCodeGcUnsafe = 24
@@ -1943,6 +1943,10 @@ function Write-Preflight {
         [string]$Priority = '',
         $HostCgroupProof = $null
     )
+    $hostMemoryBounded = $false
+    if ($HostCgroupProof -and $HostCgroupProof.PSObject.Properties['MemoryBounded']) {
+        $hostMemoryBounded = [bool]$HostCgroupProof.MemoryBounded
+    }
     $slug = Get-WorktreeSlug -RustRoot (Join-Path $RepoRoot 'rust')
     $head = git -C $RepoRoot rev-parse HEAD 2>$null
     $dirty = @(git -C $RepoRoot status --porcelain 2>$null).Count
@@ -1961,14 +1965,14 @@ function Write-Preflight {
         Write-Host "free space: $($DiskCheck.Detail)" -ForegroundColor $(if ($DiskCheck.Ok) { 'Gray' } else { 'Red' })
     }
     if ($MemoryCheck) {
-        $total = if ($HostCgroupProof) { $null } else { Get-TotalMemoryGB }
+        $total = if ($hostMemoryBounded) { $null } else { Get-TotalMemoryGB }
         $ofTotal = if ($null -ne $total) { " of ${total}GB total" } else { '' }
         Write-Host "free memory: $($MemoryCheck.Detail)$ofTotal" -ForegroundColor $(if ($MemoryCheck.Ok) { 'Gray' } else { 'Red' })
         # Commit charge alongside it, never instead of it -- see Get-CommitChargeGB for why the two diverge.
-        $commit = if ($HostCgroupProof) { $null } else { Get-CommitChargeGB }
+        $commit = if ($hostMemoryBounded) { $null } else { Get-CommitChargeGB }
         if ($commit) {
             $commitColor = if ($commit.PercentUsed -ge 90) { 'Red' } elseif ($commit.PercentUsed -ge 75) { 'Yellow' } else { 'Gray' }
-            $commitDetail = if ($HostCgroupProof) {
+            $commitDetail = if ($hostMemoryBounded) {
                 'host service owns the cgroup cap; pg does not apply per-process enforcement'
             } else {
                 'informational only; Rust build admission uses available physical memory'
@@ -1978,7 +1982,11 @@ function Write-Preflight {
     }
     if ($HostCgroupProof) {
         if ($HostCgroupProof.Ok) {
-            Write-Host "host cgroup: bounded ($($HostCgroupProof.EffectiveMemoryCapBytes) bytes effective cap) -- $($HostCgroupProof.Detail)" -ForegroundColor Gray
+            if ($hostMemoryBounded) {
+                Write-Host "host cgroup: bounded ($($HostCgroupProof.EffectiveMemoryCapBytes) bytes effective cap) -- $($HostCgroupProof.Detail)" -ForegroundColor Gray
+            } else {
+                Write-Host "host cgroup: unbounded -- $($HostCgroupProof.Detail)" -ForegroundColor Gray
+            }
         } else {
             Write-Host "host cgroup: UNAVAILABLE -- $($HostCgroupProof.Detail)" -ForegroundColor Red
         }
@@ -2042,7 +2050,7 @@ function Write-Preflight {
         Write-Host "test threads: $TestThreads concurrent test processes (default would be $([Environment]::ProcessorCount))$testWhy"
     }
     if ($Priority) {
-        if ($HostCgroupProof) {
+        if ($hostMemoryBounded) {
             Write-Host "build priority: $Priority (host-service-owned; unapplied by pg)"
         } else {
             Write-Host "build priority: $Priority (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)"
