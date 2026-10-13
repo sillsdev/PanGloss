@@ -5,11 +5,15 @@ file has no section for.
 
 ## Unreleased
 
+## 0.8.4
+
 ### Batch statistics identify the allomorph owned by each object
 
 - `pangloss batch --stats --cache` resolves the collector's owner-local allomorph position to
   the corresponding lexical or affix allomorph identity. Compounding subrules use a stable
-  locator based on their rule and position. The stats counter semantics version is now 5.
+  locator based on their rule and position. This prevents the registry panic for a grammar with
+  one allomorph and incorrect labels when several owners have multiple allomorphs. The stats
+  counter semantics version is now 5; collect a fresh stats run before comparing allomorph rows.
 
 ### Writing a facts file is about 25 times faster
 
