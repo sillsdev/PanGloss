@@ -375,6 +375,99 @@ fn batch_stats_resolves_each_entries_second_allomorph_to_its_stable_identity() {
             "stats for {form:?} / {entry_key:?} must name {expected_allomorph_key:?}; facts: {facts:?}"
         );
     }
+
+    for (entry_index, entry) in grammar.entries.iter().enumerate() {
+        let owner_key = identities
+            .lex_entry(LexEntryId(entry_index as u32))
+            .key
+            .clone();
+        let owned_allomorphs: HashSet<String> = entry
+            .allomorphs
+            .iter()
+            .map(|allomorph| identities.allomorph(allomorph.id).key)
+            .collect();
+        for (form, actual_entry, actual_allomorph) in &facts {
+            if actual_entry == &owner_key {
+                assert!(
+                    owned_allomorphs.contains(actual_allomorph),
+                    "named fact for {form:?} / {owner_key:?} has foreign allomorph {actual_allomorph:?}; facts: {facts:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn per_allomorph_report_refuses_the_wrong_owner_shape_from_legacy_hc_facts() {
+    let grammar_xml =
+        root_allomorph_grammar(&[("entry-first", &["a", "b"]), ("entry-second", &["c", "d"])]);
+    let dir = scratch_dir("legacy-second-allomorph-report");
+    let cache_path = dir.join("cache.sqlite3");
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        "b\nd\n",
+        &["--stats", "--cache", cache_path.to_str().unwrap()],
+    );
+    crate::run_batch(&args).expect("batch stats must record both second allomorphs");
+
+    let conn = rusqlite::Connection::open(&cache_path).expect("open stats cache");
+    conn.execute("UPDATE run SET counter_semantics = 4", [])
+        .expect("emulate the old HC counter semantics explicitly");
+    let wrong_allomorph_id: i64 = conn
+        .query_row(
+            "SELECT allomorph_id FROM allomorph WHERE key = ?1",
+            ["lex_entry:entry-first@main#allo1"],
+            |row| row.get(0),
+        )
+        .expect("the first entry's second allomorph must be registered");
+    let second_allomorph_id: i64 = conn
+        .query_row(
+            "SELECT allomorph_id FROM allomorph WHERE key = ?1",
+            ["lex_entry:entry-second@main#allo1"],
+            |row| row.get(0),
+        )
+        .expect("the second entry's second allomorph must be registered");
+    let changed_rows = conn
+        .execute(
+            "UPDATE fact SET allomorph_id = ?1
+         WHERE word_id = (SELECT word_id FROM word WHERE form = 'd')
+           AND object_id = (SELECT object_id FROM object WHERE key = 'lex_entry:entry-second@main')
+           AND allomorph_id = ?2",
+            rusqlite::params![wrong_allomorph_id, second_allomorph_id],
+        )
+        .expect("emulate the old grammar-global lookup's wrong owner");
+    assert!(
+        changed_rows > 0,
+        "the old identity must be emulated by moving at least one named row"
+    );
+    let old_report_effect: (String, String) = conn
+        .query_row(
+            "SELECT o.key, a.key
+             FROM fact f
+             JOIN word w ON w.word_id = f.word_id
+             JOIN object o ON o.object_id = f.object_id
+             JOIN allomorph a ON a.allomorph_id = f.allomorph_id
+             WHERE w.form = 'd' AND o.key = 'lex_entry:entry-second@main'
+             LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("legacy word must have its explicitly emulated wrong-owner fact");
+    assert_eq!(
+        old_report_effect,
+        (
+            "lex_entry:entry-second@main".to_string(),
+            "lex_entry:entry-first@main#allo1".to_string(),
+        ),
+        "the minimal reproducer must show a named fact assigned to another entry"
+    );
+
+    let result = pg_stats::per_allomorph_report(&conn, &pg_stats::PerAllomorphFilter::default());
+    assert!(
+        result.is_err(),
+        "the per-allomorph report must refuse the emulated legacy misattribution; observed report: {result:#?}"
+    );
 }
 
 #[test]

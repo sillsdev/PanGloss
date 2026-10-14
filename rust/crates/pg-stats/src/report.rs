@@ -3,7 +3,7 @@
 //! Every function here takes a plain `&Connection` (via `crate::cache::StatsCache::connection`)
 //! and returns plain Rust rows — no formatting, no rendering. That is the CLI layer's job.
 
-use rusqlite::{named_params, params, Connection};
+use rusqlite::{named_params, params, Connection, OptionalExtension};
 
 use crate::error::StatsError;
 
@@ -240,64 +240,152 @@ pub struct PerAllomorphRow {
     pub self_time_ns: i64,
 }
 
-const PER_ALLOMORPH_SQL: &str = "
-    WITH agg AS (
-        SELECT o.kind AS object_kind, o.label AS object_label, o.key AS object_key_sort,
+const PER_ALLOMORPH_SELECTED_FACTS_CTE: &str = "
+    selected_facts AS (
+        SELECT f.word_id, f.object_id, f.allomorph_id, f.direction,
+               f.attempts, f.work, f.outputs, f.not_applied, f.no_root,
+               f.surface_mismatch, f.uses, f.self_time_ns,
+               w.run_id AS producing_run_id, r.run_id AS metadata_run_id,
+               o.kind AS object_kind, o.label AS object_label, o.key AS object_key_sort,
                a.key AS allomorph_key, a.label AS allomorph_label,
-               SUM(f.attempts) AS attempts, SUM(f.work) AS work, SUM(f.outputs) AS outputs,
-               -- Deliberately unmasked: this report groups BY allomorph, so each row is one allomorph's own count and the rule-level residue is its own `NONE` row.
-               SUM(f.not_applied) AS not_applied, SUM(f.no_root) AS no_root,
-               SUM(f.surface_mismatch) AS surface_mismatch, SUM(f.uses) AS uses,
-               SUM(f.self_time_ns) AS self_time_ns
+               r.engine, r.counter_semantics
         FROM fact f
         JOIN object o ON o.object_id = f.object_id
         JOIN word w ON w.word_id = f.word_id
+        LEFT JOIN run r ON r.run_id = w.run_id
         LEFT JOIN allomorph a ON a.allomorph_id = f.allomorph_id
         WHERE (:kind IS NULL OR o.kind = :kind)
           AND (:object_key IS NULL OR o.key = :object_key)
           AND (:direction IS NULL OR f.direction = :direction)
           AND (:word IS NULL OR w.form = :word)
           AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
-        GROUP BY o.object_id, f.allomorph_id
     )
-    SELECT object_kind, object_label, allomorph_key, allomorph_label, attempts, work, outputs,
-           not_applied, no_root, surface_mismatch, uses, self_time_ns
-    FROM agg
-    ORDER BY self_time_ns DESC, object_key_sort ASC, allomorph_key ASC
 ";
+
+fn per_allomorph_sql() -> String {
+    format!(
+        "WITH {PER_ALLOMORPH_SELECTED_FACTS_CTE}, agg AS (
+            SELECT object_id, object_kind, object_label, object_key_sort,
+                   allomorph_key, allomorph_label,
+                   SUM(attempts) AS attempts, SUM(work) AS work, SUM(outputs) AS outputs,
+                   -- Deliberately unmasked: this report groups BY allomorph, so each row is one allomorph's own count and the rule-level residue is its own `NONE` row.
+                   SUM(not_applied) AS not_applied, SUM(no_root) AS no_root,
+                   SUM(surface_mismatch) AS surface_mismatch, SUM(uses) AS uses,
+                   SUM(self_time_ns) AS self_time_ns
+            FROM selected_facts
+            GROUP BY object_id, allomorph_id
+        )
+        SELECT object_kind, object_label, allomorph_key, allomorph_label,
+               attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns
+        FROM agg
+        ORDER BY self_time_ns DESC, object_key_sort ASC, allomorph_key ASC"
+    )
+}
+
+fn unrepresentable_allomorph_semantics_sql() -> String {
+    format!(
+        "WITH {PER_ALLOMORPH_SELECTED_FACTS_CTE}
+         SELECT producing_run_id, metadata_run_id, engine, counter_semantics
+         FROM selected_facts
+         WHERE allomorph_id <> 0
+           AND (metadata_run_id IS NULL OR
+                (engine = 'hc' AND counter_semantics <> {}) OR
+                (engine <> 'hc' AND engine <> 'foma'))
+         ORDER BY counter_semantics
+         LIMIT 1",
+        crate::COUNTER_SEMANTICS_VERSION
+    )
+}
+
+macro_rules! per_allomorph_query_params {
+    ($filter:expr) => {
+        named_params! {
+            ":kind": $filter.kind.as_deref(),
+            ":object_key": $filter.object_key.as_deref(),
+            ":direction": $filter.direction.as_deref(),
+            ":word": $filter.word.as_deref(),
+            ":exclude_censored": i64::from($filter.exclude_censored_words),
+        }
+    };
+}
 
 /// Object identity, allomorph locator, summed counters, and measured self time — one row per
 /// `(object, allomorph)` pair with a fact, including each object's `NONE` sentinel residue.
+///
+/// The report refuses selected named-allomorph facts whose HC producing run does not record
+/// counter semantics version 5, and selected named facts whose producing-run metadata is absent
+/// or whose producer is unknown. Rule-level `NONE` facts and Foma facts remain usable. All filters
+/// are applied before these checks, so unrelated facts do not cause a refusal. When no caller
+/// transaction is active, the provenance check and aggregation share one read snapshot; an
+/// existing caller transaction remains active and caller-owned after this function returns.
 pub fn per_allomorph_report(
     conn: &Connection,
     filter: &PerAllomorphFilter,
 ) -> Result<Vec<PerAllomorphRow>, StatsError> {
-    let mut stmt = conn.prepare(PER_ALLOMORPH_SQL)?;
-    let rows = stmt.query_map(
-        named_params! {
-            ":kind": filter.kind.as_deref(),
-            ":object_key": filter.object_key.as_deref(),
-            ":direction": filter.direction.as_deref(),
-            ":word": filter.word.as_deref(),
-            ":exclude_censored": i64::from(filter.exclude_censored_words),
-        },
-        |row| {
-            Ok(PerAllomorphRow {
-                object_kind: row.get(0)?,
-                object_label: row.get(1)?,
-                allomorph_key: row.get(2)?,
-                allomorph_label: row.get(3)?,
-                attempts: row.get(4)?,
-                work: row.get(5)?,
-                outputs: row.get(6)?,
-                not_applied: row.get(7)?,
-                no_root: row.get(8)?,
-                surface_mismatch: row.get(9)?,
-                uses: row.get(10)?,
-                self_time_ns: row.get(11)?,
-            })
-        },
-    )?;
+    if conn.is_autocommit() {
+        let transaction = conn.unchecked_transaction()?;
+        let report = per_allomorph_report_in_snapshot(&transaction, filter);
+        transaction.commit()?;
+        report
+    } else {
+        per_allomorph_report_in_snapshot(conn, filter)
+    }
+}
+
+fn per_allomorph_report_in_snapshot(
+    conn: &Connection,
+    filter: &PerAllomorphFilter,
+) -> Result<Vec<PerAllomorphRow>, StatsError> {
+    let unsafe_producer = conn
+        .query_row(
+            &unrepresentable_allomorph_semantics_sql(),
+            per_allomorph_query_params!(filter),
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )
+        .optional()?;
+    if let Some((producing_run_id, metadata_run_id, engine, semantics)) = unsafe_producer {
+        if metadata_run_id.is_none() {
+            return Err(StatsError::MissingAllomorphRunMetadata {
+                run_id: producing_run_id,
+            });
+        }
+        if engine.as_deref() == Some("hc") {
+            if let Some(found) = semantics {
+                return Err(StatsError::UnrepresentableAllomorphSemantics {
+                    found,
+                    current: crate::COUNTER_SEMANTICS_VERSION,
+                });
+            }
+        }
+        return Err(StatsError::UnrepresentableAllomorphProducer {
+            engine: engine.unwrap_or_else(|| "unknown".to_string()),
+        });
+    }
+
+    let mut stmt = conn.prepare(&per_allomorph_sql())?;
+    let rows = stmt.query_map(per_allomorph_query_params!(filter), |row| {
+        Ok(PerAllomorphRow {
+            object_kind: row.get(0)?,
+            object_label: row.get(1)?,
+            allomorph_key: row.get(2)?,
+            allomorph_label: row.get(3)?,
+            attempts: row.get(4)?,
+            work: row.get(5)?,
+            outputs: row.get(6)?,
+            not_applied: row.get(7)?,
+            no_root: row.get(8)?,
+            surface_mismatch: row.get(9)?,
+            uses: row.get(10)?,
+            self_time_ns: row.get(11)?,
+        })
+    })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 

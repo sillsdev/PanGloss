@@ -39,6 +39,21 @@ pub enum StatsError {
     #[error("stats cache has no cache identity row")]
     CacheIdentityMissing,
 
+    #[error(
+        "per-allomorph report cannot safely include matched HC facts with counter semantics {found}; supported semantics is {current}. Run a new Assessment; standalone PanGloss users should run a fresh `batch --stats` into a new cache."
+    )]
+    UnrepresentableAllomorphSemantics { found: i64, current: i64 },
+
+    #[error(
+        "per-allomorph report cannot verify named facts for producing run {run_id}: run metadata is unavailable. Run a new Assessment; standalone PanGloss users should run a fresh `batch --stats` into a new cache."
+    )]
+    MissingAllomorphRunMetadata { run_id: i64 },
+
+    #[error(
+        "per-allomorph report cannot verify named facts from engine `{engine}`. Run a new Assessment; standalone PanGloss users should run a fresh `batch --stats` into a new cache."
+    )]
+    UnrepresentableAllomorphProducer { engine: String },
+
     #[error("frozen stats cache must contain exactly one run, found {actual}")]
     FrozenRunCount { actual: i64 },
 

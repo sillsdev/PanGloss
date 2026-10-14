@@ -13,7 +13,11 @@ file has no section for.
   the corresponding lexical or affix allomorph identity. Compounding subrules use a stable
   locator based on their rule and position. This prevents the registry panic for a grammar with
   one allomorph and incorrect labels when several owners have multiple allomorphs. The stats
-  counter semantics version is now 5; collect a fresh stats run before comparing allomorph rows.
+  counter semantics version is now 5.
+- Per-allomorph reports refuse matched HC named-allomorph facts recorded with semantics other than
+  version 5; filters that exclude those facts remain usable. Rule-level `NONE` facts and Foma rows
+  remain reportable. Run a new Assessment, or a fresh `batch --stats` into a new cache, to recreate
+  older allomorph evidence. Other report groupings remain available.
 
 ### Writing a facts file is about 25 times faster
 

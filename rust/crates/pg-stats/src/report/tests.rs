@@ -396,6 +396,358 @@ fn per_allomorph_object_filter_narrows_rows() {
 }
 
 #[test]
+fn per_allomorph_report_refuses_legacy_hc_named_rows_without_mutating_cache() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let run_id = outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "legacy",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-old",
+                    ObjectKind::MorphRule,
+                    Some(("rule-old:0", "Old allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    outcome
+        .cache
+        .connection()
+        .execute(
+            "UPDATE run SET counter_semantics = 4 WHERE run_id = ?1",
+            [run_id],
+        )
+        .unwrap();
+    let before: (i64, i64) = outcome
+        .cache
+        .connection()
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM fact), counter_semantics FROM run WHERE run_id = ?1",
+            [run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    let result = per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default());
+    let error = result.expect_err("legacy named HC allomorph facts must be refused");
+    assert!(
+        error.to_string().contains("new Assessment")
+            && error
+                .to_string()
+                .contains("fresh `batch --stats` into a new cache"),
+        "the refusal must explain recovery for both consumers: {error}"
+    );
+
+    let after: (i64, i64) = outcome
+        .cache
+        .connection()
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM fact), counter_semantics FROM run WHERE run_id = ?1",
+            [run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(after, before, "a refusal must leave cache data unchanged");
+}
+
+#[test]
+fn per_allomorph_report_refuses_mixed_legacy_and_current_matching_rows_but_allows_current_filter() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let legacy_run_id = outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "legacy",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-old",
+                    ObjectKind::MorphRule,
+                    Some(("rule-old:0", "Old allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    outcome
+        .cache
+        .connection()
+        .execute(
+            "UPDATE run SET counter_semantics = 4 WHERE run_id = ?1",
+            [legacy_run_id],
+        )
+        .unwrap();
+    outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "current",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-new",
+                    ObjectKind::MorphRule,
+                    Some(("rule-new:0", "Current allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+
+    let mixed = per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default());
+    assert!(
+        mixed.is_err(),
+        "matching old and current HC facts must be refused; observed report: {mixed:#?}"
+    );
+
+    let current_only = per_allomorph_report(
+        outcome.cache.connection(),
+        &PerAllomorphFilter {
+            word: Some("current".to_string()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(current_only.len(), 1);
+    assert_eq!(current_only[0].allomorph_key.as_deref(), Some("rule-new:0"));
+}
+
+#[test]
+fn per_allomorph_report_allows_legacy_none_rows_without_named_allomorphs() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let run_id = outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "legacy-none",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-old",
+                    ObjectKind::MorphRule,
+                    None,
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    outcome
+        .cache
+        .connection()
+        .execute(
+            "UPDATE run SET counter_semantics = 4 WHERE run_id = ?1",
+            [run_id],
+        )
+        .unwrap();
+
+    let rows =
+        per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].allomorph_key, None);
+}
+
+#[test]
+fn per_allomorph_report_refuses_unknown_future_hc_semantics() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let run_id = outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "future",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-future",
+                    ObjectKind::MorphRule,
+                    Some(("rule-future:0", "Future allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    outcome
+        .cache
+        .connection()
+        .execute(
+            "UPDATE run SET counter_semantics = ?1 WHERE run_id = ?2",
+            rusqlite::params![crate::COUNTER_SEMANTICS_VERSION + 1, run_id],
+        )
+        .unwrap();
+
+    let result = per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default());
+    assert!(
+        result.is_err(),
+        "future HC semantics are not representably safe; observed report: {result:#?}"
+    );
+}
+
+#[test]
+fn per_allomorph_report_refuses_selected_named_rows_with_missing_run_metadata() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "current",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-current",
+                    ObjectKind::MorphRule,
+                    Some(("rule-current:0", "Current allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    let orphan_run_id = outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "orphan",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-orphan",
+                    ObjectKind::MorphRule,
+                    Some(("rule-orphan:0", "Orphan allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    outcome
+        .cache
+        .connection()
+        .execute("DELETE FROM run WHERE run_id = ?1", [orphan_run_id])
+        .unwrap();
+
+    let error = per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default())
+        .expect_err(
+            "a selected named fact with no producing run must not disappear from the report",
+        );
+    assert!(
+        matches!(error, crate::StatsError::MissingAllomorphRunMetadata { run_id } if run_id == orphan_run_id),
+        "the refusal must name the orphaned producing run {orphan_run_id}: {error}"
+    );
+
+    let current_only = per_allomorph_report(
+        outcome.cache.connection(),
+        &PerAllomorphFilter {
+            word: Some("current".to_string()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(current_only.len(), 1);
+    assert_eq!(
+        current_only[0].allomorph_key.as_deref(),
+        Some("rule-current:0")
+    );
+}
+
+#[test]
+fn per_allomorph_report_allows_foma_named_rows_at_legacy_semantics() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let mut foma = run();
+    foma.engine = "foma".to_string();
+    let run_id = outcome
+        .cache
+        .flush(
+            &foma,
+            &[word_record(
+                "foma",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-foma",
+                    ObjectKind::MorphRule,
+                    Some(("rule-foma:0", "Foma allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    outcome
+        .cache
+        .connection()
+        .execute(
+            "UPDATE run SET counter_semantics = 4 WHERE run_id = ?1",
+            [run_id],
+        )
+        .unwrap();
+
+    let rows =
+        per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].allomorph_key.as_deref(), Some("rule-foma:0"));
+}
+
+#[test]
+fn per_allomorph_report_preserves_an_existing_caller_transaction() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let run_id = outcome
+        .cache
+        .flush(
+            &run(),
+            &[word_record(
+                "transaction",
+                1,
+                vec![fact_with_allomorph(
+                    "rule-transaction",
+                    ObjectKind::MorphRule,
+                    Some(("rule-transaction:0", "Transaction allomorph")),
+                    1,
+                    1,
+                )],
+            )],
+        )
+        .unwrap();
+    let conn = outcome.cache.connection();
+    let transaction = conn.unchecked_transaction().unwrap();
+    transaction
+        .execute(
+            "UPDATE run SET total_elapsed_ns = 123 WHERE run_id = ?1",
+            [run_id],
+        )
+        .unwrap();
+
+    let rows = per_allomorph_report(conn, &PerAllomorphFilter::default()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        !conn.is_autocommit(),
+        "the report must leave the caller's transaction active"
+    );
+
+    transaction
+        .execute(
+            "UPDATE run SET total_elapsed_ns = 456 WHERE run_id = ?1",
+            [run_id],
+        )
+        .unwrap();
+    transaction.rollback().unwrap();
+    let elapsed: i64 = conn
+        .query_row(
+            "SELECT total_elapsed_ns FROM run WHERE run_id = ?1",
+            [run_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(elapsed, 1, "the caller's rollback must still apply");
+}
+
+#[test]
 fn per_allomorph_orders_deterministically_on_ties() {
     let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
     let words = vec![word_record(
