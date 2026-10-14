@@ -51,3 +51,5 @@ FieldWorks. It is preserved as `held-divergence.diff` (SHA-256
 `fbcb127b72a6a4f40867959c91bfb7ca008d1795cdc2dd4304766079f208f3d2`) in that folder.
 
 **Status: documented for the owner; not filed.**
+
+Upstream record: draft PR https://github.com/sillsdev/machine/pull/542 (stacked on #480) pins the current engine behaviour with a unit test: `AffixTemplateSlot.Optional` returns true when a slot has no rules, whatever its `optional` flag. The PR asks whether an empty required slot should block the parse; that decision is the owner's.
