@@ -39,8 +39,11 @@ array order is the generation order and is preserved.
 Version 1 selects an MSA, not a particular allomorph. If a `formGuid` is supplied, generation
 returns `UnsupportedFormSelection` before synthesis; it never generates all forms while implying
 the selected form constrained the result. A request is limited to 64 KiB and 64 selected
-morphemes including the root. Synthesis keeps the existing finite step cap and emits surface forms
-on stdout. The output is a list of forms and does not carry a generation-completion witness.
+morphemes including the root. Generation uses the existing finite 50,000,000-unit Morpher
+allowance for the exact root/non-head allomorph product and synthesis work. If the product is too
+large or the shared work allowance stops generation, the CLI returns a typed resource refusal and
+emits no surfaces. Successful output is a list of forms and does not carry an explicit completion
+witness.
 
 Use the positional form for HC XML:
 

@@ -62,6 +62,9 @@ pub(crate) enum GenerateRequestError {
         entry_guid: String,
         msa_guid: String,
     },
+    GenerationResourceLimit {
+        detail: String,
+    },
     RequestPathMissing,
     MixedSelectors,
 }
@@ -124,6 +127,9 @@ impl std::fmt::Display for GenerateRequestError {
                 f,
                 "GenerateRequestAmbiguousIdentity: entry {entry_guid} and MSA {msa_guid} resolve to multiple compiled morphemes"
             ),
+            Self::GenerationResourceLimit { detail } => {
+                write!(f, "GenerateRequestResourceLimit: {detail}")
+            }
             Self::RequestPathMissing => {
                 write!(f, "GenerateRequestPathMissing: --request requires a JSON file path")
             }
@@ -353,7 +359,14 @@ pub(crate) fn generate_request_words(
         .collect::<Result<Vec<_>, _>>()?;
 
     let morpher = Morpher::new(grammar, crate::DEFAULT_STEP_CAP.as_morpher_cap());
-    Ok(morpher.generate_words(root, &others, pg_featstruct::FeatureStruct::EMPTY))
+    let outcome =
+        morpher.generate_words_bounded(root, &others, pg_featstruct::FeatureStruct::EMPTY);
+    if let Some(reason) = outcome.stop_reason {
+        return Err(GenerateRequestError::GenerationResourceLimit {
+            detail: reason.to_string(),
+        });
+    }
+    Ok(outcome.surfaces)
 }
 
 fn map_identity_error(

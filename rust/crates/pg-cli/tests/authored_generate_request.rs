@@ -220,6 +220,61 @@ fn authored_generate_request_generates_known_root_and_affix_surface() {
 }
 
 #[test]
+fn authored_generate_request_refuses_oversized_allomorph_product_before_enumeration() {
+    let dir = scratch_dir();
+    let grammar = dir.join("grammar.fwdata");
+    let request = dir.join("request.json");
+    let source =
+        include_str!("../../../../docs/divergences/evidence/071/kat-fixture-with-k.fwdata");
+    let source = source
+        .replacen(
+            "<AUni ws=\"fx\">xxx</AUni>",
+            "<AUni ws=\"fx\">ranni</AUni>",
+            1,
+        )
+        .replacen(
+            "guid=\"00000000-0000-0000-0000-00000000abcd\" t=\"r\"",
+            "guid=\"d7f713e8-e8cf-11d3-9764-00c04f186933\" t=\"r\"",
+            1,
+        );
+    assert!(source.contains("<AUni ws=\"fx\">ranni</AUni>"));
+    assert!(!source.contains("guid=\"00000000-0000-0000-0000-00000000abcd\""));
+    fs::write(&grammar, source).expect("write two-allomorph fixture copy");
+
+    // Repeating this two-allomorph authored root 63 times creates a 2^64 product without expanding it.
+    let root = r#"{"entryGuid":"00000000-0000-0000-0000-000000000040","msaGuid":"00000000-0000-0000-0000-000000000042","msaClass":"MoStemMsa"}"#;
+    let morphemes = std::iter::repeat_n(root, 63).collect::<Vec<_>>().join(",");
+    let request_json = format!(r#"{{"schemaVersion":1,"root":{root},"morphemes":[{morphemes}]}}"#);
+    assert!(request_json.len() < 64 * 1024);
+    fs::write(&request, request_json).expect("write bounded authored request");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_pangloss"))
+        .args([
+            "generate",
+            grammar.to_str().expect("grammar path is UTF-8"),
+            "--request",
+            request.to_str().expect("request path is UTF-8"),
+        ])
+        .output()
+        .expect("run pangloss generate");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success(), "unexpected success: {stdout}");
+    assert!(stdout.is_empty(), "refusal emitted forms: {stdout}");
+    assert!(
+        stderr.contains("GenerateRequestResourceLimit"),
+        "missing typed resource refusal: {stderr}"
+    );
+    assert!(
+        stderr.contains(
+            "allomorph seed product exceeds the finite 50000000-unit generation allowance"
+        ),
+        "resource refusal did not state its bound: {stderr}"
+    );
+}
+
+#[test]
 fn authored_generate_request_does_not_fall_back_to_hc_xml_ids() {
     let dir = scratch_dir();
     let grammar = dir.join("grammar.xml");

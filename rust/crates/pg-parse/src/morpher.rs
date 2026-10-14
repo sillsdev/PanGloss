@@ -96,6 +96,43 @@ impl SynthesisBudget {
     }
 }
 
+/// Why `Morpher::generate_words_bounded` stopped before visiting every seed chain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenerateWordsStopReason {
+    /// The exact root/allomorph seed product is larger than the owner's finite allowance.
+    SeedProductExceedsBudget { limit: usize },
+    /// Lazy traversal or synthesis exhausted the shared generation allowance.
+    WorkLimitReached { limit: usize },
+    /// The configured per-word generation deadline expired.
+    TimedOut,
+}
+
+/// Generated surfaces together with whether every authored seed chain was examined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GenerateWordsOutcome {
+    pub surfaces: Vec<String>,
+    pub stop_reason: Option<GenerateWordsStopReason>,
+    /// Seed choices admitted before synthesis, including root and non-head allomorph selections.
+    pub seed_choices: usize,
+    /// Work charged to the one generation allowance across seed selection and synthesis.
+    pub work_units: usize,
+}
+
+impl std::fmt::Display for GenerateWordsStopReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SeedProductExceedsBudget { limit } => write!(
+                f,
+                "allomorph seed product exceeds the finite {limit}-unit generation allowance"
+            ),
+            Self::WorkLimitReached { limit } => {
+                write!(f, "generation reached its {limit}-unit work allowance")
+            }
+            Self::TimedOut => write!(f, "generation reached its configured deadline"),
+        }
+    }
+}
+
 /// The outcome of parsing one word.
 pub struct ParseOutcome {
     /// The `(morpheme-id-join, surface)` pairs, one per surviving analysis, ready for
@@ -1454,34 +1491,61 @@ enum PermItem {
     NonHead(AllomorphId),
 }
 
-/// C# `Morpher.PermuteRules`: cross product of every `NonHead` entry's allomorphs, preserving input order; only the resulting set matters to callers.
-fn permute_rules(g: &Grammar, morphemes: &[GenMorpheme]) -> Vec<Vec<PermItem>> {
-    if morphemes.is_empty() {
-        return vec![Vec::new()];
-    }
-    let tails = permute_rules(g, &morphemes[1..]);
-    let mut out = Vec::new();
-    match morphemes[0] {
+/// Visit `Morpher.PermuteRules`'s allomorph product lazily, preserving selector and allomorph order.
+fn visit_permute_rules(
+    g: &Grammar,
+    morphemes: &[GenMorpheme],
+    selected: &mut Vec<PermItem>,
+    visit: &mut impl FnMut(&[PermItem]) -> bool,
+) -> bool {
+    let Some((&morpheme, rest)) = morphemes.split_first() else {
+        return visit(selected);
+    };
+    match morpheme {
         GenMorpheme::Rule(id) => {
-            for tail in &tails {
-                let mut v = Vec::with_capacity(tail.len() + 1);
-                v.push(PermItem::Rule(id));
-                v.extend_from_slice(tail);
-                out.push(v);
-            }
+            selected.push(PermItem::Rule(id));
+            let keep_going = visit_permute_rules(g, rest, selected, visit);
+            selected.pop();
+            keep_going
         }
         GenMorpheme::NonHead(le) => {
-            for allo in &g.entries[le.0 as usize].allomorphs {
-                for tail in &tails {
-                    let mut v = Vec::with_capacity(tail.len() + 1);
-                    v.push(PermItem::NonHead(allo.id));
-                    v.extend_from_slice(tail);
-                    out.push(v);
+            for allomorph in &g.entries[le.0 as usize].allomorphs {
+                selected.push(PermItem::NonHead(allomorph.id));
+                let keep_going = visit_permute_rules(g, rest, selected, visit);
+                selected.pop();
+                if !keep_going {
+                    return false;
                 }
             }
+            true
         }
     }
-    out
+}
+
+/// Seed product size; rules add one choice, zero stays zero, and overflow returns `None`.
+fn generation_seed_product(
+    g: &Grammar,
+    root: LexEntryId,
+    morphemes: &[GenMorpheme],
+) -> Option<usize> {
+    let root_choices = g.entries[root.0 as usize].allomorphs.len();
+    if root_choices == 0
+        || morphemes.iter().any(|morpheme| {
+            matches!(morpheme, GenMorpheme::NonHead(entry) if g.entries[entry.0 as usize].allomorphs.is_empty())
+        })
+    {
+        return Some(0);
+    }
+
+    let mut product = root_choices;
+    for morpheme in morphemes {
+        let choices = match morpheme {
+            GenMorpheme::Rule(_) => 1,
+            GenMorpheme::NonHead(entry) => g.entries[entry.0 as usize].allomorphs.len(),
+        };
+        product = product.checked_mul(choices)?;
+    }
+    Some(product)
 }
 
 /// `mrule is RealizationalAffixProcessRule`: the one rule kind that never occupies an `mrule_apps` trail slot (see that field's doc).
@@ -1574,21 +1638,63 @@ fn visit_interleavings<T: Clone>(
 }
 
 impl<'g> Morpher<'g> {
-    /// C# `Morpher.GenerateWords`: one seed per `(root allomorph, other-morpheme permutation)`
-    /// pair, kept if `Self::is_word_valid` passes. Must NOT apply the surface-match gate — there is
-    /// no input word to match. Sorted rather than C#'s unordered set; only the set is guaranteed.
+    /// Compatibility projection of `Self::generate_words_bounded`; use that method when the caller
+    /// must distinguish a complete result from a budget-stopped search. Surfaces are sorted rather
+    /// than C#'s unordered set; only the set is guaranteed.
     pub fn generate_words(
         &self,
         root: LexEntryId,
         others: &[GenMorpheme],
         real_fs: FeatureStruct,
     ) -> Vec<String> {
+        self.generate_words_bounded(root, others, real_fs).surfaces
+    }
+
+    /// Synthesize every selected seed chain under one finite allowance shared by root choices,
+    /// non-head allomorph selection, and the ordinary synthesis pipeline. An oversized exact seed
+    /// product is refused before traversal; a stopped result never carries a completion claim.
+    pub fn generate_words_bounded(
+        &self,
+        root: LexEntryId,
+        others: &[GenMorpheme],
+        real_fs: FeatureStruct,
+    ) -> GenerateWordsOutcome {
         let g = self.g;
-        let permutations = permute_rules(g, others);
-        let mut words: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         let n_allomorphs = g.entries[root.0 as usize].allomorphs.len();
+        let limit = self.cap;
+        let seed_product = match generation_seed_product(g, root, others) {
+            Some(seed_product) if seed_product <= limit => seed_product,
+            Some(_) | None => {
+                return GenerateWordsOutcome {
+                    surfaces: Vec::new(),
+                    stop_reason: Some(GenerateWordsStopReason::SeedProductExceedsBudget { limit }),
+                    seed_choices: 0,
+                    work_units: 0,
+                };
+            }
+        };
+        if seed_product == 0 {
+            return GenerateWordsOutcome {
+                surfaces: Vec::new(),
+                stop_reason: None,
+                seed_choices: 0,
+                work_units: 0,
+            };
+        }
+
+        let budget = pg_rules::stratum::StepBudget::with_limits(usize::MAX, limit)
+            .with_timeout(self.word_timeout)
+            .with_synthesis_counting();
+        let _work_scope = budget.enter();
+        let mut words: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut selected = Vec::with_capacity(others.len());
+        let mut seed_choices = 0usize;
         for allo_idx in 0..n_allomorphs {
-            for perm in &permutations {
+            let keep_going = visit_permute_rules(g, others, &mut selected, &mut |perm| {
+                if !pg_fst::work::consume() {
+                    return false;
+                }
+                seed_choices = seed_choices.saturating_add(1);
                 let mut seed = self.build_root_seed(root, allo_idx, real_fs.clone());
                 for item in perm {
                     match *item {
@@ -1606,10 +1712,38 @@ impl<'g> Morpher<'g> {
                         }
                     }
                 }
-                self.collect_valid_surfaces(self.synthesis_pipeline(seed), &mut words);
+                let generated = self.synthesis_pipeline_selected_with_policy(
+                    seed,
+                    &NoopSink,
+                    TraceHandle::DUMMY,
+                    None,
+                    &budget,
+                    None,
+                    FinalTemplateSynthesisPolicy {
+                        always_enforce: self.always_enforce_final_templates,
+                    },
+                    None,
+                );
+                self.collect_valid_surfaces(generated, &mut words);
+                !budget.capped() && !budget.timed_out()
+            });
+            if !keep_going {
+                break;
             }
         }
-        words.into_iter().collect()
+        let stop_reason = if budget.timed_out() {
+            Some(GenerateWordsStopReason::TimedOut)
+        } else if budget.capped() {
+            Some(GenerateWordsStopReason::WorkLimitReached { limit })
+        } else {
+            None
+        };
+        GenerateWordsOutcome {
+            surfaces: words.into_iter().collect(),
+            stop_reason,
+            seed_choices,
+            work_units: budget.work_steps(),
+        }
     }
 
     /// C# `Morpher.GenerateWords(WordAnalysis)`: union `Self::generate_words` over every left/right

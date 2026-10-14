@@ -22,7 +22,8 @@ pub mod surface;
 pub use batch::{hc_parse_batch, BatchWordOutcome};
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use morpher::{
-    GenMorpheme, Morpher, ParseOptions, ParseOutcome, SynthesisBudget, TracedSynthesisOutcome,
+    GenMorpheme, GenerateWordsOutcome, GenerateWordsStopReason, Morpher, ParseOptions,
+    ParseOutcome, SynthesisBudget, TracedSynthesisOutcome,
 };
 pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 pub use parse_morph::{

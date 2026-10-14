@@ -1789,7 +1789,7 @@ fn run_generate(args: &[String]) -> Result<(), String> {
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
-    // `generate` has no `--step-cap` flag either; `synthesis_pipeline` folds this same cap into its own `StepBudget`, so the finite default guards it too.
+    // The shared Morpher generation allowance covers seed selection and synthesis.
     let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap());
 
     let root = lex_entry_by_morpheme_id(&grammar, root_id)
@@ -1802,8 +1802,12 @@ fn run_generate(args: &[String]) -> Result<(), String> {
         );
     }
 
-    let words = morpher.generate_words(root, &others, pg_featstruct::FeatureStruct::EMPTY);
-    for w in &words {
+    let outcome =
+        morpher.generate_words_bounded(root, &others, pg_featstruct::FeatureStruct::EMPTY);
+    if let Some(reason) = outcome.stop_reason {
+        return Err(format!("GenerateResourceLimit: {reason}"));
+    }
+    for w in &outcome.surfaces {
         println!("{w}");
     }
     Ok(())

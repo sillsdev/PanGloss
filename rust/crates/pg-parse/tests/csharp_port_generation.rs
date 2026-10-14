@@ -2,10 +2,143 @@
 
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
-use csharp_port_common::{build_grammar, lex_entry_id, morpheme_ordinal, mrule_id};
+use csharp_port_common::{
+    build_grammar, build_grammar_custom_lexicon, lex_entry_id, morpheme_ordinal, mrule_id,
+};
 use pg_featstruct::FeatureStruct;
-use pg_parse::{AnalysisProvenance, GenMorpheme, Morpher, WordAnalysis};
+use pg_grammar_model::model::AllomorphOwner;
+use pg_parse::{AnalysisProvenance, GenMorpheme, GenerateWordsStopReason, Morpher, WordAnalysis};
 use std::collections::BTreeSet;
+
+const MULTI_ALLOMORPH_COMPOUND_RULE: &str = r#"
+  <CompoundingRule id="mrC">
+    <Name>compound</Name>
+    <CompoundingSubrules><CompoundingSubrule>
+      <HeadMorphologicalInput><PhoneticSequence id="head"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput>
+      <NonHeadMorphologicalInput><PhoneticSequence id="nonHead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput>
+      <MorphologicalOutput><CopyFromInput index="head" /><InsertSegments><PhoneticShape>+</PhoneticShape></InsertSegments><CopyFromInput index="nonHead" /></MorphologicalOutput>
+    </CompoundingSubrule></CompoundingSubrules>
+  </CompoundingRule>
+"#;
+
+const MULTI_ALLOMORPH_LEXICON: &str = r#"
+  <LexicalEntry id="root" partOfSpeech="posN"><MorphemeId>root</MorphemeId>
+    <Allomorphs>
+      <Allomorph id="root1"><PhoneticShape>ka</PhoneticShape></Allomorph>
+      <Allomorph id="root2"><PhoneticShape>ta</PhoneticShape></Allomorph>
+    </Allomorphs>
+  </LexicalEntry>
+  <LexicalEntry id="nonhead" partOfSpeech="posN"><MorphemeId>nonhead</MorphemeId>
+    <Allomorphs>
+      <Allomorph id="nonhead1"><PhoneticShape>mi</PhoneticShape></Allomorph>
+      <Allomorph id="nonhead2"><PhoneticShape>ni</PhoneticShape></Allomorph>
+    </Allomorphs>
+  </LexicalEntry>
+  <LexicalEntry id="lateZero" partOfSpeech="posN"><MorphemeId>lateZero</MorphemeId>
+    <Allomorphs><Allomorph id="lateZero1"><PhoneticShape>ya</PhoneticShape></Allomorph></Allomorphs>
+  </LexicalEntry>
+"#;
+
+fn multi_allomorph_compound_grammar() -> pg_grammar_model::model::Grammar {
+    build_grammar_custom_lexicon(
+        MULTI_ALLOMORPH_COMPOUND_RULE,
+        "mrC",
+        MULTI_ALLOMORPH_LEXICON,
+    )
+}
+
+fn multi_allomorph_compound_words(
+    morpher: &Morpher<'_>,
+    grammar: &pg_grammar_model::model::Grammar,
+) -> pg_parse::GenerateWordsOutcome {
+    morpher.generate_words_bounded(
+        lex_entry_id(grammar, "root"),
+        &[GenMorpheme::NonHead(lex_entry_id(grammar, "nonhead"))],
+        FeatureStruct::EMPTY,
+    )
+}
+
+#[test]
+fn bounded_generation_keeps_small_multi_allomorph_surface_set() {
+    let grammar = multi_allomorph_compound_grammar();
+    let morpher = Morpher::new(&grammar, 1_000);
+
+    let outcome = multi_allomorph_compound_words(&morpher, &grammar);
+
+    assert_eq!(outcome.stop_reason, None);
+    assert_eq!(outcome.seed_choices, 4);
+    assert_eq!(
+        outcome.surfaces,
+        vec![
+            "kami".to_string(),
+            "kani".to_string(),
+            "tami".to_string(),
+            "tani".to_string()
+        ]
+    );
+}
+
+#[test]
+fn bounded_generation_shares_tiny_allowance_across_seed_choices() {
+    let grammar = multi_allomorph_compound_grammar();
+    let morpher = Morpher::new(&grammar, 100);
+
+    let outcome = multi_allomorph_compound_words(&morpher, &grammar);
+
+    assert_eq!(
+        outcome.stop_reason,
+        Some(GenerateWordsStopReason::WorkLimitReached { limit: 100 })
+    );
+    assert_eq!(outcome.seed_choices, 2, "{outcome:?}");
+    assert!(outcome.seed_choices < 4, "{outcome:?}");
+    assert!(outcome.work_units <= 100, "{outcome:?}");
+}
+
+#[test]
+fn bounded_generation_refuses_overflowing_seed_product_before_visiting_it() {
+    let grammar = multi_allomorph_compound_grammar();
+    let root = lex_entry_id(&grammar, "root");
+    let nonhead = lex_entry_id(&grammar, "nonhead");
+    let others = vec![GenMorpheme::NonHead(nonhead); 63];
+    let morpher = Morpher::new(&grammar, 100);
+
+    let outcome = morpher.generate_words_bounded(root, &others, FeatureStruct::EMPTY);
+
+    assert_eq!(
+        outcome.stop_reason,
+        Some(GenerateWordsStopReason::SeedProductExceedsBudget { limit: 100 })
+    );
+    assert_eq!(outcome.seed_choices, 0);
+    assert_eq!(outcome.work_units, 0);
+    assert!(outcome.surfaces.is_empty());
+}
+
+#[test]
+fn bounded_generation_keeps_late_zero_after_product_overflow() {
+    let mut grammar = multi_allomorph_compound_grammar();
+    let root = lex_entry_id(&grammar, "root");
+    let nonhead = lex_entry_id(&grammar, "nonhead");
+    let late_zero = lex_entry_id(&grammar, "lateZero");
+    // The loader drops empty entries; clear this sentinel to exercise the exact product invariant.
+    let removed_allos = grammar.entries[late_zero.0 as usize].allomorphs.len();
+    let owner_boundary = grammar.allomorph_owners.len() - removed_allos;
+    assert!(grammar.allomorph_owners[owner_boundary..]
+        .iter()
+        .all(|owner| matches!(owner, AllomorphOwner::Root(entry, _) if *entry == late_zero)));
+    grammar.allomorph_owners.truncate(owner_boundary);
+    grammar.allomorph_sources.truncate(owner_boundary);
+    grammar.entries[late_zero.0 as usize].allomorphs.clear();
+    let morpher = Morpher::new(&grammar, 100);
+    let mut others = vec![GenMorpheme::NonHead(nonhead); usize::BITS as usize];
+    others.push(GenMorpheme::NonHead(late_zero));
+
+    let outcome = morpher.generate_words_bounded(root, &others, FeatureStruct::EMPTY);
+
+    assert_eq!(outcome.stop_reason, None);
+    assert_eq!(outcome.seed_choices, 0);
+    assert_eq!(outcome.work_units, 0);
+    assert!(outcome.surfaces.is_empty());
+}
 
 /// `si+` prefix (3SG) + `+ɯd` suffix (PAST), the two `AffixProcessRule`s `GenerateWords_CanGenerate_ReturnsCorrectWord` builds inline in C#, ported here as XML.
 const SI_ED_MRULES: &str = r#"
