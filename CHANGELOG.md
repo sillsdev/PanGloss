@@ -5,6 +5,49 @@ file has no section for.
 
 ## Unreleased
 
+## 0.8.5
+
+### Check underlying and expected forms against ordered phonology
+
+- `pangloss phonology-examples <grammar> <request.json> [<out.json>]` applies ordered
+  phonological rules to authored underlying forms in an explicit lexical context: an HC XML
+  entry ID, or a FieldWorks `entryGuid`/`msaGuid` pair with `msaClass: "MoStemMsa"`.
+  Results distinguish completed `agree` and `disagree` from `unavailable`, with separate
+  `complete`, `incomplete` and `notStarted` facts. Agreement requires every authored expectation
+  to match; an empty lexicon or unresolved context is unavailable, and hitting a cap never passes.
+- Version 1 requests accept 1–500 examples with 1–16 expected forms each. Positive request-wide
+  `limits.stepCap`, `limits.workCap` and `limits.timeoutMs` are bounded at 50,000,000 steps,
+  5,000,000,000 work units and 600,000 ms. Step and work budgets are divided by request order,
+  with no redistribution; one shared deadline starts after grammar and cache preparation.
+  Request and result JSON are each limited to 32 MiB. Oversized or malformed requests, unknown
+  fields and options, unsupported context tags, and attempts to overwrite an input are refused.
+- Results bind the exact grammar, request bytes and copied writing-system dependencies, and
+  retain declared, visited and applied rule IDs separately. Each rule list is bounded at 1,024
+  entries per example, with 4,096 entries across the result; oversized evidence is refused rather
+  than truncated. This command measures phonology only, without a readiness verdict.
+
+### Generate from exact authored FieldWorks identities
+
+- `pangloss generate <snapshot.json|project.fwdata|project.fwbackup> --request <request.json>`
+  resolves exact `entryGuid`, `msaGuid` and `msaClass` selectors, preserving the authored
+  `morphemes` array order. It refuses missing, ambiguous, wrong-owner or wrong-class identities
+  without falling back to spelling, display text or numeric IDs. HC XML positional generation
+  remains available. See `docs/generation.md` for the version 1 request shape.
+- Requests are limited to 64 KiB and 64 selected morphemes including the root. A non-null
+  `formGuid` returns `UnsupportedFormSelection`: version 1 selects MSAs, not a particular
+  allomorph. Mixing `--request` with positional selectors or adding unknown fields is refused.
+- Allomorph enumeration is lazy and shares the finite 50,000,000-unit generation allowance
+  with synthesis. Products that overflow or exceed the allowance are refused before enumeration.
+  Stopped request generation returns `GenerateRequestResourceLimit`; positional generation
+  returns `GenerateResourceLimit`. Both emit no surfaces on resource refusal; successful output
+  remains a list of forms without an explicit completion witness.
+
+### Ordinary parse and generation overhead
+
+- Ten interleaved pairs per command found no measurable difference on the fixed 300-word parse
+  and generation controls: median paired wall-time changes were −1.6% and +3.8%, respectively,
+  with loaded-host spread too wide to resolve small changes.
+
 ## 0.8.4
 
 ### Batch statistics identify the allomorph owned by each object
