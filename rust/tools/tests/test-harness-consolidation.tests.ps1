@@ -117,7 +117,7 @@ $crateSpecs = @(
         MinTargets = 3
         MaxTargets = 3
         ExpectedSourceNames = @(
-            'effective_analysis_target.rs', 'step_cap_work_gate.rs', 'trace_template_outcomes.rs',
+            'effective_analysis_target.rs', 'phonology_gate.rs', 'step_cap_work_gate.rs', 'trace_template_outcomes.rs',
             'batch_determinism.rs', 'cd_set_gate.rs', 'conformance_fixtures_gate.rs',
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',
             'csharp_port_affix_template.rs', 'csharp_port_compounding.rs',
@@ -161,7 +161,7 @@ $crateSpecs = @(
         MinTargets = 2
         MaxTargets = 2
         ExpectedSourceNames = @(
-            'facts_command.rs', 'frozen_batch_hard_links.rs', 'reserved_word_boundary.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
+            'authored_generate_request.rs', 'facts_command.rs', 'frozen_batch_hard_links.rs', 'reserved_word_boundary.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
             'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'compile_errors_contract.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'skills_never_instruct_bare_cargo.rs')
     }
     @{

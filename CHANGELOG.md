@@ -5,6 +5,17 @@ file has no section for.
 
 ## Unreleased
 
+## 0.8.6
+
+### Publish the phonology and authored-generation features
+
+- 0.8.5 was tagged but not published: the PowerShell tool tests on Windows refused two
+  unregistered regression-test sources. Both are now registered in the consolidated test-source
+  map, which still requires every original source to be included exactly once.
+- 0.8.6 carries the bounded `pangloss phonology-examples` producer and exact authored MSA
+  generation through `pangloss generate --request`, with the limits, refusals and overhead result
+  described in the 0.8.5 section below.
+
 ## 0.8.5
 
 ### Check underlying and expected forms against ordered phonology
