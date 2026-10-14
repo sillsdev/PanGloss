@@ -252,7 +252,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     },
 ];
 
-const GENERATE_FLAGS: &[FlagSpec] = &[];
+const GENERATE_FLAGS: &[FlagSpec] = &[FlagSpec {
+    name: "--request",
+    takes_value: true,
+    summary: "versioned exact FieldWorks entry/MSA JSON request; v1 refuses formGuid selection",
+}];
 
 const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
@@ -578,7 +582,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "generate",
-        summary: "Generate a surface word form for a root morpheme and a chain of other morphemes.",
+        summary: "Generate from HC XML MorphemeId selectors or an exact FieldWorks entry/MSA request.",
         hidden: false,
         positionals: &["grammar", "root-morpheme-id", "other-morpheme-id..."],
         flags: GENERATE_FLAGS,

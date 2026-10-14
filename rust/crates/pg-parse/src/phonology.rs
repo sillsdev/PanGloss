@@ -5,13 +5,14 @@
 
 use std::time::Duration;
 
-use pg_grammar_model::model::{Grammar, LexEntryDef, LexEntryId, PRuleId, PhonRuleDef, StratumId};
+use pg_grammar_model::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef, StratumId};
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stratum::{synthesize_phonological_stratum_traced, StepBudget};
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_snapshot::FwClass;
 
 use crate::morpher::Morpher;
+use crate::source_identity::{resolve_fw_entry_msa, SourceIdentityError};
 
 /// Stable identity of the lexical entry whose context the shape runs under.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -304,45 +305,35 @@ fn resolve_entry(
     if g.entries.is_empty() {
         return Err(Why::EmptyLexicon);
     }
-    let with_id = |keep: &dyn Fn(&LexEntryDef) -> bool| -> Vec<LexEntryId> {
-        g.entries
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| keep(e))
-            .map(|(i, _)| LexEntryId(i as u32))
-            .collect()
-    };
-    let exactly_one = |found: Vec<LexEntryId>, none: Why| match found.as_slice() {
-        [] => Err(none),
-        [one] => Ok(*one),
-        _ => Err(Why::AmbiguousContext),
-    };
     match context {
         PhonologyContext::HcXmlEntry { entry_id } => {
-            exactly_one(with_id(&|e| e.authored_id == *entry_id), Why::UnknownEntry)
+            let found: Vec<_> = g
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| entry.authored_id == *entry_id)
+                .map(|(index, _)| LexEntryId(index as u32))
+                .collect();
+            match found.as_slice() {
+                [] => Err(Why::UnknownEntry),
+                [one] => Ok(*one),
+                _ => Err(Why::AmbiguousContext),
+            }
         }
         PhonologyContext::FwdataEntry {
             entry_guid,
             msa_guid,
             msa_class,
         } => {
-            let named = with_id(&|e| e.source_guid.as_deref() == Some(entry_guid.as_str()));
-            if named.is_empty() {
-                return Err(Why::UnknownEntry);
-            }
-            let owned: Vec<LexEntryId> = named
-                .into_iter()
-                .filter(|le| {
-                    let info = &g.morphemes[g.entries[le.0 as usize].morpheme.0 as usize];
-                    info.source_msa_guid.as_deref() == Some(msa_guid.as_str())
-                        && info.source_msa_class == Some(*msa_class)
-                        && info
-                            .owner
-                            .as_ref()
-                            .is_some_and(|owner| owner.entry_guid == *entry_guid)
-                })
-                .collect();
-            exactly_one(owned, Why::MsaNotOwnedByEntry)
+            resolve_fw_entry_msa(g, entry_guid, msa_guid, *msa_class).map_err(|error| match error {
+                SourceIdentityError::EmptyLexicon => Why::EmptyLexicon,
+                SourceIdentityError::UnknownEntry
+                | SourceIdentityError::AuthoredIdentityUnavailable => Why::UnknownEntry,
+                SourceIdentityError::AmbiguousIdentity => Why::AmbiguousContext,
+                SourceIdentityError::UnknownMsa
+                | SourceIdentityError::MsaNotOwnedByEntry
+                | SourceIdentityError::UnsupportedMsaClass => Why::MsaNotOwnedByEntry,
+            })
         }
     }
 }

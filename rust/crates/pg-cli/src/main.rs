@@ -128,6 +128,7 @@ impl BatchParseCounter {
 pub(crate) mod build_info;
 mod compile_failure;
 mod facts_cmd;
+mod generate_request;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 #[cfg(feature = "foma-tools")]
 pub mod backend_report;
@@ -1754,10 +1755,36 @@ fn run_batch_with_counter(
     Ok(())
 }
 
-/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]`: a thin CLI wrapper over `Morpher::generate_words` with an empty realizational FS; each morpheme-id is the human-typable `<MorphemeId>` XML text, applied in exactly the order given, no interleaving search.
+/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot.
 fn run_generate(args: &[String]) -> Result<(), String> {
-    let [grammar_path, root_id, other_ids @ ..] = args else {
-        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...]".into());
+    let Some(grammar_path) = args.first() else {
+        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json>".into());
+    };
+
+    if args.get(1).is_some_and(|arg| arg == "--request") {
+        if args.len() == 2 {
+            return Err(generate_request::GenerateRequestError::RequestPathMissing.to_string());
+        }
+        if args.len() > 3 {
+            return Err(generate_request::GenerateRequestError::MixedSelectors.to_string());
+        }
+        let request =
+            generate_request::read_request_file(&args[2]).map_err(|error| error.to_string())?;
+        let (grammar, warnings) = load_grammar(grammar_path)?;
+        print_grammar_warnings(&warnings);
+        let words = generate_request::generate_request_words(&grammar, &request)
+            .map_err(|error| error.to_string())?;
+        for word in words {
+            println!("{word}");
+        }
+        return Ok(());
+    }
+    if args.iter().skip(1).any(|arg| arg == "--request") {
+        return Err(generate_request::GenerateRequestError::MixedSelectors.to_string());
+    }
+
+    let [_, root_id, other_ids @ ..] = args else {
+        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json>".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -1779,7 +1806,6 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     for w in &words {
         println!("{w}");
     }
-    eprintln!("generate complete: {} word(s)", words.len());
     Ok(())
 }
 

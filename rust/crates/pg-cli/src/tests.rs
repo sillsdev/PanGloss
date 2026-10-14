@@ -5,7 +5,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// A minimal, self-contained grammar (no phonological/morphological rules): one stratum, one table, one `LexicalEntry` whose surface form is "kat" — root-only lookup is enough to exercise the batch pipeline.
-const MINI_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+pub(crate) const MINI_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
     <Name>MiniCliTest</Name>

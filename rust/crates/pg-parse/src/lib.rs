@@ -16,6 +16,7 @@ pub mod overlay;
 pub mod parse_morph;
 pub mod phonology;
 pub mod root_trie;
+pub mod source_identity;
 pub mod surface;
 
 pub use batch::{hc_parse_batch, BatchWordOutcome};

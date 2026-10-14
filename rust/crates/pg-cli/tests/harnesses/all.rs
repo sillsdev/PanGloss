@@ -3,6 +3,8 @@
 
 #[path = "../agent_docs_resolve_gate.rs"]
 mod agent_docs_resolve_gate;
+#[path = "../authored_generate_request.rs"]
+mod authored_generate_request;
 #[path = "../build_context_provenance.rs"]
 mod build_context_provenance;
 #[path = "../compile_errors_contract.rs"]

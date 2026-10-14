@@ -163,7 +163,13 @@ Generate a surface form from morpheme ids (default engine):
 
 ```
 pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]
+pangloss generate <snapshot.json> --request <request.json>
 ```
+
+The positional form addresses HC XML `<MorphemeId>` values. `--request` addresses exact
+FieldWorks `entryGuid`/`msaGuid` pairs in an imported snapshot; request schema version 1 selects
+MSAs only and explicitly refuses non-null `formGuid` constraints. See
+[`docs/generation.md`](docs/generation.md) for the request schema and limits.
 
 From Rust, the same path is `pg_foma::composite::FomaAnalyzer`:
 
