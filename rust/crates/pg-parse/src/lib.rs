@@ -14,6 +14,7 @@ pub mod identity;
 pub mod morpher;
 pub mod overlay;
 pub mod parse_morph;
+pub mod phonology;
 pub mod root_trie;
 pub mod surface;
 
@@ -26,6 +27,10 @@ pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 pub use parse_morph::{
     project_parse_analyses, project_parse_analysis, ParseAnalysis, ParseMorph,
     ParseProjectionError, PARSE_ANALYSIS_PROFILE,
+};
+pub use phonology::{
+    measure_phonology, PhonologyCompletion, PhonologyContext, PhonologyMeasurement,
+    PhonologyRequest, PhonologyResult, PhonologyStopReason, PhonologyUnavailableReason,
 };
 pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};
 

@@ -1024,6 +1024,7 @@ dependencies = [
  "pg-grammar-model",
  "pg-rules",
  "pg-shape",
+ "pg-snapshot",
  "pg-xample-oracle",
  "rayon",
  "rustc-hash",

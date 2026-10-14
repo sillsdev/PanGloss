@@ -12,6 +12,7 @@ pg-shape.workspace = true
 pg-fst.workspace = true
 pg-rules.workspace = true
 pg-grammar-model.workspace = true
+pg-snapshot.workspace = true
 rustc-hash.workspace = true
 unicode-normalization.workspace = true
 bumpalo.workspace = true

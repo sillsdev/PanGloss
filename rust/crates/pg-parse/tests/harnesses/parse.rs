@@ -25,6 +25,8 @@ mod lexical_pattern_trie_exclusion_gate;
 mod loader_n3_pattern_shapes_gate;
 #[path = "../merged_analyses_fs_generalization.rs"]
 mod merged_analyses_fs_generalization;
+#[path = "../phonology_gate.rs"]
+mod phonology_gate;
 #[path = "../reduplication_gate.rs"]
 mod reduplication_gate;
 #[path = "../root_trie_gate.rs"]

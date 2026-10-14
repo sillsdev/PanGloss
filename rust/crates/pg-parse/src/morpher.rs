@@ -405,6 +405,14 @@ impl<'g> Morpher<'g> {
         }
     }
 
+    pub(crate) fn grammar(&self) -> &'g Grammar {
+        self.g
+    }
+
+    pub(crate) fn rule_cache(&self) -> &RuleCache {
+        &self.cache
+    }
+
     pub fn new_with_overlay(g: &'g Grammar, cap: usize, overlay: &'g SuppliedRootOverlay) -> Self {
         let mut morpher = Self::new(g, cap);
         morpher.overlay = Some(overlay);
@@ -1902,7 +1910,12 @@ impl<'g> Morpher<'g> {
     }
 
     /// A fresh root-level seed `Word` at `allo_idx`; explicit (unlike `pg_rules::morph::seed_from_entry`'s always-primary allomorph) because generation tries every allomorph.
-    fn build_root_seed(&self, le: LexEntryId, allo_idx: usize, real_fs: FeatureStruct) -> Word {
+    pub(crate) fn build_root_seed(
+        &self,
+        le: LexEntryId,
+        allo_idx: usize,
+        real_fs: FeatureStruct,
+    ) -> Word {
         let g = self.g;
         let entry = &g.entries[le.0 as usize];
         let allo = &entry.allomorphs[allo_idx];
@@ -1932,7 +1945,7 @@ impl<'g> Morpher<'g> {
     }
 
     /// `Self::surface_of`'s sibling for generation output: the plain first-matching-representation renderer, not the bracket-alternation one.
-    fn generated_surface_of(&self, w: &Word) -> String {
+    pub(crate) fn generated_surface_of(&self, w: &Word) -> String {
         let g = self.g;
         let table = &g.char_tables[g.strata[w.stratum.0 as usize].table.0 as usize];
         surface::to_plain_string(table, &w.shape, false)
