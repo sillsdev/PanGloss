@@ -140,6 +140,7 @@ pub mod grammar_health;
 #[cfg(feature = "foma-tools")]
 mod make_report;
 mod pack;
+mod phonology_examples;
 #[cfg(feature = "foma-tools")]
 mod plan_diagram;
 #[cfg(feature = "foma-tools")]

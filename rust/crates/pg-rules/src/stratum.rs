@@ -16,7 +16,7 @@ use web_time::Duration;
 use crate::analysis_state_key::{AnalysisStateKey, MorphHistoryKey};
 use pg_featstruct::{is_unifiable, subsumes, subtract, union};
 use pg_grammar_model::model::{
-    AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
+    AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, PRuleId, SlotDef,
     StratumId, TemplateId,
 };
 use pg_shape::Shape;
@@ -1684,6 +1684,10 @@ pub fn synthesize_stratum(
 #[derive(Debug)]
 pub struct PhonologyCascadeOutcome {
     pub output: Option<Word>,
+    /// Rule identities whose budgeted invocation began, in authored order.
+    pub visited_prule_ids: Vec<PRuleId>,
+    /// Invoked rules that produced a shape; an empty result means the rule was visited but did not apply.
+    pub applied_prule_ids: Vec<PRuleId>,
     pub capped: bool,
     pub timed_out: bool,
     pub steps: usize,
@@ -1710,11 +1714,14 @@ pub fn synthesize_phonological_stratum_traced(
     let _work_scope = budget.enter();
     let sd = &g.strata[stratum.0 as usize];
     let rule_parent = input.trace.unwrap_or(parent);
+    let mut visited_prule_ids = Vec::new();
+    let mut applied_prule_ids = Vec::new();
 
     for &pid in &sd.prules {
         if budget.synthesis_over_budget() {
             break;
         }
+        visited_prule_ids.push(pid);
         let prule_stats = stats.map(|stats| PRuleStatsCtx {
             stats,
             stratum,
@@ -1753,6 +1760,7 @@ pub fn synthesize_phonological_stratum_traced(
             ctx.record_outcome(result.len() as u64);
         }
         if let Some(shape) = result.into_iter().next() {
+            applied_prule_ids.push(pid);
             input.shape = shape;
         }
     }
@@ -1760,6 +1768,8 @@ pub fn synthesize_phonological_stratum_traced(
     let stopped = pg_fst::work::stopped();
     PhonologyCascadeOutcome {
         output: (!stopped).then_some(input),
+        visited_prule_ids,
+        applied_prule_ids,
         capped: budget.capped(),
         timed_out: budget.timed_out(),
         steps: budget.steps(),

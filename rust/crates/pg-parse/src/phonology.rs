@@ -37,6 +37,10 @@ pub struct PhonologyRequest {
     pub timeout: Duration,
     /// Fold attempts allowed; `usize::MAX` leaves only the work cap and timeout.
     pub attempt_cap: usize,
+    /// Prevents a caller from retaining an unbounded ordered-rule result.
+    pub max_ordered_rule_ids: usize,
+    /// Prevents one grammar-authored rule identity from dominating the result.
+    pub max_rule_id_chars: usize,
 }
 
 /// Why no measurement was started.
@@ -48,6 +52,7 @@ pub enum PhonologyUnavailableReason {
     MsaNotOwnedByEntry,
     InvalidShape,
     InvalidStratum,
+    ResultLimit,
 }
 
 /// Which finite limit stopped a started measurement.
@@ -78,8 +83,15 @@ pub enum PhonologyCompletion {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PhonologyMeasurement {
     pub result: PhonologyResult,
-    /// Authored ids of the ordered phonological rules the fold ran, stratum by stratum; empty when not started.
+    /// The resolved stable source identity; absent when entry resolution failed.
+    pub resolved_context: Option<PhonologyContext>,
+    /// Declared rule order for each stratum entered by the fold, whether or not every rule ran.
     pub ordered_rule_ids: Vec<String>,
+    /// Rules whose budgeted invocation began, in actual visit order.
+    pub visited_rule_ids: Vec<String>,
+    /// Visited rules that produced a shape.
+    pub applied_rule_ids: Vec<String>,
+    pub steps: usize,
     pub work_steps: usize,
     pub capped: bool,
     pub timed_out: bool,
@@ -94,10 +106,17 @@ impl PhonologyMeasurement {
         }
     }
 
-    fn unavailable(reason: PhonologyUnavailableReason) -> Self {
+    fn unavailable(
+        reason: PhonologyUnavailableReason,
+        resolved_context: Option<PhonologyContext>,
+    ) -> Self {
         Self {
             result: PhonologyResult::Unavailable { reason },
+            resolved_context,
             ordered_rule_ids: Vec::new(),
+            visited_rule_ids: Vec::new(),
+            applied_rule_ids: Vec::new(),
+            steps: 0,
             work_steps: 0,
             capped: false,
             timed_out: false,
@@ -111,9 +130,18 @@ pub fn measure_phonology(
     request: &PhonologyRequest,
 ) -> PhonologyMeasurement {
     let g = morpher.grammar();
+    let budget = StepBudget::with_limits(request.attempt_cap, request.work_cap)
+        .with_timeout(Some(request.timeout))
+        .with_synthesis_counting();
     let entry = match resolve_entry(g, &request.context) {
         Ok(entry) => entry,
-        Err(reason) => return PhonologyMeasurement::unavailable(reason),
+        Err(reason) => return PhonologyMeasurement::unavailable(reason, None),
+    };
+    let Some(resolved_context) = resolved_context(g, entry, &request.context) else {
+        return PhonologyMeasurement::unavailable(
+            PhonologyUnavailableReason::MsaNotOwnedByEntry,
+            None,
+        );
     };
     let def = &g.entries[entry.0 as usize];
     let root = g.morphemes[def.morpheme.0 as usize].stratum;
@@ -122,25 +150,49 @@ pub fn measure_phonology(
         .get(root.0 as usize)
         .and_then(|sd| g.char_tables.get(sd.table.0 as usize))
     else {
-        return PhonologyMeasurement::unavailable(PhonologyUnavailableReason::InvalidStratum);
+        return PhonologyMeasurement::unavailable(
+            PhonologyUnavailableReason::InvalidStratum,
+            Some(resolved_context),
+        );
     };
     if request.underlying_shape.is_empty() {
-        return PhonologyMeasurement::unavailable(PhonologyUnavailableReason::InvalidShape);
+        return PhonologyMeasurement::unavailable(
+            PhonologyUnavailableReason::InvalidShape,
+            Some(resolved_context),
+        );
     }
     let Ok(shape) = segment_with_features(g, root_table, &request.underlying_shape) else {
-        return PhonologyMeasurement::unavailable(PhonologyUnavailableReason::InvalidShape);
+        return PhonologyMeasurement::unavailable(
+            PhonologyUnavailableReason::InvalidShape,
+            Some(resolved_context),
+        );
     };
+    if !rule_order_fits(
+        g,
+        root.0 as usize,
+        request.max_ordered_rule_ids,
+        request.max_rule_id_chars,
+    ) {
+        return PhonologyMeasurement::unavailable(
+            PhonologyUnavailableReason::ResultLimit,
+            Some(resolved_context),
+        );
+    }
 
     let mut word = morpher.build_root_seed(entry, 0, pg_featstruct::FeatureStruct::EMPTY);
     word.shape = shape;
-    let budget = StepBudget::with_limits(request.attempt_cap, request.work_cap)
-        .with_timeout(Some(request.timeout))
-        .with_synthesis_counting();
     let mut ordered_rule_ids = Vec::new();
+    let mut visited_rule_ids = Vec::new();
+    let mut applied_rule_ids = Vec::new();
     let mut stop = None;
     for s in root.0 as usize..g.strata.len() {
         let stratum = StratumId(s as u8);
-        ordered_rule_ids.extend(g.strata[s].prules.iter().map(|&pid| rule_xml_id(g, pid)));
+        ordered_rule_ids.extend(
+            g.strata[s]
+                .prules
+                .iter()
+                .map(|&pid| rule_xml_id(g, pid).to_string()),
+        );
         let outcome = synthesize_phonological_stratum_traced(
             g,
             stratum,
@@ -150,6 +202,18 @@ pub fn measure_phonology(
             None,
             &NoopSink,
             TraceHandle::DUMMY,
+        );
+        visited_rule_ids.extend(
+            outcome
+                .visited_prule_ids
+                .iter()
+                .map(|&pid| rule_xml_id(g, pid).to_string()),
+        );
+        applied_rule_ids.extend(
+            outcome
+                .applied_prule_ids
+                .iter()
+                .map(|&pid| rule_xml_id(g, pid).to_string()),
         );
         // A timeout outranks a cap; an attempt cap alone leaves a partial output, a work stop leaves none.
         let reason = if outcome.timed_out {
@@ -179,17 +243,55 @@ pub fn measure_phonology(
     };
     PhonologyMeasurement {
         result,
+        resolved_context: Some(resolved_context),
         ordered_rule_ids,
+        visited_rule_ids,
+        applied_rule_ids,
+        steps: budget.steps(),
         work_steps: budget.work_steps(),
         capped: budget.capped(),
         timed_out: budget.timed_out(),
     }
 }
 
-fn rule_xml_id(g: &Grammar, pid: PRuleId) -> String {
+fn rule_xml_id(g: &Grammar, pid: PRuleId) -> &str {
     match &g.prules[pid.0 as usize] {
-        PhonRuleDef::Rewrite(r) => r.xml_id.clone(),
-        PhonRuleDef::Metathesis(r) => r.xml_id.clone(),
+        PhonRuleDef::Rewrite(r) => &r.xml_id,
+        PhonRuleDef::Metathesis(r) => &r.xml_id,
+    }
+}
+
+fn rule_order_fits(g: &Grammar, start: usize, max_count: usize, max_id_chars: usize) -> bool {
+    let mut count = 0usize;
+    for stratum in &g.strata[start..] {
+        for &pid in &stratum.prules {
+            if count >= max_count || rule_xml_id(g, pid).chars().count() > max_id_chars {
+                return false;
+            }
+            count += 1;
+        }
+    }
+    true
+}
+
+fn resolved_context(
+    g: &Grammar,
+    entry: LexEntryId,
+    requested: &PhonologyContext,
+) -> Option<PhonologyContext> {
+    let def = &g.entries[entry.0 as usize];
+    match requested {
+        PhonologyContext::HcXmlEntry { .. } => Some(PhonologyContext::HcXmlEntry {
+            entry_id: def.authored_id.clone(),
+        }),
+        PhonologyContext::FwdataEntry { .. } => {
+            let info = &g.morphemes[def.morpheme.0 as usize];
+            Some(PhonologyContext::FwdataEntry {
+                entry_guid: def.source_guid.clone()?,
+                msa_guid: info.source_msa_guid.clone()?,
+                msa_class: info.source_msa_class?,
+            })
+        }
     }
 }
 
@@ -237,7 +339,7 @@ fn resolve_entry(
                         && info
                             .owner
                             .as_ref()
-                            .is_none_or(|owner| owner.entry_guid == *entry_guid)
+                            .is_some_and(|owner| owner.entry_guid == *entry_guid)
                 })
                 .collect();
             exactly_one(owned, Why::MsaNotOwnedByEntry)

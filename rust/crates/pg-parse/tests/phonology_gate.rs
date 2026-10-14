@@ -3,8 +3,8 @@
 use pg_featstruct::SymbolBits;
 use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::model::{
-    Dir, Grammar, MorphemeOwner, MprId, MprSet, PRuleId, Pattern, PatternNode, PhonRuleDef,
-    RewriteMode, RewriteRuleDef, RewriteSubruleDef, StratumId, VarTable,
+    Dir, Grammar, MorphRuleOrder, MorphemeOwner, MprId, MprSet, PRuleId, Pattern, PatternNode,
+    PhonRuleDef, RewriteMode, RewriteRuleDef, RewriteSubruleDef, StratumDef, StratumId, VarTable,
 };
 use pg_parse::{
     measure_phonology, Morpher, PhonologyCompletion, PhonologyContext, PhonologyMeasurement,
@@ -148,6 +148,8 @@ fn request(context: PhonologyContext, shape: &str) -> PhonologyRequest {
         work_cap: 100_000,
         timeout: Duration::from_secs(30),
         attempt_cap: usize::MAX,
+        max_ordered_rule_ids: usize::MAX,
+        max_rule_id_chars: usize::MAX,
     }
 }
 
@@ -202,7 +204,9 @@ fn unchanged_control_and_ordered_rule_identities() {
         }
     );
     assert_eq!(m.ordered_rule_ids, ["p>b", "b>g"]);
+    assert_eq!(m.resolved_context, Some(hc("eNx")));
     assert!(!m.capped && !m.timed_out && m.work_steps > 0);
+    assert!(m.steps > 0);
     assert_eq!(surface(&g, "eNx", "k"), "k");
 }
 
@@ -222,6 +226,57 @@ fn rule_order_and_removal_change_the_result() {
     assert_eq!(surface(&without_first, "eNx", "p"), "p");
     let m = measure(&reversed, &request(hc("eNx"), "p"));
     assert_eq!(m.ordered_rule_ids, ["b>g", "p>b"]);
+}
+
+#[test]
+fn multi_stratum_fold_shares_budgets_and_reports_declared_visited_and_applied_order() {
+    let mut g = grammar_with(&["p>b", "b>g"], ENTRIES);
+    let table = g.strata[0].table;
+    g.strata[0].prules = vec![PRuleId(0)];
+    g.strata.push(StratumDef {
+        name: Some("S2".into()),
+        table,
+        mrule_order: MorphRuleOrder::Linear,
+        prules: vec![PRuleId(1)],
+        mrules: Vec::new(),
+        templates: Vec::new(),
+        entries: Vec::new(),
+    });
+
+    let complete = measure(&g, &request(hc("eNx"), "p"));
+    assert_eq!(
+        complete.result,
+        PhonologyResult::Complete {
+            surface: "g".into()
+        }
+    );
+    assert_eq!(
+        complete.steps, 2,
+        "one shared step budget spans both strata"
+    );
+    assert_eq!(complete.ordered_rule_ids, ["p>b", "b>g"]);
+    assert_eq!(complete.visited_rule_ids, ["p>b", "b>g"]);
+    assert_eq!(complete.applied_rule_ids, ["p>b", "b>g"]);
+
+    let mut step_limited = request(hc("eNx"), "p");
+    step_limited.attempt_cap = 1;
+    let stopped = measure(&g, &step_limited);
+    assert_eq!(stopped.completion(), PhonologyCompletion::Incomplete);
+    assert_eq!(stopped.steps, 1);
+    assert!(stopped.capped && !stopped.timed_out);
+    assert_eq!(stopped.ordered_rule_ids, ["p>b", "b>g"]);
+    assert_eq!(stopped.visited_rule_ids, ["p>b"]);
+    assert_eq!(stopped.applied_rule_ids, ["p>b"]);
+
+    let first_only = measure(&grammar_with(&["p>b"], ENTRIES), &request(hc("eNx"), "p"));
+    let mut work_limited = request(hc("eNx"), "p");
+    work_limited.work_cap = first_only.work_steps + 1;
+    let stopped = measure(&g, &work_limited);
+    assert_eq!(stopped.completion(), PhonologyCompletion::Incomplete);
+    assert!(stopped.capped && stopped.work_steps <= work_limited.work_cap);
+    assert_eq!(stopped.ordered_rule_ids, ["p>b", "b>g"]);
+    assert_eq!(stopped.visited_rule_ids, ["p>b", "b>g"]);
+    assert_eq!(stopped.applied_rule_ids, ["p>b"]);
 }
 
 #[test]
@@ -302,6 +357,10 @@ fn fwdata_context_binds_entry_and_exact_msa() {
             surface: "g".into()
         }
     );
+    assert_eq!(
+        ok.resolved_context,
+        Some(fwdata("E1", "M1", FwClass::MoStemMsa))
+    );
     let plain = run(fwdata("E2", "M2", FwClass::MoStemMsa));
     assert_eq!(
         plain.result,
@@ -351,6 +410,30 @@ fn fwdata_context_binds_entry_and_exact_msa() {
         &request(fwdata("E1", "M1", FwClass::MoStemMsa), "p"),
     );
     assert_eq!(unavailable(&got), Why::AmbiguousContext);
+}
+
+#[test]
+fn ordered_rule_result_limits_refuse_before_start_and_keep_the_resolved_context() {
+    use PhonologyUnavailableReason as Why;
+    let g = standard();
+    let mut req = request(hc("eNx"), "p");
+    req.max_ordered_rule_ids = 1;
+    let too_many = measure(&g, &req);
+    assert_eq!(
+        too_many.result,
+        PhonologyResult::Unavailable {
+            reason: Why::ResultLimit
+        }
+    );
+    assert_eq!(too_many.completion(), PhonologyCompletion::NotStarted);
+    assert_eq!(too_many.resolved_context, Some(hc("eNx")));
+    assert!(too_many.ordered_rule_ids.is_empty());
+    assert_eq!(too_many.steps, 0);
+    assert_eq!(too_many.work_steps, 0);
+
+    req.max_ordered_rule_ids = usize::MAX;
+    req.max_rule_id_chars = 1;
+    assert_eq!(unavailable(&measure(&g, &req)), Why::ResultLimit);
 }
 
 #[test]

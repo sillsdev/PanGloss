@@ -107,6 +107,13 @@ fn dispatch_make_report(args: &[String]) -> ExitCode {
 fn dispatch_stats(args: &[String]) -> ExitCode {
     dispatch("stats", args, crate::stats_cmd::run_stats)
 }
+fn dispatch_phonology_examples(args: &[String]) -> ExitCode {
+    dispatch(
+        "phonology-examples",
+        args,
+        crate::phonology_examples::run_phonology_examples,
+    )
+}
 #[cfg(feature = "foma-tools")]
 fn dispatch_recipe_optimize(args: &[String]) -> ExitCode {
     match crate::recipe_optimize::run_recipe_optimize(args) {
@@ -301,6 +308,8 @@ const PARSE_FLAGS: &[FlagSpec] = &[
 ];
 
 const IMPORT_FLAGS: &[FlagSpec] = &[];
+
+const PHONOLOGY_EXAMPLES_FLAGS: &[FlagSpec] = &[];
 
 const FACTS_FLAGS: &[FlagSpec] = &[
     FlagSpec {
@@ -651,6 +660,15 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["project-or-grammar"],
         flags: STATS_FLAGS,
         handler: dispatch_stats,
+    },
+    CommandSpec {
+        name: "phonology-examples",
+        summary:
+            "Measure ordered phonology with a bounded, versioned JSON request under exact lexical context.",
+        hidden: false,
+        positionals: &["grammar", "request.json", "out.json?"],
+        flags: PHONOLOGY_EXAMPLES_FLAGS,
+        handler: dispatch_phonology_examples,
     },
     #[cfg(feature = "foma-tools")]
     CommandSpec {

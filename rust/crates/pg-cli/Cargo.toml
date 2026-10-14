@@ -67,6 +67,8 @@ pg-stats.workspace = true
 # destroy data) via `pg_stats::report`'s `&rusqlite::Connection`-based queries.
 rusqlite.workspace = true
 tempfile.workspace = true
+# `phonology_examples.rs` compares expectations and observations in the producer's NFD form.
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
