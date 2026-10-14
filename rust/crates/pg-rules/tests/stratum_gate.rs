@@ -4,18 +4,20 @@
 mod common;
 
 use common::load_alpha_grammar;
+use pg_featstruct::{FeatureStructBuilder, FeatureValue, SymbolBits};
 use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner,
-    CompoundingRuleDef, CompoundingSubruleDef, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder,
-    MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint,
-    SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId,
-    TemplateSlotZone, VarTable,
+    CompoundingRuleDef, CompoundingSubruleDef, Dir, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder,
+    MorphemeId, MprId, MprSet, OutputAction, PRuleId, PartRef, Pattern, PatternNode, PhonRuleDef,
+    ReduplicationHint, RewriteMode, RewriteRuleDef, RewriteSubruleDef, SegmentedText,
+    SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId, TemplateSlotZone, VarTable,
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy, synthesize_stratum_traced,
-    synthesize_template, AnalyzerConfig, FinalTemplateAnalysisPolicy, StepBudget,
+    analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy,
+    synthesize_phonological_stratum_traced, synthesize_stratum_traced, synthesize_template,
+    AnalyzerConfig, FinalTemplateAnalysisPolicy, PhonologyCascadeOutcome, StepBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle, TraceSink, TreeTraceSink};
 use pg_rules::{MorphRecord, Word};
@@ -192,6 +194,265 @@ fn candidate_shapes(words: &[Word]) -> Vec<Vec<u32>> {
 
 fn word(g: &Grammar, text: &str, stratum: StratumId) -> Word {
     Word::new(shape_with_lanes(g, text), stratum)
+}
+
+fn phonological_rewrite(
+    from: u32,
+    to: u32,
+    required_pos: Option<SymbolBits>,
+    required_mpr: MprSet,
+) -> RewriteRuleDef {
+    RewriteRuleDef {
+        xml_id: format!("stratum-gate-{from}-{to}"),
+        name: None,
+        mode: RewriteMode::Iterative,
+        dir: Dir::LeftToRight,
+        vars: VarTable::default(),
+        lhs: Pattern {
+            nodes: vec![PatternNode::CharDef(pg_grammar_model::chardef::CharDefId(
+                from,
+            ))],
+        },
+        subrules: vec![RewriteSubruleDef {
+            required_pos,
+            required_mpr,
+            excluded_mpr: MprSet::EMPTY,
+            rhs: Pattern {
+                nodes: vec![PatternNode::CharDef(pg_grammar_model::chardef::CharDefId(
+                    to,
+                ))],
+            },
+            left_env: None,
+            right_env: None,
+            self_opaquing: false,
+        }],
+    }
+}
+
+fn push_prule(g: &mut Grammar, rule: RewriteRuleDef) -> PRuleId {
+    let id = PRuleId(g.prules.len() as u32);
+    g.prules.push(PhonRuleDef::Rewrite(rule));
+    id
+}
+
+fn ordered_phonology_fixture(with_second_rule: bool, reverse_order: bool) -> (Grammar, StratumId) {
+    let xml = common::ALPHA_XML.replace(
+        "</PartsOfSpeech>",
+        "<PartOfSpeech id=\"posN\"><Name>N</Name></PartOfSpeech></PartsOfSpeech>",
+    );
+    let mut g = pg_grammar::load(&xml).expect("alpha grammar with two POS values loads");
+    let mut required = MprSet::EMPTY;
+    required.insert(MprId(0));
+    let (p, b, g_seg) = (cd(&g, "char_p"), cd(&g, "char_b"), cd(&g, "char_g"));
+    let p_to_b = push_prule(
+        &mut g,
+        phonological_rewrite(p, b, Some(SymbolBits::single(0)), required),
+    );
+    let b_to_g = push_prule(&mut g, phonological_rewrite(b, g_seg, None, MprSet::EMPTY));
+    let stratum = push_stratum(&mut g, MorphRuleOrder::Linear, vec![], vec![]);
+    g.strata[stratum.0 as usize].prules = if with_second_rule {
+        if reverse_order {
+            vec![b_to_g, p_to_b]
+        } else {
+            vec![p_to_b, b_to_g]
+        }
+    } else {
+        vec![p_to_b]
+    };
+    (g, stratum)
+}
+
+fn word_with_context(
+    g: &Grammar,
+    text: &str,
+    stratum: StratumId,
+    has_required_mpr: bool,
+    pos_index: u32,
+) -> Word {
+    let mut w = word(g, text, stratum);
+    if has_required_mpr {
+        w.mpr.insert(MprId(0));
+    }
+    let mut syn_fs = FeatureStructBuilder::new();
+    syn_fs.add(
+        g.syn_features.pos,
+        FeatureValue::Symbolic(SymbolBits::single(pos_index)),
+    );
+    w.syn_fs = syn_fs.build();
+    w
+}
+
+/// Rewrite output nodes carry feature lanes but no char-def id, so surfaces compare by lanes.
+fn lane_surface(shape: &Shape) -> Vec<Vec<u64>> {
+    shape
+        .interior()
+        .map(|(i, _, _, _)| shape.node_lanes(i).to_vec())
+        .collect()
+}
+
+fn expected_surface(g: &Grammar, text: &str) -> Vec<Vec<Vec<u64>>> {
+    vec![lane_surface(&shape_with_lanes(g, text))]
+}
+
+fn ordinary_phonology_shapes(g: &Grammar, stratum: StratumId, input: Word) -> Vec<Vec<Vec<u64>>> {
+    let cache = RuleCache::build(g);
+    let budget = StepBudget::with_limits(usize::MAX, 10_000).with_synthesis_counting();
+    let words = synthesize_stratum_traced(
+        g,
+        stratum,
+        input,
+        10_000,
+        &cache,
+        &budget,
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(!budget.capped() && !budget.timed_out());
+    let mut v: Vec<_> = words.iter().map(|w| lane_surface(&w.shape)).collect();
+    v.sort();
+    v.dedup();
+    v
+}
+
+#[test]
+fn ordinary_stratum_phonology_differential_pins_order_gate_removal_and_unchanged_control() {
+    let (g, stratum) = ordered_phonology_fixture(true, false);
+    assert_eq!(
+        ordinary_phonology_shapes(&g, stratum, word_with_context(&g, "p", stratum, true, 0),),
+        expected_surface(&g, "g"),
+        "p→b followed by b→g must feed the second ordered rule"
+    );
+    assert_eq!(
+        ordinary_phonology_shapes(&g, stratum, word_with_context(&g, "p", stratum, false, 0),),
+        expected_surface(&g, "p"),
+        "the first rewrite's required MPR gate must remain effective"
+    );
+    assert_eq!(
+        ordinary_phonology_shapes(&g, stratum, word_with_context(&g, "p", stratum, true, 1),),
+        expected_surface(&g, "p"),
+        "the first rewrite's required POS gate must remain effective"
+    );
+    let (removed, removed_stratum) = ordered_phonology_fixture(false, false);
+    assert_eq!(
+        ordinary_phonology_shapes(
+            &removed,
+            removed_stratum,
+            word_with_context(&removed, "p", removed_stratum, true, 0),
+        ),
+        expected_surface(&removed, "b"),
+        "removing b→g must stop the ordered feeding at b"
+    );
+    let (reversed, reversed_stratum) = ordered_phonology_fixture(true, true);
+    assert_eq!(
+        ordinary_phonology_shapes(
+            &reversed,
+            reversed_stratum,
+            word_with_context(&reversed, "p", reversed_stratum, true, 0),
+        ),
+        expected_surface(&reversed, "b"),
+        "reversing the fold must change the fed result"
+    );
+    assert_eq!(
+        ordinary_phonology_shapes(&g, stratum, word_with_context(&g, "a", stratum, true, 0),),
+        expected_surface(&g, "a"),
+        "a shape matching neither rule must remain unchanged"
+    );
+}
+
+fn direct_phonology(
+    g: &Grammar,
+    stratum: StratumId,
+    input: Word,
+    budget: &StepBudget,
+) -> PhonologyCascadeOutcome {
+    let cache = RuleCache::build(g);
+    synthesize_phonological_stratum_traced(
+        g,
+        stratum,
+        input,
+        &cache,
+        budget,
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    )
+}
+
+fn direct_surface(g: &Grammar, stratum: StratumId, input: Word) -> Vec<Vec<u64>> {
+    let out = direct_phonology(g, stratum, input, &StepBudget::new(usize::MAX));
+    assert!(!out.capped && !out.timed_out);
+    lane_surface(&out.output.expect("a finished fold has output").shape)
+}
+
+#[test]
+fn direct_phonology_keeps_pos_mpr_gates_and_declared_rule_order() {
+    let (g, s) = ordered_phonology_fixture(true, false);
+    let fed = |text| expected_surface(&g, text).remove(0);
+    assert_eq!(
+        direct_surface(&g, s, word_with_context(&g, "p", s, true, 0)),
+        fed("g")
+    );
+    assert_eq!(
+        direct_surface(&g, s, word_with_context(&g, "p", s, false, 0)),
+        fed("p")
+    );
+    assert_eq!(
+        direct_surface(&g, s, word_with_context(&g, "p", s, true, 1)),
+        fed("p")
+    );
+    let (r, rs) = ordered_phonology_fixture(true, true);
+    let reversed = direct_surface(&r, rs, word_with_context(&r, "p", rs, true, 0));
+    assert_eq!(
+        reversed,
+        expected_surface(&r, "b").remove(0),
+        "sd.prules order, not rule id order"
+    );
+}
+
+#[test]
+fn direct_phonology_ignores_morphology_of_the_stratum() {
+    let (mut g, s) = ordered_phonology_fixture(true, false);
+    let suffix = push_cache_suffix_rule(&mut g, 200, "n");
+    g.strata[s.0 as usize].mrules = vec![suffix];
+    let surface = direct_surface(&g, s, word_with_context(&g, "p", s, true, 0));
+    assert_eq!(
+        surface,
+        expected_surface(&g, "g").remove(0),
+        "no suffix, no admission pruning"
+    );
+}
+
+#[test]
+fn direct_phonology_reports_incomplete_without_partial_output() {
+    let (g, s) = ordered_phonology_fixture(true, false);
+    let input = || word_with_context(&g, "p", s, true, 0);
+    let full = direct_surface(&g, s, input());
+    let zero_work = direct_phonology(&g, s, input(), &StepBudget::with_limits(usize::MAX, 0));
+    assert!(zero_work.output.is_none() && zero_work.capped && !zero_work.timed_out);
+    let expired = StepBudget::new(usize::MAX).with_timeout(Some(Duration::ZERO));
+    let timed = direct_phonology(&g, s, input(), &expired);
+    assert!(timed.output.is_none() && timed.timed_out);
+    let mut stopped_midway = 0;
+    for work_cap in 0..200 {
+        let out = direct_phonology(
+            &g,
+            s,
+            input(),
+            &StepBudget::with_limits(usize::MAX, work_cap),
+        );
+        match out.output {
+            Some(w) => assert_eq!(lane_surface(&w.shape), full, "work cap {work_cap}"),
+            None => {
+                assert!(out.capped, "work cap {work_cap}");
+                stopped_midway += 1;
+            }
+        }
+    }
+    assert!(
+        stopped_midway > 1,
+        "a cap above zero must still stop some fold before it finishes"
+    );
 }
 
 // (a) LINEAR stratum, two ordered suffix rules.

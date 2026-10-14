@@ -1675,6 +1675,96 @@ pub fn synthesize_stratum(
     )
 }
 
+/// The result of applying one stratum's ordered phonological rules to a single word.
+///
+/// A stopped fold has no output: its last shape is only an intermediate and must not be treated as
+/// a completed surface. `steps` and `work_steps` are the cumulative owner-budget measurements.
+#[derive(Debug)]
+pub struct PhonologyCascadeOutcome {
+    pub output: Option<Word>,
+    pub capped: bool,
+    pub timed_out: bool,
+    pub steps: usize,
+    pub work_steps: usize,
+}
+
+/// Apply only `stratum`'s authored phonological-rule order to `input`.
+///
+/// This is the shared owner fold used by ordinary stratum synthesis and by callers that already
+/// have a resolved `Word` context. It intentionally does not run morphological rules, templates,
+/// or final-template admission. Rule selection, first-result semantics, statistics, tracing, and
+/// the shared work/deadline budget match the existing trailing phonological pass.
+#[allow(clippy::too_many_arguments)]
+pub fn synthesize_phonological_stratum_traced(
+    g: &Grammar,
+    stratum: StratumId,
+    mut input: Word,
+    cache: &RuleCache,
+    budget: &StepBudget,
+    stats: Option<&StatsCollector>,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> PhonologyCascadeOutcome {
+    let _work_scope = budget.enter();
+    let sd = &g.strata[stratum.0 as usize];
+    let rule_parent = input.trace.unwrap_or(parent);
+
+    for &pid in &sd.prules {
+        if budget.synthesis_over_budget() {
+            break;
+        }
+        let prule_stats = stats.map(|stats| PRuleStatsCtx {
+            stats,
+            stratum,
+            id: pid,
+            direction: crate::stats::Direction::Synthesis,
+        });
+        let _phon_time = prule_stats.map(PRuleStatsCtx::time);
+        if let Some(ctx) = prule_stats {
+            ctx.record_attempt(input.shape.len() as u64);
+        }
+        let result = match &g.prules[pid.0 as usize] {
+            pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
+                rewrite::synthesize_with_mpr_cached_traced(
+                    g,
+                    pid,
+                    r,
+                    &input,
+                    cache,
+                    trace,
+                    rule_parent,
+                )
+            }
+            pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
+                metathesis::synthesize_cached_traced(
+                    g,
+                    pid,
+                    r,
+                    &input,
+                    cache.prule_metathesis(pid),
+                    trace,
+                    rule_parent,
+                )
+            }
+        };
+        if let Some(ctx) = prule_stats {
+            ctx.record_outcome(result.len() as u64);
+        }
+        if let Some(shape) = result.into_iter().next() {
+            input.shape = shape;
+        }
+    }
+
+    let stopped = pg_fst::work::stopped();
+    PhonologyCascadeOutcome {
+        output: (!stopped).then_some(input),
+        capped: budget.capped(),
+        timed_out: budget.timed_out(),
+        steps: budget.steps(),
+        work_steps: budget.work_steps(),
+    }
+}
+
 /// `synthesize_stratum`'s traced sibling; the caller passes a real handle once, and every deeper call resolves the cursor off the `Word` itself.
 #[allow(clippy::too_many_arguments)]
 pub fn synthesize_stratum_traced(
@@ -1790,50 +1880,19 @@ pub fn synthesize_stratum_traced_with_policy(
             continue;
         }
         // C# `SynthesisStratumRule.Apply` never reassigns `Word.Stratum`, unlike the analysis direction.
-        let mut nw = w.clone();
-        // Uses `synthesize_with_mpr_cached`, not bare `synthesize`, so the POS/MPR gate sees real state; `break` (not `return`) keeps `nw.shape` as far as the fold got.
-        for &pid in &sd.prules {
-            if budget.synthesis_over_budget() {
-                break;
-            }
-            let prule_stats = stats.map(|stats| PRuleStatsCtx {
-                stats,
-                stratum,
-                id: pid,
-                direction: crate::stats::Direction::Synthesis,
-            });
-            let _phon_time = prule_stats.map(PRuleStatsCtx::time);
-            if let Some(ctx) = prule_stats {
-                ctx.record_attempt(nw.shape.len() as u64);
-            }
-            let result = match &g.prules[pid.0 as usize] {
-                pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
-                    rewrite::synthesize_with_mpr_cached_traced(
-                        g, pid, r, &nw, cache, trace, w_parent,
-                    )
-                }
-                pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
-                    metathesis::synthesize_cached_traced(
-                        g,
-                        pid,
-                        r,
-                        &nw,
-                        cache.prule_metathesis(pid),
-                        trace,
-                        w_parent,
-                    )
-                }
-            };
-            if let Some(ctx) = prule_stats {
-                ctx.record_outcome(result.len() as u64);
-            }
-            if let Some(s) = result.into_iter().next() {
-                nw.shape = s;
-            }
-        }
-        if pg_fst::work::stopped() {
+        let outcome = synthesize_phonological_stratum_traced(
+            g,
+            stratum,
+            w.clone(),
+            cache,
+            budget,
+            stats,
+            trace,
+            node_parent,
+        );
+        let Some(mut nw) = outcome.output else {
             return Vec::new();
-        }
+        };
         nw.flags.is_last_applied_rule_final = None;
         if trace.is_tracing() {
             trace.end_apply_stratum(w_parent, stratum, &nw);
