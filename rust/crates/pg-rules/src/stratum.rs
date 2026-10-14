@@ -1679,6 +1679,8 @@ pub fn synthesize_stratum(
 ///
 /// A stopped fold has no output: its last shape is only an intermediate and must not be treated as
 /// a completed surface. `steps` and `work_steps` are the cumulative owner-budget measurements.
+/// An attempt cap alone keeps the partial `output`, as ordinary synthesis always has, so a caller that
+/// needs completion must also require `!capped && !timed_out`.
 #[derive(Debug)]
 pub struct PhonologyCascadeOutcome {
     pub output: Option<Word>,
