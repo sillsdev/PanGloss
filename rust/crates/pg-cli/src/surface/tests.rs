@@ -151,6 +151,13 @@ fn describe_json_step_cap_flag_documents_default_and_unbounded() {
 }
 
 #[test]
+fn describe_json_generate_summary_explains_request_morpheme_order() {
+    let spec = find_command("generate").expect("generate must be in COMMANDS");
+    assert!(spec.summary.contains("prefixes follow surface order"));
+    assert!(spec.summary.contains("suffixes are inside-out"));
+}
+
+#[test]
 fn hidden_commands_are_marked_hidden_in_the_described_json() {
     let value: serde_json::Value = serde_json::to_value(&Describe {
         schema_version: 1,

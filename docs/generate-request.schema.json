@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sil.org/pangloss/schemas/generate-request.schema.json",
+  "title": "PanGloss authored generation request",
+  "description": "Version 1 request for exact FieldWorks entry/MSA generation. See generation.md for limits and ordering examples.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "root", "morphemes"],
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "The supported authored-generation request version."
+    },
+    "root": {
+      "$ref": "#/$defs/root"
+    },
+    "morphemes": {
+      "type": "array",
+      "maxItems": 63,
+      "description": "Selected non-root morphemes in generation order, not surface order. List prefixes in surface order and suffixes inside-out. For surface SM + stem + FV + RELSUF, list SM, RELSUF, FV.",
+      "items": {
+        "$ref": "#/$defs/affix"
+      }
+    }
+  },
+  "$defs": {
+    "guid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "Canonical lowercase hyphenated GUID text."
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entryGuid", "msaGuid", "msaClass"],
+      "properties": {
+        "entryGuid": { "$ref": "#/$defs/guid" },
+        "msaGuid": { "$ref": "#/$defs/guid" },
+        "msaClass": { "const": "MoStemMsa" },
+        "formGuid": { "oneOf": [{ "$ref": "#/$defs/guid" }, { "type": "null" }], "description": "A non-null GUID is refused by version 1; an MSA selection does not select a form." }
+      }
+    },
+    "affix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entryGuid", "msaGuid", "msaClass"],
+      "properties": {
+        "entryGuid": { "$ref": "#/$defs/guid" },
+        "msaGuid": { "$ref": "#/$defs/guid" },
+        "msaClass": {
+          "enum": ["MoInflAffMsa", "MoDerivAffMsa", "MoUnclassifiedAffixMsa"]
+        },
+        "formGuid": { "oneOf": [{ "$ref": "#/$defs/guid" }, { "type": "null" }], "description": "A non-null GUID is refused by version 1; an MSA selection does not select a form." }
+      }
+    }
+  }
+}
