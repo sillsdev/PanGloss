@@ -34,10 +34,9 @@ their positional `<MorphemeId>` values.
 Each object has only `entryGuid`, `msaGuid`, `msaClass`, and optional `formGuid`. GUIDs must be
 canonical lowercase hyphenated text. `msaClass` accepts `MoStemMsa`, `MoInflAffMsa`,
 `MoDerivAffMsa`, and `MoUnclassifiedAffixMsa`; the root must use `MoStemMsa`. The `morphemes`
-array order is the generation order and is preserved; it is not surface order. List prefixes in
-surface order and suffixes inside-out. For example, surface `SM + stem + FV + RELSUF` must list
-the selected affixes as `SM, RELSUF, FV`. Listing them as `SM, FV, RELSUF` returns no forms for
-this analysis. The request's closed shape is documented in
+array order is the generation order and is preserved; it is not surface order. In one Swahili
+analysis, surface `SM + stem + FV + RELSUF` lists the selected affixes as `SM, RELSUF, FV`. No
+general rule is promised for other grammars: when a request returns no forms, try another order. The request's closed shape is documented in
 [generate-request.schema.json](generate-request.schema.json).
 
 Version 1 selects an MSA, not a particular allomorph. If a `formGuid` is supplied, generation

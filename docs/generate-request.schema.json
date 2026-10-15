@@ -17,7 +17,7 @@
     "morphemes": {
       "type": "array",
       "maxItems": 63,
-      "description": "Selected non-root morphemes in generation order, not surface order. List prefixes in surface order and suffixes inside-out. For surface SM + stem + FV + RELSUF, list SM, RELSUF, FV.",
+      "description": "Selected non-root morphemes in generation order, which is not surface order. In one Swahili analysis, surface SM + stem + FV + RELSUF is listed SM, RELSUF, FV.",
       "items": {
         "$ref": "#/$defs/affix"
       }
@@ -48,7 +48,7 @@
         "entryGuid": { "$ref": "#/$defs/guid" },
         "msaGuid": { "$ref": "#/$defs/guid" },
         "msaClass": {
-          "enum": ["MoInflAffMsa", "MoDerivAffMsa", "MoUnclassifiedAffixMsa"]
+          "enum": ["MoStemMsa", "MoInflAffMsa", "MoDerivAffMsa", "MoUnclassifiedAffixMsa"]
         },
         "formGuid": { "oneOf": [{ "$ref": "#/$defs/guid" }, { "type": "null" }], "description": "A non-null GUID is refused by version 1; an MSA selection does not select a form." }
       }

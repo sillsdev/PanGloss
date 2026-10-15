@@ -582,7 +582,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "generate",
-        summary: "Generate from HC XML MorphemeId selectors or an exact FieldWorks entry/MSA request; request prefixes follow surface order and suffixes are inside-out.",
+        summary: "Generate from HC XML MorphemeId selectors or an exact FieldWorks entry/MSA request; a request lists morphemes in generation order, not surface order.",
         hidden: false,
         positionals: &["grammar", "root-morpheme-id", "other-morpheme-id..."],
         flags: GENERATE_FLAGS,

@@ -169,8 +169,8 @@ pangloss generate <snapshot.json|project.fwdata|project.fwbackup> --request <req
 The positional form addresses HC XML `<MorphemeId>` values. `--request` addresses exact
 FieldWorks `entryGuid`/`msaGuid` pairs in an imported snapshot; request schema version 1 selects
 MSAs only and explicitly refuses non-null `formGuid` constraints. The request's `morphemes`
-array is generation order, not surface order: list prefixes in surface order and suffixes
-inside-out. For example, surface `SM + stem + FV + RELSUF` uses affix order `SM, RELSUF, FV`.
+array is generation order, which is not surface order. In one Swahili analysis, surface
+`SM + stem + FV + RELSUF` is requested as `SM, RELSUF, FV`.
 See [`docs/generation.md`](docs/generation.md) for the request schema and limits.
 
 From Rust, the same path is `pg_foma::composite::FomaAnalyzer`:

@@ -424,8 +424,8 @@ fn print_usage_and_fail() -> ExitCode {
          <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
          pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
          FieldWorks project file (.fwdata/.fwbackup, imported in-memory and compiled on the fly).\n\
-         In a generate request, list prefixes in surface order and suffixes inside-out; the\n\
-         morphemes array is generation order, not surface order. See docs/generation.md.\n\
+         In a generate request, the morphemes array is generation order, not surface order.\n\
+         See docs/generation.md.\n\
          \n\
          --guess (`batch`/`parse`, HC-rust port gap G3,\n\
          docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
@@ -1757,6 +1757,7 @@ fn run_batch_with_counter(
     Ok(())
 }
 
+/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot.
 fn run_generate(args: &[String]) -> Result<(), String> {
     let Some(grammar_path) = args.first() else {
         return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json>".into());

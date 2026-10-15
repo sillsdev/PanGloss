@@ -153,8 +153,7 @@ fn describe_json_step_cap_flag_documents_default_and_unbounded() {
 #[test]
 fn describe_json_generate_summary_explains_request_morpheme_order() {
     let spec = find_command("generate").expect("generate must be in COMMANDS");
-    assert!(spec.summary.contains("prefixes follow surface order"));
-    assert!(spec.summary.contains("suffixes are inside-out"));
+    assert!(spec.summary.contains("generation order, not surface order"));
 }
 
 #[test]
