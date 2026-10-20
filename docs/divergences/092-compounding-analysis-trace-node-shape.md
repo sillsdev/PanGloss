@@ -23,13 +23,17 @@ For each subrule `i` of a compounding rule during analysis:
 | Subrule produced no output | `MorphologicalRuleNotUnapplied(rule, i, input)` (`AnalysisCompoundingRule.cs:161-162`) becomes a `MorphologicalRuleAnalysis` node (`TraceManager.cs:84-88`) | `CompoundingRuleAnalysis` node with `subrule = i` and `failureReason = Pattern` (`morph.rs:741`, `trace.rs:1200-1215`) |
 | Subrule produced an output | `MorphologicalRuleUnapplied(rule, i, input, output)` (`AnalysisCompoundingRule.cs:156`) becomes a `MorphologicalRuleAnalysis` node (`TraceManager.cs:72-82`) | `CompoundingRuleAnalysis` node with `subrule = i` and the output (`morph.rs:735`, `trace.rs:1217-1230`) |
 | A rule-level gate rejects the rule before any subrule | none: the `Apply` preamble returns an empty list silently (`AnalysisCompoundingRule.cs:51-58`) | `CompoundingRuleAnalysis` node, no subrule, `failureReason = HeadRequiredSyntacticFeatureStruct` (`morph.rs:694-700`) |
-| The non-head root fails `NonHeadProdRestrictionsMprFeatures` | `CompoundingRuleNotUnapplied(rule, -1, ...)` becomes a `CompoundingRuleAnalysis` node (`AnalysisCompoundingRule.cs:88-99`, `TraceManager.cs:91-107`) | same node type; see [the gap check below](#non-head-productivity-rejection) |
+| The non-head root fails `NonHeadProdRestrictionsMprFeatures` | `CompoundingRuleNotUnapplied(rule, -1, ...)` becomes a `CompoundingRuleAnalysis` node (`AnalysisCompoundingRule.cs:88-99`, `TraceManager.cs:91-107`) | same node type, no subrule (the `-1`), `failureReason = NonHeadProdRestrictMprFeatures`, one per rejected lexicon root allomorph (`morph.rs::ana_compound_traced`, collected by `resolve_non_head_roots`) |
 
 So in C# master only the productivity rejection is typed `CompoundingRuleAnalysis`; PanGloss types
 every compounding analysis attempt that way, and a per-subrule failure carries the subrule index
 `i`, which C# master gives to a `MorphologicalRuleAnalysis` node instead. A consumer that finds
 compounding attempts by `type == "CompoundingRuleAnalysis"` sees all of them in PanGloss and only
 the productivity rejections in C# master.
+
+PanGloss did not emit the productivity rejection before this change (the root was dropped
+silently in `resolve_non_head_roots`); it now does, for lexicon roots. Roots supplied by an overlay
+(`ResolvedRoot::Supplied`, a PanGloss extension with no C# counterpart) are still dropped silently.
 
 ## The subrule index of a rule-level gate
 
@@ -56,5 +60,8 @@ parse (`pg-parse/tests/trace_gate.rs`).
 ## Coverage
 
 `pg-cli/src/rich_trace/tests.rs::compound_analysis_attempts_keep_owner_reason_and_subrule` pins
-PanGloss's shape (`CompoundingRuleAnalysis` nodes with a failure reason and a `subrule`). No test
+PanGloss's shape (`CompoundingRuleAnalysis` nodes with a failure reason and a `subrule`).
+`pg-parse/tests/csharp_port_compounding.rs::prod_restrict_rule_traces_non_head_rejections_as_csharp_does`
+pins the productivity rejection (node type, `NonHeadProdRestrictMprFeatures`, absent subrule, one
+node per rejected root) beside the C#-ported parse results of `prod_restrict_rule`. No test
 compares against a C# trace.

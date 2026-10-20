@@ -29,9 +29,9 @@ use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, CompoundingRuleDef,
-    CompoundingSubruleDef, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId,
+    CompoundingSubruleDef, Grammar, LexEntryDef, LexEntryId, MRuleId, MorphRuleDef, MorphemeId,
     NaturalClassKind, OutputAction, PartRef, Pattern, PatternNode, RealizationalRuleDef,
-    ReduplicationHint, SimpleContext, StratumId, TableId,
+    ReduplicationHint, RootAllomorphDef, SimpleContext, StratumId, TableId,
 };
 use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
@@ -714,6 +714,7 @@ fn ana_compound_cached_traced(
             continue;
         };
         let before = output.len();
+        let mut prod_rejected = Vec::new();
         let matches = {
             let _allo_time = mstats.map(|m| m.time_allomorph(i));
             ana_compound_subrule(
@@ -729,8 +730,19 @@ fn ana_compound_cached_traced(
                 &new_syn,
                 root_filter,
                 mstats,
+                Some(&mut prod_rejected),
             )
         };
+        // C# `AnalysisCompoundingRule.cs` emits these while it searches the non-head roots, before this subrule's own outcome; `-1` is the rule-level index.
+        for rejected in &prod_rejected {
+            trace.compounding_rule_not_unapplied(
+                parent,
+                mrid,
+                -1,
+                rejected,
+                FailureReason::NonHeadProdRestrictMprFeatures,
+            );
+        }
         for mut w in matches {
             w.trace = Some(trace.compounding_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
@@ -3397,6 +3409,7 @@ fn ana_compound(
             &new_syn,
             root_filter,
             mstats,
+            None,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -3448,6 +3461,7 @@ fn ana_compound_cached(
             &new_syn,
             root_filter,
             mstats,
+            None,
         ));
         drop(_sr_time);
         let n = (output.len() - before) as u64;
@@ -3472,6 +3486,7 @@ fn ana_compound_subrule(
     new_syn: &FeatureStruct,
     root_filter: Option<NonHeadRootFilter>,
     mstats: Option<MRuleStatsCtx>,
+    mut prod_rejected: Option<&mut Vec<Word>>,
 ) -> Vec<Word> {
     let parts = ana_compound_parts(sr);
     let head_parts: Vec<(String, &Pattern)> = parts
@@ -3525,9 +3540,27 @@ fn ana_compound_subrule(
                 push_remove_duplicates_compound(&mut sr_out, w);
             }
             Some(filter) => {
-                for resolved_nh in
-                    resolve_non_head_roots(g, rule, filter, &nh_shape, word.stratum, mstats)
-                {
+                let mut rejected_nh = Vec::new();
+                let resolved = resolve_non_head_roots(
+                    g,
+                    rule,
+                    filter,
+                    &nh_shape,
+                    word.stratum,
+                    mstats,
+                    prod_rejected.is_some().then_some(&mut rejected_nh),
+                );
+                if let Some(sink) = prod_rejected.as_deref_mut() {
+                    // The same candidate C# hands the trace: this split's head shape with the rejected root as the current non-head.
+                    for nh in rejected_nh {
+                        let mut w = word.clone();
+                        w.shape = head_shape.clone();
+                        w.syn_fs = new_syn.clone();
+                        w.non_head_unapplied(nh);
+                        sink.push(w);
+                    }
+                }
+                for resolved_nh in resolved {
                     let mut w = word.clone();
                     w.shape = head_shape.clone();
                     w.syn_fs = new_syn.clone();
@@ -3548,6 +3581,7 @@ fn resolve_non_head_roots(
     nh_shape: &Shape,
     stratum: StratumId,
     mstats: Option<MRuleStatsCtx>,
+    mut prod_rejected: Option<&mut Vec<Word>>,
 ) -> Vec<Word> {
     let req = g.fs_interner.get(rule.non_head_required_syn_fs);
     let mut out = Vec::new();
@@ -3606,6 +3640,12 @@ fn resolve_non_head_roots(
             .non_head_prod_restrictions_mpr
             .compound_match(entry.mpr)
         {
+            // C# `AnalysisCompoundingRule` reports each such root allomorph (`NonHeadProdRestrictMprFeatures`); only a traced caller asks to see them.
+            if let Some(rejected) = prod_rejected.as_deref_mut() {
+                if let Some(allo) = entry.allomorphs.iter().find(|allo| allo.id == allo_id) {
+                    rejected.push(lexicon_non_head_word(g, entry, allo_id, allo));
+                }
+            }
             continue;
         }
         let Some((allo_idx, allo)) = entry
@@ -3629,19 +3669,29 @@ fn resolve_non_head_roots(
                 crate::stats::Direction::Analysis,
             )
         });
-        let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
-        let table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
-        let shape = crate::shape_feat::segment_with_features(g, table, &allo.shape.text)
-            .unwrap_or_else(|_| allo.shape.shape.clone());
-        let mut nh = Word::new(shape, root_stratum);
-        nh.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-        nh.mpr = entry.mpr;
-        nh.flags.is_partial = entry.is_partial();
-        nh.root_allomorph = Some(allo_id);
-        nh.morphs = vec![MorphRecord::new(allo_id, entry.morpheme, 0)];
-        out.push(nh);
+        out.push(lexicon_non_head_word(g, entry, allo_id, allo));
     }
     out
+}
+
+/// The resolved non-head `Word` for one lexicon root allomorph.
+fn lexicon_non_head_word(
+    g: &Grammar,
+    entry: &LexEntryDef,
+    allo_id: AllomorphId,
+    allo: &RootAllomorphDef,
+) -> Word {
+    let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
+    let table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
+    let shape = crate::shape_feat::segment_with_features(g, table, &allo.shape.text)
+        .unwrap_or_else(|_| allo.shape.shape.clone());
+    let mut nh = Word::new(shape, root_stratum);
+    nh.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
+    nh.mpr = entry.mpr;
+    nh.flags.is_partial = entry.is_partial();
+    nh.root_allomorph = Some(allo_id);
+    nh.morphs = vec![MorphRecord::new(allo_id, entry.morpheme, 0)];
+    nh
 }
 
 /// `push_remove_duplicates` extended to the (head, non-head) shape pair, for the lexicon-free path; "longer" is judged on the head shape alone, mirroring C#.

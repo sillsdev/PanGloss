@@ -5,6 +5,7 @@
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar};
 use pg_parse::Morpher;
+use pg_rules::trace::{FailureReason, TraceType, TreeTraceSink};
 use std::collections::BTreeSet;
 
 fn root_gloss_set(outcome: &pg_parse::ParseOutcome) -> BTreeSet<String> {
@@ -247,6 +248,76 @@ fn prod_restrict_rule() {
     let out6 = m6.parse_word("pʰutdat");
     assert_morphs_eq(&out6, &["5 8"]);
     assert_eq!(root_gloss_set(&out6), BTreeSet::from(["5".to_string()]));
+}
+
+/// Every node under `sink`'s root, depth first.
+fn all_trace_nodes(sink: &TreeTraceSink) -> Vec<pg_rules::trace::TraceNode> {
+    fn walk(
+        sink: &TreeTraceSink,
+        h: pg_rules::trace::TraceHandle,
+        out: &mut Vec<pg_rules::trace::TraceNode>,
+    ) {
+        let node = sink.node(h);
+        let children = node.children.clone();
+        out.push(node);
+        for c in children {
+            walk(sink, c, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(
+        sink,
+        sink.root().expect("a traced parse has a root"),
+        &mut out,
+    );
+    out
+}
+
+/// C# `AnalysisCompoundingRule.Apply` (master cs:82-102) emits `CompoundingRuleNotUnapplied(rule, -1, input, NonHeadProdRestrictMprFeatures, mprs)` for each non-head root allomorph the rule's `NonHeadProdRestrictionsMprFeatures` rejects. The two configurations are `prod_restrict_rule`'s steps 4 and 5, whose parse results (empty; `5 8` only) are asserted there and again here with tracing on.
+#[test]
+fn prod_restrict_rule_traces_non_head_rejections_as_csharp_does() {
+    let opts = pg_parse::ParseOptions::default();
+    let rejections = |m: &Morpher<'_>| {
+        let sink = TreeTraceSink::new();
+        let outcome = m.parse_word_traced("pʰutdat", &opts, &sink);
+        let hits: Vec<_> = all_trace_nodes(&sink)
+            .into_iter()
+            .filter(|n| n.failure_reason == Some(FailureReason::NonHeadProdRestrictMprFeatures))
+            .collect();
+        (outcome, hits)
+    };
+
+    // Step 4: neither "dat" entry carries the restriction MPR feature, so both are rejected and nothing parses.
+    let (outcome, hits) = rejections(&prod_restrict_grammar(
+        r#"nonHeadProdRestrictionsMprFeatures="mprLatinate""#,
+        r#"ruleFeatures="mprLatinate""#,
+        "",
+    ));
+    assert_empty(&outcome);
+    assert_eq!(hits.len(), 2, "one rejection per non-head root allomorph");
+
+    // Step 5: "dat"/posN carries it and survives; "dat"/posV is rejected.
+    let (outcome, hits) = rejections(&prod_restrict_grammar(
+        r#"nonHeadProdRestrictionsMprFeatures="mprLatinate""#,
+        "",
+        r#"ruleFeatures="mprLatinate""#,
+    ));
+    assert_morphs_eq(&outcome, &["5 8"]);
+    assert_eq!(hits.len(), 1);
+
+    for n in hits {
+        assert_eq!(n.type_, TraceType::CompoundingRuleAnalysis);
+        assert_eq!(
+            n.subrule_index, None,
+            "rule-level gate: C# -1 is stored as None"
+        );
+        let input = n.input.expect("the rejected candidate is the node input");
+        assert!(input.current_non_head().is_some());
+    }
+
+    // Control: no restriction, no rejection nodes.
+    let (_, hits) = rejections(&prod_restrict_grammar("", "", ""));
+    assert!(hits.is_empty());
 }
 
 // `Morpher::with_max_stem_count` (previously a hardcoded `2`, no public knob) enables `SimpleRules`' final reconfiguration (cs:76-108); see docs/research/csharp-port-compounding-divergences.md.

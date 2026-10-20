@@ -145,6 +145,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
 | `csharp_port_affix_process.rs` | 007, 008 |
 | `csharp_port_compounding.rs` | 003, 004, 005 |
+| `csharp_port_compounding.rs` (`prod_restrict_rule_traces_non_head_rejections_as_csharp_does`) | 092 |
 | `pg-cli/src/rich_trace/tests.rs` (`compound_analysis_attempts_keep_owner_reason_and_subrule`) | 092 |
 | `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |
 | `machine/conformance/edge-cases/discontinuous-morph-environment/` | 006 |
