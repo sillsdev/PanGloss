@@ -34,6 +34,8 @@ mod inferred_segment_engine_parity_gate;
 #[cfg(feature = "foma-tools")]
 #[path = "../recipe_optimize_continuation.rs"]
 mod recipe_optimize_continuation;
+#[path = "../serve_protocol.rs"]
+mod serve_protocol;
 #[path = "../skills_never_instruct_bare_cargo.rs"]
 mod skills_never_instruct_bare_cargo;
 

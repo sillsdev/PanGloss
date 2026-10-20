@@ -95,6 +95,7 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
             context_version: pg_facts::FACTS_CONTEXT_VERSION,
             stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
         },
+        interfaces: super::interfaces(),
         commands: COMMANDS,
     })
     .expect("Describe must serialize");
@@ -129,6 +130,7 @@ fn describe_json_publishes_the_facts_identity_contract() {
             context_version: pg_facts::FACTS_CONTEXT_VERSION,
             stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
         },
+        interfaces: super::interfaces(),
         commands: COMMANDS,
     })
     .unwrap();
@@ -139,6 +141,8 @@ fn describe_json_publishes_the_facts_identity_contract() {
     assert_eq!(value["facts"]["contextFormat"], "pangloss-facts-context");
     assert_eq!(value["facts"]["contextVersion"], 1);
     assert!(find_command("facts").is_some());
+    assert_eq!(value["interfaces"]["serveProtocol"], 1);
+    assert!(find_command("serve").is_some());
 }
 
 #[test]
@@ -169,6 +173,7 @@ fn hidden_commands_are_marked_hidden_in_the_described_json() {
             context_version: pg_facts::FACTS_CONTEXT_VERSION,
             stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
         },
+        interfaces: super::interfaces(),
         commands: COMMANDS,
     })
     .expect("Describe must serialize");

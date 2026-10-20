@@ -75,6 +75,9 @@ fn dispatch_generate(args: &[String]) -> ExitCode {
 fn dispatch_parse(args: &[String]) -> ExitCode {
     dispatch("parse", args, crate::run_parse)
 }
+fn dispatch_serve(args: &[String]) -> ExitCode {
+    crate::serve::run_serve(args)
+}
 fn dispatch_import(args: &[String]) -> ExitCode {
     dispatch("import", args, crate::run_import)
 }
@@ -153,6 +156,7 @@ struct Describe {
     schema_version: u32,
     binary: &'static str,
     facts: FactsDescribe,
+    interfaces: InterfacesDescribe,
     commands: &'static [CommandSpec],
 }
 
@@ -165,6 +169,19 @@ struct FactsDescribe {
     context_format: &'static str,
     context_version: u32,
     stats_manifest_version: u32,
+}
+
+/// Wire-protocol versions this binary speaks, so a host can gate on them before launching a mode.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InterfacesDescribe {
+    serve_protocol: u32,
+}
+
+fn interfaces() -> InterfacesDescribe {
+    InterfacesDescribe {
+        serve_protocol: crate::serve::SERVE_PROTOCOL_VERSION,
+    }
 }
 
 /// Prints `COMMANDS` as JSON, hidden rows marked `"hidden": true` rather than omitted.
@@ -180,6 +197,7 @@ pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
             context_version: pg_facts::FACTS_CONTEXT_VERSION,
             stats_manifest_version: pg_facts::STATS_MANIFEST_FORMAT_VERSION,
         },
+        interfaces: interfaces(),
         commands: COMMANDS,
     };
     match serde_json::to_string_pretty(&doc) {
@@ -257,6 +275,40 @@ const GENERATE_FLAGS: &[FlagSpec] = &[FlagSpec {
     takes_value: true,
     summary: "versioned exact FieldWorks entry/MSA JSON request; v1 refuses formGuid selection",
 }];
+
+const SERVE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--project",
+        takes_value: true,
+        summary: "the .fwdata project or pg-snapshot .json to load and compile once (required)",
+    },
+    FlagSpec {
+        name: "--step-cap",
+        takes_value: true,
+        summary: "N|unbounded; bound HC analysis attempts per word (default 50000000)",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "N|unbounded; bound inner search and confirmation work per word",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "bound HC word search wall-clock time per word",
+    },
+    FlagSpec {
+        name: "--guess",
+        takes_value: false,
+        summary: "enable the root guesser, as `parse --guess`",
+    },
+    FlagSpec {
+        name: "--timing",
+        takes_value: false,
+        summary:
+            "add phase timings (import, compile on the ready line; parse, render on each result)",
+    },
+];
 
 const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
@@ -595,6 +647,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "word"],
         flags: PARSE_FLAGS,
         handler: dispatch_parse,
+    },
+    CommandSpec {
+        name: "serve",
+        summary: "Long-lived parser: load a project once, then answer line-delimited JSON parse requests on stdin (protocol in docs/formats/serve-protocol.md).",
+        hidden: false,
+        positionals: &[],
+        flags: SERVE_FLAGS,
+        handler: dispatch_serve,
     },
     CommandSpec {
         name: "import",
