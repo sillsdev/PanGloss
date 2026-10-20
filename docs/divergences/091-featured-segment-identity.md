@@ -1,7 +1,7 @@
 # 091: Featured grammars lost segment identity in allomorph and rewrite environments
 
 Kind: behavioural.
-Status: fixed-in-rust. C# was already correct; no Machine issue (Rust-only implementation bug).
+Status: fixed-in-rust. C# believed correct from the source (StrRep is part of every node's feature structure); not yet verified by running C# on a wide featured grammar. Rust-only implementation bug, so no Machine issue unless that check says otherwise.
 Evidence: synthetic code-constructed snapshot regressions in `pg-cli/tests/wide_table_segment_identity.rs`.
 
 ## C# site
@@ -30,8 +30,8 @@ lanes. They are used by `segs_of` and `compile_parts` when the id lane is unavai
 inputs, which also keep their `Members` identity sets on a featured grammar. A feature-changing
 rewrite resets a node's identity to unknown (all ones), so identity only ever removes a wrong match.
 A `[Class]` of segment members compiles to one alternative per 63-id chunk it touches instead of one
-per member. The featureless path (`StrRepMatcher::new`, `rewrite_identity`, the LHS targets) is
-unchanged.
+per member. The featureless path (`StrRepMatcher::new`, the LHS targets) is unchanged; `rewrite_identity`
+gained only its featured branch, which now also clears the node's identity set.
 
 ## Can it change a parse?
 

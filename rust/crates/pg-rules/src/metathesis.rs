@@ -312,6 +312,7 @@ fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize], table: 
                     && flat_unifiable(&n.lanes, &table.get(CharDefId(n.char_def)).matching_lanes());
                 if !still_valid {
                     n.char_def = pg_shape::NO_CHAR_DEF;
+                    n.cd_set = pg_shape::CdSet::Unrestricted;
                 }
             }
             n
@@ -367,6 +368,8 @@ fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize]) {
         ms.nodes[b].dirty = true;
         ms.nodes[a].char_def = pg_shape::NO_CHAR_DEF;
         ms.nodes[b].char_def = pg_shape::NO_CHAR_DEF;
+        ms.nodes[a].cd_set = pg_shape::CdSet::Unrestricted;
+        ms.nodes[b].cd_set = pg_shape::CdSet::Unrestricted;
     }
 }
 

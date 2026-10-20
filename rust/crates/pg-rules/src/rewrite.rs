@@ -2331,6 +2331,7 @@ fn ana_feature(
                     ms.nodes[node].add_strrep(g, table, cd);
                 } else if ms.strrep.is_none() {
                     ms.nodes[node].char_def = pg_shape::NO_CHAR_DEF;
+                    ms.nodes[node].cd_set = CdSet::Unrestricted;
                 }
             }
             applied = true;

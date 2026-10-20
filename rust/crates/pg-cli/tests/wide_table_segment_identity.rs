@@ -45,6 +45,8 @@ fn phoneme(rep: &str, featured: bool) -> Phoneme {
             ));
         } else {
             values.push(closed("f-syll", "v-syll-minus"));
+            let cont = if "sh".contains(rep) { "v-cont-plus" } else { "v-cont-minus" };
+            values.push(closed("f-cont", cont));
         }
         FeatureStructure { values }
     });
@@ -76,6 +78,12 @@ fn feature_systems() -> FeatureSystems {
             name: "round".to_string(),
             abbreviation: "rnd".to_string(),
             values: vec![symbol("v-round-plus", "+"), symbol("v-round-minus", "-")],
+        },
+        ClosedFeature {
+            guid: "f-cont".to_string(),
+            name: "continuant".to_string(),
+            abbreviation: "cont".to_string(),
+            values: vec![symbol("v-cont-plus", "+"), symbol("v-cont-minus", "-")],
         },
     ];
     systems
@@ -131,6 +139,8 @@ enum Scenario {
     SuffixAfterA,
     /// Rewrite `a -> o / k _`.
     RewriteAfterK,
+    /// Rewrite `a -> o`, then `t -> s / o _`: the second rule's literal names the segment the first produced.
+    RewriteChain,
 }
 
 fn snapshot(scenario: Scenario, featured: bool, extra_letters: usize) -> Snapshot {
@@ -235,6 +245,31 @@ fn snapshot(scenario: Scenario, featured: bool, extra_letters: usize) -> Snapsho
                 }],
             }));
         }
+        Scenario::RewriteChain => {
+            entries.push(stem_entry("kstem", "kat"));
+            let rule = |guid: &str, from: &str, to: &str, left: Option<&str>| {
+                PhonologicalRule::Rewrite(RewriteRule {
+                    guid: guid.to_string(),
+                    name: guid.to_string(),
+                    direction: RuleDirection::LeftToRight,
+                    structural_description: vec![PhonContext::Segment {
+                        phoneme: format!("ph-{from}"),
+                    }],
+                    feature_constraint_variables: Vec::new(),
+                    right_hand_sides: vec![RewriteRhs {
+                        structural_change: vec![PhonContext::Segment {
+                            phoneme: format!("ph-{to}"),
+                        }],
+                        left_context: left.map(|l| PhonContext::Segment {
+                            phoneme: format!("ph-{l}"),
+                        }),
+                        ..RewriteRhs::default()
+                    }],
+                })
+            };
+            phonology.rules.push(rule("rule-a-o", "a", "o", None));
+            phonology.rules.push(rule("rule-t-s", "t", "s", Some("o")));
+        }
     }
     Snapshot::new(
         Project {
@@ -313,6 +348,20 @@ fn check(scenario: Scenario, featured: bool, target: Option<usize>) {
                 !parses(&morpher, "xot"),
                 "the featureless x is not k ({ctx})"
             );
+        }
+        Scenario::RewriteChain => {
+            assert!(parses(&morpher, "kos"), "t becomes s after the o a produced ({ctx})");
+            assert!(!parses(&morpher, "kot"), "o stays before t only if rule 2 missed ({ctx})");
+            assert!(!parses(&morpher, "kat"), "a is always rewritten ({ctx})");
+        }
+    }
+}
+
+#[test]
+fn rewrite_environment_sees_the_segment_an_earlier_rule_produced() {
+    for featured in [false, true] {
+        for target in [None, Some(80)] {
+            check(Scenario::RewriteChain, featured, target);
         }
     }
 }
