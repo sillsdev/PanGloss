@@ -217,6 +217,10 @@ impl StrRepMatcher {
             lanes.resize(self.width + chunks, UNCONSTRAINED);
             return;
         }
+        // A producer may have trimmed trailing unconstrained feature lanes; restore them as unconstrained before the identity chunks, or the gap would read as a feature constraint.
+        if lanes.len() < self.width {
+            lanes.resize(self.width, UNCONSTRAINED);
+        }
         // The high bit keeps an unrelated chunk nonempty without matching any literal constraint.
         lanes.resize(self.width + chunks, 1 << 63);
         if cd != pg_shape::NO_CHAR_DEF {
