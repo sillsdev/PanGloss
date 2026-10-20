@@ -5,6 +5,15 @@ file has no section for.
 
 ## Unreleased
 
+## 0.8.7
+
+### Fix a suffix allomorph's left environment on wide featureless grammars
+
+- A suffix allomorph's left environment was ignored in featureless grammars with more than 64
+  characters, so an allomorph restricted to follow certain sounds could apply after any sound
+  (CEB-14). Affix and allomorph-environment matching now keeps each segment's identity on wide
+  featureless tables, and the environment is enforced again. See divergence entry 090.
+
 ## 0.8.6
 
 ### Publish the phonology and authored-generation features
