@@ -5,7 +5,15 @@ file has no section for.
 
 ## Unreleased
 
-## 0.8.7
+## 0.8.8
+
+### Publish the suffix allomorph left-environment fix
+
+- 0.8.7 was tagged but not published: the PowerShell tool tests on Windows refused the new
+  `slotted_suffix_left_environment.rs` regression-test source because it was not registered in the
+  consolidated test-source map. It is now registered. 0.8.8 carries the 0.8.7 fix, described below.
+
+## 0.8.7 (tagged, never published)
 
 ### Fix a suffix allomorph's left environment on wide featureless grammars
 
