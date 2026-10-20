@@ -45,7 +45,11 @@ fn phoneme(rep: &str, featured: bool) -> Phoneme {
             ));
         } else {
             values.push(closed("f-syll", "v-syll-minus"));
-            let cont = if "sh".contains(rep) { "v-cont-plus" } else { "v-cont-minus" };
+            let cont = if "sh".contains(rep) {
+                "v-cont-plus"
+            } else {
+                "v-cont-minus"
+            };
             values.push(closed("f-cont", cont));
         }
         FeatureStructure { values }
@@ -350,8 +354,14 @@ fn check(scenario: Scenario, featured: bool, target: Option<usize>) {
             );
         }
         Scenario::RewriteChain => {
-            assert!(parses(&morpher, "kos"), "t becomes s after the o a produced ({ctx})");
-            assert!(!parses(&morpher, "kot"), "o stays before t only if rule 2 missed ({ctx})");
+            assert!(
+                parses(&morpher, "kos"),
+                "t becomes s after the o a produced ({ctx})"
+            );
+            assert!(
+                !parses(&morpher, "kot"),
+                "o stays before t only if rule 2 missed ({ctx})"
+            );
             assert!(!parses(&morpher, "kat"), "a is always rewritten ({ctx})");
         }
     }
