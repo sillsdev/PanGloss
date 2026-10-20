@@ -163,11 +163,43 @@ pub(crate) struct StrRepMatcher {
 }
 
 impl StrRepMatcher {
+    /// The matcher a featureless grammar uses wherever it matches segments: feature lanes cannot tell its segments apart, so identity lanes carry everything. `None` for a featured grammar.
     pub(crate) fn new(grammar: &Grammar, table: &CharDefTable) -> Option<Self> {
-        grammar.phon_features.is_empty().then_some(Self {
+        grammar
+            .phon_features
+            .is_empty()
+            .then(|| Self::identity(grammar, table))
+    }
+
+    /// Identity lanes laid after the feature lanes, for any grammar. A featured grammar matches features first and uses these only to separate segments whose feature bundles coincide (a featureless letter unifies with every authored segment), so a literal in an environment still names one segment at any char-def count.
+    pub(crate) fn identity(grammar: &Grammar, table: &CharDefTable) -> Self {
+        Self {
             width: pg_grammar_model::membership::width(&grammar.phon_features),
             count: table.len(),
-        })
+        }
+    }
+
+    /// The chunk index and member bits for each chunk that holds a member of `members`.
+    pub(crate) fn chunks_of(self, members: impl Iterator<Item = u32>) -> Vec<(usize, u64)> {
+        let mut chunks: Vec<(usize, u64)> = Vec::new();
+        for cd in members {
+            assert!(
+                (cd as usize) < self.count,
+                "StrRep constraint is outside its table"
+            );
+            let chunk = cd as usize / 63;
+            match chunks.iter_mut().find(|(c, _)| *c == chunk) {
+                Some((_, bits)) => *bits |= 1 << (cd % 63),
+                None => chunks.push((chunk, 1 << (cd % 63))),
+            }
+        }
+        chunks
+    }
+
+    /// Constrain to any of the members whose bits sit in `chunk`; a chunk is the unit of exact membership, so one class needs one alternative per chunk it touches.
+    pub(crate) fn constrain_chunk(self, lanes: &mut Vec<u64>, chunk: usize, bits: u64) {
+        lanes.resize(self.width + self.count.div_ceil(63), UNCONSTRAINED);
+        lanes[self.width + chunk] = bits;
     }
 
     pub(crate) fn constrain(self, lanes: &mut Vec<u64>, cd: u32) {
@@ -252,6 +284,7 @@ impl<'g> PatternBridge<'g> {
         self
     }
 
+    /// Carry identity in the chunked `StrRep` lanes when `on`, for a featureless grammar only.
     pub(crate) fn strrep(mut self, on: bool) -> Self {
         self.strrep = on
             .then(|| {
@@ -261,6 +294,13 @@ impl<'g> PatternBridge<'g> {
                 )
             })
             .flatten();
+        self
+    }
+
+    /// Like `strrep`, but a featured grammar carries the identity lanes after its feature lanes too.
+    pub(crate) fn identity_lanes(mut self, on: bool) -> Self {
+        let table = &self.grammar.char_tables[self.table.0 as usize];
+        self.strrep = on.then(|| StrRepMatcher::identity(self.grammar, table));
         self
     }
 
@@ -374,12 +414,14 @@ impl<'g> PatternBridge<'g> {
                         self.strrep,
                         &self.grammar.natural_classes[sc.nat_class.0 as usize].kind,
                     ) {
+                        // One alternative per chunk the members touch: within a chunk the member bits union exactly.
                         out.push(AgreementNode::Alternation(
-                            members
-                                .iter()
-                                .map(|cd| {
+                            strrep
+                                .chunks_of(members.iter().map(|cd| cd.0))
+                                .into_iter()
+                                .map(|(chunk, bits)| {
                                     let mut member = lanes.clone();
-                                    strrep.constrain(&mut member, cd.0);
+                                    strrep.constrain_chunk(&mut member, chunk, bits);
                                     AgreementNode::Constraint {
                                         lanes: member,
                                         vars: context_vars(sc),

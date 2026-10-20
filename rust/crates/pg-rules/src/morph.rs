@@ -976,11 +976,10 @@ pub(crate) fn segs_of(
             pg_shape::EffectiveCdSet::Unrestricted => None,
         }
     };
-    // A featureless grammar on a table too wide for the id lane carries identity in the chunked `StrRep` lanes instead, so a literal or class constraint still discriminates segments.
+    // A table too wide for the id lane carries identity in the chunked `StrRep` lanes instead, featured or not, so a literal or class constraint still discriminates segments.
     let wide_strrep = id_width
         .is_none()
-        .then(|| StrRepMatcher::new(g, &g.char_tables[table.0 as usize]))
-        .flatten();
+        .then(|| StrRepMatcher::identity(g, &g.char_tables[table.0 as usize]));
     let with_id = |i: usize, mut lanes: Vec<u64>| -> Vec<u64> {
         if let Some(w) = id_width {
             // Only reached on ≤64-def tables, so a `Singleton` shift can never overflow.
@@ -1121,7 +1120,8 @@ pub(crate) fn compile_parts(
         .with_table(table)
         .deterministic(deterministic)
         .id_lane(true)
-        .strrep(crate::bridge::id_lane_width(g, table).is_none());
+        // Safe on a featured grammar: the identity lanes follow the feature lanes and a node whose identity is unknown inputs all-ones there, so they only ever remove a wrong match.
+        .identity_lanes(crate::bridge::id_lane_width(g, table).is_none());
     let mut nodes = Vec::new();
     let mut names = Vec::new();
     for (i, part) in parts.iter().enumerate() {

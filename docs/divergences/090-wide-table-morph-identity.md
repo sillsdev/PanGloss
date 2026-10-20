@@ -27,7 +27,8 @@ derivational MSA and digraph phonemes are not factors.
 
 When the id lane is unavailable and the grammar has no phonological features, those three sites
 use the chunked `StrRepMatcher` lanes that phonological rewrite rules already use. Tables of at
-most 64 char-defs and grammars with features keep the id lane unchanged.
+most 64 char-defs keep the id lane unchanged. Featured grammars were not covered by this entry and
+still lost identity above 64 char-defs; entry 091 closes that.
 
 ## Can it change a parse?
 

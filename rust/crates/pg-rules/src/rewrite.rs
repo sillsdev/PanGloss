@@ -89,7 +89,9 @@ impl MutNode {
                     table.get(*cd).membership_bits();
             }
         } else {
+            // Featured: the node's features changed, so what it was no longer says what it is.
             self.char_def = pg_shape::NO_CHAR_DEF;
+            self.cd_set = CdSet::Unrestricted;
         }
     }
 }
@@ -99,6 +101,8 @@ pub(crate) struct MutShape {
     pub(crate) w: usize,
     pub(crate) nodes: Vec<MutNode>,
     strrep: Option<StrRepMatcher>,
+    /// Identity lanes for environment matching on a featured grammar, where `strrep` stays `None`; see `StrRepMatcher::identity`.
+    identity: Option<StrRepMatcher>,
 }
 
 impl MutShape {
@@ -119,17 +123,17 @@ impl MutShape {
             w,
             nodes,
             strrep: None,
+            identity: None,
         }
     }
 
     fn for_rewrite(g: &Grammar, table: &CharDefTable, s: &Shape) -> Self {
         let mut result = Self::from_shape(s);
         result.strrep = StrRepMatcher::new(g, table);
-        if result.strrep.is_some() {
-            for (i, node) in result.nodes.iter_mut().enumerate() {
-                if let EffectiveCdSet::Members(bits) = s.node_cd_set(i) {
-                    node.cd_set = CdSet::Members(bits.clone());
-                }
+        result.identity = Some(StrRepMatcher::identity(g, table));
+        for (i, node) in result.nodes.iter_mut().enumerate() {
+            if let EffectiveCdSet::Members(bits) = s.node_cd_set(i) {
+                node.cd_set = CdSet::Members(bits.clone());
             }
         }
         result
@@ -208,7 +212,7 @@ impl MutShape {
                 continue;
             }
             let mut lanes = n.lanes.clone();
-            if let Some(strrep) = self.strrep {
+            if let Some(strrep) = self.strrep.or(self.identity) {
                 if matches!(n.kind, NodeKind::Segment | NodeKind::Boundary) {
                     strrep.input(&mut lanes, n.char_def, &n.cd_set);
                 }
@@ -508,7 +512,7 @@ fn compile_env_impl(
     let bridge = PatternBridge::new(g)
         .with_table(table_id)
         .id_lane(id_lane)
-        .strrep(!id_lane || crate::bridge::id_lane_width(g, table_id).is_none());
+        .identity_lanes(!id_lane || crate::bridge::id_lane_width(g, table_id).is_none());
     let mut compiled = bridge
         .compile_pattern(pat_ref)
         .expect("environment compiles");
