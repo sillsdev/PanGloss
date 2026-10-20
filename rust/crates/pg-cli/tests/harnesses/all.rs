@@ -51,3 +51,6 @@ mod facts_command;
 
 #[path = "../reserved_word_boundary.rs"]
 mod reserved_word_boundary;
+
+#[path = "../slotted_suffix_left_environment.rs"]
+mod slotted_suffix_left_environment;

@@ -508,7 +508,7 @@ fn compile_env_impl(
     let bridge = PatternBridge::new(g)
         .with_table(table_id)
         .id_lane(id_lane)
-        .strrep(!id_lane);
+        .strrep(!id_lane || crate::bridge::id_lane_width(g, table_id).is_none());
     let mut compiled = bridge
         .compile_pattern(pat_ref)
         .expect("environment compiles");

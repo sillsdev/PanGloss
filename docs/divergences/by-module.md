@@ -9,7 +9,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 |---|---|
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048, 088, 089 |
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
-| `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030 |
+| `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030, 090 |
 | `AnalysisAffixProcessRule.cs` | 001 |
 | `AnalysisCompoundingRule.cs` | 001 |
 | `AnalysisCompoundingRule.cs` (`Apply`, non-head-must-be-bare-root gate) | 005 |
@@ -97,6 +97,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/metathesis.rs` (`synthesize`/`analyze` table resolution) | 041 |
 | `pg-rules/src/morph.rs` (`ana_syn_fs`) | 001, 002 |
 | `pg-rules/src/morph.rs` (`attribute_morphs`) | 006, 008 |
+| `pg-rules/src/morph.rs` (`segs_of`, `compile_parts`), `pg-rules/src/rewrite.rs` (`compile_env_impl`), `pg-rules/src/bridge.rs` (`id_lane_width`) | 090 |
 | `pg-rules/src/morph.rs` (`copy_agreement_refuses_match`, `ana_allomorph_matches`), `pg-rules/src/stratum.rs` (`AnalyzerConfig`) | 049 |
 | `pg-rules/src/morph.rs` (`copy_part`) | 007 |
 | `pg-rules/src/morph.rs` (`resolve_non_head_roots`) | 005 |

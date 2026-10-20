@@ -35,7 +35,7 @@ use pg_grammar_model::model::{
 };
 use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
-use crate::bridge::{BridgeError, PatternBridge};
+use crate::bridge::{BridgeError, PatternBridge, StrRepMatcher};
 use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
 use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvocationRole};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
@@ -976,11 +976,32 @@ pub(crate) fn segs_of(
             pg_shape::EffectiveCdSet::Unrestricted => None,
         }
     };
+    // A featureless grammar on a table too wide for the id lane carries identity in the chunked `StrRep` lanes instead, so a literal or class constraint still discriminates segments.
+    let wide_strrep = id_width
+        .is_none()
+        .then(|| StrRepMatcher::new(g, &g.char_tables[table.0 as usize]))
+        .flatten();
     let with_id = |i: usize, mut lanes: Vec<u64>| -> Vec<u64> {
         if let Some(w) = id_width {
             // Only reached on ≤64-def tables, so a `Singleton` shift can never overflow.
             if let Some(bits) = id_bits(i) {
                 crate::bridge::push_id_lane(&mut lanes, w, bits);
+            }
+        } else if let Some(strrep) = wide_strrep {
+            match shape.node_cd_set(i) {
+                pg_shape::EffectiveCdSet::Singleton(cd) => {
+                    strrep.input(&mut lanes, cd, &pg_shape::CdSet::Unrestricted);
+                }
+                pg_shape::EffectiveCdSet::Members(bits) => strrep.input(
+                    &mut lanes,
+                    pg_shape::NO_CHAR_DEF,
+                    &pg_shape::CdSet::Members(bits.clone()),
+                ),
+                pg_shape::EffectiveCdSet::Unrestricted => strrep.input(
+                    &mut lanes,
+                    pg_shape::NO_CHAR_DEF,
+                    &pg_shape::CdSet::Unrestricted,
+                ),
             }
         }
         lanes
@@ -1099,7 +1120,8 @@ pub(crate) fn compile_parts(
     let bridge = PatternBridge::new(g)
         .with_table(table)
         .deterministic(deterministic)
-        .id_lane(true);
+        .id_lane(true)
+        .strrep(crate::bridge::id_lane_width(g, table).is_none());
     let mut nodes = Vec::new();
     let mut names = Vec::new();
     for (i, part) in parts.iter().enumerate() {
