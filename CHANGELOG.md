@@ -5,6 +5,16 @@ file has no section for.
 
 ## Unreleased
 
+## 0.8.9
+
+### Keep segment identity on featured grammars
+
+- Featured grammars with more than 64 character definitions now keep each segment's identity in
+  allomorph and rewrite environments instead of losing it.
+- Featured rewrite environments had no segment identity at any grammar size; they now do.
+- Three Aweti words that used to time out now parse. See divergence entry 091 (C# parity is not yet
+  verified).
+
 ## 0.8.8
 
 ### Publish the suffix allomorph left-environment fix
