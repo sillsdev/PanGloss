@@ -71,11 +71,21 @@ derive the word. A node can have zero or more children, and every field below ex
 | --- | --- |
 | `type` | Which of the 21 trace-node kinds this is (catalogued below). Always present. |
 | `source` | The name of the rule, stratum, or template this node is about — e.g. `"ed_suffix"` for a rule, `"S"` for a stratum. Absent on the root node and on the three outcome nodes (`Successful`, `Failed`, `WordSynthesis`), which are about the word rather than about a piece of grammar. |
-| `subrule` | Which numbered subrule (a rule's own internal alternative, indexed from 0) fired. Only meaningful on a rule-application node; absent everywhere else. |
+| `subrule` | Which numbered subrule (a rule's own internal alternative, indexed from 0) fired. Only meaningful on a rule-application node; absent everywhere else, and absent on a rule-level gate that rejects a rule before any subrule is tried (see below). |
 | `inputShape` | The plain surface form of the word going *into* this step, in whatever character table its stratum uses. Boundary and morpheme-break marks are not shown — this is the bare string of segments, not the annotated analysis. |
 | `outputShape` | The same, for the word coming *out of* this step. A node reporting a failure to apply carries `inputShape` (what it was given); a node reporting a successful step carries `outputShape` (what it produced). |
 | `failureReason` | Present only when this step refused to apply. One of the 23 reasons catalogued below. |
 | `children` | The steps nested under this one — always present, `[]` when there are none. |
+
+**A rule-level gate has no subrule.** C# reports such a rejection with subrule index `-1` (for
+example `CompoundingRuleNotUnapplied(rule, -1, ...)` in `AnalysisCompoundingRule.cs`). PanGloss
+stores that `-1` as `None` (`pg-rules/src/trace.rs`, `TraceNode::subrule_index: Option<i32>`, set by
+`(subrule >= 0).then_some(subrule)` in the compounding sink methods), and this output omits the
+`subrule` key for it: the key is never `-1` and never `null`. The text rendering likewise omits
+` subrule=`. A consumer that expects C#'s `-1` should treat an absent `subrule` on a node that has a
+`failureReason` as "rejected before any subrule". Divergence
+[092](../divergences/092-compounding-analysis-trace-node-shape.md) covers the related difference in
+which node type a compounding analysis attempt becomes.
 
 Nesting is depth: a rule's own attempt to apply becomes the parent of everything that happened
 *while* trying to apply it — looking a candidate root up in the lexicon, re-synthesizing the word

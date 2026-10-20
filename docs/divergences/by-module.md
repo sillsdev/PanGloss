@@ -12,6 +12,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030, 090, 091 |
 | `AnalysisAffixProcessRule.cs` | 001 |
 | `AnalysisCompoundingRule.cs` | 001 |
+| `AnalysisCompoundingRule.cs` (`Apply`, trace node types), `TraceManager.cs` | 092 |
 | `AnalysisCompoundingRule.cs` (`Apply`, non-head-must-be-bare-root gate) | 005 |
 | `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
 | `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
@@ -103,6 +104,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/morph.rs` (`copy_part`) | 007 |
 | `pg-rules/src/morph.rs` (`resolve_non_head_roots`) | 005 |
 | `pg-rules/src/morph.rs` (`synth_compound_subrule`) | 003 |
+| `pg-rules/src/morph.rs` (`ana_compound_traced`), `pg-rules/src/trace.rs` (`compounding_rule_not_unapplied`, `compounding_rule_unapplied`) | 092 |
 | `pg-rules/src/rewrite.rs` (`ana_feature`) | 009, 015, 071 |
 | `pg-rules/src/rewrite.rs` (`ana_narrow_general`, `grouped_target_positions`) | 083 |
 | `pg-rules/src/rewrite.rs` (`ana_narrow_general` true-narrowing union, `union_narrowing_node`) | 087 |
@@ -143,6 +145,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
 | `csharp_port_affix_process.rs` | 007, 008 |
 | `csharp_port_compounding.rs` | 003, 004, 005 |
+| `pg-cli/src/rich_trace/tests.rs` (`compound_analysis_attempts_keep_owner_reason_and_subrule`) | 092 |
 | `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |
 | `machine/conformance/edge-cases/discontinuous-morph-environment/` | 006 |
 | `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
