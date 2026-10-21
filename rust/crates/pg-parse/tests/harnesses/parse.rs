@@ -5,6 +5,8 @@
 mod batch_determinism;
 #[path = "../cd_set_gate.rs"]
 mod cd_set_gate;
+#[path = "../clitic_template_state_gate.rs"]
+mod clitic_template_state_gate;
 #[path = "../conformance_fixtures_gate.rs"]
 mod conformance_fixtures_gate;
 #[path = "../cross_table_metathesis_surface_match_gate.rs"]

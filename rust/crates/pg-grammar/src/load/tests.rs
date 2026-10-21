@@ -338,6 +338,73 @@ fn final_template_facts_disable_default_pruning_for_template_overlap() {
     assert_eq!(facts.disabled_strata(), &[StratumId(0)]);
 }
 
+fn clitic_designation_grammar(main_attr: &str, clitic_attr: &str) -> String {
+    format!(
+        r#"<HermitCrabInput><Language>
+          <Name>CliticDesignation</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+            <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+          </SegmentDefinitions></CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t" morphologicalRules="mrMain"><Name>Main</Name><MorphologicalRuleDefinitions>
+              <MorphologicalRule id="mrMain" {main_attr}><Name>main</Name>
+                <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="s1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="s1" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+              </MorphologicalRule></MorphologicalRuleDefinitions></Stratum>
+            <Stratum characterDefinitionTable="t" morphologicalRules="mrCl"><Name>Clitics</Name><MorphologicalRuleDefinitions>
+              <MorphologicalRule id="mrCl" {clitic_attr}><Name>cl</Name>
+                <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="s2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="s2" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+              </MorphologicalRule></MorphologicalRuleDefinitions></Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#
+    )
+}
+
+fn clitic_flags(g: &Grammar) -> Vec<(Option<bool>, bool)> {
+    g.mrules
+        .iter()
+        .map(|r| match r {
+            MorphRuleDef::AffixProcess(def) => (def.is_clitic_rule, g.affix_rule_is_clitic(def)),
+            _ => panic!("only affix-process rules in this grammar"),
+        })
+        .collect()
+}
+
+#[test]
+fn is_clitic_rule_defaults_to_the_clitics_stratum_name_and_the_attribute_overrides_it() {
+    let g = load(&clitic_designation_grammar("", "")).unwrap();
+    assert_eq!(clitic_flags(&g), vec![(None, false), (None, true)]);
+    let g = load(&clitic_designation_grammar(
+        r#"isCliticRule="true""#,
+        r#"isCliticRule="false""#,
+    ))
+    .unwrap();
+    assert_eq!(
+        clitic_flags(&g),
+        vec![(Some(true), true), (Some(false), false)]
+    );
+    let g = load(&clitic_designation_grammar(
+        r#"isCliticRule=" 1 ""#,
+        r#"isCliticRule="0""#,
+    ))
+    .unwrap();
+    assert_eq!(
+        clitic_flags(&g),
+        vec![(Some(true), true), (Some(false), false)]
+    );
+}
+
+#[test]
+fn is_clitic_rule_refuses_a_non_boolean_value() {
+    let err = load(&clitic_designation_grammar(r#"isCliticRule="yes""#, "")).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("isCliticRule") && msg.contains("yes") && msg.contains("mrMain"),
+        "refusal must name the attribute, value and rule: {msg}"
+    );
+}
+
 /// One partial lexical entry plus one partial affix-process rule, alongside a plain entry and rule of each kind, proves the two counters never leak into each other.
 #[test]
 fn partial_morpheme_facts_counts_entries_and_rules_independently() {

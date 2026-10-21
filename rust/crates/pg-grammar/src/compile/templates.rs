@@ -486,6 +486,7 @@ fn build_null_affix_rule(
             required_stem_name: None,
             allomorphs: vec![allo],
             is_template_rule: false,
+            is_clitic_rule: None,
         },
     ));
     ctx.represent_via(LineageTarget::MRule(mrule_id.0), key);

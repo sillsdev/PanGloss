@@ -400,6 +400,7 @@ pub fn minimal_redup_grammar_for_test() -> Grammar {
             obligatory_features: vec![],
             required_stem_name: None,
             is_template_rule: false,
+            is_clitic_rule: None,
             allomorphs: vec![AffixAllomorphDef {
                 id: AllomorphId(0),
                 environments: vec![],

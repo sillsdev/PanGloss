@@ -242,6 +242,21 @@ fn parse_bool(v: Option<&str>, default: bool) -> bool {
     }
 }
 
+/// `isCliticRule` as `XmlConvert.ToBoolean` reads it; pinned by `is_clitic_rule_refuses_a_non_boolean_value`.
+fn parse_is_clitic_rule(rule: &Node) -> Result<Option<bool>, GrammarError> {
+    let Some(raw) = rule.attr("isCliticRule") else {
+        return Ok(None);
+    };
+    match raw.trim() {
+        "true" | "1" => Ok(Some(true)),
+        "false" | "0" => Ok(Some(false)),
+        _ => Err(GrammarError::Semantic(format!(
+            "rule '{}' has isCliticRule=\"{raw}\"; expected true or false",
+            rule.attr("id").unwrap_or("")
+        ))),
+    }
+}
+
 // Entry point.
 
 /// Load a full HermitCrab XML grammar into the frozen `Grammar` runtime tables.
@@ -1585,6 +1600,7 @@ fn try_load_affix_process_rule(
             allomorphs,
             // Set by the post-pass in `load()` once every stratum's templates are known; default `false` here.
             is_template_rule: false,
+            is_clitic_rule: parse_is_clitic_rule(mr)?,
         }));
     Ok(Some(mrule_id))
 }
@@ -1598,6 +1614,8 @@ fn try_load_realizational_rule(
     acc: &mut Acc,
 ) -> Result<Option<MRuleId>, GrammarError> {
     let mrule_id = MRuleId(acc.mrules.len() as u32);
+    // PORT-CORRESPONDENCE: C# loads `isCliticRule` here but no realizational rule ever reads it; validated, then dropped.
+    parse_is_clitic_rule(real)?;
 
     // No `requiredPartsOfSpeech`/POS attribute on `<RealizationalRule>`: head/foot only.
     let required_syn_fs = intern_syn_fs(

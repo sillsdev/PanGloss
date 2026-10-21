@@ -473,6 +473,7 @@ pub(crate) fn build_affix_rule(
             required_stem_name,
             allomorphs,
             is_template_rule: false,
+            is_clitic_rule: None,
         }));
 
     // Slot -> rule registry: only `Msa::Inflectional` MSAs declare template slots.

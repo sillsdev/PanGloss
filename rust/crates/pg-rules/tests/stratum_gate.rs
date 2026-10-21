@@ -109,6 +109,7 @@ fn suffix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
         obligatory_features: vec![],
         required_stem_name: None,
         is_template_rule: false,
+        is_clitic_rule: None,
         allomorphs: vec![allomorph(
             morpheme,
             vec![one_or_more("nc_any", g)],
@@ -147,6 +148,7 @@ fn suffix_rule_with_allomorph(
         obligatory_features: vec![],
         required_stem_name: None,
         is_template_rule: false,
+        is_clitic_rule: None,
         allomorphs: vec![allomorph(
             allo_id.0,
             vec![one_or_more("nc_any", g)],
@@ -899,7 +901,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
 }
 
 #[test]
-fn enforced_stratum_exit_clears_final_template_state_before_output_dedup() {
+fn stratum_outputs_carry_the_final_template_state_out() {
     let mut g = load_alpha_grammar();
     let ordinary_rule = suffix_rule(&g, 200, "p");
     let ordinary = push_mrule(&mut g, ordinary_rule);
@@ -921,16 +923,20 @@ fn enforced_stratum_exit_clears_final_template_state_before_output_dedup() {
         &NoopSink,
         TraceHandle::DUMMY,
     );
-    assert!(
-        out.words
-            .iter()
-            .all(|w| w.flags.final_template_state == pg_rules::word::FinalTemplateState::None),
-        "stratum outputs must not leak the internal final-template state"
-    );
+    // PORT-CORRESPONDENCE: `AnalysisStratumRule.Apply` no longer clears the state on its outputs; only a blocking stratum's entry does.
+    for w in &out.words {
+        let expected = if w.mrule_apps.iter().flatten().any(|&id| id == ordinary) {
+            pg_rules::word::FinalTemplateState::NonTemplate
+        } else {
+            pg_rules::word::FinalTemplateState::None
+        };
+        assert_eq!(w.flags.final_template_state, expected);
+    }
+    assert!(out.words.iter().any(|w| !w.mrule_apps.is_empty()));
 }
 
 #[test]
-fn final_template_state_resets_between_outer_and_inner_strata() {
+fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
     let mut g = load_alpha_grammar();
     let mut final_rule = suffix_rule(&g, 300, "k");
     if let MorphRuleDef::AffixProcess(def) = &mut final_rule {
@@ -986,10 +992,40 @@ fn final_template_state_resets_between_outer_and_inner_strata() {
         .expect("outer ordinary rule must unapply before crossing the stratum boundary");
     assert_eq!(
         after_outer.flags.final_template_state,
-        pg_rules::word::FinalTemplateState::None
+        pg_rules::word::FinalTemplateState::NonTemplate
     );
     after_outer.stratum = inner;
 
+    // `inner` has no phonology and is not last, so it does not block: the outer rule's state prunes its final template.
+    assert!(!g.is_blocking_stratum(inner, |_| true));
+    let non_blocking = analyze_stratum_filtered_ruled_traced_with_policy(
+        &g,
+        inner,
+        after_outer.clone(),
+        &cfg,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy {
+            enforce: true,
+            all_templates_final: true,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(!non_blocking.words.iter().any(|w| w
+        .mrule_apps
+        .iter()
+        .flatten()
+        .any(|&id| id == final_rule)));
+
+    // A phonological rule makes `inner` block, which clears the state on entry.
+    let p = cd(&g, "char_p");
+    let noop = push_prule(&mut g, phonological_rewrite(p, p, None, MprSet::EMPTY));
+    g.strata[inner.0 as usize].prules = vec![noop];
+    assert!(g.is_blocking_stratum(inner, |_| true));
     let inner_result = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         inner,

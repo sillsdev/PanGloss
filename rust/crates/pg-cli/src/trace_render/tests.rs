@@ -81,7 +81,6 @@ fn text_render_matches_golden_string() {
                          \x20   MorphologicalRuleSynthesis \"ed_suffix\" subrule=0  shape=sagd\n\
                          \x20     StratumSynthesisOutput \"S\"  shape=sagd\n\
                          \x20     Successful  shape=sagd\n\
-                         \x20   MorphologicalRuleSynthesis \"ed_suffix\"  [NonPartialRuleProhibitedAfterFinalTemplate]  input=sag\n\
                          \x20   Failed  [PartialParse]  shape=sag\n\
                          \x20 LexicalLookup \"S\"  input=sagd\n";
     assert_eq!(

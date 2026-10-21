@@ -895,6 +895,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if pg_fst::work::stopped() {
             return Vec::new();
         }
+        // PORT-CORRESPONDENCE: `AnalysisAffixProcessRule` leaves `FinalTemplateState` alone for a clitic rule, in a template slot or not.
+        let keeps_template_state =
+            matches!(rule, MorphRuleDef::AffixProcess(def) if self.g.affix_rule_is_clitic(def));
         for o in &mut outs {
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
             o.mrule_apps.push(Some(id));
@@ -903,7 +906,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             o.record_unapplication(id);
             // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
             o.non_head_app_index = o.non_heads.len() as i32 - 1;
-            if self.policy.enforce {
+            if self.policy.enforce && !keeps_template_state {
                 o.flags.final_template_state = analysis_state_after_mrule(
                     role,
                     matches!(rule, MorphRuleDef::Realizational(_)),
@@ -1292,8 +1295,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     fn analyze(&self, mut input: Word) -> StratumAnalysis {
         let census = crate::branch_census::enabled();
         let received = census.then(|| crate::branch_census::node(&input));
-        // A stratum starts with a clean interleaving state.
-        input.flags.final_template_state = crate::word::FinalTemplateState::None;
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
         let node_parent = input.trace.unwrap_or(self.parent);
         if self.trace.is_tracing() {
@@ -1304,6 +1305,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         // Records the incoming word as `Source` so `expand_alternatives` can later walk the per-stratum spine.
         let source = Rc::new(input.clone());
         input.stratum = self.stratum_id;
+        // PORT-CORRESPONDENCE: `AnalysisStratumRule.Apply` clears the template state only on a blocking stratum; it crosses any other.
+        if self
+            .g
+            .is_blocking_stratum(self.stratum_id, |s| self.rule_admitted(RuleRef::Stratum(s)))
+        {
+            input.flags.final_template_state = crate::word::FinalTemplateState::None;
+        }
         input.source = Some(source.clone());
         input.alternatives.clear();
 
@@ -1410,7 +1418,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let mut fold = |mut w: Word| {
             let pre_fold = census.then(|| crate::branch_census::node(&w));
             w.source = Some(source.clone());
-            w.flags.final_template_state = crate::word::FinalTemplateState::None;
             let dedup_key = w.dedup_key();
             if let Some(pre_fold) = pre_fold {
                 crate::branch_census::edge(pre_fold, crate::branch_census::node(&w));
@@ -2025,6 +2032,7 @@ pub fn synthesize_stratum_traced(
         cache,
         budget,
         FinalTemplateSynthesisPolicy::default(),
+        None,
         stats,
         trace,
         parent,
@@ -2032,7 +2040,9 @@ pub fn synthesize_stratum_traced(
 }
 
 /// Policy-aware sibling of `synthesize_stratum_traced`; the compatibility wrapper preserves the
-/// historical partial-word rescue behavior.
+/// historical partial-word rescue behavior. `rule_filter` is the morpher-wide selector, consulted
+/// only to find the last admitted stratum (`Grammar::is_blocking_stratum`); `None` admits every
+/// stratum, so the grammar's last stratum blocks.
 #[allow(clippy::too_many_arguments)]
 pub fn synthesize_stratum_traced_with_policy(
     g: &Grammar,
@@ -2042,6 +2052,7 @@ pub fn synthesize_stratum_traced_with_policy(
     cache: &RuleCache,
     budget: &StepBudget,
     policy: FinalTemplateSynthesisPolicy,
+    rule_filter: Option<RuleFilter>,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -2090,14 +2101,25 @@ pub fn synthesize_stratum_traced_with_policy(
         policy,
     ));
 
+    let blocking = g.is_blocking_stratum(stratum, |s| {
+        rule_filter.is_none_or(|f| f(RuleRef::Stratum(s)))
+    });
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     for w in candidates {
         if !pg_fst::work::consume() {
             return Vec::new();
         }
         let w_parent = w.trace.unwrap_or(node_parent);
-        // Only words whose last applied rule was final proceed.
-        if w.flags.is_last_applied_rule_final != Some(true) {
+        // PORT-CORRESPONDENCE: `SynthesisStratumRule.Apply` passes a non-blocking stratum's words on unchecked and still open.
+        if !blocking {
+            if trace.is_tracing() {
+                trace.end_apply_stratum(w_parent, stratum, &w);
+            }
+            out.entry(w.dedup_key()).or_insert(w);
+            continue;
+        }
+        // Only a word whose last applied template was non-final is refused; `None` (no template) proceeds.
+        if w.flags.is_last_applied_rule_final == Some(false) {
             if trace.is_tracing() {
                 trace.non_final_template_applied_last(w_parent, stratum, &w);
             }
@@ -2323,7 +2345,8 @@ fn synth_apply_templates(
     if out.is_empty() {
         if input.flags.is_partial || !applicable {
             let mut w = input.clone();
-            if w.flags.is_last_applied_rule_final != Some(true) {
+            // PORT-CORRESPONDENCE: `SynthesisAffixTemplatesRule.Apply` closes the passthrough only when some template was applicable.
+            if applicable {
                 w.flags.is_last_applied_rule_final = Some(true);
             }
             out.insert(w.dedup_key(), w);

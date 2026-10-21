@@ -748,11 +748,12 @@ pub struct AffixProcessRuleDef {
     /// (`SynthesisAffixProcessRule.cs:64-105`'s `!_rule.IsTemplateRule &&` guard on both): those
     /// checks exist to gate an *ordinary* rule applied after a template finished, not the
     /// template's own slot rules, which C# never subjects to them regardless of the word's
-    /// `IsLastAppliedRuleFinal` state. Plan §6 item 6 / W1.6; audit A-morphology-parity.md §4
-    /// item 4 ("STILL-OPEN, confirmed masked" — masked because no reference grammar's non-template
-    /// affix rule collides with a template's final/partial flags in a way that would show the
-    /// difference).
+    /// `IsLastAppliedRuleFinal` state.
     pub is_template_rule: bool,
+    /// The authored `isCliticRule` attribute (C# `MorphemicMorphologicalRule.IsCliticRule`);
+    /// `None` when absent. Read it through `Grammar::affix_rule_is_clitic`, never directly: an
+    /// absent value defers to the owning stratum's name.
+    pub is_clitic_rule: Option<bool>,
 }
 
 impl AffixProcessRuleDef {
@@ -1148,6 +1149,39 @@ pub struct Grammar {
 }
 
 impl Grammar {
+    /// C# `MorphemicMorphologicalRule.GetIsCliticRule()`: the authored `isCliticRule`, else whether
+    /// the rule's owning stratum is named exactly `Clitics` (the name FieldWorks' `HCLoader` gives
+    /// its clitic stratum). A clitic rule is exempt from the final/non-final template gates and
+    /// leaves the word's template state untouched in both directions.
+    pub fn affix_rule_is_clitic(&self, rule: &AffixProcessRuleDef) -> bool {
+        // PORT-CORRESPONDENCE: a rule with no owning stratum (`Stratum == null`) is not a clitic.
+        rule.is_clitic_rule.unwrap_or_else(|| {
+            self.morphemes
+                .get(rule.morpheme.0 as usize)
+                .and_then(|m| self.strata.get(m.stratum.0 as usize))
+                .and_then(|sd| sd.name.as_deref())
+                == Some("Clitics")
+        })
+    }
+
+    /// C# `Morpher.IsBlockingStratum`: a stratum with phonological rules, or the last stratum
+    /// `admitted` accepts. A non-blocking stratum hands its words on without closing them off, so
+    /// template state crosses it in both directions.
+    pub fn is_blocking_stratum(
+        &self,
+        stratum: StratumId,
+        admitted: impl Fn(StratumId) -> bool,
+    ) -> bool {
+        if !self.strata[stratum.0 as usize].prules.is_empty() {
+            return true;
+        }
+        (0..self.strata.len())
+            .rev()
+            .map(|i| StratumId(i as u8))
+            .find(|&s| admitted(s))
+            == Some(stratum)
+    }
+
     /// Unicode scalars recognized by the character tables referenced by this grammar's strata.
     pub fn orthographic_characters(&self) -> BTreeSet<char> {
         let tables: BTreeSet<_> = self.strata.iter().map(|stratum| stratum.table).collect();

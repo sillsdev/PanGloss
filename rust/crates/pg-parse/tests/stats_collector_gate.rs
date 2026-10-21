@@ -789,12 +789,12 @@ fn fact_work_is_segments_examined_not_the_word_work_steps_total() {
     assert_eq!(
         measured,
         vec![
-            ("sumulat", 28, 935, 401),
-            ("keadilan", 132, 2601, 1558),
-            ("katibɯd", 28, 1055, 369),
+            ("sumulat", 28, 901, 394),
+            ("keadilan", 132, 2567, 1552),
+            ("katibɯd", 28, 1021, 364),
             ("katibɯt", 19, 779, 273),
-            ("pur", 19, 445, 169),
-            ("gas", 14, 727, 123),
+            ("pur", 19, 411, 163),
+            ("gas", 14, 692, 109),
         ],
         "(word, steps, work_steps, SUM(fact.work))"
     );

@@ -1598,12 +1598,12 @@ fn ordinary_invocation(role: RuleInvocationRole) -> bool {
 
 #[inline]
 fn final_template_prohibits(
-    role: RuleInvocationRole,
+    template_gated: bool,
     word: &Word,
     rule_partial: bool,
     policy: FinalTemplateSynthesisPolicy,
 ) -> bool {
-    ordinary_invocation(role)
+    template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(true))
         && (policy.always_enforce || (!word.flags.is_partial && !rule_partial))
 }
@@ -1632,13 +1632,17 @@ fn synth_affix(
 ) -> Vec<Word> {
     // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
 
+    // PORT-CORRESPONDENCE: both gates carry `!IsTemplateRule && !GetIsCliticRule()` in `SynthesisAffixProcessRule`.
+    let clitic = g.affix_rule_is_clitic(rule);
+    let template_gated = ordinary_invocation(role) && !clitic;
+
     // After a *final* template, prohibit a non-partial rule.
-    if final_template_prohibits(role, word, rule.is_partial(), policy) {
+    if final_template_prohibits(template_gated, word, rule.is_partial(), policy) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     // (b) After a *non-final* template, prohibit a partial rule unless the input is itself partial.
-    if ordinary_invocation(role)
+    if template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
         && !word.flags.is_partial
         && rule.is_partial()
@@ -1682,7 +1686,7 @@ fn synth_affix(
             word,
             rule.morpheme,
             &rule.obligatory_features,
-            Some(rule.is_partial()),
+            (!clitic).then_some(rule.is_partial()),
             true,
             allo,
             &segs,
@@ -1745,12 +1749,15 @@ fn synth_affix_cached(
     }
     // Gate order and `!is_template_rule` guards mirror `synth_affix`; order matters only because the first failing gate is the reported reason.
 
+    let clitic = g.affix_rule_is_clitic(rule);
+    let template_gated = ordinary_invocation(role) && !clitic;
+
     // Final-template prohibition.
-    if final_template_prohibits(role, word, rule.is_partial(), policy) {
+    if final_template_prohibits(template_gated, word, rule.is_partial(), policy) {
         not_applied!(FailureReason::NonPartialRuleProhibitedAfterFinalTemplate);
     }
     // (b) Non-final-template prohibition.
-    if ordinary_invocation(role)
+    if template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
         && !word.flags.is_partial
         && rule.is_partial()
@@ -1800,7 +1807,7 @@ fn synth_affix_cached(
             word,
             rule.morpheme,
             &rule.obligatory_features,
-            Some(rule.is_partial()),
+            (!clitic).then_some(rule.is_partial()),
             true,
             allo,
             &segs,
@@ -3077,7 +3084,7 @@ fn synth_compound(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if final_template_prohibits(role, word, false, policy) {
+    if final_template_prohibits(ordinary_invocation(role), word, false, policy) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -3188,7 +3195,7 @@ fn synth_compound_cached(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if final_template_prohibits(role, word, false, policy) {
+    if final_template_prohibits(ordinary_invocation(role), word, false, policy) {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
                 parent,

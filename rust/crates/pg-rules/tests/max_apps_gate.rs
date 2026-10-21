@@ -99,6 +99,7 @@ fn self_matching_suffix_rule(g: &Grammar, morpheme: u32, seg: &str, max_apps: u1
         obligatory_features: vec![],
         required_stem_name: None,
         is_template_rule: false,
+        is_clitic_rule: None,
         allomorphs: vec![allomorph(
             morpheme,
             vec![one_or_more("nc_any", g)],

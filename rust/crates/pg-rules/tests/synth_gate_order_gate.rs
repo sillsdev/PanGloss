@@ -110,6 +110,7 @@ fn push_suffix_rule_with_syn_fs(
         obligatory_features: vec![],
         required_stem_name: None,
         is_template_rule: false,
+        is_clitic_rule: None,
         allomorphs: vec![AffixAllomorphDef {
             id: allo_id,
             environments: vec![],
@@ -269,6 +270,7 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
             always_enforce: true,
         },
         None,
+        None,
         &NoopSink,
         TraceHandle::DUMMY,
     );
@@ -300,6 +302,7 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },
+        None,
         None,
         &NoopSink,
         TraceHandle::DUMMY,
@@ -385,6 +388,7 @@ fn ordinary_synthesis_uses_the_call_site_role_for_a_shared_affix_id() {
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },
+        None,
         None,
         &NoopSink,
         TraceHandle::DUMMY,

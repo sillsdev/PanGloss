@@ -1332,6 +1332,7 @@ impl<'g> Morpher<'g> {
                     &self.cache,
                     budget,
                     policy,
+                    rule_filter,
                     stats,
                     trace,
                     node_parent,

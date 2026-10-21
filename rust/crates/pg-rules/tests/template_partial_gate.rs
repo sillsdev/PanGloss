@@ -14,7 +14,8 @@ use pg_grammar_model::model::{
     TemplateId, TemplateSlotZone, VarTable,
 };
 use pg_rules::cache::RuleCache;
-use pg_rules::stratum::synthesize_stratum;
+use pg_rules::morph::synthesize_with_policy;
+use pg_rules::stratum::{synthesize_stratum, FinalTemplateSynthesisPolicy};
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
@@ -108,6 +109,7 @@ fn push_suffix_rule(g: &mut Grammar, morpheme: u32, seg: &str, partial: bool) ->
         obligatory_features: vec![],
         required_stem_name: None,
         is_template_rule: false,
+        is_clitic_rule: None,
         allomorphs: vec![allomorph(
             allo_id.0,
             vec![one_or_more("nc_any", g)],
@@ -284,7 +286,13 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
     input_b.flags.is_partial = true;
     input_b.mrule_apps = vec![Some(r)];
     input_b.mrule_app_index = 0;
-    let out_b = synthesize_stratum(&g, s, input_b, 10_000, &cache);
+    // Applied to the rule directly: the stratum exit refuses any word still marked non-final, which is not this gate.
+    let out_b = synthesize_with_policy(
+        &g,
+        &input_b,
+        &g.mrules[r.0 as usize],
+        FinalTemplateSynthesisPolicy::default(),
+    );
     assert_eq!(
         out_b.len(),
         1,

@@ -104,6 +104,7 @@ fn affix_rule(morpheme: u32, allomorphs: Vec<AffixAllomorphDef>) -> MorphRuleDef
         obligatory_features: vec![],
         required_stem_name: None,
         is_template_rule: false,
+        is_clitic_rule: None,
         allomorphs,
     })
 }

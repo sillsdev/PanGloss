@@ -89,7 +89,7 @@ fn bounded_generation_shares_tiny_allowance_across_seed_choices() {
         outcome.stop_reason,
         Some(GenerateWordsStopReason::WorkLimitReached { limit: 100 })
     );
-    assert_eq!(outcome.seed_choices, 2, "{outcome:?}");
+    assert_eq!(outcome.seed_choices, 3, "{outcome:?}");
     assert!(outcome.seed_choices < 4, "{outcome:?}");
     assert!(outcome.work_units <= 100, "{outcome:?}");
 }

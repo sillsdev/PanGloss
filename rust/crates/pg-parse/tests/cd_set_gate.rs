@@ -67,6 +67,7 @@ fn prefix_rule(morpheme: u32, insert_nc: &str, g: &Grammar) -> MorphRuleDef {
         obligatory_features: vec![],
         required_stem_name: None,
         is_template_rule: false,
+        is_clitic_rule: None,
         allomorphs: vec![allomorph(
             morpheme,
             vec![any_pattern(g)],
