@@ -1,7 +1,7 @@
 # 093: `Morpher.DeletionReapplications` was never read, so deletion unapplication always ran one pass
 
 Kind: behavioural.
-Status: fixed-in-rust. Rust now runs C#'s `1 + DeletionReapplications` passes. The default is 0, so a project that does not set it parses exactly as before. The C# test that sets `DeletionReapplications = 1` (`RewriteRuleTests.DeletionRules`, cs:1467) was ported and its expectation is the upstream-authored one; I could not run `hc.dll` here to re-observe it (the machine checkout's NuGet local source is missing), so the ported expectation is the only oracle evidence. Rust-only gap, so no Machine issue.
+Status: fixed-in-rust. Rust now runs C#'s `1 + DeletionReapplications` passes. The default is 0, so a project that does not set it parses exactly as before. The C# test that sets `DeletionReapplications = 1` (`RewriteRuleTests.DeletionRules`, cs:1467) was ported with its expectation unchanged, and that C# test passes against `hc.dll` (`dotnet test --filter FullyQualifiedName~RewriteRuleTests.DeletionRules` in sillsdev/machine), so the expectation is oracle-observed. Rust-only gap, so no Machine issue.
 
 ## C# site
 
