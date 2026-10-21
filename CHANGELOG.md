@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+## 0.8.11
+
 ### `pangloss serve`: a resident parser for try-a-word
 
 - New `pangloss serve --project <path>` loads and compiles a project once, then answers
