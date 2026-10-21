@@ -44,6 +44,10 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | FieldWorks `HCParser.cs` (`LoadParser`, `MaxRoots`); `Morpher.cs` (`MaxStemCount`) | 094 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `MakePartialsFinal`); `Morpher.cs` (`AlwaysEnforceFinalTemplates`) | 101 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `MergeAnalyses`); `AnalysisStratumRule.cs` (`MergeEquivalentAnalyses`) | 096 |
+| FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`, `MaxAlternatives`); `Morpher.cs` (`SynthesizeSequential`/`SynthesizeParallel`); `AnalysisStratumRule.cs`, `CombinationRuleCascade.cs`, `LinearRuleCascade.cs`, `MemoizedCombinationRuleCascade.cs` | 097 |
+| FieldWorks `HCParser.cs` (ctor, `LoadParser`, `GuessRoots`); `Morpher.cs` (`ParseWord` guess branch) | 098 |
+| FieldWorks `HCParser.cs` (`LoadParser`, `MergeMSAs`); `HCLoader.cs` (`RepresentativeMSA`, `UniqueMSAs`); liblcm `EqualsMsa` | 099 |
+| FieldWorks `HCLoader.cs` ctor (`NotOnClitics`, `NoDefaultCompounding`, `AcceptUnspecifiedGraphemes`) | 100 |
 | `NaturalClass.cs` (ctor `Type` stamping) | 013 |
 | `PatternNode.GenerateNfa` | 012 |
 | `Quantifier.cs` (`GenerateNfa`), `PatternNodeCastExtensions.cs`; FieldWorks `HCLoader.cs`, `OccurrenceDlg.cs` | 068 |
@@ -94,6 +98,9 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-fwdata/src/parser_params.rs` (`hc_max_roots`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`) | 094 |
 | `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`); `pg-cli/src/main.rs` (`run_batch`) | 101 |
 | `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `with_merge_equivalent_analyses`) | 096 |
+| `pg-parse/src/morpher.rs` (`ParseOptions::guess_root`); `pg-cli/src/main.rs` (`--guess`) | 098 |
+| `pg-grammar/src/compile/lexicon.rs` (per-MSA fan-out) | 099 |
+| `pg-fwdata/src/parser_params.rs` (`hc_bool`) | 100 |
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
 | `pg-parse/src/root_trie.rs` (`RootAllomorphIndex::search`, `RootAllomorphTrie::build`) | 009, 019 |
 | `pg-parse/src/surface.rs` (`matching_str_reps`, `matching_reps_for_node`) | 007, 010 |
