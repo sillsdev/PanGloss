@@ -54,7 +54,8 @@ This is an argued property, not a proof for every grammar. Evidence:
 
 ## Fixtures
 
-`conformance-staging/edge-cases/`: `simultaneous-expansion-terminates`, `feature-rule-before-merge`,
+`machine/conformance/edge-cases/` (graduated from `conformance-staging/` with the submodule pin at
+Machine `72dbd4f9`): `simultaneous-expansion-terminates`, `feature-rule-before-merge`,
 `epenthesis-fed-merge`, `geminate-under-merge`, `default-symbol-after-merge` (forward-derived guards
 against the PR's regressions), and nine regression-hunt fixtures whose expectations come from C#
 master: `expansion-overlapping-targets`, `merge-then-metathesis`, `two-merges-cascade-env`,

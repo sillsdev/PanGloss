@@ -162,7 +162,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/segment-natural-class-table-binding/`, `pg-foma-backend/tests/segment_natural_class_table_binding_discriminates.rs` | 010, 041 |
 | `conformance-staging/edge-cases/strrep-rewrite-unapplication/`, `pg-parse/tests/conformance_fixtures_gate.rs`, `pg-cli/src/tests.rs` (`analyses_sidecar_projects_source_guids_from_fwdata`), Machine `StrRepRewriteRuleTests.cs`, `pg-foma-backend/tests/backend_scoreboard_gate.rs` | 071 |
 | `conformance-staging/edge-cases/interposed-optional-multi-rhs/` | 083 |
-| `conformance-staging/edge-cases/` narrowing fixtures (`*-merge*`, `boundary-*-in-narrowing-lhs*`, `simultaneous-expansion-terminates`, `expansion-overlapping-targets`, `two-merges-cascade-env`, `deletion-reinserted-feature-unapply`, `merge-subrules-pos-rtl-template`) | 087 |
+| `machine/conformance/edge-cases/` narrowing fixtures (`*-merge*`, `boundary-*-in-narrowing-lhs*`, `simultaneous-expansion-terminates`, `expansion-overlapping-targets`, `two-merges-cascade-env`, `deletion-reinserted-feature-unapply`, `merge-subrules-pos-rtl-template`) | 087 |
 | `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
 | `csharp_port_affix_process.rs` | 007, 008 |
 | `csharp_port_affix_process.rs` (`partial_rule`); `pg-cli/src/tests.rs` (`project_make_partials_final_reaches_batch_and_an_explicit_flag_overrides_it`) | 101 |
