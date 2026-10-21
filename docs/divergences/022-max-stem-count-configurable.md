@@ -48,3 +48,5 @@ needed.
 compounding rule once [this many stems reached]" — worth checking against this entry if that
 documentation and `Morpher`'s own default ever drift apart, since they are two separate fields that
 must stay in sync by convention, not by shared storage.
+
+A FieldWorks project's own value now reaches the same field through `Grammar::max_stem_count`, which `Morpher::new` starts from; see entry 094.

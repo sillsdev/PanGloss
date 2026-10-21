@@ -26,3 +26,18 @@ fn parser_parameters_round_trips_through_json_and_old_json_still_loads() {
     assert_eq!(back.active_parser, ActiveParser::XAmple);
     assert_eq!(back.xample, XAmpleParameters::default());
 }
+
+#[test]
+fn morpher_settings_are_omitted_at_their_defaults_and_round_trip_when_set() {
+    let default_json = serde_json::to_value(ParserParameters::default()).unwrap();
+    assert!(default_json.get("maxRoots").is_none(), "{default_json}");
+
+    let p = ParserParameters {
+        max_roots: Some(3),
+        ..Default::default()
+    };
+    let json = serde_json::to_value(&p).unwrap();
+    assert_eq!(json["maxRoots"], 3);
+    let back: ParserParameters = serde_json::from_value(json).unwrap();
+    assert_eq!(back, p);
+}

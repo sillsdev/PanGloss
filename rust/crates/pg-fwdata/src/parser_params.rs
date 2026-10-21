@@ -169,6 +169,7 @@ pub fn parse_with_issues(
         &mut hc_fields_present,
     );
     let deletion_reapplications = hc_delete_reapps(hc, &mut hc_fields_present)?;
+    let max_roots = hc_max_roots(hc, &mut hc_fields_present)?;
     let strata = hc.and_then(|hc| hc.child("Strata")).map(|s| s.text.clone());
 
     let compound_rule_max_applications = params_elem
@@ -194,6 +195,7 @@ pub fn parse_with_issues(
             accept_unspecified_graphemes,
             no_default_compounding,
             deletion_reapplications,
+            max_roots,
             strata,
             compound_rule_max_applications,
             active_parser,
@@ -208,14 +210,40 @@ pub fn parse_with_issues(
     ))
 }
 
-/// `HCParser.LoadParser` reads `<HC><DelReapps>` as `(int) element` with default 0; a negative value stops the C# loop after one pass exactly like 0, so it is stored as 0. A non-integer makes C# throw and load no parser, so it is fatal here too, naming the field and the value.
+/// `HCParser.LoadParser` reads `<HC><DelReapps>` as `(int) element` with default 0; a negative value stops the C# loop after one pass exactly like 0, so it is stored as 0.
 fn hc_delete_reapps(
     hc: Option<&crate::node::Node>,
     presence: &mut Vec<(&'static str, bool)>,
 ) -> Result<u32, ImportError> {
-    const TAG: &str = "DelReapps";
-    let Some(child) = hc.and_then(|hc| hc.child(TAG)) else {
-        return Ok(0);
+    let value = hc_int(
+        hc,
+        "DelReapps",
+        "Deletion reapplications",
+        "0 to 10",
+        presence,
+    )?;
+    Ok(value.map_or(0, |value| value.max(0) as u32))
+}
+
+/// `HCParser.LoadParser` reads `<HC><MaxRoots>` with `int.Parse` into `Morpher.MaxStemCount` (default 2 when absent). C# `AnalysisCompoundingRule` gates on `NonHeadCount + 1 >= MaxStemCount`, so every value below 1 behaves exactly like 1 and is stored as 1.
+fn hc_max_roots(
+    hc: Option<&crate::node::Node>,
+    presence: &mut Vec<(&'static str, bool)>,
+) -> Result<Option<u32>, ImportError> {
+    let value = hc_int(hc, "MaxRoots", "Maximum roots", "1 to 10", presence)?;
+    Ok(value.map(|value| value.max(1) as u32))
+}
+
+/// An integer `<HC>` setting `HCParser.LoadParser` reads with `(int)` or `int.Parse`: `None` when absent. Both C# reads throw on a non-integer and FieldWorks then loads no parser, so it is fatal here too, naming the field and the value.
+fn hc_int(
+    hc: Option<&crate::node::Node>,
+    tag: &'static str,
+    label: &str,
+    range: &str,
+    presence: &mut Vec<(&'static str, bool)>,
+) -> Result<Option<i32>, ImportError> {
+    let Some(child) = hc.and_then(|hc| hc.child(tag)) else {
+        return Ok(None);
     };
     let value = child
         .text
@@ -224,14 +252,14 @@ fn hc_delete_reapps(
         .map_err(|_| ImportError::InvalidSource {
             code: codes::INVALID_PARSER_PARAMETER,
             message: format!(
-                "Parser parameter 'HC.{TAG}' (Deletion reapplications) has the value {:?}, which \
-                 is not a whole number; set it to a whole number from 0 to 10 in the FieldWorks \
-                 parser parameters.",
+                "Parser parameter 'HC.{tag}' ({label}) has the value {:?}, which is not a whole \
+                 number; set it to a whole number from {range} in the FieldWorks parser \
+                 parameters.",
                 child.text
             ),
         })?;
-    presence.push((TAG, true));
-    Ok(value.max(0) as u32)
+    presence.push((tag, true));
+    Ok(Some(value))
 }
 
 fn invalid_active_parser(message: impl Into<String>) -> ImportError {

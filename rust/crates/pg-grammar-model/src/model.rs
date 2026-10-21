@@ -1139,6 +1139,8 @@ pub struct Grammar {
     pub strata: Vec<StratumDef>,
     /// C# `Morpher.DeletionReapplications`: extra analysis passes of each deletion/narrowing/expansion rewrite subrule. FieldWorks reads it from `<HC><DelReapps>`; `<HermitCrabInput>` XML cannot carry it, so it is 0 there.
     pub deletion_reapplications: u32,
+    /// C# `Morpher.MaxStemCount`, the default for `pg_parse::Morpher`'s own cap. FieldWorks reads it from `<HC><MaxRoots>`; `<HermitCrabInput>` XML cannot carry it, so it is C#'s constructor default 2 there.
+    pub max_stem_count: u32,
 }
 
 impl Grammar {

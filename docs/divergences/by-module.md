@@ -41,6 +41,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Morpher.cs` (ctor, `_allomorphTries`, `IsPattern` partition) | 019 |
 | `Morpher.cs` (`MatchNodesWithPattern`, `LexicalGuess`) | 027 |
 | `Morpher.cs` (`MaxStemCount`) | 022 |
+| FieldWorks `HCParser.cs` (`LoadParser`, `MaxRoots`); `Morpher.cs` (`MaxStemCount`) | 094 |
 | `NaturalClass.cs` (ctor `Type` stamping) | 013 |
 | `PatternNode.GenerateNfa` | 012 |
 | `Quantifier.cs` (`GenerateNfa`), `PatternNodeCastExtensions.cs`; FieldWorks `HCLoader.cs`, `OccurrenceDlg.cs` | 068 |
@@ -88,6 +89,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-grammar/src/compile/environment.rs`, `affixes.rs`, `warnings.rs`; `pg-cli/src/compile_failure.rs` | 051 |
 | `pg-parse/src/guess.rs` | 019, 027 |
 | `pg-parse/src/morpher.rs` (`Morpher::with_max_stem_count`) | 022 |
+| `pg-fwdata/src/parser_params.rs` (`hc_max_roots`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`) | 094 |
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
 | `pg-parse/src/root_trie.rs` (`RootAllomorphIndex::search`, `RootAllomorphTrie::build`) | 009, 019 |
 | `pg-parse/src/surface.rs` (`matching_str_reps`, `matching_reps_for_node`) | 007, 010 |
@@ -150,6 +152,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
 | `csharp_port_affix_process.rs` | 007, 008 |
 | `csharp_port_compounding.rs` | 003, 004, 005 |
+| `csharp_port_compounding.rs` (`simple_rules_4_three_root_compound_from_grammar_max_stem_count`) | 094 |
 | `csharp_port_compounding.rs` (`prod_restrict_rule_traces_non_head_rejections_as_csharp_does`) | 092 |
 | `pg-cli/src/rich_trace/tests.rs` (`compound_analysis_attempts_keep_owner_reason_and_subrule`) | 092 |
 | `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |

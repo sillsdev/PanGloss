@@ -423,6 +423,9 @@ pub struct ParserParameters {
     /// ← `<HC><DelReapps>`, default **0**: C# `Morpher.DeletionReapplications`, set by `HCParser.LoadParser` rather than `HCLoader`. A negative source value behaves as 0 in C# and is stored as 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub deletion_reapplications: u32,
+    /// ← `<HC><MaxRoots>`: C# `Morpher.MaxStemCount`, set by `HCParser.LoadParser`. `None` when the element is absent, which means the C# default 2; a source value below 1 behaves as 1 in C# and is stored as 1. Distinct from `XAmpleParameters::max_roots`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_roots: Option<u32>,
     /// The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`)
     /// — `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is
     /// compiler policy over this string, not separate data, so T3 re-parses it the same way.
@@ -453,6 +456,7 @@ impl Default for ParserParameters {
             accept_unspecified_graphemes: false,
             no_default_compounding: false,
             deletion_reapplications: 0,
+            max_roots: None,
             strata: None,
             compound_rule_max_applications: Vec::new(),
             active_parser: ActiveParser::XAmple,

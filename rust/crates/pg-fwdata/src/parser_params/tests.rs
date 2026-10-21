@@ -255,3 +255,43 @@ fn malformed_del_reapps_is_fatal_and_names_the_field_and_value() {
     assert!(message.contains("HC.DelReapps"), "{message}");
     assert!(message.contains("\"many\""), "{message}");
 }
+
+#[test]
+fn hc_max_roots_is_read_from_the_hc_element_apart_from_xample_max_roots() {
+    let read = |xml: &str| parse_with_issues(Some(xml)).unwrap();
+    let (params, issues, presence) = read(
+        "<ParserParameters><XAmple><MaxRoots>1</MaxRoots></XAmple><HC><MaxRoots>3</MaxRoots></HC></ParserParameters>",
+    );
+    assert_eq!(params.max_roots, Some(3));
+    assert_eq!(params.xample.max_roots, Some(1));
+    assert!(issues.is_empty());
+    assert_eq!(presence.hc_fields, vec![("MaxRoots", true)]);
+
+    let (absent, _, _) = read("<ParserParameters><HC/></ParserParameters>");
+    assert_eq!(absent.max_roots, None, "absent means C#'s default 2");
+    let (xample_only, _, _) =
+        read("<ParserParameters><XAmple><MaxRoots>4</MaxRoots></XAmple></ParserParameters>");
+    assert_eq!(xample_only.max_roots, None, "XAmple's MaxRoots is not HC's");
+    for below_one in ["0", "-3"] {
+        let (clamped, _, _) = read(&format!(
+            "<ParserParameters><HC><MaxRoots>{below_one}</MaxRoots></HC></ParserParameters>"
+        ));
+        assert_eq!(clamped.max_roots, Some(1), "{below_one} gates like 1");
+    }
+}
+
+#[test]
+fn malformed_hc_max_roots_is_fatal_and_names_the_field_and_value() {
+    for bad in ["two", "2.5", "99999999999"] {
+        let err = parse_with_issues(Some(&format!(
+            "<ParserParameters><HC><MaxRoots>{bad}</MaxRoots></HC></ParserParameters>"
+        )))
+        .unwrap_err();
+        let ImportError::InvalidSource { code, message } = err else {
+            panic!("expected InvalidSource, got {err:?}");
+        };
+        assert_eq!(code, codes::INVALID_PARSER_PARAMETER);
+        assert!(message.contains("HC.MaxRoots"), "{message}");
+        assert!(message.contains(&format!("{bad:?}")), "{message}");
+    }
+}

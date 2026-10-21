@@ -24,6 +24,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         entries: entries_a,
         strata: strata_a,
         deletion_reapplications: deletion_reapplications_a,
+        max_stem_count: max_stem_count_a,
     } = a;
     let crate::model::Grammar {
         name: name_b,
@@ -46,9 +47,11 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         entries: entries_b,
         strata: strata_b,
         deletion_reapplications: deletion_reapplications_b,
+        max_stem_count: max_stem_count_b,
     } = b;
 
     assert_eq!(name_a, name_b, "name");
+    assert_eq!(max_stem_count_a, max_stem_count_b, "max_stem_count");
     assert_eq!(
         deletion_reapplications_a, deletion_reapplications_b,
         "deletion_reapplications"

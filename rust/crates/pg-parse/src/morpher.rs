@@ -46,7 +46,7 @@ pub struct Morpher<'g> {
     word_timeout: Option<Duration>,
     /// Every matcher this grammar's rules need, compiled once and shared read-only across `--threads=N` workers.
     cache: RuleCache,
-    /// C#'s settable `Morpher.MaxStemCount`; default `2`, and raising it stays bounded by the shared step/timeout budget.
+    /// C#'s settable `Morpher.MaxStemCount`, starting from `Grammar::max_stem_count`; raising it stays bounded by the shared step/timeout budget.
     max_stem_count: u32,
     /// C# `Morpher.PruneDisagreeingCopies`; on by default, as in C#.
     prune_disagreeing_copies: bool,
@@ -437,7 +437,7 @@ impl<'g> Morpher<'g> {
             work_cap: pg_rules::stratum::default_work_cap(cap),
             word_timeout: None,
             cache: RuleCache::build(g),
-            max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
+            max_stem_count: g.max_stem_count,
             prune_disagreeing_copies: true,
         }
     }
@@ -518,8 +518,10 @@ impl<'g> Morpher<'g> {
         self
     }
 
-    /// Raise the compound stem cap (C#'s settable `Morpher.MaxStemCount`); `2` is the default.
-    /// Raising it cannot turn into an unbounded search — see `Self::max_stem_count`.
+    /// Override the compound stem cap (C#'s settable `Morpher.MaxStemCount`). Without this call the
+    /// cap is the grammar's own `Grammar::max_stem_count`: FieldWorks `<HC><MaxRoots>`, or C#'s
+    /// constructor default 2. Raising it cannot turn into an unbounded search — see
+    /// `Self::max_stem_count`.
     pub fn with_max_stem_count(mut self, max_stem_count: u32) -> Self {
         self.max_stem_count = max_stem_count;
         self

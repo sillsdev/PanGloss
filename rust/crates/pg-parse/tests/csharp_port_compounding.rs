@@ -344,6 +344,21 @@ fn simple_rules_4_three_root_compound_single_rule() {
     assert_eq!(root_gloss_set(&out), BTreeSet::from(["5".to_string()]));
 }
 
+/// The same reconfiguration carried by the grammar (FieldWorks `<HC><MaxRoots>3</MaxRoots>`), with no builder call: `Morpher::new` starts from `Grammar::max_stem_count`.
+#[test]
+fn simple_rules_4_three_root_compound_from_grammar_max_stem_count() {
+    let mut g = build_grammar("", "", RULE1_HEAD_NONHEAD_MAX_APP_2, "mrC", "");
+    assert_eq!(
+        g.max_stem_count, 2,
+        "HC XML carries C#'s constructor default"
+    );
+    g.max_stem_count = 3;
+    let out = Morpher::new(&g, usize::MAX).parse_word("pʰutdatpip");
+    assert_morphs_eq(&out, &["5 8 41", "5 9 41"]);
+    let overridden = Morpher::new(&g, usize::MAX).with_max_stem_count(2);
+    assert_empty(&overridden.parse_word("pʰutdatpip"));
+}
+
 const TWO_RULES_HEAD_NONHEAD_AND_NONHEAD_HEAD: &str = r#"
   <CompoundingRule id="mrC">
     <Name>rule1</Name>

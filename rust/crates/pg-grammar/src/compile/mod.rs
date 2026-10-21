@@ -83,6 +83,12 @@ pub use lineage::{
 };
 pub use options::{CompileOptions, SemanticLossPolicy};
 
+/// C# `Morpher`'s constructor default for `MaxStemCount`, which `HCParser.LoadParser` keeps when `<HC><MaxRoots>` is absent.
+const DEFAULT_MAX_STEM_COUNT: u32 = 2;
+
+/// `HCParser.LoadParser` settings copied onto `Grammar` for `pg_parse::Morpher`, each always authored because each has a FieldWorks default.
+pub(crate) const MORPHER_SETTINGS: &[&str] = &["maxStemCount"];
+
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
 /// allomorphs/entries — see the module doc). A handful of hard limits inherited from
@@ -482,6 +488,12 @@ pub(crate) fn compile_project_recording(
         ctx.considered(deletion_reapplications_key.clone());
         ctx.selected(deletion_reapplications_key.clone());
         ctx.represented(deletion_reapplications_key);
+        for setting in MORPHER_SETTINGS {
+            let key = InventoryKey::setting(pg_snapshot::InventoryKind::ParserSetting, *setting);
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
+            ctx.represented(key);
+        }
     }
     let morphology_stratum = StratumId(0);
     let clitic_stratum = StratumId(1);
@@ -602,6 +614,11 @@ pub(crate) fn compile_project_recording(
             .morphology
             .parser_parameters
             .deletion_reapplications,
+        max_stem_count: snapshot
+            .morphology
+            .parser_parameters
+            .max_roots
+            .unwrap_or(DEFAULT_MAX_STEM_COUNT),
     };
 
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.

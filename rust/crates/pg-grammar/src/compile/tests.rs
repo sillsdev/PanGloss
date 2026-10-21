@@ -2174,6 +2174,20 @@ fn deletion_reapplications_parser_parameter_reaches_the_grammar() {
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert_eq!(grammar.deletion_reapplications, 2);
 }
+
+#[test]
+fn max_roots_parser_parameter_reaches_the_grammar_and_defaults_to_two() {
+    let (default_snapshot, _f) = fixture();
+    let (default_grammar, _) = compile_project(&default_snapshot).expect("must compile");
+    assert_eq!(default_grammar.max_stem_count, 2);
+
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.max_roots = Some(4);
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(grammar.max_stem_count, 4);
+}
+
 #[test]
 fn absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed() {
     let (snapshot, _f) = fixture();

@@ -277,6 +277,9 @@ pub(crate) fn seed_authored_from_snapshot(
         ParserSetting,
         "deletionReapplications",
     ));
+    for setting in super::MORPHER_SETTINGS {
+        recorder.authored(InventoryKey::setting(ParserSetting, *setting));
+    }
     if snapshot
         .morphology
         .parser_parameters
