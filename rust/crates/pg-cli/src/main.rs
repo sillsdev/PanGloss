@@ -1132,6 +1132,7 @@ fn per_word_diagnostics_requested() -> bool {
         "HC_FRONTIER_STATS",
         "HC_WORD_STATS",
         "HC_ALT_YIELD",
+        "HC_BRANCH_CENSUS",
     ]
     .iter()
     .any(|name| std::env::var_os(name).is_some())
@@ -1145,6 +1146,7 @@ fn reset_per_word_diagnostics() {
     pg_rules::stratum::frontier_profile::reset();
     pg_rules::word_stats::reset();
     pg_parse::alt_yield::reset();
+    pg_rules::branch_census::reset();
     #[cfg(feature = "alloc-trace")]
     alloc_trace::reset_peak();
 }
@@ -1660,6 +1662,11 @@ fn run_batch_with_counter(
                     s.distinct_identities,
                     dropped,
                 );
+            }
+            // Per-word dead-branch census, printed beside ALTYIELD.
+            if pg_rules::branch_census::enabled() {
+                let s = pg_rules::branch_census::snapshot();
+                eprintln!("BRANCHCENSUS\t{i}\t{word}\t{}", s.to_tsv());
             }
             // Ground-truth allocator peak/live bytes for this word (docs/research/word-memory-trace.md).
             #[cfg(feature = "alloc-trace")]

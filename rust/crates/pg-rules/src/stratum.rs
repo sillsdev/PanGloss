@@ -775,6 +775,42 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
     /// Unapply a single morphological rule and record the bookkeeping on every output; `morph::analyze` stays semantics-pure.
     fn apply_one_mrule(&self, id: MRuleId, w: &Word, role: RuleInvocationRole) -> Vec<Word> {
+        if !crate::branch_census::enabled() {
+            return self.apply_one_mrule_uncounted(id, w, role);
+        }
+        let parent = crate::branch_census::node(w);
+        let may_compound = (w.non_heads.len() as u32 + 1) < self.cfg.max_stem_count
+            && self.g.strata[..=self.stratum_id.0 as usize]
+                .iter()
+                .any(|st| {
+                    st.mrules.iter().any(|m| {
+                        matches!(self.g.mrules[m.0 as usize], MorphRuleDef::Compounding(_))
+                    })
+                });
+        if may_compound {
+            crate::branch_census::mark_may_compound(parent);
+        }
+        let (steps0, work0) = (self.budget.steps(), self.budget.work_steps());
+        let t0 = web_time::Instant::now();
+        let outs = self.apply_one_mrule_uncounted(id, w, role);
+        crate::branch_census::charge_analysis(
+            parent,
+            (self.budget.steps() - steps0) as u64,
+            (self.budget.work_steps() - work0) as u64,
+            t0.elapsed().as_nanos() as u64,
+        );
+        for o in &outs {
+            crate::branch_census::edge(parent, crate::branch_census::node(o));
+        }
+        outs
+    }
+
+    fn apply_one_mrule_uncounted(
+        &self,
+        id: MRuleId,
+        w: &Word,
+        role: RuleInvocationRole,
+    ) -> Vec<Word> {
         // Checked before the budget tick: a rejected-by-gate rule was never attempted.
         if !self.rule_admitted(RuleRef::MRule(id)) {
             return Vec::new();
@@ -1254,6 +1290,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     // map_entry: saving one hash here would restructure the dedup block this port mirrors statement for statement.
     #[allow(clippy::map_entry)]
     fn analyze(&self, mut input: Word) -> StratumAnalysis {
+        let census = crate::branch_census::enabled();
+        let received = census.then(|| crate::branch_census::node(&input));
         // A stratum starts with a clean interleaving state.
         input.flags.final_template_state = crate::word::FinalTemplateState::None;
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
@@ -1360,6 +1398,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let live_bytes = Cell::new(estimate_word_bytes(&input) as u64);
         // Per-canonical dedup state for `dedup_alternative`, below.
         let mut alt_keys: HashMap<usize, FxHashSet<AltKey>> = HashMap::default();
+        if let Some(received) = received {
+            crate::branch_census::edge(received, crate::branch_census::node(&input));
+        }
         words.push(input.clone());
 
         // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
@@ -1367,11 +1408,24 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             (self.cfg.max_unapplications > 0).then(|| Cell::new(self.cfg.max_unapplications));
         // The stratum's own dedup fold, now also the sink `apply_templates`/`apply_mrules` stream into directly -- the one durable accumulator this stratum call ever holds (`docs/research/live-frontier-memory-bound.md`).
         let mut fold = |mut w: Word| {
+            let pre_fold = census.then(|| crate::branch_census::node(&w));
             w.source = Some(source.clone());
             w.flags.final_template_state = crate::word::FinalTemplateState::None;
             let dedup_key = w.dedup_key();
+            if let Some(pre_fold) = pre_fold {
+                crate::branch_census::edge(pre_fold, crate::branch_census::node(&w));
+            }
             let state_key = self.cfg.merge_equivalent.then(|| self.state_key(&w));
             if let Some(state_key) = &state_key {
+                let canonical = key_word
+                    .get(state_key)
+                    .or_else(|| output_keys.get(&dedup_key));
+                if let (true, Some(&idx)) = (census, canonical) {
+                    crate::branch_census::alias(
+                        crate::branch_census::node(&words[idx]),
+                        crate::branch_census::node(&w),
+                    );
+                }
                 if let Some(&idx) = key_word.get(state_key) {
                     if let Some(w) =
                         dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {

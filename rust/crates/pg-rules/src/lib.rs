@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod analysis_state_key;
+pub mod branch_census;
 pub mod bridge;
 pub mod cache;
 pub mod cascade;

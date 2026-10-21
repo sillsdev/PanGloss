@@ -750,11 +750,15 @@ impl<'g> Morpher<'g> {
                 if let Some(stats) = stats {
                     stats.record_root_index_attempt(st, shape.len() as u64);
                 }
+                pg_rules::branch_census::record_non_head_lookup(st, shape);
                 self.search_roots(st, shape, stats)
             };
         let mut input_set: HashMap<WordKey, Word> = HashMap::default();
         input_set.insert(input.dedup_key(), input);
         let mut results: HashMap<WordKey, Word> = HashMap::default();
+        let census = pg_rules::branch_census::enabled();
+        let census_t0 =
+            census.then(|| (pg_rules::branch_census::Timer::start(), budget.work_steps()));
         for s in (0..n).rev() {
             // A rejected stratum must not reassign `input_set`: the next stratum still gets the same candidates, and the rejected one contributes nothing to `results`.
             let stratum_ref = pg_rules::stratum::RuleRef::Stratum(StratumId(s as u8));
@@ -798,6 +802,12 @@ impl<'g> Morpher<'g> {
                 break;
             }
         }
+        if let Some((t0, work0)) = census_t0 {
+            pg_rules::branch_census::record_analysis_phase(
+                (budget.work_steps() - work0) as u64,
+                t0.ns(),
+            );
+        }
 
         // Per analysis candidate: lexical lookup → synthesis pipeline → filter (C# `Morpher.Synthesize`).
         let mut candidates_generated: usize = 0;
@@ -809,11 +819,34 @@ impl<'g> Morpher<'g> {
                 }
                 // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
                 alt_yield::record_canonical(aw.alternatives.len());
+                let census_node = census.then(|| {
+                    (
+                        pg_rules::branch_census::node(aw),
+                        pg_rules::branch_census::Timer::start(),
+                        budget.work_steps(),
+                    )
+                });
                 let looked_up =
                     self.lexical_lookup_filtered(aw, lex_entry_filter, trace, root, stats);
                 if looked_up.is_empty() {
                     self.record_no_root(stats, aw);
                 }
+                let census_syn = census_node.map(|(node, t0, work0)| {
+                    pg_rules::branch_census::charge_lookup(
+                        node,
+                        aw.stratum,
+                        &aw.shape,
+                        !looked_up.is_empty(),
+                        (budget.work_steps() - work0) as u64,
+                        t0.ns(),
+                    );
+                    (
+                        node,
+                        pg_rules::branch_census::Timer::start(),
+                        budget.work_steps(),
+                    )
+                });
+                let mut aw_matched = false;
                 for syn_word in looked_up {
                     if !pg_fst::work::consume() {
                         break;
@@ -860,9 +893,18 @@ impl<'g> Morpher<'g> {
                                     alt_yield::record_identity(id);
                                 }
                             }
+                            aw_matched = true;
                             insert_candidate(&mut matches, vw, stats.is_some());
                         }
                     }
+                }
+                if let Some((node, t0, work0)) = census_syn {
+                    pg_rules::branch_census::charge_synthesis(
+                        node,
+                        (budget.work_steps() - work0) as u64,
+                        t0.ns(),
+                        aw_matched,
+                    );
                 }
             }
         }
