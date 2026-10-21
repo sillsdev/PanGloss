@@ -5,6 +5,13 @@ file has no section for.
 
 ## Unreleased
 
+### Faster parsing on large featureless letter inventories
+
+- On a project with no phonological features and more than 64 letters, an affix's literal
+  segments now match only themselves during analysis, as in HermitCrab. Parses are unchanged; a
+  featureless Cebuano project took about 50x fewer steps across three word lists. See divergence
+  entry 090.
+
 ## 0.8.11
 
 ### `pangloss serve`: a resident parser for try-a-word

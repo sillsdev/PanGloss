@@ -2333,6 +2333,11 @@ fn build_analysis_lhs(
         .deterministic(false)
         .id_lane(true);
     let id_width = crate::bridge::id_lane_width(g, table);
+    // Featureless only: C# gives a segment a `StrRep` only when it has no features, and a featured node lacking one unifies with any literal.
+    let wide_strrep = id_width
+        .is_none()
+        .then(|| StrRepMatcher::new(g, &g.char_tables[table.0 as usize]))
+        .flatten();
     let lookup: HashMap<&str, &Pattern> = lhs_parts.iter().map(|(n, p)| (n.as_str(), *p)).collect();
     let mut lhs = AnalysisLhs {
         nodes: Vec::new(),
@@ -2369,13 +2374,22 @@ fn build_analysis_lhs(
                 lhs.modify.insert(name.clone(), (count, ctx.clone()));
                 lhs.captured.insert(name, count + 1);
             }
-            OutputAction::InsertSegments { shape, .. } => {
+            OutputAction::InsertSegments {
+                table: shape_table,
+                shape,
+            } => {
+                // Identity bits index the inserted shape's own table, so they constrain only when it is the matched one.
+                let wide_strrep = wide_strrep.filter(|_| *shape_table == table);
                 for (_, kind, char_def, _) in shape.shape.interior() {
                     if kind == NodeKind::Segment {
                         let mut lanes = to_fst(g, &cd_lanes(g, table, char_def));
                         // The analysis-side consumer must find and consume this exact inserted segment, matching the full char-def FS rather than any unifiable one, as C# does.
-                        if let (Some(w), true) = (id_width, char_def != NO_CHAR_DEF) {
-                            crate::bridge::push_id_lane(&mut lanes, w, 1u64 << char_def);
+                        if char_def != NO_CHAR_DEF {
+                            if let Some(w) = id_width {
+                                crate::bridge::push_id_lane(&mut lanes, w, 1u64 << char_def);
+                            } else if let Some(strrep) = wide_strrep {
+                                strrep.constrain(&mut lanes, char_def);
+                            }
                         }
                         lhs.nodes.push(CompileNode::Constraint(lanes));
                     }

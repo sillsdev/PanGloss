@@ -197,6 +197,59 @@ fn check(slotted: bool, extra_letters: u32) {
     );
 }
 
+/// The `-un` suffix rule: the only affix rule carrying the `hun`/`un` allomorph pair.
+fn suffix_rule(grammar: &pg_grammar::model::Grammar) -> u32 {
+    let ids: Vec<u32> = (0..grammar.mrules.len() as u32)
+        .filter(|&i| {
+            matches!(&grammar.mrules[i as usize],
+                pg_grammar::model::MorphRuleDef::AffixProcess(r) if r.allomorphs.len() == 2)
+        })
+        .collect();
+    assert_eq!(ids.len(), 1, "exactly one two-allomorph suffix rule");
+    ids[0]
+}
+
+/// Words the suffix rule produces while unapplying from `word`, which parse results alone do not reveal.
+fn analysis_outputs(morpher: &Morpher, rule: u32, word: &str) -> u64 {
+    let (_, rows) = morpher.parse_word_with_stats(word, &pg_parse::ParseOptions::default());
+    rows.iter()
+        .filter(|r| {
+            r.kind == pg_rules::stats::ObjectKind::MorphRule
+                && r.direction == pg_rules::stats::Direction::Analysis
+                && r.object_index == rule
+        })
+        .map(|r| r.counters.outputs)
+        .sum()
+}
+
+fn check_analysis_literal(extra_letters: u32) {
+    let snapshot = snapshot(false, extra_letters);
+    let (grammar, _) = pg_grammar::compile_project(&snapshot).expect("fixture compiles");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let rule = suffix_rule(&grammar);
+    assert!(parses(&morpher, "kamun"), "kam + un");
+    assert!(
+        analysis_outputs(&morpher, rule, "kamun") > 0,
+        "un unapplies from a word ending in un (extra_letters={extra_letters})"
+    );
+    assert!(!parses(&morpher, "kamat"), "no suffix ends in at");
+    assert_eq!(
+        analysis_outputs(&morpher, rule, "kamat"),
+        0,
+        "neither un nor hun unapplies from a word ending in at (extra_letters={extra_letters})"
+    );
+}
+
+#[test]
+fn analysis_suffix_literal_matches_only_itself() {
+    check_analysis_literal(0);
+}
+
+#[test]
+fn analysis_suffix_literal_matches_only_itself_on_a_large_letter_inventory() {
+    check_analysis_literal(80);
+}
+
 #[test]
 fn unslotted_inflectional_suffix_enforces_left_environment() {
     check(false, 0);
