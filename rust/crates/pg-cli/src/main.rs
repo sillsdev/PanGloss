@@ -1147,6 +1147,8 @@ fn reset_per_word_diagnostics() {
     pg_rules::word_stats::reset();
     pg_parse::alt_yield::reset();
     pg_rules::branch_census::reset();
+    pg_parse::root_trie::take_identity_refusals();
+    pg_rules::rewrite::take_class_identity_nodes();
     #[cfg(feature = "alloc-trace")]
     alloc_trace::reset_peak();
 }
@@ -1545,6 +1547,14 @@ fn run_batch_with_counter(
             if std::env::var("HC_STEP_STATS").is_ok() {
                 eprintln!("STEPS\t{i}\t{word}\t{}", outcome.steps);
                 eprintln!("WORK_STEPS\t{i}\t{word}\t{}", outcome.work_steps);
+                eprintln!(
+                    "IDENTITY_REFUSALS\t{i}\t{word}\t{}",
+                    pg_parse::root_trie::take_identity_refusals()
+                );
+                eprintln!(
+                    "CLASS_IDENTITY_NODES\t{i}\t{word}\t{}",
+                    pg_rules::rewrite::take_class_identity_nodes()
+                );
             }
             // Permanent profiling diagnostic dumping pg_fst::traverse and pg_rules::morph timing/size stats accumulated over this word's whole parse.
             // See docs/o2-profile-findings.md for what this found.

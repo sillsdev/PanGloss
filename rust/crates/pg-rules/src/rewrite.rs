@@ -2562,7 +2562,7 @@ fn ana_narrow_deletion(
         .lhs
         .nodes
         .iter()
-        .map(|n| new_seg_node(g, table, n, true)) // re-inserted deleted segment is OPTIONAL
+        .map(|n| with_class_identity(g, table, n, new_seg_node(g, table, n, true))) // re-inserted deleted segment is OPTIONAL
         .collect();
 
     // Sites: gaps after each segment node where the (deleted) LHS could sit and both environments hold; insertion goes after the site node.
@@ -2587,6 +2587,7 @@ fn ana_narrow_deletion(
         return false;
     }
     // Apply descending so earlier insertions don't shift later site indices.
+    count_class_identity(&lhs_nodes, sites.len());
     for &site_node in sites.iter().rev() {
         ms.nodes
             .splice(site_node + 1..site_node + 1, lhs_nodes.iter().cloned());
@@ -3048,6 +3049,48 @@ fn lhs_fst(
 fn new_seg_node(g: &Grammar, table: &CharDefTable, node: &PatternNode, optional: bool) -> MutNode {
     // C# `AddAfter` never sets `Optional`; callers set it explicitly themselves (e.g. `ana_narrow`'s re-inserted deleted segment). Use `new_seg_node_dirty` when `dirty` needs to differ from `optional` (see `syn_narrow`).
     new_seg_node_dirty(g, table, node, optional, optional)
+}
+
+thread_local! {
+    static CLASS_IDENTITY_NODES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Nodes a class deletion re-inserted with the class's char-def set as their identity, on this thread since the last call; resets the count.
+pub fn take_class_identity_nodes() -> u64 {
+    CLASS_IDENTITY_NODES.with(|c| c.replace(0))
+}
+
+fn count_class_identity(nodes: &[MutNode], times: usize) {
+    let n = nodes
+        .iter()
+        .filter(|n| matches!(n.cd_set, CdSet::Members(_)) && n.char_def == pg_shape::NO_CHAR_DEF)
+        .count();
+    if n > 0 {
+        CLASS_IDENTITY_NODES.with(|c| c.set(c.get() + (n * times) as u64));
+    }
+}
+
+/// On a featureless grammar a re-inserted segment-class node keeps the class's members, as C#'s node keeps the union of their StrReps (`SegmentNaturalClass.cs`).
+fn with_class_identity(
+    g: &Grammar,
+    table: &CharDefTable,
+    pattern: &PatternNode,
+    mut node: MutNode,
+) -> MutNode {
+    let PatternNode::Context(sc) = pattern else {
+        return node;
+    };
+    if !g.phon_features.is_empty() || node.char_def != pg_shape::NO_CHAR_DEF {
+        return node;
+    }
+    let nc = &g.natural_classes[sc.nat_class.0 as usize];
+    if let NaturalClassKind::Segments(_) = &nc.kind {
+        if let members @ CdSet::Members(_) = pg_grammar_model::segment::nat_class_cd_set(table, nc)
+        {
+            node.cd_set = members;
+        }
+    }
+    node
 }
 
 /// Like `new_seg_node` but lets `dirty` differ from `optional` (C#'s `AddAfter` + separate `SetDirty`). `kind` must resolve from the char-def table for `PatternNode::CharDef` (a `BoundaryMarker` is a real top-level LHS/RHS element, e.g. Amharic `prule7`) rather than defaulting to `Segment`: a boundary char-def has no phonological features, so mis-kinding it as `Segment` makes it a wildcard that unifies with any affix material, corrupting analysis-side matching.

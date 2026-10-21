@@ -6,6 +6,57 @@ use pg_conformance_fixtures::{
 };
 use pg_parse::Morpher;
 
+/// Lexical entries looked up while analysing `word`, by authored id.
+fn looked_up_entries(grammar: &pg_grammar_model::model::Grammar, word: &str) -> Vec<String> {
+    let morpher = Morpher::new(grammar, usize::MAX);
+    let (outcome, rows) = morpher.parse_word_with_stats(word, &pg_parse::ParseOptions::default());
+    assert!(!outcome.capped, "{word} must finish uncapped");
+    let mut ids: Vec<String> = rows
+        .iter()
+        .filter(|r| {
+            r.kind == pg_rules::stats::ObjectKind::LexEntry
+                && r.direction == pg_rules::stats::Direction::Analysis
+                && r.counters.attempts > 0
+        })
+        .map(|r| grammar.entries[r.object_index as usize].authored_id.clone())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+#[test]
+fn a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar() {
+    let fixture = require_fixture("edge-cases", "class-deletion-reinsertion-strrep");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    pg_parse::root_trie::take_identity_refusals();
+    pg_rules::rewrite::take_class_identity_nodes();
+    assert!(
+        grammar.phon_features.is_empty(),
+        "the fixture is featureless"
+    );
+    // The stem after am- is (p|b)?ili: kili has k where the deleted labial would sit.
+    let found = looked_up_entries(&grammar, "amili");
+    let inserted = pg_rules::rewrite::take_class_identity_nodes();
+    let refused = pg_parse::root_trie::take_identity_refusals();
+    assert!(inserted > 0, "no re-inserted node carried the class");
+    assert!(
+        refused > 0,
+        "root lookup refused no edge (inserted={inserted})"
+    );
+    assert_eq!(
+        found,
+        ["eBili", "eIli", "ePili"],
+        "a re-inserted [p b] node must not find kili (inserted={inserted}, refused={refused})"
+    );
+    // Root-internal site: u m (p|b)? a, where umka has k.
+    assert_eq!(
+        looked_up_entries(&grammar, "uma"),
+        ["eUma", "eUmpa"],
+        "a re-inserted [p b] node must not find umka"
+    );
+}
+
 #[test]
 fn strrep_rewrite_tracks_membership_when_a_provisional_literal_changes_identity() {
     use pg_grammar_model::model::PhonRuleDef;

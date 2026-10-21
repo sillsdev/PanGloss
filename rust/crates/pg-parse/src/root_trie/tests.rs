@@ -13,6 +13,7 @@ fn tiny_trie() -> RootAllomorphTrie {
         nodes: vec![TrieNode::default()],
         table: TableId(0),
         feat_width: 1,
+        featureless: false,
         allomorph_count: 0,
     };
     t.add_path(
@@ -177,6 +178,7 @@ fn zero_phon_feature_discrimination_is_by_char_def() {
         nodes: vec![TrieNode::default()],
         table: TableId(0),
         feat_width: 0,
+        featureless: false,
         allomorph_count: 0,
     };
     t.add_path(
@@ -210,6 +212,7 @@ fn pattern_trie() -> RootAllomorphTrie {
         nodes: vec![TrieNode::default()],
         table: TableId(0),
         feat_width: 0,
+        featureless: false,
         allomorph_count: 0,
     };
     t.add_path(
@@ -268,6 +271,7 @@ fn distinct_class_edges_do_not_merge() {
         nodes: vec![TrieNode::default()],
         table: TableId(0),
         feat_width: 0,
+        featureless: false,
         allomorph_count: 0,
     };
     t.add_path(
@@ -322,4 +326,29 @@ fn optional_root_lookup_cannot_scan_past_the_shared_search_cap() {
     assert!(trie.search_segs_opt(&query, None).is_empty());
     assert!(budget.capped());
     assert_eq!(budget.used(), 16);
+}
+
+#[test]
+fn a_char_def_less_query_node_with_an_identity_takes_only_member_edges() {
+    let mut t = RootAllomorphTrie {
+        nodes: vec![TrieNode::default()],
+        table: TableId(0),
+        feat_width: 1,
+        featureless: true,
+        allomorph_count: 0,
+    };
+    t.add_path(&concrete(&[(1, vec![])]), AllomorphId(1), LexEntryId(0));
+    t.add_path(&concrete(&[(2, vec![])]), AllomorphId(2), LexEntryId(1));
+    let query = [(NO_CHAR_DEF, vec![], false)];
+    take_identity_refusals();
+    assert_eq!(
+        t.search_segs_ident(&query, None, Some(&[Some(CdBits::from_ids([1]))])),
+        vec![(AllomorphId(1), LexEntryId(0))]
+    );
+    assert_eq!(take_identity_refusals(), 1);
+    assert_eq!(
+        t.search_segs_ident(&query, None, Some(&[None])).len(),
+        2,
+        "without an identity the node is a wildcard"
+    );
 }

@@ -5,6 +5,15 @@ file has no section for.
 
 ## Unreleased
 
+### Faster parsing with deletion rules over a natural class, in projects without phonological features
+
+- When a phonological rule deletes any member of a natural class (for example "p or b is lost
+  after m") in a project that defines no phonological features, the parser now restores only the
+  class's members where the segment was lost, as FieldWorks' own parser does. Before, it tried
+  every letter there, looked up roots that could never match and then rejected each one. Parses are
+  unchanged. On a private project with two such rules, its 7,206-word list needs 94.7% less parser
+  work, and the 16 words that used to hit a one-second limit need 99.9% less. Divergence entry 103.
+
 ### Parser work per word, for comparisons that do not depend on the computer
 
 - New `pangloss batch --work-columns` appends two columns to every result row: `steps`

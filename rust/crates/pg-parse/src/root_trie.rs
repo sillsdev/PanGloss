@@ -98,6 +98,8 @@ pub struct RootAllomorphTrie {
     table: TableId,
     /// Phonological feature width (`grammar.phon_features.len()`).
     feat_width: usize,
+    /// No authored phonological features, so a node's char-def set is its whole identity.
+    featureless: bool,
     /// Number of root allomorphs indexed (C# `_shapeCount`).
     allomorph_count: usize,
 }
@@ -122,6 +124,7 @@ impl RootAllomorphTrie {
             nodes: vec![TrieNode::default()], // root = index 0
             table,
             feat_width,
+            featureless: grammar.phon_features.is_empty(),
             allomorph_count: 0,
         };
 
@@ -184,7 +187,9 @@ impl RootAllomorphTrie {
     pub fn search(&self, grammar: &Grammar, shape: &Shape) -> Vec<(AllomorphId, LexEntryId)> {
         let table_ref = &grammar.char_tables[self.table.0 as usize];
         let segs = shape_search_segments(shape, table_ref, self.feat_width);
-        self.search_segs_opt(&segs, table_ref.unif_closure_rows())
+        // Only a featureless segment has a StrRep in C# (`CharacterDefinitionTable.cs`), so only there does a node's char-def set constrain unification.
+        let idents = self.featureless.then(|| shape_query_identities(shape));
+        self.search_segs_ident(&segs, table_ref.unif_closure_rows(), idents.as_deref())
     }
 
     /// Test-only entry point: all segments mandatory, delegates to `Self::search_segs_opt` with `closure = None`.
@@ -222,15 +227,39 @@ impl RootAllomorphTrie {
         cd_ok && flat_unifiable(lanes, &e.lanes)
     }
 
+    /// Can a query node limited to the char-defs `q` take edge `e`? C# unifies the node's StrRep set with the edge's.
+    fn edge_in_identity(e: &TrieEdge, q: &CdBits, closure: Option<&[CdBits]>) -> bool {
+        if e.char_def != NO_CHAR_DEF {
+            return q.contains(e.char_def)
+                || closure.is_some_and(|c| c[e.char_def as usize].intersect(q).count() > 0);
+        }
+        match &e.cd_set {
+            CdSet::Unrestricted => true,
+            CdSet::Members(b) => b.intersect(q).count() > 0,
+        }
+    }
+
     /// Follows every edge that matches an input segment (preserving C#'s nondeterministic traversal) and skips optional segments.
     /// See docs/research/pg-parse-root-trie-design-notes.md for why a `NO_CHAR_DEF` query is a wildcard and optional segments skippable.
+    #[cfg(test)]
     fn search_segs_opt(
         &self,
         segs: &[(u32, Vec<u64>, bool)],
         closure: Option<&[CdBits]>,
     ) -> Vec<(AllomorphId, LexEntryId)> {
+        self.search_segs_ident(segs, closure, None)
+    }
+
+    /// `search_segs_opt` with, per query segment, an optional char-def set that a `NO_CHAR_DEF` query node is limited to.
+    fn search_segs_ident(
+        &self,
+        segs: &[(u32, Vec<u64>, bool)],
+        closure: Option<&[CdBits]>,
+        idents: Option<&[Option<CdBits>]>,
+    ) -> Vec<(AllomorphId, LexEntryId)> {
         let mut active: Vec<usize> = vec![0];
-        for (cd, lanes, optional) in segs {
+        for (qi, (cd, lanes, optional)) in segs.iter().enumerate() {
+            let ident = idents.and_then(|ids| ids[qi].as_ref());
             if !pg_fst::work::consume() {
                 return Vec::new();
             }
@@ -241,7 +270,14 @@ impl RootAllomorphTrie {
                     if !pg_fst::work::consume() {
                         return Vec::new();
                     }
-                    if Self::edge_matches(e, *cd, lanes, closure) && !next.contains(&e.target) {
+                    if !Self::edge_matches(e, *cd, lanes, closure) {
+                        continue;
+                    }
+                    if ident.is_some_and(|q| !Self::edge_in_identity(e, q, closure)) {
+                        IDENTITY_REFUSALS.with(|c| c.set(c.get() + 1));
+                        continue;
+                    }
+                    if !next.contains(&e.target) {
                         next.push(e.target);
                     }
                 }
@@ -320,6 +356,26 @@ fn shape_search_segments(
         }
     }
     out
+}
+
+thread_local! {
+    static IDENTITY_REFUSALS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Trie edges a query node's char-def set refused that its features alone would have taken, on this thread since the last call; resets the count.
+pub fn take_identity_refusals() -> u64 {
+    IDENTITY_REFUSALS.with(|c| c.replace(0))
+}
+
+/// Per query segment, the char-defs a char-def-less node is limited to, aligned with `shape_search_segments`.
+fn shape_query_identities(shape: &Shape) -> Vec<Option<CdBits>> {
+    (0..shape.len())
+        .filter(|&i| shape.kind(i) == NodeKind::Segment)
+        .map(|i| match shape.node_cd_set(i) {
+            EffectiveCdSet::Members(b) if shape.char_def(i) == NO_CHAR_DEF => Some(b.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A char-def's phonological feature lanes (empty for anchors / zero-phon-feature grammars).
