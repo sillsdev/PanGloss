@@ -1143,6 +1143,8 @@ pub struct Grammar {
     pub max_stem_count: u32,
     /// C# `Morpher.AlwaysEnforceFinalTemplates`, the default for `pg_parse::Morpher`'s own policy. FieldWorks reads it from `<HC><MakePartialsFinal>`; `<HermitCrabInput>` XML cannot carry it, so it is `false` there.
     pub always_enforce_final_templates: bool,
+    /// C# `Morpher.MergeEquivalentAnalyses`, the default for `pg_parse::Morpher`'s own policy. FieldWorks reads it from `<HC><MergeAnalyses>`; `<HermitCrabInput>` XML cannot carry it, so it is `true` there.
+    pub merge_equivalent_analyses: bool,
 }
 
 impl Grammar {

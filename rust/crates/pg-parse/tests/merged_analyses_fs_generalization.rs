@@ -206,3 +206,96 @@ fn parse_word_category_change_chain_full_chain_still_found() {
     let m = Morpher::new(&g, usize::MAX);
     assert_morphs_eq(&m.parse_word("zimuia"), &["flipRoot n2v v2n third"]);
 }
+
+/// One unordered stratum where prefix `pre` and suffix `suf` un-apply from "pasagd" in either order, reaching the same shape and rule counts: the merge folds the second path into the first's alternatives.
+fn build_commuting_affixes_grammar() -> Grammar {
+    let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>CommutingAffixes</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAny"><Name>Any</Name>
+        <Segment segment="cP" /><Segment segment="cA" /><Segment segment="cS" /><Segment segment="cG" /><Segment segment="cD" />
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="pre suf">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="pre" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>pre</Name>
+            <MorphologicalSubrules><MorphologicalSubrule id="subPre">
+              <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><InsertSegments><PhoneticShape>pa</PhoneticShape></InsertSegments><CopyFromInput index="1" /></MorphologicalOutput>
+            </MorphologicalSubrule></MorphologicalSubrules>
+            <MorphemeId>pre</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="suf" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>suf</Name>
+            <MorphologicalSubrules><MorphologicalSubrule id="subSuf">
+              <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>d</PhoneticShape></InsertSegments></MorphologicalOutput>
+            </MorphologicalSubrule></MorphologicalSubrules>
+            <MorphemeId>suf</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eSag" partOfSpeech="posV"><MorphemeId>sag</MorphemeId>
+            <Allomorphs><Allomorph id="aSag"><PhoneticShape>sag</PhoneticShape></Allomorph></Allomorphs>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#;
+    pg_grammar::load(xml)
+        .unwrap_or_else(|e| panic!("commuting-affixes grammar failed to load: {e}\n---\n{xml}"))
+}
+
+/// `Grammar::merge_equivalent_analyses` (FieldWorks `<HC><MergeAnalyses>`) reaches the parse with no builder call: switching merging off keeps the identical analysis multiset but carries the folded path forward on its own, which costs measurably more search work.
+#[test]
+fn merge_analyses_off_from_the_grammar_keeps_the_analyses_and_stops_folding() {
+    let merged_grammar = build_commuting_affixes_grammar();
+    assert!(
+        merged_grammar.merge_equivalent_analyses,
+        "HC XML carries C#'s default"
+    );
+    let merged = Morpher::new(&merged_grammar, usize::MAX).parse_word("pasagd");
+
+    let mut unmerged_grammar = build_commuting_affixes_grammar();
+    unmerged_grammar.merge_equivalent_analyses = false;
+    let unmerged = Morpher::new(&unmerged_grammar, usize::MAX).parse_word("pasagd");
+
+    assert!(!merged.analyses.is_empty(), "the word must parse");
+    assert_eq!(
+        pg_parse::result_multiset(&merged.analyses),
+        pg_parse::result_multiset(&unmerged.analyses),
+        "merging must never change the analyses"
+    );
+    assert!(
+        unmerged.work_steps > merged.work_steps,
+        "an unmerged parse looks up the folded path separately ({} work units merged, {} unmerged)",
+        merged.work_steps,
+        unmerged.work_steps
+    );
+
+    let overridden = Morpher::new(&unmerged_grammar, usize::MAX)
+        .with_merge_equivalent_analyses(true)
+        .parse_word("pasagd");
+    assert_eq!(
+        overridden.work_steps, merged.work_steps,
+        "the builder overrides the grammar"
+    );
+}

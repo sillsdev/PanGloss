@@ -26,6 +26,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         deletion_reapplications: deletion_reapplications_a,
         max_stem_count: max_stem_count_a,
         always_enforce_final_templates: always_enforce_final_templates_a,
+        merge_equivalent_analyses: merge_equivalent_analyses_a,
     } = a;
     let crate::model::Grammar {
         name: name_b,
@@ -50,6 +51,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         deletion_reapplications: deletion_reapplications_b,
         max_stem_count: max_stem_count_b,
         always_enforce_final_templates: always_enforce_final_templates_b,
+        merge_equivalent_analyses: merge_equivalent_analyses_b,
     } = b;
 
     assert_eq!(name_a, name_b, "name");
@@ -57,6 +59,10 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
     assert_eq!(
         always_enforce_final_templates_a, always_enforce_final_templates_b,
         "always_enforce_final_templates"
+    );
+    assert_eq!(
+        merge_equivalent_analyses_a, merge_equivalent_analyses_b,
+        "merge_equivalent_analyses"
     );
     assert_eq!(
         deletion_reapplications_a, deletion_reapplications_b,

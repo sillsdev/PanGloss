@@ -302,6 +302,34 @@ fn make_partials_final_is_read_from_the_hc_element_and_defaults_to_false() {
 }
 
 #[test]
+fn merge_analyses_is_read_from_the_hc_element_and_defaults_to_true() {
+    let read = |xml: &str| parse_with_issues(Some(xml)).unwrap();
+    let (params, issues, presence) =
+        read("<ParserParameters><HC><MergeAnalyses>false</MergeAnalyses></HC></ParserParameters>");
+    assert!(!params.merge_analyses);
+    assert!(issues.is_empty());
+    assert_eq!(presence.hc_fields, vec![("MergeAnalyses", true)]);
+    let (absent, _, _) = read("<ParserParameters><HC/></ParserParameters>");
+    assert!(absent.merge_analyses, "FieldWorks merges by default");
+    let (no_hc, _, _) = read("<ParserParameters/>");
+    assert!(no_hc.merge_analyses);
+}
+
+#[test]
+fn malformed_merge_analyses_is_fatal_and_names_the_field_and_value() {
+    let err = parse_with_issues(Some(
+        "<ParserParameters><HC><MergeAnalyses>off</MergeAnalyses></HC></ParserParameters>",
+    ))
+    .unwrap_err();
+    let ImportError::InvalidSource { code, message } = err else {
+        panic!("expected InvalidSource, got {err:?}");
+    };
+    assert_eq!(code, codes::INVALID_PARSER_PARAMETER);
+    assert!(message.contains("HC.MergeAnalyses"), "{message}");
+    assert!(message.contains("\"off\""), "{message}");
+}
+
+#[test]
 fn malformed_make_partials_final_is_fatal_and_names_the_field_and_value() {
     let err = parse_with_issues(Some(
         "<ParserParameters><HC><MakePartialsFinal>yes</MakePartialsFinal></HC></ParserParameters>",

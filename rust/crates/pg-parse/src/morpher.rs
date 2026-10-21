@@ -50,6 +50,8 @@ pub struct Morpher<'g> {
     max_stem_count: u32,
     /// C# `Morpher.PruneDisagreeingCopies`; on by default, as in C#.
     prune_disagreeing_copies: bool,
+    /// C# `Morpher.MergeEquivalentAnalyses`, starting from `Grammar::merge_equivalent_analyses`; tracing turns merging off regardless, as C# does.
+    merge_equivalent_analyses: bool,
 }
 
 /// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
@@ -439,6 +441,7 @@ impl<'g> Morpher<'g> {
             cache: RuleCache::build(g),
             max_stem_count: g.max_stem_count,
             prune_disagreeing_copies: true,
+            merge_equivalent_analyses: g.merge_equivalent_analyses,
         }
     }
 
@@ -527,6 +530,15 @@ impl<'g> Morpher<'g> {
     /// `Self::max_stem_count`.
     pub fn with_max_stem_count(mut self, max_stem_count: u32) -> Self {
         self.max_stem_count = max_stem_count;
+        self
+    }
+
+    /// Override C# `Morpher.MergeEquivalentAnalyses`: fold analyses equivalent for every
+    /// analysis-side rule into one canonical whose alternatives are expanded at lexical lookup.
+    /// Without this call the policy is the grammar's own `Grammar::merge_equivalent_analyses`:
+    /// FieldWorks `<HC><MergeAnalyses>`, or `true`. A traced parse never merges either way.
+    pub fn with_merge_equivalent_analyses(mut self, merge: bool) -> Self {
+        self.merge_equivalent_analyses = merge;
         self
     }
 
@@ -703,9 +715,9 @@ impl<'g> Morpher<'g> {
             TraceHandle::DUMMY
         };
 
-        // Analysis runs strata surface→deepest into `results`; tracing disables merging, since a merged trace would understate the search.
+        // PORT-CORRESPONDENCE: `AnalysisStratumRule.Apply` merges only when `MergeEquivalentAnalyses && !IsTracing`.
         let cfg = AnalyzerConfig {
-            merge_equivalent: !trace.is_tracing(),
+            merge_equivalent: self.merge_equivalent_analyses && !trace.is_tracing(),
             max_unapplications: 0,
             max_stem_count: self.max_stem_count,
             prune_disagreeing_copies: self.prune_disagreeing_copies,

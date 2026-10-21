@@ -570,6 +570,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         deletion_reapplications: 0,
         max_stem_count: 2,
         always_enforce_final_templates: false,
+        merge_equivalent_analyses: true,
     };
     grammar.final_template_prune_facts()?;
     Ok(grammar)

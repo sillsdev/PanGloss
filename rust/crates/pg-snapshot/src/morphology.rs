@@ -429,6 +429,9 @@ pub struct ParserParameters {
     /// ← `<HC><MakePartialsFinal>`, default `false`: C# `Morpher.AlwaysEnforceFinalTemplates`, set by `HCParser.LoadParser`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub make_partials_final: bool,
+    /// ← `<HC><MergeAnalyses>`, default **`true`**: C# `Morpher.MergeEquivalentAnalyses`, set by `HCParser.LoadParser`.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub merge_analyses: bool,
     /// The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`)
     /// — `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is
     /// compiler policy over this string, not separate data, so T3 re-parses it the same way.
@@ -455,6 +458,14 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+fn default_true() -> bool {
+    true
+}
+
 impl Default for ParserParameters {
     /// Mirrors `HCLoader`'s constructor defaults when no `<ParserParameters><HC>` block is present at all.
     fn default() -> Self {
@@ -465,6 +476,7 @@ impl Default for ParserParameters {
             deletion_reapplications: 0,
             max_roots: None,
             make_partials_final: false,
+            merge_analyses: true,
             strata: None,
             compound_rule_max_applications: Vec::new(),
             active_parser: ActiveParser::XAmple,

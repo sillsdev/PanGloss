@@ -177,6 +177,13 @@ pub fn parse_with_issues(
         &mut hc_fields_present,
     )?
     .unwrap_or(false);
+    let merge_analyses = hc_parser_bool(
+        hc,
+        "MergeAnalyses",
+        "Merge analyses",
+        &mut hc_fields_present,
+    )?
+    .unwrap_or(true);
     let strata = hc.and_then(|hc| hc.child("Strata")).map(|s| s.text.clone());
 
     let compound_rule_max_applications = params_elem
@@ -204,6 +211,7 @@ pub fn parse_with_issues(
             deletion_reapplications,
             max_roots,
             make_partials_final,
+            merge_analyses,
             strata,
             compound_rule_max_applications,
             active_parser,

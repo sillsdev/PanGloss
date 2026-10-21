@@ -30,18 +30,31 @@ fn parser_parameters_round_trips_through_json_and_old_json_still_loads() {
 #[test]
 fn morpher_settings_are_omitted_at_their_defaults_and_round_trip_when_set() {
     let default_json = serde_json::to_value(ParserParameters::default()).unwrap();
-    for omitted in ["maxRoots", "makePartialsFinal"] {
+    for omitted in ["maxRoots", "makePartialsFinal", "mergeAnalyses"] {
         assert!(default_json.get(omitted).is_none(), "{default_json}");
     }
 
     let p = ParserParameters {
         max_roots: Some(3),
         make_partials_final: true,
+        merge_analyses: false,
         ..Default::default()
     };
     let json = serde_json::to_value(&p).unwrap();
     assert_eq!(json["maxRoots"], 3);
     assert_eq!(json["makePartialsFinal"], true);
+    assert_eq!(json["mergeAnalyses"], false);
     let back: ParserParameters = serde_json::from_value(json).unwrap();
     assert_eq!(back, p);
+}
+
+#[test]
+fn a_snapshot_without_merge_analyses_reads_the_fieldworks_default_true() {
+    let back: ParserParameters = serde_json::from_str(
+        r#"{"notOnClitics":true,"acceptUnspecifiedGraphemes":false,"noDefaultCompounding":false}"#,
+    )
+    .unwrap();
+    assert!(back.merge_analyses);
+    assert_eq!(back.max_roots, None);
+    assert!(!back.make_partials_final);
 }

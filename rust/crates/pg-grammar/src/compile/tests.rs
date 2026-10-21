@@ -2202,6 +2202,19 @@ fn make_partials_final_parser_parameter_reaches_the_grammar() {
 }
 
 #[test]
+fn merge_analyses_parser_parameter_reaches_the_grammar() {
+    let (default_snapshot, _f) = fixture();
+    let (default_grammar, _) = compile_project(&default_snapshot).expect("must compile");
+    assert!(default_grammar.merge_equivalent_analyses);
+
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.merge_analyses = false;
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert!(!grammar.merge_equivalent_analyses);
+}
+
+#[test]
 fn absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed() {
     let (snapshot, _f) = fixture();
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
