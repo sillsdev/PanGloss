@@ -1899,6 +1899,7 @@ mod tests {
                     form: "kuma".into(),
                     elapsed_ns: 1,
                     attempts: 1,
+                    work: 0,
                     passes: 1,
                     capped: false,
                     timed_out: false,

@@ -76,6 +76,7 @@ fn word_record(form: &str, elapsed_ns: u64, facts: Vec<FactRecord>) -> WordRecor
         form: form.to_string(),
         elapsed_ns,
         attempts: 1,
+        work: 0,
         passes: 1,
         capped: false,
         timed_out: false,

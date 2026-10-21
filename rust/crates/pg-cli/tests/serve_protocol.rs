@@ -216,6 +216,28 @@ fn an_incomplete_parse_is_a_result_with_the_cold_exit_code() {
     assert!(server.finish().success());
 }
 
+/// Both modes carry the word's `steps` and `workSteps` beside `result`, equal to the trace document's own search counts.
+#[test]
+fn results_carry_the_words_search_counts_in_both_modes() {
+    for extra in [&[][..], &["--step-cap", "3"][..]] {
+        let (mut server, _) = Server::start(&data("trace-family.xml"), extra);
+        for word in ["zodut", "vem", "xqzzkt"] {
+            let detailed = server.parse("d", word, true);
+            let plain = server.parse("p", word, false);
+            let search = &detailed["result"]["search"];
+            assert!(
+                search["workSteps"].as_u64().unwrap() > 0,
+                "{word}: {search}"
+            );
+            for r in [&detailed, &plain] {
+                assert_eq!(r["steps"], search["steps"], "{word} {extra:?}: {r}");
+                assert_eq!(r["workSteps"], search["workSteps"], "{word} {extra:?}: {r}");
+            }
+        }
+        assert!(server.finish().success());
+    }
+}
+
 #[test]
 fn guessed_words_match_cold_in_both_modes() {
     let project = data("trace-guess.xml");
@@ -358,6 +380,8 @@ fn describe_publishes_the_serve_protocol_version() {
     let output = Command::new(BIN).arg("--describe").output().unwrap();
     let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(doc["interfaces"]["serveProtocol"], 1);
+    assert_eq!(doc["schema_version"], 2);
+    assert_eq!(doc["interfaces"]["batchTsv"], 2);
     assert!(doc["commands"]
         .as_array()
         .unwrap()

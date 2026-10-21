@@ -762,3 +762,40 @@ fn overlay_attempts_and_work_are_nonzero_when_a_supplied_root_matches() {
         );
     }
 }
+
+/// Fact `work` (segments examined) and `work_steps` (budget reservations) differ; see `docs/formats/batch-tsv.md`.
+#[test]
+fn fact_work_is_segments_examined_not_the_word_work_steps_total() {
+    let mut measured = Vec::new();
+    for (g, cases) in fixture_cases() {
+        let morpher = Morpher::new(&g, usize::MAX);
+        for case in &cases {
+            let (outcome, rows) =
+                morpher.parse_word_with_stats(case.word, &ParseOptions::default());
+            let fact_work: u64 = rows.iter().map(|r| r.counters.work).sum();
+            assert!(
+                outcome.steps <= outcome.work_steps,
+                "{}: every analysis attempt reserves one work unit",
+                case.label
+            );
+            assert_ne!(
+                fact_work, outcome.work_steps as u64,
+                "{}: fact work and work_steps are different units",
+                case.label
+            );
+            measured.push((case.label, outcome.steps, outcome.work_steps, fact_work));
+        }
+    }
+    assert_eq!(
+        measured,
+        vec![
+            ("sumulat", 28, 935, 401),
+            ("keadilan", 132, 2601, 1558),
+            ("katibɯd", 28, 1055, 369),
+            ("katibɯt", 19, 779, 273),
+            ("pur", 19, 445, 169),
+            ("gas", 14, 727, 123),
+        ],
+        "(word, steps, work_steps, SUM(fact.work))"
+    );
+}

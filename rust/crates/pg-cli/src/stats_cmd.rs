@@ -476,6 +476,7 @@ pub(crate) fn batch_stats_word(
             form: word.to_string(),
             elapsed_ns: outcome.elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
             attempts: outcome.outcome.steps as u64,
+            work: outcome.outcome.work_steps as u64,
             passes: outcome.outcome.analyses.len() as u64,
             capped: outcome.outcome.capped,
             timed_out: outcome.outcome.timed_out,
@@ -2019,13 +2020,14 @@ fn render_word(
     let attempts_measured = engine != "foma";
     let total_elapsed: i64 = rows.iter().map(|r| r.elapsed_ns).sum();
     let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
+    let total_work: i64 = rows.iter().map(|r| r.work).sum();
     let shown_rows = filters.top_n.map_or(rows.len(), |n| n.min(rows.len()));
     let shown = rows.iter().take(shown_rows);
     match format {
         OutputFormat::Text => {
             let mut headers = vec!["form", "time_ms", "time%"];
             if attempts_measured {
-                headers.extend(["attempts", "attempts%"]);
+                headers.extend(["attempts", "attempts%", "work", "work%"]);
             }
             headers.extend(["passes", "capped", "timed_out", "invalid_shape"]);
             let table_rows: Vec<Vec<String>> = shown
@@ -2038,6 +2040,8 @@ fn render_word(
                     if attempts_measured {
                         row.push(r.attempts.to_string());
                         row.push(fmt_pct(Some(r.attempts), Some(total_attempts)));
+                        row.push(r.work.to_string());
+                        row.push(fmt_pct(Some(r.work), Some(total_work)));
                     }
                     row.extend([
                         r.passes.to_string(),
@@ -2050,7 +2054,7 @@ fn render_word(
                 .collect();
             let mut out = render_table(&headers, &table_rows);
             if !attempts_measured {
-                out.insert_str(0, "note: engine=foma never records attempts; attempts and attempts% are omitted (this is not \"zero\")\n");
+                out.insert_str(0, "note: engine=foma never records attempts or work; attempts, attempts%, work and work% are omitted (this is not \"zero\")\n");
             }
             out.push_str(&format!(
                 "TOTAL  {} word(s){}   time {:.3}ms (100.0% of matched word elapsed){}\n",
@@ -2062,7 +2066,7 @@ fn render_word(
                 },
                 total_elapsed as f64 / 1e6,
                 if attempts_measured {
-                    format!("   attempts {total_attempts}")
+                    format!("   attempts {total_attempts}   work {total_work}")
                 } else {
                     String::new()
                 },
@@ -2076,8 +2080,8 @@ fn render_word(
                 "grammar_hash": grammar_hash,
                 "engine": engine,
                 "filters": filters_json(filters),
-                "totals": {"rows": rows.len(), "rows_shown": shown_rows, "time_ns": total_elapsed, "attempts": if attempts_measured { serde_json::json!(total_attempts) } else { serde_json::Value::Null }},
-                "unmeasured": if attempts_measured { serde_json::json!({}) } else { serde_json::json!({"attempts": "engine=foma never records it"}) },
+                "totals": {"rows": rows.len(), "rows_shown": shown_rows, "time_ns": total_elapsed, "attempts": if attempts_measured { serde_json::json!(total_attempts) } else { serde_json::Value::Null }, "work": if attempts_measured { serde_json::json!(total_work) } else { serde_json::Value::Null }},
+                "unmeasured": if attempts_measured { serde_json::json!({}) } else { serde_json::json!({"attempts": "engine=foma never records it", "work": "engine=foma never records it"}) },
             });
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in shown {
@@ -2085,6 +2089,7 @@ fn render_word(
                     "form": r.form,
                     "elapsed_ns": r.elapsed_ns,
                     "attempts": if attempts_measured { serde_json::json!(r.attempts) } else { serde_json::Value::Null },
+                    "work": if attempts_measured { serde_json::json!(r.work) } else { serde_json::Value::Null },
                     "passes": r.passes,
                     "capped": r.capped,
                     "timed_out": r.timed_out,

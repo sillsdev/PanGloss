@@ -311,10 +311,18 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             };
             let outcome = catch_unwind(AssertUnwindSafe(|| parse_word(ctx, word, details)));
             let response = match outcome {
-                Ok(Ok((result, exit_code, parse_ms, render_ms))) => {
-                    let mut r = json!({"id": id, "type": "result", "exitCode": exit_code, "result": result});
+                Ok(Ok(served)) => {
+                    let mut r = json!({
+                        "id": id,
+                        "type": "result",
+                        "exitCode": served.exit_code,
+                        "steps": served.steps,
+                        "workSteps": served.work_steps,
+                        "result": served.result,
+                    });
                     if ctx.timing {
-                        r["timing"] = json!({"parseMs": parse_ms, "renderMs": render_ms});
+                        r["timing"] =
+                            json!({"parseMs": served.parse_ms, "renderMs": served.render_ms});
                     }
                     r
                 }
@@ -334,12 +342,18 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
     }
 }
 
-/// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`. `Ok` carries the cold stdout (a JSON document, or the verbatim text for `false`), the cold exit code, `parse_ms` and `render_ms`.
-fn parse_word(
-    ctx: &Context,
-    word: &str,
-    details: bool,
-) -> Result<(Value, i32, u64, u64), (&'static str, String)> {
+/// One answered parse: the cold command's stdout and exit code, the word's search counts, and the phase timings.
+struct Served {
+    result: Value,
+    exit_code: i32,
+    steps: usize,
+    work_steps: usize,
+    parse_ms: u64,
+    render_ms: u64,
+}
+
+/// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`. `result` is the cold stdout: a JSON document, or the verbatim text for `false`.
+fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'static str, String)> {
     let render_err = |e: String| ("render_failed", e);
     if details {
         let sink = pg_rules::trace::TreeTraceSink::with_failure_context();
@@ -361,7 +375,14 @@ fn parse_word(
         .map_err(render_err)?;
         let render_ms = (started.elapsed().as_millis() as u64).saturating_sub(parse_ms);
         let value = serde_json::from_str(&rendered).map_err(|e| render_err(e.to_string()))?;
-        return Ok((value, 0, parse_ms, render_ms));
+        return Ok(Served {
+            result: value,
+            exit_code: 0,
+            steps: outcome.steps,
+            work_steps: outcome.work_steps,
+            parse_ms,
+            render_ms,
+        });
     }
     let sink = pg_rules::trace::TreeTraceSink::new();
     let started = Instant::now();
@@ -376,10 +397,12 @@ fn parse_word(
         stdout.push_str(&crate::trace_render::render_json(ctx.grammar, &sink, root));
     }
     let exit_code = i32::from(crate::require_complete_parse(&outcome).is_err());
-    Ok((
-        Value::String(stdout),
+    Ok(Served {
+        result: Value::String(stdout),
         exit_code,
+        steps: outcome.steps,
+        work_steps: outcome.work_steps,
         parse_ms,
-        render_started.elapsed().as_millis() as u64,
-    ))
+        render_ms: render_started.elapsed().as_millis() as u64,
+    })
 }

@@ -231,7 +231,11 @@ pub struct FactRecord {
 pub struct WordRecord {
     pub form: String,
     pub elapsed_ns: u64,
+    /// Analysis attempts: the parse outcome's `steps`.
     pub attempts: u64,
+    /// Total work-budget reservations: the parse outcome's `work_steps`. Not the sum of the
+    /// facts' `work`, which counts shape segments examined.
+    pub work: u64,
     pub passes: u64,
     pub capped: bool,
     pub timed_out: bool,

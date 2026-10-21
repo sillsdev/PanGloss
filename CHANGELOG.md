@@ -5,6 +5,25 @@ file has no section for.
 
 ## Unreleased
 
+### Parser work per word, for comparisons that do not depend on the computer
+
+- `pangloss batch` rows now end with two columns: `steps` (analysis attempts) and `work_steps`
+  (parser work, every work unit the word reserved). Both are deterministic for a grammar, word,
+  cap settings and PanGloss version, so "8% less work to parse these words" means the same thing
+  on any machine. Every earlier column keeps its position, and `guessed` stays at index 5 when
+  `--guess` is passed. A row stopped by `--word-timeout-ms` (`TIMEOUT`) still has wall-clock
+  dependent counts; a `CAP` row's are deterministic. Layout: `docs/formats/batch-tsv.md`.
+- **Breaking for hosts:** `pangloss --describe` now reports `"schema_version": 2` and
+  `"interfaces": {"batchTsv": 2}`. A host that requires `schema_version` 1 refuses this binary
+  instead of misreading the longer rows. Gate on `interfaces.batchTsv >= 2` to read the counts.
+- The `batch --stats` cache records each word's work in a new `word.work` column (`word.attempts`
+  is unchanged). Cache schema version 9: an older cache is wiped and recreated on the next run.
+  `stats --group word` shows `work` and `work%`. A word's `fact.work` rows count shape segments
+  examined and do not add up to `word.work`; the batch-tsv format document gives the measured
+  relation.
+- `pangloss serve` results carry `steps` and `workSteps` beside `result` in both modes, not only
+  inside `traceDetails`. These fields are optional and add to protocol version 1.
+
 ### Faster parsing on large featureless letter inventories
 
 - On a project with no phonological features and more than 64 letters, an affix's literal

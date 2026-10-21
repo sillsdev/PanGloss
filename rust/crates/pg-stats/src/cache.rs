@@ -488,12 +488,13 @@ fn read_frozen_bool(field: &'static str, value: i64) -> Result<bool, StatsError>
 
 fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, StatsError> {
     tx.execute(
-        "INSERT INTO word (run_id, form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "INSERT INTO word (run_id, form, elapsed_ns, attempts, work, passes, capped, timed_out, invalid_shape)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(form) DO UPDATE SET
            run_id = excluded.run_id,
            elapsed_ns = excluded.elapsed_ns,
            attempts = excluded.attempts,
+           work = excluded.work,
            passes = excluded.passes,
            capped = excluded.capped,
            timed_out = excluded.timed_out,
@@ -503,6 +504,7 @@ fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, 
             word.form,
             to_i64("elapsed_ns", word.elapsed_ns)?,
             to_i64("attempts", word.attempts)?,
+            to_i64("work", word.work)?,
             to_i64("passes", word.passes)?,
             i64::from(word.capped),
             i64::from(word.timed_out),

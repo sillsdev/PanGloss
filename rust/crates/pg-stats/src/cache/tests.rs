@@ -9,6 +9,7 @@ fn sample_word(form: &str) -> WordRecord {
         form: form.to_string(),
         elapsed_ns: 1_000,
         attempts: 10,
+        work: 37,
         passes: 1,
         capped: false,
         timed_out: false,
@@ -63,6 +64,7 @@ fn create_write_and_read_back_exactly() {
     assert_eq!(per_word.len(), 1);
     assert_eq!(per_word[0].form, "apu");
     assert_eq!(per_word[0].attempts, 10);
+    assert_eq!(per_word[0].work, 37);
     assert_eq!(per_word[0].passes, 1);
     assert!(!per_word[0].capped);
     assert!(!per_word[0].timed_out);
@@ -102,6 +104,38 @@ fn wipes_on_grammar_hash_change_and_reports_it() {
 
     let per_word = crate::report::per_word_report(second.cache.connection()).unwrap();
     assert!(per_word.is_empty(), "old rows must be gone after a wipe");
+}
+
+/// A version-8 cache has no `word.work`; opening it recreates the schema rather than migrating.
+#[test]
+fn wipes_a_version_eight_cache_whose_word_table_lacks_work() {
+    let path = TempDir::new("pg-stats-v8");
+    let cache_path = path.path().join("cache.sqlite3");
+    let mut first = StatsCache::open(&cache_path, "hash-a").unwrap();
+    first
+        .cache
+        .flush(&sample_run(), &[sample_word("apu")])
+        .unwrap();
+    drop(first);
+    let legacy = Connection::open(&cache_path).unwrap();
+    legacy
+        .execute_batch(
+            "ALTER TABLE word DROP COLUMN work;
+             UPDATE cache_identity SET schema_version = 8 WHERE cache_id = 1;
+             UPDATE run SET schema_version = 8;",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let mut outcome = StatsCache::open(&cache_path, "hash-a").unwrap();
+    assert!(outcome.wiped, "a version-8 cache must be recreated");
+    outcome
+        .cache
+        .flush(&sample_run(), &[sample_word("apu")])
+        .unwrap();
+    let per_word = crate::report::per_word_report(outcome.cache.connection()).unwrap();
+    assert_eq!(per_word.len(), 1);
+    assert_eq!(per_word[0].work, 37);
 }
 
 #[test]

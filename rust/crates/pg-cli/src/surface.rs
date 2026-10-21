@@ -171,23 +171,27 @@ struct FactsDescribe {
     stats_manifest_version: u32,
 }
 
+/// The `--describe` version; a host pinned to 1 must refuse, as batch rows now end in two counts (`docs/formats/batch-tsv.md`).
+pub(crate) const DESCRIBE_SCHEMA_VERSION: u32 = 2;
+
 /// Wire-protocol versions this binary speaks, so a host can gate on them before launching a mode.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InterfacesDescribe {
     serve_protocol: u32,
+    batch_tsv: u32,
 }
 
 fn interfaces() -> InterfacesDescribe {
     InterfacesDescribe {
         serve_protocol: crate::serve::SERVE_PROTOCOL_VERSION,
+        batch_tsv: crate::BATCH_TSV_VERSION,
     }
 }
 
-/// Prints `COMMANDS` as JSON, hidden rows marked `"hidden": true` rather than omitted.
-pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
-    let doc = Describe {
-        schema_version: 1,
+fn describe_doc() -> Describe {
+    Describe {
+        schema_version: DESCRIBE_SCHEMA_VERSION,
         binary: "pangloss",
         facts: FactsDescribe {
             format: pg_facts::FACT_FORMAT,
@@ -199,8 +203,12 @@ pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
         },
         interfaces: interfaces(),
         commands: COMMANDS,
-    };
-    match serde_json::to_string_pretty(&doc) {
+    }
+}
+
+/// Prints `COMMANDS` as JSON, hidden rows marked `"hidden": true` rather than omitted.
+pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
+    match serde_json::to_string_pretty(&describe_doc()) {
         Ok(json) => {
             println!("{json}");
             ExitCode::SUCCESS

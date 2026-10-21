@@ -435,7 +435,8 @@ fn print_usage_and_fail() -> ExitCode {
          analysis is empty is retried via the lexical-pattern guesser (P11,\n\
          docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
          guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
-         `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.\n\
+         `batch` adds a `guessed` TSV column after `signature`, both only when --guess is passed.\n\
+         batch TSV rows end with `steps` and `work_steps` (docs/formats/batch-tsv.md).\n\
          --always-enforce-final-templates is result-changing: enforce template order even\n\
          when partial-rule rescue would otherwise allow an interleaving.",
         env!("CARGO_PKG_VERSION"),
@@ -969,7 +970,28 @@ fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
     dir.join(format!("{stem}-realize.toml"))
 }
 
-/// Writes one `batch` TSV result row: the plain 5-column row when `guess_requested` is `false`, with a 6th `guessed` column appended only when `--guess` was passed, so a guessed row is never indistinguishable from a confirmed one.
+/// The batch TSV layout published as `interfaces.batchTsv` in `--describe`.
+pub(crate) const BATCH_TSV_VERSION: u32 = 2;
+
+/// The columns a `batch` result row carries after `signature`.
+struct BatchRowTail {
+    /// `Some(guessed)` only when `--guess` was passed.
+    guessed: Option<bool>,
+    steps: usize,
+    work_steps: usize,
+}
+
+impl BatchRowTail {
+    fn new(guess_requested: bool, outcome: &pg_parse::ParseOutcome) -> Self {
+        Self {
+            guessed: guess_requested.then_some(outcome.guessed),
+            steps: outcome.steps,
+            work_steps: outcome.work_steps,
+        }
+    }
+}
+
+/// Writes one `idx word elapsed_ms status signature [guessed] steps work_steps` row; see `docs/formats/batch-tsv.md`.
 fn write_batch_row<W: Write>(
     w: &mut W,
     idx: usize,
@@ -977,18 +999,13 @@ fn write_batch_row<W: Write>(
     elapsed_ms: u128,
     status: &str,
     signature: &str,
-    // (guess_requested, guessed) -- bundled into one tuple to stay at clippy's 7-argument limit.
-    guess: (bool, bool),
+    tail: BatchRowTail,
 ) -> std::io::Result<()> {
-    let (guess_requested, guessed) = guess;
-    if guess_requested {
-        writeln!(
-            w,
-            "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}\t{guessed}"
-        )
-    } else {
-        writeln!(w, "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
+    write!(w, "{idx}\t{word}\t{elapsed_ms}\t{status}\t{signature}")?;
+    if let Some(guessed) = tail.guessed {
+        write!(w, "\t{guessed}")?;
     }
+    writeln!(w, "\t{}\t{}", tail.steps, tail.work_steps)
 }
 
 /// `--guess`'s own parallel batch dispatch, called only when `--guess` was passed, since `hc_parse_batch` has no `ParseOptions` parameter and so cannot express "guess on"; deliberately simpler than that function's longest-surface-first scheduling, using a plain order-preserving `rayon` `par_iter`.
@@ -1471,7 +1488,7 @@ fn run_batch_with_counter(
                 skipped += 1;
                 ("SKIPPED", "-".to_string())
             } else if outcome.timed_out {
-                // --word-timeout-ms fired, reported in the same TSV shape (idx\tword\tms\tTIMEOUT\t-) an external watchdog's synthetic row already uses for a killed stall, so downstream tooling needs no changes.
+                // --word-timeout-ms fired; its counts are wall-clock dependent, unlike a CAP row's.
                 timed_out_words += 1;
                 eprintln!("TIMEOUT\t{i}\t{word}");
                 ("TIMEOUT", "-".to_string())
@@ -1622,7 +1639,7 @@ fn run_batch_with_counter(
                 elapsed_ms,
                 status,
                 &signature,
-                (guess, outcome.guessed),
+                BatchRowTail::new(guess, &outcome),
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
@@ -1712,7 +1729,7 @@ fn run_batch_with_counter(
                 elapsed_ms,
                 status,
                 &signature,
-                (guess, r.outcome.guessed),
+                BatchRowTail::new(guess, &r.outcome),
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {

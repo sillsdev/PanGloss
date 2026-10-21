@@ -72,7 +72,11 @@ CREATE TABLE IF NOT EXISTS word (
   run_id        INTEGER NOT NULL,
   form          TEXT    NOT NULL,
   elapsed_ns    INTEGER NOT NULL,
+  -- `attempts` is the word's analysis attempts (`steps`); `work` is its total work-budget
+  -- reservations (`work_steps`), the deterministic parse cost. `fact.work` is a different unit
+  -- (shape segments examined per object), so a word's fact rows never sum to `word.work`.
   attempts      INTEGER NOT NULL,
+  work          INTEGER NOT NULL,
   passes        INTEGER NOT NULL,
   capped        INTEGER NOT NULL,
   timed_out     INTEGER NOT NULL,

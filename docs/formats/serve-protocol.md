@@ -51,7 +51,7 @@ One JSON object per line. Blank lines are ignored.
 ## Responses
 
 ```json
-{"id":"1","type":"result","exitCode":0,"result":{...}}
+{"id":"1","type":"result","exitCode":0,"steps":28,"workSteps":935,"result":{...}}
 {"id":"1","type":"error","code":"bad_request","message":"..."}
 {"id":"2","type":"bye"}
 ```
@@ -66,6 +66,13 @@ A request that ran a parse always yields a `result`, including a parse that stop
 | `false` (default) | `pangloss parse <project> <word> --trace --trace-format json` | the command's whole stdout as one JSON string: the line `<word>\t<signature>\n`, then `guessed:\t<true\|false>\n` only when the server runs with `--guess`, then the JSON trace tree (absent when no trace exists) | 1 when the parse was incomplete (capped, timed out, invalid shape), else 0; the string is still the full stdout |
 
 For `traceDetails: true`, every field is identical to the cold document except the wall-clock measurements: `elapsedNs`, `timedNs`, `timingOverrunNs`, `unattributedNs` and every `*ElapsedNs` field. For `traceDetails: false` the string is byte-identical.
+
+Every `result` response, in both modes, also carries the word's search counts beside `result`, outside the cold stdout:
+
+- `steps`: analysis attempts, the quantity `--step-cap` bounds.
+- `workSteps`: parser work, meaning every work unit the parse reserved. This is the quantity `--work-cap` bounds.
+
+These are the same counts as the `steps` and `work_steps` columns of `pangloss batch` (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.steps` and `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat both fields as optional: older servers omit them.
 
 With `--timing`, a `result` response also carries `"timing":{"parseMs":N,"renderMs":N}`.
 

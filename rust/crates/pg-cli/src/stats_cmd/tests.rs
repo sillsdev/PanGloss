@@ -215,8 +215,8 @@ fn stable_batch_fields(tsv: &str) -> Vec<Vec<String>> {
             continue;
         }
         assert!(
-            matches!(columns.len(), 5 | 6),
-            "batch TSV result row must have five or six columns: {line:?}"
+            matches!(columns.len(), 7 | 8),
+            "batch TSV result row must have seven or eight columns: {line:?}"
         );
         rows.push(
             columns
@@ -274,7 +274,7 @@ fn stable_cache_snapshot(path: &std::path::Path) -> (Vec<Vec<String>>, Vec<Vec<S
             .expect("read stats snapshot")
     };
     let words = query(
-        "SELECT form, attempts, passes, capped, timed_out, invalid_shape \
+        "SELECT form, attempts, work, passes, capped, timed_out, invalid_shape \
              FROM word ORDER BY form",
     );
     let facts = query(
@@ -513,6 +513,15 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
     );
 
     let conn = rusqlite::Connection::open(&cache_path).unwrap();
+    let words = pg_stats::per_word_report(&conn).unwrap();
+    let row: Vec<&str> = tsv_stats.lines().last().unwrap().split('\t').collect();
+    assert_eq!(words.len(), 1);
+    assert!(words[0].work > words[0].attempts, "{:?}", words[0]);
+    assert_eq!(
+        [words[0].attempts.to_string(), words[0].work.to_string()],
+        row[row.len() - 2..],
+        "word.attempts and word.work must be the TSV row's steps and work_steps"
+    );
     let rows = pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
     assert!(
         !rows.is_empty(),
@@ -1278,6 +1287,7 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
                 form: "ok".to_string(),
                 elapsed_ns: 1_000,
                 attempts: 1,
+                work: 0,
                 passes: 1,
                 capped: false,
                 timed_out: false,
@@ -1288,6 +1298,7 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
                 form: "capped".to_string(),
                 elapsed_ns: 3_000,
                 attempts: 1,
+                work: 0,
                 passes: 0,
                 capped: true,
                 timed_out: false,
@@ -1518,6 +1529,7 @@ fn empty_result_distinguishes_never_recorded_from_filtered_to_nothing() {
         form: "onlyword".to_string(),
         elapsed_ns: 1_000,
         attempts: 1,
+        work: 0,
         passes: 1,
         capped: false,
         timed_out: false,
@@ -1625,6 +1637,7 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
         form: "w".to_string(),
         elapsed_ns: 1_000,
         attempts: 1,
+        work: 0,
         passes: 1,
         capped: false,
         timed_out: false,
@@ -1738,6 +1751,7 @@ fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_s
             form: "w".to_string(),
             elapsed_ns: 1000,
             attempts: 4,
+            work: 0,
             passes: 1,
             capped: false,
             timed_out: false,
@@ -1880,6 +1894,7 @@ fn word_report_exports_invalid_shape_in_text_and_json() {
             form: "bad-shape".to_string(),
             elapsed_ns: 500,
             attempts: 4,
+            work: 0,
             passes: 0,
             capped: false,
             timed_out: false,
@@ -1907,6 +1922,7 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
                 form: "ok".to_string(),
                 elapsed_ns: 100,
                 attempts: 1,
+                work: 0,
                 passes: 1,
                 capped: false,
                 timed_out: false,
@@ -1917,6 +1933,7 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
                 form: "capped".to_string(),
                 elapsed_ns: 500,
                 attempts: 1,
+                work: 0,
                 passes: 0,
                 capped: true,
                 timed_out: false,
@@ -1927,6 +1944,7 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
                 form: "timed-out".to_string(),
                 elapsed_ns: 400,
                 attempts: 1,
+                work: 0,
                 passes: 0,
                 capped: false,
                 timed_out: true,
@@ -2204,6 +2222,7 @@ fn stats_read_rejects_a_cache_with_multiple_engines() {
                 form: "hc-word".to_string(),
                 elapsed_ns: 1,
                 attempts: 1,
+                work: 0,
                 passes: 1,
                 capped: false,
                 timed_out: false,
@@ -2272,6 +2291,7 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
                 form: "a".to_string(),
                 elapsed_ns: 1,
                 attempts: 1,
+                work: 0,
                 passes: 1,
                 capped: false,
                 timed_out: false,

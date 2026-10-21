@@ -13,19 +13,21 @@ pub struct PerWordRow {
     pub form: String,
     pub elapsed_ns: i64,
     pub attempts: i64,
+    /// The word's work-budget reservations (`work_steps`).
+    pub work: i64,
     pub passes: i64,
     pub capped: bool,
     pub timed_out: bool,
     pub invalid_shape: bool,
 }
 
-/// Form, actual elapsed, attempts, passes, and outcome flags — ordered by elapsed descending.
+/// Form, actual elapsed, attempts, work, passes, and outcome flags — ordered by elapsed descending.
 ///
 /// `elapsed_ns` is this word's whole-parse wall clock; the per-object report's `self_time_ns` is a
 /// finer per-object breakdown, so summing one does not need to reproduce the other exactly.
 pub fn per_word_report(conn: &Connection) -> Result<Vec<PerWordRow>, StatsError> {
     let mut stmt = conn.prepare(
-        "SELECT form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape
+        "SELECT form, elapsed_ns, attempts, work, passes, capped, timed_out, invalid_shape
          FROM word
          ORDER BY elapsed_ns DESC",
     )?;
@@ -34,10 +36,11 @@ pub fn per_word_report(conn: &Connection) -> Result<Vec<PerWordRow>, StatsError>
             form: row.get(0)?,
             elapsed_ns: row.get(1)?,
             attempts: row.get(2)?,
-            passes: row.get(3)?,
-            capped: row.get::<_, i64>(4)? != 0,
-            timed_out: row.get::<_, i64>(5)? != 0,
-            invalid_shape: row.get::<_, i64>(6)? != 0,
+            work: row.get(3)?,
+            passes: row.get(4)?,
+            capped: row.get::<_, i64>(5)? != 0,
+            timed_out: row.get::<_, i64>(6)? != 0,
+            invalid_shape: row.get::<_, i64>(7)? != 0,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)

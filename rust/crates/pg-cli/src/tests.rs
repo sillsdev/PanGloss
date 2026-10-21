@@ -451,7 +451,11 @@ fn word_timeout_ms_zero_writes_timeout_row_single_threaded() {
     assert_eq!(lines.len(), 2, "STARTED sentinel + result row: {lines:?}");
     assert_eq!(lines[0], "0\tkat\tSTARTED");
     let fields: Vec<&str> = lines[1].split('\t').collect();
-    assert_eq!(fields.len(), 5, "idx/word/ms/status/signature: {fields:?}");
+    assert_eq!(
+        fields.len(),
+        7,
+        "idx/word/ms/status/signature/steps/work_steps: {fields:?}"
+    );
     assert_eq!(fields[0], "0");
     assert_eq!(fields[1], "kat");
     fields[2]
@@ -471,7 +475,7 @@ fn word_timeout_ms_zero_writes_timeout_row_parallel() {
         "no STARTED line in the parallel writer: {lines:?}"
     );
     let fields: Vec<&str> = lines[0].split('\t').collect();
-    assert_eq!(fields.len(), 5);
+    assert_eq!(fields.len(), 7);
     assert_eq!(fields[0], "0");
     assert_eq!(fields[1], "kat");
     fields[2]
@@ -488,12 +492,67 @@ fn no_word_timeout_flag_keeps_ok_row_shape_both_thread_modes() {
         let lines = run_batch_tsv(tag, &["--threads", threads]);
         let result_line = lines.last().expect("at least one line");
         let fields: Vec<&str> = result_line.split('\t').collect();
-        assert_eq!(fields.len(), 5, "threads={threads}: {fields:?}");
+        assert_eq!(fields.len(), 7, "threads={threads}: {fields:?}");
         assert_eq!(fields[3], "ok", "threads={threads}: {fields:?}");
         assert_ne!(
             fields[4], "-",
             "threads={threads}: \"kat\" should analyze to a real signature"
         );
+    }
+}
+
+/// The last two TSV columns are the word's own `steps` and `work_steps`, identical in both writer paths and after `guessed`.
+#[test]
+fn batch_rows_end_with_the_words_steps_and_work_steps() {
+    let grammar_xml = homophonous_suffix_grammar_xml(2);
+    let dir = scratch_dir("row-counts-grammar");
+    let grammar_path = dir.join("grammar.xml");
+    fs::write(&grammar_path, &grammar_xml).unwrap();
+    let (grammar, _) = load_grammar(&grammar_path.to_string_lossy()).unwrap();
+    let expected = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap())
+        .with_work_cap(super::resolved_work_cap(DEFAULT_STEP_CAP, None))
+        .parse_word("kadd");
+    assert!(expected.steps > 0 && expected.work_steps > expected.steps);
+    let counts = [expected.steps.to_string(), expected.work_steps.to_string()];
+    for (tag, args) in [
+        ("row-counts-seq", vec!["--threads", "1"]),
+        ("row-counts-par", vec!["--threads", "2"]),
+        ("row-counts-guess", vec!["--threads", "1", "--guess"]),
+    ] {
+        let lines = run_batch_tsv_custom(tag, &grammar_xml, "kadd\n", &args);
+        let fields: Vec<&str> = lines.last().unwrap().split('\t').collect();
+        assert_eq!(fields[3], "ok", "{tag}: {fields:?}");
+        let guessed = args.contains(&"--guess");
+        assert_eq!(
+            fields.len(),
+            if guessed { 8 } else { 7 },
+            "{tag}: {fields:?}"
+        );
+        if guessed {
+            assert_eq!(fields[5], "false", "{tag}: {fields:?}");
+        }
+        assert_eq!(fields[fields.len() - 2..], counts, "{tag}: {fields:?}");
+    }
+}
+
+/// A work-cap stop is deterministic: the row records exactly the configured allowance.
+#[test]
+fn a_cap_row_reports_the_work_spent_up_to_the_cap() {
+    for threads in ["1", "2"] {
+        let rows = run_batch_tsv(
+            "cap-row-counts",
+            &[
+                "--step-cap",
+                "unbounded",
+                "--work-cap",
+                "1",
+                "--threads",
+                threads,
+            ],
+        );
+        let fields: Vec<_> = rows.last().unwrap().split('\t').collect();
+        assert_eq!(fields[3], "CAP", "{fields:?}");
+        assert_eq!(fields[5..], ["0", "1"], "{fields:?}");
     }
 }
 
@@ -566,7 +625,7 @@ fn step_cap_small_writes_cap_row_both_thread_modes() {
         );
         let result_line = lines.last().expect("at least one line");
         let fields: Vec<&str> = result_line.split('\t').collect();
-        assert_eq!(fields.len(), 5, "threads={threads}: {fields:?}");
+        assert_eq!(fields.len(), 7, "threads={threads}: {fields:?}");
         assert_eq!(fields[3], "CAP", "threads={threads}: {fields:?}");
         assert!(
             !fields[4].is_empty(),
@@ -703,9 +762,9 @@ mod guess_tests {
 </HermitCrabInput>
 "#;
 
-    /// Omitting `--guess` must keep the plain 5-column row shape and never analyze the out-of-lexicon word "gag", in both thread modes.
+    /// Omitting `--guess` must keep the row without a `guessed` column and never analyze the out-of-lexicon word "gag", in both thread modes.
     #[test]
-    fn guess_omitted_keeps_five_column_rows_and_finds_nothing_for_pattern_only_word() {
+    fn guess_omitted_writes_no_guessed_column_and_finds_nothing_for_pattern_only_word() {
         for (tag, threads) in [("guess-off-seq", "1"), ("guess-off-par", "2")] {
             let lines =
                 run_batch_tsv_custom(tag, GUESS_GRAMMAR_XML, "gag\n", &["--threads", threads]);
@@ -714,8 +773,8 @@ mod guess_tests {
             let fields: Vec<&str> = result_line.split('\t').collect();
             assert_eq!(
                 fields.len(),
-                5,
-                "threads={threads}: --guess omitted must keep the pre-existing 5-column row: {fields:?}"
+                7,
+                "threads={threads}: --guess omitted must write no guessed column: {fields:?}"
             );
             assert_eq!(fields[3], "ok");
             assert_eq!(
@@ -725,7 +784,7 @@ mod guess_tests {
         }
     }
 
-    /// `--guess` analyzes the out-of-lexicon word "gag" (matched only by the lexical pattern) and appends a 6th `guessed` column marked `true`, in both thread modes.
+    /// `--guess` analyzes the out-of-lexicon word "gag" (matched only by the lexical pattern) and writes a `guessed` column marked `true` after `signature`, in both thread modes.
     #[test]
     fn guess_flag_analyzes_pattern_only_word_and_marks_the_row_guessed() {
         for (tag, threads) in [("guess-on-seq", "1"), ("guess-on-par", "2")] {
@@ -739,8 +798,8 @@ mod guess_tests {
             let fields: Vec<&str> = result_line.split('\t').collect();
             assert_eq!(
                 fields.len(),
-                6,
-                "threads={threads}: --guess must append a 6th `guessed` column: {fields:?}"
+                8,
+                "threads={threads}: --guess must add a `guessed` column: {fields:?}"
             );
             assert_eq!(fields[3], "ok");
             assert_eq!(
@@ -767,7 +826,7 @@ mod guess_tests {
             );
             let result_line = lines.last().unwrap();
             let fields: Vec<&str> = result_line.split('\t').collect();
-            assert_eq!(fields.len(), 6, "{fields:?}");
+            assert_eq!(fields.len(), 8, "{fields:?}");
             assert_eq!(fields[4], "KAD|kad");
             assert_eq!(
                 fields[5], "false",
