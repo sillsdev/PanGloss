@@ -84,7 +84,7 @@ The process keeps running after every `error`.
 
 ## Closing stdin
 
-End of input on stdin exits 0 immediately, even in the middle of a parse: the in-flight and any queued requests are abandoned and get no response. Send `shutdown` for a graceful exit that answers `bye` after the current request.
+End of input on stdin exits 0 immediately, even in the middle of a parse: the in-flight and any queued requests are abandoned and get no response. Because the exit is immediate, an abrupt EOF can leave a partial last line on stdout; a host must discard an unterminated final line. Send `shutdown` for a graceful exit that answers `bye` after the current request.
 
 ## Versioning
 
