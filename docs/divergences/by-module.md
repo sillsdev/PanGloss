@@ -11,6 +11,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
 | `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030, 090, 091 |
 | `AnalysisAffixProcessRule.cs` | 001 |
+| `AnalysisAffixTemplateRule.cs` (`Apply`, `ApplySlots`) | 095 |
 | `AnalysisCompoundingRule.cs` | 001 |
 | `AnalysisCompoundingRule.cs` (`Apply`, trace node types), `TraceManager.cs` | 092 |
 | `AnalysisCompoundingRule.cs` (`Apply`, non-head-must-be-bare-root gate) | 005 |
@@ -122,6 +123,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/rewrite.rs` (`width_matches`) | 020 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg-rules/src/stratum.rs` (`synthesize_stratum_traced`) | 043 |
+| `pg-rules/src/stratum.rs` (`run_template_batch`, `shared_slot_battery`, `walk_slot_trie`, `SlotTrie`) | 095 |
 | `pg-rules/src/validity.rs` | 006, 030 |
 | `pg-rules/src/word.rs` (`current_non_head`) | 004 |
 | `pg-rules/src/word.rs` (`expand_alternatives`) | 018 |
@@ -134,6 +136,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 | Fixture or test | Entry ids |
 |---|---|
+| `pg-rules/src/stratum/template_slot_sharing_tests.rs` | 095 |
 | `conformance-staging/edge-cases/circumfix-conditioned-halves/` (HCLoader shape; fwdata path unpinned) | 039 |
 | `conformance-staging/edge-cases/multi-table-metathesis-shared-representation/`, `pg-foma-backend/tests/multi_table_metathesis_shared_representation.rs` | 040, 041, 042 |
 | `conformance-staging/edge-cases/nullable-disagree-*` (nullable environment and plain disagreement control) | 065 |

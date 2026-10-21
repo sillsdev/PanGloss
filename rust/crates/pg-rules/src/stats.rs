@@ -147,6 +147,10 @@ pub struct PruneCounters {
     pub transduce_runs: u64,
     /// Analysis-side morphological input segment-vector constructions.
     pub segs_of_builds: u64,
+    /// Untraced slot batches whose result served more than one admitted template.
+    pub shared_slot_batches: u64,
+    /// Slot batches the per-template walk would have repeated and the shared walk did not.
+    pub slot_batches_avoided: u64,
 }
 
 impl PruneCounters {
@@ -163,6 +167,8 @@ impl PruneCounters {
             slot_rule_attempts,
             transduce_runs,
             segs_of_builds,
+            shared_slot_batches,
+            slot_batches_avoided,
         } = *other;
         self.template_entries += template_entries;
         self.template_batteries_skipped += template_batteries_skipped;
@@ -173,10 +179,12 @@ impl PruneCounters {
         self.slot_rule_attempts += slot_rule_attempts;
         self.transduce_runs += transduce_runs;
         self.segs_of_builds += segs_of_builds;
+        self.shared_slot_batches += shared_slot_batches;
+        self.slot_batches_avoided += slot_batches_avoided;
     }
 
     /// Every field paired with its report name, in declaration order.
-    pub fn named_fields(&self) -> [(&'static str, u64); 9] {
+    pub fn named_fields(&self) -> [(&'static str, u64); 11] {
         // Exhaustive destructure: a new field that is not reported here fails to compile.
         let PruneCounters {
             template_entries,
@@ -188,6 +196,8 @@ impl PruneCounters {
             slot_rule_attempts,
             transduce_runs,
             segs_of_builds,
+            shared_slot_batches,
+            slot_batches_avoided,
         } = *self;
         [
             ("template_entries", template_entries),
@@ -199,6 +209,8 @@ impl PruneCounters {
             ("slot_rule_attempts", slot_rule_attempts),
             ("transduce_runs", transduce_runs),
             ("segs_of_builds", segs_of_builds),
+            ("shared_slot_batches", shared_slot_batches),
+            ("slot_batches_avoided", slot_batches_avoided),
         ]
     }
 }
@@ -472,6 +484,13 @@ impl StatsCollector {
         let mut cell = self.prune_cell(stratum, direction);
         cell.slot_batches += 1;
         cell.slot_rule_attempts += rule_attempts;
+    }
+
+    /// Record one slot batch shared by several templates, and how many repeats it replaced.
+    pub fn record_shared_slot_batch(&self, stratum: StratumId, direction: Direction, avoided: u64) {
+        let mut cell = self.prune_cell(stratum, direction);
+        cell.shared_slot_batches += 1;
+        cell.slot_batches_avoided += avoided;
     }
 
     /// Record one analysis-side morphological FST traversal.

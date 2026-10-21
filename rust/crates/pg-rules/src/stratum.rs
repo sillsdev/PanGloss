@@ -400,6 +400,9 @@ mod step_budget_timeout_tests;
 #[cfg(test)]
 mod final_template_policy_tests;
 
+#[cfg(test)]
+mod template_slot_sharing_tests;
+
 #[inline]
 fn analysis_state_after_mrule(
     role: RuleInvocationRole,
@@ -617,6 +620,72 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     trace: &'t dyn TraceSink,
     /// The ambient trace cursor; call sites resolve `word.trace.unwrap_or(parent)` so successful (un)applications nest under the deepest event on that branch.
     parent: TraceHandle,
+    /// The stratum's templates' reversed slot sequences, built on the first untraced battery.
+    slot_trie: std::cell::OnceCell<SlotTrie>,
+}
+
+/// Templates' slots in walk order (last first), sharing a node only while every walked slot is identical.
+struct SlotTrie {
+    nodes: Vec<SlotTrieNode>,
+}
+
+struct SlotTrieNode {
+    /// The `(template, slot index)` of one slot this edge stands for; `None` at the root.
+    slot: Option<(TemplateId, usize)>,
+    children: Vec<usize>,
+    /// Battery positions of the templates whose walk ends here (their first slot, or no slots).
+    terminal: Vec<usize>,
+    /// Battery positions of every template whose walk passes through here.
+    below: Vec<usize>,
+}
+
+impl SlotTrie {
+    const ROOT: usize = 0;
+
+    fn build(g: &Grammar, templates: &[TemplateId]) -> Self {
+        let mut nodes = vec![SlotTrieNode {
+            slot: None,
+            children: Vec::new(),
+            terminal: Vec::new(),
+            below: Vec::new(),
+        }];
+        for (pos, &tid) in templates.iter().enumerate() {
+            let slots = &g.templates[tid.0 as usize].slots;
+            let mut cur = Self::ROOT;
+            nodes[cur].below.push(pos);
+            for index in (0..slots.len()).rev() {
+                let slot = &slots[index];
+                let existing = nodes[cur].children.iter().copied().find(|&child| {
+                    let (other_tid, other_index) =
+                        nodes[child].slot.expect("only the root has no slot");
+                    let other = &g.templates[other_tid.0 as usize].slots[other_index];
+                    other.rules == slot.rules && slot_optional(other) == slot_optional(slot)
+                });
+                cur = match existing {
+                    Some(child) => child,
+                    None => {
+                        nodes.push(SlotTrieNode {
+                            slot: Some((tid, index)),
+                            children: Vec::new(),
+                            terminal: Vec::new(),
+                            below: Vec::new(),
+                        });
+                        let child = nodes.len() - 1;
+                        nodes[cur].children.push(child);
+                        child
+                    }
+                };
+                nodes[cur].below.push(pos);
+            }
+            nodes[cur].terminal.push(pos);
+        }
+        SlotTrie { nodes }
+    }
+
+    fn slot<'g>(&self, g: &'g Grammar, node: usize) -> &'g SlotDef {
+        let (tid, index) = self.nodes[node].slot.expect("only the root has no slot");
+        &g.templates[tid.0 as usize].slots[index]
+    }
 }
 
 impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
@@ -651,6 +720,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             policy,
             trace,
             parent,
+            slot_trie: std::cell::OnceCell::new(),
         }
     }
 
@@ -896,10 +966,20 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if let Some(stats) = self.stats {
             stats.record_template_battery(self.stratum_id, crate::stats::Direction::Analysis);
         }
+        // Tracing keeps the per-template walk, whose begin/end events and slot outcomes are per template.
+        let per_template: Vec<Vec<Word>> = if self.trace.is_tracing() {
+            self.stratum
+                .templates
+                .iter()
+                .map(|&tid| self.analyze_template(tid, input))
+                .collect()
+        } else {
+            self.shared_slot_battery(input)
+        };
         let mut seen: HashMap<WordKey, usize> = HashMap::default();
         let mut out: Vec<Word> = Vec::new();
-        for &tid in &self.stratum.templates {
-            for w in self.analyze_template(tid, input) {
+        for template_out in per_template {
+            for w in template_out {
                 let key = w.dedup_key();
                 match seen.get(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
@@ -921,33 +1001,10 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
     /// Required syntactic features gate admission; only slot analysis changes output features.
     fn analyze_template(&self, tid: TemplateId, input: &Word) -> Vec<Word> {
-        if !self.rule_admitted(RuleRef::Template(tid)) {
+        if !self.template_admits(tid, input) {
             return Vec::new();
         }
         let tmpl = &self.g.templates[tid.0 as usize];
-        // In mixed strata, reject final templates before required-FS admission and slot walking.
-        if self.policy.enforce
-            && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
-            && tmpl.is_final
-        {
-            if let Some(stats) = self.stats {
-                stats.record_final_template_skipped(
-                    self.stratum_id,
-                    crate::stats::Direction::Analysis,
-                );
-            }
-            return Vec::new();
-        }
-        if let Some(stats) = self.stats {
-            stats.record_template_entry(self.stratum_id, crate::stats::Direction::Analysis);
-        }
-        let req = self.g.fs_interner.get(tmpl.required_syn_fs);
-        if !is_unifiable(&input.syn_fs, req) {
-            return Vec::new();
-        }
-        if let Some(stats) = self.stats {
-            stats.record_template_admitted(self.stratum_id, crate::stats::Direction::Analysis);
-        }
         // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
         let node_parent = input.trace.unwrap_or(self.parent);
         if self.trace.is_tracing() {
@@ -966,6 +1023,109 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             slot_outcomes,
         );
         out.into_values().collect()
+    }
+
+    /// The template's admission gates in `AnalysisAffixTemplateRule.Apply` order, recording their stats.
+    fn template_admits(&self, tid: TemplateId, input: &Word) -> bool {
+        if !self.rule_admitted(RuleRef::Template(tid)) {
+            return false;
+        }
+        let tmpl = &self.g.templates[tid.0 as usize];
+        // In mixed strata, reject final templates before required-FS admission and slot walking.
+        if self.policy.enforce
+            && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
+            && tmpl.is_final
+        {
+            if let Some(stats) = self.stats {
+                stats.record_final_template_skipped(
+                    self.stratum_id,
+                    crate::stats::Direction::Analysis,
+                );
+            }
+            return false;
+        }
+        if let Some(stats) = self.stats {
+            stats.record_template_entry(self.stratum_id, crate::stats::Direction::Analysis);
+        }
+        let req = self.g.fs_interner.get(tmpl.required_syn_fs);
+        if !is_unifiable(&input.syn_fs, req) {
+            return false;
+        }
+        if let Some(stats) = self.stats {
+            stats.record_template_admitted(self.stratum_id, crate::stats::Direction::Analysis);
+        }
+        true
+    }
+
+    /// Per-template `analyze_template` outputs, running each shared slot batch once (divergence 095).
+    fn shared_slot_battery(&self, input: &Word) -> Vec<Vec<Word>> {
+        let trie = self
+            .slot_trie
+            .get_or_init(|| SlotTrie::build(self.g, &self.stratum.templates));
+        let admitted: Vec<bool> = self
+            .stratum
+            .templates
+            .iter()
+            .map(|&tid| self.template_admits(tid, input))
+            .collect();
+        let mut outs: Vec<HashMap<WordKey, Word>> =
+            (0..admitted.len()).map(|_| HashMap::default()).collect();
+        if admitted.iter().any(|&a| a) {
+            self.walk_slot_trie(trie, SlotTrie::ROOT, input, &admitted, &mut outs, true);
+        }
+        outs.into_iter()
+            .map(|out| out.into_values().collect())
+            .collect()
+    }
+
+    /// `template_unapply_slots` for every admitted template below `node`; `entered` is false on an optional skip.
+    fn walk_slot_trie(
+        &self,
+        trie: &SlotTrie,
+        node: usize,
+        w: &Word,
+        admitted: &[bool],
+        outs: &mut [HashMap<WordKey, Word>],
+        entered: bool,
+    ) {
+        if entered && self.over_budget() {
+            return;
+        }
+        let here = &trie.nodes[node];
+        for &pos in &here.terminal {
+            if admitted[pos] {
+                outs[pos].entry(w.dedup_key()).or_insert_with(|| w.clone());
+            }
+        }
+        for &child in &here.children {
+            let served = trie.nodes[child]
+                .below
+                .iter()
+                .filter(|&&pos| admitted[pos])
+                .count();
+            if served == 0 {
+                continue;
+            }
+            if !pg_fst::work::consume() {
+                return;
+            }
+            let slot = trie.slot(self.g, child);
+            if served > 1 {
+                if let Some(stats) = self.stats {
+                    stats.record_shared_slot_batch(
+                        self.stratum_id,
+                        crate::stats::Direction::Analysis,
+                        served as u64 - 1,
+                    );
+                }
+            }
+            for (ow, _) in self.apply_slot_batch(slot, w) {
+                self.walk_slot_trie(trie, child, &ow, admitted, outs, true);
+            }
+            if slot_optional(slot) {
+                self.walk_slot_trie(trie, child, w, admitted, outs, false);
+            }
+        }
     }
 
     /// Fires `EndUnapplyTemplate` against `w`'s own resolved cursor, if tracing is on at all.

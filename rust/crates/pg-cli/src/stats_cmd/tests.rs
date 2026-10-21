@@ -112,16 +112,18 @@ fn distinct_prune_counters() -> pg_rules::stats::PruneCounters {
         slot_rule_attempts: 17,
         transduce_runs: 19,
         segs_of_builds: 23,
+        shared_slot_batches: 29,
+        slot_batches_avoided: 31,
     }
 }
 
-const DISTINCT_PRUNE_LINE: &str = "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=2\ttemplate_batteries_skipped=3\tfinal_templates_skipped=5\ttemplate_batteries=7\ttemplates_admitted=11\tslot_batches=13\tslot_rule_attempts=17\ttransduce_runs=19\tsegs_of_builds=23";
+const DISTINCT_PRUNE_LINE: &str = "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=2\ttemplate_batteries_skipped=3\tfinal_templates_skipped=5\ttemplate_batteries=7\ttemplates_admitted=11\tslot_batches=13\tslot_rule_attempts=17\ttransduce_runs=19\tsegs_of_builds=23\tshared_slot_batches=29\tslot_batches_avoided=31";
 
 #[test]
 fn final_template_stats_line_is_deterministic_for_empty_and_nonempty_rows() {
     assert_eq!(
         final_template_stats_line(pg_rules::stats::PruneCounters::default()),
-        "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=0\ttemplate_batteries_skipped=0\tfinal_templates_skipped=0\ttemplate_batteries=0\ttemplates_admitted=0\tslot_batches=0\tslot_rule_attempts=0\ttransduce_runs=0\tsegs_of_builds=0"
+        "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=0\ttemplate_batteries_skipped=0\tfinal_templates_skipped=0\ttemplate_batteries=0\ttemplates_admitted=0\tslot_batches=0\tslot_rule_attempts=0\ttransduce_runs=0\tsegs_of_builds=0\tshared_slot_batches=0\tslot_batches_avoided=0"
     );
     assert_eq!(
         final_template_stats_line(distinct_prune_counters()),
