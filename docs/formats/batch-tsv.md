@@ -1,14 +1,20 @@
-# `pangloss batch` TSV (layout version 2)
+# `pangloss batch` TSV
 
-`pangloss batch <grammar> <words.txt> <out.tsv>` writes one tab-separated result row per word. A
-host can gate on the layout: `pangloss --describe` carries `"schema_version": 2` and
-`"interfaces": {"batchTsv": 2}`. A reader written for describe `schema_version` 1 must refuse a
-binary that reports 2 rather than read its rows.
+`pangloss batch <grammar> <words.txt> <out.tsv>` writes one tab-separated result row per word.
+
+By default a row has 5 columns, or 6 with `--guess`. External adapters, such as the conformance
+suite's driver, depend on exactly that layout. The two parser-work columns appear only when
+`--work-columns` is passed.
+
+A host can find out whether the flag exists. `pangloss --describe` reports
+`"interfaces": {"batchTsv": 2}` and lists `--work-columns` under `batch`. The describe
+`schema_version` stays 1, because the default output did not change. Pass `--work-columns` only
+when `interfaces.batchTsv` is at least 2. An older binary refuses the unknown flag.
 
 ## Result rows
 
 ```
-idx  word  elapsed_ms  status  signature  [guessed]  steps  work_steps
+idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]
 ```
 
 | column | meaning |
@@ -19,12 +25,12 @@ idx  word  elapsed_ms  status  signature  [guessed]  steps  work_steps
 | `status` | `ok`, `CAP` (stopped at the analysis-attempt cap `--step-cap` or the work cap `--work-cap`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` or `false`; present **only** when `--guess` was passed |
-| `steps` | analysis attempts: the quantity `--step-cap` bounds |
-| `work_steps` | parser work: every work unit the word reserved, across analysis, the inner matchers, and confirmation. This is the quantity `--work-cap` bounds |
+| `steps` | present only with `--work-columns`. Analysis attempts: the quantity `--step-cap` bounds |
+| `work_steps` | present only with `--work-columns`. Parser work: every work unit the word reserved, across analysis, the inner matchers and confirmation. This is the quantity `--work-cap` bounds |
 
-The two count columns are always the last two fields. Every earlier column keeps the index it had
-in layout 1, including `guessed` at index 5. So a row has 7 fields without `--guess` and 8 with
-it, and a reader takes `steps` and `work_steps` from the end of the row.
+When present, the two count columns are always the last two fields, and every other column keeps
+its default index, including `guessed` at index 5. With `--work-columns` a row has 7 fields, or 8
+with `--guess`. Read `steps` and `work_steps` from the end of the row.
 
 ### Determinism
 
@@ -45,12 +51,12 @@ cost, for example "these words took 8% less work to parse"; `elapsed_ms` is a se
   word's result row follows it.
 - A watchdog that kills a stalled run may append its own `idx  word  ms  TIMEOUT  -` row (5
   fields, no counts). PanGloss never writes such a row itself.
-- `--start N` appends to an existing `out.tsv`. If that file was written by a PanGloss binary that
-  used layout 1, the file holds both layouts.
+- `--start N` appends to an existing `out.tsv`. If that file was written without
+  `--work-columns`, or by an older binary, the file holds both layouts.
 
 ## Relation to `batch --stats`
 
-The statistics cache's `word` table records the same two counts: `word.attempts` is `steps` and
+The statistics cache's `word` table records the same two counts whether or not `--work-columns` is passed: `word.attempts` is `steps` and
 `word.work` is `work_steps`. The cache schema version is 9 (`run.schema_version` and
 `cache_identity.schema_version`); a cache with another version is wiped and recreated, never
 migrated.

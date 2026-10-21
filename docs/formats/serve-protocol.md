@@ -72,7 +72,7 @@ Every `result` response, in both modes, also carries the word's search counts be
 - `steps`: analysis attempts, the quantity `--step-cap` bounds.
 - `workSteps`: parser work, meaning every work unit the parse reserved. This is the quantity `--work-cap` bounds.
 
-These are the same counts as the `steps` and `work_steps` columns of `pangloss batch` (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.steps` and `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat both fields as optional: older servers omit them.
+These are the same counts as the `steps` and `work_steps` columns that `pangloss batch --work-columns` writes (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.steps` and `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat both fields as optional: older servers omit them.
 
 With `--timing`, a `result` response also carries `"timing":{"parseMs":N,"renderMs":N}`.
 

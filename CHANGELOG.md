@@ -7,15 +7,15 @@ file has no section for.
 
 ### Parser work per word, for comparisons that do not depend on the computer
 
-- `pangloss batch` rows now end with two columns: `steps` (analysis attempts) and `work_steps`
-  (parser work, every work unit the word reserved). Both are deterministic for a grammar, word,
-  cap settings and PanGloss version, so "8% less work to parse these words" means the same thing
-  on any machine. Every earlier column keeps its position, and `guessed` stays at index 5 when
-  `--guess` is passed. A row stopped by `--word-timeout-ms` (`TIMEOUT`) still has wall-clock
-  dependent counts; a `CAP` row's are deterministic. Layout: `docs/formats/batch-tsv.md`.
-- **Breaking for hosts:** `pangloss --describe` now reports `"schema_version": 2` and
-  `"interfaces": {"batchTsv": 2}`. A host that requires `schema_version` 1 refuses this binary
-  instead of misreading the longer rows. Gate on `interfaces.batchTsv >= 2` to read the counts.
+- New `pangloss batch --work-columns` appends two columns to every result row: `steps`
+  (analysis attempts) and `work_steps` (parser work, every work unit the word reserved). Both are
+  deterministic for a grammar, word, cap settings and PanGloss version, so "8% less work to parse
+  these words" means the same thing on any machine. A row stopped by `--word-timeout-ms`
+  (`TIMEOUT`) still has wall-clock dependent counts; a `CAP` row's are deterministic. Without the
+  flag, rows keep the 5-column layout (6 with `--guess`) that external adapters depend on.
+  Layout: `docs/formats/batch-tsv.md`.
+- `pangloss --describe` keeps `"schema_version": 1` and adds `"interfaces": {"batchTsv": 2}`
+  to signal that `--work-columns` exists. Pass the flag only when that value is at least 2.
 - The `batch --stats` cache records each word's work in a new `word.work` column (`word.attempts`
   is unchanged). Cache schema version 9: an older cache is wiped and recreated on the next run.
   `stats --group word` shows `work` and `work%`. A word's `fact.work` rows count shape segments

@@ -171,8 +171,8 @@ struct FactsDescribe {
     stats_manifest_version: u32,
 }
 
-/// The `--describe` version; a host pinned to 1 must refuse, as batch rows now end in two counts (`docs/formats/batch-tsv.md`).
-pub(crate) const DESCRIBE_SCHEMA_VERSION: u32 = 2;
+/// The `--describe` document version; additive capabilities such as `interfaces.batchTsv` do not change it.
+pub(crate) const DESCRIBE_SCHEMA_VERSION: u32 = 1;
 
 /// Wire-protocol versions this binary speaks, so a host can gate on them before launching a mode.
 #[derive(Serialize)]
@@ -255,6 +255,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         name: "--guess",
         takes_value: false,
         summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser",
+    },
+    FlagSpec {
+        name: "--work-columns",
+        takes_value: false,
+        summary: "append each word's steps and work_steps (deterministic parser work) to its TSV row",
     },
     FlagSpec {
         name: "--stats",

@@ -408,7 +408,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
@@ -436,7 +436,8 @@ fn print_usage_and_fail() -> ExitCode {
          docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
          guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
          `batch` adds a `guessed` TSV column after `signature`, both only when --guess is passed.\n\
-         batch TSV rows end with `steps` and `work_steps` (docs/formats/batch-tsv.md).\n\
+         --work-columns (`batch`) appends `steps` and `work_steps` to every result row\n\
+         (docs/formats/batch-tsv.md); off by default, the row layout is unchanged.\n\
          --always-enforce-final-templates is result-changing: enforce template order even\n\
          when partial-rule rescue would otherwise allow an interleaving.",
         env!("CARGO_PKG_VERSION"),
@@ -970,28 +971,36 @@ fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
     dir.join(format!("{stem}-realize.toml"))
 }
 
-/// The batch TSV layout published as `interfaces.batchTsv` in `--describe`.
+/// The batch TSV layout published as `interfaces.batchTsv` in `--describe`; 2 means `--work-columns` exists.
 pub(crate) const BATCH_TSV_VERSION: u32 = 2;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
     /// `Some(guessed)` only when `--guess` was passed.
     guessed: Option<bool>,
-    steps: usize,
-    work_steps: usize,
+    /// `Some((steps, work_steps))` only when `--work-columns` was passed.
+    counts: Option<(usize, usize)>,
 }
 
 impl BatchRowTail {
-    fn new(guess_requested: bool, outcome: &pg_parse::ParseOutcome) -> Self {
+    fn new(flags: BatchRowFlags, outcome: &pg_parse::ParseOutcome) -> Self {
         Self {
-            guessed: guess_requested.then_some(outcome.guessed),
-            steps: outcome.steps,
-            work_steps: outcome.work_steps,
+            guessed: flags.guess.then_some(outcome.guessed),
+            counts: flags
+                .work_columns
+                .then_some((outcome.steps, outcome.work_steps)),
         }
     }
 }
 
-/// Writes one `idx word elapsed_ms status signature [guessed] steps work_steps` row; see `docs/formats/batch-tsv.md`.
+/// The batch flags that add optional TSV columns.
+#[derive(Clone, Copy)]
+struct BatchRowFlags {
+    guess: bool,
+    work_columns: bool,
+}
+
+/// Writes one `idx word elapsed_ms status signature [guessed] [steps work_steps]` row; see `docs/formats/batch-tsv.md`.
 fn write_batch_row<W: Write>(
     w: &mut W,
     idx: usize,
@@ -1005,7 +1014,10 @@ fn write_batch_row<W: Write>(
     if let Some(guessed) = tail.guessed {
         write!(w, "\t{guessed}")?;
     }
-    writeln!(w, "\t{}\t{}", tail.steps, tail.work_steps)
+    if let Some((steps, work_steps)) = tail.counts {
+        write!(w, "\t{steps}\t{work_steps}")?;
+    }
+    writeln!(w)
 }
 
 /// `--guess`'s own parallel batch dispatch, called only when `--guess` was passed, since `hc_parse_batch` has no `ParseOptions` parameter and so cannot express "guess on"; deliberately simpler than that function's longest-surface-first scheduling, using a plain order-preserving `rayon` `par_iter`.
@@ -1156,6 +1168,8 @@ fn run_batch_with_counter(
     let mut analyses_path_arg: Option<String> = None;
     // --guess is default-off; guessed rows are always marked.
     let mut guess = false;
+    // Default-off so the 5/6-column contract external adapters require stays byte-identical.
+    let mut work_columns = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
     let mut always_enforce_final_templates = false;
@@ -1221,6 +1235,7 @@ fn run_batch_with_counter(
                 analyses_path_arg = Some(s["--analyses=".len()..].to_string());
             }
             "--guess" => guess = true,
+            "--work-columns" => work_columns = true,
             "--stats" => stats_requested = true,
             "--always-enforce-final-templates" => always_enforce_final_templates = true,
             "--cache" => {
@@ -1254,7 +1269,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]"
                 .into(),
         );
     };
@@ -1406,6 +1421,10 @@ fn run_batch_with_counter(
     );
     // --guess omitted is exactly ParseOptions::default(), so parse_word_opts below is byte-identical to parse_word(word).
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
+    let row_flags = BatchRowFlags {
+        guess,
+        work_columns,
+    };
     let mut stats_words = Vec::new();
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
@@ -1639,7 +1658,7 @@ fn run_batch_with_counter(
                 elapsed_ms,
                 status,
                 &signature,
-                BatchRowTail::new(guess, &outcome),
+                BatchRowTail::new(row_flags, &outcome),
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
@@ -1729,7 +1748,7 @@ fn run_batch_with_counter(
                 elapsed_ms,
                 status,
                 &signature,
-                BatchRowTail::new(guess, &r.outcome),
+                BatchRowTail::new(row_flags, &r.outcome),
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {

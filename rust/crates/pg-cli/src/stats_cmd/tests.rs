@@ -215,8 +215,8 @@ fn stable_batch_fields(tsv: &str) -> Vec<Vec<String>> {
             continue;
         }
         assert!(
-            matches!(columns.len(), 7 | 8),
-            "batch TSV result row must have seven or eight columns: {line:?}"
+            matches!(columns.len(), 5 | 6),
+            "batch TSV result row must have five or six columns: {line:?}"
         );
         rows.push(
             columns
@@ -514,7 +514,12 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
 
     let conn = rusqlite::Connection::open(&cache_path).unwrap();
     let words = pg_stats::per_word_report(&conn).unwrap();
-    let row: Vec<&str> = tsv_stats.lines().last().unwrap().split('\t').collect();
+    let counted_dir = scratch_dir("tsv-work-columns");
+    let (counted_args, counted_out) =
+        run_batch_args(&counted_dir, &grammar_xml, &words_text, &["--work-columns"]);
+    crate::run_batch(&counted_args).expect("work-columns batch run");
+    let counted_tsv = fs::read_to_string(&counted_out).expect("read work-columns tsv");
+    let row: Vec<&str> = counted_tsv.lines().last().unwrap().split('\t').collect();
     assert_eq!(words.len(), 1);
     assert!(words[0].work > words[0].attempts, "{:?}", words[0]);
     assert_eq!(

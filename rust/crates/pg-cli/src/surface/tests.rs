@@ -83,6 +83,7 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(spec.flag("--word-timeout-ms").is_some());
     assert!(spec.flag("--analyses").is_some());
     assert!(spec.flag("--stats-manifest").is_some());
+    assert!(spec.flag("--work-columns").is_some_and(|f| !f.takes_value));
 
     let value: serde_json::Value =
         serde_json::to_value(super::describe_doc()).expect("Describe must serialize");
@@ -115,7 +116,7 @@ fn describe_json_publishes_the_facts_identity_contract() {
     assert_eq!(value["facts"]["contextVersion"], 1);
     assert!(find_command("facts").is_some());
     assert_eq!(value["interfaces"]["serveProtocol"], 1);
-    assert_eq!(value["schema_version"], 2);
+    assert_eq!(value["schema_version"], 1);
     assert_eq!(value["interfaces"]["batchTsv"], 2);
     assert!(find_command("serve").is_some());
 }
