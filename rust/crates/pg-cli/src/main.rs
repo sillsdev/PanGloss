@@ -522,8 +522,6 @@ fn load_grammar_impl(
             let stats_source_identity = capture_stats_identity
                 .then(|| stats_manifest::SourceIdentity::from_snapshot_source(&json, &snapshot))
                 .transpose()?;
-            let metadata =
-                capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
             let output = pg_grammar::compile_project_with(&snapshot, Default::default()).map_err(
                 |error| {
                     compile_failure::GrammarLoadError::Compile(Box::new(
@@ -531,6 +529,8 @@ fn load_grammar_impl(
                     ))
                 },
             )?;
+            let metadata =
+                capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "snapshot"));
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,
@@ -567,8 +567,6 @@ fn load_grammar_impl(
                 .transpose()?;
             let mut import_warnings = report.warnings;
             import_warnings.extend(snapshot.validate());
-            let metadata =
-                capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
             let output = pg_grammar::compile_project_with_options_and_import_warnings(
                 &snapshot,
                 Default::default(),
@@ -579,6 +577,8 @@ fn load_grammar_impl(
                     compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
                 ))
             })?;
+            let metadata =
+                capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "fwdata"));
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,

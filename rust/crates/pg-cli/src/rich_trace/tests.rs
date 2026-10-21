@@ -253,7 +253,7 @@ fn authored_morph_keeps_lexeme_headword_when_citation_is_absent() {
     let expected = lexeme.forms[0].form.clone();
     let msa_id = entry.msas[0].guid().to_string();
     let morph = super::rich_morph(
-        Some(&snapshot),
+        &super::RichCtx::new(Some(&snapshot)),
         &pg_parse::ParseMorph {
             form: Some(form_id.clone()),
             msa: Some(msa_id),
@@ -739,3 +739,46 @@ fn morpheme_co_occurrence_rejection_preserves_the_ordered_partner_list() {
 
 #[path = "tests/prerelease_evidence_tests.rs"]
 mod prerelease_evidence_tests;
+
+#[test]
+fn render_indexes_resolve_the_first_linear_match() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let (snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    let ctx = super::RichCtx::new(Some(&snapshot));
+    let entries = &snapshot.lexicon.entries;
+    let mut checked = 0;
+    for allomorph in entries.iter().flat_map(|entry| &entry.allomorphs) {
+        let (entry, found) = entries
+            .iter()
+            .find_map(|entry| {
+                entry
+                    .allomorphs
+                    .iter()
+                    .find(|a| a.guid == allomorph.guid)
+                    .map(|a| (entry, a))
+            })
+            .unwrap();
+        let (indexed_entry, indexed) = ctx.allomorph_by_guid[allomorph.guid.as_str()];
+        assert!(std::ptr::eq(entry, indexed_entry) && std::ptr::eq(found, indexed));
+        checked += 1;
+    }
+    for msa in entries.iter().flat_map(|entry| &entry.msas) {
+        let found = entries
+            .iter()
+            .flat_map(|entry| &entry.msas)
+            .find(|m| m.guid() == msa.guid())
+            .unwrap();
+        assert!(std::ptr::eq(found, ctx.msa_by_guid[msa.guid()]));
+        let sense = entries
+            .iter()
+            .flat_map(|entry| &entry.senses)
+            .find(|s| s.msa.as_deref() == Some(msa.guid()));
+        assert_eq!(
+            sense.map(|s| s as *const _),
+            ctx.sense_by_msa.get(msa.guid()).map(|s| *s as *const _)
+        );
+        checked += 1;
+    }
+    assert!(checked > 0);
+}
