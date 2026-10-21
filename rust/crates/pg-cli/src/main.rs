@@ -1,7 +1,7 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates[=true|false]]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
 //! preserving partial projections when a cap or timeout fires.
@@ -366,6 +366,15 @@ fn parse_work_cap(value: &str) -> Result<StepCap, String> {
     })
 }
 
+/// The value of a `--flag=true|false` override of a project parser setting.
+fn parse_bool_flag(flag: &str, value: &str) -> Result<bool, String> {
+    match value {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!("invalid {flag}={value} (expected true or false)")),
+    }
+}
+
 fn resolved_work_cap(step_cap: StepCap, work_cap: Option<StepCap>) -> usize {
     work_cap.map_or_else(
         || pg_rules::stratum::default_work_cap(step_cap.as_morpher_cap()),
@@ -408,7 +417,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
@@ -439,7 +448,9 @@ fn print_usage_and_fail() -> ExitCode {
          --work-columns (`batch`) appends `steps` and `work_steps` to every result row\n\
          (docs/formats/batch-tsv.md); off by default, the row layout is unchanged.\n\
          --always-enforce-final-templates is result-changing: enforce template order even\n\
-         when partial-rule rescue would otherwise allow an interleaving.",
+         when partial-rule rescue would otherwise allow an interleaving. A FieldWorks project\n\
+         sets it with <HC><MakePartialsFinal>; an explicit flag overrides the project, and\n\
+         without the flag the project's value (default false) applies.",
         env!("CARGO_PKG_VERSION"),
         REPORT_DEVELOPER_HELP
     );
@@ -1172,7 +1183,8 @@ fn run_batch_with_counter(
     let mut work_columns = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
-    let mut always_enforce_final_templates = false;
+    // None defers to the project's own `<HC><MakePartialsFinal>` once the grammar is loaded.
+    let mut always_enforce_final_templates_arg: Option<bool> = None;
     let mut cache_path_arg: Option<String> = None;
     let mut stats_manifest_path_arg: Option<String> = None;
     let mut it = args.iter();
@@ -1237,7 +1249,13 @@ fn run_batch_with_counter(
             "--guess" => guess = true,
             "--work-columns" => work_columns = true,
             "--stats" => stats_requested = true,
-            "--always-enforce-final-templates" => always_enforce_final_templates = true,
+            "--always-enforce-final-templates" => always_enforce_final_templates_arg = Some(true),
+            s if s.starts_with("--always-enforce-final-templates=") => {
+                always_enforce_final_templates_arg = Some(parse_bool_flag(
+                    "--always-enforce-final-templates",
+                    &s["--always-enforce-final-templates=".len()..],
+                )?);
+            }
             "--cache" => {
                 let v = it.next().ok_or("--cache requires a value")?;
                 cache_path_arg = Some(v.clone());
@@ -1269,7 +1287,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
                 .into(),
         );
     };
@@ -1298,6 +1316,8 @@ fn run_batch_with_counter(
     let stats_identities =
         stats_requested.then(|| pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar));
     print_grammar_warnings(&warnings);
+    let always_enforce_final_templates =
+        always_enforce_final_templates_arg.unwrap_or(grammar.always_enforce_final_templates);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
     let stats_cache_path = if stats_requested {
         Some(

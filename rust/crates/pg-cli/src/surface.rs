@@ -279,7 +279,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--always-enforce-final-templates",
         takes_value: false,
-        summary: "enforce template order even where partial-rule rescue would allow interleaving",
+        summary: "enforce template order even where partial-rule rescue would allow interleaving; =false turns it off; overrides the project's <HC><MakePartialsFinal>, which applies when the flag is absent",
     },
 ];
 

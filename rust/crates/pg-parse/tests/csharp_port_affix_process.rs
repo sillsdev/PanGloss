@@ -828,6 +828,32 @@ fn partial_rule() {
         "enforced sagstv identity (same inner rescue dependency as sagds)",
     );
 
+    // The same policy carried by the grammar (FieldWorks `<HC><MakePartialsFinal>`), with no builder call.
+    assert!(!g.always_enforce_final_templates, "HC XML cannot carry it");
+    let mut project_enforced = build_grammar("", "", mrules, "mrS mrNom mrU", templates_final);
+    project_enforced.always_enforce_final_templates = true;
+    let from_grammar = Morpher::new(&project_enforced, usize::MAX);
+    for (word, expected, what) in [
+        ("sagds", &[][..], "grammar-enforced sagds"),
+        ("sagstv", &[][..], "grammar-enforced sagstv"),
+        ("sags", &sags_identity[..], "grammar-enforced sags"),
+    ] {
+        assert_identity_multiset_eq(
+            &project_enforced,
+            &from_grammar.parse_word(word),
+            expected,
+            what,
+        );
+    }
+    let flag_off =
+        Morpher::new(&project_enforced, usize::MAX).with_always_enforce_final_templates(false);
+    assert_identity_multiset_eq(
+        &project_enforced,
+        &flag_off.parse_word("sagds"),
+        &sagds_identity,
+        "an explicit false overrides the grammar",
+    );
+
     // Rule-level partial markers protect rescue paths; lexical-entry partial markers do not, proven below by identity multiset rather than emptiness alone.
     let nonpartial_rules = mrules.replace(" partial=\"true\"", "");
     let mut nonpartial = build_grammar("", "", &nonpartial_rules, "mrS mrNom mrU", templates_final);

@@ -2189,6 +2189,19 @@ fn max_roots_parser_parameter_reaches_the_grammar_and_defaults_to_two() {
 }
 
 #[test]
+fn make_partials_final_parser_parameter_reaches_the_grammar() {
+    let (default_snapshot, _f) = fixture();
+    let (default_grammar, _) = compile_project(&default_snapshot).expect("must compile");
+    assert!(!default_grammar.always_enforce_final_templates);
+
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.make_partials_final = true;
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert!(grammar.always_enforce_final_templates);
+}
+
+#[test]
 fn absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed() {
     let (snapshot, _f) = fixture();
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");

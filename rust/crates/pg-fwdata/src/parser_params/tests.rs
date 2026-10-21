@@ -281,6 +281,41 @@ fn hc_max_roots_is_read_from_the_hc_element_apart_from_xample_max_roots() {
 }
 
 #[test]
+fn make_partials_final_is_read_from_the_hc_element_and_defaults_to_false() {
+    let read = |xml: &str| parse_with_issues(Some(xml)).unwrap();
+    for (raw, expected) in [
+        ("true", true),
+        ("True", true),
+        ("1", true),
+        (" false ", false),
+        ("0", false),
+    ] {
+        let (params, issues, presence) = read(&format!(
+            "<ParserParameters><HC><MakePartialsFinal>{raw}</MakePartialsFinal></HC></ParserParameters>"
+        ));
+        assert_eq!(params.make_partials_final, expected, "{raw:?}");
+        assert!(issues.is_empty());
+        assert_eq!(presence.hc_fields, vec![("MakePartialsFinal", true)]);
+    }
+    let (absent, _, _) = read("<ParserParameters><HC/></ParserParameters>");
+    assert!(!absent.make_partials_final);
+}
+
+#[test]
+fn malformed_make_partials_final_is_fatal_and_names_the_field_and_value() {
+    let err = parse_with_issues(Some(
+        "<ParserParameters><HC><MakePartialsFinal>yes</MakePartialsFinal></HC></ParserParameters>",
+    ))
+    .unwrap_err();
+    let ImportError::InvalidSource { code, message } = err else {
+        panic!("expected InvalidSource, got {err:?}");
+    };
+    assert_eq!(code, codes::INVALID_PARSER_PARAMETER);
+    assert!(message.contains("HC.MakePartialsFinal"), "{message}");
+    assert!(message.contains("\"yes\""), "{message}");
+}
+
+#[test]
 fn malformed_hc_max_roots_is_fatal_and_names_the_field_and_value() {
     for bad in ["two", "2.5", "99999999999"] {
         let err = parse_with_issues(Some(&format!(

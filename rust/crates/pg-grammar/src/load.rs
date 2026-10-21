@@ -569,6 +569,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         strata,
         deletion_reapplications: 0,
         max_stem_count: 2,
+        always_enforce_final_templates: false,
     };
     grammar.final_template_prune_facts()?;
     Ok(grammar)

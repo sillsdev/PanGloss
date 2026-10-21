@@ -426,6 +426,9 @@ pub struct ParserParameters {
     /// ← `<HC><MaxRoots>`: C# `Morpher.MaxStemCount`, set by `HCParser.LoadParser`. `None` when the element is absent, which means the C# default 2; a source value below 1 behaves as 1 in C# and is stored as 1. Distinct from `XAmpleParameters::max_roots`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_roots: Option<u32>,
+    /// ← `<HC><MakePartialsFinal>`, default `false`: C# `Morpher.AlwaysEnforceFinalTemplates`, set by `HCParser.LoadParser`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub make_partials_final: bool,
     /// The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`)
     /// — `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is
     /// compiler policy over this string, not separate data, so T3 re-parses it the same way.
@@ -448,6 +451,10 @@ fn is_zero(value: &u32) -> bool {
     *value == 0
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 impl Default for ParserParameters {
     /// Mirrors `HCLoader`'s constructor defaults when no `<ParserParameters><HC>` block is present at all.
     fn default() -> Self {
@@ -457,6 +464,7 @@ impl Default for ParserParameters {
             no_default_compounding: false,
             deletion_reapplications: 0,
             max_roots: None,
+            make_partials_final: false,
             strata: None,
             compound_rule_max_applications: Vec::new(),
             active_parser: ActiveParser::XAmple,

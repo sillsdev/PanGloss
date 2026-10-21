@@ -429,7 +429,7 @@ impl<'g> Morpher<'g> {
         Morpher {
             g,
             final_template_facts,
-            always_enforce_final_templates: false,
+            always_enforce_final_templates: g.always_enforce_final_templates,
             root_index: RootAllomorphIndex::build(g),
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
@@ -499,7 +499,10 @@ impl<'g> Morpher<'g> {
         roots
     }
 
-    /// Enforce final-template ordering even in strata with partial-rule rescue paths.
+    /// Override whether final-template ordering is enforced even in strata with partial-rule
+    /// rescue paths (C# `Morpher.AlwaysEnforceFinalTemplates`). Without this call the policy is
+    /// the grammar's own `Grammar::always_enforce_final_templates`: FieldWorks
+    /// `<HC><MakePartialsFinal>`, or `false`.
     pub fn with_always_enforce_final_templates(mut self, enforce: bool) -> Self {
         self.always_enforce_final_templates = enforce;
         self

@@ -404,6 +404,7 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 | `noDefaultCompounding` | boolean | `<NoDefaultCompounding>`, default `false` |
 | `deletionReapplications` | integer | `<HC><DelReapps>`, default `0`, omitted when `0`; C# `Morpher.DeletionReapplications` (extra analysis passes of deletion rules); negative source values are stored as `0` |
 | `maxRoots` | integer, optional | `<HC><MaxRoots>` (not `<XAmple><MaxRoots>`), omitted when absent, which means C# `Morpher.MaxStemCount`'s default `2`; values below `1` are stored as `1`, which C# treats identically |
+| `makePartialsFinal` | boolean | `<HC><MakePartialsFinal>`, default `false`, omitted when `false`; C# `Morpher.AlwaysEnforceFinalTemplates` (enforce final templates even when some morphemes are partial) |
 | `strata` | string, optional | The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`). `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is compiler policy over this string; T3 re-parses it the same way. `None`/absent means the default stratum layout (`Morphology`, `Clitics`, `Surface`) applies. |
 | `compoundRuleMaxApplications` | `{compoundRule: guid, maxApplications: integer}[]` | `<CompoundRules>`'s per-rule `maxApps` attribute, keyed by `MoCompoundRule` guid (HCLoader.cs:103-112). A compound rule with no entry here defaults to `maxApplications = 1` (HCLoader.cs:1894). |
 

@@ -693,6 +693,68 @@ fn fwdata_load_keeps_structured_warnings_and_collapses_import_compile_duplicates
     );
 }
 
+/// The synthetic `.fwdata` fixture with `extra` spliced into its escaped `<ParserParameters><HC>` string.
+fn fwdata_fixture_with_hc_settings(tag: &str, extra: &str) -> std::path::PathBuf {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    // The same dangling-environment repair `fwdata_load_keeps_structured_warnings_and_collapses_import_compile_duplicates` makes, so the fixture compiles.
+    let xml = fs::read_to_string(&fixture)
+        .expect("read synthetic fixture")
+        .replace(
+            "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+            "guid=\"00000000-0000-0000-0000-000000000017\"",
+        );
+    let anchor = "&lt;HC&gt;&lt;NotOnClitics&gt;";
+    assert!(xml.contains(anchor), "the fixture's <HC> block moved");
+    let xml = xml.replace(anchor, &format!("&lt;HC&gt;{extra}&lt;NotOnClitics&gt;"));
+    let path = scratch_dir(tag).join("fixture.fwdata");
+    fs::write(&path, xml).expect("write adjusted synthetic fixture");
+    path
+}
+
+#[test]
+fn project_make_partials_final_reaches_batch_and_an_explicit_flag_overrides_it() {
+    let project = fwdata_fixture_with_hc_settings(
+        "make-partials-final",
+        "&lt;MakePartialsFinal&gt;true&lt;/MakePartialsFinal&gt;",
+    );
+    let project_arg = project.to_string_lossy().into_owned();
+    let (grammar, _) = load_grammar(&project_arg).expect("fixture loads");
+    assert!(grammar.always_enforce_final_templates);
+
+    let dir = project.parent().unwrap().to_path_buf();
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let cache = dir.join("cache.sqlite3");
+    let run = |extra: &[&str]| {
+        let mut args = vec![
+            project_arg.clone(),
+            words.to_string_lossy().into_owned(),
+            dir.join("out.tsv").to_string_lossy().into_owned(),
+            "--threads".into(),
+            "1".into(),
+            "--stats".into(),
+            "--cache".into(),
+            cache.to_string_lossy().into_owned(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        run_batch(&args)
+    };
+    run(&[]).expect("the project's own value records into a fresh cache");
+    run(&["--always-enforce-final-templates"]).expect("an explicit true agrees with the project");
+    let err = run(&["--always-enforce-final-templates=false"])
+        .expect_err("an explicit false must override the project's true");
+    assert!(
+        err.contains("records always_enforce_final_templates=true but requested false"),
+        "{err}"
+    );
+    let err = run(&["--always-enforce-final-templates=maybe"]).unwrap_err();
+    assert!(
+        err.contains("--always-enforce-final-templates=maybe"),
+        "{err}"
+    );
+}
+
 /// End-to-end `--guess` gate through `run_batch` itself, covering both `--threads` writer paths, using the same synthetic lexical-pattern grammar shape as the engine-level guesser conformance gate.
 mod guess_tests {
     use super::run_batch_tsv_custom;

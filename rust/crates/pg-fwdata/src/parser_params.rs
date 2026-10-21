@@ -170,6 +170,13 @@ pub fn parse_with_issues(
     );
     let deletion_reapplications = hc_delete_reapps(hc, &mut hc_fields_present)?;
     let max_roots = hc_max_roots(hc, &mut hc_fields_present)?;
+    let make_partials_final = hc_parser_bool(
+        hc,
+        "MakePartialsFinal",
+        "Make partials final",
+        &mut hc_fields_present,
+    )?
+    .unwrap_or(false);
     let strata = hc.and_then(|hc| hc.child("Strata")).map(|s| s.text.clone());
 
     let compound_rule_max_applications = params_elem
@@ -196,6 +203,7 @@ pub fn parse_with_issues(
             no_default_compounding,
             deletion_reapplications,
             max_roots,
+            make_partials_final,
             strata,
             compound_rule_max_applications,
             active_parser,
@@ -232,6 +240,30 @@ fn hc_max_roots(
 ) -> Result<Option<u32>, ImportError> {
     let value = hc_int(hc, "MaxRoots", "Maximum roots", "1 to 10", presence)?;
     Ok(value.map(|value| value.max(1) as u32))
+}
+
+/// A boolean `<HC>` setting `HCParser.LoadParser` reads with `(bool) element`: `None` when absent. That cast accepts `true`/`false`/`1`/`0` in any case and throws otherwise, and FieldWorks then loads no parser, so anything else is fatal here, naming the field and the value.
+fn hc_parser_bool(
+    hc: Option<&crate::node::Node>,
+    tag: &'static str,
+    label: &str,
+    presence: &mut Vec<(&'static str, bool)>,
+) -> Result<Option<bool>, ImportError> {
+    let Some(child) = hc.and_then(|hc| hc.child(tag)) else {
+        return Ok(None);
+    };
+    let value = child
+        .bool_text()
+        .ok_or_else(|| ImportError::InvalidSource {
+            code: codes::INVALID_PARSER_PARAMETER,
+            message: format!(
+                "Parser parameter 'HC.{tag}' ({label}) has the value {:?}, which is not true or \
+             false; set it in the FieldWorks parser parameters.",
+                child.text
+            ),
+        })?;
+    presence.push((tag, true));
+    Ok(Some(value))
 }
 
 /// An integer `<HC>` setting `HCParser.LoadParser` reads with `(int)` or `int.Parse`: `None` when absent. Both C# reads throw on a non-integer and FieldWorks then loads no parser, so it is fatal here too, naming the field and the value.

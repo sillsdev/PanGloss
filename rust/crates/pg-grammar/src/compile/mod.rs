@@ -87,7 +87,7 @@ pub use options::{CompileOptions, SemanticLossPolicy};
 const DEFAULT_MAX_STEM_COUNT: u32 = 2;
 
 /// `HCParser.LoadParser` settings copied onto `Grammar` for `pg_parse::Morpher`, each always authored because each has a FieldWorks default.
-pub(crate) const MORPHER_SETTINGS: &[&str] = &["maxStemCount"];
+pub(crate) const MORPHER_SETTINGS: &[&str] = &["maxStemCount", "alwaysEnforceFinalTemplates"];
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
@@ -619,6 +619,7 @@ pub(crate) fn compile_project_recording(
             .parser_parameters
             .max_roots
             .unwrap_or(DEFAULT_MAX_STEM_COUNT),
+        always_enforce_final_templates: snapshot.morphology.parser_parameters.make_partials_final,
     };
 
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
