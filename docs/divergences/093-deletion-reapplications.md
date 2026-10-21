@@ -9,7 +9,7 @@ Status: fixed-in-rust. Rust now runs C#'s `1 + DeletionReapplications` passes. T
 
 ## Rust site
 
-`pg-rules/src/rewrite.rs::reapply_deletion`, wrapping the `Kind::Narrow` arm of `analyze`, `analyze_traced`, `analyze_cached` and `analyze_cached_traced`, reading `Grammar::deletion_reapplications` (`pg-grammar-model`). The value comes from `ParserParameters::deletion_reapplications` (`pg-snapshot`), imported by `pg-fwdata/src/parser_params.rs` from `<HC><DelReapps>` and copied by `pg-grammar/src/compile/mod.rs`. A negative value behaves as 0 in C# (`j > DR` breaks after one pass) and is stored as 0; a non-integer is an `INVALID_PARSER_PARAMETER` warning that keeps 0, where C# throws. HC XML (`pg-grammar/src/load.rs`) sets 0.
+`pg-rules/src/rewrite.rs::reapply_deletion`, wrapping the `Kind::Narrow` arm of `analyze`, `analyze_traced`, `analyze_cached` and `analyze_cached_traced`, reading `Grammar::deletion_reapplications` (`pg-grammar-model`). The value comes from `ParserParameters::deletion_reapplications` (`pg-snapshot`), imported by `pg-fwdata/src/parser_params.rs` from `<HC><DelReapps>` and copied by `pg-grammar/src/compile/mod.rs`. A negative value behaves as 0 in C# (`j > DR` breaks after one pass) and is stored as 0; a non-integer fails the import with `INVALID_PARSER_PARAMETER`, naming `HC.DelReapps` and the bad value, because C# throws there and loads no parser (C# surfaces only .NET's generic format message; the named wording is PanGloss's own and changes no parse). HC XML (`pg-grammar/src/load.rs`) sets 0.
 
 ## What changed
 
@@ -21,7 +21,7 @@ Only for a grammar with `DelReapps > 0`, where it adds the analyses C# adds. At 
 
 ## Coverage
 
-`pg-parse/tests/csharp_port_rewrite.rs::deletion_rules_deletion_reapplications` ports the `DeletionRules` `DeletionReapplications = 1` reconfiguration (`bubu` gains entry 27, `buiibuii`); it fails with the loop reverted to one pass. `pg-fwdata` `del_reapps_is_read_from_the_hc_element_and_defaults_to_zero` and `malformed_del_reapps_warns_and_keeps_zero` pin the import; `pg-grammar` `deletion_reapplications_parser_parameter_reaches_the_grammar` pins the compile.
+`pg-parse/tests/csharp_port_rewrite.rs::deletion_rules_deletion_reapplications` ports the `DeletionRules` `DeletionReapplications = 1` reconfiguration (`bubu` gains entry 27, `buiibuii`); it fails with the loop reverted to one pass. `pg-fwdata` `del_reapps_is_read_from_the_hc_element_and_defaults_to_zero` and `malformed_del_reapps_is_fatal_and_names_the_field_and_value` pin the import; `pg-grammar` `deletion_reapplications_parser_parameter_reaches_the_grammar` pins the compile.
 
 ## Open
 

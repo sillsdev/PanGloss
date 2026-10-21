@@ -243,13 +243,15 @@ fn del_reapps_is_read_from_the_hc_element_and_defaults_to_zero() {
 }
 
 #[test]
-fn malformed_del_reapps_warns_and_keeps_zero() {
-    let (params, issues, presence) = parse_with_issues(Some(
+fn malformed_del_reapps_is_fatal_and_names_the_field_and_value() {
+    let err = parse_with_issues(Some(
         "<ParserParameters><HC><DelReapps>many</DelReapps></HC></ParserParameters>",
     ))
-    .unwrap();
-    assert_eq!(params.deletion_reapplications, 0);
-    assert_eq!(issues.len(), 1);
-    assert_eq!(issues[0].code, codes::INVALID_PARSER_PARAMETER.wire());
-    assert_eq!(presence.hc_fields, vec![("DelReapps", false)]);
+    .unwrap_err();
+    let ImportError::InvalidSource { code, message } = err else {
+        panic!("expected InvalidSource, got {err:?}");
+    };
+    assert_eq!(code, codes::INVALID_PARSER_PARAMETER);
+    assert!(message.contains("HC.DelReapps"), "{message}");
+    assert!(message.contains("\"many\""), "{message}");
 }
