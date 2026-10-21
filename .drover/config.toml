@@ -1,0 +1,21 @@
+schema_version = 1
+
+[scripts]
+test = ".drover/scripts/test.ps1"
+
+[run]
+platforms = ["windows", "wsl"]
+default = "windows"
+
+[gate]
+platform = "windows"
+timeout_s = 5400
+idle_s = 1800
+
+[review]
+model = "sonnet-5.5"
+high_risk_model = "opus-5.5"
+
+[land]
+policy = "batch"
+push = false
