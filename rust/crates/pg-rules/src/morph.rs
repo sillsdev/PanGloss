@@ -69,6 +69,27 @@ fn record_mrule_reach(
     );
 }
 
+/// `record_mrule_reach` for an analysis allomorph or subrule, whose match ran one FST traversal.
+fn record_analysis_reach(
+    mstats: Option<MRuleStatsCtx>,
+    index: u32,
+    segments: u64,
+    outputs: u64,
+    reached: &mut u32,
+) {
+    if let Some(ctx) = mstats {
+        ctx.record_transduce_run();
+    }
+    record_mrule_reach(mstats, index, segments, outputs, reached);
+}
+
+/// Counts one analysis-side `segs_of` construction on the rule's stratum.
+fn record_analysis_segs_of(mstats: Option<MRuleStatsCtx>) {
+    if let Some(ctx) = mstats {
+        ctx.record_segs_of_build();
+    }
+}
+
 /// Attributes a whole rule invocation (gated before the loop, or zero allomorphs reached) to `ALLOMORPH_NONE`.
 fn record_mrule_none_residual(mstats: Option<MRuleStatsCtx>, segments: u64) {
     let Some(ctx) = mstats else { return };
@@ -563,6 +584,7 @@ fn ana_affix_cached_traced(
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -593,7 +615,7 @@ fn ana_affix_cached_traced(
             output.push(w);
         }
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
         if output.len() == before {
             trace.morphological_rule_not_unapplied(
                 parent,
@@ -633,6 +655,7 @@ fn ana_realizational_cached_traced(
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -663,7 +686,7 @@ fn ana_realizational_cached_traced(
             output.push(w);
         }
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
         if output.len() == before {
             trace.morphological_rule_not_unapplied(
                 parent,
@@ -703,6 +726,7 @@ fn ana_compound_cached_traced(
     };
     let table = crate::cache::owning_table_for_mrule(g, mrid).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
@@ -748,7 +772,7 @@ fn ana_compound_cached_traced(
             output.push(w);
         }
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
         if output.len() == before {
             trace.compounding_rule_not_unapplied(
                 parent,
@@ -2585,6 +2609,7 @@ fn ana_affix(
     // Resolved once per call — see `synth_affix`'s twin site.
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -2608,7 +2633,7 @@ fn ana_affix(
             prune_disagreeing_copies,
         ));
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
@@ -2629,6 +2654,7 @@ fn ana_affix_cached(
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -2655,7 +2681,7 @@ fn ana_affix_cached(
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
@@ -2830,6 +2856,7 @@ fn ana_realizational(
     // Resolved once per call — see `synth_affix`'s twin site.
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -2853,7 +2880,7 @@ fn ana_realizational(
             prune_disagreeing_copies,
         ));
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
@@ -2874,6 +2901,7 @@ fn ana_realizational_cached(
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
@@ -2900,7 +2928,7 @@ fn ana_realizational_cached(
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
@@ -3400,6 +3428,7 @@ fn ana_compound(
     };
     let table = crate::cache::owning_table_for_compounding_rule(g, rule).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
@@ -3426,7 +3455,7 @@ fn ana_compound(
             None,
         ));
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
@@ -3449,6 +3478,7 @@ fn ana_compound_cached(
     };
     let table = crate::cache::owning_table_for_mrule(g, mrid).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
+    record_analysis_segs_of(mstats);
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
@@ -3479,7 +3509,7 @@ fn ana_compound_cached(
         ));
         drop(_sr_time);
         let n = (output.len() - before) as u64;
-        record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
+        record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output

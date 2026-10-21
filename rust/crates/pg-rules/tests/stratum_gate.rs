@@ -804,6 +804,20 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
             .any(|row| row.counters.template_entries > 0),
         "template entry is diagnostic traffic, not a prune effect"
     );
+    let mut battery = pg_rules::stats::PruneCounters::default();
+    for row in &disabled_rows {
+        battery.accumulate(&row.counters);
+    }
+    for (name, value) in [
+        ("template_batteries", battery.template_batteries),
+        ("templates_admitted", battery.templates_admitted),
+        ("slot_batches", battery.slot_batches),
+        ("slot_rule_attempts", battery.slot_rule_attempts),
+        ("transduce_runs", battery.transduce_runs),
+        ("segs_of_builds", battery.segs_of_builds),
+    ] {
+        assert!(value > 0, "battery counter {name} never fired: {battery:?}");
+    }
 
     let stats = pg_rules::stats::StatsCollector::new(&g);
     let enforced = analyze_stratum_filtered_ruled_traced_with_policy(

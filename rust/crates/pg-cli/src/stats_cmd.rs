@@ -371,12 +371,19 @@ struct StatsOptionsRecord {
 }
 
 fn final_template_stats_line(counters: pg_rules::stats::PruneCounters) -> String {
-    format!(
-        "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries={}\ttemplate_batteries_skipped={}\tfinal_templates_skipped={}",
-        counters.template_entries,
-        counters.template_batteries_skipped,
-        counters.final_templates_skipped,
-    )
+    let mut line = String::from("FINAL_TEMPLATE_STATS_NEWLY_ANALYZED");
+    for (name, value) in counters.named_fields() {
+        line.push_str(&format!("\t{name}={value}"));
+    }
+    line
+}
+
+fn sum_prune_rows(rows: &[pg_rules::stats::PruneRow]) -> pg_rules::stats::PruneCounters {
+    let mut total = pg_rules::stats::PruneCounters::default();
+    for row in rows {
+        total.accumulate(&row.counters);
+    }
+    total
 }
 
 /// Flushes HC `batch --stats` records in batches and prints the one summary line it promises.
@@ -461,12 +468,7 @@ pub(crate) fn batch_stats_word(
     rows: &[pg_rules::stats::StatsRow],
     prune_rows: &[pg_rules::stats::PruneRow],
 ) -> BatchStatsWord {
-    let mut prunes = pg_rules::stats::PruneCounters::default();
-    for row in prune_rows {
-        prunes.template_entries += row.counters.template_entries;
-        prunes.template_batteries_skipped += row.counters.template_batteries_skipped;
-        prunes.final_templates_skipped += row.counters.final_templates_skipped;
-    }
+    let prunes = sum_prune_rows(prune_rows);
     let facts = rows
         .iter()
         .map(|row| fact_record_from_stats_row(grammar, identities, row))
@@ -698,9 +700,7 @@ pub(crate) fn finish_batch_stats_hc(
                 .contains(stats_word.record.form.as_str())
         })
         .map(|stats_word| {
-            prune_totals.template_entries += stats_word.prunes.template_entries;
-            prune_totals.template_batteries_skipped += stats_word.prunes.template_batteries_skipped;
-            prune_totals.final_templates_skipped += stats_word.prunes.final_templates_skipped;
+            prune_totals.accumulate(&stats_word.prunes);
             total_elapsed_ns += u128::from(stats_word.record.elapsed_ns);
             stats_word.record
         })
@@ -756,9 +756,7 @@ pub(crate) fn finish_frozen_batch_stats_hc(
     let records: Vec<_> = stats_words
         .into_iter()
         .map(|stats_word| {
-            prune_totals.template_entries += stats_word.prunes.template_entries;
-            prune_totals.template_batteries_skipped += stats_word.prunes.template_batteries_skipped;
-            prune_totals.final_templates_skipped += stats_word.prunes.final_templates_skipped;
+            prune_totals.accumulate(&stats_word.prunes);
             total_elapsed_ns += u128::from(stats_word.record.elapsed_ns);
             stats_word.record
         })

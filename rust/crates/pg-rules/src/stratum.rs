@@ -893,6 +893,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
     /// The template battery: non-disjunctive union of every affix template's output, deduped by key.
     fn run_template_batch(&self, input: &Word) -> Vec<Word> {
+        if let Some(stats) = self.stats {
+            stats.record_template_battery(self.stratum_id, crate::stats::Direction::Analysis);
+        }
         let mut seen: HashMap<WordKey, usize> = HashMap::default();
         let mut out: Vec<Word> = Vec::new();
         for &tid in &self.stratum.templates {
@@ -941,6 +944,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let req = self.g.fs_interner.get(tmpl.required_syn_fs);
         if !is_unifiable(&input.syn_fs, req) {
             return Vec::new();
+        }
+        if let Some(stats) = self.stats {
+            stats.record_template_admitted(self.stratum_id, crate::stats::Direction::Analysis);
         }
         // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
         let node_parent = input.trace.unwrap_or(self.parent);
@@ -1058,6 +1064,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<(Word, MRuleId)> {
         let mut seen: HashMap<WordKey, usize> = HashMap::default();
         let mut out: Vec<(Word, MRuleId)> = Vec::new();
+        if let Some(stats) = self.stats {
+            stats.record_slot_batch(
+                self.stratum_id,
+                crate::stats::Direction::Analysis,
+                slot.rules.len() as u64,
+            );
+        }
         for &rid in &slot.rules {
             for w in self.apply_one_mrule(rid, in_word, RuleInvocationRole::TemplateSlot) {
                 let key = w.dedup_key();

@@ -100,20 +100,52 @@ fn primary_fixture() -> (String, String) {
     fixture_grammar_and_word("languages", "metathesis-phase-isolation")
 }
 
+/// Every field set to a distinct prime, so a dropped or swapped field changes the output.
+fn distinct_prune_counters() -> pg_rules::stats::PruneCounters {
+    pg_rules::stats::PruneCounters {
+        template_entries: 2,
+        template_batteries_skipped: 3,
+        final_templates_skipped: 5,
+        template_batteries: 7,
+        templates_admitted: 11,
+        slot_batches: 13,
+        slot_rule_attempts: 17,
+        transduce_runs: 19,
+        segs_of_builds: 23,
+    }
+}
+
+const DISTINCT_PRUNE_LINE: &str = "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=2\ttemplate_batteries_skipped=3\tfinal_templates_skipped=5\ttemplate_batteries=7\ttemplates_admitted=11\tslot_batches=13\tslot_rule_attempts=17\ttransduce_runs=19\tsegs_of_builds=23";
+
 #[test]
 fn final_template_stats_line_is_deterministic_for_empty_and_nonempty_rows() {
     assert_eq!(
         final_template_stats_line(pg_rules::stats::PruneCounters::default()),
-        "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=0\ttemplate_batteries_skipped=0\tfinal_templates_skipped=0"
+        "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=0\ttemplate_batteries_skipped=0\tfinal_templates_skipped=0\ttemplate_batteries=0\ttemplates_admitted=0\tslot_batches=0\tslot_rule_attempts=0\ttransduce_runs=0\tsegs_of_builds=0"
     );
     assert_eq!(
-        final_template_stats_line(pg_rules::stats::PruneCounters {
-            template_entries: 2,
-            template_batteries_skipped: 3,
-            final_templates_skipped: 5,
-        }),
-        "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=2\ttemplate_batteries_skipped=3\tfinal_templates_skipped=5"
+        final_template_stats_line(distinct_prune_counters()),
+        DISTINCT_PRUNE_LINE
     );
+}
+
+#[test]
+fn every_prune_counter_survives_row_and_word_summation_into_the_printed_line() {
+    let row = |stratum: u8| pg_rules::stats::PruneRow {
+        stratum: pg_grammar::model::StratumId(stratum),
+        direction: pg_rules::stats::Direction::Analysis,
+        counters: distinct_prune_counters(),
+    };
+    let per_word = sum_prune_rows(&[row(0), row(1)]);
+    let mut doubled = distinct_prune_counters();
+    doubled.accumulate(&distinct_prune_counters());
+    assert_eq!(per_word, doubled);
+    for (name, value) in per_word.named_fields() {
+        assert_ne!(value, 0, "{name} was dropped by row summation");
+    }
+    let mut run_total = pg_rules::stats::PruneCounters::default();
+    run_total.accumulate(&distinct_prune_counters());
+    assert_eq!(final_template_stats_line(run_total), DISTINCT_PRUNE_LINE);
 }
 
 fn seed_policy_cache(path: &std::path::Path, options_json: &str) -> pg_stats::StatsCache {

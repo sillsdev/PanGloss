@@ -123,13 +123,84 @@ pub struct StatsRow {
     pub counters: Counters,
 }
 
-/// Effect counters for final-template interleaving decisions, kept separate from morphological
-/// rule rows because a skipped template is not a rule attempt.
+/// Per-stratum effect counters for final-template interleaving decisions and the affix-template
+/// battery's work, kept separate from morphological rule rows because a skipped template or a
+/// slot batch is not a rule attempt.
+///
+/// `transduce_runs` and `segs_of_builds` count every analysis-side affix, realizational and
+/// compounding rule invocation, not only those reached from a template slot, so a change confined
+/// to slot batches shows as a reduction of a stratum-wide total.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct PruneCounters {
     pub template_entries: u64,
     pub template_batteries_skipped: u64,
     pub final_templates_skipped: u64,
+    /// Template batteries executed: one per battery that passed its all-final gate.
+    pub template_batteries: u64,
+    /// Templates whose admission gates all passed, so a slot walk started.
+    pub templates_admitted: u64,
+    /// Slot `RuleBatch` evaluations: one rule-list pass over one input word.
+    pub slot_batches: u64,
+    /// Rule invocations made from slot batches, before the rule's own gates.
+    pub slot_rule_attempts: u64,
+    /// Analysis-side morphological FST traversals: one per allomorph or subrule matched.
+    pub transduce_runs: u64,
+    /// Analysis-side morphological input segment-vector constructions.
+    pub segs_of_builds: u64,
+}
+
+impl PruneCounters {
+    /// Adds every field of `other` into `self`.
+    pub fn accumulate(&mut self, other: &PruneCounters) {
+        // Exhaustive destructure: a new field that is not summed here fails to compile.
+        let PruneCounters {
+            template_entries,
+            template_batteries_skipped,
+            final_templates_skipped,
+            template_batteries,
+            templates_admitted,
+            slot_batches,
+            slot_rule_attempts,
+            transduce_runs,
+            segs_of_builds,
+        } = *other;
+        self.template_entries += template_entries;
+        self.template_batteries_skipped += template_batteries_skipped;
+        self.final_templates_skipped += final_templates_skipped;
+        self.template_batteries += template_batteries;
+        self.templates_admitted += templates_admitted;
+        self.slot_batches += slot_batches;
+        self.slot_rule_attempts += slot_rule_attempts;
+        self.transduce_runs += transduce_runs;
+        self.segs_of_builds += segs_of_builds;
+    }
+
+    /// Every field paired with its report name, in declaration order.
+    pub fn named_fields(&self) -> [(&'static str, u64); 9] {
+        // Exhaustive destructure: a new field that is not reported here fails to compile.
+        let PruneCounters {
+            template_entries,
+            template_batteries_skipped,
+            final_templates_skipped,
+            template_batteries,
+            templates_admitted,
+            slot_batches,
+            slot_rule_attempts,
+            transduce_runs,
+            segs_of_builds,
+        } = *self;
+        [
+            ("template_entries", template_entries),
+            ("template_batteries_skipped", template_batteries_skipped),
+            ("final_templates_skipped", final_templates_skipped),
+            ("template_batteries", template_batteries),
+            ("templates_admitted", templates_admitted),
+            ("slot_batches", slot_batches),
+            ("slot_rule_attempts", slot_rule_attempts),
+            ("transduce_runs", transduce_runs),
+            ("segs_of_builds", segs_of_builds),
+        ]
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -272,6 +343,18 @@ pub struct MRuleStatsCtx<'a> {
 }
 
 impl<'a> MRuleStatsCtx<'a> {
+    /// Records one FST traversal of this rule's input on its stratum's battery-work row.
+    pub fn record_transduce_run(self) {
+        self.stats
+            .record_transduce_run(self.stratum, self.direction);
+    }
+
+    /// Records one segment-vector construction for this rule's input.
+    pub fn record_segs_of_build(self) {
+        self.stats
+            .record_segs_of_build(self.stratum, self.direction);
+    }
+
     /// Times the rule's allomorph or subrule at zero-based `index`, on row `index + 1`.
     pub fn time_allomorph(self, index: usize) -> ObjectTimeGuard<'a> {
         self.stats.time_enter(
@@ -372,6 +455,33 @@ impl StatsCollector {
     /// Record one final template rejected before template entry/walk.
     pub fn record_final_template_skipped(&self, stratum: StratumId, direction: Direction) {
         self.prune_cell(stratum, direction).final_templates_skipped += 1;
+    }
+
+    /// Record one template battery executed.
+    pub fn record_template_battery(&self, stratum: StratumId, direction: Direction) {
+        self.prune_cell(stratum, direction).template_batteries += 1;
+    }
+
+    /// Record one template admitted to its slot walk.
+    pub fn record_template_admitted(&self, stratum: StratumId, direction: Direction) {
+        self.prune_cell(stratum, direction).templates_admitted += 1;
+    }
+
+    /// Record one slot batch evaluated, with the number of rule invocations it made.
+    pub fn record_slot_batch(&self, stratum: StratumId, direction: Direction, rule_attempts: u64) {
+        let mut cell = self.prune_cell(stratum, direction);
+        cell.slot_batches += 1;
+        cell.slot_rule_attempts += rule_attempts;
+    }
+
+    /// Record one analysis-side morphological FST traversal.
+    pub fn record_transduce_run(&self, stratum: StratumId, direction: Direction) {
+        self.prune_cell(stratum, direction).transduce_runs += 1;
+    }
+
+    /// Record one analysis-side morphological input segment-vector construction.
+    pub fn record_segs_of_build(&self, stratum: StratumId, direction: Direction) {
+        self.prune_cell(stratum, direction).segs_of_builds += 1;
     }
 
     /// Enter a per-object self-time region, booked at `(kind, stratum, object_index, allomorph,
