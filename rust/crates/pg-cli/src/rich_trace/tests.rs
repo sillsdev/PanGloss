@@ -253,7 +253,7 @@ fn authored_morph_keeps_lexeme_headword_when_citation_is_absent() {
     let expected = lexeme.forms[0].form.clone();
     let msa_id = entry.msas[0].guid().to_string();
     let morph = super::rich_morph(
-        Some(&snapshot),
+        &super::RichCtx::new(Some(&snapshot)),
         &pg_parse::ParseMorph {
             form: Some(form_id.clone()),
             msa: Some(msa_id),
@@ -739,3 +739,116 @@ fn morpheme_co_occurrence_rejection_preserves_the_ordered_partner_list() {
 
 #[path = "tests/prerelease_evidence_tests.rs"]
 mod prerelease_evidence_tests;
+
+#[test]
+fn render_indexes_resolve_the_first_linear_match() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let (snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    let ctx = super::RichCtx::new(Some(&snapshot));
+    let entries = &snapshot.lexicon.entries;
+    let mut checked = 0;
+    for allomorph in entries.iter().flat_map(|entry| &entry.allomorphs) {
+        let (entry, found) = entries
+            .iter()
+            .find_map(|entry| {
+                entry
+                    .allomorphs
+                    .iter()
+                    .find(|a| a.guid == allomorph.guid)
+                    .map(|a| (entry, a))
+            })
+            .unwrap();
+        let (indexed_entry, indexed) = ctx.allomorph_by_guid[allomorph.guid.as_str()];
+        assert!(std::ptr::eq(entry, indexed_entry) && std::ptr::eq(found, indexed));
+        checked += 1;
+    }
+    for msa in entries.iter().flat_map(|entry| &entry.msas) {
+        let found = entries
+            .iter()
+            .flat_map(|entry| &entry.msas)
+            .find(|m| m.guid() == msa.guid())
+            .unwrap();
+        assert!(std::ptr::eq(found, ctx.msa_by_guid[msa.guid()]));
+        let sense = entries
+            .iter()
+            .flat_map(|entry| &entry.senses)
+            .find(|s| s.msa.as_deref() == Some(msa.guid()));
+        assert_eq!(
+            sense.map(|s| s as *const _),
+            ctx.sense_by_msa.get(msa.guid()).map(|s| *s as *const _)
+        );
+        checked += 1;
+    }
+    assert!(checked > 0);
+}
+
+#[test]
+fn render_indexes_keep_first_match_on_duplicates() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let (mut snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    let template = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .find(|e| !e.allomorphs.is_empty() && !e.msas.is_empty() && !e.senses.is_empty())
+        .unwrap()
+        .clone();
+    let msa = template.msas[0].guid().to_string();
+    let sense = |guid: &str, msa: Option<&str>| {
+        let mut s = template.senses[0].clone();
+        s.guid = guid.to_string();
+        s.msa = msa.map(str::to_string);
+        s
+    };
+    let mut first = template.clone();
+    first.guid = "e1".into();
+    first.senses = vec![
+        sense("s-none", None),
+        sense("s-first", Some(&msa)),
+        sense("s-second", Some(&msa)),
+    ];
+    let mut second = template.clone();
+    second.guid = "e2".into();
+    second.senses = vec![sense("s-other-entry", Some(&msa))];
+    let mut empty = template.clone();
+    empty.guid = "e3".into();
+    empty.senses.clear();
+    snapshot.lexicon.entries = vec![first, second, empty];
+
+    let ctx = super::RichCtx::new(Some(&snapshot));
+    let entries = &snapshot.lexicon.entries;
+    for allomorph in entries.iter().flat_map(|e| &e.allomorphs) {
+        let (entry, found) = entries
+            .iter()
+            .find_map(|e| {
+                e.allomorphs
+                    .iter()
+                    .find(|a| a.guid == allomorph.guid)
+                    .map(|a| (e, a))
+            })
+            .unwrap();
+        let (ie, ia) = ctx.allomorph_by_guid[allomorph.guid.as_str()];
+        assert!(std::ptr::eq(entry, ie) && std::ptr::eq(found, ia));
+        assert_eq!(ie.guid, "e1");
+    }
+    for m in entries.iter().flat_map(|e| &e.msas) {
+        let found = entries
+            .iter()
+            .flat_map(|e| &e.msas)
+            .find(|x| x.guid() == m.guid())
+            .unwrap();
+        assert!(std::ptr::eq(found, ctx.msa_by_guid[m.guid()]));
+        let linear = entries
+            .iter()
+            .flat_map(|e| &e.senses)
+            .find(|s| s.msa.as_deref() == Some(m.guid()));
+        assert_eq!(
+            linear.map(|s| s as *const _),
+            ctx.sense_by_msa.get(m.guid()).map(|s| *s as *const _)
+        );
+    }
+    assert_eq!(ctx.sense_by_msa[msa.as_str()].guid, "s-first");
+    assert_eq!(ctx.sense_by_msa.len(), 1);
+}

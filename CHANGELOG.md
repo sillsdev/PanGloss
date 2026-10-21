@@ -5,6 +5,19 @@ file has no section for.
 
 ## Unreleased
 
+### `pangloss serve`: a resident parser for try-a-word
+
+- New `pangloss serve --project <path>` loads and compiles a project once, then answers
+  line-delimited JSON `parse` requests on stdin with the same output `pangloss parse` prints plus
+  its exit code, so a host pays the 7-9 s load once instead of per word. Protocol version 1 is
+  specified in `docs/formats/serve-protocol.md` and declared as `interfaces.serveProtocol` in
+  `--describe`. Parse output and the cold `parse` path are unchanged.
+
+### Faster trace rendering
+
+- Rendering a rich trace no longer dominates large traces: `--trace-details` on katigulangan
+  dropped from 89.7 s to 11.4 s. The rendered document is unchanged.
+
 ## 0.8.10
 
 ### Publish the featured segment-identity fix

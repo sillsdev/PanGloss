@@ -151,6 +151,7 @@ pub mod readiness_verdict;
 #[cfg(feature = "foma-tools")]
 mod recipe_optimize;
 mod rich_trace;
+mod serve;
 mod stats_cmd;
 mod stats_manifest;
 mod stored_analysis_health;
@@ -410,6 +411,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
+         usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--json]\n\
          usage: pangloss fst-health <grammar> [<out.json>]\n\
@@ -509,6 +511,7 @@ fn load_grammar_impl(
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
+    let t_phase = Instant::now();
     match ext {
         "json" => {
             let json = if capture_metadata {
@@ -519,11 +522,11 @@ fn load_grammar_impl(
             };
             let snapshot = pg_snapshot::Snapshot::from_json(&json)
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
+            serve::record_ms(&serve::IMPORT_MS, t_phase);
             let stats_source_identity = capture_stats_identity
                 .then(|| stats_manifest::SourceIdentity::from_snapshot_source(&json, &snapshot))
                 .transpose()?;
-            let metadata =
-                capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
+            let t_compile = Instant::now();
             let output = pg_grammar::compile_project_with(&snapshot, Default::default()).map_err(
                 |error| {
                     compile_failure::GrammarLoadError::Compile(Box::new(
@@ -531,6 +534,9 @@ fn load_grammar_impl(
                     ))
                 },
             )?;
+            serve::record_ms(&serve::COMPILE_MS, t_compile);
+            let metadata =
+                capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "snapshot"));
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,
@@ -548,6 +554,7 @@ fn load_grammar_impl(
             };
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
+            serve::record_ms(&serve::IMPORT_MS, t_phase);
             let stored_analyses = report.stored_analyses;
             if let Some(source_bytes) = source_bytes.as_deref() {
                 let bytes_after_import =
@@ -567,8 +574,7 @@ fn load_grammar_impl(
                 .transpose()?;
             let mut import_warnings = report.warnings;
             import_warnings.extend(snapshot.validate());
-            let metadata =
-                capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
+            let t_compile = Instant::now();
             let output = pg_grammar::compile_project_with_options_and_import_warnings(
                 &snapshot,
                 Default::default(),
@@ -579,6 +585,9 @@ fn load_grammar_impl(
                     compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
                 ))
             })?;
+            serve::record_ms(&serve::COMPILE_MS, t_compile);
+            let metadata =
+                capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "fwdata"));
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,
