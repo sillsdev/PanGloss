@@ -1,7 +1,7 @@
 //! `pangloss serve`: loads a project once, then answers line-delimited JSON parse requests on stdin/stdout.
 //! Protocol: `docs/formats/serve-protocol.md`.
 
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -147,28 +147,31 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         opts: &opts,
         metadata: &metadata,
         timing: parsed.timing,
+        guess: parsed.guess,
     };
-    let stdin = std::io::stdin();
-    let mut input = stdin.lock();
-    let mut buf = Vec::new();
+    let requests = spawn_reader();
     loop {
-        buf.clear();
-        match input.read_until(b'\n', &mut buf) {
-            Ok(0) => return ExitCode::SUCCESS,
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("pangloss serve: read stdin: {e}");
-                return ExitCode::FAILURE;
-            }
-        }
-        let (response, stop) = match std::str::from_utf8(&buf) {
-            Ok(line) if line.trim().is_empty() => continue,
-            Ok(line) => handle_line(&ctx, line.trim()),
-            Err(_) => (
+        let Ok(item) = requests.recv() else {
+            return ExitCode::SUCCESS;
+        };
+        let (response, stop) = match item {
+            Request::Line(buf) => match std::str::from_utf8(&buf) {
+                Ok(line) if line.trim().is_empty() => continue,
+                Ok(line) => handle_line(&ctx, line.trim()),
+                Err(_) => (
+                    error_response(
+                        &Value::Null,
+                        "malformed_json",
+                        "request line is not valid UTF-8",
+                    ),
+                    false,
+                ),
+            },
+            Request::TooLarge => (
                 error_response(
                     &Value::Null,
-                    "malformed_json",
-                    "request line is not valid UTF-8",
+                    "request_too_large",
+                    &format!("request line exceeds {MAX_REQUEST_BYTES} bytes"),
                 ),
                 false,
             ),
@@ -182,12 +185,67 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
     }
 }
 
+/// The longest accepted request line, newline excluded.
+const MAX_REQUEST_BYTES: usize = 1 << 20;
+
+enum Request {
+    Line(Vec<u8>),
+    TooLarge,
+}
+
+/// Reads stdin on its own thread so end of input is noticed even while a parse runs: EOF exits the whole process at once, abandoning any in-flight or queued request.
+fn spawn_reader() -> std::sync::mpsc::Receiver<Request> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("serve-stdin".into())
+        .spawn(move || {
+            let stdin = std::io::stdin();
+            let mut input = stdin.lock();
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                let read = (&mut input)
+                    .take(MAX_REQUEST_BYTES as u64 + 2)
+                    .read_until(b'\n', &mut buf);
+                match read {
+                    Ok(0) => std::process::exit(0),
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("pangloss serve: read stdin: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                let terminated = buf.last() == Some(&b'\n');
+                let body_len = buf.len() - usize::from(terminated);
+                let item = if body_len > MAX_REQUEST_BYTES {
+                    let mut ended = terminated;
+                    while !ended {
+                        buf.clear();
+                        match (&mut input).take(1 << 16).read_until(b'\n', &mut buf) {
+                            Ok(0) | Err(_) => std::process::exit(0),
+                            Ok(_) => ended = buf.last() == Some(&b'\n'),
+                        }
+                    }
+                    Request::TooLarge
+                } else {
+                    Request::Line(std::mem::take(&mut buf))
+                };
+                if tx.send(item).is_err() {
+                    return;
+                }
+            }
+        })
+        .expect("spawn serve stdin reader");
+    rx
+}
+
 struct Context<'a> {
     grammar: &'a Grammar,
     morpher: &'a Morpher<'a>,
     opts: &'a pg_parse::ParseOptions,
     metadata: &'a rich_trace::TraceMetadata,
     timing: bool,
+    guess: bool,
 }
 
 fn error_response(id: &Value, code: &str, message: &str) -> Value {
@@ -253,8 +311,8 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             };
             let outcome = catch_unwind(AssertUnwindSafe(|| parse_word(ctx, word, details)));
             let response = match outcome {
-                Ok(Ok((result, parse_ms, render_ms))) => {
-                    let mut r = json!({"id": id, "type": "result", "result": result});
+                Ok(Ok((result, exit_code, parse_ms, render_ms))) => {
+                    let mut r = json!({"id": id, "type": "result", "exitCode": exit_code, "result": result});
                     if ctx.timing {
                         r["timing"] = json!({"parseMs": parse_ms, "renderMs": render_ms});
                     }
@@ -276,12 +334,12 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
     }
 }
 
-/// The same work `pangloss parse <grammar> <word> --trace --trace-format json [--trace-details]` does after loading; `Ok` carries the JSON document, `parse_ms` and `render_ms`.
+/// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`. `Ok` carries the cold stdout (a JSON document, or the verbatim text for `false`), the cold exit code, `parse_ms` and `render_ms`.
 fn parse_word(
     ctx: &Context,
     word: &str,
     details: bool,
-) -> Result<(Value, u64, u64), (&'static str, String)> {
+) -> Result<(Value, i32, u64, u64), (&'static str, String)> {
     let render_err = |e: String| ("render_failed", e);
     if details {
         let sink = pg_rules::trace::TreeTraceSink::with_failure_context();
@@ -303,20 +361,25 @@ fn parse_word(
         .map_err(render_err)?;
         let render_ms = (started.elapsed().as_millis() as u64).saturating_sub(parse_ms);
         let value = serde_json::from_str(&rendered).map_err(|e| render_err(e.to_string()))?;
-        return Ok((value, parse_ms, render_ms));
+        return Ok((value, 0, parse_ms, render_ms));
     }
     let sink = pg_rules::trace::TreeTraceSink::new();
     let started = Instant::now();
     let outcome = ctx.morpher.parse_word_traced(word, ctx.opts, &sink);
     let parse_ms = started.elapsed().as_millis() as u64;
-    crate::require_complete_parse(&outcome).map_err(|e| ("parse_incomplete", e))?;
     let render_started = Instant::now();
-    let value = match sink.root() {
-        Some(root) => {
-            let rendered = crate::trace_render::render_json(ctx.grammar, &sink, root);
-            serde_json::from_str(&rendered).map_err(|e| render_err(e.to_string()))?
-        }
-        None => Value::Null,
-    };
-    Ok((value, parse_ms, render_started.elapsed().as_millis() as u64))
+    let mut stdout = format!("{}\t{}\n", word, outcome.signature());
+    if ctx.guess {
+        stdout.push_str(&format!("guessed:\t{}\n", outcome.guessed));
+    }
+    if let Some(root) = sink.root() {
+        stdout.push_str(&crate::trace_render::render_json(ctx.grammar, &sink, root));
+    }
+    let exit_code = i32::from(crate::require_complete_parse(&outcome).is_err());
+    Ok((
+        Value::String(stdout),
+        exit_code,
+        parse_ms,
+        render_started.elapsed().as_millis() as u64,
+    ))
 }

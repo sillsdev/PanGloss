@@ -96,40 +96,51 @@ fn strip_timing(value: &mut Value) {
     }
 }
 
-fn cold(project: &str, word: &str, details: bool) -> Value {
+/// The cold command's stdout and exit code.
+fn cold_raw(project: &str, word: &str, details: bool, extra: &[&str]) -> (String, i32) {
     let mut args = vec!["parse", project, word, "--trace", "--trace-format", "json"];
     if details {
         args.push("--trace-details");
     }
+    args.extend_from_slice(extra);
     let output = Command::new(BIN).args(&args).output().unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    // Without --trace-details the document follows the `word<TAB>signature` line.
-    let body = if details {
-        stdout.as_str()
-    } else {
-        stdout.split_once('\n').map_or("", |(_, rest)| rest)
-    };
-    if body.trim().is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_str(body).unwrap_or_else(|e| panic!("cold output not JSON ({e}): {body}"))
-    }
+    (
+        String::from_utf8(output.stdout).unwrap(),
+        output.status.code().unwrap(),
+    )
 }
 
-fn assert_warm_equals_cold(server: &mut Server, project: &str, word: &str, details: bool) -> usize {
+/// Asserts the warm response is a result whose `exitCode` and `result` equal the cold command's, ignoring wall-clock fields; returns the cold stdout size.
+fn assert_warm_equals_cold(
+    server: &mut Server,
+    project: &str,
+    word: &str,
+    details: bool,
+    extra: &[&str],
+) -> usize {
     let response = server.parse(word, word, details);
     assert_eq!(response["type"], "result", "{word}: {response}");
     assert_eq!(response["id"], word);
-    let mut warm = response["result"].clone();
-    let mut cold = cold(project, word, details);
-    let size = cold.to_string().len();
-    strip_timing(&mut warm);
-    strip_timing(&mut cold);
+    let (stdout, code) = cold_raw(project, word, details, extra);
     assert_eq!(
-        warm, cold,
-        "{word} (traceDetails={details}): warm differs from cold"
+        response["exitCode"], code,
+        "{word} (traceDetails={details}): exit code"
     );
-    size
+    if details {
+        let mut warm = response["result"].clone();
+        let mut cold: Value =
+            serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("cold not JSON ({e})"));
+        strip_timing(&mut warm);
+        strip_timing(&mut cold);
+        assert_eq!(warm, cold, "{word}: warm differs from cold");
+    } else {
+        assert_eq!(
+            response["result"],
+            Value::String(stdout.clone()),
+            "{word}: stdout text"
+        );
+    }
+    stdout.len()
 }
 
 #[test]
@@ -157,7 +168,13 @@ fn warm_trace_details_equal_cold_parse_for_words_and_non_words() {
         "q",
         "zodutzodutzodut",
     ] {
-        largest = largest.max(assert_warm_equals_cold(&mut server, &project, word, true));
+        largest = largest.max(assert_warm_equals_cold(
+            &mut server,
+            &project,
+            word,
+            true,
+            &[],
+        ));
     }
     assert!(
         largest > 2_000,
@@ -178,25 +195,72 @@ fn a_repeated_word_gives_the_same_result_each_time() {
 }
 
 #[test]
-fn warm_trace_tree_equals_cold_parse_without_trace_details() {
+fn warm_plain_mode_equals_cold_stdout_exactly() {
     let project = data("trace-family.xml");
     let (mut server, _) = Server::start(&project, &[]);
-    let mut seen = 0;
-    for word in ["zodut", "vem", "kib"] {
-        let response = server.parse(word, word, false);
-        if response["type"] == "error" {
-            assert_eq!(response["code"], "parse_incomplete", "{response}");
-            continue;
-        }
-        let mut warm = response["result"].clone();
-        let mut cold = cold(&project, word, false);
-        strip_timing(&mut warm);
-        strip_timing(&mut cold);
-        assert_eq!(warm, cold, "{word}");
-        seen += 1;
+    for word in ["zodut", "vem", "kib", "xqzzkt"] {
+        assert_warm_equals_cold(&mut server, &project, word, false, &[]);
     }
-    assert!(seen > 0, "at least one word must produce a trace tree");
     assert!(server.finish().success());
+}
+
+#[test]
+fn an_incomplete_parse_is_a_result_with_the_cold_exit_code() {
+    let project = data("trace-family.xml");
+    let (mut server, _) = Server::start(&project, &["--step-cap", "3"]);
+    assert_warm_equals_cold(&mut server, &project, "zodut", true, &["--step-cap", "3"]);
+    let r = server.parse("p", "zodut", false);
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["exitCode"], 1);
+    assert_warm_equals_cold(&mut server, &project, "zodut", false, &["--step-cap", "3"]);
+    assert!(server.finish().success());
+}
+
+#[test]
+fn guessed_words_match_cold_in_both_modes() {
+    let project = data("trace-guess.xml");
+    let (mut server, _) = Server::start(&project, &["--guess"]);
+    assert_warm_equals_cold(&mut server, &project, "gag", true, &["--guess"]);
+    assert_warm_equals_cold(&mut server, &project, "gag", false, &["--guess"]);
+    let r = server.parse("g", "gag", false);
+    assert!(
+        r["result"].as_str().unwrap().contains("guessed:\ttrue\n"),
+        "{r}"
+    );
+    assert!(server.finish().success());
+}
+
+#[test]
+fn an_oversized_request_line_is_refused_and_the_server_keeps_running() {
+    let (mut server, _) = Server::start(&data("trace-family.xml"), &[]);
+    server.send_raw(&"x".repeat((1 << 20) + 10));
+    let r = server.read_line();
+    assert_eq!(
+        (r["type"].as_str(), r["code"].as_str()),
+        (Some("error"), Some("request_too_large"))
+    );
+    let r = server.parse("after", "vem", true);
+    assert_eq!(r["type"], "result");
+    assert!(server.finish().success());
+}
+
+#[test]
+fn closing_stdin_during_a_long_parse_exits_promptly() {
+    let (mut server, _) = Server::start(&data("trace-family.xml"), &[]);
+    let word = "zodut".repeat(3000);
+    server.send_raw(
+        &json!({"id": "slow", "op": "parse", "word": word, "traceDetails": true}).to_string(),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let started = std::time::Instant::now();
+    drop(server.stdin.take());
+    let status = server.child.wait().unwrap();
+    assert!(status.success());
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[test]
