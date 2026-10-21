@@ -84,6 +84,17 @@ impl FixtureRef {
             .unwrap_or_else(|e| panic!("{}: read grammar.xml: {e}", self.dir.display()))
     }
 
+    /// `grammar.xml` loaded with the fixture's `morpher:` block applied, so a `pg_parse::Morpher`
+    /// built from it runs under the settings the fixture's expectations were observed under.
+    /// Loading the XML with `pg_grammar::load` directly runs every fixture at the defaults;
+    /// [`replay_against_oracle`] reports that as a mismatch for a fixture with a block.
+    pub fn load_grammar(&self) -> pg_grammar_model::model::Grammar {
+        let mut grammar = pg_grammar::load(&self.load_grammar_xml())
+            .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", self.label()));
+        self.load_words_yaml().morpher.apply_to(&mut grammar);
+        grammar
+    }
+
     pub fn load_words_yaml(&self) -> WordsYaml {
         let text = std::fs::read_to_string(self.words_yaml_path())
             .unwrap_or_else(|e| panic!("{}: read words.yaml: {e}", self.dir.display()));
@@ -417,7 +428,126 @@ pub struct WordsYaml {
     /// replay in this repo's default (<60s) suite skips these the same way.
     pub budget_ms: Option<u64>,
     pub fieldworks_producible: FieldworksProducibility,
+    /// The `morpher:` block (`PROTOCOL.md` section 8); empty when absent, meaning the defaults.
+    pub morpher: MorpherSettings,
     pub words: Vec<WordEntry>,
+}
+
+/// The `requires` capability a fixture with a `morpher:` block must declare (`PROTOCOL.md` section 5).
+pub const MORPHER_SETTINGS_CAPABILITY: &str = "morpher-settings";
+
+/// A fixture's `morpher:` block: `Morpher` host settings its expectations were observed under,
+/// keyed by the FieldWorks `<ParserParameters><HC>` element names (`PROTOCOL.md` section 8). `None`
+/// means the C# constructor default. Parsing refuses any other key, an empty block, an
+/// out-of-range count and a non-boolean flag, because a setting this harness cannot apply must
+/// not fall back to the default it was meant to override.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MorpherSettings {
+    /// `DelReapps` -> `Grammar::deletion_reapplications`.
+    pub del_reapps: Option<u32>,
+    /// `MaxRoots` (at least 1) -> `Grammar::max_stem_count`.
+    pub max_roots: Option<u32>,
+    /// `MergeAnalyses` -> `Grammar::merge_equivalent_analyses`.
+    pub merge_analyses: Option<bool>,
+    /// `MakePartialsFinal` -> `Grammar::always_enforce_final_templates`.
+    pub make_partials_final: Option<bool>,
+}
+
+impl MorpherSettings {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Writes every declared value onto `grammar`, where `pg_parse::Morpher::new` reads it.
+    pub fn apply_to(&self, grammar: &mut pg_grammar_model::model::Grammar) {
+        if let Some(value) = self.del_reapps {
+            grammar.deletion_reapplications = value;
+        }
+        if let Some(value) = self.max_roots {
+            grammar.max_stem_count = value;
+        }
+        if let Some(value) = self.merge_analyses {
+            grammar.merge_equivalent_analyses = value;
+        }
+        if let Some(value) = self.make_partials_final {
+            grammar.always_enforce_final_templates = value;
+        }
+    }
+
+    /// Each declared key whose value `morpher` does not run with, as `key: declared X, morpher Y`.
+    pub fn unapplied(&self, morpher: &pg_parse::Morpher) -> Vec<String> {
+        let mut unapplied = Vec::new();
+        let mut check = |key: &str, declared: Option<String>, actual: String| {
+            if let Some(declared) = declared {
+                if declared != actual {
+                    unapplied.push(format!("{key}: declared {declared}, morpher {actual}"));
+                }
+            }
+        };
+        check(
+            "DelReapps",
+            self.del_reapps.map(|v| v.to_string()),
+            morpher.deletion_reapplications().to_string(),
+        );
+        check(
+            "MaxRoots",
+            self.max_roots.map(|v| v.to_string()),
+            morpher.max_stem_count().to_string(),
+        );
+        check(
+            "MergeAnalyses",
+            self.merge_analyses.map(|v| v.to_string()),
+            morpher.merge_equivalent_analyses().to_string(),
+        );
+        check(
+            "MakePartialsFinal",
+            self.make_partials_final.map(|v| v.to_string()),
+            morpher.always_enforce_final_templates().to_string(),
+        );
+        unapplied
+    }
+
+    fn from_yaml(value: &serde_yaml::Value) -> Result<Self, String> {
+        let serde_yaml::Value::Mapping(map) = value else {
+            return Err("morpher: expected a mapping".to_string());
+        };
+        if map.is_empty() {
+            return Err("morpher: an empty block means the defaults; omit it instead".to_string());
+        }
+        let mut settings = Self::default();
+        for (key, value) in map {
+            let Some(key) = key.as_str() else {
+                return Err(format!("morpher: keys must be strings, got {key:?}"));
+            };
+            let count = |minimum: u64| {
+                value
+                    .as_u64()
+                    .filter(|v| *v >= minimum && *v <= u64::from(u32::MAX))
+                    .map(|v| v as u32)
+                    .ok_or_else(|| {
+                        format!("morpher.{key}: expected a whole number of at least {minimum}, got {value:?}")
+                    })
+            };
+            let flag = || {
+                value
+                    .as_bool()
+                    .ok_or_else(|| format!("morpher.{key}: expected true or false, got {value:?}"))
+            };
+            match key {
+                "DelReapps" => settings.del_reapps = Some(count(0)?),
+                "MaxRoots" => settings.max_roots = Some(count(1)?),
+                "MergeAnalyses" => settings.merge_analyses = Some(flag()?),
+                "MakePartialsFinal" => settings.make_partials_final = Some(flag()?),
+                other => {
+                    return Err(format!(
+                        "morpher: unknown key '{other}' (allowed: DelReapps, MakePartialsFinal, \
+                         MaxRoots, MergeAnalyses)"
+                    ))
+                }
+            }
+        }
+        Ok(settings)
+    }
 }
 
 /// Raw front matter, resolved into [`FieldworksProducibility`] by `TryFrom` below.
@@ -438,6 +568,8 @@ struct WordsYamlWire {
     fieldworks_producible: Option<bool>,
     #[serde(default)]
     fieldworks_producible_notes: Option<String>,
+    #[serde(default)]
+    morpher: Option<serde_yaml::Value>,
     words: Vec<WordEntry>,
 }
 
@@ -458,6 +590,26 @@ impl TryFrom<WordsYamlWire> for WordsYaml {
                 FieldworksProducibility::EngineOnly { notes }
             }
         };
+        let morpher = match &wire.morpher {
+            None => MorpherSettings::default(),
+            Some(value) => MorpherSettings::from_yaml(value)?,
+        };
+        let requires_settings = wire
+            .requires
+            .iter()
+            .any(|r| r == MORPHER_SETTINGS_CAPABILITY);
+        if requires_settings == morpher.is_empty() {
+            return Err(format!(
+                "requires lists {MORPHER_SETTINGS_CAPABILITY} exactly when a morpher: block is \
+                 present (requires {:?}, morpher block {})",
+                wire.requires,
+                if morpher.is_empty() {
+                    "absent"
+                } else {
+                    "present"
+                }
+            ));
+        }
         Ok(WordsYaml {
             language: wire.language,
             inspired_by: wire.inspired_by,
@@ -466,6 +618,7 @@ impl TryFrom<WordsYamlWire> for WordsYaml {
             expect_crash: wire.expect_crash,
             budget_ms: wire.budget_ms,
             fieldworks_producible,
+            morpher,
             words: wire.words,
         })
     }
@@ -608,6 +761,16 @@ pub struct OracleReplay {
 /// cannot drift from what `signature()`/`expected_signature()` report.
 pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher) -> OracleReplay {
     let mut replay = OracleReplay::default();
+    for unapplied in words_yaml.morpher.unapplied(morpher) {
+        replay.mismatches.push(OracleMismatch {
+            word: "<morpher:>".to_string(),
+            what:
+                "the fixture's morpher: setting is not applied to this Morpher (build its grammar \
+                   with FixtureRef::load_grammar)",
+            got: unapplied,
+            expected: format!("{:?}", words_yaml.morpher),
+        });
+    }
     for w in &words_yaml.words {
         if !w.adapter_visible() {
             continue; // self-check-only (guess:true parse), PROTOCOL.md section 3

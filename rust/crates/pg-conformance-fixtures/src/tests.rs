@@ -320,3 +320,100 @@ fn all_staged_fixtures_is_local_scope_union_filter_passes() {
     assert_eq!(combined.len(), local.len() + filter_passes.len());
     assert!(combined.iter().all(|f| f.root == Root::Staging));
 }
+
+fn words_yaml_with(front_matter: &str) -> Result<WordsYaml, serde_yaml::Error> {
+    serde_yaml::from_str(&format!(
+        "language: T\n{front_matter}words:\n  - word: kat\n    parses:\n      - signature: \"KAT|kat\"\n"
+    ))
+}
+
+#[test]
+fn an_absent_morpher_block_means_the_defaults() {
+    let words = words_yaml_with("").unwrap();
+    assert!(words.morpher.is_empty());
+}
+
+#[test]
+fn every_accepted_morpher_key_is_read() {
+    let words = words_yaml_with(
+        "requires: [morpher-settings]\nmorpher:\n  DelReapps: 1\n  MaxRoots: 3\n  MergeAnalyses: false\n  MakePartialsFinal: true\n",
+    )
+    .unwrap();
+    assert_eq!(
+        words.morpher,
+        MorpherSettings {
+            del_reapps: Some(1),
+            max_roots: Some(3),
+            merge_analyses: Some(false),
+            make_partials_final: Some(true),
+        }
+    );
+}
+
+#[test]
+fn a_morpher_block_the_harness_cannot_apply_is_refused() {
+    for (block, expected) in [
+        ("morpher:\n  GuessRoots: true\n", "unknown key 'GuessRoots'"),
+        (
+            "morpher:\n  MaxAlternatives: 5\n",
+            "unknown key 'MaxAlternatives'",
+        ),
+        ("morpher:\n  DelReapps: one\n", "morpher.DelReapps"),
+        ("morpher:\n  DelReapps: -1\n", "morpher.DelReapps"),
+        ("morpher:\n  MaxRoots: 0\n", "morpher.MaxRoots"),
+        ("morpher:\n  MergeAnalyses: yes\n", "morpher.MergeAnalyses"),
+        ("morpher: {}\n", "empty block"),
+        ("morpher: 1\n", "expected a mapping"),
+    ] {
+        let err = words_yaml_with(&format!("requires: [morpher-settings]\n{block}"))
+            .expect_err(block)
+            .to_string();
+        assert!(err.contains(expected), "{block:?}: {err}");
+    }
+}
+
+#[test]
+fn a_morpher_block_and_the_morpher_settings_requirement_come_together() {
+    let missing_requirement = words_yaml_with("morpher:\n  DelReapps: 1\n").unwrap_err();
+    assert!(missing_requirement
+        .to_string()
+        .contains(MORPHER_SETTINGS_CAPABILITY));
+    let missing_block = words_yaml_with("requires: [morpher-settings]\n").unwrap_err();
+    assert!(missing_block
+        .to_string()
+        .contains(MORPHER_SETTINGS_CAPABILITY));
+}
+
+/// A verbatim copy of the draft upstream fixture `edge-cases/deletion-reapplications`, kept outside both discovery roots.
+fn deletion_reapplications_fixture() -> FixtureRef {
+    FixtureRef {
+        root: Root::Staging,
+        category: "edge-cases".to_string(),
+        name: "deletion-reapplications".to_string(),
+        dir: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/edge-cases/deletion-reapplications"),
+    }
+}
+
+#[test]
+fn hc_rust_matches_the_oracle_on_a_fixture_run_with_its_morpher_block() {
+    let fixture = deletion_reapplications_fixture();
+    let words = fixture.load_words_yaml();
+    assert_eq!(words.morpher.del_reapps, Some(1));
+    let grammar = fixture.load_grammar();
+    assert_eq!(grammar.deletion_reapplications, 1);
+    let replay = replay_against_oracle(&words, &pg_parse::Morpher::new(&grammar, usize::MAX));
+    assert!(replay.mismatches.is_empty(), "{:?}", replay.mismatches);
+    assert_eq!(replay.checked, 3);
+}
+
+#[test]
+fn a_morpher_that_ignores_the_block_is_reported_not_silently_run_at_defaults() {
+    let fixture = deletion_reapplications_fixture();
+    let words = fixture.load_words_yaml();
+    let defaults = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let replay = replay_against_oracle(&words, &pg_parse::Morpher::new(&defaults, usize::MAX));
+    let flagged: Vec<&str> = replay.mismatches.iter().map(|m| m.word.as_str()).collect();
+    assert!(flagged.contains(&"<morpher:>"), "{:?}", replay.mismatches);
+    assert!(flagged.contains(&"tuki"), "{:?}", replay.mismatches);
+}

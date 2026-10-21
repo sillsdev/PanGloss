@@ -308,9 +308,7 @@ fn all_discovered_fixtures_match_oracle() {
             total_skipped_fixtures += 1;
             continue;
         }
-        let xml = f.load_grammar_xml();
-        let grammar = pg_grammar::load(&xml)
-            .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", f.label()));
+        let grammar = f.load_grammar();
         let morpher = Morpher::new(&grammar, usize::MAX);
         let label = f.label();
         let replay = replay_against_oracle(&words_yaml, &morpher);

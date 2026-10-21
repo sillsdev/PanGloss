@@ -782,6 +782,8 @@ dependencies = [
 name = "pg-conformance-fixtures"
 version = "0.8.11"
 dependencies = [
+ "pg-grammar",
+ "pg-grammar-model",
  "pg-parse",
  "serde",
  "serde_json",

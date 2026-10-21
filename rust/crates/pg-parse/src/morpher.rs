@@ -533,6 +533,26 @@ impl<'g> Morpher<'g> {
         self
     }
 
+    /// The `MaxStemCount` this parser applies (the grammar's, or a `Self::with_max_stem_count` override).
+    pub fn max_stem_count(&self) -> u32 {
+        self.max_stem_count
+    }
+
+    /// The `AlwaysEnforceFinalTemplates` policy this parser applies.
+    pub fn always_enforce_final_templates(&self) -> bool {
+        self.always_enforce_final_templates
+    }
+
+    /// The `MergeEquivalentAnalyses` policy this parser applies to an untraced parse.
+    pub fn merge_equivalent_analyses(&self) -> bool {
+        self.merge_equivalent_analyses
+    }
+
+    /// The `DeletionReapplications` this parser applies, which only the grammar carries.
+    pub fn deletion_reapplications(&self) -> u32 {
+        self.g.deletion_reapplications
+    }
+
     /// Override C# `Morpher.MergeEquivalentAnalyses`: fold analyses equivalent for every
     /// analysis-side rule into one canonical whose alternatives are expanded at lexical lookup.
     /// Without this call the policy is the grammar's own `Grammar::merge_equivalent_analyses`:
