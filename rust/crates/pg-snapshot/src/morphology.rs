@@ -420,6 +420,9 @@ pub struct ParserParameters {
     pub accept_unspecified_graphemes: bool,
     /// ← `<NoDefaultCompounding>`, default `false`.
     pub no_default_compounding: bool,
+    /// ← `<HC><DelReapps>`, default **0**: C# `Morpher.DeletionReapplications`, set by `HCParser.LoadParser` rather than `HCLoader`. A negative source value behaves as 0 in C# and is stored as 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub deletion_reapplications: u32,
     /// The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`)
     /// — `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is
     /// compiler policy over this string, not separate data, so T3 re-parses it the same way.
@@ -438,6 +441,10 @@ pub struct ParserParameters {
     pub xample: XAmpleParameters,
 }
 
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
 impl Default for ParserParameters {
     /// Mirrors `HCLoader`'s constructor defaults when no `<ParserParameters><HC>` block is present at all.
     fn default() -> Self {
@@ -445,6 +452,7 @@ impl Default for ParserParameters {
             not_on_clitics: true,
             accept_unspecified_graphemes: false,
             no_default_compounding: false,
+            deletion_reapplications: 0,
             strata: None,
             compound_rule_max_applications: Vec::new(),
             active_parser: ActiveParser::XAmple,

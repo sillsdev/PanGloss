@@ -219,3 +219,37 @@ fn only_absent_raw_uses_parser_defaults() {
     assert!(parse_with_issues(Some("")).is_err());
     assert!(parse_with_issues(Some(" \n\t")).is_err());
 }
+
+#[test]
+fn del_reapps_is_read_from_the_hc_element_and_defaults_to_zero() {
+    let read = |xml: &str| parse_with_issues(Some(xml)).unwrap();
+    let (params, issues, presence) =
+        read("<ParserParameters><HC><DelReapps>1</DelReapps></HC></ParserParameters>");
+    assert_eq!(params.deletion_reapplications, 1);
+    assert!(issues.is_empty());
+    assert_eq!(presence.hc_fields, vec![("DelReapps", true)]);
+
+    let (absent, _, _) = read("<ParserParameters><HC/></ParserParameters>");
+    assert_eq!(absent.deletion_reapplications, 0);
+    let (no_hc, _, _) = read("<ParserParameters><DelReapps>3</DelReapps></ParserParameters>");
+    assert_eq!(
+        no_hc.deletion_reapplications, 0,
+        "only <HC>'s DelReapps counts"
+    );
+    let (negative, negative_issues, _) =
+        read("<ParserParameters><HC><DelReapps>-2</DelReapps></HC></ParserParameters>");
+    assert_eq!(negative.deletion_reapplications, 0);
+    assert!(negative_issues.is_empty());
+}
+
+#[test]
+fn malformed_del_reapps_warns_and_keeps_zero() {
+    let (params, issues, presence) = parse_with_issues(Some(
+        "<ParserParameters><HC><DelReapps>many</DelReapps></HC></ParserParameters>",
+    ))
+    .unwrap();
+    assert_eq!(params.deletion_reapplications, 0);
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].code, codes::INVALID_PARSER_PARAMETER.wire());
+    assert_eq!(presence.hc_fields, vec![("DelReapps", false)]);
+}

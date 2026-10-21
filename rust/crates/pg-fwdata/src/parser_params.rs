@@ -168,6 +168,7 @@ pub fn parse_with_issues(
         &mut issues,
         &mut hc_fields_present,
     );
+    let deletion_reapplications = hc_delete_reapps(hc, &mut issues, &mut hc_fields_present);
     let strata = hc.and_then(|hc| hc.child("Strata")).map(|s| s.text.clone());
 
     let compound_rule_max_applications = params_elem
@@ -192,6 +193,7 @@ pub fn parse_with_issues(
             not_on_clitics,
             accept_unspecified_graphemes,
             no_default_compounding,
+            deletion_reapplications,
             strata,
             compound_rule_max_applications,
             active_parser,
@@ -204,6 +206,39 @@ pub fn parse_with_issues(
             xample_fields: xample_fields_present,
         },
     ))
+}
+
+/// `HCParser.LoadParser` reads `<HC><DelReapps>` as `(int) element` with default 0; a negative value stops the C# loop after one pass exactly like 0, so it is stored as 0. A non-integer is a warning here (C# throws) and keeps the default.
+fn hc_delete_reapps(
+    hc: Option<&crate::node::Node>,
+    issues: &mut Vec<Warning>,
+    presence: &mut Vec<(&'static str, bool)>,
+) -> u32 {
+    const TAG: &str = "DelReapps";
+    let Some(child) = hc.and_then(|hc| hc.child(TAG)) else {
+        return 0;
+    };
+    match child.text.trim().parse::<i32>() {
+        Ok(value) => {
+            presence.push((TAG, true));
+            value.max(0) as u32
+        }
+        Err(_) => {
+            issues.push(
+                Warning::new(
+                    codes::INVALID_PARSER_PARAMETER,
+                    format!("Parser parameter '{TAG}' has an invalid integer value."),
+                )
+                .with_subject(
+                    FwObjectRef::new(FwClass::Project)
+                        .project_settings()
+                        .field(format!("HC.{TAG}")),
+                ),
+            );
+            presence.push((TAG, false));
+            0
+        }
+    }
 }
 
 fn invalid_active_parser(message: impl Into<String>) -> ImportError {

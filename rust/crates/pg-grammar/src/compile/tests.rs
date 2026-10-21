@@ -2160,6 +2160,21 @@ fn no_default_compounding_suppresses_the_synthesized_default_rules() {
 }
 
 #[test]
+fn deletion_reapplications_parser_parameter_reaches_the_grammar() {
+    let (default_snapshot, _f) = fixture();
+    let (default_grammar, _) = compile_project(&default_snapshot).expect("must compile");
+    assert_eq!(default_grammar.deletion_reapplications, 0);
+
+    let (mut snapshot, _f) = fixture();
+    snapshot
+        .morphology
+        .parser_parameters
+        .deletion_reapplications = 2;
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(grammar.deletion_reapplications, 2);
+}
+#[test]
 fn absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed() {
     let (snapshot, _f) = fixture();
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");

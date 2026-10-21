@@ -273,6 +273,10 @@ pub(crate) fn seed_authored_from_snapshot(
     // Parser settings this compiler actually consults; both are always "present" (booleans with FieldWorks defaults), so always authored.
     recorder.authored(InventoryKey::setting(ParserSetting, "notOnClitics"));
     recorder.authored(InventoryKey::setting(ParserSetting, "noDefaultCompounding"));
+    recorder.authored(InventoryKey::setting(
+        ParserSetting,
+        "deletionReapplications",
+    ));
     if snapshot
         .morphology
         .parser_parameters

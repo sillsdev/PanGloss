@@ -6,8 +6,8 @@ notes: `MergeRules`/`MultipleMergeRules`/`ExpandRules` are out of scope (analysi
 work not yet landed elsewhere). `EpenthesisRules` omits the `RightToLeft` + left-anchor
 infinite-loop-detection negative case (no loop/budget detection exists in `pg_rules::rewrite`, so
 it would hang) and the alpha-variable agreement reconfiguration (covered elsewhere, via
-`pg-rules/tests/alpha_gate.rs`). `DeletionRules` omits the `Morpher.DeletionReapplications = 1`
-reconfiguration (no equivalent knob on `pg_parse::Morpher`'s public API).
+`pg-rules/tests/alpha_gate.rs`). `DeletionRules`' `Morpher.DeletionReapplications = 1` reconfiguration is
+`deletion_rules_deletion_reapplications` (the knob is `Grammar::deletion_reapplications`; ledger entry 093).
 
 ## The char_def-staleness bug (module-level root cause)
 
@@ -186,7 +186,8 @@ instead of `syn_feature`'s find-one-then-rescan Iterative shape. Oracle-verified
 C# does not run an iterative power-set search over reinsertion sites; it runs a single analysis
 pass whose optional-insert annotations get expanded combinatorially downstream, at root lookup.
 `AnalysisRewriteRule.Apply`'s Deletion branch runs exactly `1 + Morpher.DeletionReapplications`
-passes, and `DeletionReapplications` defaults to 0 — every reconfiguration ported here uses a
+passes, and `DeletionReapplications` defaults to 0 (Rust: `Grammar::deletion_reapplications`, ledger
+entry 093) — every other reconfiguration ported here uses a
 default `Morpher`, so the gold expectations come from a single analysis pass. Within that pass,
 `SimultaneousPhonologicalPatternRule.Apply` collects all matches and applies every one, and
 `NarrowAnalysisRewriteRuleSpec.Unapply` re-inserts each deleted segment as an **optional** node.

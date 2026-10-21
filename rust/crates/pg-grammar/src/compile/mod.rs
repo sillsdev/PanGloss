@@ -475,6 +475,13 @@ pub(crate) fn compile_project_recording(
         ctx.considered(no_default_compounding_key.clone());
         ctx.selected(no_default_compounding_key.clone());
         ctx.represented(no_default_compounding_key);
+        let deletion_reapplications_key = InventoryKey::setting(
+            pg_snapshot::InventoryKind::ParserSetting,
+            "deletionReapplications",
+        );
+        ctx.considered(deletion_reapplications_key.clone());
+        ctx.selected(deletion_reapplications_key.clone());
+        ctx.represented(deletion_reapplications_key);
     }
     let morphology_stratum = StratumId(0);
     let clitic_stratum = StratumId(1);
@@ -591,6 +598,10 @@ pub(crate) fn compile_project_recording(
         templates: acc.templates,
         entries: acc.entries,
         strata,
+        deletion_reapplications: snapshot
+            .morphology
+            .parser_parameters
+            .deletion_reapplications,
     };
 
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.

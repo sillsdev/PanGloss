@@ -23,6 +23,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         templates: templates_a,
         entries: entries_a,
         strata: strata_a,
+        deletion_reapplications: deletion_reapplications_a,
     } = a;
     let crate::model::Grammar {
         name: name_b,
@@ -44,9 +45,14 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         templates: templates_b,
         entries: entries_b,
         strata: strata_b,
+        deletion_reapplications: deletion_reapplications_b,
     } = b;
 
     assert_eq!(name_a, name_b, "name");
+    assert_eq!(
+        deletion_reapplications_a, deletion_reapplications_b,
+        "deletion_reapplications"
+    );
     assert_eq!(
         format!("{:?}", syn_features_a),
         format!("{:?}", syn_features_b),

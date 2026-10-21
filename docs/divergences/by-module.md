@@ -16,6 +16,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `AnalysisCompoundingRule.cs` (`Apply`, non-head-must-be-bare-root gate) | 005 |
 | `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
 | `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
+| `AnalysisRewriteRule.cs` (`Apply`, `ReapplyType.Deletion`), `Morpher.cs` (`DeletionReapplications`) | 093 |
 | `AnalysisScope.cs` | 023, 024, 025, 045 |
 | `AnalysisStateKey.cs` | 023, 024, 045 |
 | `AnalysisSyntacticFeatureMerge.cs` (research-only, `pr494` worktree) | 002 |
@@ -113,6 +114,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/rewrite.rs` (`compile_lane_fst`) | 012 |
 | `pg-rules/src/rewrite.rs` (`compile_lane_fst_grouped`) | 015 |
 | `pg-rules/src/rewrite.rs` (deletion unapplication), `pg-rules/src/metathesis.rs` (analysis) | 050 |
+| `pg-rules/src/rewrite.rs` (`reapply_deletion`); `pg-fwdata/src/parser_params.rs`; `pg-grammar/src/compile/mod.rs` | 093 |
 | `pg-rules/src/rewrite.rs` (`empty_env_match`); `pg-fst/src/traverse.rs` (`check_accepting_start_state`) | 065 |
 | `pg-rules/src/rewrite.rs` (`MutShape`, literal synthesis and inverse targets); `pg-rules/src/bridge.rs` (`StrRepMatcher`, `PatternBridge`) | 071 |
 | `pg-rules/src/rewrite.rs` (`sim_feature`) | 016 |
@@ -148,6 +150,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `csharp_port_compounding.rs` (`prod_restrict_rule_traces_non_head_rejections_as_csharp_does`) | 092 |
 | `pg-cli/src/rich_trace/tests.rs` (`compound_analysis_attempts_keep_owner_reason_and_subrule`) | 092 |
 | `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |
+| `csharp_port_rewrite.rs` (`deletion_rules_deletion_reapplications`) | 093 |
 | `machine/conformance/edge-cases/discontinuous-morph-environment/` | 006 |
 | `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
 | `machine/conformance/edge-cases/iterative-epenthesis-cascade/` | 014 |

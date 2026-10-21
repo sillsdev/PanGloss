@@ -555,6 +555,31 @@ fn deletion_rules_multi_position_reinsertion() {
     assert_morphs_eq(&m4.parse_word("bubu"), &["27", "19"]);
 }
 
+/// Ports `RewriteRuleTests.DeletionRules` (cs:1457-1468): `Morpher.DeletionReapplications = 1` makes a second analysis pass re-insert the deleted vowel after the first pass's optional re-insertions, reaching entry 27 (`buiibuii`) from `bubu`.
+#[test]
+fn deletion_rules_deletion_reapplications() {
+    let rule = r#"<PhonologicalRule id="pr4"><Name>rule4</Name>
+             <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuV" /></PhoneticSequence></PhoneticInput>
+             <PhonologicalSubrules><PhonologicalSubrule>
+               <Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncHighV" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment>
+             </PhonologicalSubrule></PhonologicalSubrules>
+           </PhonologicalRule>"#;
+    let mut g = build_grammar(rule, "pr4", "", "", "");
+    assert_eq!(
+        g.deletion_reapplications, 0,
+        "HC XML cannot carry the setting"
+    );
+    assert_morphs_eq(
+        &Morpher::new(&g, usize::MAX).parse_word("bubu"),
+        &["24", "25", "26", "19"],
+    );
+
+    g.deletion_reapplications = 1;
+    assert_morphs_eq(
+        &Morpher::new(&g, usize::MAX).parse_word("bubu"),
+        &["24", "25", "26", "27", "19"],
+    );
+}
 /// Ports `RewriteRuleTests.MultipleApplicationRules` (cs:1809-1862): `Simultaneous` vs `Iterative` produce different results over overlapping-match input.
 /// Required real `RewriteMode::Simultaneous` synthesis semantics, not just grammar-load acceptance; see docs/research/csharp-port-rewrite-divergences.md.
 #[test]

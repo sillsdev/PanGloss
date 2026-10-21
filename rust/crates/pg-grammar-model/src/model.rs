@@ -1137,6 +1137,8 @@ pub struct Grammar {
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
     pub strata: Vec<StratumDef>,
+    /// C# `Morpher.DeletionReapplications`: extra analysis passes of each deletion/narrowing/expansion rewrite subrule. FieldWorks reads it from `<HC><DelReapps>`; `<HermitCrabInput>` XML cannot carry it, so it is 0 there.
+    pub deletion_reapplications: u32,
 }
 
 impl Grammar {

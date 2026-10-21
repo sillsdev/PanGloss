@@ -405,8 +405,7 @@ This matches C#'s `while (data != null) { applied = true; data = sr.Item2.Apply(
 .SingleOrDefault(); }` exactly: repeat calling the (unchanged) single-pass function until a call
 makes no further change. Both `ana_feature` and `ana_epenthesis` already return `bool` ("did
 anything change"), so the `while` condition falls out directly — no new return type needed.
-`Morpher.DeletionReapplications`'s cap (default 0, already a documented Rust gap per
-`csharp_port_rewrite.rs`'s `deletion_rules_multi_position_reinsertion` doc) does not apply here —
+`Morpher.DeletionReapplications`'s cap (default 0, ported as `Grammar::deletion_reapplications`, ledger entry 093) does not apply here —
 that cap is specific to the *Deletion* reapply type (Narrow/Expansion), not SelfOpaquing; do not
 conflate the two loops or their caps. SelfOpaquing's own natural termination is "no further match" —
 confirm there is no separate C# iteration cap for it (none found in `AnalysisRewriteRule.cs`; the

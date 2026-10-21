@@ -1397,6 +1397,18 @@ pub fn synthesize_with_mpr_cached_traced(
     }
 }
 
+/// C# `ReapplyType.Deletion`: one pass, then up to `reapplications` more while the previous pass matched.
+fn reapply_deletion(reapplications: u32, mut pass: impl FnMut() -> bool) -> bool {
+    let mut applied = false;
+    for _ in 0..=reapplications {
+        if !pass() {
+            break;
+        }
+        applied = true;
+    }
+    applied
+}
+
 /// Un-apply `rule` to `input` (C# `AnalysisRewriteRule.Apply`). Returns the un-applied shape in a
 /// one-element vec if any subrule un-applied, else an empty vec.
 ///
@@ -1436,7 +1448,7 @@ pub fn analyze(
                     ana_feature(g, table, rule, sr, &mut ms, &target, &names, &left, &right)
                 }
             }
-            Kind::Narrow => {
+            Kind::Narrow => reapply_deletion(g.deletion_reapplications, || {
                 let left = compile_env_analysis(g, table_id, sr.left_env.as_ref());
                 let right = compile_env_analysis(g, table_id, sr.right_env.as_ref());
                 if sr.rhs.nodes.is_empty() {
@@ -1462,7 +1474,7 @@ pub fn analyze(
                     let target = compile_lane_fst(&lanes, reverse(dir_of(rule)), false);
                     ana_narrow_general(g, table, rule, sr, &mut ms, &target, None, &left, &right)
                 }
-            }
+            }),
             Kind::Epenthesis => {
                 let target_lanes = ana_epenthesis_target_lanes(g, table, sr);
                 let target = (!target_lanes.is_empty())
@@ -1578,7 +1590,7 @@ pub(crate) fn analyze_cached(
                     )
                 }
             }
-            Kind::Narrow => {
+            Kind::Narrow => reapply_deletion(g.deletion_reapplications, || {
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &sc.ana_left, &sc.ana_right)
                 } else {
@@ -1605,7 +1617,7 @@ pub(crate) fn analyze_cached(
                         &sc.ana_right,
                     )
                 }
-            }
+            }),
             Kind::Epenthesis => {
                 if sr.self_opaquing {
                     let mut any = false;
@@ -1697,7 +1709,7 @@ pub fn analyze_traced(
                     ana_feature(g, table, rule, sr, &mut ms, &target, &names, &left, &right)
                 }
             }
-            Kind::Narrow => {
+            Kind::Narrow => reapply_deletion(g.deletion_reapplications, || {
                 let left = compile_env_analysis(g, table_id, sr.left_env.as_ref());
                 let right = compile_env_analysis(g, table_id, sr.right_env.as_ref());
                 if sr.rhs.nodes.is_empty() {
@@ -1722,7 +1734,7 @@ pub fn analyze_traced(
                     let target = compile_lane_fst(&lanes, reverse(dir_of(rule)), false);
                     ana_narrow_general(g, table, rule, sr, &mut ms, &target, None, &left, &right)
                 }
-            }
+            }),
             Kind::Epenthesis => {
                 let target_lanes = ana_epenthesis_target_lanes(g, table, sr);
                 let target = (!target_lanes.is_empty())
@@ -1850,7 +1862,7 @@ pub fn analyze_cached_traced(
                     )
                 }
             }
-            Kind::Narrow => {
+            Kind::Narrow => reapply_deletion(g.deletion_reapplications, || {
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &sc.ana_left, &sc.ana_right)
                 } else {
@@ -1877,7 +1889,7 @@ pub fn analyze_cached_traced(
                         &sc.ana_right,
                     )
                 }
-            }
+            }),
             Kind::Epenthesis => {
                 if sr.self_opaquing {
                     let mut any = false;
