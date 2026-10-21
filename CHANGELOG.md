@@ -31,6 +31,19 @@ file has no section for.
   featureless Cebuano project took about 50x fewer steps across three word lists. See divergence
   entry 090.
 
+### FieldWorks HermitCrab parser parameters are honoured
+
+- A FieldWorks project's `Maximum roots` (`MaxRoots`), `Make partials final`
+  (`MakePartialsFinal`) and `Merge analyses` (`MergeAnalyses`) now apply as they do in FieldWorks,
+  in every command that loads the project. A project that sets none of them parses as before.
+  A value FieldWorks itself could not load (not a number, not true/false) now fails the import,
+  naming the setting and the value. See divergence entries 094, 096 and 101.
+- `batch --always-enforce-final-templates` now overrides the project's `MakePartialsFinal`;
+  `--always-enforce-final-templates=false` turns it off. Without the flag the project's value
+  applies.
+- `MaxAlternatives`, `GuessRoots` and `MergeMSAs` are still not honoured; entries 097-099 say
+  what each would take.
+
 ## 0.8.11
 
 ### `pangloss serve`: a resident parser for try-a-word
