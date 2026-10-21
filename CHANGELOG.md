@@ -5,7 +5,15 @@ file has no section for.
 
 ## Unreleased
 
-## 0.8.9
+## 0.8.10
+
+### Publish the featured segment-identity fix
+
+- 0.8.9 was tagged but not published: the Rust CI backend scoreboard ratchet still pinned the pre-fix
+  counts, and the fix improved one cell in each of the tuned-surface and plan-composed strategies.
+  The ratchet is now updated. 0.8.10 carries the 0.8.9 fix, described below.
+
+## 0.8.9 (tagged, never published)
 
 ### Keep segment identity on featured grammars
 
