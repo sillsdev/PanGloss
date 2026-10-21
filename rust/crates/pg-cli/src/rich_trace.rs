@@ -38,7 +38,7 @@ impl Default for TraceMetadata {
         }
     }
 }
-pub fn metadata_from_snapshot(snapshot: &Snapshot, source_kind: &str) -> TraceMetadata {
+pub fn metadata_from_snapshot(snapshot: Snapshot, source_kind: &str) -> TraceMetadata {
     TraceMetadata {
         grammar_name: Some(snapshot.project.name.clone()),
         grammar_hash: Some(snapshot.grammar_hash()),
@@ -47,7 +47,7 @@ pub fn metadata_from_snapshot(snapshot: &Snapshot, source_kind: &str) -> TraceMe
         project_name: Some(snapshot.project.name.clone()),
         vernacular_writing_systems: snapshot.project.vernacular_writing_systems.clone(),
         analysis_writing_systems: snapshot.project.analysis_writing_systems.clone(),
-        snapshot: Some(snapshot.clone()),
+        snapshot: Some(snapshot),
     }
 }
 pub fn metadata_from_xml(grammar: &Grammar, hash: String) -> TraceMetadata {
@@ -243,15 +243,54 @@ fn features_json(features: Option<&pg_snapshot::FeatureStructure>) -> Value {
     )
 }
 
-fn msa_fields(snapshot: &Snapshot, msa_id: Option<&str>) -> Value {
+/// Per-render guid indexes (first match wins) and a rich_morph memo.
+struct RichCtx<'a> {
+    snapshot: Option<&'a Snapshot>,
+    allomorph_by_guid:
+        std::collections::HashMap<&'a str, (&'a pg_snapshot::LexEntry, &'a pg_snapshot::Allomorph)>,
+    msa_by_guid: std::collections::HashMap<&'a str, &'a Msa>,
+    sense_by_msa: std::collections::HashMap<&'a str, &'a pg_snapshot::Sense>,
+    memo: std::cell::RefCell<std::collections::HashMap<MemoKey, Value>>,
+}
+
+type MemoKey = (String, Option<String>, Option<String>, Option<String>);
+
+impl<'a> RichCtx<'a> {
+    fn new(snapshot: Option<&'a Snapshot>) -> Self {
+        let mut ctx = Self {
+            snapshot,
+            allomorph_by_guid: Default::default(),
+            msa_by_guid: Default::default(),
+            sense_by_msa: Default::default(),
+            memo: Default::default(),
+        };
+        if let Some(snapshot) = snapshot {
+            for entry in &snapshot.lexicon.entries {
+                for allomorph in &entry.allomorphs {
+                    ctx.allomorph_by_guid
+                        .entry(allomorph.guid.as_str())
+                        .or_insert((entry, allomorph));
+                }
+                for msa in &entry.msas {
+                    ctx.msa_by_guid.entry(msa.guid()).or_insert(msa);
+                }
+                for sense in &entry.senses {
+                    if let Some(msa) = sense.msa.as_deref() {
+                        ctx.sense_by_msa.entry(msa).or_insert(sense);
+                    }
+                }
+            }
+        }
+        ctx
+    }
+}
+
+fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> Value {
     let Some(msa_id) = msa_id else {
         return Value::Null;
     };
-    for entry in &snapshot.lexicon.entries {
-        for msa in &entry.msas {
-            if msa.guid() != msa_id {
-                continue;
-            }
+    {
+        if let Some(&msa) = ctx.msa_by_guid.get(msa_id) {
             let mut object = serde_json::Map::new();
             object.insert("id".to_string(), json!(msa_id));
             match msa {
@@ -368,7 +407,8 @@ fn msa_fields(snapshot: &Snapshot, msa_id: Option<&str>) -> Value {
     }
     json!({ "id": msa_id, "quality": "source-id-only" })
 }
-fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Value {
+fn rich_morph(ctx: &RichCtx<'_>, morph: &pg_parse::ParseMorph) -> Value {
+    let snapshot = ctx.snapshot;
     let mut entry_id: Option<String> = None;
     let mut form_value = Value::Null;
     let mut headword = Value::Null;
@@ -379,8 +419,8 @@ fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Valu
     let mut infl_value = Value::Null;
 
     if let (Some(snapshot), Some(form_id)) = (snapshot, morph.form.as_deref()) {
-        'entry: for entry in &snapshot.lexicon.entries {
-            if let Some(allomorph) = entry.allomorphs.iter().find(|a| a.guid == form_id) {
+        {
+            if let Some(&(entry, allomorph)) = ctx.allomorph_by_guid.get(form_id) {
                 entry_id = Some(entry.guid.clone());
                 form_value = first_ws(&allomorph.forms, Some(&allomorph.guid));
                 headword = if entry.citation_form.is_empty() {
@@ -399,10 +439,9 @@ fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Valu
                         gloss = first_ws(&sense.gloss, Some(&sense.guid));
                     }
                 }
-                break 'entry;
             }
         }
-        let msa = msa_fields(snapshot, morph.msa.as_deref());
+        let msa = msa_fields(ctx, snapshot, morph.msa.as_deref());
         if let Some(object) = msa.as_object() {
             slot_value = object.get("slot").cloned().unwrap_or(Value::Null);
             features_value = object.get("features").cloned().unwrap_or(features_value);
@@ -414,13 +453,7 @@ fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Valu
         msa_value = msa;
         if gloss.is_null() {
             if let Some(msa_id) = morph.msa.as_deref() {
-                if let Some(sense) = snapshot
-                    .lexicon
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.senses)
-                    .find(|sense| sense.msa.as_deref() == Some(msa_id))
-                {
+                if let Some(sense) = ctx.sense_by_msa.get(msa_id) {
                     gloss = first_ws(&sense.gloss, Some(&sense.guid));
                 }
             }
@@ -457,7 +490,7 @@ fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Valu
     })
 }
 
-fn attempted_morphs(grammar: &Grammar, metadata: &TraceMetadata, word: &Word) -> Vec<Value> {
+fn attempted_morphs(grammar: &Grammar, ctx: &RichCtx<'_>, word: &Word) -> Vec<Value> {
     word.morphs.iter().map(|record| {
         let source = grammar.morphemes.get(record.morpheme.0 as usize);
         let source_form_ids: Vec<Value> = grammar.allomorph_sources.get(record.allomorph.0 as usize)
@@ -487,11 +520,17 @@ fn attempted_morphs(grammar: &Grammar, metadata: &TraceMetadata, word: &Word) ->
             RuntimeRoot::Supplied(_) => None,
         });
         let mut morph = if let Some(form) = single_form.clone() {
-            rich_morph(metadata.snapshot.as_ref(), &pg_parse::ParseMorph {
-                form: Some(form),
-                msa: source_msa.clone(),
-                infl_type: source_infl_type.clone(),
-                guessed_string: guessed_string.clone(),
+            let key = (form.clone(), source_msa.clone(), source_infl_type.clone(), guessed_string.clone());
+            let cached = ctx.memo.borrow().get(&key).cloned();
+            cached.unwrap_or_else(|| {
+                let value = rich_morph(ctx, &pg_parse::ParseMorph {
+                    form: Some(form),
+                    msa: source_msa.clone(),
+                    infl_type: source_infl_type.clone(),
+                    guessed_string: guessed_string.clone(),
+                });
+                ctx.memo.borrow_mut().insert(key, value.clone());
+                value
             })
         } else {
             json!({
@@ -704,7 +743,7 @@ fn captured_failure_context(
 }
 fn decorate_trace_node(
     grammar: &Grammar,
-    metadata: &TraceMetadata,
+    ctx: &RichCtx<'_>,
     sink: &TreeTraceSink,
     handle: TraceHandle,
     value: &mut Value,
@@ -784,7 +823,7 @@ fn decorate_trace_node(
     let word = node.output.as_ref().or(node.input.as_ref());
     object.insert(
         "attemptedMorphs".to_string(),
-        word.map_or_else(Vec::new, |word| attempted_morphs(grammar, metadata, word))
+        word.map_or_else(Vec::new, |word| attempted_morphs(grammar, ctx, word))
             .into(),
     );
     let children = node
@@ -794,7 +833,7 @@ fn decorate_trace_node(
             let shallow = crate::trace_render::render_json_node_shallow(grammar, sink, *child);
             let mut child_value: Value = serde_json::from_str(&shallow)
                 .map_err(|error| format!("serialize trace node JSON: {error}"))?;
-            decorate_trace_node(grammar, metadata, sink, *child, &mut child_value)?;
+            decorate_trace_node(grammar, ctx, sink, *child, &mut child_value)?;
             Ok(child_value)
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -826,22 +865,14 @@ fn render_envelope_v2(
     }).collect();
     envelope_json(trace, word, outcome, rows, elapsed, metadata, analyses)
 }
-fn render_envelope_v2_with_grammar(
-    trace: Value,
-    word: &str,
-    outcome: &ParseOutcome,
-    rows: &[StatsRow],
-    elapsed: Duration,
-    metadata: &TraceMetadata,
-    grammar: &Grammar,
-) -> Result<String, String> {
-    let analyses: Vec<Value> = outcome.analyses.iter().enumerate().map(|(index, (morphemes, surface))| {
+fn grammar_analyses(outcome: &ParseOutcome, grammar: &Grammar, ctx: &RichCtx<'_>) -> Vec<Value> {
+    outcome.analyses.iter().enumerate().map(|(index, (morphemes, surface))| {
         let structured = outcome.structured.get(index);
         let (projection, morphs) = match structured {
             Some(analysis) => match project_parse_analysis(analysis, grammar) {
                 Ok(projected) => (
                     json!({ "profile": pg_parse::PARSE_ANALYSIS_PROFILE, "status": "available", "error": Value::Null }),
-                    projected.morphs.iter().map(|morph| rich_morph(metadata.snapshot.as_ref(), morph)).collect(),
+                    projected.morphs.iter().map(|morph| rich_morph(ctx, morph)).collect(),
                 ),
                 Err(error) => (
                     json!({ "profile": pg_parse::PARSE_ANALYSIS_PROFILE, "status": "unavailable", "error": error.to_string(), "errorCode": projection_error_code(&error) }),
@@ -854,8 +885,7 @@ fn render_envelope_v2_with_grammar(
             ),
         };
         json!({ "analysisId": analysis_id(index), "index": index, "morphemes": morphemes, "surface": surface, "projection": projection, "morphs": morphs })
-    }).collect();
-    envelope_json(trace, word, outcome, rows, elapsed, metadata, analyses)
+    }).collect()
 }
 
 fn envelope_json(
@@ -927,6 +957,7 @@ pub fn render(
     elapsed: Duration,
     metadata: &TraceMetadata,
 ) -> Result<String, String> {
+    let ctx = RichCtx::new(metadata.snapshot.as_ref());
     let mut trace = match root {
         Some(root) => serde_json::from_str::<Value>(
             &crate::trace_render::render_json_node_shallow(grammar, sink, root),
@@ -935,9 +966,10 @@ pub fn render(
         None => Value::Null,
     };
     if let Some(root) = root {
-        decorate_trace_node(grammar, metadata, sink, root, &mut trace)?;
+        decorate_trace_node(grammar, &ctx, sink, root, &mut trace)?;
     }
-    render_envelope_v2_with_grammar(trace, word, outcome, rows, elapsed, metadata, grammar)
+    let analyses = grammar_analyses(outcome, grammar, &ctx);
+    envelope_json(trace, word, outcome, rows, elapsed, metadata, analyses)
 }
 
 #[cfg(test)]
