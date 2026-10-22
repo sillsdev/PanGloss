@@ -3,7 +3,7 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.10.0
 
 ### FieldWorks projects guess roots, as FieldWorks does
 
@@ -42,7 +42,12 @@ file has no section for.
 - A value of `Merge MSAs` FieldWorks could not load (not true/false) fails the import, naming the
   setting and the value.
 
-`MaxAlternatives` remains unimplemented; divergence entry 097 records what it would take.
+- The conformance runner now replays named project-settings variants against complete expected parse
+  identities. A persistent synthetic `.fwdata` fixture covers `MergeMSAs` through import,
+  compilation and parsing, including enabled/disabled behavior and positive/negative controls.
+
+`MaxAlternatives` remains a long-term parity exception (entry 097); this release makes no
+implementation commitment.
 
 ## 0.9.0
 

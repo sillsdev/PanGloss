@@ -1170,6 +1170,204 @@ $script:ExitCodePrelandFailed = 42
 # Comment hygiene found violations or could not run; CI's release gate would refuse the same tree.
 $script:ExitCodeCommentHygiene = 41
 
+function Get-ConformanceReportEvidence {
+    param([string[]]$Lines, [int]$ExitCode)
+
+    $report = [ordered]@{
+        Ok = $false
+        Detail = ''
+        SummaryKind = ''
+        DiscoveredFixtures = 0L
+        FixtureCount = 0L
+        Passed = 0L
+        Failed = 0L
+        Skipped = 0L
+        Attempted = 0L
+        ExcludedRuns = 0L
+        ExclusionKind = ''
+        Rows = @()
+    }
+    $textLines = @($Lines | ForEach-Object { ([string]$_).TrimEnd("`r") })
+
+    $discoveries = @()
+    $malformedDiscoveries = 0
+    foreach ($line in $textLines) {
+        if ($line -match '^discovered\b') {
+            if ($line -match '^discovered (?<count>\d+) fixture\(s\) under .+$') {
+                $discoveries += [long]$Matches['count']
+            } else {
+                $malformedDiscoveries++
+            }
+        }
+    }
+    if ($malformedDiscoveries -gt 0 -or $discoveries.Count -ne 1) {
+        $report.Detail = 'conformance report must contain exactly one valid discovery line'
+        return [PSCustomObject]$report
+    }
+    $report.DiscoveredFixtures = $discoveries[0]
+
+    $summaryLines = @($textLines | Where-Object { $_ -match '^totals:' })
+    if ($summaryLines.Count -ne 1) {
+        $report.Detail = 'conformance report must contain exactly one totals line'
+        return [PSCustomObject]$report
+    }
+    $summary = $summaryLines[0]
+    if (
+        $summary -match '^totals: (?<passed>\d+) runs? passed, (?<failed>\d+) failed, (?<skipped>\d+) skipped \(of (?<attempted>\d+) runs? attempted across (?<fixtures>\d+) fixtures\)\s*$'
+    ) {
+        $report.SummaryKind = 'runs'
+        $report.Passed = [long]$Matches['passed']
+        $report.Failed = [long]$Matches['failed']
+        $report.Skipped = [long]$Matches['skipped']
+        $report.Attempted = [long]$Matches['attempted']
+        $report.FixtureCount = [long]$Matches['fixtures']
+    } elseif (
+        $summary -match '^totals: (?<passed>\d+) passed, (?<failed>\d+) failed, (?<skipped>\d+) skipped \(of (?<attempted>\d+) attempted\)\s*$'
+    ) {
+        $report.SummaryKind = 'legacy'
+        $report.Passed = [long]$Matches['passed']
+        $report.Failed = [long]$Matches['failed']
+        $report.Skipped = [long]$Matches['skipped']
+        $report.Attempted = [long]$Matches['attempted']
+        $report.FixtureCount = $report.DiscoveredFixtures
+    } else {
+        $report.Detail = 'conformance totals line has an unsupported or malformed format'
+        return [PSCustomObject]$report
+    }
+
+    $exclusionLines = @()
+    foreach ($line in $textLines) {
+        if ($line -match 'pathological.*excluded by default') {
+            if ($line -match '^(?<count>\d+) pathological \(budget_ms\) fixture\(s\) excluded by default(?: \(.+\))?$') {
+                $exclusionLines += [PSCustomObject]@{ Count = [long]$Matches['count']; Kind = 'legacy' }
+            } elseif ($line -match '^(?<count>\d+) pathological run\(s\) \(budget_ms\) excluded by default(?: \(.+\))?$') {
+                $exclusionLines += [PSCustomObject]@{ Count = [long]$Matches['count']; Kind = 'runs' }
+            } else {
+                $report.Detail = 'conformance report has a malformed pathological exclusion line'
+                return [PSCustomObject]$report
+            }
+        }
+    }
+    if ($exclusionLines.Count -gt 1) {
+        $report.Detail = 'conformance report contains multiple pathological exclusion lines'
+        return [PSCustomObject]$report
+    }
+    if ($exclusionLines.Count -eq 1) {
+        $report.ExcludedRuns = $exclusionLines[0].Count
+        $report.ExclusionKind = $exclusionLines[0].Kind
+    }
+    if ($exclusionLines.Count -eq 1 -and $report.ExclusionKind -ne $report.SummaryKind) {
+        $report.Detail = 'conformance exclusion count does not use the same fixture/run format as totals'
+        return [PSCustomObject]$report
+    }
+
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $textLines) {
+        if ($line -notmatch '^\[(PASS|FAIL|SKIP)\]') { continue }
+        if (
+            $line -notmatch '^\[(?<status>PASS|FAIL|SKIP)\]\s+(?<run>.+?)\s+\((?<elapsed>\d+)ms\)\s*(?<reason>.*)$'
+        ) {
+            $report.Detail = 'conformance report contains a malformed result row'
+            return [PSCustomObject]$report
+        }
+
+        $status = $Matches['status']
+        $runId = $Matches['run']
+        $elapsed = [long]$Matches['elapsed']
+        $reason = $Matches['reason'].Trim()
+        if ($runId -notmatch '^(?<fixture>\S+?)(?: \[variant (?<variant>[a-z0-9-]+)\])?$') {
+            $report.Detail = "conformance report contains an invalid run ID '$runId'"
+            return [PSCustomObject]$report
+        }
+        $baseFixture = $Matches['fixture']
+        $variantName = $Matches['variant']
+        if ($variantName -ceq 'default') {
+            $report.Detail = "conformance report uses reserved variant name 'default' in '$runId'"
+            return [PSCustomObject]$report
+        }
+        $rows.Add(
+            [PSCustomObject]@{
+                Fixture = $runId
+                RunId = $runId
+                BaseFixture = $baseFixture
+                VariantName = $variantName
+                Status = $status
+                ElapsedMs = $elapsed
+                Reason = $reason
+            }
+        )
+    }
+
+    $runIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $baseIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($row in $rows) {
+        if (-not $runIds.Add($row.RunId)) {
+            $report.Detail = "conformance report contains duplicate run ID '$($row.RunId)'"
+            return [PSCustomObject]$report
+        }
+        $null = $baseIds.Add($row.BaseFixture)
+    }
+    foreach ($row in $rows | Where-Object { $_.VariantName }) {
+        if (-not $runIds.Contains($row.BaseFixture)) {
+            $report.Detail = "named run ID '$($row.RunId)' has no corresponding default run row"
+            return [PSCustomObject]$report
+        }
+    }
+
+    if ($report.Attempted -le 0) {
+        $report.Detail = 'conformance report attempted zero runs'
+        return [PSCustomObject]$report
+    }
+    if ($report.Passed + $report.Failed -le 0) {
+        $report.Detail = 'conformance report contains no completed passing or failing run'
+        return [PSCustomObject]$report
+    }
+    if ($report.Passed + $report.Failed + $report.Skipped -ne $report.Attempted) {
+        $report.Detail = 'conformance totals do not sum to the attempted run count'
+        return [PSCustomObject]$report
+    }
+    if ($rows.Count -ne $report.Attempted) {
+        $report.Detail = "conformance report has $($rows.Count) result rows for $($report.Attempted) attempted runs"
+        return [PSCustomObject]$report
+    }
+    foreach ($status in 'PASS', 'FAIL', 'SKIP') {
+        $reportedCount = switch ($status) {
+            'PASS' { $report.Passed }
+            'FAIL' { $report.Failed }
+            'SKIP' { $report.Skipped }
+        }
+        $rowCount = @($rows | Where-Object { $_.Status -eq $status }).Count
+        if ($rowCount -ne $reportedCount) {
+            $report.Detail = "conformance totals report $reportedCount $status runs but include $rowCount rows"
+            return [PSCustomObject]$report
+        }
+    }
+
+    if ($report.SummaryKind -eq 'legacy' -and @($rows | Where-Object { $_.RunId -match ' \[variant ' }).Count -gt 0) {
+        $report.Detail = 'legacy fixture totals cannot account for named run IDs'
+        return [PSCustomObject]$report
+    }
+    if ($report.FixtureCount -ne $report.DiscoveredFixtures) {
+        $report.Detail = "conformance totals report $($report.FixtureCount) fixtures but discovery found $($report.DiscoveredFixtures)"
+        return [PSCustomObject]$report
+    }
+    if ($baseIds.Count + $report.ExcludedRuns -ne $report.DiscoveredFixtures) {
+        $report.Detail = "observed $($baseIds.Count) base fixture IDs and $($report.ExcludedRuns) excluded runs for $($report.DiscoveredFixtures) discovered fixtures"
+        return [PSCustomObject]$report
+    }
+
+    $expectedExitCode = if ($report.Failed -gt 0) { 1 } else { 0 }
+    if ($ExitCode -ne $expectedExitCode) {
+        $report.Detail = "driver exit $ExitCode is inconsistent with $($report.Failed) reported failing runs"
+        return [PSCustomObject]$report
+    }
+
+    $report.Rows = $rows.ToArray()
+    $report.Ok = $true
+    $report.Detail = "$($report.Attempted) runs across $($report.FixtureCount) fixtures"
+    return [PSCustomObject]$report
+}
+
 function Get-FilterZeroMatchHint {
     <#
       .DESCRIPTION

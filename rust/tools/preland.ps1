@@ -163,28 +163,20 @@ function Get-KnownConformanceDivergences {
 }
 
 function Get-ConformanceDriverVerdict {
-    <#
-      .DESCRIPTION
-      Pure: grades one adapter-mode driver run the way run-conformance.sh does, but also refuses a
-      run with no totals line or zero attempted fixtures.
-    #>
     param([string[]]$Lines, [int]$ExitCode, [string[]]$Known)
-    $totals = $Lines | Where-Object { $_ -match '^totals: (\d+) passed, (\d+) failed, (\d+) skipped \(of (\d+) attempted\)' } | Select-Object -Last 1
     if ($ExitCode -eq 2) { return [PSCustomObject]@{ Ok = $false; Detail = 'driver exit 2: harness-level error (bad args, no fixtures, malformed metadata)' } }
-    if (-not $totals) { return [PSCustomObject]@{ Ok = $false; Detail = "driver exit $ExitCode with no totals line" } }
-    $null = $totals -match '^totals: (\d+) passed, (\d+) failed, (\d+) skipped \(of (\d+) attempted\)'
-    $attempted = [int]$Matches[4]
-    if ($attempted -eq 0) { return [PSCustomObject]@{ Ok = $false; Detail = 'driver attempted zero fixtures' } }
-    $failed = @($Lines | Where-Object { $_ -match '^\[FAIL\] (\S+)' } | ForEach-Object { $null = $_ -match '^\[FAIL\] (\S+)'; $Matches[1] })
-    if ($ExitCode -ne 0 -and $ExitCode -ne 1) { return [PSCustomObject]@{ Ok = $false; Detail = "driver exit $ExitCode" } }
-    if ($ExitCode -eq 1 -and $failed.Count -eq 0) { return [PSCustomObject]@{ Ok = $false; Detail = 'driver exit 1 with no [FAIL] rows' } }
-    $unexpected = @($failed | Where-Object { $Known -notcontains $_ })
+    $evidence = Get-ConformanceReportEvidence -Lines $Lines -ExitCode $ExitCode
+    if (-not $evidence.Ok) {
+        return [PSCustomObject]@{ Ok = $false; Detail = $evidence.Detail }
+    }
+    $failed = @($evidence.Rows | Where-Object Status -eq 'FAIL' | ForEach-Object RunId)
+    $unexpected = @($failed | Where-Object { $Known -cnotcontains $_ })
     if ($unexpected.Count -gt 0) {
         $named = ($unexpected | Select-Object -First 5) -join ', '
         if ($unexpected.Count -gt 5) { $named += ", and $($unexpected.Count - 5) more (listed above)" }
-        return [PSCustomObject]@{ Ok = $false; Detail = "$($unexpected.Count) unexpected failure(s) of $attempted attempted: $named" }
+        return [PSCustomObject]@{ Ok = $false; Detail = "$($unexpected.Count) unexpected failure(s) of $($evidence.Attempted) runs across $($evidence.FixtureCount) fixtures: $named" }
     }
-    return [PSCustomObject]@{ Ok = $true; Detail = "$attempted attempted, $($failed.Count) known divergence(s)" }
+    return [PSCustomObject]@{ Ok = $true; Detail = "$($evidence.Attempted) runs across $($evidence.FixtureCount) fixtures, $($failed.Count) known divergence(s)" }
 }
 
 function Invoke-PrelandPg {

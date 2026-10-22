@@ -143,28 +143,6 @@ function Invoke-OracleSelfCheck {
     }
 }
 
-function ConvertFrom-SelfCheckOutput {
-    <#
-      .DESCRIPTION
-      Parses hc-conformance.exe's human-readable report (there is no machine-readable output mode)
-      into per-fixture outcomes. Pure function of the text, so it's testable without invoking the
-      exe. Line shape: "[PASS|FAIL|SKIP] <fixture-id> (<n>ms) <reason>".
-    #>
-    param([string]$Text)
-
-    $results = @()
-    foreach ($line in ($Text -split "`r?`n")) {
-        if ($line -match '^\[(PASS|FAIL|SKIP)\]\s+(\S+)\s+\((\d+)ms\)\s*(.*)$') {
-            $results += [PSCustomObject]@{
-                Fixture = $Matches[2]
-                Status  = $Matches[1]
-                Reason  = $Matches[4].Trim()
-            }
-        }
-    }
-    return $results
-}
-
 function Get-FilterPassesOracleRoot {
     <#
       .DESCRIPTION
@@ -249,28 +227,6 @@ function Test-DeclaredForwardSynthesis {
     return $false
 }
 
-function Test-OracleEvidence {
-    # Reconcile the oracle's own discovery, exclusions, result rows, totals and exit contract.
-    param($Run, [array]$Results)
-    if ($Run.ExitCode -notin @(0, 1)) { return $false }
-    $summaries = [regex]::Matches($Run.Output, '(?m)^totals: (\d+) passed, (\d+) failed, (\d+) skipped \(of (\d+) attempted\)\s*$')
-    $discoveries = [regex]::Matches($Run.Output, '(?m)^discovered (\d+) fixture\(s\) under .+$')
-    if ($summaries.Count -ne 1 -or $discoveries.Count -ne 1) { return $false }
-    $totals = $summaries[0].Groups
-    $passed = [long]$totals[1].Value; $failed = [long]$totals[2].Value
-    $skipped = [long]$totals[3].Value; $attempted = [long]$totals[4].Value
-    if ($passed + $failed -eq 0 -or $Results.Count -ne $attempted) { return $false }
-    if (@($Results | Select-Object -ExpandProperty Fixture -Unique).Count -ne $Results.Count) { return $false }
-    if (@($Results | Where-Object Status -eq PASS).Count -ne $passed -or
-        @($Results | Where-Object Status -eq FAIL).Count -ne $failed -or
-        @($Results | Where-Object Status -eq SKIP).Count -ne $skipped) { return $false }
-    $exclusions = [regex]::Matches($Run.Output, '(?m)^(\d+) pathological \(budget_ms\) fixture\(s\) excluded by default .+$')
-    if ($exclusions.Count -gt 1) { return $false }
-    $excluded = if ($exclusions.Count) { [long]$exclusions[0].Groups[1].Value } else { 0 }
-    if ([long]$discoveries[0].Groups[1].Value -ne $attempted + $excluded) { return $false }
-    return $Run.ExitCode -eq $(if ($failed -gt 0) { 1 } else { 0 })
-}
-
 function Test-OracleKnownFailure {
     # A fixture identifier or provenance marker cannot waive a newly changed failure.
     param($Failure, [hashtable]$Baseline, [string]$FixturesRoot, [switch]$ExpectCleanBaseline)
@@ -290,11 +246,12 @@ function Test-SelfCheckRun {
     Write-Host "[oracle-conformance] self-check: $RootLabel ($FixturesRoot)" -ForegroundColor Cyan
     $run = Invoke-OracleSelfCheck -ExePath $ExePath -FixturesRoot $FixturesRoot -IncludePathological:$IncludePathological -Propose:$Propose
     Write-Host $run.Output
-    $results = @(ConvertFrom-SelfCheckOutput -Text $run.Output)
-    if (-not (Test-OracleEvidence -Run $run -Results $results)) {
-        Write-Host "[oracle-conformance] incomplete or inconsistent oracle evidence under $RootLabel (exit $($run.ExitCode)); no passing claim can be made." -ForegroundColor Red
+    $evidence = Get-ConformanceReportEvidence -Lines ($run.Output -split "`r?`n") -ExitCode $run.ExitCode
+    if (-not $evidence.Ok) {
+        Write-Host "[oracle-conformance] incomplete or inconsistent oracle evidence under $RootLabel (exit $($run.ExitCode)): $($evidence.Detail); no passing claim can be made." -ForegroundColor Red
         return $null
     }
+    $results = @($evidence.Rows)
     if ($MapFilterPasses) {
         foreach ($r in $results) {
             if ($r.Fixture -like 'edge-cases/*') { $r.Fixture = 'filter-passes/' + $r.Fixture.Substring('edge-cases/'.Length) }
@@ -312,7 +269,7 @@ function Test-SelfCheckRun {
     }
     $passCount = @($results | Where-Object Status -eq PASS).Count
     $skipCount = @($results | Where-Object Status -eq SKIP).Count
-    Write-Host "[oracle-conformance] ${RootLabel}: $($results.Count) attempted; $passCount PASS, $($known.Count) exact known FAIL, $($newDivergences.Count) new FAIL, $skipCount SKIP."
+    Write-Host "[oracle-conformance] ${RootLabel}: $($results.Count) runs across $($evidence.FixtureCount) fixtures; $passCount PASS, $($known.Count) exact known FAIL, $($newDivergences.Count) new FAIL, $skipCount SKIP."
     return $newDivergences.Count -eq 0
 }
 

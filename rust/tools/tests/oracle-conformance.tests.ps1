@@ -1,4 +1,5 @@
 . "$PSScriptRoot\_test-harness.ps1"
+. "$PSScriptRoot\..\_common.ps1"
 $path = Join-Path $PSScriptRoot '..\oracle-conformance.ps1'
 $tokens = $null; $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$parseErrors)
@@ -58,5 +59,36 @@ Test-Case 'filter mirror shares empty-evidence and exact-waiver policy' {
 Test-Case 'complete passing evidence and declared pathological exclusion remain supported' {
     Set-OracleRun "discovered 2 fixture(s) under 'test'`n1 pathological (budget_ms) fixture(s) excluded by default (--include-pathological to run)`n[PASS] edge-cases/example (1ms)`ntotals: 1 passed, 0 failed, 0 skipped (of 1 attempted)" 0
     Assert-True (Check-Run) 'explicit exclusions reconcile discovery denominator'
+}
+Test-Case 'run totals reconcile discovered fixtures and preserve distinct named-run IDs' {
+    Set-OracleRun "discovered 2 fixture(s) under 'test'`n[PASS] edge-cases/example (1ms)`n[PASS] edge-cases/example [variant strict] (2ms)`n[PASS] edge-cases/other (3ms)`ntotals: 3 runs passed, 0 failed, 0 skipped (of 3 runs attempted across 2 fixtures)" 0
+    Assert-True (Check-Run) 'all run rows reconcile with the run and fixture totals'
+}
+
+Test-Case 'run totals reconcile the current default-only pathological exclusions' {
+    Set-OracleRun "discovered 3 fixture(s) under 'test'`n1 pathological run(s) (budget_ms) excluded by default (--include-pathological to run)`n[PASS] edge-cases/example (1ms)`n[PASS] edge-cases/example [variant strict] (2ms)`n[PASS] edge-cases/other (3ms)`ntotals: 3 runs passed, 0 failed, 0 skipped (of 3 runs attempted across 3 fixtures)" 0
+    Assert-True (Check-Run) 'observed base fixtures plus default-only exclusions reconcile discovery'
+}
+
+Test-Case 'run totals refuse ambiguous pathological exclusions' {
+    Set-OracleRun "discovered 2 fixture(s) under 'test'`n2 pathological run(s) (budget_ms) excluded by default (--include-pathological to run)`n[PASS] edge-cases/example (1ms)`n[PASS] edge-cases/example [variant strict] (2ms)`ntotals: 2 runs passed, 0 failed, 0 skipped (of 2 runs attempted across 2 fixtures)" 0
+    Assert-True ($null -eq (Check-Run)) 'excluded run counts must reconcile one-for-one with absent base fixture IDs'
+}
+
+Test-Case 'run totals reject all-skipped and mismatched fixture counts' {
+    Set-OracleRun "discovered 1 fixture(s) under 'test'`n[SKIP] edge-cases/example (1ms) no visible rows`ntotals: 0 runs passed, 0 failed, 1 skipped (of 1 runs attempted across 1 fixtures)" 0
+    Assert-True ($null -eq (Check-Run)) 'all-skipped runs prove no completed result'
+    Set-OracleRun "discovered 2 fixture(s) under 'test'`n[PASS] edge-cases/example (1ms)`ntotals: 1 runs passed, 0 failed, 0 skipped (of 1 runs attempted across 1 fixtures)" 0
+    Assert-True ($null -eq (Check-Run)) 'reported fixture count must match actual discovery'
+}
+Test-Case 'named variant failures do not inherit a base fixture waiver' {
+    $known = @{ 'edge-cases/example'=[pscustomobject]@{kind='known';reason='old failure'} }
+    Set-OracleRun "discovered 1 fixture(s) under 'test'`n[PASS] edge-cases/example (1ms)`n[FAIL] edge-cases/example [variant strict] (2ms) old failure`ntotals: 1 runs passed, 1 failed, 0 skipped (of 2 runs attempted across 1 fixtures)" 1
+    Assert-False (Check-Run -Baseline $known) 'a variant failure is not the base fixture failure'
+}
+
+Test-Case 'named variant rows cannot replace the default fixture run' {
+    Set-OracleRun "discovered 1 fixture(s) under 'test'`n[PASS] edge-cases/example [variant strict] (1ms)`ntotals: 1 runs passed, 0 failed, 0 skipped (of 1 runs attempted across 1 fixtures)" 0
+    Assert-True ($null -eq (Check-Run)) 'each observed fixture needs its default row as well as variant rows'
 }
 Write-TestSummary

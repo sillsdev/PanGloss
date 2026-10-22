@@ -35,14 +35,63 @@ Test-Case 'the scoreboard closure reaches the crates the gate observes and not u
 }
 
 $known = @('edge-cases/simultaneous-epenthesis-cascade')
-$passing = @("[PASS] edge-cases/a (1ms)", "[FAIL] edge-cases/simultaneous-epenthesis-cascade (3ms) expected crash", 'totals: 1 passed, 1 failed, 0 skipped (of 2 attempted)')
+$passing = @("discovered 2 fixture(s) under 'test'", "[PASS] edge-cases/a (1ms)", "[FAIL] edge-cases/simultaneous-epenthesis-cascade (3ms) expected crash", 'totals: 1 passed, 1 failed, 0 skipped (of 2 attempted)')
 
 Test-Case 'a driver run whose only failures are known divergences passes' {
     Assert-True (Get-ConformanceDriverVerdict -Lines $passing -ExitCode 1 -Known $known).Ok
 }
 
+Test-Case 'run totals preserve complete variant IDs and do not inherit a base fixture waiver' {
+    $lines = @(
+        "discovered 2 fixture(s) under 'test'",
+        '[PASS] edge-cases/a (1ms)',
+        '[FAIL] edge-cases/a [variant strict] (2ms) signature mismatch',
+        '[PASS] edge-cases/b (3ms)',
+        'totals: 2 runs passed, 1 failed, 0 skipped (of 3 runs attempted across 2 fixtures)'
+    )
+    $result = Get-ConformanceDriverVerdict -Lines $lines -ExitCode 1 -Known @('edge-cases/a')
+    Assert-False $result.Ok 'a named variant failure must not inherit the base fixture waiver'
+    Assert-True ($result.Detail -match 'edge-cases/a \[variant strict\]') 'failure detail must retain the full run ID'
+}
+
+Test-Case 'run totals pass when every discovered fixture has a complete run row' {
+    $lines = @(
+        "discovered 2 fixture(s) under 'test'",
+        '[PASS] edge-cases/a (1ms)',
+        '[PASS] edge-cases/a [variant strict] (2ms)',
+        '[PASS] edge-cases/b (3ms)',
+        'totals: 3 runs passed, 0 failed, 0 skipped (of 3 runs attempted across 2 fixtures)'
+    )
+    Assert-True (Get-ConformanceDriverVerdict -Lines $lines -ExitCode 0 -Known @()).Ok
+}
+
+Test-Case 'run totals reconcile default-only pathological exclusions' {
+    $lines = @(
+        "discovered 3 fixture(s) under 'test'",
+        '1 pathological run(s) (budget_ms) excluded by default (--include-pathological to run)',
+        '[PASS] edge-cases/a (1ms)',
+        '[PASS] edge-cases/a [variant strict] (2ms)',
+        '[PASS] edge-cases/b (3ms)',
+        'totals: 3 runs passed, 0 failed, 0 skipped (of 3 runs attempted across 3 fixtures)'
+    )
+    Assert-True (Get-ConformanceDriverVerdict -Lines $lines -ExitCode 0 -Known @()).Ok
+}
+
+Test-Case 'run totals refuse exclusions that cannot reconcile to absent base fixtures' {
+    $lines = @(
+        "discovered 2 fixture(s) under 'test'",
+        '2 pathological run(s) (budget_ms) excluded by default (--include-pathological to run)',
+        '[PASS] edge-cases/a (1ms)',
+        '[PASS] edge-cases/a [variant strict] (2ms)',
+        'totals: 2 runs passed, 0 failed, 0 skipped (of 2 runs attempted across 2 fixtures)'
+    )
+    $result = Get-ConformanceDriverVerdict -Lines $lines -ExitCode 0 -Known @()
+    Assert-False $result.Ok 'excluded runs must map one-for-one to absent default fixture IDs'
+    Assert-True ($result.Detail -match 'observed 1 base fixture IDs and 2 excluded runs') 'the ambiguous exclusion must be named'
+}
+
 Test-Case 'an unknown driver failure fails and is named' {
-    $lines = @('[FAIL] edge-cases/a (1ms) adapter output malformed', "[FAIL] edge-cases/simultaneous-epenthesis-cascade (3ms) x", 'totals: 0 passed, 2 failed, 0 skipped (of 2 attempted)')
+    $lines = @("discovered 2 fixture(s) under 'test'", '[FAIL] edge-cases/a (1ms) adapter output malformed', "[FAIL] edge-cases/simultaneous-epenthesis-cascade (3ms) x", 'totals: 0 passed, 2 failed, 0 skipped (of 2 attempted)')
     $v = Get-ConformanceDriverVerdict -Lines $lines -ExitCode 1 -Known $known
     Assert-False $v.Ok
     Assert-True ($v.Detail -match 'edge-cases/a') 'the unexpected fixture must be named'

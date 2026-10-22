@@ -210,3 +210,32 @@ TSP `(70 exact, 3 misses, 2 refused, 0 unmeasurable)`, TUT `(48, 3, 24, 0)`, and
 PC `(34, 2, 36, 3)`. The earlier realizational-reduplication fixture's two refusals and PC miss
 remain intact. [The integrated cell comparison](../divergences/evidence/071/integrate-v2-scoreboard-comparison.txt)
 links the before/after inventory; the gate now emits every owner-measured cell for future comparisons.
+
+
+## Parser-settings pin reconciliation
+
+Measured on 2026-10-22 with the PanGloss parser and scoreboard code at `59700c52`,
+first with Machine `72dbd4f9`, then with rebased PR #480 head
+`aab4c59819adb7b366915e09df2fb28c62b8c03a`. Both measurements used managed
+`pg.ps1 -Mode test -Package pg-foma-backend -TestTarget backend_scoreboard_gate`;
+the baseline also used `PANGLOSS_EXTRA_ARGS=--no-capture` to retain every cell.
+The baseline passed its original ratchet. The new pin failed that ratchet before
+these constants were updated. Both runs reached and passed the soundness assertion.
+
+This is correctness/representability measurement of fixture inventory, not a change
+to an FST threshold, refusal policy, production admission, or resource containment.
+All 390 existing cells kept their outcomes. No cell was removed. The two added
+fixtures account for all six new cells, as recorded in the complete
+[cell comparison](evidence/parser-settings-variants/scoreboard-pin-comparison.tsv):
+
+| Backend | Previous exact / misses / refused / unmeasurable | Rebased pin |
+| --- | --- | --- |
+| TunedSurfaceProbed | 121 / 7 / 2 / 0 | 123 / 7 / 2 / 0 |
+| TemplatedUnderlyingTokens | 99 / 6 / 25 / 0 | 101 / 6 / 25 / 0 |
+| PlanComposed | 43 / 2 / 82 / 3 | 44 / 2 / 83 / 3 |
+
+`guess-roots-settings` adds an exact cell on each backend. `deletion-reapplications`
+adds exact cells on TunedSurfaceProbed and TemplatedUnderlyingTokens and a typed
+refusal on PlanComposed. The scoreboard measures its own default grammar/word
+inputs; this does not establish support for every named settings variant. Those
+variants are checked separately by the parser replay and external adapter matrix.

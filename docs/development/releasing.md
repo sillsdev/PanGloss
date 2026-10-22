@@ -7,7 +7,7 @@ Releases use numeric `vX.Y.Z` tags. Prereleases are unsupported.
 Write the version's section in `CHANGELOG.md` first. From a clean, up-to-date `main`, run:
 
 ```powershell
-pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.7.0
+pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.10.0
 ```
 
 The script checks the branch, working tree, remote `main`, version, tag, and changelog. It stamps
@@ -21,7 +21,7 @@ tagging.
 Run the printed command, for example:
 
 ```text
-git push --atomic origin main v0.7.0
+git push --atomic origin main v0.10.0
 ```
 
 The main push starts Rust CI. The tag push starts `.github/workflows/release.yml`, which waits for
@@ -43,20 +43,20 @@ commit on `origin/main`, its workspace version and changelog must match the requ
 it must pass the same preflight, gates, and four-target build. A rehearsal verifies release assets
 but never publishes a GitHub release.
 
-## Cut 0.7.0 after this change merges
+## Cut 0.10.0 after this change lands
 
-The `0.7.0` changelog section is already authored, while the current workspace version is `0.6.2`.
-After the change merges, update to the tip of `main` and run:
+The `0.10.0` changelog section is already authored, while the current workspace version is `0.9.0`.
+After this change lands, update to the tip of `main` and run:
 
 ```powershell
-pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.7.0
+pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.10.0
 ```
 
-Review the `release: v0.7.0` commit and annotated tag the script creates, then run its printed
+Review the `release: v0.10.0` commit and annotated tag the script creates, then run its printed
 command:
 
 ```text
-git push --atomic origin main v0.7.0
+git push --atomic origin main v0.10.0
 ```
 
 That push starts Rust CI and the tag-triggered Release workflow. The workflow waits for Rust CI to

@@ -26,3 +26,15 @@ Run the Machine CLI from the PanGloss worktree so managed tooling resolves the c
 Observed on 2026-10-22: the shared option matrix passed 15/15 runs and 81/81 word-run comparisons on both C# HC and PanGloss through Machine's external adapter. The full C# self-check passed 72/72 runs across 62 fixtures. PanGloss's harness package passed 53/53 tests. The incomplete-result regression was first observed failing under a zero work budget, then passed after replay rejected the capped result. This guard is a correctness/representability check: incomplete output cannot establish an oracle answer.
 
 The Machine pin is `184bcd46622571a06f1a1fdbdff2fb155714a1c6`. The all-scope PanGloss replay passed against that revision: 1,414 base words across 130 fixtures, plus all ten named settings variants. The generic replay separately reports three existing exclusions: two budgeted pathological fixtures and one expected-crash fixture. The C# full self-check includes its pathological fixtures. The broader PanGloss parser integration target passed 117 tests, with ten marked tests skipped.
+
+
+After Machine PR #480 was rebased, the pin advanced to
+`aab4c59819adb7b366915e09df2fb28c62b8c03a`. Reverified on 2026-10-22:
+C# self-check passed 72/72 runs across 62 fixtures; the five-fixture option matrix
+passed 15/15 runs and 81 word-run comparisons on both C# and the PanGloss external
+adapter. PanGloss's harness package passed 53/53 tests, the parser integration target
+passed 118 tests with ten existing marked skips, and the all-scope replay checked
+1,414 base words across 130 fixtures plus all ten named variants. Its three existing
+budget/crash exclusions remain explicitly reported, rather than counted as passes.
+The C# driver report readers distinguish run and fixture totals and preserve complete
+named-run IDs; a named failure cannot inherit its base fixture's divergence waiver.
