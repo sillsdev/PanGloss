@@ -3,7 +3,32 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.9.0
+
+### Clitic rules and blocking strata, as in HermitCrab (Machine #529)
+
+- A morphological rule marked `isCliticRule="true"`, or any affix rule in a stratum named
+  `Clitics` when the attribute is absent, is now a clitic rule: it keeps the affix-template state
+  during analysis and skips the template checks during synthesis, so a clitic can attach outside a
+  final template. Template state now resets only on entry to a blocking stratum (one with
+  phonological rules, or the last stratum in use). FieldWorks projects already put clitics in a
+  stratum named `Clitics`, and the tested projects parse exactly as before. An `isCliticRule`
+  value other than true/false refuses the grammar, naming the rule. See divergence entry 102.
+- The conformance suite now pins sillsdev/machine PR #480's head (`72dbd4f9`): 16 new upstream
+  fixtures, and 14 fixtures that had been staged here now come from upstream.
+
+### FieldWorks "Deletion reapplications" is honoured
+
+- A project's `<HC><DelReapps>` setting now runs deletion rules up to 1 + that many passes during
+  analysis, as FieldWorks does. The default, 0, parses exactly as before. A value that is not a
+  whole number fails the import, naming the setting and the value. See divergence entry 093.
+
+### Less parser work for grammars whose affix templates share trailing slots
+
+- When several affix templates end in the same slots, analysis now runs each shared slot's rules
+  once per template check instead of once per template. Parses are unchanged. Sena needs 11.5% less
+  work to parse its words, Mbugwe about 18% less; grammars with one template are unaffected. The
+  same change is proposed for HermitCrab as sillsdev/machine PR #546. See divergence entry 095.
 
 ### Faster parsing with deletion rules over a natural class, in projects without phonological features
 
