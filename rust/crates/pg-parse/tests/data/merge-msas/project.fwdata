@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<languageproject version="7000072">
+<rt class="LangProject" guid="00000000-0000-0000-0000-000000000001">
+<CurAnalysisWss><Uni>en</Uni></CurAnalysisWss>
+<CurVernWss><Uni>fx</Uni></CurVernWss>
+<LexDb><objsur guid="00000000-0000-0000-0000-000000000002" t="o" /></LexDb>
+<MorphologicalData><objsur guid="00000000-0000-0000-0000-000000000003" t="o" /></MorphologicalData>
+<PartsOfSpeech><objsur guid="00000000-0000-0000-0000-00000000000a" t="o" /></PartsOfSpeech>
+<PhonologicalData><objsur guid="00000000-0000-0000-0000-000000000004" t="o" /></PhonologicalData>
+</rt>
+<rt class="LexDb" guid="00000000-0000-0000-0000-000000000002" ownerguid="00000000-0000-0000-0000-000000000001" />
+<rt class="MoMorphData" guid="00000000-0000-0000-0000-000000000003" ownerguid="00000000-0000-0000-0000-000000000001">
+<ParserParameters><Uni>&lt;ParserParameters&gt;&lt;HC&gt;&lt;NotOnClitics&gt;false&lt;/NotOnClitics&gt;&lt;Strata /&gt;&lt;/HC&gt;&lt;ActiveParser&gt;HC&lt;/ActiveParser&gt;&lt;/ParserParameters&gt;</Uni></ParserParameters>
+</rt>
+<rt class="PhPhonData" guid="00000000-0000-0000-0000-000000000004" ownerguid="00000000-0000-0000-0000-000000000001">
+<PhonemeSets><objsur guid="00000000-0000-0000-0000-00000000000f" t="o" /></PhonemeSets>
+</rt>
+<rt class="PhPhonemeSet" guid="00000000-0000-0000-0000-00000000000f" ownerguid="00000000-0000-0000-0000-000000000004">
+<Phonemes>
+<objsur guid="00000000-0000-0000-0000-000000000010" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000012" t="o" />
+<objsur guid="00000000-0000-0000-0000-00000000001b" t="o" />
+</Phonemes>
+<BoundaryMarkers><objsur guid="00000000-0000-0000-0000-000000000014" t="o" /></BoundaryMarkers>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000010" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes><objsur guid="00000000-0000-0000-0000-000000000011" t="o" /></Codes>
+<Name><AUni ws="fx">r</AUni></Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000011" ownerguid="00000000-0000-0000-0000-000000000010">
+<Representation><AUni ws="fx">r</AUni></Representation>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000012" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes><objsur guid="00000000-0000-0000-0000-000000000013" t="o" /></Codes>
+<Name><AUni ws="fx">n</AUni></Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000013" ownerguid="00000000-0000-0000-0000-000000000012">
+<Representation><AUni ws="fx">n</AUni></Representation>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-00000000001b" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes><objsur guid="00000000-0000-0000-0000-00000000001c" t="o" /></Codes>
+<Name><AUni ws="fx">a</AUni></Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-00000000001c" ownerguid="00000000-0000-0000-0000-00000000001b">
+<Representation><AUni ws="fx">a</AUni></Representation>
+</rt>
+<rt class="CmPossibilityList" guid="00000000-0000-0000-0000-00000000000a" ownerguid="00000000-0000-0000-0000-000000000001">
+<Possibilities>
+<objsur guid="00000000-0000-0000-0000-00000000000b" t="o" />
+<objsur guid="00000000-0000-0000-0000-00000000000c" t="o" />
+</Possibilities>
+</rt>
+<rt class="PartOfSpeech" guid="00000000-0000-0000-0000-00000000000b" ownerguid="00000000-0000-0000-0000-00000000000a">
+<Abbreviation><AUni ws="en">n</AUni></Abbreviation><Name><AUni ws="en">Noun</AUni></Name>
+</rt>
+<rt class="PartOfSpeech" guid="00000000-0000-0000-0000-00000000000c" ownerguid="00000000-0000-0000-0000-00000000000a">
+<Abbreviation><AUni ws="en">v</AUni></Abbreviation><Name><AUni ws="en">Verb</AUni></Name>
+</rt>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000040">
+<CitationForm><AUni ws="fx">ranna</AUni></CitationForm>
+<LexemeForm><objsur guid="00000000-0000-0000-0000-000000000041" t="o" /></LexemeForm>
+<MorphoSyntaxAnalyses>
+<objsur guid="00000000-0000-0000-0000-0000000000e4" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000042" t="o" />
+<objsur guid="00000000-0000-0000-0000-0000000000e5" t="o" />
+</MorphoSyntaxAnalyses>
+<Senses><objsur guid="00000000-0000-0000-0000-000000000043" t="o" /></Senses>
+</rt>
+<rt class="MoStemAllomorph" guid="00000000-0000-0000-0000-000000000041" ownerguid="00000000-0000-0000-0000-000000000040">
+<Form><AUni ws="fx">ranna</AUni></Form><IsAbstract val="False" />
+<MorphType><objsur guid="d7f713e5-e8cf-11d3-9764-00c04f186933" t="r" /></MorphType>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-0000000000e4" ownerguid="00000000-0000-0000-0000-000000000040">
+<PartOfSpeech><objsur guid="00000000-0000-0000-0000-00000000000c" t="r" /></PartOfSpeech>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000042" ownerguid="00000000-0000-0000-0000-000000000040">
+<PartOfSpeech><objsur guid="00000000-0000-0000-0000-00000000000c" t="r" /></PartOfSpeech>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-0000000000e5" ownerguid="00000000-0000-0000-0000-000000000040">
+<PartOfSpeech><objsur guid="00000000-0000-0000-0000-00000000000b" t="r" /></PartOfSpeech>
+</rt>
+<rt class="LexSense" guid="00000000-0000-0000-0000-000000000043" ownerguid="00000000-0000-0000-0000-000000000040">
+<Gloss><AUni ws="en">run</AUni></Gloss>
+<MorphoSyntaxAnalysis><objsur guid="00000000-0000-0000-0000-000000000042" t="r" /></MorphoSyntaxAnalysis>
+</rt>
+<rt class="PhBdryMarker" guid="00000000-0000-0000-0000-000000000014" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes><objsur guid="00000000-0000-0000-0000-000000000015" t="o" /></Codes>
+<Name><AUni ws="en">plus</AUni></Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000015" ownerguid="00000000-0000-0000-0000-000000000014">
+<Representation><AUni ws="fx">+</AUni></Representation>
+</rt>
+</languageproject>

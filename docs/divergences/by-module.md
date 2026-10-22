@@ -98,6 +98,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/src/guess.rs` | 019, 027 |
 | `pg-parse/src/morpher.rs` (`Morpher::with_max_stem_count`) | 022 |
 | `pg-fwdata/src/parser_params.rs` (`hc_max_roots`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`) | 094 |
+| `pg-fwdata/src/parser_params.rs` (does not import `MaxAlternatives`); `pg-snapshot/src/morphology.rs` (`ParserParameters` has no field); `pg-parse/src/morpher.rs` (analysis/work caps, timeout, incomplete outcome) | 097 |
 | `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`); `pg-cli/src/main.rs` (`run_batch`) | 101 |
 | `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `with_merge_equivalent_analyses`) | 096 |
 | `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `with_guess_roots`, `project_parse_options`, guess branch); `pg-parse/src/parse_morph.rs` (`project_parse_analysis`); `pg-cli/src/main.rs` (`--guess`), `pg-cli/src/serve.rs` | 098 |
@@ -153,6 +154,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 | Fixture or test | Entry ids |
 |---|---|
+| `pg-conformance-fixtures/src/tests.rs` (`a_morpher_block_the_harness_cannot_apply_is_refused`, `incomplete_replay_cannot_pass_as_an_expected_zero_analysis`) | 097 |
 | `pg-rules/src/stratum/template_slot_sharing_tests.rs` | 095 |
 | `conformance-staging/edge-cases/class-deletion-reinsertion-strrep/`, `pg-parse/tests/conformance_fixtures_gate.rs` (`a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar`), `pg-parse/src/root_trie/tests.rs` | 103 |
 | `machine/conformance/edge-cases/clitic-rule-designation/`, `pg-parse/tests/clitic_template_state_gate.rs`, `pg-grammar/src/load/tests.rs` (`is_clitic_rule_*`) | 102 |
@@ -172,7 +174,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `guesser_gate.rs` (`the_grammar_guess_roots_setting_is_the_morpher_default_and_parse_word_never_guesses`, `guessed_is_false_when_the_guess_branch_finds_nothing`, `guessing_without_a_lexical_pattern_changes_nothing`); `pg-cli/src/tests.rs` (`a_project_guesses_roots_by_default_without_changing_the_batch_tsv_layout`, `an_explicit_guess_flag_overrides_the_project_and_alone_adds_the_guessed_column`); `pg-cli/tests/serve_protocol.rs` (`guessed_words_match_cold_in_both_modes`) | 098 |
 | `csharp_port_compounding.rs` | 003, 004, 005 |
 | `merged_analyses_fs_generalization.rs` (`merge_analyses_off_from_the_grammar_keeps_the_analyses_and_stops_folding`) | 096 |
-| `pg-grammar/tests/merge_msas.rs`; `pg-fwdata/src/extract/msa_equality/tests.rs`; `pg-fwdata/tests/fixture_tests.rs` (`imported_equal_msas_merge_into_the_sense_bearing_one`); `pg-cli/src/grammar_health/tests.rs` (`stored_analysis_naming_a_merged_msa_matches_its_representatives_parse`) | 099 |
+| `pg-parse/tests/merge_msas_conformance.rs`; `pg-parse/tests/data/merge-msas/`; `pg-grammar/tests/merge_msas.rs`; `pg-fwdata/src/extract/msa_equality/tests.rs`; `pg-fwdata/tests/fixture_tests.rs` (`imported_equal_msas_merge_into_the_sense_bearing_one`); `pg-cli/src/grammar_health/tests.rs` (`stored_analysis_naming_a_merged_msa_matches_its_representatives_parse`) | 099 |
 | `csharp_port_compounding.rs` (`simple_rules_4_three_root_compound_from_grammar_max_stem_count`) | 094 |
 | `csharp_port_compounding.rs` (`prod_restrict_rule_traces_non_head_rejections_as_csharp_does`) | 092 |
 | `pg-cli/src/rich_trace/tests.rs` (`compound_analysis_attempts_keep_owner_reason_and_subrule`) | 092 |

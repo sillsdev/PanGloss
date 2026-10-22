@@ -25,6 +25,8 @@ mod guesser_gate;
 mod lexical_pattern_trie_exclusion_gate;
 #[path = "../loader_n3_pattern_shapes_gate.rs"]
 mod loader_n3_pattern_shapes_gate;
+#[path = "../merge_msas_conformance.rs"]
+mod merge_msas_conformance;
 #[path = "../merged_analyses_fs_generalization.rs"]
 mod merged_analyses_fs_generalization;
 #[path = "../phonology_gate.rs"]

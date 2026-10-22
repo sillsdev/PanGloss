@@ -1,0 +1,135 @@
+{
+  "profile": "pangloss.machine-word-analysis/v1",
+  "runs": {
+    "default": {
+      "merge_msas": true,
+      "words": {
+        "?": {
+          "status": "invalid-shape",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": []
+        },
+        "rann": {
+          "status": "no-analysis",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": []
+        },
+        "ranna": {
+          "status": "parsed",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": [
+            {
+              "morphemes": [
+                "00000000-0000-0000-0000-000000000042"
+              ],
+              "rootIndex": 0,
+              "category": "00000000-0000-0000-0000-00000000000c"
+            },
+            {
+              "morphemes": [
+                "00000000-0000-0000-0000-0000000000e5"
+              ],
+              "rootIndex": 0,
+              "category": "00000000-0000-0000-0000-00000000000b"
+            }
+          ]
+        }
+      }
+    },
+    "disabled": {
+      "merge_msas": false,
+      "words": {
+        "?": {
+          "status": "invalid-shape",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": []
+        },
+        "rann": {
+          "status": "no-analysis",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": []
+        },
+        "ranna": {
+          "status": "parsed",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": [
+            {
+              "morphemes": [
+                "00000000-0000-0000-0000-000000000042"
+              ],
+              "rootIndex": 0,
+              "category": "00000000-0000-0000-0000-00000000000c"
+            },
+            {
+              "morphemes": [
+                "00000000-0000-0000-0000-0000000000e4"
+              ],
+              "rootIndex": 0,
+              "category": "00000000-0000-0000-0000-00000000000c"
+            },
+            {
+              "morphemes": [
+                "00000000-0000-0000-0000-0000000000e5"
+              ],
+              "rootIndex": 0,
+              "category": "00000000-0000-0000-0000-00000000000b"
+            }
+          ]
+        }
+      }
+    },
+    "enabled": {
+      "merge_msas": true,
+      "words": {
+        "?": {
+          "status": "invalid-shape",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": []
+        },
+        "rann": {
+          "status": "no-analysis",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": []
+        },
+        "ranna": {
+          "status": "parsed",
+          "capped": false,
+          "timed_out": false,
+          "guessed": false,
+          "identities": [
+            {
+              "morphemes": [
+                "00000000-0000-0000-0000-000000000042"
+              ],
+              "rootIndex": 0,
+              "category": "00000000-0000-0000-0000-00000000000c"
+            },
+            {
+              "morphemes": [
+                "00000000-0000-0000-0000-0000000000e5"
+              ],
+              "rootIndex": 0,
+              "category": "00000000-0000-0000-0000-00000000000b"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
