@@ -20,5 +20,9 @@ Rust port exists, including conservative partial-grammar guards and invocation-r
 ## Remaining work
 The guard must imply that no valid continuation remains. Default runs with zero prunes establish parity only, not pruning coverage. Actual dual-role invocation, partial roots and lower-stratum continuations need discriminating fixtures; forced override results cannot justify default safety.
 
+Since entry 102 (Machine #529) the template state is no longer reset at every stratum: it crosses
+non-blocking strata. 102's "Interaction with 033" gives the argument that the per-stratum policy
+adds no case this entry did not already have.
+
 ## Upstream
 [Issue #507](https://github.com/sillsdev/machine/issues/507), [PR #491](https://github.com/sillsdev/machine/pull/491).

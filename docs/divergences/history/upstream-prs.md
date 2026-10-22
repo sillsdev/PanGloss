@@ -8,6 +8,7 @@ before trusting "current state" for anything still `OPEN`.
 
 | # | Title | Author | State | Created | Merged | Rust equivalent |
 |---|---|---|---|---|---|---|
+| [529](https://github.com/sillsdev/machine/pull/529) | Use IsCliticRule to allow clitics to apply to templates | jtmaxwell3 | **MERGED** | — | 2026-10-15, `a2f80e28` | Ported; entry 102. In no Machine release yet (not in `v3.9.5`) |
 | [494](https://github.com/sillsdev/machine/pull/494) | Change Add to PriorityUnion | jtmaxwell3 | OPEN, `CHANGES_REQUESTED` | 2026-09-04 | — | historical `5f06e428`; superseded by Exact `149f88df` (entry 002) |
 | [493](https://github.com/sillsdev/machine/pull/493) | Fix bug in MergeEquivalentAnalyses | jtmaxwell3 | MERGED | 2026-09-03 | 2026-09-14, `52d069f8` | Earlier Rust port differs from merged template-FS treatment; entry 034 |
 | [491](https://github.com/sillsdev/machine/pull/491) | Filter final templates in analysis | jtmaxwell3 | OPEN, `REVIEW_REQUIRED` | 2026-08-28 | — | Port exists with partial/invocation guards; entry 033 |
@@ -123,6 +124,14 @@ and current shared fixture; [#505](https://github.com/sillsdev/machine/issues/50
 There is still Rust-side verification work; the former “nothing on the Rust side” claim was wrong.
 
 ## Merged, and what Rust did with them
+
+### PR #529 — clitic rules and blocking strata
+
+Adds `MorphologicalRule@isCliticRule` (default: the rule's stratum is named `Clitics`) and
+`Morpher.IsBlockingStratum`. A clitic rule may follow a final template; template state and the
+open/closed synthesis flag now cross a stratum that has no phonological rules and is not the last.
+Ported in entry 102, pinned by the upstream fixture `edge-cases/clitic-rule-designation` (PR #480
+head `72dbd4f9`, commit `df2cf21a`, which also adjusts `morphotactic-attribute-breadth`).
 
 ### PR #471 — metathesis switch-name order
 

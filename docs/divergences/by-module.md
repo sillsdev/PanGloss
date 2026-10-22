@@ -19,6 +19,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
 | `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
 | `AnalysisRewriteRule.cs` (`Apply`, `ReapplyType.Deletion`), `Morpher.cs` (`DeletionReapplications`) | 093 |
+| `AnalysisStratumRule.cs`, `SynthesisStratumRule.cs`, `SynthesisAffixTemplatesRule.cs`, `AnalysisAffixProcessRule.cs`, `SynthesisAffixProcessRule.cs`, `MorphemicMorphologicalRule.cs` (`GetIsCliticRule`), `Morpher.cs` (`IsBlockingStratum`), `XmlLanguageLoader.cs` (`isCliticRule`) | 102 |
 | `AnalysisScope.cs` | 023, 024, 025, 045 |
 | `AnalysisStateKey.cs` | 023, 024, 045 |
 | `AnalysisSyntacticFeatureMerge.cs` (research-only, `pr494` worktree) | 002 |
@@ -139,6 +140,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/stratum.rs` (`synthesize_stratum_traced`) | 043 |
 | `pg-rules/src/stratum.rs` (`run_template_batch`, `shared_slot_battery`, `walk_slot_trie`, `SlotTrie`) | 095 |
 | `pg-rules/src/rewrite.rs` (`with_class_identity`), `pg-parse/src/root_trie.rs` (`search_segs_ident`, `edge_in_identity`) | 103 |
+| `pg-rules/src/stratum.rs` (`apply_one_mrule`, `analyze`, `synthesize_stratum_traced_with_policy`, `synth_apply_templates`), `pg-rules/src/morph.rs` (`synth_affix`, `synth_affix_cached`), `pg-grammar-model/src/model.rs` (`affix_rule_is_clitic`, `is_blocking_stratum`), `pg-grammar/src/load.rs` (`parse_is_clitic_rule`) | 102 |
 | `pg-rules/src/validity.rs` | 006, 030 |
 | `pg-rules/src/word.rs` (`current_non_head`) | 004 |
 | `pg-rules/src/word.rs` (`expand_alternatives`) | 018 |
@@ -153,6 +155,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 |---|---|
 | `pg-rules/src/stratum/template_slot_sharing_tests.rs` | 095 |
 | `conformance-staging/edge-cases/class-deletion-reinsertion-strrep/`, `pg-parse/tests/conformance_fixtures_gate.rs` (`a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar`), `pg-parse/src/root_trie/tests.rs` | 103 |
+| `machine/conformance/edge-cases/clitic-rule-designation/`, `pg-parse/tests/clitic_template_state_gate.rs`, `pg-grammar/src/load/tests.rs` (`is_clitic_rule_*`) | 102 |
 | `conformance-staging/edge-cases/circumfix-conditioned-halves/` (HCLoader shape; fwdata path unpinned) | 039 |
 | `conformance-staging/edge-cases/multi-table-metathesis-shared-representation/`, `pg-foma-backend/tests/multi_table_metathesis_shared_representation.rs` | 040, 041, 042 |
 | `conformance-staging/edge-cases/nullable-disagree-*` (nullable environment and plain disagreement control) | 065 |
@@ -239,7 +242,7 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | Final-template state / `stratum.rs` policy | 033 | `final-template-partial-discriminators` |
 | Literal rewrite StrRep nonvacuity and inverse identity | 071 | `strrep-rewrite-unapplication`; synthetic kad/kat comparison; [Machine PR #538](https://github.com/sillsdev/machine/pull/538) |
 | Narrowing unapplication after an interposed Optional | 083 | `interposed-optional-multi-rhs`; [Machine PR #540](https://github.com/sillsdev/machine/pull/540) |
-| Narrowing union encoding (speedup) | 087 | 14 staged fixtures; [Machine PR #539](https://github.com/sillsdev/machine/pull/539) review recommends this variant |
+| Narrowing union encoding (speedup) | 087 | 14 fixtures, graduated to `machine/conformance` at `72dbd4f9`; [Machine PR #539](https://github.com/sillsdev/machine/pull/539) review recommends this variant |
 | Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `f412c252`) |
 | Stratum equivalence / `analyze_template` | 034 | Dedicated cross-engine collision fixture still missing |
 | Template and slot merge / `run_template_batch_raw`, `apply_slot_batch` | 035 | `template-category-sharing` is not a collision discriminator |
