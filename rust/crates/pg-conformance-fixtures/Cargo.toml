@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 autotests = false
 
+[[bin]]
+name = "pg-conformance-adapter"
+path = "src/bin/pg-conformance-adapter.rs"
+
 [[test]]
 name = "all"
 path = "tests/harnesses/all.rs"

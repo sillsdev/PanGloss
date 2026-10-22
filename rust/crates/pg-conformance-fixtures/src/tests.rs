@@ -150,10 +150,12 @@ language: Test
 requires: [phonology]
 words:
   - word: foo
+    note: A test word.
     parses:
       - signature: "M1|foo"
         rules: []
   - word: bar
+    note: A word expected to fail.
     expect_fail: true
 "#;
     let parsed: WordsYaml = serde_yaml::from_str(doc).unwrap();
@@ -170,7 +172,7 @@ words:
 
 fn minimal_doc_with(front_matter: &str) -> Result<WordsYaml, serde_yaml::Error> {
     serde_yaml::from_str(&format!(
-        "language: Test\n{front_matter}\nwords:\n  - word: foo\n    expect_fail: true\n"
+        "language: Test\n{front_matter}\nwords:\n  - word: foo\n    note: A test word.\n    expect_fail: true\n"
     ))
 }
 
@@ -235,7 +237,9 @@ fn producibility_census_sorts_and_partitions() {
         std::fs::write(dir.join("grammar.xml"), "<HermitCrabInput/>").unwrap();
         std::fs::write(
             dir.join("words.yaml"),
-            format!("language: Test\n{front_matter}\nwords: []\n"),
+            format!(
+                "language: Test\n{front_matter}\nwords:\n  - word: test\n    note: Census fixture word.\n    expect_fail: true\n"
+            ),
         )
         .unwrap();
         FixtureRef {
@@ -323,7 +327,7 @@ fn all_staged_fixtures_is_local_scope_union_filter_passes() {
 
 fn words_yaml_with(front_matter: &str) -> Result<WordsYaml, serde_yaml::Error> {
     serde_yaml::from_str(&format!(
-        "language: T\n{front_matter}words:\n  - word: kat\n    parses:\n      - signature: \"KAT|kat\"\n"
+        "language: T\n{front_matter}words:\n  - word: kat\n    note: A test word.\n    parses:\n      - signature: \"KAT|kat\"\n        rules: []\n"
     ))
 }
 
@@ -336,7 +340,7 @@ fn an_absent_morpher_block_means_the_defaults() {
 #[test]
 fn every_accepted_morpher_key_is_read() {
     let words = words_yaml_with(
-        "requires: [morpher-settings]\nmorpher:\n  DelReapps: 1\n  MaxRoots: 3\n  MergeAnalyses: false\n  MakePartialsFinal: true\n",
+        "requires: [morpher-settings]\nmorpher:\n  DelReapps: 1\n  MaxRoots: 3\n  MergeAnalyses: false\n  MakePartialsFinal: true\n  GuessRoots: true\n",
     )
     .unwrap();
     assert_eq!(
@@ -346,6 +350,7 @@ fn every_accepted_morpher_key_is_read() {
             max_roots: Some(3),
             merge_analyses: Some(false),
             make_partials_final: Some(true),
+            guess_roots: Some(true),
         }
     );
 }
@@ -353,15 +358,15 @@ fn every_accepted_morpher_key_is_read() {
 #[test]
 fn a_morpher_block_the_harness_cannot_apply_is_refused() {
     for (block, expected) in [
-        ("morpher:\n  GuessRoots: true\n", "unknown key 'GuessRoots'"),
-        (
-            "morpher:\n  MaxAlternatives: 5\n",
-            "unknown key 'MaxAlternatives'",
-        ),
+        ("morpher:\n  MergeMSAs: true\n", "unsupported"),
+        ("morpher:\n  MaxAlternatives: 5\n", "unsupported"),
         ("morpher:\n  DelReapps: one\n", "morpher.DelReapps"),
         ("morpher:\n  DelReapps: -1\n", "morpher.DelReapps"),
+        ("morpher:\n  DelReapps: 2147483648\n", "morpher.DelReapps"),
         ("morpher:\n  MaxRoots: 0\n", "morpher.MaxRoots"),
+        ("morpher:\n  MaxRoots: 2147483648\n", "morpher.MaxRoots"),
         ("morpher:\n  MergeAnalyses: yes\n", "morpher.MergeAnalyses"),
+        ("morpher:\n  GuessRoots: yes\n", "morpher.GuessRoots"),
         ("morpher: {}\n", "empty block"),
         ("morpher: 1\n", "expected a mapping"),
     ] {
@@ -373,6 +378,154 @@ fn a_morpher_block_the_harness_cannot_apply_is_refused() {
 }
 
 #[test]
+fn words_and_parses_require_nonempty_schema_values_and_reject_unknown_fields() {
+    for (word_fields, expected) in [
+        ("", "missing field `note`"),
+        ("    note: \"\"\n", "note must be nonempty"),
+        ("    note: valid\n    parses:\n      - signature: \"\"\n        rules: []\n", "signature must be nonempty"),
+        ("    note: valid\n    parses:\n      - signature: OK|foo\n", "missing field `rules`"),
+        ("    note: valid\n    parses:\n      - signature: OK|foo\n        rules: [\"\"]\n", "rules[0] must be nonempty"),
+        ("    note: valid\n    unknown_word_field: true\n", "unknown field `unknown_word_field`"),
+        ("    note: valid\n    parses:\n      - signature: OK|foo\n        rules: []\n        unknown_parse_field: true\n", "unknown field `unknown_parse_field`"),
+        ("    note: valid\n    claimed_cells: [{cell: key, unknown_claim_field: true}]\n", "unknown field `unknown_claim_field`"),
+    ] {
+        let doc = format!("language: Test\nrequires: [morpher-settings]\nwords:\n  - word: foo\n{word_fields}variants:\n  - name: strict\n    morpher: {{GuessRoots: false}}\n    words:\n      - word: foo\n        note: control\n        expect_fail: true\n");
+        let error = serde_yaml::from_str::<WordsYaml>(&doc)
+            .expect_err("invalid word/parse schema must be rejected")
+            .to_string();
+        assert!(error.contains(expected), "{word_fields:?}: {error}");
+    }
+
+    let empty_word = "language: Test\nwords:\n  - word: \"\"\n    note: valid\n";
+    let error = serde_yaml::from_str::<WordsYaml>(empty_word)
+        .expect_err("empty word input must be rejected")
+        .to_string();
+    assert!(error.contains("word must be nonempty"), "{error}");
+}
+
+#[test]
+fn legacy_staged_words_can_omit_notes_and_rules_without_variants() {
+    let doc = "language: Legacy\nwords:\n  - word: foo\n    parses:\n      - signature: FOO|foo\n";
+    let words: WordsYaml = serde_yaml::from_str(doc).unwrap();
+    assert!(words.words[0].note.is_none());
+    assert!(words.words[0].parses[0].rules.is_empty());
+}
+
+#[test]
+fn word_statuses_allow_fail_or_skip_but_reject_conflicts_and_inconsistent_metadata() {
+    for (fields, expected) in [
+        ("    note: valid\n", "requires at least one parse"),
+        ("    note: valid\n    expect_fail: true\n    expect_skip: true\n", "both expect_fail and expect_skip"),
+        ("    note: valid\n    expect_fail: true\n    parses:\n      - signature: OK|foo\n        rules: []\n", "parses must be empty"),
+        ("    note: valid\n    expect_skip: true\n    parses:\n      - signature: OK|foo\n        rules: []\n", "parses must be empty"),
+        ("    note: valid\n    blocked_by: [rule]\n", "blocked_by requires expect_fail"),
+        ("    note: valid\n    blocked_by: []\n", "blocked_by requires expect_fail"),
+    ] {
+        let doc = format!("language: Test\nwords:\n  - word: foo\n{fields}");
+        let error = serde_yaml::from_str::<WordsYaml>(&doc)
+            .expect_err("inconsistent word status must be rejected")
+            .to_string();
+        assert!(error.contains(expected), "{fields:?}: {error}");
+    }
+
+    for status in ["expect_fail: true", "expect_skip: true"] {
+        let doc = format!("language: Test\nwords:\n  - word: foo\n    note: valid\n    {status}\n");
+        let parsed: WordsYaml = serde_yaml::from_str(&doc).unwrap();
+        assert_eq!(
+            parsed.words[0].expect_fail,
+            status.starts_with("expect_fail")
+        );
+        assert_eq!(
+            parsed.words[0].expect_skip,
+            status.starts_with("expect_skip")
+        );
+    }
+}
+
+#[test]
+fn top_level_metadata_additions_remain_tolerated() {
+    let parsed = words_yaml_with("future_top_level_metadata: true\n").unwrap();
+    assert_eq!(parsed.words.len(), 1);
+}
+
+#[test]
+fn variants_require_valid_unique_names_nonempty_known_settings_and_identical_inputs() {
+    let base = "requires: [morpher-settings]\nwords:\n  - word: foo\n    note: A test word.\n    expect_fail: true\n";
+    for (extra, expected) in [
+        ("variants:\n  - name: Bad\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n", "invalid name"),
+        ("variants:\n  - name: default\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n", "reserved"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n  - name: one\n    morpher: {DelReapps: 1}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n", "duplicate name"),
+        ("variants:\n  - name: one\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n", "nonempty settings mapping is required"),
+        ("variants:\n  - name: one\n    morpher: {GuessRootz: true}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n", "unknown key"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        expect_fail: true\n", "missing field `note`"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: bar\n        note: Variant result.\n        expect_fail: true\n", "exact same ordered word inputs"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        blocked_by: [rule]\n", "may not declare blocked_by"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        neutralizes: [rule]\n", "may not declare blocked_by"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        exercises: [rule]\n", "may not declare blocked_by"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        claimed_cells: [{cell: key}]\n", "may not declare blocked_by"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: FOO|foo\n            rules: []\n            exercises: [rule]\n", "exercises must be empty"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: \"\"\n            rules: []\n", "signature must be nonempty"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: FOO|foo\n", "missing field `rules`"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        parses:\n          - signature: FOO|foo\n            rules: []\n", "parses must be empty"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: FOO|foo\n            rules: []\n            unknown_parse_field: true\n", "unknown field"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        unknown_word_field: true\n", "unknown field"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    unexpected: true\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n", "unknown field"),
+    ] {
+        let doc = format!("language: Test\n{base}{extra}");
+        let error = serde_yaml::from_str::<WordsYaml>(&doc)
+            .expect_err("invalid variant metadata must fail closed")
+            .to_string();
+        assert!(error.contains(expected), "{extra:?}: {error}");
+    }
+}
+
+#[test]
+fn variants_start_from_only_their_own_settings_and_repeat_the_full_word_list() {
+    let parsed = words_yaml_with(
+        "requires: [morpher-settings]\nmorpher:\n  DelReapps: 1\nvariants:\n  - name: lower-reapps\n    morpher:\n      DelReapps: 0\n      GuessRoots: false\n    words:\n      - word: kat\n        note: Variant test word.\n        parses:\n          - signature: \"KAT|kat\"\n            rules: []\n",
+    )
+    .unwrap();
+    assert_eq!(
+        parsed
+            .words
+            .iter()
+            .map(|w| w.word.as_str())
+            .collect::<Vec<_>>(),
+        vec!["kat"]
+    );
+    assert_eq!(parsed.variants.len(), 1);
+    let run = parsed.for_variant(&parsed.variants[0]);
+    assert_eq!(run.morpher.del_reapps, Some(0));
+    assert_eq!(run.morpher.guess_roots, Some(false));
+    assert_eq!(run.morpher.max_roots, None, "base settings do not inherit");
+    assert!(run.variants.is_empty(), "a variant is one independent run");
+}
+
+#[test]
+fn guess_roots_is_an_explicit_supported_boolean_and_adapter_json_setting() {
+    let settings = MorpherSettings::from_json_str(r#"{"GuessRoots":true,"DelReapps":2}"#).unwrap();
+    assert_eq!(settings.guess_roots, Some(true));
+    assert_eq!(settings.del_reapps, Some(2));
+    assert!(MorpherSettings::from_json_str("{}").unwrap().is_empty());
+    for json in [
+        r#"{"GuessRoots":"true"}"#,
+        r#"{"DelReapps":2147483648}"#,
+        r#"{"MaxRoots":2147483648}"#,
+        r#"{"MergeMSAs":true}"#,
+        r#"{"MaxAlternatives":5}"#,
+        r#"{"Typo":true}"#,
+    ] {
+        assert!(
+            MorpherSettings::from_json_str(json).is_err(),
+            "unsupported or wrongly typed setting must fail: {json}"
+        );
+    }
+    let duplicate = MorpherSettings::from_json_str(r#"{"GuessRoots":true,"GuessRoots":false}"#)
+        .expect_err("duplicate JSON keys must not be silently overwritten");
+    assert!(duplicate.contains("duplicate setting key"), "{duplicate}");
+}
+
+#[test]
 fn a_morpher_block_and_the_morpher_settings_requirement_come_together() {
     let missing_requirement = words_yaml_with("morpher:\n  DelReapps: 1\n").unwrap_err();
     assert!(missing_requirement
@@ -380,6 +533,13 @@ fn a_morpher_block_and_the_morpher_settings_requirement_come_together() {
         .contains(MORPHER_SETTINGS_CAPABILITY));
     let missing_block = words_yaml_with("requires: [morpher-settings]\n").unwrap_err();
     assert!(missing_block
+        .to_string()
+        .contains(MORPHER_SETTINGS_CAPABILITY));
+    let missing_variant_requirement = words_yaml_with(
+        "variants:\n  - name: explicit\n    morpher: {GuessRoots: false}\n    words:\n      - word: kat\n        note: Variant test word.\n        parses:\n          - signature: \"KAT|kat\"\n            rules: []\n",
+    )
+    .unwrap_err();
+    assert!(missing_variant_requirement
         .to_string()
         .contains(MORPHER_SETTINGS_CAPABILITY));
 }
@@ -416,4 +576,180 @@ fn a_morpher_that_ignores_the_block_is_reported_not_silently_run_at_defaults() {
     let flagged: Vec<&str> = replay.mismatches.iter().map(|m| m.word.as_str()).collect();
     assert!(flagged.contains(&"<morpher:>"), "{:?}", replay.mismatches);
     assert!(flagged.contains(&"tuki"), "{:?}", replay.mismatches);
+}
+
+#[test]
+fn wrong_variant_expectations_fail_under_its_named_independent_settings_run() {
+    let fixture = deletion_reapplications_fixture();
+    let mut words = fixture.load_words_yaml();
+    words.variants.push(SettingsVariant {
+        name: "del-reapps-zero".to_string(),
+        morpher: MorpherSettings {
+            del_reapps: Some(0),
+            ..MorpherSettings::default()
+        },
+        // Deliberately retain DelReapps=1 expectations to prove the variant is actually replayed.
+        words: words.words.clone(),
+    });
+
+    let runs = replay_fixture_runs(&fixture, &words);
+    assert_eq!(runs.len(), 2);
+    assert!(
+        runs[0].replay.mismatches.is_empty(),
+        "base run: {:?}",
+        runs[0]
+    );
+    assert!(runs[0].is_base, "base is the coverage run");
+    assert!(
+        !runs[1].is_base,
+        "variant does not count as fixture coverage"
+    );
+    assert!(runs[1].name.ends_with("#variant=del-reapps-zero"));
+    assert!(
+        runs[1]
+            .replay
+            .mismatches
+            .iter()
+            .any(|mismatch| mismatch.word == "tuki"),
+        "wrong variant result must fail on tuki: {:?}",
+        runs[1]
+    );
+}
+
+#[test]
+fn guess_roots_matches_the_four_polysynthetic_analyses_and_unapplied_is_reported() {
+    let fixture = require_fixture("languages", "polysynthetic-stratal-derivation-chain");
+    let mut words = fixture.load_words_yaml();
+    let takuvuq = words
+        .words
+        .iter()
+        .find(|word| word.word == "takuvuq")
+        .expect("fixture pins the guessed takuvuq word")
+        .clone();
+    assert!(!takuvuq.adapter_visible_for_guess_roots(false));
+    assert!(takuvuq.adapter_visible_for_guess_roots(true));
+    words.words = vec![takuvuq];
+    words.morpher = MorpherSettings {
+        guess_roots: Some(true),
+        ..MorpherSettings::default()
+    };
+
+    let defaults = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let ignored = replay_against_oracle(&words, &pg_parse::Morpher::new(&defaults, usize::MAX));
+    assert!(
+        ignored
+            .mismatches
+            .iter()
+            .any(|mismatch| mismatch.word == "<morpher:>"),
+        "GuessRoots must fail closed when the morpher did not receive the setting: {:?}",
+        ignored.mismatches
+    );
+
+    let grammar = fixture.load_grammar_with_settings(&words.morpher);
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let guessed = morpher.parse_word_opts(
+        "takuvuq",
+        &pg_parse::ParseOptions::default().with_guess_root(true),
+    );
+    assert_eq!(
+        pg_parse::result_multiset(&guessed.analyses),
+        vec![
+            "taku+INFL|takuvuq".to_string(),
+            "taku+INFL|takuvuq".to_string(),
+            "takuvuq|takuvuq".to_string(),
+            "takuvuq|takuvuq".to_string(),
+        ],
+        "GuessRoots=true must match the C# four-signature multiset"
+    );
+    let tsv = render_adapter_tsv(
+        &fixture.load_grammar_xml(),
+        "takuvuq\n!\n",
+        r#"{"GuessRoots":true}"#,
+    )
+    .unwrap();
+    let rows: Vec<Vec<&str>> = tsv.lines().map(|line| line.split('\t').collect()).collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].len(), 5);
+    assert_eq!(rows[0][0], "0");
+    assert_eq!(rows[0][1], "takuvuq");
+    assert_eq!(rows[0][3], "ok");
+    assert_eq!(
+        rows[0][4],
+        "taku+INFL|takuvuq;taku+INFL|takuvuq;takuvuq|takuvuq;takuvuq|takuvuq"
+    );
+    assert_eq!(rows[1].len(), 5);
+    assert_eq!(rows[1][0], "1");
+    assert_eq!(rows[1][1], "!");
+    assert_eq!(rows[1][3], "SKIPPED");
+    assert_eq!(rows[1][4], "-");
+    assert_eq!(
+        morpher
+            .parse_word_opts(
+                "takuvuq",
+                &pg_parse::ParseOptions::default().with_guess_root(false)
+            )
+            .signature(),
+        "-",
+        "GuessRoots=false has no analysis for the intentionally absent lexicon root"
+    );
+    let tsv_without_guessing = render_adapter_tsv(
+        &fixture.load_grammar_xml(),
+        "takuvuq\n",
+        r#"{"GuessRoots":false}"#,
+    )
+    .unwrap();
+    assert!(tsv_without_guessing.ends_with("\tok\t-\n"));
+    let replay = replay_against_oracle(&words, &morpher);
+    assert!(replay.mismatches.is_empty(), "{:?}", replay.mismatches);
+    assert_eq!(
+        replay.checked, 1,
+        "explicit GuessRoots includes guessed words"
+    );
+}
+#[test]
+fn incomplete_replay_cannot_pass_as_an_expected_zero_analysis() {
+    let fixture = deletion_reapplications_fixture();
+    let mut words = fixture.load_words_yaml();
+    words.words.truncate(1);
+    words.words[0].expect_fail = true;
+    words.words[0].parses.clear();
+    let grammar = fixture.load_grammar();
+    let morpher = pg_parse::Morpher::new(&grammar, 0).with_work_cap(0);
+    let outcome = morpher.parse_word(&words.words[0].word);
+    assert!(
+        outcome.capped,
+        "the control must exhaust its zero work budget"
+    );
+    assert!(outcome.analyses.is_empty());
+    let replay = replay_against_oracle(&words, &morpher);
+    assert!(
+        replay.mismatches.iter().any(|m| m.word == "tuki"),
+        "incomplete work must fail even when its empty signature matches: {:?}",
+        replay.mismatches
+    );
+}
+
+#[test]
+fn a_variant_with_no_visible_words_is_not_reported_as_exercised() {
+    let fixture = deletion_reapplications_fixture();
+    let mut words = fixture.load_words_yaml();
+    words.words.truncate(1);
+    for parse in &mut words.words[0].parses {
+        parse.guess = true;
+    }
+    words.morpher.guess_roots = Some(false);
+    words.variants.push(SettingsVariant {
+        name: "legacy-guesses".to_string(),
+        morpher: MorpherSettings {
+            del_reapps: Some(0),
+            ..MorpherSettings::default()
+        },
+        words: words.words.clone(),
+    });
+    let runs = replay_fixture_runs(&fixture, &words);
+    assert_eq!(runs[0].replay.checked, 1);
+    assert!(runs[0].replay.mismatches.is_empty());
+    assert_eq!(runs[1].replay.checked, 0);
+    assert!(runs[1].name.ends_with("#variant=legacy-guesses"));
+    assert!(runs[1].replay.mismatches.iter().any(|m| m.word == "<run>"));
 }

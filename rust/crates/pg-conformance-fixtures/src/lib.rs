@@ -89,9 +89,18 @@ impl FixtureRef {
     /// Loading the XML with `pg_grammar::load` directly runs every fixture at the defaults;
     /// [`replay_against_oracle`] reports that as a mismatch for a fixture with a block.
     pub fn load_grammar(&self) -> pg_grammar_model::model::Grammar {
+        self.load_grammar_with_settings(&self.load_words_yaml().morpher)
+    }
+
+    /// Load the source grammar and apply exactly one run's settings. Callers use this separately
+    /// for each variant so variants always start at engine defaults and never inherit base values.
+    pub fn load_grammar_with_settings(
+        &self,
+        settings: &MorpherSettings,
+    ) -> pg_grammar_model::model::Grammar {
         let mut grammar = pg_grammar::load(&self.load_grammar_xml())
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", self.label()));
-        self.load_words_yaml().morpher.apply_to(&mut grammar);
+        settings.apply_to(&mut grammar);
         grammar
     }
 
@@ -410,7 +419,7 @@ pub enum FieldworksProducibility {
     Unmarked,
 }
 
-// words.yaml schema: only the fields this repo's tests consume are modeled; no deny_unknown_fields, so this tolerates upstream schema additions without breaking.
+// Validate nested payloads; tolerate unknown top-level metadata.
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(try_from = "WordsYamlWire")]
@@ -431,16 +440,21 @@ pub struct WordsYaml {
     /// The `morpher:` block (`PROTOCOL.md` section 8); empty when absent, meaning the defaults.
     pub morpher: MorpherSettings,
     pub words: Vec<WordEntry>,
+    /// Optional independent settings runs. Each variant carries a complete expected word list.
+    pub variants: Vec<SettingsVariant>,
 }
 
-/// The `requires` capability a fixture with a `morpher:` block must declare (`PROTOCOL.md` section 5).
+/// The `requires` capability a fixture with base or variant `morpher` settings must declare
+/// (`PROTOCOL.md` section 5).
 pub const MORPHER_SETTINGS_CAPABILITY: &str = "morpher-settings";
 
 /// A fixture's `morpher:` block: `Morpher` host settings its expectations were observed under,
 /// keyed by the FieldWorks `<ParserParameters><HC>` element names (`PROTOCOL.md` section 8). `None`
-/// means the C# constructor default. Parsing refuses any other key, an empty block, an
+/// means the C# constructor default. Parsing refuses any other key, an empty YAML block, an
 /// out-of-range count and a non-boolean flag, because a setting this harness cannot apply must
-/// not fall back to the default it was meant to override.
+/// not fall back to the default it was meant to override. The adapter JSON file allows `{}` to
+/// represent a materialized default run. `MaxAlternatives` and `MergeMSAs` are deliberately
+/// unsupported; neither is mapped to an HC alternative cap or another setting.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MorpherSettings {
     /// `DelReapps` -> `Grammar::deletion_reapplications`.
@@ -451,6 +465,8 @@ pub struct MorpherSettings {
     pub merge_analyses: Option<bool>,
     /// `MakePartialsFinal` -> `Grammar::always_enforce_final_templates`.
     pub make_partials_final: Option<bool>,
+    /// `GuessRoots` -> per-call `ParseOptions::guess_root`; omission keeps adapter-mode guessing off.
+    pub guess_roots: Option<bool>,
 }
 
 impl MorpherSettings {
@@ -471,6 +487,9 @@ impl MorpherSettings {
         }
         if let Some(value) = self.make_partials_final {
             grammar.always_enforce_final_templates = value;
+        }
+        if let Some(value) = self.guess_roots {
+            grammar.guess_roots = value;
         }
     }
 
@@ -504,14 +523,34 @@ impl MorpherSettings {
             self.make_partials_final.map(|v| v.to_string()),
             morpher.always_enforce_final_templates().to_string(),
         );
+        check(
+            "GuessRoots",
+            self.guess_roots.map(|v| v.to_string()),
+            morpher.guess_roots().to_string(),
+        );
         unapplied
     }
 
+    /// Parse a JSON object of FieldWorks settings for the standalone adapter. It uses the same
+    /// strict key/type/range checks as `words.yaml`; `MergeMSAs` and `MaxAlternatives` remain
+    /// deliberately unsupported because this engine has no faithful mapping for them.
+    pub fn from_json_str(text: &str) -> Result<Self, String> {
+        let json: JsonSettingsMap =
+            serde_json::from_str(text).map_err(|e| format!("morpher JSON: {e}"))?;
+        let yaml = serde_yaml::to_value(serde_json::Value::Object(json.0))
+            .map_err(|e| format!("morpher JSON: {e}"))?;
+        Self::from_yaml_value(&yaml, true)
+    }
+
     fn from_yaml(value: &serde_yaml::Value) -> Result<Self, String> {
+        Self::from_yaml_value(value, false)
+    }
+
+    fn from_yaml_value(value: &serde_yaml::Value, allow_empty: bool) -> Result<Self, String> {
         let serde_yaml::Value::Mapping(map) = value else {
             return Err("morpher: expected a mapping".to_string());
         };
-        if map.is_empty() {
+        if map.is_empty() && !allow_empty {
             return Err("morpher: an empty block means the defaults; omit it instead".to_string());
         }
         let mut settings = Self::default();
@@ -522,10 +561,10 @@ impl MorpherSettings {
             let count = |minimum: u64| {
                 value
                     .as_u64()
-                    .filter(|v| *v >= minimum && *v <= u64::from(u32::MAX))
+                    .filter(|v| *v >= minimum && *v <= i32::MAX as u64)
                     .map(|v| v as u32)
                     .ok_or_else(|| {
-                        format!("morpher.{key}: expected a whole number of at least {minimum}, got {value:?}")
+                        format!("morpher.{key}: expected a whole number from {minimum} through {}, got {value:?}", i32::MAX)
                     })
             };
             let flag = || {
@@ -538,16 +577,343 @@ impl MorpherSettings {
                 "MaxRoots" => settings.max_roots = Some(count(1)?),
                 "MergeAnalyses" => settings.merge_analyses = Some(flag()?),
                 "MakePartialsFinal" => settings.make_partials_final = Some(flag()?),
+                "GuessRoots" => settings.guess_roots = Some(flag()?),
                 other => {
                     return Err(format!(
                         "morpher: unknown key '{other}' (allowed: DelReapps, MakePartialsFinal, \
-                         MaxRoots, MergeAnalyses)"
+                         MaxRoots, MergeAnalyses, GuessRoots; MaxAlternatives and MergeMSAs are \
+                         unsupported)"
                     ))
                 }
             }
         }
         Ok(settings)
     }
+}
+
+/// Duplicate keys make a settings object ambiguous, so preserve them while decoding.
+struct JsonSettingsMap(serde_json::Map<String, serde_json::Value>);
+
+impl<'de> Deserialize<'de> for JsonSettingsMap {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct SettingsVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for SettingsVisitor {
+            type Value = JsonSettingsMap;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a JSON object containing morpher settings")
+            }
+
+            fn visit_map<A>(self, mut access: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut object = serde_json::Map::new();
+                while let Some((key, value)) = access.next_entry::<String, serde_json::Value>()? {
+                    if object.contains_key(&key) {
+                        return Err(serde::de::Error::custom(format!(
+                            "duplicate setting key {key:?}"
+                        )));
+                    }
+                    object.insert(key, value);
+                }
+                Ok(JsonSettingsMap(object))
+            }
+        }
+
+        deserializer.deserialize_map(SettingsVisitor)
+    }
+}
+
+/// A complete alternate parser run. Settings start from engine defaults; words repeat the base
+/// fixture's exact ordered inputs and replace its expected outputs for this run.
+#[derive(Debug, Clone)]
+pub struct SettingsVariant {
+    pub name: String,
+    pub morpher: MorpherSettings,
+    pub words: Vec<WordEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SettingsVariantWire {
+    name: String,
+    morpher: Option<serde_yaml::Value>,
+    words: Vec<WordEntryWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WordEntryWire {
+    word: String,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    note: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    provenance: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    expect_fail: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    blocked_by: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    neutralizes: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    expect_skip: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    exercises: Option<Vec<String>>,
+    #[serde(default)]
+    claimed_cells: Vec<ClaimedCellWire>,
+    #[serde(default)]
+    parses: Vec<ParseEntryWire>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ParseEntryWire {
+    signature: String,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    gloss: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    rules: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    exercises: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    guess: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
+#[serde(deny_unknown_fields)]
+struct ClaimedCellWire {
+    cell: String,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    severing: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    before: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    after: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    distinct_from: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    proof: Option<String>,
+}
+
+fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+impl WordEntryWire {
+    fn validate(&self, path: &str, variant: bool, require_metadata: bool) -> Result<(), String> {
+        if self.word.is_empty() {
+            return Err(format!("{path}.word must be nonempty"));
+        }
+        if self.note.as_ref().is_some_and(String::is_empty) {
+            return Err(format!("{path}.note must be nonempty"));
+        }
+        if require_metadata && self.note.is_none() {
+            return Err(format!("{path}: missing field `note`"));
+        }
+        validate_unique_strings(&format!("{path}.blocked_by"), self.blocked_by.as_deref())?;
+        validate_unique_strings(&format!("{path}.neutralizes"), self.neutralizes.as_deref())?;
+        validate_unique_strings(&format!("{path}.exercises"), self.exercises.as_deref())?;
+
+        let expect_fail = self.expect_fail.unwrap_or(false);
+        let expect_skip = self.expect_skip.unwrap_or(false);
+        if expect_fail && expect_skip {
+            return Err(format!(
+                "{path} may not set both expect_fail and expect_skip"
+            ));
+        }
+        if (expect_fail || expect_skip) && !self.parses.is_empty() {
+            return Err(format!(
+                "{path}.parses must be empty when expect_fail or expect_skip is true"
+            ));
+        }
+        if self.blocked_by.is_some() && !expect_fail {
+            return Err(format!("{path}.blocked_by requires expect_fail: true"));
+        }
+        if !expect_fail && !expect_skip && self.parses.is_empty() {
+            return Err(format!(
+                "{path} requires at least one parse unless expect_fail or expect_skip is true"
+            ));
+        }
+
+        for (index, parse) in self.parses.iter().enumerate() {
+            parse.validate(
+                &format!("{path}.parses[{index}]"),
+                variant,
+                require_metadata,
+            )?;
+        }
+
+        let mut unique_claims = std::collections::HashSet::new();
+        for (index, claim) in self.claimed_cells.iter().enumerate() {
+            claim.validate(&format!("{path}.claimed_cells[{index}]"))?;
+            if !unique_claims.insert(claim) {
+                return Err(format!("{path}.claimed_cells contains a duplicate entry"));
+            }
+        }
+
+        if variant
+            && (self
+                .blocked_by
+                .as_ref()
+                .is_some_and(|values| !values.is_empty())
+                || self
+                    .neutralizes
+                    .as_ref()
+                    .is_some_and(|values| !values.is_empty())
+                || self
+                    .exercises
+                    .as_ref()
+                    .is_some_and(|values| !values.is_empty())
+                || !self.claimed_cells.is_empty())
+        {
+            return Err(format!(
+                "{path} may not declare blocked_by, neutralizes, exercises, or claimed_cells; variant coverage belongs to the base run"
+            ));
+        }
+        Ok(())
+    }
+
+    fn into_entry(self) -> WordEntry {
+        WordEntry {
+            word: self.word,
+            note: self.note,
+            provenance: self.provenance,
+            expect_fail: self.expect_fail.unwrap_or(false),
+            blocked_by: self.blocked_by.unwrap_or_default(),
+            neutralizes: self.neutralizes.unwrap_or_default(),
+            expect_skip: self.expect_skip.unwrap_or(false),
+            exercises: self.exercises.unwrap_or_default(),
+            claimed_cells: self
+                .claimed_cells
+                .into_iter()
+                .map(ClaimedCellWire::into_value)
+                .collect(),
+            parses: self
+                .parses
+                .into_iter()
+                .map(ParseEntryWire::into_entry)
+                .collect(),
+        }
+    }
+}
+
+impl ParseEntryWire {
+    fn validate(&self, path: &str, variant: bool, require_metadata: bool) -> Result<(), String> {
+        if self.signature.is_empty() {
+            return Err(format!("{path}.signature must be nonempty"));
+        }
+        if require_metadata && self.rules.is_none() {
+            return Err(format!("{path}: missing field `rules`"));
+        }
+        if let Some(rules) = &self.rules {
+            validate_nonempty_strings(&format!("{path}.rules"), rules)?;
+        }
+        validate_unique_strings(&format!("{path}.exercises"), self.exercises.as_deref())?;
+        if variant
+            && self
+                .exercises
+                .as_ref()
+                .is_some_and(|values| !values.is_empty())
+        {
+            return Err(format!(
+                "{path}.exercises must be empty in a settings variant"
+            ));
+        }
+        Ok(())
+    }
+
+    fn into_entry(self) -> ParseEntry {
+        ParseEntry {
+            signature: self.signature,
+            gloss: self.gloss,
+            rules: self.rules.unwrap_or_default(),
+            exercises: self.exercises.unwrap_or_default(),
+            guess: self.guess.unwrap_or(false),
+        }
+    }
+}
+
+impl ClaimedCellWire {
+    fn validate(&self, path: &str) -> Result<(), String> {
+        if self.cell.is_empty() {
+            return Err(format!("{path}.cell must be nonempty"));
+        }
+        for (name, value) in [
+            ("severing", self.severing.as_deref()),
+            ("before", self.before.as_deref()),
+            ("after", self.after.as_deref()),
+            ("distinct_from", self.distinct_from.as_deref()),
+            ("proof", self.proof.as_deref()),
+        ] {
+            if value.is_some_and(str::is_empty) {
+                return Err(format!("{path}.{name} must be nonempty"));
+            }
+        }
+        let review_bundle = [
+            self.severing.is_some(),
+            self.before.is_some(),
+            self.after.is_some(),
+            self.proof.is_some(),
+        ];
+        if review_bundle.iter().any(|present| *present)
+            && review_bundle.iter().any(|present| !present)
+        {
+            return Err(format!(
+                "{path} requires severing, before, after, and proof together"
+            ));
+        }
+        Ok(())
+    }
+
+    fn into_value(self) -> serde_yaml::Value {
+        let mut map = serde_yaml::Mapping::new();
+        let mut insert = |key: &str, value: &str| {
+            map.insert(
+                serde_yaml::Value::String(key.to_string()),
+                serde_yaml::Value::String(value.to_string()),
+            );
+        };
+        insert("cell", &self.cell);
+        for (key, value) in [
+            ("severing", self.severing),
+            ("before", self.before),
+            ("after", self.after),
+            ("distinct_from", self.distinct_from),
+            ("proof", self.proof),
+        ] {
+            if let Some(value) = value {
+                insert(key, &value);
+            }
+        }
+        serde_yaml::Value::Mapping(map)
+    }
+}
+
+fn validate_nonempty_strings(path: &str, values: &[String]) -> Result<(), String> {
+    if let Some(index) = values.iter().position(String::is_empty) {
+        return Err(format!("{path}[{index}] must be nonempty"));
+    }
+    Ok(())
+}
+
+fn validate_unique_strings(path: &str, values: Option<&[String]>) -> Result<(), String> {
+    if let Some(values) = values {
+        validate_nonempty_strings(path, values)?;
+        let mut unique = std::collections::HashSet::new();
+        if values.iter().any(|value| !unique.insert(value)) {
+            return Err(format!("{path} contains a duplicate entry"));
+        }
+    }
+    Ok(())
 }
 
 /// Raw front matter, resolved into [`FieldworksProducibility`] by `TryFrom` below.
@@ -562,21 +928,45 @@ struct WordsYamlWire {
     requires: Vec<String>,
     #[serde(default)]
     expect_crash: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     budget_ms: Option<u64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     fieldworks_producible: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     fieldworks_producible_notes: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_present")]
     morpher: Option<serde_yaml::Value>,
-    words: Vec<WordEntry>,
+    words: Vec<WordEntryWire>,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    variants: Option<Vec<SettingsVariantWire>>,
 }
 
 impl TryFrom<WordsYamlWire> for WordsYaml {
     type Error = String;
 
     fn try_from(wire: WordsYamlWire) -> Result<Self, Self::Error> {
+        if wire.language.is_empty() {
+            return Err("language must be nonempty".to_string());
+        }
+        validate_nonempty_strings("inspired_by", &wire.inspired_by)?;
+        validate_nonempty_strings("sources", &wire.sources)?;
+        validate_unique_strings("requires", Some(&wire.requires))?;
+        if wire.words.is_empty() {
+            return Err("words must contain at least one entry".to_string());
+        }
+        for (index, word) in wire.words.iter().enumerate() {
+            word.validate(&format!("words[{index}]"), false, wire.variants.is_some())?;
+        }
+        if wire.budget_ms == Some(0) {
+            return Err("budget_ms must be at least 1".to_string());
+        }
+        if wire
+            .fieldworks_producible_notes
+            .as_ref()
+            .is_some_and(String::is_empty)
+        {
+            return Err("fieldworks_producible_notes must be nonempty when present".to_string());
+        }
         let fieldworks_producible = match wire.fieldworks_producible {
             None => FieldworksProducibility::Unmarked,
             Some(true) => FieldworksProducibility::Producible,
@@ -594,19 +984,80 @@ impl TryFrom<WordsYamlWire> for WordsYaml {
             None => MorpherSettings::default(),
             Some(value) => MorpherSettings::from_yaml(value)?,
         };
+        let base_inputs: Vec<&str> = wire.words.iter().map(|word| word.word.as_str()).collect();
+        let mut names = std::collections::HashSet::new();
+        let (variants_present, variant_wires) = match wire.variants {
+            None => (false, Vec::new()),
+            Some(variants) if variants.is_empty() => {
+                return Err("variants must contain at least one entry when present".to_string())
+            }
+            Some(variants) => (true, variants),
+        };
+        let mut variants = Vec::with_capacity(variant_wires.len());
+        for variant in variant_wires {
+            validate_variant_name(&variant.name)?;
+            if variant.name == "default" {
+                return Err("variants: name 'default' is reserved for the base run".to_string());
+            }
+            if !names.insert(variant.name.clone()) {
+                return Err(format!("variants: duplicate name {:?}", variant.name));
+            }
+            let variant_morpher = variant.morpher.as_ref().ok_or_else(|| {
+                format!(
+                    "variants.{}.morpher: a nonempty settings mapping is required",
+                    variant.name
+                )
+            })?;
+            let variant_morpher = MorpherSettings::from_yaml(variant_morpher)
+                .map_err(|error| format!("variants.{}.{}", variant.name, error))?;
+            if variant.words.is_empty() {
+                return Err(format!(
+                    "variants.{}.words must contain at least one entry",
+                    variant.name
+                ));
+            }
+            for (index, word) in variant.words.iter().enumerate() {
+                word.validate(
+                    &format!("variants.{}.words[{index}]", variant.name),
+                    true,
+                    true,
+                )?;
+            }
+            let variant_inputs: Vec<&str> = variant
+                .words
+                .iter()
+                .map(|word| word.word.as_str())
+                .collect();
+            if variant_inputs != base_inputs {
+                return Err(format!(
+                    "variants.{}.words must contain the exact same ordered word inputs as base words",
+                    variant.name
+                ));
+            }
+            variants.push(SettingsVariant {
+                name: variant.name,
+                morpher: variant_morpher,
+                words: variant
+                    .words
+                    .into_iter()
+                    .map(WordEntryWire::into_entry)
+                    .collect(),
+            });
+        }
         let requires_settings = wire
             .requires
             .iter()
             .any(|r| r == MORPHER_SETTINGS_CAPABILITY);
-        if requires_settings == morpher.is_empty() {
+        let settings_present = !morpher.is_empty() || variants_present;
+        if requires_settings != settings_present {
             return Err(format!(
-                "requires lists {MORPHER_SETTINGS_CAPABILITY} exactly when a morpher: block is \
-                 present (requires {:?}, morpher block {})",
+                "requires lists {MORPHER_SETTINGS_CAPABILITY} exactly when base or variant \
+                 morpher settings are present (requires {:?}, settings {})",
                 wire.requires,
-                if morpher.is_empty() {
-                    "absent"
-                } else {
+                if settings_present {
                     "present"
+                } else {
+                    "absent"
                 }
             ));
         }
@@ -619,12 +1070,46 @@ impl TryFrom<WordsYamlWire> for WordsYaml {
             budget_ms: wire.budget_ms,
             fieldworks_producible,
             morpher,
-            words: wire.words,
+            words: wire
+                .words
+                .into_iter()
+                .map(WordEntryWire::into_entry)
+                .collect(),
+            variants,
         })
     }
 }
 
+fn validate_variant_name(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(format!(
+            "variants: invalid name {name:?}; expected nonempty lowercase [a-z0-9-]+"
+        ));
+    }
+    Ok(())
+}
+
 impl WordsYaml {
+    /// Copy the fixture metadata into an independent run using one variant's settings and answers.
+    pub fn for_variant(&self, variant: &SettingsVariant) -> Self {
+        Self {
+            language: self.language.clone(),
+            inspired_by: self.inspired_by.clone(),
+            sources: self.sources.clone(),
+            requires: self.requires.clone(),
+            expect_crash: self.expect_crash,
+            budget_ms: self.budget_ms,
+            fieldworks_producible: self.fieldworks_producible.clone(),
+            morpher: variant.morpher.clone(),
+            words: variant.words.clone(),
+            variants: Vec::new(),
+        }
+    }
+
     /// Reason to skip this fixture entirely in a generic, always-on replay test — `None` means
     /// "replay it". See the field docs above for why `expect_crash`/`budget_ms` are excluded.
     pub fn skip_in_generic_replay(&self) -> Option<&'static str> {
@@ -652,22 +1137,30 @@ pub struct WordEntry {
     pub expect_fail: bool,
     #[serde(default)]
     pub blocked_by: Vec<String>,
+    #[serde(default)]
+    pub neutralizes: Vec<String>,
     /// The oracle throws `InvalidShapeException` — batch status `SKIPPED`, not `ok`.
     #[serde(default)]
     pub expect_skip: bool,
     #[serde(default)]
     pub exercises: Vec<String>,
     #[serde(default)]
+    pub claimed_cells: Vec<serde_yaml::Value>,
+    #[serde(default)]
     pub parses: Vec<ParseEntry>,
 }
 
 impl WordEntry {
-    /// `PROTOCOL.md` section 3's adapter-mode omission rule: a word carrying any `guess: true`
-    /// parse is invisible to adapter-mode (non-self-check) engines — `pangloss`'s plain
-    /// `Morpher::parse_word` (`guess_root: false`) included. A generic replay skips such words
-    /// entirely rather than asserting on them.
+    /// `PROTOCOL.md` section 3's legacy adapter-mode omission rule. A generic run without an
+    /// explicit `GuessRoots` value skips words carrying any `guess: true` parse.
     pub fn adapter_visible(&self) -> bool {
-        !self.parses.iter().any(|p| p.guess)
+        self.adapter_visible_for_guess_roots(false)
+    }
+
+    /// Variant-aware visibility: an explicitly supplied GuessRoots setting makes guessed words
+    /// part of that run's complete expected word list, whether the value is true or false.
+    pub fn adapter_visible_for_guess_roots(&self, guess_roots_explicit: bool) -> bool {
+        guess_roots_explicit || !self.parses.iter().any(|p| p.guess)
     }
 
     /// The `PROTOCOL.md` section 2/3 expected `signature` column for this word: `-` if the word
@@ -702,8 +1195,8 @@ pub struct ParseEntry {
     pub rules: Vec<String>,
     #[serde(default)]
     pub exercises: Vec<String>,
-    /// A `Guesser`/`LexicalGuess` analysis (`PROTOCOL.md` section 3) — self-check-only, never
-    /// producible through the adapter contract.
+    /// A `Guesser`/`LexicalGuess` analysis (`PROTOCOL.md` section 3) — omitted by legacy adapter
+    /// runs, but included when that run explicitly supplies `GuessRoots`.
     #[serde(default)]
     pub guess: bool,
 }
@@ -746,6 +1239,51 @@ pub struct OracleReplay {
     pub mismatches: Vec<OracleMismatch>,
 }
 
+/// One independently evaluated run for a fixture. `is_base` marks the only run included in the
+/// fixture coverage total; named settings variants are replayed without changing fixture coverage.
+#[derive(Debug)]
+pub struct NamedOracleReplay {
+    pub name: String,
+    pub is_base: bool,
+    pub replay: OracleReplay,
+}
+
+/// Replay the base run and every declared settings variant. Each grammar is freshly loaded from
+/// `grammar.xml`; the variant does not inherit the base run's `morpher:` settings.
+pub fn replay_fixture_runs(fixture: &FixtureRef, words_yaml: &WordsYaml) -> Vec<NamedOracleReplay> {
+    let mut runs = Vec::with_capacity(1 + words_yaml.variants.len());
+    let run = |name: String, words: &WordsYaml, is_base: bool| {
+        let grammar = fixture.load_grammar_with_settings(&words.morpher);
+        let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+        let mut replay = replay_against_oracle(words, &morpher);
+        if replay.checked == 0 {
+            replay.mismatches.push(OracleMismatch {
+                word: "<run>".to_string(),
+                what: "run compared no adapter-visible words",
+                got: "0 comparisons".to_string(),
+                expected: "at least one comparison; declare GuessRoots to include guessed words"
+                    .to_string(),
+            });
+        }
+        NamedOracleReplay {
+            name,
+            is_base,
+            replay,
+        }
+    };
+
+    runs.push(run(fixture.label(), words_yaml, true));
+    for variant in &words_yaml.variants {
+        let variant_words = words_yaml.for_variant(variant);
+        runs.push(run(
+            format!("{}#variant={}", fixture.label(), variant.name),
+            &variant_words,
+            false,
+        ));
+    }
+    runs
+}
+
 /// The non-panicking core of `assert_matches_oracle`: replays every adapter-visible word and collects
 /// each disagreement instead of stopping at the first, so a gate can compare the whole set against a
 /// declared known-divergence list and fail on a divergence that is missing as well as one that is new.
@@ -771,12 +1309,23 @@ pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher
             expected: format!("{:?}", words_yaml.morpher),
         });
     }
+    let parse_options = pg_parse::ParseOptions::default()
+        .with_guess_root(words_yaml.morpher.guess_roots.unwrap_or(false));
     for w in &words_yaml.words {
-        if !w.adapter_visible() {
+        if !w.adapter_visible_for_guess_roots(words_yaml.morpher.guess_roots.is_some()) {
             continue; // self-check-only (guess:true parse), PROTOCOL.md section 3
         }
-        let outcome = morpher.parse_word(&w.word);
+        let outcome = morpher.parse_word_opts(&w.word, &parse_options);
         replay.checked += 1;
+        if outcome.capped || outcome.timed_out {
+            replay.mismatches.push(OracleMismatch {
+                word: w.word.clone(),
+                what: "incomplete parse cannot satisfy an oracle expectation",
+                got: format!("capped={}, timed_out={}", outcome.capped, outcome.timed_out),
+                expected: "complete parse".to_string(),
+            });
+            continue;
+        }
         if w.expect_skip {
             if !outcome.invalid_shape {
                 replay.mismatches.push(OracleMismatch {
@@ -811,6 +1360,53 @@ pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher
         }
     }
     replay
+}
+
+/// Render PanGloss results in the Machine adapter's canonical five-column TSV form. The settings
+/// file is a direct JSON mapping of supported FieldWorks morpher settings; unsupported settings
+/// such as `MergeMSAs` and `MaxAlternatives` are refused instead of silently ignored.
+pub fn render_adapter_tsv(
+    grammar_xml: &str,
+    words_text: &str,
+    morpher_json: &str,
+) -> Result<String, String> {
+    let settings = MorpherSettings::from_json_str(morpher_json)?;
+    let mut grammar = pg_grammar::load(grammar_xml).map_err(|e| format!("grammar: {e}"))?;
+    settings.apply_to(&mut grammar);
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let options =
+        pg_parse::ParseOptions::default().with_guess_root(settings.guess_roots.unwrap_or(false));
+
+    let mut output = String::new();
+    for (index, word) in words_text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .enumerate()
+    {
+        if word.contains('\t') {
+            return Err(format!(
+                "word at adapter row {index} contains a tab and cannot be represented in TSV"
+            ));
+        }
+        let started = std::time::Instant::now();
+        let outcome = morpher.parse_word_opts(word, &options);
+        let elapsed_ms = started.elapsed().as_millis();
+        if outcome.capped || outcome.timed_out {
+            return Err(format!(
+                "incomplete parse at adapter row {index} ({word:?}): capped={}, timed_out={}",
+                outcome.capped, outcome.timed_out
+            ));
+        }
+        let (status, signature) = if outcome.invalid_shape {
+            ("SKIPPED", "-".to_string())
+        } else {
+            ("ok", outcome.signature())
+        };
+        output.push_str(&format!(
+            "{index}\t{word}\t{elapsed_ms}\t{status}\t{signature}\n"
+        ));
+    }
+    Ok(output)
 }
 
 #[cfg(test)]

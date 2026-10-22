@@ -2,7 +2,7 @@
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    producibility_census, replay_against_oracle, require_fixture, OracleProvenance,
+    producibility_census, replay_fixture_runs, require_fixture, OracleProvenance,
 };
 use pg_parse::Morpher;
 
@@ -351,6 +351,7 @@ fn all_discovered_fixtures_match_oracle() {
 
     let mut total_checked = 0usize;
     let mut total_skipped_fixtures = 0usize;
+    let mut total_variant_runs = 0usize;
     let mut mismatches = Vec::new();
     for f in &fixtures {
         let words_yaml = f.load_words_yaml();
@@ -359,25 +360,28 @@ fn all_discovered_fixtures_match_oracle() {
             total_skipped_fixtures += 1;
             continue;
         }
-        let grammar = f.load_grammar();
-        let morpher = Morpher::new(&grammar, usize::MAX);
-        let label = f.label();
-        let replay = replay_against_oracle(&words_yaml, &morpher);
-        for mismatch in &replay.mismatches {
-            mismatches.push(format!(
-                "{label}: word {:?} {}\n  left (HC-Rust): {}\n right (oracle): {}",
-                mismatch.word, mismatch.what, mismatch.got, mismatch.expected
-            ));
+        for run in replay_fixture_runs(f, &words_yaml) {
+            if !run.is_base {
+                total_variant_runs += 1;
+            }
+            for mismatch in &run.replay.mismatches {
+                mismatches.push(format!(
+                    "{}: word {:?} {}\n  left (HC-Rust): {}\n right (oracle): {}",
+                    run.name, mismatch.word, mismatch.what, mismatch.got, mismatch.expected
+                ));
+            }
+            if run.is_base {
+                assert!(
+                    run.replay.checked > 0,
+                    "{}: replayed zero words (every word guess-only or the fixture is empty?)",
+                    run.name
+                );
+                total_checked += run.replay.checked;
+            }
         }
-        let checked = replay.checked;
-        assert!(
-            checked > 0,
-            "{label}: replayed zero words (every word guess-only or the fixture is empty?)"
-        );
-        total_checked += checked;
     }
     eprintln!(
-        "conformance_fixtures_gate: {total_checked} words checked across {} fixtures ({} skipped)",
+        "conformance_fixtures_gate: {total_checked} base words checked across {} fixtures ({} skipped); replayed {total_variant_runs} settings variants (not included in fixture coverage)",
         fixtures.len() - total_skipped_fixtures,
         total_skipped_fixtures
     );
