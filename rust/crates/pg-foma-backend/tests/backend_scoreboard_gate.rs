@@ -44,12 +44,12 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // 127 rows per strategy: the two boundary fixtures and the six 079 fixtures joined the original 104, then the 083 and 087 narrowing fixtures; `merge-subrules-pos-rtl-template` is a miss in both FST strategies whatever its application order.
+    // 128 rows per strategy: the two boundary fixtures and the six 079 fixtures joined the original 104, then the 083 and 087 narrowing fixtures, then 103's `class-deletion-reinsertion-strrep`; `merge-subrules-pos-rtl-template` is a miss in both FST strategies whatever its application order, and `class-deletion-reinsertion-strrep` is a TunedSurfaceProbed proposer miss (HC itself matches the oracle on it).
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
             oracle_exact: 121,
-            compiles_but_misses: 4,
+            compiles_but_misses: 5,
             refused: 2,
             unmeasurable: 0,
         },
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 98,
+            oracle_exact: 99,
             compiles_but_misses: 4,
             refused: 25,
             unmeasurable: 0,
@@ -66,7 +66,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 40,
+            oracle_exact: 41,
             compiles_but_misses: 2,
             refused: 82,
             unmeasurable: 3,
