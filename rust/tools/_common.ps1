@@ -1165,6 +1165,8 @@ $script:ExitCodeOracleDivergence = 26
 $script:ExitCodeReleaseArtifactNotExported = 28
 # Clippy (or the type-check under it) failed before tests or a build started; CI's clippy job would fail the same tree.
 $script:ExitCodeLint = 40
+# -Mode preland: at least one pre-land check failed or could not run.
+$script:ExitCodePrelandFailed = 42
 # Comment hygiene found violations or could not run; CI's release gate would refuse the same tree.
 $script:ExitCodeCommentHygiene = 41
 
@@ -1536,6 +1538,55 @@ function Get-ConformanceSubmoduleSizeMB {
     $bytes = (Get-ChildItem $dir -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
     if (-not $bytes) { return 0 }
     return [math]::Round($bytes / 1MB, 1)
+}
+
+function Find-PinMatchedConformanceDriver {
+    <#
+      .DESCRIPTION
+      Finds an already-built `hc-conformance.exe` whose Machine worktree HEAD is exactly
+      $PinCommit, so the driver's fixture loader matches the pinned fixture format. Probes the
+      documented `.worktrees\pin-<sha>` location first, then every worktree of each Machine checkout
+      (`PANGLOSS_MACHINE_CHECKOUTS`, `;`-separated, overrides the defaults). Returns an object with
+      Ok, ExePath, and Detail; Detail names every probed location and the build recipe on a miss.
+    #>
+    param([Parameter(Mandatory)][string]$PinCommit)
+
+    $checkouts = if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
+        @($env:PANGLOSS_MACHINE_CHECKOUTS -split ';' | Where-Object { $_ })
+    } else {
+        @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine')
+    }
+    $relative = 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\{0}\net10.0\hc-conformance.exe'
+    $worktrees = [System.Collections.Generic.List[string]]::new()
+    foreach ($checkout in $checkouts) {
+        $worktrees.Add((Join-Path $checkout ".worktrees\pin-$PinCommit"))
+        if (-not (Test-Path -LiteralPath $checkout)) { continue }
+        $current = $null
+        foreach ($line in @(& git -C $checkout worktree list --porcelain 2>$null)) {
+            if ($line -like 'worktree *') { $current = $line.Substring(9) }
+            elseif ($line -eq "HEAD $PinCommit" -and $current) { $worktrees.Add($current) }
+        }
+    }
+    # A worktree with local source edits, or an exe older than its HEAD commit, may not be the pin's driver.
+    $probed = @()
+    foreach ($config in 'Release', 'Debug') {
+        foreach ($wt in $worktrees) {
+            $exe = Join-Path $wt ($relative -f $config)
+            $probed += $exe
+            if (-not (Test-Path -LiteralPath $exe)) { continue }
+            if (@(& git -C $wt status --porcelain --untracked-files=no -- src 2>$null).Count -gt 0) { $probed[-1] += ' (worktree has source edits)'; continue }
+            $committed = & git -C $wt log -1 --format=%ct HEAD 2>$null
+            if ($committed -and (Get-Item -LiteralPath $exe).LastWriteTimeUtc -lt [DateTimeOffset]::FromUnixTimeSeconds([long]$committed).UtcDateTime) {
+                $probed[-1] += ' (older than its HEAD commit)'; continue
+            }
+            return [PSCustomObject]@{ Ok = $true; ExePath = (Resolve-Path -LiteralPath $exe).Path; Detail = "pin-matched driver at $exe" }
+        }
+    }
+    $first = $checkouts[0]
+    $detail = "no hc-conformance.exe built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
+        "Build one: git -C $first worktree add --detach .worktrees\pin-$PinCommit $PinCommit; " +
+        "dotnet build $first\.worktrees\pin-$PinCommit\src\SIL.Machine.Morphology.HermitCrab.Conformance -c Release"
+    return [PSCustomObject]@{ Ok = $false; ExePath = $null; Detail = $detail }
 }
 
 function Initialize-ConformanceSubmodule {

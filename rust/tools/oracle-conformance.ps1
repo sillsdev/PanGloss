@@ -112,6 +112,8 @@ function Find-PinOracleExe {
     foreach ($c in $candidates) {
         if (Test-Path $c) { return (Resolve-Path $c).Path }
     }
+    $shared = Find-PinMatchedConformanceDriver -PinCommit $PinCommit
+    if ($shared.Ok) { return $shared.ExePath }
     Write-Host "[oracle-conformance] pin-matched hc-conformance.exe not found. Probed:" -ForegroundColor Red
     foreach ($c in $candidates) { Write-Host "  $c" -ForegroundColor Red }
     Write-Host "[oracle-conformance] build it: git -C C:\Users\johnm\Documents\repos\machine worktree add --detach .worktrees\pin-$PinCommit $PinCommit; dotnet build C:\Users\johnm\Documents\repos\machine\.worktrees\pin-$PinCommit\src\SIL.Machine.Morphology.HermitCrab.Conformance -c Release" -ForegroundColor Yellow

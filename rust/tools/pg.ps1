@@ -35,7 +35,8 @@
     build        cargo build. --release unless -DebugProfile (matches build.ps1's existing
                   default exactly -- this mode exists for backward compatibility with that
                   script's long-standing behavior, not because "build" is meant to imply a dev
-                  profile).
+                  profile). -TestOptBuild builds with pg-test-opt instead, sharing check/test's
+                  artifacts.
     test          the fast suite, built with the pg-test-opt profile (release-derived, thin/no
                   LTO -- see rust/Cargo.toml's comment) instead of full release, unless
                   -DebugProfile. Prefers cargo-nextest when installed, like test.ps1 always has.
@@ -95,6 +96,10 @@
                   light runs use the run pool. `-Heavy` takes a BUILD slot for a probe that really is
                   build-sized (predict_census and friends). A light run that keeps consuming resources
                   is telling you something about the grammar -- see the dead-end-census skill.
+    preland       required before landing on main: clippy, the rust/tools tool tests, and the
+                  path-gated CI checks a local run otherwise misses (the C# conformance driver
+                  over a fresh `pangloss`, the backend scoreboard ratchet). See preland.ps1.
+                  `-Base <rev>` sets the diff base (default origin/main); `-All` runs every check.
 
   Examples:
     rust\tools\pg.ps1 -Mode check                  # does everything, including test code, compile?
@@ -107,6 +112,7 @@
     rust\tools\pg.ps1 -Mode release
     rust\tools\pg.ps1 -Mode doc            # rustdoc; the only thing that enforces the doc-link deny
     rust\tools\pg.ps1 -Mode doctor
+    rust\tools\pg.ps1 -Mode preland        # before landing on main
     rust\tools\pg.ps1 -Mode gc            # dry run, reports only
     rust\tools\pg.ps1 -Mode gc -WhatIf    # explicit dry run
     rust\tools\pg.ps1 -Mode gc -Apply     # reaps verified orphans and deletes disposable targets
@@ -153,7 +159,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('lock-refresh', 'check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree', 'remove-worktree')]
+    [ValidateSet('lock-refresh', 'check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree', 'remove-worktree', 'preland')]
     [string]$Mode,
     # conformance-test only and MANDATORY there; no default by design (see CLAUDE.md).
     [ValidateSet('local', 'all')][string]$Scope = '',
@@ -176,6 +182,8 @@ param(
     # `run` only. Without it the child's stdout goes to the inherited console, where an outer PowerShell `*>` captures NOTHING -- two long censuses lost their entire output that way. Live console output is what you give up by passing it.
     [string]$RunCaptureStdout = '',
     [switch]$DebugProfile,
+    # build only: the pg-test-opt profile that check and test use, instead of fat-LTO --release.
+    [switch]$TestOptBuild,
     [switch]$HygieneBootstrap,
     [switch]$NoNextest,
     # Stop at the first failing test. Off by default -- see the header block.
@@ -195,6 +203,8 @@ param(
     [ValidateSet('strict', 'development', 'off')][string]$BaseMode = 'development',
     [switch]$Apply,
     [switch]$WhatIf,
+    # preland only: run every check regardless of path gating.
+    [switch]$All,
     # gc only: also reclaim fully-committed worktrees idle this many days; 0 (default) leaves them alone.
     [int]$StaleWorktreeDays = 0,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs = @()
@@ -208,6 +218,14 @@ if (-not $IsWindows -and -not $IsLinux) {
 }
 if ($WhatIf -and $Mode -ne 'gc') {
     Write-Host '[pg] -WhatIf applies to -Mode gc only.' -ForegroundColor Red
+    exit 2
+}
+if ($TestOptBuild -and ($Mode -ne 'build' -or $DebugProfile)) {
+    Write-Host '[pg] -TestOptBuild applies to -Mode build only, and not with -DebugProfile.' -ForegroundColor Red
+    exit 2
+}
+if ($All -and $Mode -ne 'preland') {
+    Write-Host '[pg] -All applies to -Mode preland only.' -ForegroundColor Red
     exit 2
 }
 
@@ -240,6 +258,19 @@ if ($Scope -and $Mode -ne 'conformance-test') {
     Write-Host "[pg] -Scope applies to -Mode conformance-test only; '$Mode' would ignore it." -ForegroundColor Red
     Write-Host "     -Mode test and -Mode corpus-test always cover every fixture, and say so."
     exit $script:ExitCodeConformanceScopeUnclaimed
+}
+
+# Dispatched before any slot is taken: preland runs child pg.ps1 calls that each take their own.
+if ($Mode -eq 'preland') {
+    if ($ExtraArgs.Count -gt 0) {
+        Write-Host "[pg] -Mode preland takes only -Base and -All; it would ignore: $($ExtraArgs -join ' ')" -ForegroundColor Red
+        exit 2
+    }
+    $prelandArgs = @()
+    if ($Base) { $prelandArgs += @('-Base', $Base) }
+    if ($All) { $prelandArgs += '-All' }
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'preland.ps1') @prelandArgs
+    exit $LASTEXITCODE
 }
 
 # The thin-LTO profile rust/Cargo.toml declares as `[profile.pg-test-opt]`; see that file's comment for why.
@@ -374,7 +405,7 @@ $availableMemGB = Get-AvailableMemoryGB
 $memCheck = Test-MemoryReserve -AvailableGB $availableMemGB
 
 # `run -Exe` compiles nothing, so it must not be counted in this COMPILE-time process memory estimate -- see Get-MemoryPerProcessGB.
-$fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile)) -or (($Mode -eq 'run') -and (-not $Exe) -and (-not $DebugProfile))
+$fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile) -and (-not $TestOptBuild)) -or (($Mode -eq 'run') -and (-not $Exe) -and (-not $DebugProfile))
 $perJobMemGB = Get-MemoryPerProcessGB -FatLto:$fatLto
 
 $jobsExplicit = ($Jobs -gt 0)
@@ -579,6 +610,7 @@ $profileLabel = switch ($Mode) {
         elseif ($DebugProfile) { 'dev' }
         else { 'release (fat LTO)' }
     }
+    'build' { if ($DebugProfile) { 'dev' } elseif ($TestOptBuild) { $script:TestOptProfile } else { 'release (fat LTO)' } }
     default { if ($DebugProfile) { 'dev' } else { 'release (fat LTO)' } }
 }
 
@@ -854,7 +886,7 @@ if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
         }
         'build' {
             $cargoArgs += 'build'
-            if (-not $DebugProfile) { $cargoArgs += '--release' }
+            if ($TestOptBuild) { $cargoArgs += @('--profile', $script:TestOptProfile) } elseif (-not $DebugProfile) { $cargoArgs += '--release' }
         }
         'release' {
             $cargoArgs += @('build', '--release')
@@ -1014,7 +1046,7 @@ try {
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-ManagedProcess @invokeArgs
         if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {
-            $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile))
+            $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile) -and (-not $TestOptBuild))
             $code = Invoke-BackendCardRegeneration -RustRoot $rustRoot -ReleaseBuild:$releaseBuild `
                 -BuildPriority $Priority -HostCgroupProof $linuxHostProof
         }

@@ -79,6 +79,7 @@ function Enter-ResourceSlot {
     } catch {}
 
     $timeoutMs = if ($TimeoutSeconds -le 0) { [System.Threading.Timeout]::Infinite } else { $TimeoutSeconds * 1000 }
+    $waited = [Diagnostics.Stopwatch]::StartNew()
     $index = -1
     try {
         if ($mutexes.Count -gt 1 -and ($IsLinux -or $IsMacOS)) {
@@ -95,6 +96,8 @@ function Enter-ResourceSlot {
         foreach ($m in $mutexes) { $m.Dispose() }
         return $null
     }
+    # preland reads this line to report time spent queued behind other worktrees separately from its own work.
+    Write-Host ("[build-env] took {0} slot {1} after {2}s" -f $Pool, $index, [math]::Round($waited.Elapsed.TotalSeconds, 1).ToString([Globalization.CultureInfo]::InvariantCulture)) -ForegroundColor DarkGray
 
     $slot = [PSCustomObject]@{
         Mutexes = $mutexes
