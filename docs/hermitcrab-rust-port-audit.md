@@ -56,7 +56,7 @@ evolves into its broader FST-hybrid scope.
 | MPR features/groups | Ported | |
 | Disjunctive allomorphs / free-fluctuation | Ported | the null/zero-allomorph arm of a disjunctive slot was a real gap, fixed (P10) — this was the dominant cause of a ~50%→98.4% jump in Sena corpus parity |
 | Stem names | Ported | |
-| Guesser API (`guessRoot`/`LexicalGuess`) | **Ported** (2026-07-25) | engine logic, plus `--guess` on `batch`/`parse` (default off) and additive `hc_parse_word_opts`/`hc_parse_batch_opts` carrying an explicit `guessed` byte at word and analysis level, plus a conformance fixture. See §3a. The old `hc_parse_word`/`hc_parse_batch` deliberately return NO guesses — their wire format cannot mark one |
+| Guesser API (`guessRoot`/`LexicalGuess`) | **Ported** (2026-07-25) | engine logic, plus `--guess[=true|false]` on `batch`/`parse`/`serve` (default: the FieldWorks project's `<HC><GuessRoots>`, off for HermitCrab XML; divergence entry 098) and additive `hc_parse_word_opts`/`hc_parse_batch_opts` carrying an explicit `guessed` byte at word and analysis level, plus a conformance fixture. See §3a. The old `hc_parse_word`/`hc_parse_batch` deliberately return NO guesses — their wire format cannot mark one |
 | Rule-by-rule tracing (`TraceManager`/`ITraceManager`) | **Ported** (2026-07-25) | synthesis side was already complete; the five unwired analysis-side events (`begin`/`end_unapply_stratum`, `begin`/`end_unapply_template`, `lexical_lookup`) are now wired against their C# call sites. See §3a — the earlier "rule bookends untraced" wording overstated the gap, since the rule level was already wired |
 | `XmlLanguageWriter` round-trip (grammar → XML export) | **WON'T DO** (2026-07-26) | not a capability gap. The 2026-07-16 data-format decisions sunset HC XML in PanGloss, and the grammar→external round-trip is served by `lcm-grammar` v1 (`GrammarJsonServices.ExportGrammar`, sillsdev/liblcm#392) byte-gated against `pg-fwdata`. Full reasoning in §3a |
 
@@ -103,8 +103,8 @@ for all 121 words.
 
 **Resolved 2026-07-25 (later in the same day — these supersede the entries further down this section):**
 
-- **§3 item 1 (guesser surface) — CLOSED.** `--guess` on `pangloss batch`/`parse` (default off, output
-  byte-identical without it); `hc_parse_word_opts`/`hc_parse_batch_opts` as additive FFI symbols with
+- **§3 item 1 (guesser surface) — CLOSED.** `--guess` on `pangloss batch`/`parse` (default off then; a
+  FieldWorks project now follows `<HC><GuessRoots>`, entry 098; output layout unchanged without the flag); `hc_parse_word_opts`/`hc_parse_batch_opts` as additive FFI symbols with
   their own magic carrying an explicit `guessed` byte at word *and* analysis level; ABI 2 → 3; fixture
   `conformance-staging/edge-cases/guesser-pattern-root-fallback` with engine-derived ground truth. The
   adjacent overclaim found while building it (see "OVERCLAIM in shipping code" below) is also closed:

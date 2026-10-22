@@ -1984,3 +1984,61 @@ fn malformed_xample_cap_yields_a_rejected_setting_and_the_unchanged_warning() {
     assert!(!issue.fatal);
     assert_eq!(issue.class, pg_snapshot::IssueClass::MalformedSource);
 }
+
+/// An imported entry with two equal stem MSAs carries their liblcm equality, and the compile loads the sense-bearing one for both.
+#[test]
+fn imported_equal_msas_merge_into_the_sense_bearing_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = fixture_source()
+        .replacen(
+            "<objsur guid=\"00000000-0000-0000-0000-000000000042\" t=\"o\" />",
+            "<objsur guid=\"00000000-0000-0000-0000-0000000000e4\" t=\"o\" /><objsur guid=\"00000000-0000-0000-0000-000000000042\" t=\"o\" />",
+            1,
+        )
+        .replacen(
+            "</languageproject>",
+            "<rt class=\"MoStemMsa\" guid=\"00000000-0000-0000-0000-0000000000e4\" ownerguid=\"00000000-0000-0000-0000-000000000040\">\n<PartOfSpeech>\n<objsur guid=\"00000000-0000-0000-0000-00000000000c\" t=\"r\" />\n</PartOfSpeech>\n</rt>\n</languageproject>",
+            1,
+        );
+    assert!(
+        source.contains("0000000000e4\" t=\"o\""),
+        "MSA reference inserted"
+    );
+    let path = dir.path().join("equal-msas.fwdata");
+    std::fs::write(&path, source).unwrap();
+    let (snapshot, _) = pg_fwdata::import_file(&path).expect("fixture imports");
+    let equality = snapshot
+        .lexicon
+        .msa_equality
+        .as_ref()
+        .expect("a fresh import records MSA equality");
+    let pairs: Vec<(&str, Vec<&str>)> = equality
+        .iter()
+        .map(|e| {
+            (
+                e.msa.as_str(),
+                e.equal_to.iter().map(String::as_str).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![
+            (
+                "00000000-0000-0000-0000-0000000000e4",
+                vec!["00000000-0000-0000-0000-000000000042"]
+            ),
+            (
+                "00000000-0000-0000-0000-000000000042",
+                vec!["00000000-0000-0000-0000-0000000000e4"]
+            ),
+        ]
+    );
+    assert!(snapshot.morphology.parser_parameters.merge_msas);
+    let (grammar, _, _) = pg_grammar::compile_project_measured(&snapshot).expect("compiles");
+    assert_eq!(
+        grammar.representative_msa("00000000-0000-0000-0000-0000000000e4"),
+        "00000000-0000-0000-0000-000000000042",
+        "the first MSA has no sense, so the later sense-bearing one represents it"
+    );
+}

@@ -192,7 +192,7 @@ $crateSpecs = @(
         MinTargets = 1
         MaxTargets = 1
         ExpectedSourceNames = @(
-            'circumfix_inflection_classes.rs', 'process_allomorph_inflection_classes.rs','circumfix_conditioning_parity.rs', 'compile_refusal_gate.rs', 'conversion_inventory_gate.rs', 'lossless_conversion_gate.rs', 'measure_only_confinement_gate.rs', 'p5_closure_property.rs')
+            'circumfix_inflection_classes.rs', 'process_allomorph_inflection_classes.rs','circumfix_conditioning_parity.rs', 'compile_refusal_gate.rs', 'conversion_inventory_gate.rs', 'lossless_conversion_gate.rs', 'measure_only_confinement_gate.rs', 'merge_msas.rs', 'p5_closure_property.rs')
     }
     @{
         Name = 'pg-lexicon'

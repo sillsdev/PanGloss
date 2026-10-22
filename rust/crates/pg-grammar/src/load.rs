@@ -586,6 +586,8 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         max_stem_count: 2,
         always_enforce_final_templates: false,
         merge_equivalent_analyses: true,
+        representative_msas: Default::default(),
+        guess_roots: false,
     };
     grammar.final_template_prune_facts()?;
     Ok(grammar)

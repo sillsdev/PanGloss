@@ -73,6 +73,7 @@ fn wa(morpheme_ids: Vec<u32>, root_morpheme_index: i32) -> WordAnalysis {
         mpr: pg_grammar::model::MprSet::EMPTY,
         guessed: false,
         guessed_string: None,
+        guessed_pattern: None,
         provenance: pg_parse::AnalysisProvenance::Grammar,
         supplied_root: None,
         morpheme_roots: vec![None; morpheme_count],

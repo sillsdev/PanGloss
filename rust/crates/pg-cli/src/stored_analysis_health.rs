@@ -340,7 +340,7 @@ fn compare_word(
 
     let mut diagnostics = Vec::new();
     for analysis in analyses {
-        let key = stored_key(analysis);
+        let key = stored_key(grammar, analysis);
         if let Some(key) = key {
             if let Some(count) = produced.get_mut(&key) {
                 if *count > 0 {
@@ -391,7 +391,8 @@ fn incomplete_findings(
         .collect()
 }
 
-fn stored_key(analysis: &pg_fwdata::StoredAnalysis) -> Option<StoredKey> {
+/// The stored morph bundles as a parse key; each MSA is mapped to its representative, as FieldWorks' `ParseAnalysis.MatchesIWfiAnalysis` does.
+fn stored_key(grammar: &Grammar, analysis: &pg_fwdata::StoredAnalysis) -> Option<StoredKey> {
     if analysis.issue.is_some() || analysis.morphs.is_empty() {
         return None;
     }
@@ -401,7 +402,9 @@ fn stored_key(analysis: &pg_fwdata::StoredAnalysis) -> Option<StoredKey> {
         .map(|morph| {
             Some(StoredKeyMorph {
                 allomorph: morph.allomorph_guid.clone()?,
-                msa: morph.msa_guid.clone()?,
+                msa: grammar
+                    .representative_msa(morph.msa_guid.as_deref()?)
+                    .to_string(),
                 inflection_type: morph.inflection_type_guid.clone(),
             })
         })
@@ -414,7 +417,7 @@ fn finding_for_missing(
     analysis: &pg_fwdata::StoredAnalysis,
     wordform: &str,
 ) -> GrammarHealthDiagnostic {
-    let key = stored_key(analysis);
+    let key = stored_key(grammar, analysis);
     let resolution = key
         .as_ref()
         .ok_or_else(|| {
@@ -612,6 +615,7 @@ fn resolve_analysis(
                 mpr: pg_grammar::model::MprSet::EMPTY,
                 guessed: false,
                 guessed_string: None,
+                guessed_pattern: None,
                 provenance: AnalysisProvenance::Grammar,
                 supplied_root: None,
                 morpheme_roots: vec![None; resolved.len()],
@@ -695,10 +699,11 @@ fn source_subjects<'a>(
             );
         }
         if let Some(guid) = morph.msa_guid.as_deref() {
+            let loaded = grammar.representative_msa(guid);
             let class = grammar
                 .morphemes
                 .iter()
-                .find(|info| info.source_msa_guid.as_deref() == Some(guid))
+                .find(|info| info.source_msa_guid.as_deref() == Some(loaded))
                 .and_then(|info| info.source_msa_class)
                 .unwrap_or(FwClass::Unknown);
             subjects.push(

@@ -277,6 +277,7 @@ pub(crate) fn seed_authored_from_snapshot(
         ParserSetting,
         "deletionReapplications",
     ));
+    recorder.authored(InventoryKey::setting(ParserSetting, "mergeMsas"));
     for setting in super::MORPHER_SETTINGS {
         recorder.authored(InventoryKey::setting(ParserSetting, *setting));
     }

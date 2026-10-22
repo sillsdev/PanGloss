@@ -64,6 +64,74 @@ Test-Case 'pangloss is located from the target dir the build child named, or not
     Assert-True ($null -eq (Get-PanglossFromBuildOutput -Lines @('[pg] lint gate: cargo clippy') -RustRoot 'R:\rust')) 'no build line means no binary'
 }
 
+Test-Case 'pin-matched driver rejects a canonical wrong-HEAD candidate and accepts a matching worktree' {
+    $temp = New-TestTempDir -Prefix 'pg-pin-driver-test'
+    $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS
+    try {
+        $checkout = Join-Path $temp 'machine'
+        New-Item -ItemType Directory -Force -Path $checkout | Out-Null
+        & git init --quiet $checkout
+        Assert-Equal 0 $LASTEXITCODE 'initialize the temporary Machine checkout'
+        & git -C $checkout config user.name 'PanGloss Test'
+        Assert-Equal 0 $LASTEXITCODE 'configure the temporary Git identity'
+        & git -C $checkout config user.email 'pangloss-test@example.invalid'
+        Assert-Equal 0 $LASTEXITCODE 'configure the temporary Git identity'
+        New-Item -ItemType Directory -Force -Path (Join-Path $checkout 'src') | Out-Null
+        Set-Content -LiteralPath (Join-Path $checkout 'src\source.cs') -Value 'class Source { }'
+        & git -C $checkout add src/source.cs
+        Assert-Equal 0 $LASTEXITCODE 'stage the temporary source'
+        & git -C $checkout commit --quiet -m 'pin commit'
+        Assert-Equal 0 $LASTEXITCODE 'commit the requested pin'
+        $pinCommit = (& git -C $checkout rev-parse HEAD).Trim()
+        Assert-Equal 0 $LASTEXITCODE 'read the requested pin'
+
+        Set-Content -LiteralPath (Join-Path $checkout 'src\source.cs') -Value 'class Source { int Changed; }'
+        & git -C $checkout commit --all --quiet -m 'different driver commit'
+        Assert-Equal 0 $LASTEXITCODE 'commit a different driver revision'
+        $wrongCommit = (& git -C $checkout rev-parse HEAD).Trim()
+        Assert-Equal 0 $LASTEXITCODE 'read the different revision'
+
+        $canonical = Join-Path $checkout ".worktrees\pin-$pinCommit"
+        & git -C $checkout worktree add --quiet --detach $canonical $wrongCommit
+        Assert-Equal 0 $LASTEXITCODE 'create the misleading canonical candidate'
+        $canonicalExe = Join-Path $canonical 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0\hc-conformance.exe'
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $canonicalExe) | Out-Null
+        Set-Content -LiteralPath $canonicalExe -Value 'wrong-head driver'
+        [IO.File]::SetLastWriteTimeUtc($canonicalExe, [DateTime]::UtcNow.AddMinutes(1))
+
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $checkout
+        $wrongOnly = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+        Assert-False $wrongOnly.Ok 'the pin-named directory must not admit a binary from another HEAD'
+
+        $matching = Join-Path $temp 'matching-worktree'
+        & git -C $checkout worktree add --quiet --detach $matching $pinCommit
+        Assert-Equal 0 $LASTEXITCODE 'create a matching registered worktree'
+        $matchingExe = Join-Path $matching 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0\hc-conformance.exe'
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $matchingExe) | Out-Null
+        Set-Content -LiteralPath $matchingExe -Value 'matching driver'
+        [IO.File]::SetLastWriteTimeUtc($matchingExe, [DateTime]::UtcNow.AddMinutes(1))
+
+        $withMatching = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+        Assert-True $withMatching.Ok 'a registered worktree at the requested pin must remain usable'
+        Assert-Equal ([IO.Path]::GetFullPath($matchingExe)) $withMatching.ExePath 'the wrong-HEAD candidate must be skipped'
+
+        & git -C $checkout worktree remove --force $canonical
+        Assert-Equal 0 $LASTEXITCODE 'remove the mismatched worktree'
+        & git -C $checkout worktree remove --force $matching
+        Assert-Equal 0 $LASTEXITCODE 'remove the matching worktree'
+        & git -C $checkout checkout --quiet --detach $pinCommit
+        Assert-Equal 0 $LASTEXITCODE 'move the checkout itself to the requested pin'
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $canonicalExe) | Out-Null
+        Set-Content -LiteralPath $canonicalExe -Value 'not a worktree driver'
+        [IO.File]::SetLastWriteTimeUtc($canonicalExe, [DateTime]::UtcNow.AddMinutes(1))
+        $notWorktree = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+        Assert-False $notWorktree.Ok 'a plain pin-named directory must not inherit its parent checkout HEAD'
+    } finally {
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $previousCheckouts
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-Case 'slot queue time is summed from every slot line and nothing else' {
     $lines = @('[build-env] took build slot 1 after 12.5s', 'noise after 99s', '[build-env] took run slot 0 after 0.5s')
     Assert-Equal 13 (Get-SlotWaitSeconds -Lines $lines)

@@ -53,15 +53,15 @@ pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRec
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn build(
-    snapshot: &Snapshot,
-    ctx: &Ctx,
+pub(crate) fn build<'a>(
+    ctx: &Ctx<'a>,
     acc: &mut Acc,
     morphology_mrules: &mut Vec<MRuleId>,
     clitic_mrules: &mut Vec<MRuleId>,
     morphology_entries: &mut Vec<LexEntryId>,
     clitic_entries: &mut Vec<LexEntryId>,
 ) -> Result<(), GrammarError> {
+    let snapshot: &'a Snapshot = ctx.snapshot;
     let morphology_forms = lex_entry_form_eligibility(
         &snapshot.lexicon.entries,
         false,
@@ -76,13 +76,13 @@ pub(crate) fn build(
         .iter()
         .map(|t| (t.guid.as_str(), t))
         .collect();
-    let entry_by_guid: HashMap<&str, &LexEntry> = snapshot
+    let entry_by_guid: HashMap<&str, &'a LexEntry> = snapshot
         .lexicon
         .entries
         .iter()
         .map(|e| (e.guid.as_str(), e))
         .collect();
-    let sense_owner: HashMap<&str, (&LexEntry, &Sense)> = snapshot
+    let sense_owner: HashMap<&str, (&'a LexEntry, &'a Sense)> = snapshot
         .lexicon
         .entries
         .iter()
@@ -138,7 +138,13 @@ pub(crate) fn build(
         let has_stem_form = stem_form_eligibility.iter().any(|eligible| *eligible);
 
         // --- stems: one Grammar LexEntryDef per (entry, Msa::Stem, stratum-bucket) --------------
-        for msa in &entry.msas {
+        let stem_msas = if has_stem_form || has_clitic_stem_form {
+            ctx.msa_merge
+                .unique(entry.msas.iter().filter(|msa| is_stem(msa)))
+        } else {
+            Vec::new()
+        };
+        for msa in stem_msas {
             if let Msa::Stem { .. } = msa {
                 if has_stem_form {
                     if let Some(id) = build_stem_entry(
@@ -170,7 +176,13 @@ pub(crate) fn build(
         }
 
         // Affix rules: one MorphRuleDef per (entry, MSA, non-empty rule bucket); every MSA kind participates, and a stem MSA reached through a rule bucket becomes a clitic affix-process rule.
-        for msa in &entry.msas {
+        let rule_site_runs = has_valid_rule_form(entry, &affix_allos, &clitic_affix_allos, ctx);
+        let rule_msas = if rule_site_runs {
+            ctx.msa_merge.unique(&entry.msas)
+        } else {
+            entry.msas.iter().collect()
+        };
+        for msa in rule_msas {
             let gloss = sense_gloss(entry, msa_guid(msa), ctx);
             // An inflectional MSA with slots is reachable only through its template slot(s), never from the stratum's own rule list, since adding it to both would let it apply twice and could make the analysis search space explode.
             let template_only = matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
@@ -216,6 +228,10 @@ pub(crate) fn build(
                         &infl_type_by_guid,
                         &affix_allos,
                         &morphology_forms,
+                        VariantSites {
+                            stems: has_stem_form || has_clitic_stem_form,
+                            rules: rule_site_runs,
+                        },
                         ctx,
                         acc,
                         morphology_entries,
@@ -227,12 +243,27 @@ pub(crate) fn build(
 
         for msa in &entry.msas {
             let msa_key = InventoryKey::object(InventoryKind::Msa, msa.guid().to_string());
-            if !ctx.has_load_decision(&msa_key) {
-                ctx.not_considered_in_context(
+            if ctx.has_load_decision(&msa_key) {
+                continue;
+            }
+            match ctx.msa_merge.merged_into(msa.guid()) {
+                Some(representative) => ctx.record_load_decision(pg_snapshot::LoadDecisionDraft {
+                    subject: msa_key,
+                    pipeline_stage: pg_snapshot::LoadPipelineStage::Compile,
+                    context_key: format!("entry:{}", entry.guid),
+                    disposition: pg_snapshot::LoadDisposition::NotConsidered,
+                    loaded: None,
+                    reason_code: pg_snapshot::LoadReasonCode::MergedMsa,
+                    effective_value_json: Some(format!(
+                        "{{\"representativeMsa\":\"{representative}\"}}"
+                    )),
+                    issue_code: None,
+                }),
+                None => ctx.not_considered_in_context(
                     msa_key,
                     format!("entry:{}", entry.guid),
                     pg_snapshot::LoadReasonCode::NoEligibleAllomorph,
-                );
+                ),
             }
         }
     }
@@ -242,6 +273,66 @@ pub(crate) fn build(
 
 fn msa_guid(msa: &Msa) -> &str {
     msa.guid()
+}
+
+fn is_stem(msa: &Msa) -> bool {
+    matches!(msa, Msa::Stem { .. })
+}
+
+/// Which of HCLoader's two per-entry sites run for a variant entry, so its main-entry MSAs are merged only where FieldWorks looks them up.
+#[derive(Clone, Copy)]
+struct VariantSites {
+    /// `LoadLexEntries`: the entry has a stem form for either stratum.
+    stems: bool,
+    /// `LoadMorphologicalRules` past its `HasValidRuleForm` check.
+    rules: bool,
+}
+
+/// HCLoader's `HasValidRuleForm` gate (HCLoader.cs:530-547) minus `IsValidRuleForm`'s environment conditions; it decides only which MSA lookups `Grammar::representative_msas` records.
+fn has_valid_rule_form(
+    entry: &LexEntry,
+    affix_allos: &[&Allomorph],
+    clitic_affix_allos: &[&Allomorph],
+    ctx: &Ctx,
+) -> bool {
+    let rule_form = |allo: &Allomorph| -> bool {
+        if let Some(process) = &allo.process {
+            return process.input.len() > 1 || process.output.len() > 1;
+        }
+        let has_text = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref())
+            .is_some_and(|form| form.chars().any(|c| c != '\u{25CC}'));
+        !allo.is_abstract
+            && has_text
+            && matches!(
+                allo.morph_type,
+                MorphType::Proclitic
+                    | MorphType::Enclitic
+                    | MorphType::Prefix
+                    | MorphType::PrefixingInterfix
+                    | MorphType::Suffix
+                    | MorphType::SuffixingInterfix
+                    | MorphType::Infix
+                    | MorphType::InfixingInterfix
+            )
+    };
+    if !affix_allos
+        .iter()
+        .chain(clitic_affix_allos)
+        .any(|a| rule_form(a))
+    {
+        return false;
+    }
+    let lexeme_form_is_affix = entry.allomorphs.last().is_some_and(|a| a.process.is_none());
+    if entry.lexeme_morph_type == MorphType::Circumfix && lexeme_form_is_affix {
+        let alternates = &entry.allomorphs[..entry.allomorphs.len() - 1];
+        let valid = |mt: MorphType| {
+            alternates
+                .iter()
+                .any(|a| a.morph_type == mt && rule_form(a))
+        };
+        return valid(MorphType::Prefix) && valid(MorphType::Suffix);
+    }
+    true
 }
 
 fn sense_gloss<'a>(entry: &'a LexEntry, msa: &str, ctx: &Ctx) -> Option<&'a str> {
@@ -579,17 +670,18 @@ fn natural_class_defs<'a>(ctx: &Ctx<'a>) -> &'a [crate::model::NaturalClass] {
 
 /// A variant entry (no senses of its own) borrows its own allomorphs but the referenced main entry/sense's stem MSA, gloss, and inflection features; a non-`Stem` main-entry MSA instead goes through `build_variant_affix_rule`, producing a second, distinct `AffixProcessRule` rather than a merged allomorph list on the pre-existing rule.
 #[allow(clippy::too_many_arguments)]
-fn build_variant(
+fn build_variant<'a>(
     variant_entry: &LexEntry,
     er_guid: &str,
     component_lexemes: &[String],
     variant_entry_types: &[String],
-    entry_by_guid: &HashMap<&str, &LexEntry>,
-    sense_owner: &HashMap<&str, (&LexEntry, &Sense)>,
+    entry_by_guid: &HashMap<&str, &'a LexEntry>,
+    sense_owner: &HashMap<&str, (&'a LexEntry, &'a Sense)>,
     infl_type_by_guid: &HashMap<&str, &LexEntryInflType>,
     variant_affix_allos: &[&Allomorph],
     morphology_forms: &HashMap<&str, Vec<bool>>,
-    ctx: &Ctx,
+    sites: VariantSites,
+    ctx: &Ctx<'a>,
     acc: &mut Acc,
     morphology_entries: &mut Vec<LexEntryId>,
     morphology_mrules: &mut Vec<MRuleId>,
@@ -603,15 +695,46 @@ fn build_variant(
     let infl_types = get_infl_types(variant_entry_types, infl_type_by_guid);
 
     for component in component_lexemes {
-        let main_msas: Vec<(&LexEntry, &Msa)> =
+        // HCLoader.cs:652/662 (stems) and 910/916 (rules) map a main entry's MSAs through `UniqueMSAs`, a sense's through `RepresentativeMSA`.
+        let merged = |run: bool, msas: Vec<&'a Msa>| {
+            if run {
+                ctx.msa_merge.unique(msas)
+            } else {
+                msas
+            }
+        };
+        type Pairs<'a> = Vec<(&'a LexEntry, &'a Msa)>;
+        let (stem_msas, rule_msas): (Pairs<'a>, Pairs<'a>) =
             if let Some(&e) = entry_by_guid.get(component.as_str()) {
-                e.msas.iter().map(|m| (e, m)).collect()
+                let stems = merged(sites.stems, e.msas.iter().filter(|m| is_stem(m)).collect());
+                let rules = merged(sites.rules, e.msas.iter().collect());
+                (
+                    stems.into_iter().map(|m| (e, m)).collect(),
+                    rules
+                        .into_iter()
+                        .filter(|m| !is_stem(m))
+                        .map(|m| (e, m))
+                        .collect(),
+                )
             } else if let Some(&(e, sense)) = sense_owner.get(component.as_str()) {
-                e.msas
+                let sense_msa: Vec<&'a Msa> = e
+                    .msas
                     .iter()
                     .filter(|m| Some(m.guid()) == sense.msa.as_deref())
-                    .map(|m| (e, m))
-                    .collect()
+                    .collect();
+                let stems = merged(
+                    sites.stems,
+                    sense_msa.iter().copied().filter(|m| is_stem(m)).collect(),
+                );
+                let rules = merged(sites.rules, sense_msa);
+                (
+                    stems.into_iter().map(|m| (e, m)).collect(),
+                    rules
+                        .into_iter()
+                        .filter(|m| !is_stem(m))
+                        .map(|m| (e, m))
+                        .collect(),
+                )
             } else {
                 let attachment = InventoryKey::attachment(
                     InventoryKind::Entry,
@@ -629,15 +752,12 @@ fn build_variant(
                 variant_entry.guid
             ),
                 );
-                Vec::new()
+                (Vec::new(), Vec::new())
             };
 
         // Stem MSAs: one variant LexEntryDef per (infl_type, msa) pair, infl_type-sensitive.
         for &infl_type in &infl_types {
-            for &(main_entry, msa) in &main_msas {
-                if !matches!(msa, Msa::Stem { .. }) {
-                    continue;
-                }
+            for &(main_entry, msa) in &stem_msas {
                 let eligible_allomorphs = morphology_forms
                     .get(variant_entry.guid.as_str())
                     .expect("every variant entry has morphology-form decisions");
@@ -656,10 +776,7 @@ fn build_variant(
         }
 
         // Non-stem MSAs: a second affix-process rule using the variant's own forms (see this fn's doc), not infl_type-sensitive, so this runs once per (main_entry, msa), independent of the infl_type loop above.
-        for &(main_entry, msa) in &main_msas {
-            if matches!(msa, Msa::Stem { .. }) {
-                continue;
-            }
+        for &(main_entry, msa) in &rule_msas {
             if let Some(id) = build_variant_affix_rule(
                 variant_entry,
                 main_entry,

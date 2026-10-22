@@ -406,6 +406,8 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 | `maxRoots` | integer, optional | `<HC><MaxRoots>` (not `<XAmple><MaxRoots>`), omitted when absent, which means C# `Morpher.MaxStemCount`'s default `2`; values below `1` are stored as `1`, which C# treats identically |
 | `makePartialsFinal` | boolean | `<HC><MakePartialsFinal>`, default `false`, omitted when `false`; C# `Morpher.AlwaysEnforceFinalTemplates` (enforce final templates even when some morphemes are partial) |
 | `mergeAnalyses` | boolean | `<HC><MergeAnalyses>`, default **`true`**, omitted when `true` (an older snapshot without the field reads as `true`); C# `Morpher.MergeEquivalentAnalyses` |
+| `mergeMsas` | boolean | `<HC><MergeMSAs>`, default **`true`**, omitted when `true` (an older snapshot without the field reads as `true`); whether `HCParser.LoadParser` loads through `HCLoader.Load(cache, logger, out representativeMSAs)`, which loads one morpheme per group of equal MSAs (see `lexicon.msaEquality`) |
+| `guessRoots` | boolean | `<HC><GuessRoots>`, default **`true`**, omitted when `true` (an older snapshot without the field reads as `true`); the `guessRoot` argument FieldWorks `HCParser` passes to `Morpher.ParseWord`: guess roots from lexical patterns when the lexicon finds nothing |
 | `strata` | string, optional | The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`). `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is compiler policy over this string; T3 re-parses it the same way. `None`/absent means the default stratum layout (`Morphology`, `Clitics`, `Surface`) applies. |
 | `compoundRuleMaxApplications` | `{compoundRule: guid, maxApplications: integer}[]` | `<CompoundRules>`'s per-rule `maxApps` attribute, keyed by `MoCompoundRule` guid (HCLoader.cs:103-112). A compound rule with no entry here defaults to `maxApplications = 1` (HCLoader.cs:1894). |
 
@@ -414,6 +416,7 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 | Field | Type | LCM origin |
 |---|---|---|
 | `entries` | `LexEntry[]` | `LangProject.LexDbOA.Entries` |
+| `msaEquality` | `{msa: guid, equalTo: guid[]}[]`, optional | liblcm `EqualsMsa` between the MSAs of one entry, computed by `pg-fwdata` from the raw records (it compares feature-structure detail `FeatureStructure` does not carry: `FsFeatStruc.Type`, feature disjunctions, `RefNumber`/`ValueState`, negated/disjunctive/open/shared values). `equalTo` lists, in `msas` order, every other MSA of the same class `c` for which `c.EqualsMsa(msa)` holds; an MSA it does not list equals no other. Absent means the snapshot was written before this extraction: the compiler then refuses a project with `mergeMsas` on and an entry with two same-class MSAs, since which of them FieldWorks merges is unknown (re-import). |
 
 ### `LexEntry`
 
@@ -423,7 +426,7 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 | `citationForm` | `WsForm[]` | `LexEntry.CitationForm` |
 | `lexemeMorphType` | `MorphType` | A convenience cache of `allomorphs[last].morphType` (the lexeme form is always ordered last — see `allomorphs` below). **Not** a distinct LCM property (LCM's `MorphType` lives on `MoForm`/allomorphs, not on `LexEntry`); provided because `HCLoader` repeatedly branches on exactly this value at the entry level (e.g. `ILexEntry.IsCircumfix()`, `HasValidRuleForm`, HCLoader.cs:517-534, both keyed off `entry.LexemeFormOA.MorphTypeRA`). |
 | `allomorphs` | `Allomorph[]` | `AlternateFormsOS` **then** `LexemeFormOA` (HCLoader.cs:263: `entry.AlternateFormsOS.Concat(entry.LexemeFormOA)`) — this order matters for disjunctive-ordering semantics. |
-| `msas` | `Msa[]` | `LexEntry.MorphoSyntaxAnalysesOC` (unordered in LCM; snapshot order is import-stable but not semantically meaningful) |
+| `msas` | `Msa[]` | `LexEntry.MorphoSyntaxAnalysesOC`, in the order of the `.fwdata` `objsur` list. An LCM owning collection is a hash set whose enumeration order is its insertion (load) order, and `HCLoader.RepresentativeMSA` takes the *first* equal, sense-bearing MSA in that order, so this order decides which MSA represents a merged group. |
 | `senses` | `Sense[]` | `LexEntry.SensesOS`, in order |
 | `entryRefs` | `EntryRef[]` | `LexEntry.EntryRefsOS` |
 

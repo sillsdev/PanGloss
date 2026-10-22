@@ -67,7 +67,9 @@ pub use feature::{
     ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureSystems, FeatureValue,
     FeatureValueKind, FeatureValueSymbol,
 };
-pub use lexicon::{AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense};
+pub use lexicon::{
+    AffixProcess, Allomorph, EntryRef, EqualMsas, LexEntry, Lexicon, Msa, RuleMapping, Sense,
+};
 pub use morphology::{
     ActiveParser, AdhocProhibition, AdhocProhibitionGroup, Adjacency, AffixSlot, AffixTemplate,
     CompoundConstituentRequirement, CompoundOutcome, CompoundRule, CompoundRuleMaxApplications,

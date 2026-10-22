@@ -799,7 +799,9 @@ exists and `compile` otherwise. Disabled rows have `disposition='not_considered'
 that a parse used it.
 
 The `reason_code` strings include `represented`, `disabled`, `synthesized`, `metadataOnly`, `abstract`,
-`emptyForm`, `morphTypeNotInBucket`, `unreferenced`, `noEligibleAllomorph`, `ownerNotLoaded`,
+`emptyForm`, `morphTypeNotInBucket`, `unreferenced`, `noEligibleAllomorph`, `mergedMsa` (an MSA
+`<HC><MergeMSAs>` loaded as an equal MSA of its entry; `effective_value_json` names it as
+`representativeMsa`), `ownerNotLoaded`,
 `ancestorDefaultInflectionClass`, `additional_phoneme_set_not_selected`, `missing_guid`,
 `duplicate_header`, `unknown_class`, `missing_reference`, `wrong_kind_reference`, `decision_unrecorded`,
 `source_inventory_unknown`, or a stable code from `pg_snapshot::ImportWarningCode::wire()`. Compiler-owned

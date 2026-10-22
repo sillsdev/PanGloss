@@ -755,6 +755,164 @@ fn project_make_partials_final_reaches_batch_and_an_explicit_flag_overrides_it()
     );
 }
 
+/// The `<HC>`-adjusted fixture whose `ranna` entry becomes a noun with the lexical pattern `t[V]*d`, so a word such as `taad` has no lexicon root and only a guess.
+fn fwdata_fixture_with_pattern_root(tag: &str, hc_extra: &str) -> std::path::PathBuf {
+    let path = fwdata_fixture_with_hc_settings(tag, hc_extra);
+    let xml = fs::read_to_string(&path).unwrap();
+    let form = "<Form>\n<AUni ws=\"fx\">ranna</AUni>";
+    let msa_pos = "guid=\"00000000-0000-0000-0000-000000000042\" ownerguid=\"00000000-0000-0000-0000-000000000040\">\n<PartOfSpeech>\n<objsur guid=\"00000000-0000-0000-0000-00000000000c\"";
+    assert!(
+        xml.contains(form) && xml.contains(msa_pos),
+        "the fixture's ranna entry moved"
+    );
+    let xml = xml
+        .replace(form, "<Form>\n<AUni ws=\"fx\">t[V]*d</AUni>")
+        .replace(msa_pos, &msa_pos.replace("00000000000c", "00000000000b"));
+    fs::write(&path, xml).unwrap();
+    path
+}
+
+/// Runs `batch` over `words` with `extra` flags and returns the result rows (no `STARTED` lines) and the `--analyses` JSONL rows.
+fn run_pattern_batch(
+    project: &std::path::Path,
+    words: &str,
+    extra: &[&str],
+) -> (Vec<Vec<String>>, Vec<serde_json::Value>) {
+    let dir = project.parent().unwrap();
+    let words_path = dir.join("words.txt");
+    fs::write(&words_path, words).unwrap();
+    let out = dir.join("out.tsv");
+    let analyses = dir.join("analyses.jsonl");
+    let mut args = vec![
+        project.to_string_lossy().into_owned(),
+        words_path.to_string_lossy().into_owned(),
+        out.to_string_lossy().into_owned(),
+        "--analyses".into(),
+        analyses.to_string_lossy().into_owned(),
+    ];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    run_batch(&args).expect("batch runs");
+    let rows = fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .filter(|line| !line.ends_with("\tSTARTED"))
+        .map(|line| line.split('\t').map(str::to_string).collect())
+        .collect();
+    let analyses = fs::read_to_string(&analyses)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    (rows, analyses)
+}
+
+#[test]
+fn a_project_guesses_roots_by_default_without_changing_the_batch_tsv_layout() {
+    let project = fwdata_fixture_with_pattern_root("guess-roots-default", "");
+    let (grammar, _) = load_grammar(&project.to_string_lossy()).expect("fixture loads");
+    assert!(
+        grammar.guess_roots,
+        "an absent <GuessRoots> means FieldWorks' default true"
+    );
+
+    for threads in ["1", "2"] {
+        let (rows, analyses) =
+            run_pattern_batch(&project, "kad\ntaad\ndat\n", &["--threads", threads]);
+        assert_eq!(rows.len(), 3, "threads={threads}: {rows:?}");
+        for row in &rows {
+            assert_eq!(
+                row.len(),
+                5,
+                "threads={threads}: the project setting must not add a column: {row:?}"
+            );
+        }
+        assert!(
+            rows[0][4] != "-",
+            "threads={threads}: kad is kat in the lexicon, voiced after a vowel: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[1][4]
+                .split(';')
+                .all(|analysis| analysis == "taad|taad"),
+            "threads={threads}: taad is found only by guessing: {:?}",
+            rows[1]
+        );
+        assert_eq!(rows[2][4], "-", "threads={threads}: no pattern matches dat");
+
+        assert_eq!(
+            analyses[1]["unavailable"],
+            serde_json::json!([]),
+            "{:?}",
+            analyses[1]
+        );
+        let guessed = analyses[1]["analyses"].as_array().unwrap();
+        assert!(!guessed.is_empty());
+        for analysis in guessed {
+            assert_eq!(
+            analysis["morphs"],
+            serde_json::json!([{
+                "form": "00000000-0000-0000-0000-000000000041",
+                "msa": "00000000-0000-0000-0000-000000000042",
+                "inflType": null,
+                "guessedString": "taad",
+            }]),
+            "threads={threads}: FieldWorks reports the pattern's form and MSA plus the guessed text"
+        );
+        }
+        assert_eq!(
+            analyses[0]["analyses"][0]["morphs"][0]["guessedString"],
+            serde_json::Value::Null
+        );
+    }
+}
+
+#[test]
+fn an_explicit_guess_flag_overrides_the_project_and_alone_adds_the_guessed_column() {
+    let project = fwdata_fixture_with_pattern_root("guess-roots-override", "");
+    let (rows, _) = run_pattern_batch(&project, "kad\ntaad\ndat\n", &["--guess=false"]);
+    assert!(rows.iter().all(|row| row.len() == 5), "{rows:?}");
+    assert_eq!(
+        rows[1][4], "-",
+        "--guess=false turns the project's guessing off"
+    );
+
+    for flag in ["--guess", "--guess=true"] {
+        let (rows, _) = run_pattern_batch(&project, "kad\ntaad\ndat\n", &[flag]);
+        let guessed: Vec<&str> = rows.iter().map(|row| row[5].as_str()).collect();
+        assert!(rows.iter().all(|row| row.len() == 6), "{flag}: {rows:?}");
+        assert_eq!(
+            guessed,
+            ["false", "true", "false"],
+            "{flag}: dat ran the guesser and found nothing"
+        );
+    }
+
+    let off = fwdata_fixture_with_pattern_root(
+        "guess-roots-off",
+        "&lt;GuessRoots&gt;false&lt;/GuessRoots&gt;",
+    );
+    let (grammar, _) = load_grammar(&off.to_string_lossy()).expect("fixture loads");
+    assert!(!grammar.guess_roots);
+    let (rows, _) = run_pattern_batch(&off, "taad\n", &[]);
+    assert_eq!(rows[0][4], "-", "the project's false turns guessing off");
+    let (rows, _) = run_pattern_batch(&off, "taad\n", &["--guess"]);
+    assert!(
+        rows[0][4] != "-" && rows[0][5] == "true",
+        "an explicit --guess overrides the project: {:?}",
+        rows[0]
+    );
+
+    let err = run_batch(&[
+        off.to_string_lossy().into_owned(),
+        "w.txt".into(),
+        "o.tsv".into(),
+        "--guess=maybe".into(),
+    ])
+    .unwrap_err();
+    assert!(err.contains("--guess=maybe"), "{err}");
+}
+
 /// End-to-end `--guess` gate through `run_batch` itself, covering both `--threads` writer paths, using the same synthetic lexical-pattern grammar shape as the engine-level guesser conformance gate.
 mod guess_tests {
     use super::run_batch_tsv_custom;

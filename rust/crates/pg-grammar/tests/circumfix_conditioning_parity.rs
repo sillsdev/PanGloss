@@ -180,7 +180,10 @@ fn snapshot() -> Snapshot {
             parts_of_speech: vec![noun_pos],
             ..Morphology::default()
         },
-        Lexicon { entries },
+        Lexicon {
+            entries,
+            msa_equality: None,
+        },
     )
 }
 

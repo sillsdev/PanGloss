@@ -163,6 +163,7 @@ fn snapshot(slotted: bool, extra_letters: u32) -> Snapshot {
             ..Morphology::default()
         },
         Lexicon {
+            msa_equality: None,
             entries: vec![
                 stem_entry("vowelstem", "kuma"),
                 stem_entry("consstem", "kam"),

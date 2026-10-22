@@ -3,7 +3,9 @@
 `pangloss batch <grammar> <words.txt> <out.tsv>` writes one tab-separated result row per word.
 
 By default a row has 5 columns, or 6 with `--guess`. External adapters, such as the conformance
-suite's driver, depend on exactly that layout. The two parser-work columns appear only when
+suite's driver, depend on exactly that layout. Only the command line decides it: a FieldWorks
+project that guesses roots by default (`<HC><GuessRoots>`, see below) still writes 5 columns unless
+`--guess` is passed. The two parser-work columns appear only when
 `--work-columns` is passed.
 
 A host can find out whether the flag exists. `pangloss --describe` reports
@@ -24,7 +26,7 @@ idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]
 | `elapsed_ms` | wall-clock milliseconds for this word: time on this computer, which varies with load and thread count |
 | `status` | `ok`, `CAP` (stopped at the analysis-attempt cap `--step-cap` or the work cap `--work-cap`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
-| `guessed` | `true` or `false`; present **only** when `--guess` was passed |
+| `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
 | `steps` | present only with `--work-columns`. Analysis attempts: the quantity `--step-cap` bounds |
 | `work_steps` | present only with `--work-columns`. Parser work: every work unit the word reserved, across analysis, the inner matchers and confirmation. This is the quantity `--work-cap` bounds |
 
@@ -43,6 +45,25 @@ cost, for example "these words took 8% less work to parse"; `elapsed_ms` is a se
 - A `TIMEOUT` row is **not** deterministic: the deadline is wall-clock time, so its `steps`,
   `work_steps` and partial result depend on how fast this computer ran. Never compare a TIMEOUT
   row's counts across runs.
+
+## Root guessing
+
+A word the lexicon cannot analyse can be retried by guessing its root from a lexical-pattern
+allomorph (a root form such as `t[V]*d`). Whether `batch` guesses:
+
+| source | guesses |
+|---|---|
+| FieldWorks project (`.fwdata`, `.fwbackup`, snapshot `.json`) | unless `<HC><GuessRoots>` is false; FieldWorks' default is true |
+| HermitCrab XML grammar | never, as the C# `hc` tool does not |
+| `--guess` or `--guess=true` | always, and the `guessed` column is written |
+| `--guess=false` | never |
+
+Without `--guess`, a guessed row looks like any other in the TSV: its signature names the guessed
+text in place of a morpheme id. To tell guessed analyses apart, pass `--guess` (the `guessed`
+column), or pass `--analyses <path>` and read each morph's `guessedString`: a guessed morph carries
+the matched text there, with the lexical pattern's MoForm and MSA as `form` and `msa`, as FieldWorks
+records a guess. A project without a lexical-pattern root never guesses, so its rows are the same
+whatever the setting.
 
 ## Other lines a reader must accept
 

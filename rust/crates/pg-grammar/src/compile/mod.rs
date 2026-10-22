@@ -39,6 +39,7 @@ pub mod issues;
 mod lexicon;
 mod lineage;
 mod mpr;
+mod msa_merge;
 mod natclass;
 pub mod options;
 mod reachability;
@@ -91,6 +92,7 @@ pub(crate) const MORPHER_SETTINGS: &[&str] = &[
     "maxStemCount",
     "alwaysEnforceFinalTemplates",
     "mergeEquivalentAnalyses",
+    "guessRoots",
 ];
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
@@ -412,6 +414,7 @@ pub(crate) fn compile_project_recording(
         env_by_guid.insert(e.guid.as_str(), e);
     }
 
+    let msa_merge = msa_merge::MsaMerge::new(snapshot)?;
     let ctx = Ctx {
         snapshot,
         phon: &phon_features,
@@ -438,6 +441,7 @@ pub(crate) fn compile_project_recording(
         lineage: RefCell::new(lineage),
         pending_rule_refusals: RefCell::new(Vec::new()),
         allomorph_gates: RefCell::new(GateOutcomes::default()),
+        msa_merge: &msa_merge,
     };
 
     let mut acc = Acc {
@@ -492,6 +496,11 @@ pub(crate) fn compile_project_recording(
         ctx.considered(deletion_reapplications_key.clone());
         ctx.selected(deletion_reapplications_key.clone());
         ctx.represented(deletion_reapplications_key);
+        let merge_msas_key =
+            InventoryKey::setting(pg_snapshot::InventoryKind::ParserSetting, "mergeMsas");
+        ctx.considered(merge_msas_key.clone());
+        ctx.selected(merge_msas_key.clone());
+        ctx.represented(merge_msas_key);
         for setting in MORPHER_SETTINGS {
             let key = InventoryKey::setting(pg_snapshot::InventoryKind::ParserSetting, *setting);
             ctx.considered(key.clone());
@@ -512,7 +521,6 @@ pub(crate) fn compile_project_recording(
     let mut morphology_entries: Vec<LexEntryId> = Vec::new();
     let mut clitic_entries: Vec<LexEntryId> = Vec::new();
     lexicon::build(
-        snapshot,
         &ctx,
         &mut acc,
         &mut morphology_mrules,
@@ -625,6 +633,8 @@ pub(crate) fn compile_project_recording(
             .unwrap_or(DEFAULT_MAX_STEM_COUNT),
         always_enforce_final_templates: snapshot.morphology.parser_parameters.make_partials_final,
         merge_equivalent_analyses: snapshot.morphology.parser_parameters.merge_analyses,
+        representative_msas: msa_merge.into_representatives(),
+        guess_roots: snapshot.morphology.parser_parameters.guess_roots,
     };
 
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
@@ -818,6 +828,8 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     continue;
                 }
                 ctx.selected(key.clone());
+                // HCLoader.cs:2265-2268: the key morpheme and the others, as their representatives.
+                let primary = ctx.msa_merge.representative_guid(primary);
                 let Some(&primary_id) = acc.msa_guid_index.get(primary) else {
                     ctx.reject(
                         key,
@@ -832,10 +844,10 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                 };
                 let mut other_ids = Vec::with_capacity(others.len());
                 let mut unresolved = Vec::new();
-                for o in others {
+                for o in ctx.msa_merge.unique_guids(others) {
                     match acc.msa_guid_index.get(o) {
                         Some(&id) => other_ids.push(id),
-                        None => unresolved.push(o.clone()),
+                        None => unresolved.push(o.to_string()),
                     }
                 }
                 if !unresolved.is_empty() {
@@ -957,6 +969,8 @@ pub(crate) struct Ctx<'a> {
     pub pending_rule_refusals: RefCell<Vec<PendingRuleRefusal>>,
     /// Per-gate effects the owners that read each allomorph's gates actually applied.
     pub allomorph_gates: RefCell<GateOutcomes>,
+    /// Which MSA each loader site loads in an MSA's place under `<HC><MergeMSAs>`.
+    pub msa_merge: &'a msa_merge::MsaMerge<'a>,
 }
 
 /// A selected constraint issue whose owning rule may be removed by reachability compaction.

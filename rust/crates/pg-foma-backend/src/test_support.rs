@@ -65,6 +65,7 @@ pub(crate) fn parity_analysis(morpheme_ordinal: u32) -> pg_parse::WordAnalysis {
         mpr: pg_grammar::model::MprSet::EMPTY,
         guessed: false,
         guessed_string: None,
+        guessed_pattern: None,
         provenance: pg_parse::AnalysisProvenance::Grammar,
         supplied_root: None,
         morpheme_roots: vec![None],

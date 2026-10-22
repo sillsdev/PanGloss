@@ -249,7 +249,24 @@ fn guessed_words_match_cold_in_both_modes() {
         r["result"].as_str().unwrap().contains("guessed:\ttrue\n"),
         "{r}"
     );
+    assert_eq!(r["guessed"], true, "{r}");
     assert!(server.finish().success());
+
+    // HC XML never guesses by default; without an explicit flag the result string has no `guessed:` line.
+    for extra in [&[][..], &["--guess=false"][..]] {
+        let (mut server, _) = Server::start(&project, extra);
+        let r = server.parse("g", "gag", false);
+        assert_eq!(r["guessed"], false, "{extra:?}: {r}");
+        assert!(
+            r["result"].as_str().unwrap().starts_with("gag\t-\n"),
+            "{extra:?}: {r}"
+        );
+        assert!(
+            !r["result"].as_str().unwrap().contains("guessed:"),
+            "{extra:?}: {r}"
+        );
+        assert!(server.finish().success());
+    }
 }
 
 #[test]

@@ -187,6 +187,7 @@ fn base_snapshot() -> Snapshot {
             ..Morphology::default()
         },
         Lexicon {
+            msa_equality: None,
             entries: vec![stem_kuma, stem_q, suffix],
         },
     );

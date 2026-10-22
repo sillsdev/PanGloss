@@ -102,6 +102,18 @@ a rustfmt failure in the fix, which was verified with bare `cargo clippy` instea
 Also: `corpus-test` (refuses before Cargo if a declared corpus is missing), `release`, `doc` (the
 only thing enforcing `broken_intra_doc_links`), `doctor`, `gc`, `run`, `new-worktree`.
 
+**`-Mode preland` is required before landing on main.** It runs `check`, every
+`rust/tools/tests/*.tests.ps1` in parallel, and, gated on the diff from `origin/main`, the C#
+conformance driver over a fresh `pangloss` (`pg-cli`, `docs/formats/`, the `machine` pin) and the
+backend scoreboard ratchet (pg-foma-backend's crate closure, `conformance-staging/`, the pin). Each
+gated check prints SKIPPED with its reason; `-All` runs everything. Measured warm runs took 28.7s
+for a common change and 64.4s for `-All`; a prior load-affected `-All` run took 163s. These are
+observations, not a universal bound; wall time varies with slot queue and system load. Run it in the
+worktree being landed: it fails when `machine` is not at
+the staged pin. Details: `rust/tools/preland.ps1`. *Scar: in one day CI caught three breaks every
+local managed run missed: a scoreboard ratchet moved by a fixture change, a test source missing
+from the reviewed inventory, and `pangloss batch` output the conformance driver could not read.*
+
 `-Package`/`-TestTarget` narrow compilation; `-Filter` narrows execution only and still links
 everything. `--no-fail-fast` is the default. *Scar: one trailing-newline mismatch once stopped 838
 tests from running, and a ledger recorded that run's failure count as fact — wrong by 18x.*
@@ -153,6 +165,10 @@ Keep history linear. Rebase the branch onto current `main`, then `git merge --ff
 a fast-forward, the rebase did not happen against the current tip; redo it. Never `--no-ff`. If a
 rebase turns out to involve real conflicts rather than staleness, prefer re-running the change fresh
 against `main`.
+
+After the rebase and before the merge, run `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode preland`
+in the branch's worktree and land only on a zero exit. A failing check is a CI failure found early;
+fix it on the branch.
 
 When `pg.ps1` prints `rustfmt: applied`, commit that reflow with your change. Never revert it:
 reverting leaves `main` unformatted, so every later build in every worktree redoes the same

@@ -3,10 +3,12 @@
 `pangloss serve` keeps one compiled project resident and answers parse requests over stdin and stdout, so a host pays the project load and grammar compile once instead of on every word. Measured on a 22,237-entry project: load and compile cost 7-9 s per process, the parse itself 70-90 ms.
 
 ```
-pangloss serve --project <path.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess] [--timing]
+pangloss serve --project <path.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing]
 ```
 
 `--project` accepts whatever `pangloss parse` accepts as `<grammar>`. The cap, timeout and guess flags mean what they mean for `parse` and apply to every request. Unknown options are refused.
+
+Root guessing follows the project: a FieldWorks project guesses unless its `<HC><GuessRoots>` is false, and a HermitCrab XML grammar never guesses. `--guess` (or `--guess=true`) forces it on and `--guess=false` forces it off.
 
 A host can gate on this mode: `pangloss --describe` carries `"interfaces": {"serveProtocol": 1}` and lists a `serve` command.
 
@@ -51,7 +53,7 @@ One JSON object per line. Blank lines are ignored.
 ## Responses
 
 ```json
-{"id":"1","type":"result","exitCode":0,"steps":28,"workSteps":935,"result":{...}}
+{"id":"1","type":"result","exitCode":0,"steps":28,"workSteps":935,"guessed":false,"result":{...}}
 {"id":"1","type":"error","code":"bad_request","message":"..."}
 {"id":"2","type":"bye"}
 ```
@@ -63,7 +65,7 @@ A request that ran a parse always yields a `result`, including a parse that stop
 | `traceDetails` | cold argv | `result` | `exitCode` |
 |---|---|---|---|
 | `true` | `pangloss parse <project> <word> --trace --trace-format json --trace-details` | the JSON document the command prints (the trace-details envelope, see `trace-details-v2.md`), as a JSON value | always 0 (the command exits 0 even when capped or timed out; read `search.capped` / `search.timedOut` in the document) |
-| `false` (default) | `pangloss parse <project> <word> --trace --trace-format json` | the command's whole stdout as one JSON string: the line `<word>\t<signature>\n`, then `guessed:\t<true\|false>\n` only when the server runs with `--guess`, then the JSON trace tree (absent when no trace exists) | 1 when the parse was incomplete (capped, timed out, invalid shape), else 0; the string is still the full stdout |
+| `false` (default) | `pangloss parse <project> <word> --trace --trace-format json` | the command's whole stdout as one JSON string: the line `<word>\t<signature>\n`, then `guessed:\t<true\|false>\n` only when the server runs with `--guess` or `--guess=true` (never because the project guesses), then the JSON trace tree (absent when no trace exists) | 1 when the parse was incomplete (capped, timed out, invalid shape), else 0; the string is still the full stdout |
 
 For `traceDetails: true`, every field is identical to the cold document except the wall-clock measurements: `elapsedNs`, `timedNs`, `timingOverrunNs`, `unattributedNs` and every `*ElapsedNs` field. For `traceDetails: false` the string is byte-identical.
 
@@ -73,6 +75,8 @@ Every `result` response, in both modes, also carries the word's search counts be
 - `workSteps`: parser work, meaning every work unit the parse reserved. This is the quantity `--work-cap` bounds.
 
 These are the same counts as the `steps` and `work_steps` columns that `pangloss batch --work-columns` writes (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.steps` and `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat both fields as optional: older servers omit them.
+
+Every `result` response also carries `guessed`: `true` when the analyses were guessed from a lexical pattern rather than found in the lexicon, whatever the `--guess` flag. A project that guesses by default can return guessed analyses without the `guessed:` line, so read this field, not the string. Treat it as optional: older servers omit it.
 
 With `--timing`, a `result` response also carries `"timing":{"parseMs":N,"renderMs":N}`.
 

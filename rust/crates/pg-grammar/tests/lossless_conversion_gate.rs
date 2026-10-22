@@ -136,6 +136,7 @@ fn two_stem_fixture() -> Snapshot {
             ..Morphology::default()
         },
         Lexicon {
+            msa_equality: None,
             entries: vec![stem_a, stem_b],
         },
     )

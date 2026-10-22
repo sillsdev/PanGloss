@@ -1574,6 +1574,19 @@ function Find-PinMatchedConformanceDriver {
             $exe = Join-Path $wt ($relative -f $config)
             $probed += $exe
             if (-not (Test-Path -LiteralPath $exe)) { continue }
+            $worktreeRoot = & git -C $wt rev-parse --show-toplevel 2>$null | Select-Object -First 1
+            $worktreeRootExit = $LASTEXITCODE
+            $headCommit = & git -C $wt rev-parse --verify HEAD 2>$null | Select-Object -First 1
+            $headCommitExit = $LASTEXITCODE
+            $candidateRoot = [IO.Path]::GetFullPath($wt).TrimEnd('\', '/')
+            $reportedRoot = if ($worktreeRoot) { [IO.Path]::GetFullPath($worktreeRoot.Trim()).TrimEnd('\', '/') } else { '' }
+            $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
+            if ($worktreeRootExit -ne 0 -or $headCommitExit -ne 0 -or
+                -not $reportedRoot.Equals($candidateRoot, $pathComparison) -or $headCommit.Trim() -ne $PinCommit) {
+                $actualHead = if ($headCommitExit -eq 0 -and $headCommit) { $headCommit.Trim() } else { 'unavailable' }
+                $probed[-1] += " (not a worktree at requested pin $PinCommit; HEAD: $actualHead)"
+                continue
+            }
             if (@(& git -C $wt status --porcelain --untracked-files=no -- src 2>$null).Count -gt 0) { $probed[-1] += ' (worktree has source edits)'; continue }
             $committed = & git -C $wt log -1 --format=%ct HEAD 2>$null
             if ($committed -and (Get-Item -LiteralPath $exe).LastWriteTimeUtc -lt [DateTimeOffset]::FromUnixTimeSeconds([long]$committed).UtcDateTime) {

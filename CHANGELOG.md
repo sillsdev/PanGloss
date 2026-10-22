@@ -3,6 +3,47 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### FieldWorks projects guess roots, as FieldWorks does
+
+- A FieldWorks project now guesses roots by default, as FieldWorks does: a word the lexicon cannot
+  analyse is retried against the project's lexical-pattern roots (forms such as `t[V]*d`). A
+  project that sets `Guess roots` (`<HC><GuessRoots>`) to false does not guess, and a value
+  FieldWorks could not load fails the import. A project without a lexical-pattern root parses
+  exactly as before, and so does a HermitCrab XML grammar, which never guesses unless asked. See
+  divergence entry 098.
+- `batch`, `parse` and `serve` take `--guess=false` to turn guessing off; `--guess` or
+  `--guess=true` still turns it on. Without the flag the project's setting applies.
+- Output layouts change only when `--guess` is passed: without it `batch` keeps its 5-column rows
+  and `parse` its stdout, so the conformance driver and other adapters read the same layout.
+  Guessed analyses are still marked: `batch --analyses` reports a guessed morph with the lexical
+  pattern's form and MSA and the matched text as `guessedString`, as FieldWorks records it (it
+  was reported unavailable before); `serve` results carry a new optional `guessed` field; `parse`
+  notes a guess on stderr. The `guessed` column, `serve`'s `guessed`, and the `guessed` flag the
+  FFI (`hc_parse_*_opts`, the JSON API) and WebAssembly bindings report now mean the guesser found
+  the analyses, not merely that it ran.
+- `batch --stats` records whether guessing was on, so a FieldWorks project's cached words are
+  measured once more after upgrading.
+
+### Equal grammatical info is merged, as in FieldWorks (`MergeMSAs`)
+
+- When an entry has two or more grammatical-info records (MSAs) that FieldWorks considers equal
+  (same category, inflection class, features, slots and so on), the parser now loads them once, as
+  the first of them that a sense uses, exactly as FieldWorks does unless the project turns
+  `Merge MSAs` off. Such a word used to get one duplicate analysis per equal MSA; it now gets one,
+  naming the representative MSA. Projects without equal MSAs parse exactly as before, and a
+  project with `MergeMSAs` false keeps the old behaviour. See divergence entry 099.
+- grammar-health's stored-analysis comparison and `generate --request` accept a merged MSA's GUID
+  and treat it as its representative, as FieldWorks' parser filer does.
+- Snapshots record which MSAs are equal (`lexicon.msaEquality`). A snapshot written by an earlier
+  version is refused, with a message asking to re-import, only when merging is on and some entry
+  has two MSAs of the same kind; re-import the project to fix it.
+- A value of `Merge MSAs` FieldWorks could not load (not true/false) fails the import, naming the
+  setting and the value.
+
+`MaxAlternatives` remains unimplemented; divergence entry 097 records what it would take.
+
 ## 0.9.0
 
 ### Clitic rules and blocking strata, as in HermitCrab (Machine #529)

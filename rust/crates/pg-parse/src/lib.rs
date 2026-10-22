@@ -59,11 +59,23 @@ pub struct WordAnalysis {
     pub guessed: bool,
     /// Exact text carried by a fabricated guessed root, when this analysis contains one.
     pub guessed_string: Option<String>,
+    /// The lexical pattern a guessed root was fabricated from; C# copies its allomorph's and
+    /// entry's properties onto the guess, so a FieldWorks host reports the pattern's MoForm and MSA.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guessed_pattern: Option<GuessedPattern>,
     pub provenance: AnalysisProvenance,
     /// Self-contained root payload for regeneration when provenance is supplied.
     pub supplied_root: Option<SuppliedRoot>,
     /// Runtime supplied payload aligned one-for-one with `morpheme_ids`.
     pub morpheme_roots: Vec<Option<SuppliedRoot>>,
+}
+
+/// Dense ids of the lexical-pattern root allomorph and its owning morpheme behind a guessed root.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GuessedPattern {
+    pub allomorph_id: u32,
+    pub morpheme_id: u32,
 }
 
 /// Dense runtime identity and surface position for one final annotation record.

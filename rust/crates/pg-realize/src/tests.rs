@@ -60,6 +60,7 @@ fn wa(morpheme_ids: Vec<u32>, root_morpheme_index: i32, guessed: bool) -> WordAn
         mpr: pg_grammar::model::MprSet::EMPTY,
         guessed,
         guessed_string: None,
+        guessed_pattern: None,
         provenance: pg_parse::AnalysisProvenance::Grammar,
         supplied_root: None,
         morpheme_roots: vec![None; morpheme_count],

@@ -316,6 +316,37 @@ fn merge_analyses_is_read_from_the_hc_element_and_defaults_to_true() {
 }
 
 #[test]
+fn guess_roots_is_read_from_the_hc_element_and_defaults_to_true() {
+    let read = |xml: &str| parse_with_issues(Some(xml)).unwrap();
+    for (raw, expected) in [("false", false), ("0", false), ("True", true), ("1", true)] {
+        let (params, issues, presence) = read(&format!(
+            "<ParserParameters><HC><GuessRoots>{raw}</GuessRoots></HC></ParserParameters>"
+        ));
+        assert_eq!(params.guess_roots, expected, "{raw:?}");
+        assert!(issues.is_empty());
+        assert_eq!(presence.hc_fields, vec![("GuessRoots", true)]);
+    }
+    let (absent, _, _) = read("<ParserParameters><HC/></ParserParameters>");
+    assert!(absent.guess_roots, "FieldWorks guesses roots by default");
+    let (no_hc, _, _) = read("<ParserParameters/>");
+    assert!(no_hc.guess_roots);
+}
+
+#[test]
+fn malformed_guess_roots_is_fatal_and_names_the_field_and_value() {
+    let err = parse_with_issues(Some(
+        "<ParserParameters><HC><GuessRoots>maybe</GuessRoots></HC></ParserParameters>",
+    ))
+    .unwrap_err();
+    let ImportError::InvalidSource { code, message } = err else {
+        panic!("expected InvalidSource, got {err:?}");
+    };
+    assert_eq!(code, codes::INVALID_PARSER_PARAMETER);
+    assert!(message.contains("HC.GuessRoots"), "{message}");
+    assert!(message.contains("\"maybe\""), "{message}");
+}
+
+#[test]
 fn malformed_merge_analyses_is_fatal_and_names_the_field_and_value() {
     let err = parse_with_issues(Some(
         "<ParserParameters><HC><MergeAnalyses>off</MergeAnalyses></HC></ParserParameters>",
@@ -327,6 +358,37 @@ fn malformed_merge_analyses_is_fatal_and_names_the_field_and_value() {
     assert_eq!(code, codes::INVALID_PARSER_PARAMETER);
     assert!(message.contains("HC.MergeAnalyses"), "{message}");
     assert!(message.contains("\"off\""), "{message}");
+}
+
+#[test]
+fn merge_msas_is_read_from_the_hc_element_and_defaults_to_true() {
+    let read = |xml: &str| parse_with_issues(Some(xml)).unwrap();
+    for (raw, expected) in [("false", false), ("0", false), ("True", true), ("1", true)] {
+        let (params, issues, presence) = read(&format!(
+            "<ParserParameters><HC><MergeMSAs>{raw}</MergeMSAs></HC></ParserParameters>"
+        ));
+        assert_eq!(params.merge_msas, expected, "{raw}");
+        assert!(issues.is_empty());
+        assert_eq!(presence.hc_fields, vec![("MergeMSAs", true)]);
+    }
+    let (absent, _, _) = read("<ParserParameters><HC/></ParserParameters>");
+    assert!(absent.merge_msas, "FieldWorks merges equal MSAs by default");
+    let (no_hc, _, _) = read("<ParserParameters/>");
+    assert!(no_hc.merge_msas);
+}
+
+#[test]
+fn malformed_merge_msas_is_fatal_and_names_the_field_and_value() {
+    let err = parse_with_issues(Some(
+        "<ParserParameters><HC><MergeMSAs>sometimes</MergeMSAs></HC></ParserParameters>",
+    ))
+    .unwrap_err();
+    let ImportError::InvalidSource { code, message } = err else {
+        panic!("expected InvalidSource, got {err:?}");
+    };
+    assert_eq!(code, codes::INVALID_PARSER_PARAMETER);
+    assert!(message.contains("HC.MergeMSAs"), "{message}");
+    assert!(message.contains("\"sometimes\""), "{message}");
 }
 
 #[test]

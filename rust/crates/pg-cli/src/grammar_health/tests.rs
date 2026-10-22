@@ -952,6 +952,64 @@ fn grammar_health_reports_unattributed_stored_analysis_loss_and_keeps_control() 
     assert!(!description.contains("wordform \"kat\""), "{description}");
 }
 
+/// A stored bundle naming an MSA that `<HC><MergeMSAs>` merged matches the parse of its representative.
+#[test]
+fn stored_analysis_naming_a_merged_msa_matches_its_representatives_parse() {
+    const FIXTURE: &str = include_str!("../../../pg-fwdata/tests/data/fixture.fwdata");
+    let fixture = FIXTURE
+        .replace(
+            "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+            "guid=\"00000000-0000-0000-0000-000000000017\"",
+        )
+        .replace(
+            "<objsur guid=\"00000000-0000-0000-0000-000000000018\" t=\"o\" />",
+            "",
+        );
+    let analyses = [StoredAnalysisFixture {
+        wordform: "kat",
+        allomorph: "00000000-0000-0000-0000-000000000031",
+        msa: "00000000-0000-0000-0000-000000000042",
+        expected_surface: "kat",
+    }];
+    let scratch = std::env::temp_dir().join(format!(
+        "pangloss-stored-analysis-merged-{}-{}",
+        std::process::id(),
+        STORED_ANALYSIS_TEST_ID.fetch_add(1, Ordering::Relaxed),
+    ));
+    fs::create_dir_all(&scratch).expect("create merged-MSA fixture directory");
+    let project_path = scratch.join("project.fwdata");
+    fs::write(
+        &project_path,
+        append_stored_analyses(&fixture, "fx", &analyses),
+    )
+    .expect("write merged-MSA project");
+    let mut loaded = crate::load_grammar_impl(&project_path.to_string_lossy(), false, false)
+        .unwrap_or_else(|error| panic!("load merged-MSA fixture: {error}"));
+    fs::remove_dir_all(&scratch).expect("remove merged-MSA fixture directory");
+    let compare = |grammar: &Grammar| {
+        crate::stored_analysis_health::check_with_options(
+            grammar,
+            &loaded.stored_analyses,
+            crate::stored_analysis_health::ANALYSIS_STEP_CAP,
+            pg_rules::stratum::default_work_cap(crate::stored_analysis_health::ANALYSIS_STEP_CAP),
+            1,
+            None,
+        )
+        .expect("comparison runs")
+    };
+    assert_eq!(
+        compare(&loaded.grammar).len(),
+        1,
+        "control: the stored MSA is not the parsed one"
+    );
+    loaded.grammar.representative_msas.insert(
+        "00000000-0000-0000-0000-000000000042".to_string(),
+        "00000000-0000-0000-0000-000000000032".to_string(),
+    );
+    let findings = compare(&loaded.grammar);
+    assert!(findings.is_empty(), "{findings:#?}");
+}
+
 #[test]
 fn grammar_health_reports_synthesis_budget_as_unattributed() {
     let analysis = [StoredAnalysisFixture {

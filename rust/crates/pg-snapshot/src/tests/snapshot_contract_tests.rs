@@ -91,6 +91,7 @@ fn sample_snapshot() -> Snapshot {
     };
 
     let lexicon = Lexicon {
+        msa_equality: None,
         entries: vec![LexEntry {
             guid: entry_guid,
             citation_form: vec![ws("sen", "kanga")],

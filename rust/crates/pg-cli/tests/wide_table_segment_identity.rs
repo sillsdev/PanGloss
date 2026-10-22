@@ -292,7 +292,10 @@ fn snapshot(scenario: Scenario, featured: bool, extra_letters: usize) -> Snapsho
             parts_of_speech: vec![verb],
             ..Morphology::default()
         },
-        Lexicon { entries },
+        Lexicon {
+            entries,
+            msa_equality: None,
+        },
     )
 }
 

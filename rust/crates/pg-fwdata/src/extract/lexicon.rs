@@ -18,8 +18,19 @@ pub fn extract_lexicon(
 ) -> Lexicon {
     // `LexEntry` is `owner="none"` in LCM (no ordered `Entries` sequence), so the parser tracks file-encounter order directly via `RawGraph::lex_entry_order`.
     let order = ctx.graph.lex_entry_order.clone();
-    let entries = order.iter().filter_map(|g| extract_entry(ctx, g)).collect();
-    Lexicon { entries }
+    let entries: Vec<LexEntry> = order.iter().filter_map(|g| extract_entry(ctx, g)).collect();
+    let ctx: &Ctx = ctx;
+    let msa_equality = entries
+        .iter()
+        .flat_map(|entry| {
+            let guids: Vec<&str> = entry.msas.iter().map(Msa::guid).collect();
+            super::msa_equality::equal_msas(ctx, &guids)
+        })
+        .collect();
+    Lexicon {
+        entries,
+        msa_equality: Some(msa_equality),
+    }
 }
 
 fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {

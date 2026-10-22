@@ -184,7 +184,66 @@ pub fn project_parse_analysis(
         }
         let occurrence = &occurrences[i];
         if occurrence.morpheme_id == MorphemeId::GUESSED.0 || occurrence.allomorph_id == u32::MAX {
-            return Err(ParseProjectionError::UnsupportedRuntimeRoot);
+            // FieldWorks reports a guess as its pattern's MoForm and MSA plus the matched text.
+            let pattern = analysis
+                .guessed_pattern
+                .ok_or(ParseProjectionError::UnsupportedRuntimeRoot)?;
+            let guessed_string = analysis
+                .guessed_string
+                .clone()
+                .ok_or(ParseProjectionError::GuessedStringUnavailable)?;
+            let source = grammar
+                .allomorph_sources
+                .get(pattern.allomorph_id as usize)
+                .ok_or(ParseProjectionError::UnresolvedAllomorph {
+                    ordinal: pattern.allomorph_id,
+                })?;
+            let info = grammar.morphemes.get(pattern.morpheme_id as usize).ok_or(
+                ParseProjectionError::UnresolvedMorpheme {
+                    ordinal: pattern.morpheme_id,
+                },
+            )?;
+            let msa = info
+                .source_msa_guid
+                .clone()
+                .filter(|guid| !guid.is_empty())
+                .ok_or(ParseProjectionError::MissingMsa {
+                    ordinal: pattern.morpheme_id,
+                })?;
+            let msa = require_guid(msa, "MSA", pattern.morpheme_id, None)?;
+            let infl_type = info
+                .source_infl_type_guid
+                .clone()
+                .map(|guid| require_guid(guid, "InflType", pattern.morpheme_id, None))
+                .transpose()?;
+            let form = match source.form_guids.as_slice() {
+                [form] => form
+                    .clone()
+                    .ok_or(ParseProjectionError::MissingSourceForm {
+                        allomorph: pattern.allomorph_id,
+                        slot: 0,
+                    })?,
+                forms => {
+                    return Err(ParseProjectionError::UnsupportedSourceFormArity {
+                        allomorph: pattern.allomorph_id,
+                        count: forms.len(),
+                    })
+                }
+            };
+            let form = require_guid(form, "MoForm", pattern.allomorph_id, Some(0))?;
+            used[i] = true;
+            events.push((
+                occurrence.order,
+                i,
+                source.placement,
+                ParseMorph {
+                    form: Some(form),
+                    msa: Some(msa),
+                    infl_type,
+                    guessed_string: Some(guessed_string),
+                },
+            ));
+            continue;
         }
 
         let source = grammar

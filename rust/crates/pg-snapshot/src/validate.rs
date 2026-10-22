@@ -1265,6 +1265,7 @@ mod subject_tests {
             Phonology::default(),
             Morphology::default(),
             Lexicon {
+                msa_equality: None,
                 entries: vec![LexEntry {
                     guid: "entry-guid".to_string(),
                     citation_form: vec![WsForm {

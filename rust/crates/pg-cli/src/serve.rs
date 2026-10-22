@@ -32,7 +32,7 @@ struct ServeArgs {
     step_cap: StepCap,
     work_cap: Option<StepCap>,
     word_timeout: Option<Duration>,
-    guess: bool,
+    guess_arg: Option<bool>,
     timing: bool,
 }
 
@@ -41,7 +41,7 @@ fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
     let mut step_cap = crate::DEFAULT_STEP_CAP;
     let mut work_cap = None;
     let mut word_timeout = None;
-    let mut guess = false;
+    let mut guess_arg = None;
     let mut timing = false;
     let ms = |v: &str| -> Result<Duration, String> {
         v.parse::<u64>()
@@ -55,7 +55,9 @@ fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
                 project = Some(it.next().ok_or("--project requires a value")?.clone());
             }
             s if s.starts_with("--project=") => project = Some(s["--project=".len()..].to_string()),
-            "--guess" => guess = true,
+            s if s == "--guess" || s.starts_with("--guess=") => {
+                guess_arg = Some(crate::parse_guess_flag(s)?)
+            }
             "--timing" => timing = true,
             "--step-cap" => {
                 step_cap = it
@@ -92,7 +94,7 @@ fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
         step_cap,
         work_cap,
         word_timeout,
-        guess,
+        guess_arg,
         timing,
     })
 }
@@ -124,10 +126,13 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
             Err(e) => return fatal("load_failed", &e),
         };
     crate::print_grammar_warnings(&warnings);
-    let morpher = Morpher::new(&grammar, parsed.step_cap.as_morpher_cap())
-        .with_work_cap(crate::resolved_work_cap(parsed.step_cap, parsed.work_cap))
-        .with_word_timeout(parsed.word_timeout);
-    let opts = pg_parse::ParseOptions::default().with_guess_root(parsed.guess);
+    let morpher = crate::with_guess_override(
+        Morpher::new(&grammar, parsed.step_cap.as_morpher_cap())
+            .with_work_cap(crate::resolved_work_cap(parsed.step_cap, parsed.work_cap))
+            .with_word_timeout(parsed.word_timeout),
+        parsed.guess_arg,
+    );
+    let opts = morpher.project_parse_options();
     let load_ms = load_started.elapsed().as_millis() as u64;
 
     let mut ready = json!({"type": "ready", "protocol": SERVE_PROTOCOL_VERSION, "loadMs": load_ms});
@@ -147,7 +152,7 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         opts: &opts,
         metadata: &metadata,
         timing: parsed.timing,
-        guess: parsed.guess,
+        guess: parsed.guess_arg == Some(true),
     };
     let requests = spawn_reader();
     loop {
@@ -318,6 +323,7 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
                         "exitCode": served.exit_code,
                         "steps": served.steps,
                         "workSteps": served.work_steps,
+                        "guessed": served.guessed,
                         "result": served.result,
                     });
                     if ctx.timing {
@@ -346,6 +352,8 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
 struct Served {
     result: Value,
     exit_code: i32,
+    /// Whether the guesser found the analyses, whatever the `--guess` flag.
+    guessed: bool,
     steps: usize,
     work_steps: usize,
     parse_ms: u64,
@@ -378,6 +386,7 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
         return Ok(Served {
             result: value,
             exit_code: 0,
+            guessed: outcome.guessed,
             steps: outcome.steps,
             work_steps: outcome.work_steps,
             parse_ms,
@@ -400,6 +409,7 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
     Ok(Served {
         result: Value::String(stdout),
         exit_code,
+        guessed: outcome.guessed,
         steps: outcome.steps,
         work_steps: outcome.work_steps,
         parse_ms,

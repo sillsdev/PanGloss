@@ -417,10 +417,10 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
-         usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
+         usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--json]\n\
          usage: pangloss fst-health <grammar> [<out.json>]\n\
@@ -438,13 +438,14 @@ fn print_usage_and_fail() -> ExitCode {
          In a generate request, the morphemes array is generation order, not surface order.\n\
          See docs/generation.md.\n\
          \n\
-         --guess (`batch`/`parse`, HC-rust port gap G3,\n\
-         docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
-         to the pre-existing behavior. When passed, an out-of-lexicon word whose normal\n\
-         analysis is empty is retried via the lexical-pattern guesser (P11,\n\
-         docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
-         guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
-         `batch` adds a `guessed` TSV column after `signature`, both only when --guess is passed.\n\
+         --guess (`batch`/`parse`/`serve`): a word whose normal analysis is empty is retried\n\
+         via the lexical-pattern guesser (docs/p11-guesser-api-design.md). A FieldWorks project\n\
+         sets it with <HC><GuessRoots> (default true, as in FieldWorks); a HermitCrab XML grammar\n\
+         never guesses by default, as the C# hc tool does not. --guess or --guess=true forces it\n\
+         on, --guess=false forces it off. A guessed analysis is never presented as confirmed:\n\
+         with --guess, `parse` prints a `guessed:` line and `batch` adds a `guessed` TSV column\n\
+         after `signature`; without the flag the stdout layout is unchanged, `parse` notes a\n\
+         guess on stderr, and `batch --analyses` reports each guessed morph's guessedString.\n\
          --work-columns (`batch`) appends `steps` and `work_steps` to every result row\n\
          (docs/formats/batch-tsv.md); off by default, the row layout is unchanged.\n\
          --always-enforce-final-templates is result-changing: enforce template order even\n\
@@ -724,7 +725,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut gloss = false;
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
-    let mut guess = false;
+    let mut guess_arg: Option<bool> = None;
     let mut step_cap = DEFAULT_STEP_CAP;
     let mut work_cap = None;
     let mut word_timeout = None;
@@ -759,7 +760,9 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--realize-map=") => {
                 realize_map_arg = Some(s["--realize-map=".len()..].to_string());
             }
-            "--guess" => guess = true,
+            s if s == "--guess" || s.starts_with("--guess=") => {
+                guess_arg = Some(parse_guess_flag(s)?)
+            }
             "--step-cap" => {
                 step_cap = it
                     .next()
@@ -816,7 +819,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]".into());
     };
 
     let (grammar, warnings, trace_metadata) = if trace_details {
@@ -838,11 +841,14 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     };
 
-    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
-        .with_work_cap(resolved_work_cap(step_cap, work_cap))
-        .with_word_timeout(word_timeout);
-    // --guess omitted is exactly ParseOptions::default(), so every call below is byte-identical to the unconditional-default-options behavior.
-    let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
+    let morpher = with_guess_override(
+        Morpher::new(&grammar, step_cap.as_morpher_cap())
+            .with_work_cap(resolved_work_cap(step_cap, work_cap))
+            .with_word_timeout(word_timeout),
+        guess_arg,
+    );
+    let opts = morpher.project_parse_options();
+    let guess = guess_arg == Some(true);
 
     if let Some(dest) = trace_dest {
         let sink = if trace_details {
@@ -918,10 +924,34 @@ fn require_complete_parse(outcome: &pg_parse::ParseOutcome) -> Result<(), String
     }
 }
 
-/// `--guess`'s own output marker: printed only when `--guess` was passed, right after the parity line and before any `--gloss`/`--natural-gloss` lines, so a guessed result is never indistinguishable from a confirmed one.
+/// Marks a guessed result so it is never indistinguishable from a confirmed one: a stdout `guessed:` line right after the parity line when `--guess` was passed, otherwise a stderr note, so stdout keeps the layout of a run without `--guess`.
 fn print_guessed_line(guess_requested: bool, guessed: bool) {
     if guess_requested {
         println!("guessed:\t{guessed}");
+    } else if guessed {
+        eprintln!("{GUESSED_NOTE}");
+    }
+}
+
+/// The stderr marker for analyses guessed because the project, not the command line, enabled guessing.
+pub(crate) const GUESSED_NOTE: &str = "note: these analyses were guessed from a lexical pattern, not found in the lexicon; the project's GuessRoots setting enabled guessing, and --guess=false turns it off";
+
+/// `--guess` or `--guess=true` forces root guessing on, `--guess=false` forces it off.
+pub(crate) fn parse_guess_flag(arg: &str) -> Result<bool, String> {
+    match arg.strip_prefix("--guess=") {
+        None => Ok(true),
+        Some(value) => parse_bool_flag("--guess", value),
+    }
+}
+
+/// Applies an explicit `--guess`/`--guess=false`; without one the morpher keeps the project's `GuessRoots`.
+pub(crate) fn with_guess_override<'g>(
+    morpher: Morpher<'g>,
+    guess_arg: Option<bool>,
+) -> Morpher<'g> {
+    match guess_arg {
+        Some(guess) => morpher.with_guess_roots(guess),
+        None => morpher,
     }
 }
 
@@ -987,7 +1017,7 @@ pub(crate) const BATCH_TSV_VERSION: u32 = 2;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
-    /// `Some(guessed)` only when `--guess` was passed.
+    /// `Some(guessed)` only when `--guess` or `--guess=true` was passed, never for a project's own `GuessRoots`.
     guessed: Option<bool>,
     /// `Some((steps, work_steps))` only when `--work-columns` was passed.
     counts: Option<(usize, usize)>,
@@ -1031,7 +1061,7 @@ fn write_batch_row<W: Write>(
     writeln!(w)
 }
 
-/// `--guess`'s own parallel batch dispatch, called only when `--guess` was passed, since `hc_parse_batch` has no `ParseOptions` parameter and so cannot express "guess on"; deliberately simpler than that function's longest-surface-first scheduling, using a plain order-preserving `rayon` `par_iter`.
+/// The parallel batch dispatch for a run that guesses roots, since `hc_parse_batch` has no `ParseOptions` parameter and so cannot express "guess on"; deliberately simpler than that function's longest-surface-first scheduling, using a plain order-preserving `rayon` `par_iter`.
 fn parse_batch_with_opts(
     morpher: &Morpher,
     words: &[String],
@@ -1181,8 +1211,8 @@ fn run_batch_with_counter(
     // 0-based resume index: skip the first N words (already-completed rows from a prior crashed/killed run) and append rather than truncate out.tsv, so a watchdog wrapper can kill+relaunch a stalled word and continue where it left off.
     let mut start_idx: usize = 0;
     let mut analyses_path_arg: Option<String> = None;
-    // --guess is default-off; guessed rows are always marked.
-    let mut guess = false;
+    // None defers to the project's own `<HC><GuessRoots>`; only an explicit force-on adds the `guessed` column.
+    let mut guess_arg: Option<bool> = None;
     // Default-off so the 5/6-column contract external adapters require stays byte-identical.
     let mut work_columns = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
@@ -1250,7 +1280,9 @@ fn run_batch_with_counter(
             s if s.starts_with("--analyses=") => {
                 analyses_path_arg = Some(s["--analyses=".len()..].to_string());
             }
-            "--guess" => guess = true,
+            s if s == "--guess" || s.starts_with("--guess=") => {
+                guess_arg = Some(parse_guess_flag(s)?)
+            }
             "--work-columns" => work_columns = true,
             "--stats" => stats_requested = true,
             "--always-enforce-final-templates" => always_enforce_final_templates_arg = Some(true),
@@ -1291,7 +1323,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
                 .into(),
         );
     };
@@ -1322,6 +1354,7 @@ fn run_batch_with_counter(
     print_grammar_warnings(&warnings);
     let always_enforce_final_templates =
         always_enforce_final_templates_arg.unwrap_or(grammar.always_enforce_final_templates);
+    let guess = guess_arg.unwrap_or(grammar.guess_roots);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
     let stats_cache_path = if stats_requested {
         Some(
@@ -1437,16 +1470,16 @@ fn run_batch_with_counter(
     let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
         .with_work_cap(work_cap)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
-        .with_always_enforce_final_templates(always_enforce_final_templates);
+        .with_always_enforce_final_templates(always_enforce_final_templates)
+        .with_guess_roots(guess);
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
     eprintln!(
         "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
         grammar_load_ms + morpher_build_ms
     );
-    // --guess omitted is exactly ParseOptions::default(), so parse_word_opts below is byte-identical to parse_word(word).
-    let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
+    let opts = morpher.project_parse_options();
     let row_flags = BatchRowFlags {
-        guess,
+        guess: guess_arg == Some(true),
         work_columns,
     };
     let mut stats_words = Vec::new();
@@ -1731,7 +1764,8 @@ fn run_batch_with_counter(
                 0,
             )
         } else {
-            let results = if guess {
+            // Without a lexical pattern the guess branch never runs, so `hc_parse_batch` returns the same rows.
+            let results = if opts.guess_root && !morpher.lexical_patterns().is_empty() {
                 parse_batch_with_opts(&morpher, remaining, threads, &opts, parse_counter)
             } else {
                 hc_parse_batch(&morpher, remaining, threads)

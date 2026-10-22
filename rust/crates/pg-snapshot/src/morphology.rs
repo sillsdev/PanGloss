@@ -432,6 +432,12 @@ pub struct ParserParameters {
     /// ← `<HC><MergeAnalyses>`, default **`true`**: C# `Morpher.MergeEquivalentAnalyses`, set by `HCParser.LoadParser`.
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub merge_analyses: bool,
+    /// ← `<HC><MergeMSAs>`, default **`true`**: whether `HCParser.LoadParser` loads through `HCLoader.Load(cache, logger, out representativeMSAs)`, which loads one morpheme per group of equal MSAs (`Lexicon::msa_equality`).
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub merge_msas: bool,
+    /// ← `<HC><GuessRoots>`, default **`true`**: the `guessRoot` argument FieldWorks `HCParser` passes to every `Morpher.ParseWord` call.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub guess_roots: bool,
     /// The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`)
     /// — `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is
     /// compiler policy over this string, not separate data, so T3 re-parses it the same way.
@@ -477,6 +483,8 @@ impl Default for ParserParameters {
             max_roots: None,
             make_partials_final: false,
             merge_analyses: true,
+            merge_msas: true,
+            guess_roots: true,
             strata: None,
             compound_rule_max_applications: Vec::new(),
             active_parser: ActiveParser::XAmple,

@@ -4,6 +4,7 @@ mod features;
 mod inventory;
 mod lexicon;
 mod morphology;
+mod msa_equality;
 mod phonology;
 mod project;
 mod stored_analyses;

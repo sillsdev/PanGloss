@@ -131,6 +131,7 @@ fn snapshot(prefix_class: &[&str], suffix_class: &[&str]) -> Snapshot {
             ..Morphology::default()
         },
         Lexicon {
+            msa_equality: None,
             entries: vec![
                 stem("root-a", "kat", "ic-a"),
                 stem("root-b", "pit", "ic-b"),

@@ -82,6 +82,66 @@ fn fixture_sanity_pattern_entry_is_excluded_from_the_trie() {
     );
 }
 
+/// An HC XML grammar carries no host guessing setting, so it parses with C#'s `hc`-tool `guessRoot = false`; a FieldWorks-style `Grammar::guess_roots` reaches `Morpher::project_parse_options`, an override wins, and `parse_word` never guesses.
+#[test]
+fn the_grammar_guess_roots_setting_is_the_morpher_default_and_parse_word_never_guesses() {
+    let g = grammar();
+    assert!(!g.guess_roots, "HC XML cannot carry <GuessRoots>");
+    let m = Morpher::new(&g, usize::MAX);
+    assert!(!m.guess_roots());
+    assert!(!m.project_parse_options().guess_root);
+
+    let mut project = grammar();
+    project.guess_roots = true;
+    let m = Morpher::new(&project, usize::MAX);
+    assert!(m.guess_roots());
+    let outcome = m.parse_word_opts("gag", &m.project_parse_options());
+    assert!(outcome.guessed && outcome.signature() != "-");
+    assert_eq!(
+        m.parse_word("gag").signature(),
+        "-",
+        "parse_word is C#'s ParseWord(word)"
+    );
+
+    let off = Morpher::new(&project, usize::MAX).with_guess_roots(false);
+    assert!(!off.project_parse_options().guess_root);
+    assert_eq!(
+        off.parse_word_opts("gag", &off.project_parse_options())
+            .signature(),
+        "-"
+    );
+}
+
+/// `ParseOutcome::guessed` means the guesser found the analyses, not that its branch ran.
+#[test]
+fn guessed_is_false_when_the_guess_branch_finds_nothing() {
+    let g = load(&XML.replace("[Any]*", "g[Any]*")).unwrap();
+    let m = Morpher::new(&g, usize::MAX);
+    assert_eq!(m.lexical_patterns().len(), 1);
+    let opts = ParseOptions::default().with_guess_root(true);
+    let miss = m.parse_word_opts("dad", &opts);
+    assert!(miss.candidates_generated == 0 && miss.analyses.is_empty());
+    assert!(!miss.guessed, "the guesser ran and found nothing");
+    assert!(m.parse_word_opts("gad", &opts).guessed);
+}
+
+/// Without a lexical pattern C#'s `LexicalGuess` yields nothing, so guessing must change no outcome, work count included.
+#[test]
+fn guessing_without_a_lexical_pattern_changes_nothing() {
+    let g = load(&XML.replace("[Any]*", "gag")).unwrap();
+    let m = Morpher::new(&g, usize::MAX);
+    assert!(m.lexical_patterns().is_empty());
+    let on = ParseOptions::default().with_guess_root(true);
+    for word in ["dad", "gag", "gagd", "dadd"] {
+        let off = m.parse_word(word);
+        let guessing = m.parse_word_opts(word, &on);
+        assert_eq!(guessing.signature(), off.signature(), "{word}");
+        assert_eq!(guessing.work_steps, off.work_steps, "{word}");
+        assert_eq!(guessing.steps, off.steps, "{word}");
+        assert!(!guessing.guessed, "{word}");
+    }
+}
+
 /// PORT-CORRESPONDENCE: guess off, no real lexicon entry can ever match since the pattern is never trie-indexed.
 #[test]
 fn guess_off_both_words_have_no_analyses() {

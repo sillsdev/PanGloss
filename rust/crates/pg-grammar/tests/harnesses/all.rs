@@ -13,6 +13,8 @@ mod conversion_inventory_gate;
 mod lossless_conversion_gate;
 #[path = "../measure_only_confinement_gate.rs"]
 mod measure_only_confinement_gate;
+#[path = "../merge_msas.rs"]
+mod merge_msas;
 #[path = "../p5_closure_property.rs"]
 mod p5_closure_property;
 #[path = "../process_allomorph_inflection_classes.rs"]

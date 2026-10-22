@@ -72,6 +72,8 @@ pub fn resolve_fw_entry_msa(
 /// Stem MSAs resolve through `LexEntryDef.source_guid`; affix MSAs resolve through the source
 /// entry owner retained on the rule's `MorphemeInfo`. The MSA GUID, MSA class, and owner entry
 /// must all match. Headwords, XML morph IDs, and compiled vector positions are not source keys.
+/// An MSA that `<HC><MergeMSAs>` merged resolves to its representative's owner
+/// (`Grammar::representative_msas`).
 pub fn resolve_authored_morpheme(
     grammar: &Grammar,
     entry_guid: &str,
@@ -91,6 +93,8 @@ pub fn resolve_authored_morpheme(
     if !has_authored_identity(grammar) {
         return Err(Error::AuthoredIdentityUnavailable);
     }
+    // An MSA merged under `<HC><MergeMSAs>` is addressed through the equal MSA FieldWorks loaded, as `HCParser.RepresentativeMSAHvo` does.
+    let msa_guid = grammar.representative_msa(msa_guid);
 
     let entry_exists = grammar
         .entries
@@ -222,6 +226,23 @@ mod tests {
         assert_eq!(
             affix.owner,
             ResolvedMorphemeOwner::MorphologicalRule(MRuleId(rule as u32))
+        );
+    }
+
+    #[test]
+    fn a_merged_msa_resolves_through_its_representative() {
+        const MERGED: &str = "00000000-0000-0000-0000-0000000000a1";
+        let mut grammar = fixture();
+        assert_eq!(
+            resolve_fw_entry_msa(&grammar, ROOT_ENTRY, MERGED, FwClass::MoStemMsa),
+            Err(SourceIdentityError::UnknownMsa)
+        );
+        grammar
+            .representative_msas
+            .insert(MERGED.to_string(), ROOT_MSA.to_string());
+        assert_eq!(
+            resolve_fw_entry_msa(&grammar, ROOT_ENTRY, MERGED, FwClass::MoStemMsa),
+            Ok(LexEntryId(0))
         );
     }
 

@@ -47,7 +47,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | FieldWorks `HCParser.cs` (`LoadParser`, `MakePartialsFinal`); `Morpher.cs` (`AlwaysEnforceFinalTemplates`) | 101 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `MergeAnalyses`); `AnalysisStratumRule.cs` (`MergeEquivalentAnalyses`) | 096 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`, `MaxAlternatives`); `Morpher.cs` (`SynthesizeSequential`/`SynthesizeParallel`); `AnalysisStratumRule.cs`, `CombinationRuleCascade.cs`, `LinearRuleCascade.cs`, `MemoizedCombinationRuleCascade.cs` | 097 |
-| FieldWorks `HCParser.cs` (ctor, `LoadParser`, `GuessRoots`); `Morpher.cs` (`ParseWord` guess branch) | 098 |
+| FieldWorks `HCParser.cs` (ctor, `LoadParser`, `GuessRoots`); `Morpher.cs` (`ParseWord` guess branch, `LexicalGuess`) | 098 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `MergeMSAs`); `HCLoader.cs` (`RepresentativeMSA`, `UniqueMSAs`); liblcm `EqualsMsa` | 099 |
 | FieldWorks `HCLoader.cs` ctor (`NotOnClitics`, `NoDefaultCompounding`, `AcceptUnspecifiedGraphemes`) | 100 |
 | `NaturalClass.cs` (ctor `Type` stamping) | 013 |
@@ -100,7 +100,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-fwdata/src/parser_params.rs` (`hc_max_roots`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`) | 094 |
 | `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`); `pg-cli/src/main.rs` (`run_batch`) | 101 |
 | `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `with_merge_equivalent_analyses`) | 096 |
-| `pg-parse/src/morpher.rs` (`ParseOptions::guess_root`); `pg-cli/src/main.rs` (`--guess`) | 098 |
+| `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `with_guess_roots`, `project_parse_options`, guess branch); `pg-parse/src/parse_morph.rs` (`project_parse_analysis`); `pg-cli/src/main.rs` (`--guess`), `pg-cli/src/serve.rs` | 098 |
 | `pg-grammar/src/compile/lexicon.rs` (per-MSA fan-out) | 099 |
 | `pg-fwdata/src/parser_params.rs` (`hc_bool`) | 100 |
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
@@ -169,8 +169,10 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
 | `csharp_port_affix_process.rs` | 007, 008 |
 | `csharp_port_affix_process.rs` (`partial_rule`); `pg-cli/src/tests.rs` (`project_make_partials_final_reaches_batch_and_an_explicit_flag_overrides_it`) | 101 |
+| `guesser_gate.rs` (`the_grammar_guess_roots_setting_is_the_morpher_default_and_parse_word_never_guesses`, `guessed_is_false_when_the_guess_branch_finds_nothing`, `guessing_without_a_lexical_pattern_changes_nothing`); `pg-cli/src/tests.rs` (`a_project_guesses_roots_by_default_without_changing_the_batch_tsv_layout`, `an_explicit_guess_flag_overrides_the_project_and_alone_adds_the_guessed_column`); `pg-cli/tests/serve_protocol.rs` (`guessed_words_match_cold_in_both_modes`) | 098 |
 | `csharp_port_compounding.rs` | 003, 004, 005 |
 | `merged_analyses_fs_generalization.rs` (`merge_analyses_off_from_the_grammar_keeps_the_analyses_and_stops_folding`) | 096 |
+| `pg-grammar/tests/merge_msas.rs`; `pg-fwdata/src/extract/msa_equality/tests.rs`; `pg-fwdata/tests/fixture_tests.rs` (`imported_equal_msas_merge_into_the_sense_bearing_one`); `pg-cli/src/grammar_health/tests.rs` (`stored_analysis_naming_a_merged_msa_matches_its_representatives_parse`) | 099 |
 | `csharp_port_compounding.rs` (`simple_rules_4_three_root_compound_from_grammar_max_stem_count`) | 094 |
 | `csharp_port_compounding.rs` (`prod_restrict_rule_traces_non_head_rejections_as_csharp_does`) | 092 |
 | `pg-cli/src/rich_trace/tests.rs` (`compound_analysis_attempts_keep_owner_reason_and_subrule`) | 092 |

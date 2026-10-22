@@ -542,6 +542,8 @@ pub enum LoadReasonCode {
     UnknownClass,
     Unreferenced,
     NoEligibleAllomorph,
+    /// `<HC><MergeMSAs>` loaded an equal MSA of the same entry in this one's place.
+    MergedMsa,
     OwnerNotLoaded,
     AncestorDefaultInflectionClass,
     AdditionalPhonemeSetNotSelected,
@@ -567,6 +569,7 @@ impl LoadReasonCode {
             Self::UnknownClass => "unknown_class",
             Self::Unreferenced => "unreferenced",
             Self::NoEligibleAllomorph => "noEligibleAllomorph",
+            Self::MergedMsa => "mergedMsa",
             Self::OwnerNotLoaded => "ownerNotLoaded",
             Self::AncestorDefaultInflectionClass => "ancestorDefaultInflectionClass",
             Self::AdditionalPhonemeSetNotSelected => "additional_phoneme_set_not_selected",

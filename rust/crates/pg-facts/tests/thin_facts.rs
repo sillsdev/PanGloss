@@ -473,6 +473,7 @@ fn snapshot() -> Snapshot {
         },
         morphology,
         Lexicon {
+            msa_equality: Some(Vec::new()),
             entries: vec![
                 root_entry,
                 entry(

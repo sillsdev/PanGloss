@@ -52,6 +52,8 @@ pub struct Morpher<'g> {
     prune_disagreeing_copies: bool,
     /// C# `Morpher.MergeEquivalentAnalyses`, starting from `Grammar::merge_equivalent_analyses`; tracing turns merging off regardless, as C# does.
     merge_equivalent_analyses: bool,
+    /// The host's `guessRoot` argument, starting from `Grammar::guess_roots`; read only by `Self::project_parse_options`.
+    guess_roots: bool,
 }
 
 /// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
@@ -155,9 +157,9 @@ pub struct ParseOutcome {
     pub work_steps: usize,
     /// Whether the independent `--word-timeout-ms` deadline fired for this word.
     pub timed_out: bool,
-    /// True iff these analyses came from the guess branch. That branch is all-or-nothing (it runs
-    /// only on a total normal-lexicon miss), so one flag describes every returned analysis and
-    /// each `structured[i].guessed` mirrors it.
+    /// True iff the guesser found these analyses: false whenever there are none, even if the guess
+    /// branch ran. That branch runs only on a total normal-lexicon miss, so one flag describes
+    /// every returned analysis and each `structured[i].guessed` mirrors it.
     pub guessed: bool,
     /// Diagnostic only, not part of any C# contract: synthesis candidates yielded before the
     /// validity/match gate, across both the normal loop and the guess branch. `structured.len()`
@@ -442,6 +444,7 @@ impl<'g> Morpher<'g> {
             max_stem_count: g.max_stem_count,
             prune_disagreeing_copies: true,
             merge_equivalent_analyses: g.merge_equivalent_analyses,
+            guess_roots: g.guess_roots,
         }
     }
 
@@ -560,6 +563,26 @@ impl<'g> Morpher<'g> {
     pub fn with_merge_equivalent_analyses(mut self, merge: bool) -> Self {
         self.merge_equivalent_analyses = merge;
         self
+    }
+
+    /// Override whether the project's host guesses roots. Without this call it is the grammar's
+    /// own `Grammar::guess_roots`: FieldWorks `<HC><GuessRoots>` (default `true`), or `false` for
+    /// `<HermitCrabInput>` XML. Only `Self::project_parse_options` reads it; `Self::parse_word`
+    /// never guesses, as C# `Morpher.ParseWord(word)` does not.
+    pub fn with_guess_roots(mut self, guess: bool) -> Self {
+        self.guess_roots = guess;
+        self
+    }
+
+    /// Whether the project's host guesses roots (the grammar's setting, or a `Self::with_guess_roots` override).
+    pub fn guess_roots(&self) -> bool {
+        self.guess_roots
+    }
+
+    /// The per-call options the project's own host passes, as FieldWorks `HCParser` passes
+    /// `guessRoot` to `Morpher.ParseWord`: `ParseOptions::guess_root` is `Self::guess_roots`.
+    pub fn project_parse_options(&self) -> ParseOptions {
+        ParseOptions::default().with_guess_root(self.guess_roots)
     }
 
     /// Enable C# `Morpher.PruneDisagreeingCopies` behavior for repeated affix-process copies.
@@ -909,83 +932,84 @@ impl<'g> Morpher<'g> {
             }
         }
 
-        // Guess branch: only on a total miss of the normal path and only when the caller opted in; reuses `results.values()` with no re-analysis.
-        let (ordered_matches, guessed): (Vec<Word>, bool) = if opts.guess_root && matches.is_empty()
-        {
-            let mut guess_matches: Vec<Word> = Vec::new();
-            for aw in results.values() {
-                if !pg_fst::work::consume() {
-                    break;
-                }
-                if let Some(stats) = stats {
-                    stats.record_guesser_attempt(aw.stratum, aw.shape.len() as u64);
-                }
-                // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
-                alt_yield::record_canonical(aw.alternatives.len());
-                // C#'s `.Distinct()` here is a documented no-op (fresh clones, no `Equals` override), so consuming `guess::lexical_guess`'s output directly is faithful.
-                let guessed_words = {
-                    let _guesser_time = stats.map(|stats| {
-                        stats.time_enter(
-                            pg_rules::stats::ObjectKind::Guesser,
-                            aw.stratum,
-                            0,
-                            pg_rules::stats::ALLOMORPH_NONE,
-                            pg_rules::stats::Direction::Analysis,
-                        )
-                    });
-                    guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
-                };
-                for synthesis_word in guessed_words {
+        // Guess branch: only on a total miss of the normal path, only when the caller opted in, and only when a lexical pattern exists to guess from (without one C#'s `LexicalGuess` yields nothing); reuses `results.values()` with no re-analysis.
+        let (ordered_matches, guessed): (Vec<Word>, bool) =
+            if opts.guess_root && matches.is_empty() && !self.lexical_patterns.is_empty() {
+                let mut guess_matches: Vec<Word> = Vec::new();
+                for aw in results.values() {
                     if !pg_fst::work::consume() {
                         break;
                     }
-                    let expanded = synthesis_word.expand_alternatives();
-                    alt_yield::record_expansion(expanded.len());
-                    for alt in expanded {
+                    if let Some(stats) = stats {
+                        stats.record_guesser_attempt(aw.stratum, aw.shape.len() as u64);
+                    }
+                    // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
+                    alt_yield::record_canonical(aw.alternatives.len());
+                    // C#'s `.Distinct()` here is a documented no-op (fresh clones, no `Equals` override), so consuming `guess::lexical_guess`'s output directly is faithful.
+                    let guessed_words = {
+                        let _guesser_time = stats.map(|stats| {
+                            stats.time_enter(
+                                pg_rules::stats::ObjectKind::Guesser,
+                                aw.stratum,
+                                0,
+                                pg_rules::stats::ALLOMORPH_NONE,
+                                pg_rules::stats::Direction::Analysis,
+                            )
+                        });
+                        guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
+                    };
+                    for synthesis_word in guessed_words {
                         if !pg_fst::work::consume() {
                             break;
                         }
-                        for vw in self.synthesis_pipeline_traced(
-                            alt,
-                            trace,
-                            root,
-                            &budget,
-                            stats,
-                            FinalTemplateSynthesisPolicy {
-                                always_enforce: self.always_enforce_final_templates,
-                            },
-                        ) {
-                            if pg_fst::work::stopped() {
+                        let expanded = synthesis_word.expand_alternatives();
+                        alt_yield::record_expansion(expanded.len());
+                        for alt in expanded {
+                            if !pg_fst::work::consume() {
                                 break;
                             }
-                            candidates_generated += 1;
-                            if self.is_word_valid_traced(&vw, trace, root)
-                                && self.is_match_traced(&vw, word, trace, root)
-                            {
-                                if alt_yield::enabled() {
-                                    if let Ok(id) = AnalysisIdentity::project(
-                                        &self.structured_analysis(&vw, true),
-                                        g,
-                                    ) {
-                                        alt_yield::record_identity(id);
-                                    }
-                                }
+                            for vw in self.synthesis_pipeline_traced(
+                                alt,
+                                trace,
+                                root,
+                                &budget,
+                                stats,
+                                FinalTemplateSynthesisPolicy {
+                                    always_enforce: self.always_enforce_final_templates,
+                                },
+                            ) {
                                 if pg_fst::work::stopped() {
                                     break;
                                 }
-                                // No dedup here, unlike the normal path: a plain `Vec`, not a `WordKey`-deduped `HashMap`.
-                                guess_matches.push(vw);
+                                candidates_generated += 1;
+                                if self.is_word_valid_traced(&vw, trace, root)
+                                    && self.is_match_traced(&vw, word, trace, root)
+                                {
+                                    if alt_yield::enabled() {
+                                        if let Ok(id) = AnalysisIdentity::project(
+                                            &self.structured_analysis(&vw, true),
+                                            g,
+                                        ) {
+                                            alt_yield::record_identity(id);
+                                        }
+                                    }
+                                    if pg_fst::work::stopped() {
+                                        break;
+                                    }
+                                    // No dedup here, unlike the normal path: a plain `Vec`, not a `WordKey`-deduped `HashMap`.
+                                    guess_matches.push(vw);
+                                }
                             }
                         }
                     }
                 }
-            }
-            // Descending by morph count; a stable sort deliberately strengthens C#'s unstable `List.Sort` into deterministic tie order.
-            guess_matches.sort_by_key(|w| std::cmp::Reverse(w.morphs.len()));
-            (guess_matches, true)
-        } else {
-            (matches.into_values().collect(), false)
-        };
+                // Descending by morph count; a stable sort deliberately strengthens C#'s unstable `List.Sort` into deterministic tie order.
+                guess_matches.sort_by_key(|w| std::cmp::Reverse(w.morphs.len()));
+                let guessed = !guess_matches.is_empty();
+                (guess_matches, guessed)
+            } else {
+                (matches.into_values().collect(), false)
+            };
 
         // Both `analyses` and `structured` are pushed in `ordered_matches` order, keeping their indices in correspondence.
         let mut analyses: Vec<(String, String)> = Vec::with_capacity(ordered_matches.len());
@@ -1531,6 +1555,18 @@ impl<'g> Morpher<'g> {
                     })
                 })
                 .filter(|text| !text.is_empty()),
+            guessed_pattern: w
+                .morphs
+                .iter()
+                .find_map(|m| match m.runtime_root.as_deref() {
+                    Some(RuntimeRoot::Guessed(root)) if m.morpheme == MorphemeId::GUESSED => {
+                        Some(crate::GuessedPattern {
+                            allomorph_id: root.pattern_allo.0,
+                            morpheme_id: self.g.entries[root.pattern_entry.0 as usize].morpheme.0,
+                        })
+                    }
+                    _ => None,
+                }),
             provenance: match w.root_runtime() {
                 Some(RuntimeRoot::Guessed(_)) => AnalysisProvenance::Guessed,
                 Some(RuntimeRoot::Supplied(_)) => supplied_root

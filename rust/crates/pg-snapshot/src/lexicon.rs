@@ -18,6 +18,22 @@ use crate::warning::FwClass;
 pub struct Lexicon {
     /// ← `LangProject.LexDbOA.Entries`.
     pub entries: Vec<LexEntry>,
+    /// liblcm `EqualsMsa` between MSAs of one entry, which `HCLoader.RepresentativeMSA` consults
+    /// when `<HC><MergeMSAs>` is on. `None` means the snapshot was written without this
+    /// extraction, so which MSAs are equal is unknown; `Some` lists every MSA that some other
+    /// MSA of its entry equals, and an MSA it does not list equals no other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub msa_equality: Option<Vec<EqualMsas>>,
+}
+
+/// The other MSAs of `msa`'s entry for which liblcm's `candidate.EqualsMsa(msa)` holds, in the
+/// entry's `MorphoSyntaxAnalysesOC` order. Every candidate has `msa`'s own MSA class, and `msa`
+/// itself is never listed: `EqualsMsa` is reflexive for all four classes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EqualMsas {
+    pub msa: Guid,
+    pub equal_to: Vec<Guid>,
 }
 
 /// A dictionary entry. ← `LexEntry`.
@@ -42,9 +58,9 @@ pub struct LexEntry {
     /// `LexEntry.AlternateForms` doc: "ordering... is relevant if their environments of
     /// occurrence are taken to be disjunctively ordered").
     pub allomorphs: Vec<Allomorph>,
-    /// ← `LexEntry.MorphoSyntaxAnalysesOC`. Unordered in LCM (a collection, not a sequence);
-    /// order here is whatever `pg-fwdata` encountered them in (stable per import, not
-    /// semantically meaningful).
+    /// ← `LexEntry.MorphoSyntaxAnalysesOC`, in `.fwdata` order, which is also the order liblcm
+    /// enumerates the collection in; `HCLoader.RepresentativeMSA` takes the first equal,
+    /// sense-bearing MSA in this order, so it decides which MSA represents a merged group.
     pub msas: Vec<Msa>,
     /// ← `LexEntry.SensesOS`, in order.
     pub senses: Vec<Sense>,

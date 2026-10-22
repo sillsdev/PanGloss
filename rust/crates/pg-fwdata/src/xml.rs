@@ -121,6 +121,12 @@ pub(crate) const ALLOWED_CLASSES: &[&str] = &[
     "FsFeatStruc",
     "FsClosedValue",
     "FsComplexValue",
+    // read only by liblcm's `EqualsMsa` port; HCLoader never loads them
+    "FsNegatedValue",
+    "FsDisjunctiveValue",
+    "FsOpenValue",
+    "FsSharedValue",
+    "FsFeatStrucDisj",
     // phonology
     "PhPhonemeSet",
     "PhPhoneme",

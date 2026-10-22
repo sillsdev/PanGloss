@@ -1146,9 +1146,23 @@ pub struct Grammar {
     pub always_enforce_final_templates: bool,
     /// C# `Morpher.MergeEquivalentAnalyses`, the default for `pg_parse::Morpher`'s own policy. FieldWorks reads it from `<HC><MergeAnalyses>`; `<HermitCrabInput>` XML cannot carry it, so it is `true` there.
     pub merge_equivalent_analyses: bool,
+    /// FieldWorks `HCLoader`'s `representativeMSAs` under `<HC><MergeMSAs>`: each MSA guid the
+    /// loader looked up that was loaded as a different, equal MSA of its entry, mapped to that
+    /// representative. Analyses name the representative, so a stored or requested MSA guid is
+    /// mapped through this before comparing. Empty when merging is off or nothing merged.
+    pub representative_msas: std::collections::BTreeMap<String, String>,
+    /// The `guessRoot` argument the project's host passes to C# `Morpher.ParseWord`. FieldWorks reads it from `<HC><GuessRoots>` (default `true`); `<HermitCrabInput>` XML cannot carry it, and the C# `hc` tool parses with `guessRoot = false`, so it is `false` there.
+    pub guess_roots: bool,
 }
 
 impl Grammar {
+    /// The MSA guid FieldWorks loads in place of `msa_guid` (`ParseAnalysis.RepresentativeMSA`), itself when none.
+    pub fn representative_msa<'a>(&'a self, msa_guid: &'a str) -> &'a str {
+        self.representative_msas
+            .get(msa_guid)
+            .map_or(msa_guid, String::as_str)
+    }
+
     /// C# `MorphemicMorphologicalRule.GetIsCliticRule()`: the authored `isCliticRule`, else whether
     /// the rule's owning stratum is named exactly `Clitics` (the name FieldWorks' `HCLoader` gives
     /// its clitic stratum). A clitic rule is exempt from the final/non-final template gates and

@@ -184,6 +184,10 @@ pub fn parse_with_issues(
         &mut hc_fields_present,
     )?
     .unwrap_or(true);
+    let merge_msas =
+        hc_parser_bool(hc, "MergeMSAs", "Merge MSAs", &mut hc_fields_present)?.unwrap_or(true);
+    let guess_roots =
+        hc_parser_bool(hc, "GuessRoots", "Guess roots", &mut hc_fields_present)?.unwrap_or(true);
     let strata = hc.and_then(|hc| hc.child("Strata")).map(|s| s.text.clone());
 
     let compound_rule_max_applications = params_elem
@@ -212,6 +216,8 @@ pub fn parse_with_issues(
             max_roots,
             make_partials_final,
             merge_analyses,
+            merge_msas,
+            guess_roots,
             strata,
             compound_rule_max_applications,
             active_parser,

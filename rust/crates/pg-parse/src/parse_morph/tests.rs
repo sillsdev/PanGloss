@@ -51,6 +51,7 @@ fn analysis(occurrences: Vec<MorphOccurrence>, guessed_string: Option<&str>) -> 
         mpr: MprSet::EMPTY,
         guessed: guessed_string.is_some(),
         guessed_string: guessed_string.map(str::to_string),
+        guessed_pattern: None,
         provenance: if guessed_string.is_some() {
             AnalysisProvenance::Guessed
         } else {

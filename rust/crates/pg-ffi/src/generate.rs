@@ -73,6 +73,7 @@ pub unsafe extern "C" fn hc_generate_words(
             mpr: Default::default(),
             guessed: false,
             guessed_string: None,
+            guessed_pattern: None,
             provenance: pg_parse::AnalysisProvenance::Grammar,
             supplied_root: None,
             morpheme_roots: vec![None; ids.len()],

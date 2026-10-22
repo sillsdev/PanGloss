@@ -126,13 +126,21 @@ fn proposer_rejection_of_a_real_grammar_root_cannot_be_reintroduced_by_guess_ret
 /// The retry is now gated behind `analyze_word_opts`'s `guess_fallback` (`analyze_word` itself hardcodes `false`); this exercises it via the explicit opt-in to prove guess runs only after the official-and-supplied union misses.
 #[test]
 fn guess_runs_only_after_the_total_official_and_supplied_union_misses() {
-    let (grammar, runtime) = setup();
-    let missing = runtime.analyze_word_opts("panu", Some(official(&grammar, "panu")), true);
-    assert!(missing.guessed);
-    assert!(missing
+    let pattern_grammar = Arc::new(pg_grammar::load(GUESS_PATTERN_XML).unwrap());
+    let pattern_runtime =
+        SuppliedLexiconRuntime::new(pattern_grammar.clone(), GUESS_PATTERN_XML).unwrap();
+    let guessed =
+        pattern_runtime.analyze_word_opts("gag", Some(official(&pattern_grammar, "gag")), true);
+    assert!(guessed.guessed && !guessed.structured.is_empty());
+    assert!(guessed
         .structured
         .iter()
         .all(|a| matches!(a.provenance, AnalysisProvenance::Guessed)));
+
+    // The toy grammar has no lexical pattern, so its total miss is not guessed.
+    let (grammar, runtime) = setup();
+    let missing = runtime.analyze_word_opts("panu", Some(official(&grammar, "panu")), true);
+    assert!(!missing.guessed && missing.structured.is_empty());
 
     let signature = runtime.catalog().signatures()[0].id.clone();
     runtime

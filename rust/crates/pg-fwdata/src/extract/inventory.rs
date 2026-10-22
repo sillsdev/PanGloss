@@ -49,8 +49,10 @@ pub(crate) fn class_role(class: &str) -> Option<ClassRole> {
         "LangProject" | "LexDb" | "MoMorphData" | "MoAdhocProhibGr" | "PhPhonData"
         | "WfiWordform" | "WfiAnalysis" | "WfiMorphBundle" | "FsFeatureSystem" | "PhPhonemeSet"
         | "PhCode" | "PhSegRuleRHS" | "PhVariable" | "FsClosedValue" | "FsComplexValue"
-        | "CmPossibilityList" | "CmPossibility" | "MoMorphType" | "LexEntryType" | "MoInsertNC"
-        | "MoCopyFromInput" | "MoInsertPhones" | "MoModifyFromInput" => ClassRole::Carrier,
+        | "FsNegatedValue" | "FsDisjunctiveValue" | "FsOpenValue" | "FsSharedValue"
+        | "FsFeatStrucDisj" | "CmPossibilityList" | "CmPossibility" | "MoMorphType"
+        | "LexEntryType" | "MoInsertNC" | "MoCopyFromInput" | "MoInsertPhones"
+        | "MoModifyFromInput" => ClassRole::Carrier,
         _ => return None,
     })
 }

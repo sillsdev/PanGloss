@@ -254,7 +254,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--guess",
         takes_value: false,
-        summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser",
+        summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser; =false turns it off; overrides the project's <HC><GuessRoots> (default true), which applies when the flag is absent",
     },
     FlagSpec {
         name: "--work-columns",
@@ -313,7 +313,7 @@ const SERVE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--guess",
         takes_value: false,
-        summary: "enable the root guesser, as `parse --guess`",
+        summary: "force the root guesser on, or off with =false, as `parse --guess`",
     },
     FlagSpec {
         name: "--timing",
@@ -372,7 +372,7 @@ const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--guess",
         takes_value: false,
-        summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser",
+        summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser; =false turns it off; overrides the project's <HC><GuessRoots> (default true), which applies when the flag is absent",
     },
 ];
 

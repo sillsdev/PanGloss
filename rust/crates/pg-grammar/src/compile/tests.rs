@@ -1167,6 +1167,7 @@ fn fixture() -> (Snapshot, Fixture) {
             ..Morphology::default()
         },
         Lexicon {
+            msa_equality: None,
             entries: vec![stem_entry, suffix_entry],
         },
     );
@@ -2212,6 +2213,19 @@ fn merge_analyses_parser_parameter_reaches_the_grammar() {
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert!(!grammar.merge_equivalent_analyses);
+}
+
+#[test]
+fn guess_roots_parser_parameter_reaches_the_grammar_and_defaults_to_true() {
+    let (default_snapshot, _f) = fixture();
+    let (default_grammar, _) = compile_project(&default_snapshot).expect("must compile");
+    assert!(default_grammar.guess_roots, "FieldWorks guesses by default");
+
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.guess_roots = false;
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert!(!grammar.guess_roots);
 }
 
 #[test]
