@@ -10,7 +10,7 @@ fn final_templates_skipped_in(morpher: &Morpher, word: &str, stratum: StratumId)
     prunes
         .iter()
         .filter(|row| row.stratum == stratum)
-        .map(|row| row.counters.final_templates_skipped + row.counters.template_batteries_skipped)
+        .map(|row| row.counters.final_templates_skipped)
         .sum()
 }
 

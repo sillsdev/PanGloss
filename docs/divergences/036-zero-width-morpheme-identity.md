@@ -15,7 +15,7 @@ Open upstream fix. Machine #500 proposes preserving a wrapped morpheme before ad
 `pg-rules/src/morph.rs::attribute_morphs`.
 
 ## Evidence
-#500's `sagui` reproduction must retain A2B and B2A in both analyses, with THIRD added only to the longer derivation. The PR contains unit tests and reported results. A stable shared conformance fixture is still missing; those reports were not rerun during this documentation cleanup.
+#500's `sagui` reproduction must retain A2B and B2A in both analyses, with THIRD added only to the longer derivation. The PR contains unit tests and reported results. The local staged fixture and fresh PanGloss runtime evidence are recorded in the dated updates below; the fixture is not yet in the pinned Machine submodule.
 
 ## Remaining work
 Do not equate correct surface or parse count with correct morpheme identity. Separate the dropped-ID fix from unresolved process-to-process annotation ordering (entry 037).
@@ -67,3 +67,13 @@ results). This update is a direct, independent measurement against this repo's o
   split above) and hc.dll itself has not converged on a deterministic answer. Nothing further is
   identified on the Rust side from this evidence; this is the "PanGloss already correct" outcome, not
   a claim that the underlying ledger entry has closed.
+
+## 2026-10-23 runtime verification update
+
+The existing local staged fixture at conformance-staging/edge-cases/zero-width-morpheme-identity-stability has integration tests, and the focused managed Rust target was rerun successfully, 2/2 at base HEAD 14975991f65dcbd290c2a58c30ecd894247d0851. It checks sag, sagu, sagi, and both sagui identity rows; the second test repeats sagui across 50 fresh Morpher values in one process. Captured log: /tmp/m506-pg-test-zero-width-identity.log.
+
+This is local staged-fixture presence plus demonstrated Rust regression coverage. It does not mean the fixture is accepted upstream or included in the pinned Machine submodule. The ledger remains open for the upstream C# behavior and the separate annotation-ordering evidence in 037.
+
+## 2026-10-23 combined-oracle verification
+
+The uncommitted current-fields attribution candidate was rechecked against the combined C# reference: Machine #556 at `d98d12a5d514ce589d7495c71d055830e061a418` plus the Machine #500 `ApplyRhs` relocation. `sagui` still yields both complete identities with `THIRD` outermost; the managed focused tests passed 2/2 and `conformance-test -Scope all` passed. This confirms this candidate retains the #036 forward-synthesis contract while correcting the separate #037 attribution discrepancies. It does not establish cross-grammar identity parity or upstream acceptance of the local fixture.
