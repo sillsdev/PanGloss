@@ -39,7 +39,7 @@ use crate::bridge::{BridgeError, PatternBridge, StrRepMatcher};
 use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
 use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvocationRole};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
-use crate::word::{MorphRecord, MorphStatus, Word};
+use crate::word::{MorphGroup, MorphLayout, MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
@@ -1188,24 +1188,149 @@ fn part_ranges(fst: &Fst, names: &[String], result: &FstResult) -> Vec<Option<(u
 
 // Morph attribution.
 
-/// Which input morph owns source node `idx`: only `Real` records own nodes (others are non-owning markers), and `Real` orders never tie, so `max_by_key` is unambiguous.
-fn owning_morph(word: &Word, idx: usize) -> Option<usize> {
-    word.morphs
-        .iter()
+#[derive(Clone)]
+struct PendingMorphGroup {
+    record: MorphRecord,
+    children: Vec<MorphRecord>,
+    range: (u32, u32),
+    slot: usize,
+    claims_singleton: bool,
+}
+
+fn add_pending_group(
+    groups: &mut Vec<PendingMorphGroup>,
+    record: MorphRecord,
+    range: (u32, u32),
+    children: Vec<MorphRecord>,
+    claims_singleton: bool,
+) -> usize {
+    let id = groups.len();
+    groups.push(PendingMorphGroup {
+        record,
+        children,
+        range,
+        slot: id,
+        claims_singleton,
+    });
+    id
+}
+
+fn morph_runs(positions: &[u32]) -> Vec<(u32, u32)> {
+    let mut runs = Vec::new();
+    let mut start = 0;
+    for index in 0..positions.len() {
+        if index + 1 == positions.len() || positions[index + 1] != positions[index] + 1 {
+            runs.push((positions[start], (index - start + 1) as u32));
+            start = index + 1;
+        }
+    }
+    runs
+}
+
+fn copied_group_positions(
+    out: &[OutNode],
+    layout: &MorphLayout,
+    group_index: usize,
+    head_source: bool,
+) -> Vec<u32> {
+    out.iter()
         .enumerate()
-        .filter(|(_, m)| m.status == MorphStatus::Real && (m.order as usize) <= idx)
-        .max_by_key(|(_, m)| m.order)
-        .map(|(i, _)| i)
+        .filter_map(|(position, node)| {
+            let source = match (head_source, node.origin) {
+                (true, Origin::Head(source)) | (false, Origin::NonHead(source)) => source,
+                _ => return None,
+            };
+            (layout.node_owners.get(source).copied().flatten() == Some(group_index))
+                .then_some(position as u32)
+        })
+        .collect()
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-enum MorphKey {
-    Head(usize),
-    NonHead(usize),
-    Affix,
+fn transfer_children(source: &Word, group: &MorphGroup, host_order: u32) -> Vec<MorphRecord> {
+    source.morphs[group.children.clone()]
+        .iter()
+        .cloned()
+        .map(|mut child| {
+            child.order = host_order;
+            child.status = MorphStatus::SubsumedChild;
+            child
+        })
+        .collect()
 }
 
-/// Builds the output word's `MorphRecord`s, one per **contiguous run** of a morph's output positions (mirrors C# `MarkMorphs`), so a discontinuous morph's two pieces get separate records checked at their own spans.
+struct SourceMorphs<'a> {
+    word: &'a Word,
+    layout: &'a MorphLayout,
+    head_source: bool,
+    first_fallback: bool,
+    transfer_descendants: bool,
+}
+
+fn append_source_groups(
+    out: &[OutNode],
+    source: SourceMorphs<'_>,
+    new_host: Option<usize>,
+    pending: &mut Vec<PendingMorphGroup>,
+    output_owners: &mut [Option<usize>],
+) {
+    let mut marked_allomorphs: HashSet<pg_grammar_model::model::AllomorphId> = HashSet::default();
+    for (group_index, group) in source.layout.groups.iter().enumerate() {
+        marked_allomorphs.extend(
+            source.word.morphs[group.children.clone()]
+                .iter()
+                .map(|child| child.allomorph),
+        );
+        let input = &source.word.morphs[group.host];
+        let positions = copied_group_positions(out, source.layout, group_index, source.head_source);
+        let runs = morph_runs(&positions);
+        if !runs.is_empty() {
+            let mut primary = 0;
+            for index in 1..runs.len() {
+                if runs[index].1 > runs[primary].1 {
+                    primary = index;
+                }
+            }
+            for (run_index, &(start, len)) in runs.iter().enumerate() {
+                let mut record = input.clone();
+                record.order = start;
+                record.status = MorphStatus::Real;
+                let children = if run_index == primary && source.transfer_descendants {
+                    transfer_children(source.word, group, start)
+                } else {
+                    Vec::new()
+                };
+                let id =
+                    add_pending_group(pending, record, (start, start + len - 1), children, false);
+                for position in start..start + len {
+                    output_owners[position as usize] = Some(id);
+                }
+            }
+        } else if source.head_source && !marked_allomorphs.contains(&input.allomorph) {
+            if let Some(host) = new_host {
+                let host_order = pending[host].range.0;
+                let mut children = if source.transfer_descendants {
+                    transfer_children(source.word, group, host_order)
+                } else {
+                    Vec::new()
+                };
+                let mut record = input.clone();
+                record.order = host_order;
+                record.status = MorphStatus::SubsumedChild;
+                children.push(record);
+                pending[host].children.extend(children);
+            } else if source.first_fallback && !out.is_empty() {
+                let mut record = input.clone();
+                record.order = 0;
+                record.status = MorphStatus::SubsumedFirst;
+                let id = add_pending_group(pending, record, (0, 0), Vec::new(), true);
+                output_owners[0] = Some(id);
+            }
+        }
+        marked_allomorphs.insert(input.allomorph);
+    }
+}
+
+/// Replays MarkMorph claims and transfers groups, then serializes range/slot order in postorder.
 fn attribute_morphs(
     out: &[OutNode],
     head: &Word,
@@ -1216,202 +1341,127 @@ fn attribute_morphs(
         &[u16],
     )>,
 ) -> Vec<MorphRecord> {
-    // Pass 1: output positions per input morph / affix (Real records only, via `owning_morph`).
-    let mut by_morph: HashMap<MorphKey, Vec<u32>> = HashMap::default();
-    for (pos, n) in out.iter().enumerate() {
-        let key = match n.origin {
-            Origin::Head(idx) => match owning_morph(head, idx) {
-                Some(mi) => MorphKey::Head(mi),
-                None => continue,
-            },
-            Origin::NonHead(idx) => {
-                let Some(nh) = non_head else { continue };
-                match owning_morph(nh, idx) {
-                    Some(mi) => MorphKey::NonHead(mi),
-                    None => continue,
-                }
-            }
-            Origin::Affix => {
-                if affix.is_none() {
-                    continue;
-                }
-                MorphKey::Affix
-            }
-            Origin::Insert => continue,
-        };
-        by_morph.entry(key).or_default().push(pos as u32);
-    }
+    let head_layout = MorphLayout::decode(&head.morphs, head.shape.len());
+    let non_head_layout = non_head.map(|word| MorphLayout::decode(&word.morphs, word.shape.len()));
+    let mut pending = Vec::new();
+    let mut output_owners = vec![None; out.len()];
 
-    // Contiguous runs per key, as `(order, len)` pairs — see this function's doc.
-    fn runs_of(positions: &[u32]) -> Vec<(u32, u32)> {
-        let mut runs = Vec::new();
-        let mut run_start = 0usize;
-        for i in 0..positions.len() {
-            if i + 1 == positions.len() || positions[i + 1] != positions[i] + 1 {
-                runs.push((positions[run_start], (i - run_start + 1) as u32));
-                run_start = i + 1;
+    let affix_positions: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter_map(|(position, node)| (node.origin == Origin::Affix).then_some(position as u32))
+        .collect();
+    let affix_runs = morph_runs(&affix_positions);
+    let mut affix_primary = None;
+    if let Some((allomorph, morpheme, passed)) = affix {
+        let mut primary = 0;
+        for index in 1..affix_runs.len() {
+            if affix_runs[index].1 > affix_runs[primary].1 {
+                primary = index;
             }
         }
-        runs
-    }
-    let key_runs: HashMap<MorphKey, Vec<(u32, u32)>> =
-        by_morph.iter().map(|(k, ps)| (*k, runs_of(ps))).collect();
-    // First-longest run wins at ties, matching C# `MarkMorphs`' strict `>`.
-    let longest_run_order = |key: &MorphKey| -> Option<u32> {
-        key_runs.get(key).map(|rs| {
-            let mut best = rs[0];
-            for &r in &rs[1..] {
-                if r.1 > best.1 {
-                    best = r;
-                }
-            }
-            best.0
-        })
-    };
-    // The affix's "primary" annotation — the attachment point for subsumption.
-    let affix_host_order: Option<u32> = longest_run_order(&MorphKey::Affix);
-
-    // Pass 2: walks each input word's morphs in order; an unpositioned record subsumes onto the affix's new material or order 0, a dropped marker re-anchors to its host, and pure truncation drops a `SubsumedChild` but not a `SubsumedFirst` (bug-compatible with C#'s non-recursing truncation branch); compounding has no fallbacks at all.
-    let mut records: Vec<MorphRecord> = Vec::new();
-    let mut marked: Vec<pg_grammar_model::model::AllomorphId> = Vec::new();
-
-    let push_runs = |records: &mut Vec<MorphRecord>, key: &MorphKey, m: &MorphRecord| {
-        for &(order, _) in &key_runs[key] {
-            records.push(MorphRecord {
-                allomorph: m.allomorph,
-                morpheme: m.morpheme,
-                order,
-                passed_over: m.passed_over.clone(),
-                status: MorphStatus::Real,
-                runtime_root: m.runtime_root.clone(),
-            });
-        }
-    };
-
-    // Head-word records (in stored order). Non-head records handled after (compounding only).
-    for (mi, m) in head.morphs.iter().enumerate() {
-        let key = MorphKey::Head(mi);
-        if key_runs.contains_key(&key) {
-            push_runs(&mut records, &key, m);
-            marked.push(m.allomorph);
-            continue;
-        }
-        if affix.is_none() {
-            continue; // compounding: untouched input morphs are dropped (no fallback in C#)
-        }
-        match m.status {
-            MorphStatus::Floating => continue, // handled by the floater block below
-            MorphStatus::Real => {
-                if marked.contains(&m.allomorph) {
-                    continue;
-                }
-                if let Some(host_order) = affix_host_order {
-                    records.push(MorphRecord {
-                        order: host_order,
-                        status: MorphStatus::SubsumedChild,
-                        ..m.clone()
-                    });
-                } else if !out.is_empty() {
-                    records.push(MorphRecord {
-                        order: 0,
-                        status: MorphStatus::SubsumedFirst,
-                        ..m.clone()
-                    });
-                }
-                marked.push(m.allomorph);
-            }
-            MorphStatus::SubsumedChild | MorphStatus::SubsumedFirst => {
-                if marked.contains(&m.allomorph) {
-                    continue;
-                }
-                // Host = the unique Real input record sharing this order.
-                let host = head
-                    .morphs
-                    .iter()
-                    .position(|h| h.status == MorphStatus::Real && h.order == m.order);
-                let host_runs = host.and_then(|hi| longest_run_order(&MorphKey::Head(hi)));
-                let new_anchor = match (host_runs, affix_host_order) {
-                    // Host still has material: follow it (keep the variant's placement semantics).
-                    (Some(o), _) => Some((o, m.status)),
-                    // Host dropped too, rule has new material: both subsume onto the new morph.
-                    (None, Some(o)) => Some((o, MorphStatus::SubsumedChild)),
-                    // Host dropped, pure truncation: C#'s Shape.First branch doesn't recurse into children (SubsumedChild lost, bug-compatible); SubsumedFirst re-anchors at the new first node.
-                    (None, None) => match m.status {
-                        MorphStatus::SubsumedFirst if !out.is_empty() => {
-                            Some((0, MorphStatus::SubsumedFirst))
-                        }
-                        _ => None,
-                    },
-                };
-                if let Some((order, status)) = new_anchor {
-                    records.push(MorphRecord {
-                        order,
-                        status,
-                        ..m.clone()
-                    });
-                    marked.push(m.allomorph);
-                }
-            }
-        }
-    }
-    if let Some(nh) = non_head {
-        for (mi, m) in nh.morphs.iter().enumerate() {
-            let key = MorphKey::NonHead(mi);
-            if key_runs.contains_key(&key) {
-                push_runs(&mut records, &key, m);
-            }
-        }
-    }
-
-    // Floating markers ride, resolve onto this hop's new material, or mint a new one; pushed after subsumed-input records and before affix runs, approximating C#'s input-morph-order attachment.
-    if let Some((a, mo, p)) = affix {
-        let floaters = head
-            .morphs
-            .iter()
-            .filter(|m| m.status == MorphStatus::Floating);
-        if let Some(host_order) = affix_host_order {
-            for f in floaters {
-                records.push(MorphRecord {
-                    order: host_order,
-                    status: MorphStatus::SubsumedChild,
-                    ..f.clone()
-                });
-            }
-        } else {
-            records.extend(floaters.cloned());
-            // Pure truncation mints this rule's own floating marker, guarded since an entirely empty `out` has no last node for C# either.
-            if !out.is_empty() {
-                records.push(MorphRecord {
-                    allomorph: a,
-                    morpheme: mo,
-                    order: FLOATING_ORDER,
-                    passed_over: Some(p.into()),
-                    status: MorphStatus::Floating,
-                    runtime_root: None,
-                });
-            }
-        }
-        // The affix's own runs go last, so same-order subsumed/resolved records above render before their host (stable sort at ties).
-        if key_runs.contains_key(&MorphKey::Affix) {
-            for &(order, _) in &key_runs[&MorphKey::Affix] {
-                records.push(MorphRecord {
-                    allomorph: a,
-                    morpheme: mo,
-                    order,
-                    passed_over: Some(p.into()),
+        for (run_index, &(start, len)) in affix_runs.iter().enumerate() {
+            let id = add_pending_group(
+                &mut pending,
+                MorphRecord {
+                    allomorph,
+                    morpheme,
+                    order: start,
+                    passed_over: Some(passed.into()),
                     status: MorphStatus::Real,
                     runtime_root: None,
-                });
+                },
+                (start, start + len - 1),
+                Vec::new(),
+                false,
+            );
+            if run_index == primary {
+                affix_primary = Some(id);
+            }
+            for position in start..start + len {
+                output_owners[position as usize] = Some(id);
             }
         }
     }
 
-    records.sort_by_key(|m| m.order);
+    append_source_groups(
+        out,
+        SourceMorphs {
+            word: head,
+            layout: &head_layout,
+            head_source: true,
+            first_fallback: affix.is_some() && affix_primary.is_none(),
+            transfer_descendants: affix.is_some(),
+        },
+        affix_primary,
+        &mut pending,
+        &mut output_owners,
+    );
+    if let (Some(non_head), Some(layout)) = (non_head, non_head_layout.as_ref()) {
+        append_source_groups(
+            out,
+            SourceMorphs {
+                word: non_head,
+                layout,
+                head_source: false,
+                first_fallback: false,
+                transfer_descendants: false,
+            },
+            None,
+            &mut pending,
+            &mut output_owners,
+        );
+    }
+
+    // C# ApplyRhs adds the no-new-morph last-node mark after input morph transfers (#500).
+    if let Some((allomorph, morpheme, passed)) = affix {
+        if affix_runs.is_empty() && !out.is_empty() {
+            let order = (out.len() - 1) as u32;
+            let id = add_pending_group(
+                &mut pending,
+                MorphRecord {
+                    allomorph,
+                    morpheme,
+                    order,
+                    passed_over: Some(passed.into()),
+                    status: MorphStatus::Floating,
+                    runtime_root: None,
+                },
+                (order, order),
+                Vec::new(),
+                true,
+            );
+            output_owners[order as usize] = Some(id);
+        }
+    }
+
+    for (index, group) in pending.iter_mut().enumerate() {
+        if group.claims_singleton {
+            group.record.status = if output_owners
+                .get(group.range.0 as usize)
+                .is_some_and(|owner| *owner == Some(index))
+            {
+                MorphStatus::SubsumedFirst
+            } else {
+                MorphStatus::Floating
+            };
+        }
+    }
+    pending.sort_by(|left, right| {
+        left.range
+            .0
+            .cmp(&right.range.0)
+            .then_with(|| right.range.1.cmp(&left.range.1))
+            .then_with(|| left.slot.cmp(&right.slot))
+    });
+
+    let mut records = Vec::new();
+    for group in pending {
+        records.extend(group.children);
+        records.push(group.record);
+    }
     records
 }
-
-/// Sentinel `order` for an unresolved floating marker: larger than any real position, so it never matches `owning_morph`'s filter and always sorts last.
-const FLOATING_ORDER: u32 = u32::MAX;
 
 // RHS execution (synthesis) — shared by affix and compounding.
 
