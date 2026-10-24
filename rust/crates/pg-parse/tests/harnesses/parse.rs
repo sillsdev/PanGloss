@@ -39,6 +39,8 @@ mod exact_analysis_fs_recall;
 mod featureless_wide_class_rewrite;
 #[path = "../final_template_pruning_gate.rs"]
 mod final_template_pruning_gate;
+#[path = "../final_template_partial_root_gate.rs"]
+mod final_template_partial_root_gate;
 #[path = "../free_fluctuation_gate.rs"]
 mod free_fluctuation_gate;
 #[path = "../fw_metathesis.rs"]
@@ -77,6 +79,8 @@ mod trace_phon_gate;
 mod trace_rule_sequence_gate;
 #[path = "../trace_template_outcomes.rs"]
 mod trace_template_outcomes;
+#[path = "../truncate_morphotactic_identity.rs"]
+mod truncate_morphotactic_identity;
 #[path = "../xample_migration_differential_gate.rs"]
 mod xample_migration_differential_gate;
 #[path = "../zero_width_morph_identity.rs"]

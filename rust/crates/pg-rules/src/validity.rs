@@ -73,7 +73,7 @@ use crate::trace::{
     EnvironmentResult, FailureReason, NoopSink, RejectionEvidence, TraceHandle, TraceObject,
     TraceSink,
 };
-use crate::word::{MorphRecord, Word};
+use crate::word::{MorphLayout, MorphRecord, Word};
 
 /// Every reference grammar resolves char-defs/patterns against table 0, matching `morph.rs`/`rewrite.rs`.
 const TABLE: TableId = TableId(0);
@@ -630,8 +630,13 @@ fn allomorphs_valid_impl(
     if w.morphs.is_empty() {
         return true;
     }
-    let mut sorted: Vec<&MorphRecord> = w.morphs.iter().collect();
-    sorted.sort_by_key(|m| m.order);
+    let layout = MorphLayout::decode(&w.morphs, w.shape.len());
+    let mut sorted_indices: Vec<usize> = (0..w.morphs.len()).collect();
+    sorted_indices.sort_by_key(|&index| w.morphs[index].order);
+    let sorted: Vec<&MorphRecord> = sorted_indices
+        .iter()
+        .map(|&index| &w.morphs[index])
+        .collect();
 
     // Distinct allomorphs used (deduped by id), not morph-record/piece count.
     let distinct_count = {
@@ -640,10 +645,6 @@ fn allomorphs_valid_impl(
         ids.dedup();
         ids.len()
     };
-
-    // Last interior index of the final shape (anchors excluded): `shape.len()` always counts the
-    // two anchors (the `p - 1` convention `morph.rs::copy_part` and friends already rely on).
-    let last_interior = w.shape.len().saturating_sub(3) as u32;
 
     // Computed once: the same morph list is used for every morph checked in this loop.
     let morph_list_allomorphs: Vec<AllomorphId> = sorted.iter().map(|m| m.allomorph).collect();
@@ -665,10 +666,7 @@ fn allomorphs_valid_impl(
         if !pg_fst::work::consume() {
             return false;
         }
-        let start = m.order;
-        let end = sorted
-            .get(i + 1)
-            .map_or(last_interior, |n| n.order.saturating_sub(1));
+        let (start, end) = layout.record_ranges[sorted_indices[i]];
 
         // The guessed root has no `allomorph_owners` row; delegate checks to the real pattern allomorph it was matched against instead.
         if m.allomorph == AllomorphId::GUESSED {

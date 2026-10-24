@@ -12,6 +12,7 @@
 //! read/write the word's own state as rules apply.
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::rc::Rc;
 
 use pg_featstruct::{FeatId, FeatureStruct};
@@ -46,10 +47,8 @@ pub struct WordFlags {
 /// One applied allomorph, recorded in **morph order** (the batch signature is
 /// `join("+", morpheme.Id)` over the word's morphs in surface order).
 ///
-/// `order` is the leftmost interior node position (0-based, anchors excluded) of the morph's
-/// material in *this* word's shape at the time it was recorded; morph order = ascending `order`.
-/// Recomputed on every (un)application because the shape is rebuilt each time (mirroring C#'s
-/// annotation-parent morph records, which move with their nodes).
+/// `Real.order` is a positioned run's start; singleton statuses use their node anchor. The vector
+/// stores top-level range order with each genuine child block immediately before its host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MorphRecord {
     pub allomorph: AllomorphId,
@@ -73,20 +72,122 @@ pub struct MorphRecord {
     pub runtime_root: Option<Rc<RuntimeRoot>>,
 }
 
-/// How a `MorphRecord` is anchored to the word's shape. Only `MorphStatus::Real`
-/// records own output nodes (`pg_rules::morph`'s `owning_morph` skips the rest); the other three
-/// variants port the C# annotation-tree states a morph can be in after
-/// `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`'s fallback branches (cs:162-207):
+/// The current annotation role used by the flat postorder representation.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MorphStatus {
-    /// Owns the output nodes starting at `order` (a normal, positioned morph annotation).
+    /// Positioned run envelope; a later singleton overlay can own its first node instead.
     Real,
-    /// A pure-truncation rule's fallback marker, not yet resolved onto real material (`order` is the `FLOATING_ORDER` sentinel while in this state).
+    /// Empty top-level singleton at `order`.
     Floating,
-    /// An input morph whose material was entirely dropped by a rule that inserted new material: attached as a child of the new morph's annotation, rendering before the host.
+    /// Genuine descendant block; records precede their host and share its range.
     SubsumedChild,
-    /// An input morph whose material was entirely dropped by a rule with no new material: re-marked on the output's first node, rendering after the containing morph.
+    /// Top-level singleton that currently owns the node at `order`.
     SubsumedFirst,
+}
+
+/// A top-level annotation and its contiguous postorder child block.
+#[derive(Clone, Debug)]
+pub(crate) struct MorphGroup {
+    pub host: usize,
+    pub children: Range<usize>,
+    pub range: (u32, u32),
+}
+
+/// Transient ranges and segment owners decoded from the existing flat records.
+#[derive(Clone, Debug)]
+pub(crate) struct MorphLayout {
+    pub groups: Vec<MorphGroup>,
+    pub record_ranges: Vec<(u32, u32)>,
+    pub node_owners: Vec<Option<usize>>,
+}
+
+impl MorphLayout {
+    /// Infer envelopes from positioned starts, then overlay owning singletons. Unowned gaps inside
+    /// those inferred envelopes (such as compound linkers) cannot be reconstructed by this decoder.
+    pub(crate) fn decode(morphs: &[MorphRecord], shape_len: usize) -> Self {
+        let last = shape_len.saturating_sub(3) as u32;
+        let mut groups = Vec::with_capacity(morphs.len());
+        let mut index = 0;
+        while index < morphs.len() {
+            if morphs[index].status == MorphStatus::SubsumedChild {
+                let first_child = index;
+                let anchor = morphs[index].order;
+                while index < morphs.len()
+                    && morphs[index].status == MorphStatus::SubsumedChild
+                    && morphs[index].order == anchor
+                {
+                    index += 1;
+                }
+                assert!(
+                    index < morphs.len() && morphs[index].order == anchor,
+                    "SubsumedChild block at {anchor} must immediately precede its host"
+                );
+                let host = index;
+                groups.push(MorphGroup {
+                    host,
+                    children: first_child..host,
+                    range: (anchor, anchor),
+                });
+                index += 1;
+            } else {
+                let host = index;
+                groups.push(MorphGroup {
+                    host,
+                    children: host..host,
+                    range: (morphs[host].order, morphs[host].order),
+                });
+                index += 1;
+            }
+        }
+
+        for group_index in 0..groups.len() {
+            let host = groups[group_index].host;
+            let morph = &morphs[host];
+            if morph.status == MorphStatus::Real {
+                let end = groups[group_index + 1..]
+                    .iter()
+                    .map(|group| &morphs[group.host])
+                    .find(|next| next.status == MorphStatus::Real && next.order > morph.order)
+                    .map_or(last, |next| next.order.saturating_sub(1).max(morph.order));
+                groups[group_index].range = (morph.order, end);
+            }
+        }
+
+        let mut record_ranges = vec![(0, 0); morphs.len()];
+        for group in &groups {
+            for record_range in record_ranges
+                .iter_mut()
+                .take(group.host + 1)
+                .skip(group.children.start)
+            {
+                *record_range = group.range;
+            }
+        }
+
+        let mut node_owners = vec![None; shape_len.saturating_sub(2)];
+        for (group_index, group) in groups.iter().enumerate() {
+            if morphs[group.host].status == MorphStatus::Real {
+                for order in group.range.0..=group.range.1 {
+                    if let Some(owner) = node_owners.get_mut(order as usize) {
+                        *owner = Some(group_index);
+                    }
+                }
+            }
+        }
+        for (group_index, group) in groups.iter().enumerate() {
+            if morphs[group.host].status == MorphStatus::SubsumedFirst {
+                if let Some(owner) = node_owners.get_mut(group.range.0 as usize) {
+                    *owner = Some(group_index);
+                }
+            }
+        }
+
+        Self {
+            groups,
+            record_ranges,
+            node_owners,
+        }
+    }
 }
 
 impl MorphRecord {
