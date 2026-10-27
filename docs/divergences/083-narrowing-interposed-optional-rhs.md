@@ -71,3 +71,7 @@ in `docs/research/narrow-unapply/f3-grouped-capture.md` after their serial-queue
 The expected positive is `forward-synthesis`, not a transcription of the C# output. The C# loss is
 confirmed separately: Machine PR #540 adds `RewriteRuleTests.MergeRuleUnappliesAcrossInterposedOptionalSegment`
 (the same shape in the test language), which fails on master `b9e7db44` and passes with its fix.
+
+## Expansion coverage (PanGloss issue #8)
+
+The related expansion case is pinned by `conformance-staging/edge-cases/interposed-optional-expansion` and the named `expansion_unapplies_across_an_interposed_optional` test. Its positive is forward-derived: lexical `A/a` expands to `de`, and `x -> 0 / d _ e` is vacuous. On Rust `14975991` the complete all-scope replay reported no `A|de` analysis; the grouped RHS captures now select `d` and `e` even when inverse deletion inserts Optional `x` between them. Four negative controls remain in the fixture. The C# oracle at `aab4c59819adb7b366915e09df2fb28c62b8c03a` returned the expected five rows; Machine PR #540 concerns the related narrowing mechanism.

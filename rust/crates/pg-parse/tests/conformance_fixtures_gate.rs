@@ -26,6 +26,17 @@ fn looked_up_entries(grammar: &pg_grammar_model::model::Grammar, word: &str) -> 
 }
 
 #[test]
+fn expansion_unapplies_across_an_interposed_optional() {
+    let fixture = require_fixture("edge-cases", "interposed-optional-expansion");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    assert_eq!(
+        assert_matches_oracle(&fixture.label(), &fixture.load_words_yaml(), &morpher),
+        5
+    );
+}
+
+#[test]
 fn a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar() {
     let fixture = require_fixture("edge-cases", "class-deletion-reinsertion-strrep");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();

@@ -1,0 +1,3 @@
+# Expansion across an interposed Optional
+
+Root `A/a` expands to `de`; deletion `x -> 0 / d _ e` is vacuous. The surface `de` must therefore have `A|de`. During analysis, deletion unapplication can interpose optional `x` between the two expansion RHS nodes. The positive is independently forward-derived; the negative controls constrain over-acceptance. This probes PanGloss issue [#8](https://github.com/sillsdev/PanGloss/issues/8), related to [Machine PR #540](https://github.com/sillsdev/machine/pull/540). The C# oracle at `aab4c59819adb7b366915e09df2fb28c62b8c03a` was run through `hc-dotnet-wrapper.sh`: all five rows completed, with `A|de` for `de` and no analyses for the four controls.

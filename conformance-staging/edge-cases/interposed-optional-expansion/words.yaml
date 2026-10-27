@@ -1,0 +1,20 @@
+# oracle-provenance: forward-synthesis
+# Root A/a expands to de; deletion x -> 0 / d _ e is vacuous, yielding A|de.
+# In analysis deletion inserts optional x between d and e before expansion unapplication.
+# C# at aab4c598 also returned these five signatures via hc-dotnet-wrapper.sh.
+language: interposed-optional-expansion
+sources: ["HCLoader.cs:2362-2374 (literal contexts)"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: de
+    parses:
+      - signature: "A|de"
+  - word: a
+    expect_fail: true
+  - word: dex
+    expect_fail: true
+  - word: dxe
+    expect_fail: true
+  - word: dd
+    expect_fail: true

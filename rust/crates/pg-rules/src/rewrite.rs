@@ -1453,26 +1453,11 @@ pub fn analyze(
                 let right = compile_env_analysis(g, table_id, sr.right_env.as_ref());
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &left, &right)
-                } else if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                } else {
                     let lanes = ana_epenthesis_target_lanes(g, table, sr);
                     let (target, names) =
                         compile_lane_fst_grouped(&lanes, reverse(dir_of(rule)), false);
-                    ana_narrow_general(
-                        g,
-                        table,
-                        rule,
-                        sr,
-                        &mut ms,
-                        &target,
-                        Some(&names),
-                        &left,
-                        &right,
-                    )
-                } else {
-                    // Reuse the epenthesis target-lane formula ("the RHS segment sequence, FST-facing"); see `ana_narrow_general`'s doc.
-                    let lanes = ana_epenthesis_target_lanes(g, table, sr);
-                    let target = compile_lane_fst(&lanes, reverse(dir_of(rule)), false);
-                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, None, &left, &right)
+                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, &names, &left, &right)
                 }
             }),
             Kind::Epenthesis => {
@@ -1594,15 +1579,10 @@ pub(crate) fn analyze_cached(
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &sc.ana_left, &sc.ana_right)
                 } else {
-                    let names = if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
-                        Some(
-                            sc.ana_target_names
-                                .as_deref()
-                                .expect("Narrow-general subrule always has compiled group names"),
-                        )
-                    } else {
-                        None
-                    };
+                    let names = sc
+                        .ana_target_names
+                        .as_deref()
+                        .expect("Narrow-general subrule always has compiled group names");
                     ana_narrow_general(
                         g,
                         table,
@@ -1714,25 +1694,11 @@ pub fn analyze_traced(
                 let right = compile_env_analysis(g, table_id, sr.right_env.as_ref());
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &left, &right)
-                } else if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                } else {
                     let lanes = ana_epenthesis_target_lanes(g, table, sr);
                     let (target, names) =
                         compile_lane_fst_grouped(&lanes, reverse(dir_of(rule)), false);
-                    ana_narrow_general(
-                        g,
-                        table,
-                        rule,
-                        sr,
-                        &mut ms,
-                        &target,
-                        Some(&names),
-                        &left,
-                        &right,
-                    )
-                } else {
-                    let lanes = ana_epenthesis_target_lanes(g, table, sr);
-                    let target = compile_lane_fst(&lanes, reverse(dir_of(rule)), false);
-                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, None, &left, &right)
+                    ana_narrow_general(g, table, rule, sr, &mut ms, &target, &names, &left, &right)
                 }
             }),
             Kind::Epenthesis => {
@@ -1866,15 +1832,10 @@ pub fn analyze_cached_traced(
                 if sr.rhs.nodes.is_empty() {
                     ana_narrow_deletion(g, table, rule, sr, &mut ms, &sc.ana_left, &sc.ana_right)
                 } else {
-                    let names = if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
-                        Some(
-                            sc.ana_target_names
-                                .as_deref()
-                                .expect("Narrow-general subrule always has compiled group names"),
-                        )
-                    } else {
-                        None
-                    };
+                    let names = sc
+                        .ana_target_names
+                        .as_deref()
+                        .expect("Narrow-general subrule always has compiled group names");
                     ana_narrow_general(
                         g,
                         table,
@@ -2604,7 +2565,7 @@ fn ana_narrow_general(
     sr: &RewriteSubruleDef,
     ms: &mut MutShape,
     target: &Fst,
-    names: Option<&[String]>,
+    names: &[String],
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
 ) -> bool {
@@ -2647,32 +2608,19 @@ fn ana_narrow_general(
         matches.push((s, e, target_nodes, bindings));
     };
 
-    if let Some(names) = names {
-        for positions in grouped_target_positions(target, names, &segs) {
-            if !pg_fst::work::consume() {
-                return false;
-            }
-            let s = *positions
-                .first()
-                .expect("narrowing target must capture each non-empty RHS position");
-            let e = positions
-                .last()
-                .expect("narrowing target must capture each non-empty RHS position")
-                + 1;
-            let target_nodes: Vec<usize> = positions.iter().map(|&pos| node_of[pos]).collect();
-            consider(s, e, target_nodes);
+    for positions in grouped_target_positions(target, names, &segs) {
+        if !pg_fst::work::consume() {
+            return false;
         }
-    } else {
-        for (s, e) in all_spans(target, &segs) {
-            if !pg_fst::work::consume() {
-                return false;
-            }
-            let target_nodes: Vec<usize> = node_of[s..e].to_vec();
-            if !width_matches(&target_nodes, target_len) {
-                continue;
-            }
-            consider(s, e, target_nodes);
-        }
+        let s = *positions
+            .first()
+            .expect("rewrite target must capture each non-empty RHS position");
+        let e = positions
+            .last()
+            .expect("rewrite target must capture each non-empty RHS position")
+            + 1;
+        let target_nodes: Vec<usize> = positions.iter().map(|&pos| node_of[pos]).collect();
+        consider(s, e, target_nodes);
     }
     if matches.is_empty() {
         return false;
@@ -3139,10 +3087,8 @@ pub(crate) struct SubruleCache {
     pub(crate) ana_left: Option<EnvFst>,
     pub(crate) ana_right: Option<EnvFst>,
     pub(crate) ana_target: Option<Fst>,
-    /// `Some` (one name per `ana_target` row, "g0".."g{N-1}") for `Kind::Feature` and true
-    /// narrowing rules (LHS wider than RHS); see `compile_lane_fst_grouped`'s doc and their
-    /// per-position capture paths. `None` for epenthesis and expansion, whose existing analysis
-    /// paths do not need per-position target recovery.
+    /// `Some` (one name per `ana_target` row) for feature rules and non-empty-RHS
+    /// narrowing or expansion rules. Pure deletion and epenthesis have no grouped target.
     pub(crate) ana_target_names: Option<Vec<String>>,
 }
 
@@ -3190,17 +3136,11 @@ pub(crate) fn build_prule_cache(
                 Kind::Narrow => {
                     if sr.rhs.nodes.is_empty() {
                         (None, None)
-                    } else if rule.lhs.nodes.len() > sr.rhs.nodes.len() {
+                    } else {
                         let lanes = ana_epenthesis_target_lanes(g, table, sr);
                         let (fst, names) =
                             compile_lane_fst_grouped(&lanes, reverse(dir_of(rule)), false);
                         (Some(fst), Some(names))
-                    } else {
-                        let lanes = ana_epenthesis_target_lanes(g, table, sr);
-                        (
-                            Some(compile_lane_fst(&lanes, reverse(dir_of(rule)), false)),
-                            None,
-                        )
                     }
                 }
             };
