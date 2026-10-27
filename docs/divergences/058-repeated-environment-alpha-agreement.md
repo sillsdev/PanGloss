@@ -1,5 +1,7 @@
 # 058 — Repeated environment alpha variables lose agreement in HC-Rust
 
+Ledger status: fixed-in-rust. The fix is on `main` (commit 74dcb269 (`e606048e` records the evidence); `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
+
 ## Kind and status
 
 Behavioural, fixed in this branch; reproduced Rust-only correctness defect.

@@ -1,5 +1,7 @@
 # 066 — Repeated alpha environments require optional FST proposals
 
+Ledger status: fixed-in-rust. The fix is on `main` (commit c99e4a6d; `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
+
 ## Kind and status
 
 Representational, implemented and oracle verified in this branch for repeated environment

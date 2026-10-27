@@ -1,5 +1,7 @@
 # 079 — Partial explicit classes for ambiguous disagreement proposals
 
+Ledger status: fixed-in-rust. The fix is on `main` (commit 687d77b4 (`4777b089` records the oracle coverage); `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
+
 ## Kind and status
 
 Representational; implemented in this branch for explicit segment classes. The widening is

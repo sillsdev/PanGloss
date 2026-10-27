@@ -1,5 +1,7 @@
 # 069 — Analysis binds an alpha feature overwritten by the replacement
 
+Ledger status: fixed-in-rust. The fix is on `main` (commit cb7305a9; `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
+
 ## Kind and status
 
 Behavioural, Rust-only parity defect repaired in its analysis owner. This was the third
