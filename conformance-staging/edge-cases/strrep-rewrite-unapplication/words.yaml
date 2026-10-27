@@ -1,5 +1,5 @@
 # oracle-provenance: forward-synthesis
-# Deliberately red against the original C# oracle: xpuma is hand-derived.
+# Red only against the pre-#538 C# oracle (xpuma is hand-derived); green against Machine aab4c598.
 # muma, xuma, xmuma, puma, and xpuua record the original oracle where it agrees.
 # Forward derivation: root XMUMA = xmuma; m -> p / x_ changes the first m;
 # the remaining uma has no preceding x and stays unchanged, yielding xpuma.

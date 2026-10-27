@@ -1,6 +1,6 @@
 # oracle-provenance: forward-synthesis
-# The positive is intentionally red against C#: its existing narrowing unapply loses this parse.
-# The C# result was not rerun in this lane; the expected parse is independently forward-derived.
+# The positive is red only against pre-#540 C#; Machine aab4c598 (which contains #540) passes it.
+# The expected parse is independently forward-derived.
 # Trace: root ABC/abc -> merge abc to de -> x deletion is vacuous -> surface de (ABC|de).
 # Inverse deletion can interpose optional x between d/e; merge must capture both real RHS positions.
 language: interposed-optional-multi-rhs

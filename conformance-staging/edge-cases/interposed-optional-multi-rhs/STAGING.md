@@ -9,9 +9,8 @@ surface remains `de`, with signature `ABC|de`. In analysis, deletion unapplicati
 `(x)` between `d` and `e`. The merge matcher must recover `d` and `e` as its two target positions,
 leave `x` Optional, and reconstruct `abc`.
 
-The C# implementation has the same pre-existing defect and loses this parse, as reported for this
-task. The fixture is intentionally red against that result. The C# oracle was not run locally in
-this lane; the expected signature comes from the forward derivation above. The staged words include
+Pre-#540 C# had the same defect and lost this parse; Machine `aab4c598`, which contains #540, passes
+the fixture. The expected signature comes from the forward derivation above. The staged words include
 four negative controls (`abc`, `dex`, `dxe`, `dd`) so the grammar does not turn the lost parse into
 unrestricted acceptance.
 

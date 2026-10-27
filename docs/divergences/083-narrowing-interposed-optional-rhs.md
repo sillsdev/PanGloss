@@ -1,7 +1,7 @@
 # 083 — Narrowing unapplication loses an RHS match across an interposed Optional
 
 Kind: behavioural (shared C#/Rust bug; expected parse is independently forward-derived).
-Status: open — fixed in PanGloss; the C# fix is Machine PR #540.
+Status: accepted-upstream — fixed in PanGloss; the C# fix, [Machine PR #540](https://github.com/sillsdev/machine/pull/540), merged as `aab237b2` and is contained in the `machine` pin `aab4c598`.
 
 ## C# site
 
@@ -12,7 +12,12 @@ multi-node RHS match can span an interposed Optional node or boundary; the walk 
 instead of the real RHS node, which stays mandatory, and the LHS reading is lost. Verified on
 Machine master `b9e7db44` by Machine PR #540's tests (segment and boundary variants).
 
-Machine fix PR: [Machine PR #540](https://github.com/sillsdev/machine/pull/540).
+Machine fix PR: [Machine PR #540](https://github.com/sillsdev/machine/pull/540), merged.
+
+Pin verification: `git merge-base --is-ancestor aab237b2 aab4c598` holds. `hc-conformance` self-check
+built from `aab4c598` over `conformance-staging/edge-cases/interposed-optional-multi-rhs` (schema
+fields padded in a scratch copy): `[PASS]`, including `de` -> `ABC|de` and the four negative controls.
+The fixture's "intentionally red against C#" comments therefore describe the pre-#540 oracle only.
 
 ## Rust site
 

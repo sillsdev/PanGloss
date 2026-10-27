@@ -1,7 +1,7 @@
 # 071 — Literal rewrite unapplication needs StrRep identity
 
 Kind: behavioural (shared C#/Rust bug, with an additional Rust divergence)
-Status: open — Rust implements the proposed Machine fix, [sillsdev/machine#538](https://github.com/sillsdev/machine/pull/538) (opened 2026-10-08).
+Status: accepted-upstream — [sillsdev/machine#538](https://github.com/sillsdev/machine/pull/538) merged as `36ec7a82`; the `machine` pin `aab4c598` contains it and the C# oracle built from that pin passes all six words of the staged fixture (see Pin verification). Rust implements the same behaviour.
 
 ## C# site
 
@@ -102,10 +102,18 @@ ratchet failed only the new count before the update. [The integrated comparison]
 and its before/after TSVs preserve the measured inventory. The existing realizational-reduplication
 PC miss remains a miss; neither its outcome nor any other existing cell was promoted or removed.
 
+## Pin verification
+
+`git merge-base --is-ancestor 36ec7a82 aab4c598` holds. `hc-conformance` self-check built from
+Machine `aab4c598` (`dotnet build -c Release`, Linux) over the staged fixture, with the schema fields
+the pin requires (`note`, `rules`, `exercises`) padded in a scratch copy: `[PASS]
+edge-cases/strrep-rewrite-unapplication`, including `xpuma` -> `XMUMA|xpuma`. The
+`oracle-conformance-known-divergences.json` entry is removed accordingly.
+
 ## Follow-up
 
-Track [sillsdev/machine#538](https://github.com/sillsdev/machine/pull/538); its CI confirms Machine's full solution build (CMake was absent locally).
-Keep the staged fixture until upstream acceptance and a PanGloss submodule bump.
+The staged fixture is not yet in the pinned `machine/conformance`; keep it staged until it is
+graduated upstream, then delete the staged copy with the pointer bump.
 
 Coverage-ledger follow-up: PlanComposed refuses the new fixture safely while HC answers it.
 Consider backend coverage in a separate change; no further action is needed for this fix.

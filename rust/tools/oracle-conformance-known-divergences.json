@@ -5,12 +5,6 @@
   "measured_date": "2026-09-03",
   "divergences": [
     {
-      "fixture": "edge-cases/strrep-rewrite-unapplication",
-      "kind": "forward-synthesis",
-      "reason": "1/6 word(s) mismatched: xpuma: expected [XMUMA|xpuma] got []",
-      "note": "Exact reviewed original-spec observation: Machine b9e7db44 rewrite spec on master engine 721c6043 with official 25ddf914 adapter/self-check compatibility build. Five words are oracle-recorded; only xpuma is forward-derived. Proposed a873d60d spec passes all six. See docs/divergences/071-strrep-rewrite-unapplication.md and evidence/071 for the build limitations and full transcripts; this does not claim a pinned-engine run."
-    },
-    {
       "fixture": "edge-cases/head-ambiguous-compounding",
       "kind": "rules-attribution-only",
       "note": "SIGNATURE matches the founding oracle exactly for both of dakimo's two analyses. The rules: field cannot be verified by hc-conformance.exe's self-check for a structural reason: both declared parses render to the IDENTICAL signature \"DAK+IMO|dakimo\", and the self-check's per-signature rule-attribution check (Runner.cs) compares EVERY declared parse against EVERY actual result sharing that signature -- for two derivations with genuinely different rule sets under one shared signature, this always reports exactly one mismatch per declared entry, regardless of which of the two correct rule-set assignments is chosen (verified empirically: swapping the assignment only changes which mismatch is reported, not whether one is). words.yaml's rules: values instead follow this fixture's own documented semantics (crLeftHead ~ root_index 0 ~ DAK-headed; crRightHead ~ root_index 1 ~ IMO-headed), independently confirmed by cross_compiler_equivalence_gate.rs's RED-2 test.",

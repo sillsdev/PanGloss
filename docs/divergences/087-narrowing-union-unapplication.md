@@ -1,8 +1,9 @@
 # 087 — Narrowing unapplication unions the LHS into the matched RHS nodes
 
 Kind: optimization (argued parse-preserving; shared upstream proposal).
-Status: open — implemented in PanGloss; the C# change is proposed in Machine PR #539, whose review
-recommends exactly this variant.
+Status: open — implemented in PanGloss. [Machine PR #539](https://github.com/sillsdev/machine/pull/539)
+merged as `8983141f` (contained in the `machine` pin `aab4c598`) in a different variant from the one
+Rust implements, so the Rust optimisation is not yet shown to be identical to the merged C#.
 
 ## C# site
 
@@ -75,5 +76,18 @@ FST backends: the new fixtures enter the backend scoreboard ratchet
 `boundary-first-in-narrowing-lhs-strrep`, an FST coverage gap on a feature-less boundary rule.
 Both FST strategies also miss on `merge-subrules-pos-rtl-template` in every application order,
 a separate gap with part-of-speech-gated narrowing subrules.
+
+## Merged upstream variant
+
+The merged #539 (`NarrowAnalysisRewriteRuleSpec.Unapply`) is a "zipper": it unions each LHS constraint
+into the next matched node while the constraint and node are both Segment-typed and neither has
+alpha variables, and from the first constraint that fails this it adds every remaining LHS node as an
+Optional leftover and marks the remaining target nodes Optional. Rust (V1b) keeps unioning later
+Segment constraints after a boundary and substitutes alpha variables before the union. The two agree
+where no boundary precedes a Segment constraint and no alpha variable is involved; beyond that, parse
+identity is argued, not shown. Verified: `hc-conformance` built from `aab4c598` passes (14 of 14) the
+fourteen fixtures listed under Fixtures, run from the pin's `conformance/edge-cases`. Not verified:
+the Amharic parse-set comparison against the merged C#, and a fixture with a boundary before a Segment
+LHS constraint combined with an alpha variable. The status stays open until one of those is recorded.
 
 Related: 083 (interposed Optional; [Machine PR #540](https://github.com/sillsdev/machine/pull/540)).

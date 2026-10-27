@@ -6,8 +6,8 @@ phonological features. `StrRep` is the only segment identity in Machine.
 `xpuma` is independently justified by forward synthesis from `XMUMA`: the first
 `m` follows `x`, changes to `p`, and the remaining `uma` is unchanged. The original
 oracle loses this analysis. The other five rows record the oracle where it agrees.
-The fixture deliberately remains red against that original oracle; do not replace
-the derived answer with the observed failure.
+The fixture is red only against that pre-#538 oracle and green against Machine
+`aab4c598`, which contains #538; do not replace the derived answer with the observed failure.
 
 The proposed Machine fix is on `fix/hc-strrep-unapplication` at `a873d60d`.
 The additional synthetic `kad`/`kat` regression is committed at `a57d923d`.
