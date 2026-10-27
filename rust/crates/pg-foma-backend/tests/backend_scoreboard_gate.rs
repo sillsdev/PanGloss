@@ -44,12 +44,12 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Measurements: docs/research/backend-scoreboard-extraction-reconciliation.md, parser-settings pin section.
+    // Measurements: docs/research/m506-fst-ratchet.md.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 123,
-            compiles_but_misses: 7,
+            oracle_exact: 126,
+            compiles_but_misses: 8,
             refused: 2,
             unmeasurable: 0,
         },
@@ -57,8 +57,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 101,
-            compiles_but_misses: 6,
+            oracle_exact: 102,
+            compiles_but_misses: 9,
             refused: 25,
             unmeasurable: 0,
         },
@@ -66,8 +66,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 44,
-            compiles_but_misses: 2,
+            oracle_exact: 47,
+            compiles_but_misses: 3,
             refused: 83,
             unmeasurable: 3,
         },
