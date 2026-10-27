@@ -1,7 +1,7 @@
 # 051: Invalid snapshot environments refused the whole grammar
 
 Kind: behavioural (Rust loader).
-Status: open — Windows regression evidence recorded; corrected-test rerun and C# replay pending.
+Status: open — fix-removed sensitivity and a Linux rerun of the corrected tests are recorded; complete sample compilation and the C# replay remain unverified.
 Evidence: captured PanGloss v0.6.0 CLI refusal plus current FieldWorks/liblcm source inspection.
 
 ## C# site
@@ -51,6 +51,17 @@ The corrected tests and boxed `GrammarError::Conversion` await a Windows rerun.
 
 These are Rust regression results, not exported Machine fixtures or demonstrated C# parity.
 Managed commands in the lane jail exit 21 before Cargo because no finite memory.max is visible.
-Fix-removed sensitivity, complete sample compilation, and C# execution remain unverified. Keep this
-entry open until those runs are recorded. No Machine issue is needed for this Rust-only loading
+Complete sample compilation and C# execution remain unverified. Keep this entry open until those
+runs are recorded.
+
+Fix-removed sensitivity (WSL Linux, `pg.ps1 -Mode test -Package pg-grammar -Filter invalid_`, PanGloss
+`14975991` plus the mutation): with the fix, 7 tests run, 7 passed (this includes the three
+regressions above, in their corrected form). Mutation restoring the pre-fix behaviour, so that
+`ENVIRONMENT_INVALID` rejections are fatal again (`Ctx::reject_with_source` records them with
+`fatal = true` and `affixes.rs::defer_environment_issue` uses `fatal = true`): 7 run, 4 passed, 3
+failed — `sample_invalid_environments_compile_with_warnings_and_preserve_parses`,
+`invalid_environment_does_not_widen_valid_root_restrictions` and
+`invalid_infix_positions_skip_the_allomorph_without_refusing_the_grammar`. The mutation was
+discarded and the tree restored. This supersedes the Windows-only record above for the corrected tests;
+the full-suite count there is not repeated. No Machine issue is needed for this Rust-only loading
 defect; no shared C# bug has been found. The research report is in the integrator's `_briefs/research-pg-env.md`.
