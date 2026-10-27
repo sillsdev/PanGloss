@@ -124,7 +124,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/morph.rs` (`synth_compound_subrule`) | 003 |
 | `pg-rules/src/morph.rs` (`ana_compound_traced`), `pg-rules/src/trace.rs` (`compounding_rule_not_unapplied`, `compounding_rule_unapplied`) | 092 |
 | `pg-rules/src/rewrite.rs` (`ana_feature`) | 009, 015, 071 |
-| `pg-rules/src/rewrite.rs` (`ana_narrow_general`, `grouped_target_positions`) | 083 |
+| `pg-rules/src/rewrite.rs` (`ana_narrow_general`, `grouped_target_positions`) | 083, 104 |
 | `pg-rules/src/rewrite.rs` (`ana_narrow_general` true-narrowing union, `union_narrowing_node`) | 087 |
 | `pg-rules/src/rewrite.rs` (`ana_feature_target`, `ana_feature`) | 069 |
 | `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |
@@ -167,6 +167,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/segment-natural-class-table-binding/`, `pg-foma-backend/tests/segment_natural_class_table_binding_discriminates.rs` | 010, 041 |
 | `conformance-staging/edge-cases/strrep-rewrite-unapplication/`, `pg-parse/tests/conformance_fixtures_gate.rs`, `pg-cli/src/tests.rs` (`analyses_sidecar_projects_source_guids_from_fwdata`), Machine `StrRepRewriteRuleTests.cs`, `pg-foma-backend/tests/backend_scoreboard_gate.rs` | 071 |
 | `conformance-staging/edge-cases/interposed-optional-multi-rhs/` | 083 |
+| `conformance-staging/edge-cases/interposed-optional-expansion-rhs/` | 104 |
 | `machine/conformance/edge-cases/` narrowing fixtures (`*-merge*`, `boundary-*-in-narrowing-lhs*`, `simultaneous-expansion-terminates`, `expansion-overlapping-targets`, `two-merges-cascade-env`, `deletion-reinserted-feature-unapply`, `merge-subrules-pos-rtl-template`) | 087 |
 | `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
 | `csharp_port_affix_process.rs` | 007, 008 |
@@ -245,6 +246,7 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | FieldWorks `HCLoader.LoadCircumfixAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `pg-grammar/tests/circumfix_inflection_classes.rs` | 082 |
 | Final-template state / `stratum.rs` policy | 033 | `final-template-partial-discriminators` |
 | Literal rewrite StrRep nonvacuity and inverse identity | 071 | `strrep-rewrite-unapplication`; synthetic kad/kat comparison; [Machine PR #538](https://github.com/sillsdev/machine/pull/538) |
+| Expansion unapplication after an interposed Optional | 104 | `interposed-optional-expansion-rhs` |
 | Narrowing unapplication after an interposed Optional | 083 | `interposed-optional-multi-rhs`; [Machine PR #540](https://github.com/sillsdev/machine/pull/540) |
 | Narrowing union encoding (speedup) | 087 | 14 fixtures, graduated to `machine/conformance` at `72dbd4f9`; [Machine PR #539](https://github.com/sillsdev/machine/pull/539) review recommends this variant |
 | Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `f412c252`) |

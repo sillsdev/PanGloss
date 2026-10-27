@@ -1,0 +1,21 @@
+# oracle-provenance: founding-oracle machine-commit=aab4c598
+# hc-conformance self-check built from Machine aab4c598 passes all five words (see STAGING.md); the
+# expected parse is also forward-derived below, so it does not depend on the oracle.
+# Trace: root U/u -> expand u to ii -> x deletion has no x to delete (vacuous) -> surface ii (U|ii).
+# Inverse deletion can interpose optional x between the two i; expand must capture both real RHS positions.
+language: interposed-optional-expansion-rhs
+sources: ["HCLoader.cs:2362-2374 (literal contexts), 2745-2786 (natural classes); machine/conformance/fieldworks-producibility.tsv"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ii
+    parses:
+      - signature: "U|ii"
+  - word: u
+    expect_fail: true
+  - word: i
+    expect_fail: true
+  - word: iii
+    expect_fail: true
+  - word: ixi
+    expect_fail: true
