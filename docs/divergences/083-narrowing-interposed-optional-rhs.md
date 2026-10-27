@@ -24,7 +24,7 @@ and synthesis/expansion paths are unchanged.
 
 ## Expected parse and reason for the divergence
 
-Fixture: `conformance-staging/edge-cases/interposed-optional-multi-rhs/`.
+Fixture: `machine/conformance/edge-cases/interposed-optional-multi-rhs/`.
 
 The independently justified forward derivation is:
 

@@ -350,6 +350,43 @@ fn graduation_guard_no_duplicate_fixture_names() {
     );
 }
 
+// Only base-run analysis mismatches use the external runner's documented fixture IDs.
+fn known_base_analysis_divergence(name: &str, is_base: bool, what: &str) -> bool {
+    if !is_base || !what.starts_with("analysis multiset mismatch vs oracle") {
+        return false;
+    }
+    let Some(id) = name.strip_prefix("machine:") else {
+        return false;
+    };
+    include_str!("../../../tools/known-conformance-divergences.txt")
+        .lines()
+        .map(str::trim)
+        .any(|line| !line.starts_with('#') && !line.is_empty() && line == id)
+}
+
+#[test]
+fn known_divergence_waiver_only_applies_to_base_analysis_mismatches() {
+    let name = "machine:edge-cases/truncate-morphotactic-copy-u";
+    let analysis = "analysis multiset mismatch vs oracle";
+    assert!(known_base_analysis_divergence(name, true, analysis));
+    assert!(!known_base_analysis_divergence(name, false, analysis));
+    assert!(!known_base_analysis_divergence(
+        name,
+        true,
+        "incomplete parse"
+    ));
+    assert!(!known_base_analysis_divergence(
+        "staging:edge-cases/truncate-morphotactic-copy-u",
+        true,
+        analysis
+    ));
+    assert!(!known_base_analysis_divergence(
+        "machine:edge-cases/unlisted",
+        true,
+        analysis
+    ));
+}
+
 /// Every discovered fixture's `words.yaml` replayed against `pg_parse::Morpher`; pathological/crash-pinning fixtures are skipped since a crash fixture has no signature to diff against.
 #[test]
 fn all_discovered_fixtures_match_oracle() {
@@ -364,6 +401,7 @@ fn all_discovered_fixtures_match_oracle() {
     let mut total_skipped_fixtures = 0usize;
     let mut total_variant_runs = 0usize;
     let mut mismatches = Vec::new();
+    let mut waived = 0usize;
     for f in &fixtures {
         let words_yaml = f.load_words_yaml();
         if let Some(reason) = words_yaml.skip_in_generic_replay() {
@@ -376,10 +414,16 @@ fn all_discovered_fixtures_match_oracle() {
                 total_variant_runs += 1;
             }
             for mismatch in &run.replay.mismatches {
-                mismatches.push(format!(
+                let detail = format!(
                     "{}: word {:?} {}\n  left (HC-Rust): {}\n right (oracle): {}",
                     run.name, mismatch.word, mismatch.what, mismatch.got, mismatch.expected
-                ));
+                );
+                if known_base_analysis_divergence(&run.name, run.is_base, mismatch.what) {
+                    eprintln!("known conformance divergence: {detail}");
+                    waived += 1;
+                } else {
+                    mismatches.push(detail);
+                }
             }
             if run.is_base {
                 assert!(
@@ -396,6 +440,7 @@ fn all_discovered_fixtures_match_oracle() {
         fixtures.len() - total_skipped_fixtures,
         total_skipped_fixtures
     );
+    eprintln!("conformance_fixtures_gate: {waived} known base-run analysis mismatches waived");
     // "fixtures covered" is not one FieldWorks-facing population; report the three separately.
     let census = producibility_census(&fixtures);
     eprintln!(

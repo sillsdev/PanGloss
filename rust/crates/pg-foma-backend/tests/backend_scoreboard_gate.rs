@@ -44,12 +44,12 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Measurements: docs/research/backend-scoreboard-extraction-reconciliation.md, parser-settings pin section.
+    // Measurements: docs/research/machine-pin-fst-ratchet.md.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 123,
-            compiles_but_misses: 7,
+            oracle_exact: 134,
+            compiles_but_misses: 9,
             refused: 2,
             unmeasurable: 0,
         },
@@ -57,18 +57,18 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 101,
-            compiles_but_misses: 6,
-            refused: 25,
+            oracle_exact: 107,
+            compiles_but_misses: 12,
+            refused: 26,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 44,
-            compiles_but_misses: 2,
-            refused: 83,
+            oracle_exact: 51,
+            compiles_but_misses: 3,
+            refused: 88,
             unmeasurable: 3,
         },
     ),
@@ -79,26 +79,26 @@ const EXPECTED_EXCLUDED: &[&str] = &["machine:edge-cases/simultaneous-epenthesis
 
 /// See docs/research/backend-scoreboard-extraction-reconciliation.md's own section on this fixture for why TSP now measures `OracleExact` here without contradicting `non_first_allomorph_circumfix_recall_parity`'s PRE-confirm containment proof.
 const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
-    "staging:edge-cases/circumfix-non-first-allomorph-selection";
+    "machine:edge-cases/circumfix-non-first-allomorph-selection";
 
 const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
 
 const AMBIGUOUS_DISAGREEMENT_FIXTURE: &str = "machine:edge-cases/alpha-variable-name-collision";
 
 const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-bounded-ltr-left",
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-bounded-ltr-left",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-unbounded-ltr-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
 
 const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
-    "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
+    "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
 
 const FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE: &str =
-    "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
+    "machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
 
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {

@@ -38,3 +38,22 @@ passed 118 tests with ten existing marked skips, and the all-scope replay checke
 budget/crash exclusions remain explicitly reported, rather than counted as passes.
 The C# driver report readers distinguish run and fixture totals and preserve complete
 named-run IDs; a named failure cannot inherit its base fixture's divergence waiver.
+
+
+On the confirmed Machine PR #480 head `4a66977f6587033f6dbc800e6b844c0770dbde0b`,
+the external phonology-only adapter run with PanGloss `52753e61` reported 129 passed,
+4 failed, and 16 skipped out of 149 attempted (140 fixtures; one pathological run excluded).
+At `aab4c598` the same binary and adapter reported 55 passed, 1 failed, 15 skipped out of 71.
+The existing `simultaneous-epenthesis-cascade` expected-crash difference remains. The three new
+failures are `truncate-morphotactic-copy-u` (`gau`, `au`), `truncate-morphotactic-identity`
+(`ga`), and `truncate-morphotactic-subsumption` (`ag`, `gag`): PanGloss on `origin/main`
+`14975991` produces the same mismatches, reflecting morph-attribution/order semantics targeted by
+draft PanGloss PR #9. These expectations explicitly use the combined Machine #500/#556 experimental
+oracle. The C# tool built at `4a66977f` itself also differs from that combined oracle on multiple
+words, so the fixture expectations depend on unmerged oracle changes; this is not proof that the
+pinned C# implementation agrees. The fixtures are nondeterministic on C# master. These three
+fixture IDs are explicitly waived in the external runner; the in-process replay uses the same
+list only for base-run analysis mismatches, while still reporting them and rejecting incomplete
+parses, unexpected skips, and named variants. The additional skip is `final-template-partial-root`, which
+requires `morpher-settings` that this adapter does not declare. Graduated staged duplicates were
+removed with this pin update.
