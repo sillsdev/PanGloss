@@ -31,7 +31,7 @@ const FIXTURES: &[(&str, &str, &str)] = &[
         "non-empty structural-composite material (mrAblaut, Role::Process); the grammar has no other rule and no template, so marker_admission_is_complete holds",
     ),
     (
-        "staging:edge-cases/circumfix-in-template-slot",
+        "machine:edge-cases/circumfix-in-template-slot",
         "refused",
         "non-empty structural-composite material, but the grammar declares an AffixTemplate, so marker_admission_is_complete's conservative template check refuses it even though this specific slot's only other occupant is harmless",
     ),

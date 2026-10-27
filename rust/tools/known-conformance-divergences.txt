@@ -15,3 +15,11 @@
 # reproduce a C#-side crash bug -- already tracked as a known, explicit scope decision (not silently
 # folded into "out of scope") in rust/docs/p13-simultaneous-design.md sections 6.2 and 7, item 2.
 edge-cases/simultaneous-epenthesis-cascade
+
+# The following three oracles are the experimental combined Machine #500/#556 output.
+# The pinned C# disagrees with these expectations, and the fixtures are nondeterministic on
+# C# master. PanGloss morph attribution is tracked by https://github.com/sillsdev/PanGloss/pull/9; see
+# docs/conformance/parser-settings-variants.md and https://github.com/sillsdev/machine/pull/480.
+edge-cases/truncate-morphotactic-copy-u
+edge-cases/truncate-morphotactic-identity
+edge-cases/truncate-morphotactic-subsumption

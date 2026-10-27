@@ -1,25 +1,18 @@
 //! Discriminating-power proof: this fixture's `SegmentNaturalClass` is genuinely table-dependent, unlike every other multi-table fixture's `FeatureNaturalClass`-only classes.
 //! See docs/research/pg-foma-segment-natural-class-table-binding-design-notes.md.
 
-use std::fs;
-use std::path::Path;
-
 use pg_featstruct::flat_unifiable;
 use pg_fst::CompileNode;
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{Grammar, NaturalClassKind, PhonRuleDef, TableId};
 use pg_rules::bridge::PatternBridge;
 
-fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/segment-natural-class-table-binding/grammar.xml",
-    )
-}
-
 fn load() -> Grammar {
-    let path = fixture_path();
-    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "segment-natural-class-table-binding",
+    );
+    pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load")
 }
 
 fn devoice_rule(g: &Grammar) -> &pg_grammar::model::RewriteRuleDef {

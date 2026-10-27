@@ -43,7 +43,7 @@ fn unbounded_star_pattern_roots_move_from_refused_to_oracle_exact() {
     for label in [
         "staging:edge-cases/backend-strata-generic",
         "machine:languages/polysynthetic-stratal-derivation-chain",
-        "staging:edge-cases/guesser-pattern-root-fallback",
+        "machine:edge-cases/guesser-pattern-root-fallback",
     ] {
         let outcome = measure_tut(label);
         assert!(
@@ -67,10 +67,10 @@ fn bounded_class_reference_pattern_root_moves_from_refused_to_oracle_exact() {
 
 #[test]
 fn required_environment_pattern_root_stays_refused() {
-    let outcome = measure_tut("staging:edge-cases/pattern-root-required-environment");
+    let outcome = measure_tut("machine:edge-cases/pattern-root-required-environment");
     assert!(
         matches!(outcome, CellOutcome::Refused { .. }),
-        "staging:edge-cases/pattern-root-required-environment [TemplatedUnderlyingTokens]: the \
+        "machine:edge-cases/pattern-root-required-environment [TemplatedUnderlyingTokens]: the \
          token route excludes RequiredEnvironments allomorphs the same way the surface route's own \
          regex route does (an unbounded shape has no literal surface to check an environment \
          against) -- this must stay Refused, not silently start compiling with dropped \

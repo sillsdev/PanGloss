@@ -24,13 +24,13 @@ const EXPECTED: &[(&str, [Expected; 3])] = &[
         "machine:edge-cases/rewrite-analysis-feature-neutralization",
         [Expected::Refused, Expected::Exact, Expected::Refused],
     ),
+    (
+        "machine:edge-cases/segment-natural-class-table-binding",
+        [Expected::Refused, Expected::Exact, Expected::Refused],
+    ),
     // The respelled root ("w" as the final table's "i") is then changed by a rule; the construct is present even though hc.dll renders the signature's surface half empty.
     (
         "machine:edge-cases/synthesis-stratum-render-stale-table",
-        [Expected::Refused, Expected::Exact, Expected::Refused],
-    ),
-    (
-        "staging:edge-cases/segment-natural-class-table-binding",
         [Expected::Refused, Expected::Exact, Expected::Refused],
     ),
 ];

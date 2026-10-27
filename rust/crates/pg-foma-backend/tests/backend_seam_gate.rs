@@ -15,12 +15,12 @@ type PartialFixtureRow = (&'static str, &'static str, &'static str, &'static str
 type PartialAdmissionRow = (&'static str, &'static str);
 
 const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-bounded-ltr-left",
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-bounded-ltr-left",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-unbounded-ltr-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
 
 fn sweep_shape_keys() -> (
