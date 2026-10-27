@@ -57,3 +57,19 @@ Also note that `capability.rs:391-395`'s doc claiming the RTL-detection check "m
 `Quantifier`" is stale as a description of what `pattern_slots` currently does — the two changes
 (RTL detection, bounded-quantifier acceptance) were each correct in isolation; the hole is only in
 their interaction.
+
+## Re-examination
+
+The shallow reverse described above is no longer in the tree: `reversed_slots`
+(`rust/crates/pg-foma/src/replace.rs`) recurses into `Slot::Repeat` children, and the line numbers and
+"not yet reproduced" claims in this entry are stale. The unit tests
+`replace::rtl_repeat_children_reversal_tests::rtl_repeat_children_reversal_bug_reproduced_and_fixed_bounded`
+and `..._unbounded` build the multi-child bounded and unbounded quantifier shapes on synthetic words.
+Run on `main` (`pg.ps1 -Mode test -Package pg-foma -Filter rtl_repeat`): 2 run, 2 passed. With the
+recursion removed (`children: children.clone()`): 2 run, 0 passed, 2 failed, so the miss reproduces
+on a synthetic word and the recursion is what prevents it. The change was restored afterwards.
+
+Not shown: any C# or conformance-fixture evidence, which does not apply to a Rust-only proposer path, and
+a real-language word. The `fixed-in-rust` status vocabulary requires oracle or fixture verification,
+so the status stays `open`; the recommendation is to close it as `fixed-in-rust` once an RTL
+multi-child-quantifier conformance fixture is staged, or as `not-a-bug` if the owner accepts the unit tests.
