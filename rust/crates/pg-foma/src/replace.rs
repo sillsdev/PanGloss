@@ -470,6 +470,11 @@ fn render_branch_regex(
     }
 }
 
+/// Parses rule text built from grammar data; text foma cannot parse is `None`, which callers report as a skipped rule.
+fn parse_rule_regex(opts: &FomaOptions, regex: &str) -> Option<Fsm> {
+    fsm_parse_regex(opts, regex, None, None)
+}
+
 /// Compiles one branch into a foma `Fsm`: `Dir::LeftToRight` renders the slots as given; `Dir::RightToLeft` unions that with `fsm_reverse` of the mirror rule's compile (LHS/RHS reversed, environments swapped-and-reversed).
 /// Worked example and why the union introduces no spurious identity path: `docs/research/pg-foma-replace-design-notes.md`, "`compile_rtl_branch_net`: worked example pinning the union's necessity".
 #[allow(clippy::too_many_arguments)]
@@ -482,15 +487,13 @@ fn compile_rtl_branch_net(
     left_slots: &[Slot],
     right_slots: &[Slot],
     asg: &AlphaAssignment,
-    rule_xml_id: &str,
-) -> Fsm {
+) -> Option<Fsm> {
     let plain_regex =
         render_branch_regex(alphabet, lhs_slots, rhs_slots, left_slots, right_slots, asg);
-    let plain_net = fsm_parse_regex(opts, &plain_regex, None, None).unwrap_or_else(|| {
-        panic!("foma rejected compiled regex for rule {rule_xml_id}: {plain_regex:?}")
-    });
+    // A regex foma cannot parse is an unsupported construct: `None` skips the rule like any other unsupported shape.
+    let plain_net = parse_rule_regex(opts, &plain_regex)?;
     match dir {
-        Dir::LeftToRight => plain_net,
+        Dir::LeftToRight => Some(plain_net),
         Dir::RightToLeft => {
             let mirror_lhs = reversed_slots(lhs_slots);
             let mirror_rhs = reversed_slots(rhs_slots);
@@ -505,15 +508,9 @@ fn compile_rtl_branch_net(
                 &mirror_right,
                 asg,
             );
-            let mirror_net =
-                fsm_parse_regex(opts, &mirror_regex, None, None).unwrap_or_else(|| {
-                    panic!(
-                        "foma rejected compiled mirror-rule regex for rule {rule_xml_id}: \
-                     {mirror_regex:?}"
-                    )
-                });
+            let mirror_net = parse_rule_regex(opts, &mirror_regex)?;
             let reversed_net = fsm_reverse(mirror_net);
-            fsm_union(opts, plain_net, reversed_net)
+            Some(fsm_union(opts, plain_net, reversed_net))
         }
     }
 }
@@ -675,8 +672,7 @@ fn compile_rewrite_rule_subset_inner(
                 &left_slots,
                 &right_slots,
                 asg,
-                &rule.xml_id,
-            );
+            )?;
             subrule_net = Some(match subrule_net {
                 None => branch_net,
                 // Sequential composition, not union -- see the per-subrule composition note above this loop.
@@ -949,7 +945,6 @@ fn compile_metathesis_swap_net(
     slots: &[Slot],
     left_idx: usize,
     right_idx: usize,
-    rule_xml_id: &str,
     table: &CharDefTable,
     table_id: TableId,
     aliases: &RepresentationAliasMap,
@@ -1013,9 +1008,7 @@ fn compile_metathesis_swap_net(
             .collect::<Vec<_>>()
             .join(" ");
         let regex = format!("{lhs_text} -> {rhs_text}");
-        let branch_net = fsm_parse_regex(opts, &regex, None, None).unwrap_or_else(|| {
-            panic!("foma rejected compiled metathesis regex for rule {rule_xml_id}: {regex:?}")
-        });
+        let branch_net = parse_rule_regex(opts, &regex)?;
         net = Some(match net {
             None => branch_net,
             Some(prev) => fsm_union(opts, prev, branch_net),
@@ -1075,15 +1068,7 @@ pub(crate) fn compile_metathesis_rule(
     }
 
     let plain_net = compile_metathesis_swap_net(
-        opts,
-        alphabet,
-        &slots,
-        left_idx,
-        right_idx,
-        &rule.xml_id,
-        table,
-        table_id,
-        &alias_map,
+        opts, alphabet, &slots, left_idx, right_idx, table, table_id, &alias_map,
     )?;
 
     match rule.dir {
@@ -1099,7 +1084,6 @@ pub(crate) fn compile_metathesis_rule(
                 &mirror_slots,
                 mirror_left_idx,
                 mirror_right_idx,
-                &rule.xml_id,
                 table,
                 table_id,
                 &alias_map,
@@ -1120,3 +1104,6 @@ mod owning_table_tests;
 
 #[cfg(test)]
 mod rtl_repeat_children_reversal_tests;
+
+#[cfg(test)]
+mod regex_rejection_tests;
