@@ -491,9 +491,14 @@ fn run_import(args: &[String]) -> Result<(), String> {
         .provenance
         .import_load_decisions
         .iter()
-        .filter(|decision| decision.reason_code == pg_snapshot::LoadReasonCode::DoNotUseForParsing)
+        .filter(|decision| {
+            decision.subject.kind == pg_snapshot::InventoryKind::Entry
+                && decision.reason_code == pg_snapshot::LoadReasonCode::DoNotUseForParsing
+        })
         .count();
-    eprintln!("entries excluded by DoNotUseForParsing: {excluded_entries}");
+    if excluded_entries > 0 {
+        eprintln!("entries excluded by DoNotUseForParsing: {excluded_entries}");
+    }
     eprintln!("import warnings ({}):", report.warnings.len());
     for w in &report.warnings {
         eprintln!("  {w}");

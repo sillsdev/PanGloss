@@ -13,15 +13,22 @@ use super::{tracked_kind, Ctx};
 use crate::morphtype::{self, MorphTypeLookup};
 use crate::xml::Record;
 
+#[derive(Default)]
+pub(super) struct ExcludedLexicalObjects {
+    pub msas: HashSet<String>,
+    pub allomorphs: HashSet<String>,
+}
+
 pub fn extract_lexicon(
     ctx: &mut Ctx,
     _feature_systems: &FeatureSystems,
     _morphology: &Morphology,
-) -> Result<Lexicon, crate::ImportError> {
+) -> Result<(Lexicon, ExcludedLexicalObjects), crate::ImportError> {
     // Entries own the forms and analyses consumed by every backend. Decide once before extracting them.
     let order = ctx.graph.lex_entry_order.clone();
     let mut excluded = HashSet::new();
     let mut excluded_targets = HashSet::new();
+    let mut excluded_objects = ExcludedLexicalObjects::default();
     for guid in &order {
         let Some(rec) = ctx.get(guid) else { continue };
         let value = rec.node.val_bool("DoNotUseForParsing");
@@ -30,6 +37,15 @@ pub fn extract_lexicon(
         }
         if value == Some(true) {
             excluded.insert(guid.clone());
+            excluded_objects
+                .msas
+                .extend(rec.node.objsur_list("MorphoSyntaxAnalyses"));
+            excluded_objects
+                .allomorphs
+                .extend(rec.node.objsur_list("AlternateForms"));
+            excluded_objects
+                .allomorphs
+                .extend(rec.node.objsur_one("LexemeForm"));
             excluded_targets.insert(guid.clone());
             let mut pending = rec.node.objsur_list("Senses");
             while let Some(sense) = pending.pop() {
@@ -43,6 +59,38 @@ pub fn extract_lexicon(
                 InventoryKey::object(InventoryKind::Entry, guid.clone()),
                 LoadReasonCode::DoNotUseForParsing,
             );
+        }
+    }
+    excluded_objects.msas.retain(|guid| {
+        ctx.get(guid).is_some_and(|record| {
+            matches!(
+                record.class.as_str(),
+                "MoStemMsa" | "MoInflAffMsa" | "MoDerivAffMsa" | "MoUnclassifiedAffixMsa"
+            )
+        })
+    });
+    excluded_objects.allomorphs.retain(|guid| {
+        ctx.get(guid).is_some_and(|record| {
+            matches!(
+                record.class.as_str(),
+                "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess"
+            )
+        })
+    });
+    // A malformed shared reference must not hide an object still used by an unflagged entry.
+    for guid in order.iter().filter(|guid| !excluded.contains(*guid)) {
+        if let Some(rec) = ctx.get(guid) {
+            for msa in rec.node.objsur_list("MorphoSyntaxAnalyses") {
+                excluded_objects.msas.remove(&msa);
+            }
+            for allo in rec
+                .node
+                .objsur_list("AlternateForms")
+                .into_iter()
+                .chain(rec.node.objsur_one("LexemeForm"))
+            {
+                excluded_objects.allomorphs.remove(&allo);
+            }
         }
     }
     let mut entries: Vec<LexEntry> = order
@@ -72,10 +120,13 @@ pub fn extract_lexicon(
             super::msa_equality::equal_msas(ctx, &guids)
         })
         .collect();
-    Ok(Lexicon {
-        entries,
-        msa_equality: Some(msa_equality),
-    })
+    Ok((
+        Lexicon {
+            entries,
+            msa_equality: Some(msa_equality),
+        },
+        excluded_objects,
+    ))
 }
 
 fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {

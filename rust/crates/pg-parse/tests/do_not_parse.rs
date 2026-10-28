@@ -58,14 +58,40 @@ fn observe(flag: Option<bool>) -> (usize, usize, Vec<usize>) {
     ]
     .join("\n");
     source = source.replace("</languageproject>", &format!("{added}</languageproject>"));
-    let path = std::env::temp_dir().join(format!(
-        "pg-do-not-parse-{}-{}.fwdata",
-        std::process::id(),
-        flag.map_or("absent", |v| if v { "true" } else { "false" })
-    ));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("project.fwdata");
     std::fs::write(&path, source).unwrap();
     let (snapshot, _, delta) = pg_fwdata::import_file_measured(&path).unwrap();
-    std::fs::remove_file(path).unwrap();
+    if flag == Some(true) {
+        for id in ["2", "3", "4"] {
+            let guid = format!("10000000-0000-0000-0000-{id:0>12}");
+            let entry = snapshot
+                .lexicon
+                .entries
+                .iter()
+                .find(|entry| entry.guid == guid)
+                .unwrap();
+            let components = match &entry.entry_refs[0] {
+                pg_snapshot::EntryRef::Variant {
+                    component_lexemes, ..
+                }
+                | pg_snapshot::EntryRef::ComplexForm {
+                    component_lexemes, ..
+                } => component_lexemes,
+            };
+            assert!(
+                components.is_empty(),
+                "all components of {guid} must be pruned"
+            );
+            assert!(
+                !snapshot
+                    .validate()
+                    .iter()
+                    .any(|warning| warning.message.contains(&guid)),
+                "empty reference on {guid} must validate"
+            );
+        }
+    }
     assert!(delta.silently_omitted.is_empty());
     let excluded = snapshot
         .conversion_provenance

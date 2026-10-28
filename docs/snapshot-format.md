@@ -424,7 +424,9 @@ refuses import. References to excluded entries or their senses are removed from 
 complex-form components, while other components remain. A variant cannot borrow the excluded
 analysis; a complex form with its own analysis remains independently usable. The import load
 decisions record each exclusion as `doNotUseForParsing`, and `pangloss import` prints its count.
-Existing snapshots must be re-imported to apply this FieldWorks property.
+Ad hoc prohibitions involving an excluded entry's MSA or allomorph are omitted as whole rules;
+their import decisions record the same reason. Existing snapshots must be re-imported to apply this
+FieldWorks property.
 
 ### `LexEntry`
 

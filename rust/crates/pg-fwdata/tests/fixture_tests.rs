@@ -2115,3 +2115,105 @@ fn do_not_parse_rejects_malformed_boolean() {
         matches!(error, pg_fwdata::ImportError::InvalidDoNotUseForParsing { guid } if guid.ends_with("0030"))
     );
 }
+
+#[test]
+fn excluded_entry_prohibitions_are_omitted_without_weakening_other_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let entry = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
+    let source = repair_dangling_environment(&fixture_source()).replacen(
+        entry,
+        &format!("{entry}<DoNotUseForParsing val=\"True\" />"),
+        1,
+    );
+    let mut records = String::new();
+    for (id, class, first_field, rest_field, primary, others) in [
+        (
+            "a1",
+            "MoMorphAdhocProhib",
+            "FirstMorpheme",
+            "RestOfMorphs",
+            "052",
+            vec!["032"],
+        ),
+        (
+            "a2",
+            "MoMorphAdhocProhib",
+            "FirstMorpheme",
+            "RestOfMorphs",
+            "032",
+            vec!["052", "042"],
+        ),
+        (
+            "a3",
+            "MoAlloAdhocProhib",
+            "FirstAllomorph",
+            "RestOfAllos",
+            "051",
+            vec!["031"],
+        ),
+        (
+            "a4",
+            "MoAlloAdhocProhib",
+            "FirstAllomorph",
+            "RestOfAllos",
+            "031",
+            vec!["051", "041"],
+        ),
+        (
+            "a5",
+            "MoMorphAdhocProhib",
+            "FirstMorpheme",
+            "RestOfMorphs",
+            "032",
+            vec!["042"],
+        ),
+    ] {
+        let refs: String = others
+            .iter()
+            .map(|part| {
+                format!("<objsur guid=\"00000000-0000-0000-0000-000000000{part}\" t=\"r\" />")
+            })
+            .collect();
+        records.push_str(&format!("<rt class=\"{class}\" guid=\"00000000-0000-0000-0000-0000000000{id}\"><Adjacency val=\"0\" /><{first_field}><objsur guid=\"00000000-0000-0000-0000-000000000{primary}\" t=\"r\" /></{first_field}><{rest_field}>{refs}</{rest_field}></rt>"));
+    }
+    let path = dir.path().join("prohibitions.fwdata");
+    std::fs::write(
+        &path,
+        source.replace(
+            "</languageproject>",
+            &format!("{records}</languageproject>"),
+        ),
+    )
+    .unwrap();
+    let (snapshot, _, delta) = pg_fwdata::import_file_measured(&path).unwrap();
+    assert!(delta.silently_omitted.is_empty());
+    assert_eq!(
+        snapshot.morphology.adhoc_prohibitions.len(),
+        1,
+        "an excluded participant makes the whole prohibition unreachable"
+    );
+    let decisions = snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.subject.kind,
+                InventoryKind::MorphemeCoOccurrence | InventoryKind::AllomorphCoOccurrence
+            ) && d.reason_code == LoadReasonCode::DoNotUseForParsing
+        })
+        .count();
+    assert_eq!(decisions, 4);
+    let warnings = snapshot.validate();
+    for id in ["052", "051"] {
+        assert!(
+            !warnings.iter().any(|w| w
+                .message
+                .contains(&format!("00000000-0000-0000-0000-000000000{id}"))),
+            "{warnings:?}"
+        );
+    }
+    let (_grammar, warnings) =
+        pg_grammar::compile_project(&snapshot).expect("unrelated active prohibition must compile");
+    assert!(!format!("{warnings:?}").contains("adhoc-prohibition-unresolved"));
+}
