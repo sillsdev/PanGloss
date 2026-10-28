@@ -118,6 +118,7 @@ $crateSpecs = @(
         MaxTargets = 3
         ExpectedSourceNames = @(
             'effective_analysis_target.rs', 'phonology_gate.rs', 'step_cap_work_gate.rs', 'trace_template_outcomes.rs',
+            'edge_prefilter_gate.rs', 'lookup_replay_gate.rs',
             'batch_determinism.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',
             'csharp_port_affix_template.rs', 'csharp_port_compounding.rs',
