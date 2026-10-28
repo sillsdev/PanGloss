@@ -4080,3 +4080,24 @@ fn global_refuses_only_when_every_strategy_refuses() {
         "the envelope must name which compilers declined, which a scalar decision cannot"
     );
 }
+
+#[test]
+fn strategy_floor_advice_is_only_for_process_morphology() {
+    let refusal = |kind: CharacteristicKind| CapabilityDiagnostic {
+        predicate: STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE,
+        construct: format!("{kind:?}"),
+        witness: String::new(),
+    };
+    assert_eq!(
+        strategy_floor_shape_key(&refusal(CharacteristicKind::ProcessMorphology)),
+        Some("nonregular-process-morphology")
+    );
+    assert_eq!(
+        strategy_floor_shape_key(&refusal(CharacteristicKind::RealizationalMorphology)),
+        None
+    );
+    assert_eq!(
+        strategy_floor_shape_key(&refusal(CharacteristicKind::CrossTableRespelling)),
+        None
+    );
+}

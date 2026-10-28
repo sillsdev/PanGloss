@@ -4645,8 +4645,14 @@ pub fn compose_envelope_for_strategy(
 /// `strategy_floor`'s own refusal id -- not a registered `CapabilityPredicate` or `GrammarWideCheck` (it has no plan node and applies identically to every strategy), so `crate::backend_selection::capability_shape_key` reads this constant directly rather than the registry lookup those two shapes go through.
 pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE: &str =
     "strategy-coverage.construct-not-representable";
-/// The shape key `crate::backend_selection::capability_shape_key` returns for [`STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE`].
-pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_SHAPE_KEY: &str = "nonregular-process-morphology";
+/// The advice shape for a floor refusal of process morphology; the catalog's remedies are written for that construct only.
+const STRATEGY_FLOOR_PROCESS_MORPHOLOGY_SHAPE_KEY: &str = "nonregular-process-morphology";
+
+/// The advice shape key for a [`STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE`] refusal, or `None` when the catalog has no advice for that construct (realizational morphology, cross-table respelling): naming process-morphology remedies for them would be wrong advice.
+pub(crate) fn strategy_floor_shape_key(diagnostic: &CapabilityDiagnostic) -> Option<&'static str> {
+    (diagnostic.construct == format!("{:?}", CharacteristicKind::ProcessMorphology))
+        .then_some(STRATEGY_FLOOR_PROCESS_MORPHOLOGY_SHAPE_KEY)
+}
 
 // The per-strategy account's contribution alone; `compose_over_predicates` folds in the dispositions.
 fn strategy_floor(strategy: EmissionStrategy, kind: CharacteristicKind) -> CompileDecision {
