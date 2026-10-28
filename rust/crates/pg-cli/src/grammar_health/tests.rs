@@ -541,7 +541,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
         },
     ];
     let capped = StoredAnalysisFixture {
-        wordform: "xmupa",
+        wordform: "xpupa",
         allomorph: "391454a0-50fb-4cec-a965-26ef4db345f2",
         msa: "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
         expected_surface: "xpupa",
@@ -563,7 +563,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
         .collect();
     assert_eq!(incomplete.len(), 1, "{incomplete:#?}");
     let description = incomplete[0]["description"].as_str().expect("description");
-    assert!(description.contains("wordform \"xmupa\""), "{description}");
+    assert!(description.contains("wordform \"xpupa\""), "{description}");
     assert!(
         description.contains(&format!(
             "per-word analysis cap ({STEP_CAP} analysis steps or"
@@ -585,7 +585,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
     assert!(
         lost(&report)
             .iter()
-            .all(|finding| !finding["description"].as_str().unwrap().contains("xmupa")),
+            .all(|finding| !finding["description"].as_str().unwrap().contains("xpupa")),
         "the capped wordform is not reported as lost"
     );
     assert_eq!(

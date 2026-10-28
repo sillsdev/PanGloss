@@ -591,6 +591,12 @@ impl<'g> Morpher<'g> {
         self
     }
 
+    /// Turns the analysis edge-segment prefilter on (the default) or off; it never changes an analysis, only matcher work.
+    pub fn with_edge_prefilter(mut self, on: bool) -> Self {
+        self.cache = self.cache.with_edge_prefilter(on);
+        self
+    }
+
     /// Introspection: the lexical-pattern root allomorphs partitioned out of the trie
     /// (mirrors C#'s `_lexicalPatterns`), flat across all strata, document order. Read by the
     /// guess subsystem; also exposed so a gate test can pin the partition directly.

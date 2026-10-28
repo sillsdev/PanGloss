@@ -42,6 +42,8 @@ use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
+mod edge_prefilter;
+
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
 
 /// Ticks the rule's own `attempts` once on the invocation's first-reached allomorph/subrule (`index`, 0-based) and always records that allomorph's own work/outputs; shifts by one so index 0 never collides with `ALLOMORPH_NONE`.
@@ -594,6 +596,17 @@ fn ana_affix_cached_traced(
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
+        if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
+            record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
+            trace.morphological_rule_not_unapplied(
+                parent,
+                mrid,
+                i as i32,
+                word,
+                FailureReason::Pattern,
+            );
+            continue;
+        }
         let before = output.len();
         let matches = {
             let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -2671,6 +2684,10 @@ fn ana_affix_cached(
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
+        if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
+            record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
+            continue;
+        }
         let before = output.len();
         // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
