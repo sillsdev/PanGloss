@@ -1186,6 +1186,62 @@ impl WordEntry {
     }
 }
 
+/// Sorts the members of every bracketed class (`[ea]` -> `[ae]`, `[^ea]` -> `[^ae]`) in a signature
+/// entry. HermitCrab renders class members in character-table insertion order, which FieldWorks
+/// fills from an unordered collection, so member order is not part of the shape
+/// (sillsdev/machine#573).
+pub fn normalize_class_order(signature: &str) -> String {
+    let mut out = String::with_capacity(signature.len());
+    let mut rest = signature;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find(']') else { break };
+        let inner = &after[..close];
+        if inner.contains('[') {
+            out.push_str(&rest[..=open]);
+            rest = after;
+            continue;
+        }
+        let (negation, members) = match inner.strip_prefix('^') {
+            Some(members) => ("^", members),
+            None => ("", inner),
+        };
+        let mut chars: Vec<char> = members.chars().collect();
+        chars.sort_unstable();
+        out.push_str(&rest[..=open]);
+        out.push_str(negation);
+        out.extend(chars);
+        out.push(']');
+        rest = &after[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The signature entries with bracketed classes order-normalized, sorted and not deduped: the form
+/// two signature multisets are compared in.
+pub fn comparable_multiset<S: AsRef<str>>(entries: &[S]) -> Vec<String> {
+    let mut sigs: Vec<String> = entries
+        .iter()
+        .map(|e| normalize_class_order(e.as_ref()))
+        .collect();
+    sigs.sort();
+    sigs
+}
+
+/// Whether two joined signatures (`-` or `;`-joined entries) are equal as multisets with
+/// bracketed classes compared as sets.
+pub fn signatures_equal(left: &str, right: &str) -> bool {
+    let split = |s: &str| -> Vec<String> {
+        if s == "-" {
+            Vec::new()
+        } else {
+            comparable_multiset(&s.split(';').collect::<Vec<_>>())
+        }
+    };
+    split(left) == split(right)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ParseEntry {
     pub signature: String,
@@ -1347,8 +1403,8 @@ pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher
             continue;
         }
         // See this function's doc comment: multiset, not joined-string, comparison.
-        let got_multiset = pg_parse::result_multiset(&outcome.analyses);
-        let expected_multiset = w.expected_multiset();
+        let got_multiset = comparable_multiset(&pg_parse::result_multiset(&outcome.analyses));
+        let expected_multiset = comparable_multiset(&w.expected_multiset());
         if got_multiset != expected_multiset {
             replay.mismatches.push(OracleMismatch {
                 word: w.word.clone(),

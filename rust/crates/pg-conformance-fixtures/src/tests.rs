@@ -753,3 +753,42 @@ fn a_variant_with_no_visible_words_is_not_reported_as_exercised() {
     assert!(runs[1].name.ends_with("#variant=legacy-guesses"));
     assert!(runs[1].replay.mismatches.iter().any(|m| m.word == "<run>"));
 }
+
+fn loader_pattern_shapes_fixture() -> FixtureRef {
+    FixtureRef {
+        root: Root::Staging,
+        category: "edge-cases".to_string(),
+        name: "loader-pattern-shapes".to_string(),
+        dir: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/edge-cases/loader-pattern-shapes"),
+    }
+}
+
+#[test]
+fn replay_treats_bracketed_class_members_as_a_set() {
+    let fixture = loader_pattern_shapes_fixture();
+    let words = fixture.load_words_yaml();
+    let grammar = fixture.load_grammar();
+    let replay = replay_against_oracle(&words, &pg_parse::Morpher::new(&grammar, usize::MAX));
+    assert!(replay.mismatches.is_empty(), "{:?}", replay.mismatches);
+    assert!(replay.checked > 0);
+}
+
+#[test]
+fn class_order_normalization_sorts_members_and_keeps_negation_and_other_text() {
+    assert_eq!(normalize_class_order("A+B|b[ea]t"), "A+B|b[ae]t");
+    assert_eq!(normalize_class_order("|b[^ea]t[ou]"), "|b[^ae]t[ou]");
+    assert_eq!(normalize_class_order("|bat"), "|bat");
+    assert_eq!(normalize_class_order("|b[ea"), "|b[ea");
+}
+
+#[test]
+fn signatures_equal_ignores_class_member_order_but_not_members_or_negation() {
+    assert!(signatures_equal("|b[ae]t", "|b[ea]t"));
+    assert!(signatures_equal("X|a;Y|b[ae]t", "Y|b[ea]t;X|a"));
+    assert!(signatures_equal("-", "-"));
+    assert!(!signatures_equal("|b[ae]t", "|b[ao]t"));
+    assert!(!signatures_equal("|b[^ae]t", "|b[ae]t"));
+    assert!(!signatures_equal("|b[ae]t", "|b[ae]t;|b[ae]t"));
+    assert!(!signatures_equal("-", "|b[ae]t"));
+}

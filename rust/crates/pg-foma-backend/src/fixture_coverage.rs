@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use pg_conformance_fixtures::{FixtureRef, WordEntry, WordsYaml};
+use pg_conformance_fixtures::{signatures_equal, FixtureRef, WordEntry, WordsYaml};
 use pg_foma::capability::{default_registry, observed_variants};
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
@@ -48,7 +48,7 @@ pub fn word_passes_for_coverage(words: &WordsYaml, word: &WordEntry, morpher: &M
         return false;
     }
     let outcome = morpher.parse_word(&word.word);
-    !outcome.invalid_shape && outcome.signature() == word.expected_signature()
+    !outcome.invalid_shape && signatures_equal(&outcome.signature(), &word.expected_signature())
 }
 
 /// Replays tags against the loaded grammar. A concrete variant tag must also be observed by

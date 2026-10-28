@@ -211,8 +211,10 @@ fn assert_confirmed_ambiguous_fixture(name: &str, expected_words: usize) {
             );
         }
         assert_eq!(
-            pg_parse::result_multiset(&outcome.analyses),
-            word.expected_multiset(),
+            pg_conformance_fixtures::comparable_multiset(&pg_parse::result_multiset(
+                &outcome.analyses
+            )),
+            pg_conformance_fixtures::comparable_multiset(&word.expected_multiset()),
             "{name}: {}",
             word.word
         );

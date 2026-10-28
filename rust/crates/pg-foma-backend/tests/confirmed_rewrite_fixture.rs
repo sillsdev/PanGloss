@@ -29,8 +29,10 @@ pub(super) fn verify_templated_fixture(fixture: &FixtureRef) -> (usize, usize) {
         }
         assert!(outcome.peel_chain_depth_error.is_none());
         assert_eq!(
-            pg_parse::result_multiset(&outcome.analyses),
-            word.expected_multiset(),
+            pg_conformance_fixtures::comparable_multiset(&pg_parse::result_multiset(
+                &outcome.analyses
+            )),
+            pg_conformance_fixtures::comparable_multiset(&word.expected_multiset()),
             "{name}: {}",
             word.word
         );

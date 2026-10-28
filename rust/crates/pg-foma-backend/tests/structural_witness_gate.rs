@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use pg_conformance_fixtures::discover;
+use pg_conformance_fixtures::{discover, signatures_equal};
 use pg_foma_backend::conformance_coverage::registered_structural_witnesses;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
@@ -41,7 +41,7 @@ fn passing_ids_from_structurally_matching_fixtures(
             if outcome.invalid_shape {
                 continue; // unexpectedly SKIPPED -> not passing
             }
-            if outcome.signature() != w.expected_signature() {
+            if !signatures_equal(&outcome.signature(), &w.expected_signature()) {
                 continue; // mismatch -> not passing; this word's exercises: tags don't count
             }
             for c in &w.exercises {
@@ -177,7 +177,9 @@ fn the_hand_identified_witness_fixture_for_each_construct_still_qualifies() {
                 continue;
             }
             let outcome = morpher.parse_word(&w.word);
-            if outcome.invalid_shape || outcome.signature() != w.expected_signature() {
+            if outcome.invalid_shape
+                || !signatures_equal(&outcome.signature(), &w.expected_signature())
+            {
                 continue;
             }
             if w.exercises.iter().any(|c| c == construct_id)
