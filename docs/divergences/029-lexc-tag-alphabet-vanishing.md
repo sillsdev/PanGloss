@@ -32,6 +32,15 @@ where it is currently undetected (i.e., this specific detector only catches the 
 site so far).
 
 ## Evidence
+`pg-foma/tests/phase_c_strata_depth.rs::declared_tags_survive_in_the_compiled_alphabet_at_depth` compiles the
+mainline `emit` output of generated single-table grammars with 0, 3, 8, 16 and 22 extra strata and asserts every
+symbol declared under `Multichar_Symbols` is in the compiled network's sigma. It passes at every depth, so the
+vanishing is NOT reproduced on this recipe through the mainline path; the earlier observation under two
+generation strategies has no reproducing grammar in the repository. The same test file's recall-parity test shows
+the accepted language is unchanged at depth 3. Whether a grammar exists that loses a tag remains open, and the
+mainline check (`verify_tags_reachable` runs only from `emit_underlying_templated`) is still not run from `emit`:
+doing so would parse the lexc source a second time, and no reproducing grammar justifies that cost yet.
+
 `pg_foma::emit::verify_tags_reachable` reports the finding structurally
 (`kind: "unreachable-after-lexc-compile"`) but no dedicated test asserting the parse-vs-bookkeeping
 question was found during this research pass. **Unverified**: whether this has ever been observed to
