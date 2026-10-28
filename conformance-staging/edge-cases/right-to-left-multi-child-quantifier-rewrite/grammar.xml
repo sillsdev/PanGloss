@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>RightToLeftMultiChildQuantifierRewrite</Name>
+    <!-- Staged for PanGloss issue 45 / divergence 017: a right-to-left iterative rule whose right environment holds a BOUNDED quantifier group with TWO children, (c d){1,2} t. A shallow reverse of the group (children left in document order) would test d-then-c; the true mirror reverses the interior. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="fConsPlus">+</Symbol><Symbol id="fConsMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols><Symbol id="fVoicePlus">+</Symbol><Symbol id="fVoiceMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featHigh"><Name>high</Name><Symbols><Symbol id="fHighLow">low</Symbol><Symbol id="fHighMid">mid</Symbol><Symbol id="fHighNA">na</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featHigh" symbolValues="fHighLow" />
+        </SegmentDefinition>
+        <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featHigh" symbolValues="fHighMid" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cc"><Representations><Representation>c</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoice" symbolValues="fVoicePlus" /><FeatureValue feature="featHigh" symbolValues="fHighNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoice" symbolValues="fVoiceMinus" /><FeatureValue feature="featHigh" symbolValues="fHighNA" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations>
+          <FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featVoice" symbolValues="fVoiceMinus" /><FeatureValue feature="featHigh" symbolValues="fHighMid" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncVowel"><Name>Vowel</Name><Segment segment="ca" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncCons"><Name>Cons</Name><Segment segment="cc" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncD"><Name>D</Name><Segment segment="cd" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncTrig"><Name>Trigger</Name><Segment segment="ct" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prRtlBq" multipleApplicationOrder="rightToLeftIterative">
+        <Name>rtlBoundedQuantifierDemo</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncVowel" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="ce" /></PhoneticSequence></PhoneticOutput>
+            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+              <OptionalSegmentSequence min="1" max="2"><SimpleContext naturalClass="ncCons" /><SimpleContext naturalClass="ncD" /></OptionalSegmentSequence>
+              <SimpleContext naturalClass="ncTrig" />
+            </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="prRtlBq">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eRoot1">
+            <Allomorphs><Allomorph id="aRoot1"><PhoneticShape>acdt</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ROOT1</MorphemeId>
+            <Gloss>root1</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eRoot2">
+            <Allomorphs><Allomorph id="aRoot2"><PhoneticShape>acdcdt</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ROOT2</MorphemeId>
+            <Gloss>root2</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eRoot3">
+            <Allomorphs><Allomorph id="aRoot3"><PhoneticShape>acdcdcdt</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ROOT3</MorphemeId>
+            <Gloss>root3</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

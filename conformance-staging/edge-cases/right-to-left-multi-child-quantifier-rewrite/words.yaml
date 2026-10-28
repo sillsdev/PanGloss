@@ -1,0 +1,35 @@
+# oracle-provenance: founding-oracle
+# Verified 2026-10-28 with hc-conformance self-check (sillsdev/machine master c2454760).
+# Staged for PanGloss issue 45 / divergence 017: a right-to-left rule whose right environment is a
+# bounded quantifier group with TWO children, (c d){1,2} t.
+
+language: RightToLeftMultiChildQuantifierRewrite
+inspired_by: ["synthetic right-to-left multi-child quantifier probe (not modeling any real language)"]
+sources:
+  - "docs/divergences/017-rtl-bounded-quantifier-shallow-reverse.md"
+requires: [phonology]
+words:
+  - word: ecdt
+    note: ROOT1 underlying acdt, a rewritten to e before one (c d) pair and t.
+    parses:
+      - signature: "ROOT1|ecdt"
+        rules: [prRtlBq]
+  - word: ecdcdt
+    note: ROOT2 underlying acdcdt, two pairs within the bound.
+    parses:
+      - signature: "ROOT2|ecdcdt"
+        rules: [prRtlBq]
+  - word: acdcdcdt
+    note: ROOT3, three pairs exceed the bound of two, so a stays.
+    parses:
+      - signature: "ROOT3|acdcdcdt"
+        rules: []
+  - word: acdt
+    note: Raw ROOT1, the rule is obligatory.
+    expect_fail: true
+  - word: acdcdt
+    note: Raw ROOT2, the rule is obligatory.
+    expect_fail: true
+  - word: ecdcdcdt
+    note: Not derivable, three pairs never trigger the rule.
+    expect_fail: true
