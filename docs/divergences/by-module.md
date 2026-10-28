@@ -237,14 +237,14 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 |---|---|---|---|
 |---|---|---|
 | Analysis cascade _(memo removed, 045)_ | 031, 045 | Cache-hit fixture never existed; now a C#-only coverage question |
-| `ApplyRhs` / `attribute_morphs` | 036 | Stable shared zero-width fixture still missing |
+| `ApplyRhs` / `attribute_morphs` | 036 | Combined #500+#556 sagui identity multiset retained; staged fixture and managed all-scope run pass; upstream acceptance separate |
 | C# / Rust seam | Entries | Shared fixtures |
-| C# tied-node ordering / oracle comparison | 037 | Fresh-process identity pin still missing |
+| C# tied-range lookup / Rust identity-order regression | 037 | Explicit-ID a/ga/subsumption plus compound-child and child-allomorph transition tests; current-fields candidate green; #554 separate |
 | Deletion unapplication x metathesis across strata | 050 | Missing; repro in Machine #520 |
 | Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |
 | FieldWorks `HCLoader.LoadAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_process_allomorph` | `pg-grammar/tests/process_allomorph_inflection_classes.rs` | 081 |
 | FieldWorks `HCLoader.LoadCircumfixAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `pg-grammar/tests/circumfix_inflection_classes.rs` | 082 |
-| Final-template state / `stratum.rs` policy | 033 | `final-template-partial-discriminators` |
+| Final-template state / `stratum.rs` policy | 033 | `final-template-partial-root` all rows pass; `final-template-partial-discriminators`; exact counter control |
 | Literal rewrite StrRep nonvacuity and inverse identity | 071 | `strrep-rewrite-unapplication`; synthetic kad/kat comparison; [Machine PR #538](https://github.com/sillsdev/machine/pull/538) |
 | Expansion unapplication after an interposed Optional | 104 | `interposed-optional-expansion-rhs` |
 | Narrowing unapplication after an interposed Optional | 083 | `interposed-optional-multi-rhs`; [Machine PR #540](https://github.com/sillsdev/machine/pull/540) |
