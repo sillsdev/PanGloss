@@ -5,6 +5,13 @@ file has no section for.
 
 ## Unreleased
 
+### Parser work and stop status
+
+- `serve` results now include an optional `status` identifying a completed parse, a work or
+  attempt cap, a timeout, or an invalid shape. The same status decision is used by `batch`;
+  its optional work columns keep their existing layout. `interfaces.batchTsv` is 3; the work
+  columns are available from version 2 onward. Serve protocol version 1 is unchanged.
+
 ### FieldWorks entry exclusions
 
 - FieldWorks entries marked `DoNotUseForParsing` are excluded from the parser inventory; re-import

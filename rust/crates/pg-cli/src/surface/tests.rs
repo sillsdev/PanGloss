@@ -117,7 +117,7 @@ fn describe_json_publishes_the_facts_identity_contract() {
     assert!(find_command("facts").is_some());
     assert_eq!(value["interfaces"]["serveProtocol"], 1);
     assert_eq!(value["schema_version"], 1);
-    assert_eq!(value["interfaces"]["batchTsv"], 2);
+    assert_eq!(value["interfaces"]["batchTsv"], 3);
     assert!(find_command("serve").is_some());
 }
 
