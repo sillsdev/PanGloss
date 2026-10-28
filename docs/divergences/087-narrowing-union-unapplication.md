@@ -90,4 +90,11 @@ fourteen fixtures listed under Fixtures, run from the pin's `conformance/edge-ca
 the Amharic parse-set comparison against the merged C#, and a fixture with a boundary before a Segment
 LHS constraint combined with an alpha variable. The status stays open until one of those is recorded.
 
+Added 2026-10-28 (issue #33): two staged fixtures, `narrowing-boundary-first-alpha-lhs`
+(`+ [stop αvoice] -> [fricative αvoice]`) and `narrowing-boundary-order-alpha-lhs`
+(`V + [stop αvoice] -> V [fricative αvoice]`), pin the boundary-then-Segment-with-alpha-variable case. A
+`hc.dll` built from Machine master `c2454760` (contains #539) and HC-Rust return the same parse sets on
+both (`aafa`: AA+FA, AA+PA; `aava`: AA+VA, AA+BA; `aapa`, `aaba`: none). The Amharic parse-set comparison is
+still not recorded, so the status stays open.
+
 Related: 083 (interposed Optional; [Machine PR #540](https://github.com/sillsdev/machine/pull/540)).
