@@ -11,6 +11,7 @@ pub mod alt_yield;
 pub mod batch;
 pub mod guess;
 pub mod identity;
+mod lookup_replay;
 pub mod morpher;
 pub mod overlay;
 pub mod parse_morph;

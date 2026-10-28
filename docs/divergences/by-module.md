@@ -10,7 +10,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048, 088, 089 |
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
 | `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030, 090, 091 |
-| `AnalysisAffixProcessRule.cs` | 001 |
+| `AnalysisAffixProcessRule.cs` | 001, 038 |
+| `Morpher.cs` (`IsPrunedByLookupReplay`), `LookupReplay.cs` | 105 |
 | `AnalysisAffixTemplateRule.cs` (`Apply`, `ApplySlots`) | 095 |
 | `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply`), `SegmentNaturalClass.cs`, `RootAllomorphTrie.cs` | 103 |
 | `AnalysisCompoundingRule.cs` | 001 |
@@ -143,6 +144,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/rewrite.rs` (`with_class_identity`), `pg-parse/src/root_trie.rs` (`search_segs_ident`, `edge_in_identity`) | 103 |
 | `pg-rules/src/stratum.rs` (`apply_one_mrule`, `analyze`, `synthesize_stratum_traced_with_policy`, `synth_apply_templates`), `pg-rules/src/morph.rs` (`synth_affix`, `synth_affix_cached`), `pg-grammar-model/src/model.rs` (`affix_rule_is_clitic`, `is_blocking_stratum`), `pg-grammar/src/load.rs` (`parse_is_clitic_rule`) | 102 |
 | `pg-rules/src/validity.rs` | 006, 030 |
+| `pg-rules/src/morph/edge_prefilter.rs`, `pg-rules/src/cache.rs` (`with_edge_prefilter`) | 038 |
+| `pg-parse/src/lookup_replay.rs`, `pg-parse/src/morpher.rs` (`with_lookup_replay`) | 105 |
 | `pg-rules/src/word.rs` (`current_non_head`) | 004 |
 | `pg-rules/src/word.rs` (`expand_alternatives`) | 018 |
 | `pg-shape/src/lib.rs` (`Shape::node_cd_set`) | 007 |
@@ -156,6 +159,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 |---|---|
 | `pg-conformance-fixtures/src/tests.rs` (`a_morpher_block_the_harness_cannot_apply_is_refused`, `incomplete_replay_cannot_pass_as_an_expected_zero_analysis`) | 097 |
 | `pg-rules/src/stratum/template_slot_sharing_tests.rs` | 095 |
+| `pg-parse/tests/edge_prefilter_gate.rs`, `pg-rules/src/morph/edge_prefilter.rs` (tests) | 038 |
+| `pg-parse/tests/lookup_replay_gate.rs`, `pg-parse/tests/edge_prefilter_gate.rs` (corpus measurement) | 105 |
 | `conformance-staging/edge-cases/class-deletion-reinsertion-strrep/`, `pg-parse/tests/conformance_fixtures_gate.rs` (`a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar`), `pg-parse/src/root_trie/tests.rs` | 103 |
 | `machine/conformance/edge-cases/clitic-rule-designation/`, `pg-parse/tests/clitic_template_state_gate.rs`, `pg-grammar/src/load/tests.rs` (`is_clitic_rule_*`) | 102 |
 | `conformance-staging/edge-cases/circumfix-conditioned-halves/` (HCLoader shape; fwdata path unpinned) | 039 |
@@ -241,7 +246,7 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | C# / Rust seam | Entries | Shared fixtures |
 | C# tied-node ordering / oracle comparison | 037 | Fresh-process identity pin still missing |
 | Deletion unapplication x metathesis across strata | 050 | Missing; repro in Machine #520 |
-| Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |
+| Edge-segment matching prefilter | 038 | Differential parse/trace test; no conformance grammar |
 | FieldWorks `HCLoader.LoadAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_process_allomorph` | `pg-grammar/tests/process_allomorph_inflection_classes.rs` | 081 |
 | FieldWorks `HCLoader.LoadCircumfixAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `pg-grammar/tests/circumfix_inflection_classes.rs` | 082 |
 | Final-template state / `stratum.rs` policy | 033 | `final-template-partial-discriminators` |

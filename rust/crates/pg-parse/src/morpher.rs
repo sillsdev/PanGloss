@@ -46,6 +46,8 @@ pub struct Morpher<'g> {
     word_timeout: Option<Duration>,
     /// Every matcher this grammar's rules need, compiled once and shared read-only across `--threads=N` workers.
     cache: RuleCache,
+    /// Drops lexical-lookup alternatives whose trail cannot pass a stem-name or MPR gate; `None` runs every alternative through synthesis.
+    lookup_replay: Option<crate::lookup_replay::LookupReplay>,
     /// C#'s settable `Morpher.MaxStemCount`, starting from `Grammar::max_stem_count`; raising it stays bounded by the shared step/timeout budget.
     max_stem_count: u32,
     /// C# `Morpher.PruneDisagreeingCopies`; on by default, as in C#.
@@ -441,6 +443,7 @@ impl<'g> Morpher<'g> {
             work_cap: pg_rules::stratum::default_work_cap(cap),
             word_timeout: None,
             cache: RuleCache::build(g),
+            lookup_replay: Some(crate::lookup_replay::LookupReplay::build(g)),
             max_stem_count: g.max_stem_count,
             prune_disagreeing_copies: true,
             merge_equivalent_analyses: g.merge_equivalent_analyses,
@@ -595,6 +598,17 @@ impl<'g> Morpher<'g> {
     pub fn with_edge_prefilter(mut self, on: bool) -> Self {
         self.cache = self.cache.with_edge_prefilter(on);
         self
+    }
+
+    /// Turns the lookup-time stem-name and MPR replay on or off; it never changes an analysis.
+    pub fn with_lookup_replay(mut self, on: bool) -> Self {
+        self.lookup_replay = on.then(|| crate::lookup_replay::LookupReplay::build(self.g));
+        self
+    }
+
+    /// Feature-set operations the lookup replay has spent so far; 0 when it is off.
+    pub fn lookup_replay_work(&self) -> u64 {
+        self.lookup_replay.as_ref().map_or(0, |r| r.work())
     }
 
     /// Introspection: the lexical-pattern root allomorphs partitioned out of the trie
@@ -886,6 +900,14 @@ impl<'g> Morpher<'g> {
                     for alt in expanded {
                         if !pg_fst::work::consume() {
                             break;
+                        }
+                        if !trace.is_tracing()
+                            && self
+                                .lookup_replay
+                                .as_ref()
+                                .is_some_and(|replay| !replay.is_feasible(g, &alt))
+                        {
+                            continue;
                         }
                         for vw in self.synthesis_pipeline_selected_with_policy(
                             alt,

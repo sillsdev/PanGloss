@@ -150,3 +150,49 @@ fn the_prefilter_keeps_reference_corpus_analyses_and_reports_work_steps() {
         );
     }
 }
+
+/// Same sample as above, measuring the lookup-time stem-name and MPR replay: `work_steps` with it off and on, plus the replay's own feature-set operations.
+#[test]
+#[ignore = "needs the private reference corpora (PANGLOSS_CORPUS_ROOT)"]
+fn the_lookup_replay_keeps_reference_corpus_analyses_and_reports_work_steps() {
+    use pg_conformance_fixtures::corpus;
+    let sample: usize = std::env::var("PANGLOSS_EDGE_SAMPLE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(120);
+    let cap: usize = std::env::var("PANGLOSS_EDGE_CAP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5_000_000);
+    for (name, skip) in [
+        ("indonesian", 0),
+        ("aweti", 0),
+        ("amharic", 4),
+        ("mbugwe", 0),
+        ("sena", 0),
+    ] {
+        let xml = std::fs::read_to_string(corpus::require(&format!("{name}-hc.xml"))).unwrap();
+        let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let words = std::fs::read_to_string(corpus::words_for(name)).unwrap();
+        let on = Morpher::new(&g, usize::MAX).with_work_cap(cap);
+        let off = Morpher::new(&g, usize::MAX)
+            .with_work_cap(cap)
+            .with_lookup_replay(false);
+        let (mut steps_on, mut steps_off, mut compared) = (0, 0, 0);
+        for word in words.lines().skip(skip).take(sample).map(str::trim) {
+            let (a, b) = (on.parse_word(word), off.parse_word(word));
+            if a.invalid_shape || b.invalid_shape || a.capped || b.capped {
+                continue;
+            }
+            assert_eq!(sorted(a.analyses), sorted(b.analyses), "{name} {word}");
+            steps_on += a.work_steps;
+            steps_off += b.work_steps;
+            compared += 1;
+        }
+        corpus::record_cases(name, compared);
+        println!(
+            "REPLAY {name}: words={compared} work_steps off={steps_off} on={steps_on} replay_ops={}",
+            on.lookup_replay_work()
+        );
+    }
+}
