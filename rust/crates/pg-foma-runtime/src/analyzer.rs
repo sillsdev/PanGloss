@@ -34,8 +34,9 @@ fn render_refusal(diagnostics: &[pg_health::capability::CapabilityDiagnostic]) -
         .join("; ")
 }
 /// Errors constructing a `FomaProposer`. Deliberately small (this stage doesn't need a rich
-/// error hierarchy) — a grammar whose foma path fails to compile should fall back to the full
-/// engine (plan §1's per-grammar tiering), which only needs to know THAT it failed.
+/// error hierarchy) — a grammar whose foma path fails to compile is refused with the emitter's
+/// report. Nothing in the compiler or its constructors falls back to another engine; choosing the full
+/// parser is the caller's decision, made from the readiness verdict.
 #[derive(Debug)]
 pub enum FomaError {
     /// `fsm_lexc_parse_string` returned `None`; carries the emitter's own report for diagnosis.

@@ -1,7 +1,7 @@
 //! Compiles phonological rewrite and metathesis relations over the owning character table.
 //! Alpha branches and RTL reversal provide candidate relations that require confirmation.
 //! Widened repeated environments use optional rewriting so extra matches cannot remove a valid
-//! unchanged candidate. Compilation refusals preserve unsupported rules for the fallback path.
+//! unchanged candidate. Unsupported rules are returned as skipped and the emitter reports them uncovered; no rule-level fallback compiles them.
 
 use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
