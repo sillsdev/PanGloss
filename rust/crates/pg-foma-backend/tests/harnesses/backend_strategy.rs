@@ -29,6 +29,8 @@ mod backend_selection_contract;
 mod bare_root_compile_time_discharge;
 #[path = "../partial_fst_production_admission_gate.rs"]
 mod partial_fst_production_admission_gate;
+#[path = "../pos_gated_subrules_ungated_cascade_gate.rs"]
+mod pos_gated_subrules_ungated_cascade_gate;
 #[path = "../strategy_aware_capability_gate.rs"]
 mod strategy_aware_capability_gate;
 #[path = "../strategy_coverage_join_gate.rs"]

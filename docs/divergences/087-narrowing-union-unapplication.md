@@ -72,10 +72,10 @@ compiled unreversed, so a multi-segment `rightToLeftIterative` LHS never matched
 
 FST backends: the new fixtures enter the backend scoreboard ratchet
 (`pg-foma-backend/tests/backend_scoreboard_gate.rs`). HC-Rust is exact on all of them; the
-`PlanComposed` backend refuses eleven (typed refusals), and `TunedSurfaceProbed` misses a parse on
-`boundary-first-in-narrowing-lhs-strrep`, an FST coverage gap on a feature-less boundary rule.
-Both FST strategies also miss on `merge-subrules-pos-rtl-template` in every application order,
-a separate gap with part-of-speech-gated narrowing subrules.
+`PlanComposed` backend refuses eleven (typed refusals). `merge-subrules-pos-rtl-template` was
+missed by both FST strategies until the ungated cascade stopped letting an earlier part-of-speech
+gated subrule preempt a later one (`replace.rs` `gated_optional`) and the fusion probe began to
+apply the synthesized word's own part of speech (`surface_probe::probe_synthesize_for`).
 
 ## Merged upstream variant
 

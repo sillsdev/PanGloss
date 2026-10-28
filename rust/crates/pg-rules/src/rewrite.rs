@@ -3372,6 +3372,8 @@ pub(crate) fn probe_apply_rule_cached(
     rule: &RewriteRuleDef,
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
+    syn_fs: &FeatureStruct,
+    mpr: MprSet,
 ) -> ProbeOutcome {
     // Owning-table resolution: see `synthesize_with_mpr_cached`.
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
@@ -3382,7 +3384,7 @@ pub(crate) fn probe_apply_rule_cached(
         if !pg_fst::work::consume() {
             break;
         }
-        if !subrule_applicable(g, sr, &FeatureStruct::EMPTY, MprSet::EMPTY) {
+        if !subrule_applicable(g, sr, syn_fs, mpr) {
             continue;
         }
         let sc = &pc.subrules[i];
@@ -3449,6 +3451,8 @@ pub(crate) fn probe_synthesize_stratum(
     prules: &[pg_grammar_model::model::PRuleId],
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
+    syn_fs: &FeatureStruct,
+    mpr: MprSet,
 ) -> ProbeOutcome {
     for &pid in prules {
         for n in ms.nodes.iter_mut() {
@@ -3456,7 +3460,9 @@ pub(crate) fn probe_synthesize_stratum(
         }
         match &g.prules[pid.0 as usize] {
             pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
-                if let ProbeOutcome::Refused = probe_apply_rule_cached(g, pid, r, ms, cache) {
+                if let ProbeOutcome::Refused =
+                    probe_apply_rule_cached(g, pid, r, ms, cache, syn_fs, mpr)
+                {
                     return ProbeOutcome::Refused;
                 }
             }

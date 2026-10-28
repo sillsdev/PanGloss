@@ -48,8 +48,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 123,
-            compiles_but_misses: 7,
+            oracle_exact: 124,
+            compiles_but_misses: 6,
             refused: 2,
             unmeasurable: 0,
         },
@@ -57,8 +57,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 101,
-            compiles_but_misses: 6,
+            oracle_exact: 102,
+            compiles_but_misses: 5,
             refused: 25,
             unmeasurable: 0,
         },

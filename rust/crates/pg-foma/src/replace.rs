@@ -594,6 +594,17 @@ pub fn compile_rewrite_rule_subset(
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
+    compile_rewrite_rule_subset_inner(opts, g, rule, allowed, false)
+}
+
+/// `gated_optional` keeps an identity alternative for every POS/MPR-gated subrule, so an earlier gated subrule cannot preempt a later one whose applicability only the confirm engine can decide.
+fn compile_rewrite_rule_subset_inner(
+    opts: &FomaOptions,
+    g: &Grammar,
+    rule: &RewriteRuleDef,
+    allowed: &dyn Fn(usize) -> bool,
+    gated_optional: bool,
+) -> Option<(Fsm, Vec<TupleReport>)> {
     if !is_fully_supported_shape(g, rule) {
         return None;
     }
@@ -653,6 +664,7 @@ pub fn compile_rewrite_rule_subset(
         );
         reports.push(report);
 
+        let mut subrule_net: Option<Fsm> = None;
         for asg in &assignments {
             let branch_net = compile_rtl_branch_net(
                 opts,
@@ -665,10 +677,21 @@ pub fn compile_rewrite_rule_subset(
                 asg,
                 &rule.xml_id,
             );
-            net = Some(match net {
+            subrule_net = Some(match subrule_net {
                 None => branch_net,
                 // Sequential composition, not union -- see the per-subrule composition note above this loop.
                 Some(prev) => fsm_compose(opts, prev, branch_net),
+            });
+        }
+        if let Some(sub) = subrule_net {
+            let sub = if gated_optional && crate::gate::is_gated(g, subrule) {
+                fsm_union(opts, sub, fsm_universal())
+            } else {
+                sub
+            };
+            net = Some(match net {
+                None => sub,
+                Some(prev) => fsm_compose(opts, prev, sub),
             });
         }
     }
@@ -779,7 +802,7 @@ fn compile_and_compose_rules_internal(
             }
         };
         // `is_fully_supported_shape` detects an unsupported RightToLeft/Simultaneous shape and reports it `skipped`, never a silent mis-map.
-        match compile_rewrite_rule_subset(opts, g, rule, &|_| true) {
+        match compile_rewrite_rule_subset_inner(opts, g, rule, &|_| true, optional_every_rule) {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 let net = if optional_every_rule {

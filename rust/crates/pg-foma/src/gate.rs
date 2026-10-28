@@ -164,7 +164,7 @@ pub struct GatedSubrule {
 }
 
 /// `true` iff `sr` declares a restriction this module partitions on; `Any`-type MPR group bits are masked out before testing emptiness.
-fn is_gated(g: &Grammar, sr: &RewriteSubruleDef) -> bool {
+pub(crate) fn is_gated(g: &Grammar, sr: &RewriteSubruleDef) -> bool {
     sr.required_pos.is_some()
         || !ungrouped_or_all(g, sr.required_mpr).is_empty()
         || !ungrouped_or_all(g, sr.excluded_mpr).is_empty()

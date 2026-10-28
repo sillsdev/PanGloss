@@ -12,9 +12,9 @@
 //! because this probe `Word` is not associated with any lexical entry at all. `probe_synthesize`
 //! mirrors that exactly.
 
-use pg_featstruct::flat_unifiable;
+use pg_featstruct::{flat_unifiable, FeatureStruct};
 use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
-use pg_grammar_model::model::Grammar;
+use pg_grammar_model::model::{Grammar, MprSet};
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
 
 use crate::cache::RuleCache;
@@ -44,10 +44,21 @@ pub struct ProbeSeg {
 /// 417-segment-alphabet probing (the plan's own ~112s C# figure) into something orders of magnitude
 /// worse. See `crate::rewrite::probe_apply_rule_cached`'s doc for the measured motivation.
 pub fn probe_synthesize(g: &Grammar, shape: &Shape, cache: &RuleCache) -> Option<Vec<ProbeSeg>> {
+    probe_synthesize_for(g, shape, cache, &FeatureStruct::EMPTY, MprSet::EMPTY)
+}
+
+/// `probe_synthesize` for a word whose syntactic FS and MPR set are known, so part-of-speech and MPR gated subrules apply exactly as they would to that word.
+pub fn probe_synthesize_for(
+    g: &Grammar,
+    shape: &Shape,
+    cache: &RuleCache,
+    syn_fs: &FeatureStruct,
+    mpr: MprSet,
+) -> Option<Vec<ProbeSeg>> {
     let mut ms = MutShape::from_shape(shape);
     for sd in &g.strata {
         if let ProbeOutcome::Refused =
-            rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms, cache)
+            rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms, cache, syn_fs, mpr)
         {
             return None;
         }

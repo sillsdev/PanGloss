@@ -482,7 +482,9 @@ fn extend(
             continue;
         }
         for w in synth_out {
-            let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
+            let Some(segs) =
+                surface_probe::probe_synthesize_for(ctx.g, &w.shape, ctx.cache, &w.syn_fs, w.mpr)
+            else {
                 continue;
             };
             // Computed once per synthesized `w`, not once per recursive call, so this stays O(pairs_probed) rather than O(pairs_probed x variants^depth): only the set of strings a step considers grows, the recursion tree does not branch on it.
