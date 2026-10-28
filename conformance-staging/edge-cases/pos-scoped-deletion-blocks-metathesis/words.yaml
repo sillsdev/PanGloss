@@ -24,6 +24,7 @@ sources:
   - "sillsdev/machine issue 520"
   - "sillsdev/PanGloss issue 28"
 requires: [phonology]
+fieldworks_producible: true
 words:
   - word: nui
     note: Simple metathesis word, blocked today by the unrelated posDel-scoped h deletion.

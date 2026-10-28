@@ -8,6 +8,7 @@ inspired_by: ["synthetic right-to-left multi-child quantifier probe (not modelin
 sources:
   - "docs/divergences/017-rtl-bounded-quantifier-shallow-reverse.md"
 requires: [phonology]
+fieldworks_producible: true
 words:
   - word: ecdt
     note: ROOT1 underlying acdt, a rewritten to e before one (c d) pair and t.
