@@ -532,6 +532,8 @@ impl LoadDisposition {
 pub enum LoadReasonCode {
     Represented,
     Disabled,
+    /// FieldWorks excluded this entire lexical entry from parsing.
+    DoNotUseForParsing,
     Synthesized,
     MetadataOnly,
     Abstract,
@@ -559,6 +561,7 @@ impl LoadReasonCode {
         match self {
             Self::Represented => "represented",
             Self::Disabled => "disabled",
+            Self::DoNotUseForParsing => "doNotUseForParsing",
             Self::Synthesized => "synthesized",
             Self::MetadataOnly => "metadataOnly",
             Self::Abstract => "abstract",

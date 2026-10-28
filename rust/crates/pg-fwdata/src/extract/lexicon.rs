@@ -1,8 +1,10 @@
 //! `lexicon` snapshot section — see `docs/snapshot-format.md` §6.
 
+use std::collections::HashSet;
+
 use pg_snapshot::{
     AffixProcess, Allomorph, EntryRef, FeatureSystems, InventoryKey, InventoryKind, IssueClass,
-    LexEntry, Lexicon, Morphology, Msa, RuleMapping, Sense, SourceRef,
+    LexEntry, Lexicon, LoadReasonCode, Morphology, Msa, RuleMapping, Sense, SourceRef,
 };
 
 use super::features::extract_feature_structure;
@@ -15,10 +17,53 @@ pub fn extract_lexicon(
     ctx: &mut Ctx,
     _feature_systems: &FeatureSystems,
     _morphology: &Morphology,
-) -> Lexicon {
-    // `LexEntry` is `owner="none"` in LCM (no ordered `Entries` sequence), so the parser tracks file-encounter order directly via `RawGraph::lex_entry_order`.
+) -> Result<Lexicon, crate::ImportError> {
+    // Entries own the forms and analyses consumed by every backend. Decide once before extracting them.
     let order = ctx.graph.lex_entry_order.clone();
-    let entries: Vec<LexEntry> = order.iter().filter_map(|g| extract_entry(ctx, g)).collect();
+    let mut excluded = HashSet::new();
+    let mut excluded_targets = HashSet::new();
+    for guid in &order {
+        let Some(rec) = ctx.get(guid) else { continue };
+        let value = rec.node.val_bool("DoNotUseForParsing");
+        if rec.node.child("DoNotUseForParsing").is_some() && value.is_none() {
+            return Err(crate::ImportError::InvalidDoNotUseForParsing { guid: guid.clone() });
+        }
+        if value == Some(true) {
+            excluded.insert(guid.clone());
+            excluded_targets.insert(guid.clone());
+            let mut pending = rec.node.objsur_list("Senses");
+            while let Some(sense) = pending.pop() {
+                if let Some(record) = ctx.get(&sense).filter(|record| record.class == "LexSense") {
+                    if excluded_targets.insert(sense) {
+                        pending.extend(record.node.objsur_list("Senses"));
+                    }
+                }
+            }
+            ctx.not_considered(
+                InventoryKey::object(InventoryKind::Entry, guid.clone()),
+                LoadReasonCode::DoNotUseForParsing,
+            );
+        }
+    }
+    let mut entries: Vec<LexEntry> = order
+        .iter()
+        .filter(|guid| !excluded.contains(*guid))
+        .filter_map(|guid| extract_entry(ctx, guid))
+        .collect();
+    // A reference cannot borrow an excluded entry's MSA or sense; retain other components.
+    for entry in &mut entries {
+        for reference in &mut entry.entry_refs {
+            let components = match reference {
+                EntryRef::Variant {
+                    component_lexemes, ..
+                }
+                | EntryRef::ComplexForm {
+                    component_lexemes, ..
+                } => component_lexemes,
+            };
+            components.retain(|guid| !excluded_targets.contains(guid));
+        }
+    }
     let ctx: &Ctx = ctx;
     let msa_equality = entries
         .iter()
@@ -27,10 +72,10 @@ pub fn extract_lexicon(
             super::msa_equality::equal_msas(ctx, &guids)
         })
         .collect();
-    Lexicon {
+    Ok(Lexicon {
         entries,
         msa_equality: Some(msa_equality),
-    }
+    })
 }
 
 fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {

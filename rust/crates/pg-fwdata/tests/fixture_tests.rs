@@ -2042,3 +2042,76 @@ fn imported_equal_msas_merge_into_the_sense_bearing_one() {
         "the first MSA has no sense, so the later sense-bearing one represents it"
     );
 }
+
+#[test]
+fn do_not_parse_preserves_other_components_and_records_the_exclusion() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = fixture_source();
+    let (baseline, _) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    assert_eq!(baseline.lexicon.entries.len(), 3);
+    let entry = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000030">"#;
+    let source = source.replacen(
+        entry,
+        &format!("{entry}<DoNotUseForParsing val=\"True\" />"),
+        1,
+    );
+    let sense = r#"<rt class="LexSense" guid="00000000-0000-0000-0000-000000000033" ownerguid="00000000-0000-0000-0000-000000000030">"#;
+    let source = source.replacen(sense, &format!("{sense}<Senses><objsur guid=\"00000000-0000-0000-0000-0000000000a1\" t=\"o\" /></Senses>"), 1);
+    let neighbor = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000040">"#;
+    let source = source.replacen(neighbor, &format!("{neighbor}<EntryRefs><objsur guid=\"00000000-0000-0000-0000-0000000000a2\" t=\"o\" /></EntryRefs>"), 1);
+    let records = r#"
+<rt class="LexSense" guid="00000000-0000-0000-0000-0000000000a1" ownerguid="00000000-0000-0000-0000-000000000033" />
+<rt class="LexEntryRef" guid="00000000-0000-0000-0000-0000000000a2" ownerguid="00000000-0000-0000-0000-000000000040">
+<ComponentLexemes><objsur guid="00000000-0000-0000-0000-000000000030" t="r" /><objsur guid="00000000-0000-0000-0000-0000000000a1" t="r" /><objsur guid="00000000-0000-0000-0000-000000000050" t="r" /></ComponentLexemes>
+</rt>"#;
+    let source = source.replace(
+        "</languageproject>",
+        &format!("{records}</languageproject>"),
+    );
+    let path = dir.path().join("excluded.fwdata");
+    std::fs::write(&path, source).unwrap();
+    let (snapshot, _, delta) = pg_fwdata::import_file_measured(&path).unwrap();
+    assert!(delta.silently_omitted.is_empty());
+    assert_eq!(snapshot.lexicon.entries.len(), 2);
+    let key = InventoryKey::object(InventoryKind::Entry, "00000000-0000-0000-0000-000000000030");
+    assert!(delta.inventory.authored.contains(&key));
+    assert!(!delta.inventory.selected.contains(&key));
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|decision| decision.subject == key
+            && decision.reason_code == LoadReasonCode::DoNotUseForParsing
+            && decision.disposition == LoadDisposition::NotConsidered));
+    let neighbor = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .find(|entry| entry.guid.ends_with("0040"))
+        .unwrap();
+    let pg_snapshot::EntryRef::Variant {
+        component_lexemes, ..
+    } = &neighbor.entry_refs[0]
+    else {
+        panic!("expected variant")
+    };
+    assert_eq!(component_lexemes, &["00000000-0000-0000-0000-000000000050"]);
+    assert!(!snapshot.validate().iter().any(|warning| warning
+        .message
+        .contains("00000000-0000-0000-0000-0000000000a1")));
+}
+
+#[test]
+fn do_not_parse_rejects_malformed_boolean() {
+    let dir = tempfile::tempdir().unwrap();
+    let entry = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000030">"#;
+    let path = fixture_variant(
+        dir.path(),
+        entry,
+        &format!("{entry}<DoNotUseForParsing val=\"maybe\" />"),
+    );
+    let error = pg_fwdata::import_file(&path).unwrap_err();
+    assert!(
+        matches!(error, pg_fwdata::ImportError::InvalidDoNotUseForParsing { guid } if guid.ends_with("0030"))
+    );
+}
