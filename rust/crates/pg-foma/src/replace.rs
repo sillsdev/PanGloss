@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use pg_featstruct::flat_unifiable;
 use pg_grammar::chardef::{CharDefId, CharDefTable};
 use pg_grammar::model::{
-    Dir, Grammar, MetathesisRuleDef, PRuleId, PhonRuleDef, RewriteMode, RewriteRuleDef,
-    RewriteSubruleDef, TableId,
+    Dir, Grammar, MetathesisRuleDef, PRuleId, PatternNode, PhonRuleDef, RewriteMode,
+    RewriteRuleDef, RewriteSubruleDef, TableId,
 };
 
 /// Private-Use-Area base codepoint every `CharDefId` is offset from; no in-scope grammar has enough char-defs to overflow the PUA block.
@@ -535,13 +535,27 @@ pub fn compile_rewrite_rule(
     compile_rewrite_rule_subset(opts, g, rule, &|_| true)
 }
 
+/// Whether the focus or any replacement is a quantified group. C# fails rule compilation on that position and FieldWorks authors focus and replacement as simple contexts (divergence 068), so it is refused permanently; quantifiers stay admitted in environments.
+fn has_quantified_target(rule: &RewriteRuleDef) -> bool {
+    let quantified = |nodes: &[PatternNode]| {
+        nodes
+            .iter()
+            .any(|node| matches!(node, PatternNode::Quantifier { .. }))
+    };
+    quantified(&rule.lhs.nodes)
+        || rule
+            .subrules
+            .iter()
+            .any(|subrule| quantified(&subrule.rhs.nodes))
+}
+
 /// Whether `compile_rewrite_rule_subset` could produce a net for `rule` at all when every subrule
 /// is allowed, decided from the same shape/pattern-lowering checks that function runs before it
 /// ever builds an `Fsm` -- so a capability-envelope caller reads one computation with the real
 /// compiler rather than re-deriving an equivalent-looking check (this repo's own CLAUDE.md names
 /// three past attempts that failed exactly that way).
 pub fn rewrite_rule_is_lowerable(g: &Grammar, rule: &RewriteRuleDef) -> bool {
-    if !is_fully_supported_shape(g, rule) {
+    if !is_fully_supported_shape(g, rule) || has_quantified_target(rule) {
         return false;
     }
     let Some(table) = owning_table(g, rule) else {
@@ -602,7 +616,7 @@ fn compile_rewrite_rule_subset_inner(
     allowed: &dyn Fn(usize) -> bool,
     gated_optional: bool,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
-    if !is_fully_supported_shape(g, rule) {
+    if !is_fully_supported_shape(g, rule) || has_quantified_target(rule) {
         return None;
     }
     // Resolved once per rule, never an implicit table-zero default; `None` is treated like an unsupported construct, reported `skipped` by callers.
