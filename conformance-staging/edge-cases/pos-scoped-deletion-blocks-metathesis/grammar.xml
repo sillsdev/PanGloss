@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Staged for divergence 050 / PanGloss issue 28 / sillsdev/machine issue 520: a part-of-speech-scoped
+     deletion rule (prHDel, h -> nothing / V _ V, scoped to posDel) must not stop words of OTHER parts
+     of speech from being analysed by the metathesis rules in deeper strata. Reduced from
+     languages/metathesis-phase-isolation with the `V _ a` context widened to `V _ V`. -->
+<HermitCrabInput>
+  <Language>
+    <Name>PosScopedDeletionBlocksMetathesis</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posComplexMeta"><Name>nComplexMeta</Name></PartOfSpeech>
+      <PartOfSpeech id="posSimpleMeta"><Name>nSimpleMeta</Name></PartOfSpeech>
+      <PartOfSpeech id="posDel"><Name>vDel</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="fcons"><Name>cons</Name><Symbols><Symbol id="fconsPlus">+</Symbol><Symbol id="fconsMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="fhigh"><Name>high</Name><Symbols><Symbol id="fhighPlus">+</Symbol><Symbol id="fhighMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="fback"><Name>back</Name><Symbols><Symbol id="fbackPlus">+</Symbol><Symbol id="fbackMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="fround"><Name>round</Name><Symbols><Symbol id="froundPlus">+</Symbol><Symbol id="froundMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="fplace"><Name>place</Name><Symbols><Symbol id="place_vocalic">vocalic</Symbol><Symbol id="place_glottal">glottal</Symbol><Symbol id="place_alveolar">alveolar</Symbol><Symbol id="place_labial">labial</Symbol><Symbol id="place_stop">stop</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <HeadFeatures />
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="s_a"><Representations><Representation>a</Representation></Representations><FeatureValue feature="fcons" symbolValues="fconsMinus" /><FeatureValue feature="fhigh" symbolValues="fhighMinus" /><FeatureValue feature="fback" symbolValues="fbackPlus" /><FeatureValue feature="fround" symbolValues="froundMinus" /><FeatureValue feature="fplace" symbolValues="place_vocalic" /></SegmentDefinition>
+        <SegmentDefinition id="s_i"><Representations><Representation>i</Representation></Representations><FeatureValue feature="fcons" symbolValues="fconsMinus" /><FeatureValue feature="fhigh" symbolValues="fhighPlus" /><FeatureValue feature="fback" symbolValues="fbackMinus" /><FeatureValue feature="fround" symbolValues="froundMinus" /><FeatureValue feature="fplace" symbolValues="place_vocalic" /></SegmentDefinition>
+        <SegmentDefinition id="s_u"><Representations><Representation>u</Representation></Representations><FeatureValue feature="fcons" symbolValues="fconsMinus" /><FeatureValue feature="fhigh" symbolValues="fhighPlus" /><FeatureValue feature="fback" symbolValues="fbackPlus" /><FeatureValue feature="fround" symbolValues="froundPlus" /><FeatureValue feature="fplace" symbolValues="place_vocalic" /></SegmentDefinition>
+        <SegmentDefinition id="s_h"><Representations><Representation>h</Representation></Representations><FeatureValue feature="fcons" symbolValues="fconsPlus" /><FeatureValue feature="fhigh" symbolValues="fhighMinus" /><FeatureValue feature="fback" symbolValues="fbackMinus" /><FeatureValue feature="fround" symbolValues="froundMinus" /><FeatureValue feature="fplace" symbolValues="place_glottal" /></SegmentDefinition>
+        <SegmentDefinition id="s_n"><Representations><Representation>n</Representation></Representations><FeatureValue feature="fcons" symbolValues="fconsPlus" /><FeatureValue feature="fhigh" symbolValues="fhighMinus" /><FeatureValue feature="fback" symbolValues="fbackMinus" /><FeatureValue feature="fround" symbolValues="froundMinus" /><FeatureValue feature="fplace" symbolValues="place_alveolar" /></SegmentDefinition>
+        <SegmentDefinition id="s_m"><Representations><Representation>m</Representation></Representations><FeatureValue feature="fcons" symbolValues="fconsPlus" /><FeatureValue feature="fhigh" symbolValues="fhighMinus" /><FeatureValue feature="fback" symbolValues="fbackMinus" /><FeatureValue feature="fround" symbolValues="froundMinus" /><FeatureValue feature="fplace" symbolValues="place_labial" /></SegmentDefinition>
+        <SegmentDefinition id="s_p"><Representations><Representation>p</Representation></Representations><FeatureValue feature="fcons" symbolValues="fconsPlus" /><FeatureValue feature="fhigh" symbolValues="fhighMinus" /><FeatureValue feature="fback" symbolValues="fbackMinus" /><FeatureValue feature="fround" symbolValues="froundMinus" /><FeatureValue feature="fplace" symbolValues="place_stop" /></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cBnd"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncVowel"><Name>Vowel</Name><FeatureValue feature="fcons" symbolValues="fconsMinus" /></FeatureNaturalClass>
+      <SegmentNaturalClass id="ncI"><Name>I</Name><Segment segment="s_i" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncU"><Name>U</Name><Segment segment="s_u" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncH"><Name>H</Name><Segment segment="s_h" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prHDel">
+        <Name>hDeletion</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncH" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule requiredPartsOfSpeech="posDel">
+            <PhoneticOutput><PhoneticSequence /></PhoneticOutput>
+            <Environment>
+              <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVowel" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+              <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVowel" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <MetathesisRule id="mrSimpleMeta" leftSwitch="segU" rightSwitch="segI">
+        <Name>metathesisSimple</Name>
+        <StructuralDescription>
+          <PhoneticTemplate>
+            <PhoneticSequence>
+              <SimpleContext id="segI" naturalClass="ncI" />
+              <SimpleContext id="segU" naturalClass="ncU" />
+            </PhoneticSequence>
+          </PhoneticTemplate>
+        </StructuralDescription>
+      </MetathesisRule>
+      <MetathesisRule id="mrComplexMeta" leftSwitch="segU2" rightSwitch="segI2">
+        <Name>metathesisComplex</Name>
+        <StructuralDescription>
+          <PhoneticTemplate finalBoundaryCondition="true">
+            <PhoneticSequence>
+              <SimpleContext id="segI2" naturalClass="ncI" />
+              <BoundaryMarker boundary="cBnd" />
+              <SimpleContext id="segU2" naturalClass="ncU" />
+            </PhoneticSequence>
+          </PhoneticTemplate>
+        </StructuralDescription>
+      </MetathesisRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered"
+        morphologicalRules="mrUSuffix" phonologicalRules="mrComplexMeta">
+        <Name>ComplexMeta</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrUSuffix" requiredPartsOfSpeech="posComplexMeta" outputPartOfSpeech="posComplexMeta">
+            <Name>USuffix</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subUSuffix">
+                <MorphologicalInput><PhoneticSequence id="pUSuffix"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="pUSuffix" /><InsertSegments><PhoneticShape>+u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>3SGU</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eMi" partOfSpeech="posComplexMeta">
+            <Allomorphs><Allomorph id="aMi"><PhoneticShape>mi</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>MI</MorphemeId>
+            <Gloss>come</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered"
+        phonologicalRules="mrSimpleMeta">
+        <Name>SimpleMeta</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eNiu" partOfSpeech="posSimpleMeta">
+            <Allomorphs><Allomorph id="aNiu"><PhoneticShape>niu</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NIU</MorphemeId>
+            <Gloss>coconut</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered"
+        phonologicalRules="prHDel">
+        <Name>Morphology</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eAhi" partOfSpeech="posDel">
+            <Allomorphs><Allomorph id="aAhi"><PhoneticShape>ahi</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>AHI</MorphemeId>
+            <Gloss>carry</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="ePan" partOfSpeech="posDel">
+            <Allomorphs><Allomorph id="aPan"><PhoneticShape>pan</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>PAN</MorphemeId>
+            <Gloss>bread</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

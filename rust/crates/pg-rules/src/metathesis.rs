@@ -567,13 +567,31 @@ fn analyze_with_pattern(
     let mut applied = false;
     loop {
         let (segs, node_of) = ms.segs(false);
+        let cands = match_candidates(pattern, &segs);
+        // Exact-width candidates first (pattern nodes may themselves be optional nodes another rule's unapplication recovered); only then spans widened by skipped optional nodes (divergence 050).
+        let exact = cands
+            .iter()
+            .filter(|c| c.entire.1 - c.entire.0 == pattern_len)
+            .map(|c| (c, false));
+        let skipping = cands
+            .iter()
+            .filter(|c| {
+                c.entire.1 - c.entire.0 > pattern_len
+                    && segs[c.entire.0..c.entire.1]
+                        .iter()
+                        .filter(|s| !s.optional)
+                        .count()
+                        == pattern_len
+            })
+            .map(|c| (c, true));
         let mut acted = false;
-        for cand in match_candidates(pattern, &segs) {
-            if cand.entire.1 - cand.entire.0 != pattern_len {
-                continue;
+        for (cand, skip_optional) in exact.chain(skipping) {
+            let mut left_nodes = seg_range_to_nodes(&node_of, cand.left);
+            let mut right_nodes = seg_range_to_nodes(&node_of, cand.right);
+            if skip_optional {
+                left_nodes.retain(|&n| !ms.nodes[n].optional);
+                right_nodes.retain(|&n| !ms.nodes[n].optional);
             }
-            let left_nodes = seg_range_to_nodes(&node_of, cand.left);
-            let right_nodes = seg_range_to_nodes(&node_of, cand.right);
             if left_nodes
                 .iter()
                 .chain(&right_nodes)
