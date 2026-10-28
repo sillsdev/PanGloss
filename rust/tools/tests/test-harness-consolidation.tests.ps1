@@ -98,6 +98,7 @@ $crateSpecs = @(
             'pattern_root_token_route_gate.rs', 'pk2_eliminate_flag_oracle.rs',
             'p6_templated_morphotactics_gate.rs', 'phase_c_chain_scale.rs',
             'plan_composed_marker_material_gate.rs', 'plan_interaction_coverage_gate.rs',
+            'pos_gated_subrules_ungated_cascade_gate.rs',
             'predicate_negative_witness_gate.rs', 'process_morphology_route_gate.rs',
             'realizational_pc_represents_gate.rs',
             'segment_natural_class_table_binding_discriminates.rs',
