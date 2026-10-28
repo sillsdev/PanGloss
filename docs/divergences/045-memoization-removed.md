@@ -7,7 +7,7 @@ words return a result on a pathological grammar — see "The cost" below. With n
 efficiency-only: the parse set is identical.
 
 ## Status
-Removed in Rust, deliberate, reported upstream. Supersedes 031 and 032; moots 023 and 025.
+Permanent: removed in Rust, deliberate, reported upstream. Supersedes 031 and 032; moots 023 and 025.
 
 ## C# site
 `AnalysisScope.cs`, `AnalysisStateKey.cs`, `AnalysisStratumRule` / `AnalysisAffixTemplatesRule`.

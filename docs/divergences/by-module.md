@@ -1,228 +1,55 @@
 # Divergence catalogue: lookup by module
 
 Two-way index. Find a C# source file or a Rust module below to get the entry ids that touch it.
-See `README.md` for the full status table and the kind/status/lifecycle definitions.
+See `README.md` for the full status table and the kind definitions.
 
 ## By C# file
 
 | C# file | Entry ids |
 |---|---|
-| (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048, 088, 089 |
-| `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
-| `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030, 090, 091 |
-| `AnalysisAffixProcessRule.cs` | 001, 038 |
-| `Morpher.cs` (`IsPrunedByLookupReplay`), `LookupReplay.cs` | 105 |
-| `AnalysisAffixTemplateRule.cs` (`Apply`, `ApplySlots`) | 095, 109 |
-| `RequiredSlotMaterial.cs` (Machine #575, #576, #579) | 109, 111, 112 |
-| `AnalysisAffixTemplatesRule.cs` (`Walk`, Machine #577) | 110 |
-| `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply`), `SegmentNaturalClass.cs`, `RootAllomorphTrie.cs` | 103 |
-| `AnalysisCompoundingRule.cs` | 001 |
-| `AnalysisCompoundingRule.cs` (`Apply`, trace node types), `TraceManager.cs` | 092 |
-| `AnalysisCompoundingRule.cs` (`Apply`, non-head-must-be-bare-root gate) | 005 |
-| `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
-| `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
-| `AnalysisRewriteRule.cs` (`Apply`, `ReapplyType.Deletion`), `Morpher.cs` (`DeletionReapplications`) | 093 |
-| `AnalysisStratumRule.cs`, `SynthesisStratumRule.cs`, `SynthesisAffixTemplatesRule.cs`, `AnalysisAffixProcessRule.cs`, `SynthesisAffixProcessRule.cs`, `MorphemicMorphologicalRule.cs` (`GetIsCliticRule`), `Morpher.cs` (`IsBlockingStratum`), `XmlLanguageLoader.cs` (`isCliticRule`) | 102 |
-| `AnalysisScope.cs` | 023, 024, 025, 045 |
-| `AnalysisStateKey.cs` | 023, 024, 045 |
-| `AnalysisSyntacticFeatureMerge.cs` (research-only, `pr494` worktree) | 002 |
-| C# rewrite alpha binding / `RewriteRuleSpec.MatchSubrule` | 067, 115 |
-| `CharacterDefinitionTable.cs` (`Add` / `FeatureStruct.IsUnifiable`) | 010 |
-| `CharacterDefinitionTable.cs` (`GetMatchingStrReps`, `Add`) | 007, 009, 010 |
-| `CompoundingRuleTests.cs` | 003, 004, 005 |
-| `FeatureAnalysisRewriteRuleSpec` effective target priority union | 069 |
-| `FeatureAnalysisRewriteRuleSpec.cs` (`Group`) | 015 |
-| `FeatureAnalysisRewriteRuleSpec.cs` (inverse StrRep, `IsUnapplicationNonvacuous`), `StringFeatureValue.cs` (`IsSupersetOf`) | 071 |
-| `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply` target-node walk) | 083 |
-| `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply` union encoding, Machine PR #539) | 087 |
-| `FeatureStruct.cs` (`Unify` out-param overload) | 018 |
+| (none — no C# equivalent) | 028, 089 |
+| `AnalysisScope.cs` | 024, 045 |
+| `AnalysisStateKey.cs` | 024, 045 |
 | `FeatureValue.cs` / `SimpleFeatureValue.cs` (shared variable/negation machinery) | 026 |
-| FieldWorks `HCLoader.cs` (adhoc repositories, lines 340-350) | 053 |
-| FieldWorks `HCLoader.cs` (`LoadCircumfixAffixProcessAllomorph`) | 039 |
-| FieldWorks `HCLoader.cs` (`LoadPatternNode`, `LoadCharacterDefinitionTable`, reserved word-boundary GUID) | 054 |
-| FieldWorks `HCLoader.cs` (`LoadRootAllomorph`, `GetValidEnvironments`, `IsValidRuleForm`) | 051 |
 | `HermitCrabExtensions.cs` | 027 |
-| `IterativePhonologicalPatternRule.cs` | 014 |
-| `Morpher.cs` (ctor, `_allomorphTries`, `IsPattern` partition) | 019 |
 | `Morpher.cs` (`MatchNodesWithPattern`, `LexicalGuess`) | 027 |
-| `Morpher.cs` (`MaxStemCount`) | 022 |
-| FieldWorks `HCParser.cs` (`LoadParser`, `MaxRoots`); `Morpher.cs` (`MaxStemCount`) | 094 |
-| FieldWorks `HCParser.cs` (`LoadParser`, `MakePartialsFinal`); `Morpher.cs` (`AlwaysEnforceFinalTemplates`) | 101 |
-| FieldWorks `HCParser.cs` (`LoadParser`, `MergeAnalyses`); `AnalysisStratumRule.cs` (`MergeEquivalentAnalyses`) | 096 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`, `MaxAlternatives`); `Morpher.cs` (`SynthesizeSequential`/`SynthesizeParallel`); `AnalysisStratumRule.cs`, `CombinationRuleCascade.cs`, `LinearRuleCascade.cs`, `MemoizedCombinationRuleCascade.cs` | 097 |
-| FieldWorks `HCParser.cs` (ctor, `LoadParser`, `GuessRoots`); `Morpher.cs` (`ParseWord` guess branch, `LexicalGuess`) | 098 |
-| FieldWorks `HCParser.cs` (`LoadParser`, `MergeMSAs`); `HCLoader.cs` (`RepresentativeMSA`, `UniqueMSAs`); liblcm `EqualsMsa` | 099 |
-| FieldWorks `HCLoader.cs` ctor (`NotOnClitics`, `NoDefaultCompounding`, `AcceptUnspecifiedGraphemes`) | 100 |
-| `NaturalClass.cs` (ctor `Type` stamping) | 013 |
-| `PatternNode.GenerateNfa` | 012 |
-| `Quantifier.cs` (`GenerateNfa`), `PatternNodeCastExtensions.cs`; FieldWorks `HCLoader.cs`, `OccurrenceDlg.cs` | 068 |
-| `Quantifier.cs` (`GenerateNfa`), phonological environment variable matching; FieldWorks `HCLoader.cs` (`LoadPatternNode`, `GetVariables`) | 058, 066 |
-| `RewriteRuleSpec.cs` (`MatchSubrule`), `TraversalMethodBase.cs` (`CheckAcceptingStartState`); FieldWorks `HCLoader.cs` (`LoadPatternNode`) | 065 |
 | rule-spec constructors (LHS/RHS child type casts) | 020 |
-| `SimultaneousPhonologicalPatternRule.cs` (`Apply`) | 016 |
-| `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
-| `SynthesisAffixProcessAllomorphRuleSpec.cs` (`ApplyRhs`) | 007, 008 |
-| `SynthesisCompoundingRule.cs` (`ApplySubrule`) | 003 |
-| `SynthesisRewriteRuleSpec.cs` (empty-LHS pattern walk) | 011, 013 |
-| `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
 | `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
-| `TraversalMethodBase.cs` (`Initialize`) | 013 (cited as not-a-bug) |
-| `Word.cs` (copy ctor, `_nonHeadApps`) | 003 |
-| `Word.cs` (`CurrentNonHead`) | 004 |
-| `Word.cs` (`ExpandAlternatives`, realizational-FS diff) | 018 |
-| `Word.cs` (`GetMorphs`/`MarkMorphs`) | 006 |
-| `RewriteRuleSpec.MatchSubrule`; FieldWorks `HCLoader.cs` explicit segment-class member lists | 079 |
 
 ## By Rust module
 
 | Rust file | Entry ids |
 |---|---|
-| _(was `pg-memo/src/lib.rs`, deleted)_ | 023, 025, 045 |
-| `pg-cli/src/main.rs` (`run_batch`, `parse_batch_with_stats`) | 048 |
-| `pg-cli/src/stored_analysis_health.rs`, `pg-cli/src/grammar_health.rs` | 086, 088, 089 |
-| `pg-cli/src/stats_cmd.rs` (`prepare_batch_stats_hc`, `finish_batch_stats_hc`) | 048 |
+| _(was `pg-memo/src/lib.rs`, deleted)_ | 045 |
+| `pg-cli/src/stored_analysis_health.rs`, `pg-cli/src/grammar_health.rs` | 086, 089 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
-| `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
-| `pg-foma/src/lower.rs` (`alpha_members`); `replace.rs` (`compile_rewrite_rule_subset`) | 067, 079 |
-| `pg-foma/src/lower.rs` (`project_explicit_members`, deferred alpha slots) | 079 |
-| `pg-foma/src/lower.rs` (`PatternLowerScope`, `Slot::RepeatedAlpha`); `replace.rs` (`render_branch_regex`); `capability.rs` (`rtl_reversal_diagnosis`) | 066 |
-| `pg-foma/src/lower.rs` (`slots_from_nodes`); `replace.rs` (`owning_table`, `rewrite_rule_is_lowerable`) | 068 |
-| `pg-foma/src/replace.rs` (`pattern_slots`, `compile_rtl_branch_net`) | 017, 044 |
-| `pg-foma/src/replace.rs` (`reversed_slots`, `compile_rtl_branch_net`) | 017 |
-| `pg-foma/src/replace.rs` (`SegAlphabet::render_tokens`, `RepresentationAliasMap`, `compile_rewrite_rule_subset`, `compile_metathesis_swap_net`) | 040 |
-| `pg-fst` (`Transduce::initialize`) | 013 (cited as not-a-bug) |
 | `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
-| `pg-fwdata/src/extract/mod.rs` (`extract_with`), `pg-fwdata/src/xml.rs` (`push_duplicate_guid_issues`, `class_allowed`, `RawGraph::census`) | 088 |
-| `pg-fwdata/src/extract/phonology.rs` (`extract_phoneme_set`, `resolve_phon_context`) | 054 |
-| `pg-fwdata/src/xml.rs` (`ALLOWED_CLASSES`), `pg-fwdata/src/extract/inventory.rs` (`class_role`), `pg-fwdata/src/extract/morphology.rs` (`extract_adhoc_prohibitions`) | 053 |
-| `pg-grammar/src/chardef.rs` (`unif_closure`/`unifiable_cds`) | 010 |
-| `pg-grammar/src/compile/affixes.rs` (`build_circumfix_allomorphs`) | 039 |
-| `pg-grammar/src/compile/environment.rs`, `affixes.rs`, `warnings.rs`; `pg-cli/src/compile_failure.rs` | 051 |
-| `pg-parse/src/guess.rs` | 019, 027 |
-| `pg-parse/src/morpher.rs` (`Morpher::with_max_stem_count`) | 022 |
-| `pg-fwdata/src/parser_params.rs` (`hc_max_roots`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`) | 094 |
+| `pg-parse/src/guess.rs` | 027 |
 | `pg-fwdata/src/parser_params.rs` (does not import `MaxAlternatives`); `pg-snapshot/src/morphology.rs` (`ParserParameters` has no field); `pg-parse/src/morpher.rs` (analysis/work caps, timeout, incomplete outcome) | 097 |
-| `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`); `pg-cli/src/main.rs` (`run_batch`) | 101 |
-| `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `with_merge_equivalent_analyses`) | 096 |
-| `pg-fwdata/src/parser_params.rs` (`hc_parser_bool`); `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `with_guess_roots`, `project_parse_options`, guess branch); `pg-parse/src/parse_morph.rs` (`project_parse_analysis`); `pg-cli/src/main.rs` (`--guess`), `pg-cli/src/serve.rs` | 098 |
-| `pg-grammar/src/compile/lexicon.rs` (per-MSA fan-out) | 099 |
-| `pg-fwdata/src/parser_params.rs` (`hc_bool`) | 100 |
-| `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
-| `pg-parse/src/root_trie.rs` (`RootAllomorphIndex::search`, `RootAllomorphTrie::build`) | 009, 019 |
-| `pg-parse/src/surface.rs` (`matching_str_reps`, `matching_reps_for_node`) | 007, 010 |
-| `pg-snapshot/src/conversion.rs` (`SelectionRecorder::has_load_decision`, `finish_with_load_decisions`) | 088 |
 | `pg-rules/src/analysis_state_key.rs` | 024, 045 |
-| `pg-rules/src/bridge.rs` (`pattern_var_occurrences`, `simple_context_lanes`); `pg-rules/src/rewrite.rs` (`resolve_bindings`); `pg-foma/src/lower.rs` (refusal research) | 058 |
-| `pg-rules/src/bridge.rs` (`PatternBridge::nat_class_lanes`) | 013 |
-| `pg-rules/src/cache.rs` (`owning_table_for_prule`/`_metathesis_rule`/`_morpheme`/`_allomorph`/`_mrule`/`_compounding_rule`) | 041 |
-| `pg-rules/src/metathesis.rs` (`synthesis_reorder`) | 042 |
-| `pg-rules/src/metathesis.rs` (`synthesize`/`analyze` table resolution) | 041 |
-| `pg-rules/src/morph.rs` (`ana_syn_fs`) | 001, 002 |
-| `pg-rules/src/morph.rs` (`attribute_morphs`) | 006, 008 |
-| `pg-rules/src/morph.rs` (`segs_of`, `compile_parts`, `build_analysis_lhs`), `pg-rules/src/rewrite.rs` (`compile_env_impl`), `pg-rules/src/bridge.rs` (`id_lane_width`) | 090 |
-| `pg-rules/src/bridge.rs` (`StrRepMatcher::identity`), `pg-rules/src/morph.rs` (`segs_of`, `compile_parts`), `pg-rules/src/rewrite.rs` (`compile_env_impl`, `MutShape::segs`) | 091 |
-| `pg-rules/src/morph.rs` (`copy_agreement_refuses_match`, `ana_allomorph_matches`), `pg-rules/src/stratum.rs` (`AnalyzerConfig`) | 049 |
-| `pg-rules/src/morph.rs` (`copy_part`) | 007 |
-| `pg-rules/src/morph.rs` (`resolve_non_head_roots`) | 005 |
-| `pg-rules/src/morph.rs` (`synth_compound_subrule`) | 003 |
-| `pg-rules/src/morph.rs` (`ana_compound_traced`), `pg-rules/src/trace.rs` (`compounding_rule_not_unapplied`, `compounding_rule_unapplied`) | 092 |
-| `pg-rules/src/rewrite.rs` (`ana_feature`) | 009, 015, 071 |
-| `pg-rules/src/rewrite.rs` (`ana_narrow_general`, `grouped_target_positions`) | 083, 104 |
-| `pg-rules/src/rewrite.rs` (`ana_narrow_general` true-narrowing union, `union_narrowing_node`) | 087 |
-| `pg-rules/src/rewrite.rs` (`ana_feature_target`, `ana_feature`) | 069 |
-| `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026, 115 |
-| `pg-rules/src/rewrite.rs` (`compile_lane_fst`) | 012 |
-| `pg-rules/src/rewrite.rs` (`compile_lane_fst_grouped`) | 015 |
-| `pg-rules/src/rewrite.rs` (deletion unapplication), `pg-rules/src/metathesis.rs` (analysis) | 050 |
-| `pg-rules/src/rewrite.rs` (`reapply_deletion`); `pg-fwdata/src/parser_params.rs`; `pg-grammar/src/compile/mod.rs` | 093 |
-| `pg-rules/src/rewrite.rs` (`empty_env_match`); `pg-fst/src/traverse.rs` (`check_accepting_start_state`) | 065 |
-| `pg-rules/src/rewrite.rs` (`MutShape`, literal synthesis and inverse targets); `pg-rules/src/bridge.rs` (`StrRepMatcher`, `PatternBridge`) | 071 |
-| `pg-rules/src/rewrite.rs` (`sim_feature`) | 016 |
-| `pg-rules/src/rewrite.rs` (`syn_epenthesis`, `ana_epenthesis`) | 011, 013, 014 |
+| `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |
 | `pg-rules/src/rewrite.rs` (`width_matches`) | 020 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
-| `pg-rules/src/stratum.rs` (`synthesize_stratum_traced`) | 043 |
-| `pg-rules/src/stratum.rs` (`run_template_batch`, `shared_slot_battery`, `walk_slot_trie`, `SlotTrie`) | 095 |
-| `pg-rules/src/stratum.rs` (`template_unapply_slots`), `pg-rules/src/stratum/required_slot_check.rs`, `pg-rules/src/required_slots.rs` | 109, 111, 112 |
-| `pg-rules/src/stratum.rs` (`walk_slot_trie`, `TrieWalk`), `pg-rules/src/stratum/required_slot_check.rs` (`shared_look_ahead`) | 110 |
-| `pg-rules/src/required_slots/embed.rs`, `pg-rules/src/morph.rs` (`inserted_material`) | 111 |
-| `pg-rules/src/rewrite.rs` (`with_class_identity`), `pg-parse/src/root_trie.rs` (`search_segs_ident`, `edge_in_identity`) | 103 |
-| `pg-rules/src/stratum.rs` (`apply_one_mrule`, `analyze`, `synthesize_stratum_traced_with_policy`, `synth_apply_templates`), `pg-rules/src/morph.rs` (`synth_affix`, `synth_affix_cached`), `pg-grammar-model/src/model.rs` (`affix_rule_is_clitic`, `is_blocking_stratum`), `pg-grammar/src/load.rs` (`parse_is_clitic_rule`) | 102 |
-| `pg-rules/src/validity.rs` | 006, 030 |
-| `pg-rules/src/morph/edge_prefilter.rs`, `pg-rules/src/cache.rs` (`with_edge_prefilter`) | 038 |
-| `pg-parse/src/lookup_replay.rs`, `pg-parse/src/morpher.rs` (`with_lookup_replay`) | 105 |
-| `pg-rules/src/word.rs` (`current_non_head`) | 004 |
-| `pg-rules/src/word.rs` (`expand_alternatives`) | 018 |
-| `pg-shape/src/lib.rs` (`Shape::node_cd_set`) | 007 |
-| `pg_foma::emit` (`verify_tags_reachable`) | 029 |
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
-| `pg_lexicon::analysis`, FFI `hc_parse_word`/`hc_parse_batch` | 021 |
 
 ## By fixture / test file
 
 | Fixture or test | Entry ids |
 |---|---|
 | `pg-conformance-fixtures/src/tests.rs` (`a_morpher_block_the_harness_cannot_apply_is_refused`, `incomplete_replay_cannot_pass_as_an_expected_zero_analysis`) | 097 |
-| `pg-rules/src/stratum/template_slot_sharing_tests.rs` | 095 |
-| `pg-parse/tests/edge_prefilter_gate.rs`, `pg-rules/src/morph/edge_prefilter.rs` (tests) | 038 |
-| `pg-parse/tests/lookup_replay_gate.rs`, `pg-parse/tests/edge_prefilter_gate.rs` (corpus measurement) | 105 |
-| `pg-rules/src/stratum/required_slot_lookahead_tests.rs`, `pg-parse/tests/required_slot_shadow_gate.rs` | 109 |
-| `pg-rules/src/stratum/required_slot_order_tests.rs` | 111, 112 |
-| `conformance-staging/edge-cases/class-deletion-reinsertion-strrep/`, `pg-parse/tests/conformance_fixtures_gate.rs` (`a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar`), `pg-parse/src/root_trie/tests.rs` | 103 |
-| `machine/conformance/edge-cases/clitic-rule-designation/`, `pg-parse/tests/clitic_template_state_gate.rs`, `pg-grammar/src/load/tests.rs` (`is_clitic_rule_*`) | 102 |
-| `conformance-staging/edge-cases/circumfix-conditioned-halves/` (HCLoader shape; fwdata path unpinned) | 039 |
-| `conformance-staging/edge-cases/multi-table-metathesis-shared-representation/`, `pg-foma-backend/tests/multi_table_metathesis_shared_representation.rs` | 040, 041, 042 |
-| `conformance-staging/edge-cases/nullable-disagree-*` (nullable environment and plain disagreement control) | 065 |
-| `conformance-staging/edge-cases/quantified-alpha-*`; `docs/divergences/evidence/058-variant-lowering/` (original reproduction, bound sweep and separate disagreement blocker) | 058, 066 |
-| `conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/` | 044 |
-| `conformance-staging/edge-cases/right-to-left-segments-environment/`, `pg-foma/src/capability.rs` unit tests | 044 |
-| `conformance-staging/edge-cases/segment-natural-class-table-binding/`, `pg-foma-backend/tests/segment_natural_class_table_binding_discriminates.rs` | 010, 041 |
-| `conformance-staging/edge-cases/strrep-rewrite-unapplication/`, `pg-parse/tests/conformance_fixtures_gate.rs`, `pg-cli/src/tests.rs` (`analyses_sidecar_projects_source_guids_from_fwdata`), Machine `StrRepRewriteRuleTests.cs`, `pg-foma-backend/tests/backend_scoreboard_gate.rs` | 071 |
-| `conformance-staging/edge-cases/interposed-optional-multi-rhs/` | 083 |
-| `conformance-staging/edge-cases/interposed-optional-expansion-rhs/` | 104 |
-| `machine/conformance/edge-cases/` narrowing fixtures (`*-merge*`, `boundary-*-in-narrowing-lhs*`, `simultaneous-expansion-terminates`, `expansion-overlapping-targets`, `two-merges-cascade-env`, `deletion-reinserted-feature-unapply`, `merge-subrules-pos-rtl-template`) | 087 |
-| `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
-| `csharp_port_affix_process.rs` | 007, 008 |
-| `csharp_port_affix_process.rs` (`partial_rule`); `pg-cli/src/tests.rs` (`project_make_partials_final_reaches_batch_and_an_explicit_flag_overrides_it`) | 101 |
-| `guesser_gate.rs` (`the_grammar_guess_roots_setting_is_the_morpher_default_and_parse_word_never_guesses`, `guessed_is_false_when_the_guess_branch_finds_nothing`, `guessing_without_a_lexical_pattern_changes_nothing`); `pg-cli/src/tests.rs` (`a_project_guesses_roots_by_default_without_changing_the_batch_tsv_layout`, `an_explicit_guess_flag_overrides_the_project_and_alone_adds_the_guessed_column`); `pg-cli/tests/serve_protocol.rs` (`guessed_words_match_cold_in_both_modes`) | 098 |
-| `csharp_port_compounding.rs` | 003, 004, 005 |
-| `merged_analyses_fs_generalization.rs` (`merge_analyses_off_from_the_grammar_keeps_the_analyses_and_stops_folding`) | 096 |
-| `pg-parse/tests/merge_msas_conformance.rs`; `pg-parse/tests/data/merge-msas/`; `pg-grammar/tests/merge_msas.rs`; `pg-fwdata/src/extract/msa_equality/tests.rs`; `pg-fwdata/tests/fixture_tests.rs` (`imported_equal_msas_merge_into_the_sense_bearing_one`); `pg-cli/src/grammar_health/tests.rs` (`stored_analysis_naming_a_merged_msa_matches_its_representatives_parse`) | 099 |
-| `csharp_port_compounding.rs` (`simple_rules_4_three_root_compound_from_grammar_max_stem_count`) | 094 |
-| `csharp_port_compounding.rs` (`prod_restrict_rule_traces_non_head_rejections_as_csharp_does`) | 092 |
-| `pg-cli/src/rich_trace/tests.rs` (`compound_analysis_attempts_keep_owner_reason_and_subrule`) | 092 |
-| `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |
-| `csharp_port_rewrite.rs` (`deletion_rules_deletion_reapplications`) | 093 |
-| `machine/conformance/edge-cases/discontinuous-morph-environment/` | 006 |
-| `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
-| `machine/conformance/edge-cases/iterative-epenthesis-cascade/` | 014 |
-| `machine/conformance/edge-cases/simultaneous-feeding/`, `simultaneous-feeding-control-iterative/` | 016 |
 | `parity_divergence_census.rs` | 028 |
-| `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
-| `pg-cli/src/grammar_health/tests.rs` (`stored_analysis_comparison_is_identical_at_every_thread_count`, `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count`); `pg-snapshot` `has_load_decision_matches_a_scan_of_every_recorded_decision`; `pg-fwdata` `duplicate_guid_issues_name_every_occurrence_in_first_occurrence_order` | 088 |
 | `pg-cli/src/grammar_health/tests.rs` (`grammar_health_reports_a_capped_wordform_and_compares_the_rest`, `stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count`, `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count`, `grammar_health_stored_analyses_flag_selects_the_comparison`) | 089 |
-| `pg-cli/tests/fwdata_conformance_gate.rs` (`grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics`) | 053 |
-| `pg-cli/tests/reserved_word_boundary.rs` (`reserved_word_boundary_record_is_a_word_anchor_and_literal_hash_remains_literal`); staged word-boundary and literal-hash oracle fixtures | 054 |
-| `pg-foma/src/lower/tests.rs::provisional_class_membership_reuses_the_model_decision` | 073, 074 |
 | `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/step_cap_work_gate.rs` | 052 |
 | `pg-grammar/src/compile/tests.rs` membership and unconstrained wildcard regressions; `machine/conformance/edge-cases/chained-output-feature-override-loss`; separate-lane `underdefined/07-featureless-phoneme`, `underdefined/12-featureless-rule-class` on `feat/xample-measure` | 076 |
-| `pg-grammar/src/compile/tests.rs` provisional-definition snapshot regressions | 072, 073, 074, 075 |
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 076 |
-| `pg-parse/tests/csharp_port_affix_process.rs` (copy-agreement tests), `pg-rules/tests/stratum_gate.rs` (`copy_agreement_pruning_is_on_by_default`), `machine/conformance` `metathesis-phase-isolation` / `suffixing-extension-slot-ordering` reduplication words | 049 |
-| `pg-parse/tests/effective_analysis_target.rs`; staged `overridden-alpha-*` fixtures | 069 |
-| `pg-parse/tests/exact_analysis_fs_recall.rs` | 002 |
-| `pg-rules/tests/analysis_syn_fs_gate.rs` | 001 |
-| `pg-rules/tests/rewrite_gate.rs` | 011, 012 |
 | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` | 024 |
 
 ## Provisional-definition seams
 
 | C# site | Rust site | Entries |
 |---|---|---|
-| `CharacterDefinitionTable.Add`, feature unification | `pg-foma/src/lower.rs::class_members`, `structural_allomorph.rs::context_members` | [073](073-provisional-letter-no-natural-class.md), [074](074-featureless-phoneme-no-feature-class.md) |
-| `CharacterDefinitionTable.Add`, feature unification | `pg-grammar-model/src/chardef.rs`, `membership.rs`, `segment.rs`; `pg-rules/src/bridge.rs`, `morph.rs`, `rewrite.rs` | [073](073-provisional-letter-no-natural-class.md), [074](074-featureless-phoneme-no-feature-class.md) |
-| `CharacterDefinitionTable.GetShapeNodes`, `Segment` | `pg-grammar/src/compile/substrate.rs`, `mod.rs`, `options.rs` | [072](072-provisional-letter-unit.md), [075](075-provisional-definitions-always-on.md) |
 | constrained-class subsumption / analysis-side unification | `pg-grammar-model/src/membership.rs::class_bits`, `segment.rs::nat_class_cd_set_with_constraints`; `pg-rules` matching and Foma owner calls | [076](076-underdefined-natural-class-membership-decision.md) |
 | FieldWorks environment export / `HCLoader.InvalidEnvironment` | `pg-grammar/src/compile/environment.rs::nodes_from_spanned`, `mod.rs::Ctx::environment_resolution`; `pg-snapshot` warning metadata | [077](077-missing-natural-class-environment-info.md) |
 | literal representation unification | `pg-parse/src/surface.rs::matching_reps_for_node`; `pg-grammar-model/src/membership.rs::literal_lanes`, `chardef.rs::literal_constraint_lanes` | [076](076-underdefined-natural-class-membership-decision.md) |
@@ -242,29 +69,3 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | `FxtM3ParserToXAmpleADCtl.xsl`, `NatClassStringToHvo` (feature class exported as `[]`) | `pg-grammar/src/compile/environment.rs::load_environment_pattern` | [070](070-xample-feature-class-environment.md) |
 | XAMPLE ignores authored phonology; FieldWorks/HC discard unreadable literal environments | authored rewrite rules and provisional literal environment; `pg-cli/tests/underdefined_stored_keys_gate.rs` | [078](078-xample-minimum-authored-phonology.md) |
 | XAMPLE ignores authored phonology; FieldWorks stores analyses under `WfiWordform` | `pg-fwdata` stored-analysis extraction; `pg-parse` traced synthesis; `pg-cli` grammar health | [086](086-stored-analyses-lost-to-authored-phonology.md) |
-
-## Optimization and shared-correctness follow-up
-
-| C# loader | Rust owner | Pinning integration test | Entry |
-|---|---|---|---|
-|---|---|---|
-| Analysis cascade _(memo removed, 045)_ | 031, 045 | Cache-hit fixture never existed; now a C#-only coverage question |
-| `ApplyRhs` / `attribute_morphs` | 036 | Stable shared zero-width fixture still missing |
-| C# / Rust seam | Entries | Shared fixtures |
-| C# tied-node ordering / oracle comparison | 037 | Fresh-process identity pin still missing |
-| Deletion unapplication x metathesis across strata | 050 | Missing; repro in Machine #520 |
-| Edge-segment matching prefilter | 038 | Differential parse/trace test; no conformance grammar |
-| FieldWorks `HCLoader.LoadAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_process_allomorph` | `pg-grammar/tests/process_allomorph_inflection_classes.rs` | 081 |
-| FieldWorks `HCLoader.LoadCircumfixAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `pg-grammar/tests/circumfix_inflection_classes.rs` | 082 |
-| Final-template state / `stratum.rs` policy | 033 | `final-template-partial-discriminators` |
-| Literal rewrite StrRep nonvacuity and inverse identity | 071 | `strrep-rewrite-unapplication`; synthetic kad/kat comparison; [Machine PR #538](https://github.com/sillsdev/machine/pull/538) |
-| Expansion unapplication after an interposed Optional | 104 | `interposed-optional-expansion-rhs` |
-| Narrowing unapplication after an interposed Optional | 083 | `interposed-optional-multi-rhs`; [Machine PR #540](https://github.com/sillsdev/machine/pull/540) |
-| Narrowing union encoding (speedup) | 087 | 14 fixtures, graduated to `machine/conformance` at `72dbd4f9`; [Machine PR #539](https://github.com/sillsdev/machine/pull/539) review recommends this variant |
-| Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `f412c252`) |
-| Stratum equivalence / `analyze_template` | 034 | Dedicated cross-engine collision fixture still missing |
-| Analysis-selected allomorph / synthesis confirmation | 113 | Code-constructed affix allomorph regression tests; [Machine #548](https://github.com/sillsdev/machine/pull/548) and [#560](https://github.com/sillsdev/machine/pull/560) |
-| Template and slot merge / `run_template_batch_raw`, `apply_slot_batch` | 035 | `template-category-sharing` is not a collision discriminator |
-| Template battery / `run_template_batch` _(memo removed, 045)_ | 032, 045 | `template-category-sharing` checks exclusivity; replay was never validated |
-| Realizational synthesis application count | 114 | Code-constructed and XML-compiled regression tests; [Machine #474](https://github.com/sillsdev/machine/pull/474) |
-| FST alpha-variable environments | 116 | `alpha_environment_refuses_all_real_compilers_and_the_selector`; `alpha_environment_refusal_is_a_representability_failure` |

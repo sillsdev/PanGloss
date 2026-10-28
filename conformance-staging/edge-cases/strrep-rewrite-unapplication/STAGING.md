@@ -11,7 +11,7 @@ The fixture is red only against that pre-#538 oracle and green against Machine
 
 The proposed Machine fix is on `fix/hc-strrep-unapplication` at `a873d60d`.
 The additional synthetic `kad`/`kat` regression is committed at `a57d923d`.
-See PanGloss divergence 071 for exact oracle revisions, runs, and revert checks.
+See retired PanGloss divergence 071 (../../../docs/divergences/README.md#retired-entries; accepted upstream as machine#538) for exact oracle revisions, runs, and revert checks.
 The regression also requires rejecting a second, vacuous unapplication after
 the target has already widened to include both input and output spellings.
 

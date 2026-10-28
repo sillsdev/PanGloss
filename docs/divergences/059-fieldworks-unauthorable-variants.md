@@ -1,7 +1,7 @@
 # 059: Construct variants FieldWorks cannot author stay refused by the fast path
 
 Kind: unported (fast path only).
-Status: permanent refusal — owner decision of 2026-10-08 ("won't fix").
+Status: permanent refusal (intentional, long-standing) — owner decision of 2026-10-08 ("won't fix").
 Evidence: `evidence/059-fieldworks-unauthorable-variants/` (source review and real-engine runs).
 
 ## What is refused

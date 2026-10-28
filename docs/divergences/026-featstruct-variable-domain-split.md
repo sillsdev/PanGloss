@@ -4,7 +4,7 @@
 Representational (flagged for where it could become behavioural).
 
 ## Status
-Open.
+Permanent: deliberate Rust-only representation, argued sound by construction in `ops.rs`'s module doc.
 
 ## C# site
 `FeatureValue.UnifyImpl` (`FeatureValue.cs:64-118`), `SimpleFeatureValue.IsUnifiableImpl`/
@@ -60,7 +60,7 @@ variable in a real grammar file — this was not traced during this research pas
 Not applicable — no divergence exists today to converge on.
 
 ## Notes
-Flagging the "unverified" loader-refusal question above as the one open follow-up this entry should
-prompt: if a grammar with a negated syntactic feature value loads silently and simply drops the
+The "unverified" loader-refusal question above is tracked in
+[#82](https://github.com/sillsdev/PanGloss/issues/82): if a grammar with a negated syntactic feature value loads silently and simply drops the
 negation rather than refusing, that would be a `CannotRepresent`-class problem in this repo's own FST
 vocabulary (per CLAUDE.md's FST-evidence classification section), not merely a documentation gap.

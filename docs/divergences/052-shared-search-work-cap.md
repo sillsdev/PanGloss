@@ -1,7 +1,7 @@
 # 052 — Independent work allowance includes inner search and synthesis confirmation
 
 Kind: behavioural
-Status: open
+Status: permanent — the independent work allowance is a Rust-only containment design. The evidence below is as recorded when the entry was written.
 
 ## C# site
 
@@ -52,7 +52,7 @@ Synthetic regression code is present:
 - `pg-parse/tests/step_cap_work_gate.rs`, registered in `timing`: capped parse/stats agreement, ordinary-word output and attempt compatibility, per-word reset, oversized input and invalid-input counters.
 - `pg-fst/src/work/tests.rs`: exact reservation bound, nested restoration during unwinding, thread isolation and independent deadline behavior.
 
-**Fixture presence:** all new test data is synthetic; no Maasai fixture was added. **Demonstrated coverage:** the integrator reports 1,737 passing tests for the first shared-unit implementation, which nevertheless caused a measured recall regression. The independent-cap revision and new tests are pending execution. The managed check exits 21 before Cargo because this jail has no finite visible `memory.max`; no locally built binary, revised test pass or revised after timing is claimed. The external lane report records the raw baseline artifacts and Windows follow-up commands.
+**Fixture presence:** all new test data is synthetic; no Maasai fixture was added. **Demonstrated coverage:** the integrator reports 1,737 passing tests for the first shared-unit implementation, which nevertheless caused a measured recall regression. The independent-cap revision and new tests are pending execution, tracked in [#83](https://github.com/sillsdev/PanGloss/issues/83). The managed check exits 21 before Cargo because this jail has no finite visible `memory.max`; no locally built binary, revised test pass or revised after timing is claimed. The external lane report records the raw baseline artifacts and Windows follow-up commands.
 
 ## Compatibility correction
 

@@ -1,7 +1,7 @@
 # 077: Missing natural classes drop the whole environment and produce an Info finding
 
 Kind: diagnostic (no parse divergence from FieldWorks or C# HermitCrab).
-Status: deliberate reporting addition, requested by the integration lead on 2026-10-09.
+Status: permanent, deliberate reporting addition, requested by the integration lead on 2026-10-09.
 Related underdefined policy discussion: [Machine #537](https://github.com/sillsdev/machine/issues/537).
 
 ## Measured behavior and owner decision

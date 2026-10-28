@@ -19,8 +19,8 @@ is a **port under test**.
 **HC-Rust must never produce a different parse than C#.** It may be faster or leaner; every such
 efficiency needs an argument for why it cannot change a parse. If you believe the algorithm itself
 should change, open or reuse a Machine issue with the evidence, then propose a fix PR when ready —
-never keep a behavioural improvement unreported in Rust alone. Every divergence and every optimization gets an entry under
-`docs/divergences/`.
+never keep a behavioural improvement unreported in Rust alone. A difference planned to stay gets an entry under
+`docs/divergences/`; a fix or speedup still to be done is a GitHub issue, not an entry.
 
 The one escape hatch: an independently justified divergence documented in the ledger, pinned by a
 fixture, and reported upstream. An issue is not a fix PR and neither alone proves correctness.
@@ -199,7 +199,7 @@ what they skip.
 `fixture-pins.md` — when a test may name a conformance fixture rather than let `discover()` sweep
 it, and why a named pin fails instead of skipping when its fixture is gone.
 
-**`docs/divergences/`** — every known C#/Rust difference, its kind, status, and pinning test.
+**`docs/divergences/`** — the C#/Rust differences planned to stay, with kind, status and pinning test. Planned fixes are GitHub issues; retired entries are in the README's table and git history.
 
 ## The one rule behind most of the scars here
 

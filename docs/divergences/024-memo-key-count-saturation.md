@@ -5,7 +5,7 @@ Representational (self-described in the source as a "deliberate divergence," arg
 inert).
 
 ## Status
-Open — argued sound, actively guarded by a trip-wire test, not proposed upstream (nothing to
+Permanent: Rust-only representation, argued sound, actively guarded by a trip-wire test, not proposed upstream (nothing to
 propose: this is a Rust-only choice with no observable target in C#). Survived the memo's removal
 ([045](045-memoization-removed.md)): `state_key` now serves `AnalyzerConfig::merge_equivalent`
 alone, so the saturation argument is unchanged but its one reader is the merge fold, not a cache.

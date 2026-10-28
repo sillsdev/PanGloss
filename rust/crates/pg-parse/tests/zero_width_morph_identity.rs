@@ -1,4 +1,4 @@
-//! Pins Machine issue #506 (docs/divergences/036-zero-width-morpheme-identity.md).
+//! Pins Machine issue #506 (retired divergence 036 (docs/divergences/README.md, Retired entries)).
 
 use pg_conformance_fixtures::require_fixture;
 use pg_parse::{result_multiset, Morpher};

@@ -72,7 +72,7 @@ fn the_index_lists_every_entry_and_invents_none() {
 fn the_gate_can_actually_see_entries() {
     let found = entries();
     assert!(
-        found.len() >= 20,
+        found.len() >= 10,
         "read only {} entries out of docs/divergences — the naming convention changed and both \
          checks above would now pass vacuously",
         found.len()

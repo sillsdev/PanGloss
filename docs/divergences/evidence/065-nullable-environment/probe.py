@@ -51,7 +51,7 @@ for bound, direction, side in shapes:
             if direction == 'rtl':
                 lines.append('      - "right-to-left-rewrite.unlowerable"')
     (folder / 'words.yaml').write_text('\n'.join(lines) + '\n')
-    (folder / 'STAGING.md').write_text(f'# {name}\n\nSynthetic back/round disagreement over a four-member class. The unchanged\nfeature at each position distinguishes the required surface ia from other\ntwo-segment words; a nullable environment at the edge must permit the rewrite.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; 16 complete rows.\nDivergence: docs/divergences/065-nullable-rewrite-environment.md.\nFieldWorks: HCLoader.cs:2338-2344,2745-2770.\nUpstream PR: none (Rust-only defect, network closed).\n')
+    (folder / 'STAGING.md').write_text(f'# {name}\n\nSynthetic back/round disagreement over a four-member class. The unchanged\nfeature at each position distinguishes the required surface ia from other\ntwo-segment words; a nullable environment at the edge must permit the rewrite.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; 16 complete rows.\nDivergence: retired divergence 065 (docs/divergences/README.md, Retired entries).\nFieldWorks: HCLoader.cs:2338-2344,2745-2770.\nUpstream PR: none (Rust-only defect, network closed).\n')
     results[name] = rows
     print(name, [(r[1], r[4]) for r in rows if r[4] != '-'], flush=True)
 (scratch / 'oracle-results.json').write_text(json.dumps(results, indent=2))

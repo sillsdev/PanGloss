@@ -358,7 +358,7 @@ A definition PanGloss supplies for something an underdefined project leaves unde
 _Avoid_: Guess, guessed segment (guessing is root guessing), inferred definition, substrate completion (in user-facing text)
 
 **Divergence**:
-Any deliberate or discovered difference between PanGloss's analyses and C# HermitCrab's for the same grammar and word, including every behaviour that provisional definitions introduce. Every divergence is recorded in the divergence ledger and checked by an oracle gate.
+Any deliberate or discovered difference between PanGloss's analyses and C# HermitCrab's for the same grammar and word, including every behaviour that provisional definitions introduce. Every difference planned to stay is recorded in the divergence ledger and checked by an oracle gate; planned fixes are GitHub issues.
 _Avoid_: Deviation, extension (as if exempt from the ledger)
 
 **Readiness verdict**:

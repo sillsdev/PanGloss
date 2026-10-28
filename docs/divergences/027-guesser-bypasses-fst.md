@@ -4,7 +4,7 @@
 Representational.
 
 ## Status
-Open (both halves are permanent, deliberate design choices).
+Permanent (both halves are deliberate design choices).
 
 ## C# site
 `Morpher.MatchNodesWithPattern` (`Morpher.cs:597-625`) and `Morpher.LexicalGuess`

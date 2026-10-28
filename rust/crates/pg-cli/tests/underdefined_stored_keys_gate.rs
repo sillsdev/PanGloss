@@ -1260,11 +1260,18 @@ fn every_measured_underdefined_case_preserves_xample_stored_keys() {
             .map(|row| {
                 assert!(!row.reason.trim().is_empty());
                 assert!(!row.ledger.contains('/') && !row.ledger.contains('\\'));
+                // Planned work is a GitHub issue ("issue-NN"); permanent differences are ledger entries.
+                let is_issue = row
+                    .ledger
+                    .strip_prefix("issue-")
+                    .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
                 assert!(
-                    root.join("../../docs/divergences")
-                        .join(&row.ledger)
-                        .is_file(),
-                    "difference must name a real ledger entry"
+                    is_issue
+                        || root
+                            .join("../../docs/divergences")
+                            .join(&row.ledger)
+                            .is_file(),
+                    "difference must name a real ledger entry or an issue-NN"
                 );
                 row.difference
             })

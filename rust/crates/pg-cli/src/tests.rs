@@ -300,7 +300,7 @@ fn analyses_sidecar_keeps_closed_rows_and_duplicate_word_indexes() {
 #[test]
 fn analyses_sidecar_projects_source_guids_from_fwdata() {
     let fixture = fwdata_fixture_with_k();
-    // The literal rewrite makes kad the surface; see docs/divergences/071-strrep-rewrite-unapplication.md.
+    // The literal rewrite makes kad the surface; see retired divergence 071 (docs/divergences/README.md, Retired entries).
     let rows = run_batch_sidecar_path("analyses-fwdata-source-guids", &fixture, "kad\nkat\n", &[]);
     assert_eq!(rows.len(), 2);
     for row in &rows {

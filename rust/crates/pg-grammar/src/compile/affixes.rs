@@ -506,7 +506,7 @@ pub(crate) fn is_circumfix_suffix_half(mt: MorphType) -> bool {
     )
 }
 
-/// One allomorph per (prefix, prefix-env) x (suffix, suffix-env) combination, HCLoader's own cross product (HCLoader.cs:1060-1332); see docs/divergences/039.
+/// One allomorph per (prefix, prefix-env) x (suffix, suffix-env) combination, HCLoader's own cross product (HCLoader.cs:1060-1332); see retired divergence 039 (docs/divergences/README.md, Retired entries).
 #[allow(clippy::too_many_arguments)]
 fn build_circumfix_allomorphs(
     entry: &LexEntry,
