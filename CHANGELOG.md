@@ -3,6 +3,31 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.12.1
+
+### Interface changes
+
+Downstream tools such as Motif must gate on these versions.
+
+- Counter semantics are version 7 (was 6). Final allomorph-environment work steps are attributed
+  to the owning lexical entry or morphological rule, and LexEntry synthesis self-time is now
+  measured. Statistics caches with semantics 6 are not reused; consumers should gate on version 7.
+
+### Alpha-variable environments
+
+- Environment matching mirrors HermitCrab C#: target bindings first, the left environment
+  right-to-left, the right environment left-to-right, with bindings cloned per branch.
+- Unapplying no longer widens an identical alpha variable (C# `SubtractImpl`).
+- This recovers lost parses, for example Mbugwe `aanda`. Some Mbugwe words now reach the default
+  step cap; C# needs comparable or more work on them.
+- FST backends refuse grammars with alpha-variable environments (divergence 116, "broken until the
+  alpha variable FST fix"). The default engine handles them.
+
+### Machine ports
+
+- Ports Machine #548 (synthesis filtered to the allomorphs used), #560 (cutoff at the chosen
+  allomorph) and #474 (a RealizationalRule applies at most once per word in synthesis), as PR #13.
+
 ## 0.12.0
 
 ### Interface changes
