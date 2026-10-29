@@ -161,12 +161,13 @@ checks this worktree's clean, current `main` and validates the pushed source com
 
 ## Merging into main
 
-Keep history linear. Rebase the branch onto current `main`, then `git merge --ff-only`. If it is not
-a fast-forward, the rebase did not happen against the current tip; redo it. Never `--no-ff`. If a
-rebase turns out to involve real conflicts rather than staleness, prefer re-running the change fresh
-against `main`.
+Land every change as one squash commit on `main`: merge the PR with `gh pr merge <n> --squash`
+(the repository allows only squash merges). Never create merge commits on `main`, and never merge
+`main` into a branch to update it; rebase the branch onto current `main` instead. Write the PR
+title as the commit subject, because the squash commit takes it. If a rebase turns out to involve
+real conflicts rather than staleness, prefer re-running the change fresh against `main`.
 
-After the rebase and before the merge, run `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode preland`
+After the rebase and before the squash merge, run `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode preland`
 in the branch's worktree and land only on a zero exit. A failing check is a CI failure found early;
 fix it on the branch.
 
