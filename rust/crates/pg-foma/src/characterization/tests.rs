@@ -87,6 +87,9 @@ fn characterization_raises_cannot_represent_finding_for_refuse_verdict() {
             panic!("expected a CannotRepresent characterization finding, got {findings:?}")
         });
     assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+    assert!(!findings
+        .iter()
+        .any(|f| f.code == FindingCode::BackendCoveragePartial));
     assert_eq!(finding.metric, Metric::BackendCoverageGapCount);
     assert_eq!(
         finding.value,
@@ -155,7 +158,8 @@ fn a_partly_refused_envelope_yields_a_finding_naming_the_declining_compilers() {
     let partial = decisions(&[0]);
     assert_eq!(partial.global(), CompileDecision::Admit);
     let finding = partial_refusal_finding(&partial).expect("a declining compiler must be reported");
-    assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+    assert_eq!(finding.code, FindingCode::BackendCoveragePartial);
+    assert_eq!(finding.severity, Severity::Elevated);
     assert_eq!(finding.value, MetricValue::Count(1));
     assert_eq!(finding.affected, vec!["mrule 0".to_string()]);
     assert!(
@@ -191,8 +195,11 @@ fn a_real_partly_refused_grammar_is_reported_through_characterization_findings()
     let findings = characterization_findings(&grammar);
     let finding = findings
         .iter()
-        .find(|f| f.code == FindingCode::BackendCoverageIncomplete)
+        .find(|f| f.code == FindingCode::BackendCoveragePartial)
         .unwrap_or_else(|| panic!("expected the partial-refusal finding, got {findings:?}"));
+    assert!(!findings
+        .iter()
+        .any(|f| f.code == FindingCode::BackendCoverageIncomplete));
     assert_eq!(finding.severity, Severity::Elevated);
     assert!(
         finding

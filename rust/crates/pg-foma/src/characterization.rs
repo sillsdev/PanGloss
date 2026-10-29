@@ -52,7 +52,9 @@
 //! # Design notes
 //! 1. **Semantic and cost uncertainty use different stable codes.** A `Refuse` verdict is a known
 //!    coverage gap and uses `crate::health::FindingCode::BackendCoverageIncomplete` with
-//!    `crate::health::Metric::BackendCoverageGapCount`. Recall-preserving `ConfirmOnly` and
+//!    `crate::health::Metric::BackendCoverageGapCount`. When only some backends decline,
+//!    `crate::health::FindingCode::BackendCoveragePartial` reports the gap at nonblocking
+//!    `Elevated` severity because another backend still offers a path. Recall-preserving `ConfirmOnly` and
 //!    unbounded quantifiers remain genuine cost uncertainty and use
 //!    `crate::health::FindingCode::UnknownUnboundedConstruct`; the rule-interaction proxy is an
 //!    exact bounded product instead and uses `crate::health::FindingCode::RuleInteractionProduct`.
@@ -317,7 +319,7 @@ fn partial_refusal_finding(envelope: &StrategyEnvelope) -> Option<HealthFinding>
     affected.dedup();
     Some(
         HealthFinding::new(
-            FindingCode::BackendCoverageIncomplete,
+            FindingCode::BackendCoveragePartial,
             Severity::Elevated,
             Phase::Characterization,
             Metric::BackendCoverageGapCount,
