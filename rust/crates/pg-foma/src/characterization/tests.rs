@@ -1,4 +1,5 @@
 use super::*;
+use crate::backend_selection::best_case_across_backends;
 
 /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no characterization finding at all.
 #[test]
@@ -121,4 +122,82 @@ fn rule_interaction_product_finding_fires_above_threshold_not_below() {
     below.cardinality.mrule_count = 2;
     below.cardinality.prule_count = 2; // 4 <= 64
     assert!(rule_interaction_product_finding(&below).is_none());
+}
+
+/// A grammar one compiler accepts and another refuses is not refused as a whole, yet used to produce no finding at all (G15); the finding now names the declining compilers.
+#[test]
+fn a_partly_refused_envelope_yields_a_finding_naming_the_declining_compilers() {
+    use crate::capability::{CapabilityDiagnostic, StrategyVerdict};
+    use crate::strategy_coverage::ALL_STRATEGIES;
+    let diagnostic = CapabilityDiagnostic {
+        predicate: "some-predicate",
+        construct: "mrule 0".to_string(),
+        witness: "w".to_string(),
+    };
+    let decisions = |declining: &[usize]| {
+        StrategyEnvelope::from_verdicts(
+            ALL_STRATEGIES
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, strategy)| StrategyVerdict {
+                    strategy,
+                    decision: if declining.contains(&i) {
+                        CompileDecision::Refuse(vec![diagnostic.clone()])
+                    } else {
+                        CompileDecision::Admit
+                    },
+                })
+                .collect(),
+        )
+    };
+
+    let partial = decisions(&[0]);
+    assert_eq!(partial.global(), CompileDecision::Admit);
+    let finding = partial_refusal_finding(&partial).expect("a declining compiler must be reported");
+    assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+    assert_eq!(finding.value, MetricValue::Count(1));
+    assert_eq!(finding.affected, vec!["mrule 0".to_string()]);
+    assert!(
+        finding
+            .explanation
+            .contains(&format!("{:?} declines", ALL_STRATEGIES[0])),
+        "the finding must name the declining compiler: {finding:?}"
+    );
+
+    assert!(
+        partial_refusal_finding(&decisions(&[])).is_none(),
+        "nobody declines"
+    );
+    let everyone: Vec<usize> = (0..ALL_STRATEGIES.len()).collect();
+    assert!(
+        partial_refusal_finding(&decisions(&everyone)).is_none(),
+        "a whole-grammar refusal is the other finding's job"
+    );
+}
+
+/// Production wiring on a real grammar: the templated compiler declines this circumfix grammar while another compiler admits it, so the whole grammar is not refused and the walker must still say which compiler declined. Census over all 134 conformance fixtures: 21 are partly refused, 1 wholly refused, and every partly refused one names a real declining compiler.
+#[test]
+fn a_real_partly_refused_grammar_is_reported_through_characterization_findings() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "circumfix-infix-interior-action-precedence",
+    );
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar loads");
+    assert!(!matches!(
+        best_case_across_backends(&GrammarSemantics::derive(&grammar)),
+        CompileDecision::Refuse(_)
+    ));
+    let findings = characterization_findings(&grammar);
+    let finding = findings
+        .iter()
+        .find(|f| f.code == FindingCode::BackendCoverageIncomplete)
+        .unwrap_or_else(|| panic!("expected the partial-refusal finding, got {findings:?}"));
+    assert_eq!(finding.severity, Severity::Elevated);
+    assert!(
+        finding
+            .explanation
+            .contains("TemplatedUnderlyingTokens declines"),
+        "{finding:?}"
+    );
 }

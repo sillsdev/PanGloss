@@ -54,3 +54,30 @@ fn batch_response_uses_same_mask_and_code_classifier() {
     assert_eq!(response.mask, vec![false, true]);
     assert_eq!(response.code, vec!["let x = 1;".to_owned(), "".to_owned()]);
 }
+
+fn rust_lines(text: &[&str]) -> Vec<String> {
+    text.iter().map(|line| (*line).to_owned()).collect()
+}
+
+#[test]
+fn doc_block_before_multi_line_attribute_is_classed_by_the_item() {
+    let public = rust_lines(&[
+        "/// Public API.",
+        "#[cfg_attr(",
+        "    feature = \"serde\",",
+        "    derive(Debug)",
+        ")]",
+        "pub fn exported() {}",
+    ]);
+    assert!(block_kind_rust("/// Public API.", &public, 1, true));
+
+    let private = rust_lines(&[
+        "/// Helper.",
+        "#[cfg_attr(",
+        "    feature = \"serde\",",
+        "    derive(Debug)",
+        ")]",
+        "fn helper() {}",
+    ]);
+    assert!(!block_kind_rust("/// Helper.", &private, 1, true));
+}

@@ -22,7 +22,7 @@ use pg_grammar::model::Grammar;
 
 use crate::advice_catalog::builtin_catalog;
 use crate::capability::{
-    compose_envelope_across_strategies, compose_envelope_with_semantics,
+    baseline_envelope_with_semantics, compose_envelope_across_strategies,
     default_grammar_wide_checks, default_registry, CapabilityContributions, CapabilityDiagnostic,
     CompileDecision, StrategyEnvelope,
 };
@@ -141,11 +141,16 @@ fn build_backend_selection(envelope: &StrategyEnvelope) -> BackendSelection {
 /// `pg-health` does not and must not depend on. A non-`Refuse` here says nothing about the backend
 /// a caller is about to run -- `BackendSelection::decision_for` is the entry point that decides.
 pub fn best_case_across_backends(semantics: &GrammarSemantics<'_>) -> CompileDecision {
+    best_case_envelope(semantics).global()
+}
+
+/// The per-compiler envelope `best_case_across_backends` joins, for a reporter that must name which compilers declined.
+pub fn best_case_envelope(semantics: &GrammarSemantics<'_>) -> StrategyEnvelope {
     let g = semantics.grammar();
     let phon = PhonologyProbe::new_with_semantics(semantics);
     let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
     let registry = default_registry();
-    compose_envelope_with_semantics(semantics, &plan, &registry)
+    baseline_envelope_with_semantics(semantics, &plan, &registry)
 }
 
 /// [`best_case_across_backends`] over a bare `&Grammar`, deriving the semantics itself.
