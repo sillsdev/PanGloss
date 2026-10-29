@@ -865,6 +865,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
+        let _obj_time = self.stats.map(|stats| {
+            stats.time_enter(
+                crate::stats::ObjectKind::MorphRule,
+                self.stratum_id,
+                id.0,
+                crate::stats::ALLOMORPH_NONE,
+                crate::stats::Direction::Analysis,
+            )
+        });
         if !self.tick() {
             return Vec::new();
         }
@@ -877,16 +886,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
-        // Book this rule's self time to its own report row.
-        let _obj_time = self.stats.map(|stats| {
-            stats.time_enter(
-                crate::stats::ObjectKind::MorphRule,
-                self.stratum_id,
-                id.0,
-                crate::stats::ALLOMORPH_NONE,
-                crate::stats::Direction::Analysis,
-            )
-        });
         let mut outs = match (rule, self.non_head_root_filter) {
             (MorphRuleDef::Compounding(_), Some(filter)) => match self.cache {
                 Some(cache) => morph::analyze_cached_with_root_filter_traced(

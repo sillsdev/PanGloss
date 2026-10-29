@@ -227,6 +227,7 @@ fn fact_record_from_stats_row(
         direction,
         attempts: row.counters.attempts,
         work: row.counters.work,
+        work_steps: row.counters.work_steps,
         outputs: row.counters.outputs,
         not_applied: row.counters.not_applied,
         no_root: row.counters.no_root,
@@ -236,16 +237,17 @@ fn fact_record_from_stats_row(
     }
 }
 
-fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> pg_rules::stats::ObjectKind {
+fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> Option<pg_rules::stats::ObjectKind> {
     use pg_stats::ObjectKind as S;
-    match k {
+    Some(match k {
         S::MorphRule => pg_rules::stats::ObjectKind::MorphRule,
         S::PhonRule => pg_rules::stats::ObjectKind::PhonRule,
         S::LexEntry => pg_rules::stats::ObjectKind::LexEntry,
         S::RootIndex => pg_rules::stats::ObjectKind::RootIndex,
         S::Guesser => pg_rules::stats::ObjectKind::Guesser,
         S::Overlay => pg_rules::stats::ObjectKind::Overlay,
-    }
+        S::Unattributed => return None,
+    })
 }
 
 /// Errors when `cache_path` already holds a different engine's runs, checked before analyzing a word or writing a row -- a report cannot span two engines.
@@ -469,10 +471,33 @@ pub(crate) fn batch_stats_word(
     prune_rows: &[pg_rules::stats::PruneRow],
 ) -> BatchStatsWord {
     let prunes = sum_prune_rows(prune_rows);
-    let facts = rows
+    let mut facts: Vec<_> = rows
         .iter()
         .map(|row| fact_record_from_stats_row(grammar, identities, row))
         .collect();
+    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    let unattributed = (outcome.outcome.work_steps as u64)
+        .checked_sub(attributed)
+        .expect("object work steps exceed the word budget");
+    facts.push(pg_stats::FactRecord {
+        object_key: "unattributed".into(),
+        object_kind: pg_stats::ObjectKind::Unattributed,
+        object_label: "Unattributed".into(),
+        identity_quality: pg_stats::IdentityQuality::Synthetic,
+        stratum: None,
+        allomorph: None,
+        morpheme: None,
+        direction: pg_stats::Direction::Unattributed,
+        attempts: 0,
+        work: 0,
+        work_steps: unattributed,
+        outputs: 0,
+        not_applied: 0,
+        no_root: 0,
+        surface_mismatch: 0,
+        uses: 0,
+        self_time_ns: 0,
+    });
     BatchStatsWord {
         record: pg_stats::WordRecord {
             form: word.to_string(),
@@ -1062,7 +1087,7 @@ fn cell_value(kind: &str, counter: &str, value: i64) -> Option<i64> {
     let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
         panic!("kind string from the cache must be a known ObjectKind: {kind}")
     });
-    match pg_rules::stats::counter_support(stats_kind_to_rules_kind(stats_kind), counter) {
+    match pg_rules::stats::counter_support(stats_kind_to_rules_kind(stats_kind)?, counter) {
         pg_rules::stats::CounterSupport::Measured => Some(value),
         pg_rules::stats::CounterSupport::NotApplicable
         | pg_rules::stats::CounterSupport::NotWired => None,
@@ -1295,10 +1320,9 @@ fn direction_time_view(mut view: RowView, direction: Option<&str>) -> RowView {
         let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
             panic!("kind string from the cache must be a known ObjectKind: {kind}")
         });
-        if !pg_rules::stats::self_time_supported_in_direction(
-            stats_kind_to_rules_kind(stats_kind),
-            direction,
-        ) {
+        if !stats_kind_to_rules_kind(stats_kind)
+            .is_some_and(|kind| pg_rules::stats::self_time_supported_in_direction(kind, direction))
+        {
             view.self_time_ns = None;
         }
     }
@@ -2462,7 +2486,9 @@ fn self_time_value(kind: &str, value: i64) -> Option<i64> {
     let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
         panic!("kind string from the cache must be a known ObjectKind: {kind}")
     });
-    pg_rules::stats::self_time_supported(stats_kind_to_rules_kind(stats_kind)).then_some(value)
+    stats_kind_to_rules_kind(stats_kind)
+        .filter(|kind| pg_rules::stats::self_time_supported(*kind))
+        .map(|_| value)
 }
 
 #[cfg(test)]

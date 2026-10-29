@@ -25,6 +25,7 @@ fn sample_word(form: &str) -> WordRecord {
             direction: Direction::Analysis,
             attempts: 5,
             work: 20,
+            work_steps: 0,
             outputs: 2,
             not_applied: 1,
             no_root: 0,
@@ -82,6 +83,29 @@ fn create_write_and_read_back_exactly() {
     assert_eq!(per_object[0].not_applied, 1);
     assert_eq!(per_object[0].no_root, 0);
     assert_eq!(per_object[0].uses, 1);
+}
+
+#[test]
+fn duplicate_fact_keys_replace_all_counters() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let mut word = sample_word("apu");
+    word.facts[0].work_steps = 11;
+    let mut replacement = word.facts[0].clone();
+    replacement.attempts = 7;
+    replacement.work_steps = 19;
+    word.facts.push(replacement);
+    outcome.cache.flush(&sample_run(), &[word]).unwrap();
+
+    let counters: (i64, i64, i64) = outcome
+        .cache
+        .connection()
+        .query_row(
+            "SELECT COUNT(*), MAX(attempts), MAX(work_steps) FROM fact",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(counters, (1, 7, 19));
 }
 
 #[test]

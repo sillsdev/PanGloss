@@ -47,6 +47,7 @@ fn fact_with_direction(
         direction,
         attempts,
         work,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root,
@@ -108,6 +109,32 @@ fn seeded_cache() -> StatsCache {
     ];
     outcome.cache.flush(&run(), &words).unwrap();
     outcome.cache
+}
+
+#[test]
+fn object_allomorph_and_kind_reports_exclude_unattributed() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let mut remainder = fact("unattributed", ObjectKind::Unattributed, 0, 0, 0);
+    remainder.direction = Direction::Unattributed;
+    remainder.stratum = None;
+    remainder.work_steps = 13;
+    let word = word_record(
+        "apu",
+        500,
+        vec![fact("rule-a", ObjectKind::MorphRule, 5, 20, 1), remainder],
+    );
+    outcome.cache.flush(&run(), &[word]).unwrap();
+    let conn = outcome.cache.connection();
+
+    let objects = per_object_report(conn, &PerObjectFilter::default()).unwrap();
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].kind, "morph_rule");
+    let allomorphs = per_allomorph_report(conn, &PerAllomorphFilter::default()).unwrap();
+    assert_eq!(allomorphs.len(), 1);
+    assert_eq!(allomorphs[0].object_kind, "morph_rule");
+    let kinds = per_kind_report(conn, &PerKindFilter::default()).unwrap();
+    assert_eq!(kinds.len(), 1);
+    assert_eq!(kinds[0].kind, "morph_rule");
 }
 
 #[test]
@@ -292,6 +319,7 @@ fn fact_with_allomorph(
         direction: Direction::Analysis,
         attempts,
         work,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root: 0,
@@ -789,6 +817,7 @@ fn fact_with_allomorph_not_applied(
         direction: Direction::Analysis,
         attempts,
         work: 1,
+        work_steps: 0,
         outputs: 0,
         not_applied,
         no_root: 0,
@@ -943,6 +972,7 @@ fn fact_with_morpheme(
         direction: Direction::Analysis,
         attempts,
         work,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root: 0,
@@ -1001,6 +1031,7 @@ fn never_fires_fact(
         direction,
         attempts,
         work: attempts,
+        work_steps: 0,
         outputs,
         not_applied: attempts.saturating_sub(outputs),
         no_root: 0,

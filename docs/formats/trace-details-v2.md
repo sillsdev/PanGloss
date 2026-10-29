@@ -1,7 +1,7 @@
-# Trace details v3 (including the v2 fields)
+# Trace details v4 (including the v2 and v3 fields)
 
 `pangloss parse <grammar> <word> --trace --trace-format=json --trace-details` writes one
-`pangloss.trace-details.v3` JSON document. Use `--trace=<path>` when a file must contain only the
+`pangloss.trace-details.v4` JSON document. Use `--trace=<path>` when a file must contain only the
 JSON; stdout from the managed runner may include diagnostics.
 
 The envelope keeps the existing unmerged trace tree and category counters. It adds evidence needed
@@ -35,9 +35,24 @@ to inspect one parse offline without reopening the project:
   trace sink. Otherwise it is `unavailable` with the typed `reasonCode`; the renderer never
   replays a gate or infers a cause from diagnostic text.
 
-A reader must explicitly support the v3 profile before accepting it. Unknown future major
+A reader must explicitly support the v4 profile before accepting it. Unknown future major
 versions must be rejected clearly. A details document is self-contained: consumers must not replace its
 captured labels, writing systems, or source IDs with a live project lookup.
+
+## Work steps (v4)
+
+Each `categories.<kind>.work_steps` counts successful work-budget reservations made while that
+object kind's instrumented scope was innermost. Nested scopes are exclusive: their reservations
+are charged once to the inner scope, including reservations made by matchers there. A failed
+reservation does not increment the counter. `categories.unattributed.work_steps` is the remaining
+work outside those scopes, including segmentation, template and search orchestration, and portions
+of matching and confirmation without an instrumented object scope. In particular, not all
+confirmation is unattributed: rule and other object scopes reached during it receive their work.
+
+The sum of all category `work_steps`, including `unattributed`, equals `search.workSteps` for the
+same trace, including capped or invalid-shape outcomes. The existing category `work` still counts
+segments examined and is a different unit. A traced search can do different work from an untraced
+batch search, so compare totals from the same mode and options.
 
 ## Family blocking (v3)
 

@@ -3,6 +3,13 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+- Trace details profile `pangloss.trace-details.v4` and statistics cache schema 10 expose
+  deterministic per-kind and per-object `work_steps`, with an explicit unattributed remainder
+  that reconciles to each word's total. The existing `work` segment counter and batch TSV
+  interface version 3 retain their meanings.
+
 ## 0.11.0
 
 ### Parser work and stop status

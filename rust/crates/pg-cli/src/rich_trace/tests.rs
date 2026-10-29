@@ -36,6 +36,7 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
             direction: Direction::Synthesis,
             counters: Counters {
                 attempts: 2,
+                work_steps: 5,
                 not_applied: 1,
                 self_time_ns: 11,
                 ..Counters::default()
@@ -49,6 +50,7 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
             direction: Direction::Synthesis,
             counters: Counters {
                 not_applied: 2,
+                work_steps: 7,
                 self_time_ns: 7,
                 ..Counters::default()
             },
@@ -118,11 +120,13 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
         .expect("rich envelope serializes"),
     )
     .expect("rich envelope is JSON");
-    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v3");
+    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v4");
     assert_eq!(value["trace"], tree);
     assert_eq!(value["search"]["completed"], true);
     assert_eq!(value["search"]["steps"], 17);
     assert_eq!(value["search"]["workSteps"], 41);
+    assert_eq!(value["categories"]["morphRule"]["work_steps"], 12);
+    assert_eq!(value["categories"]["unattributed"]["work_steps"], 29);
     assert_eq!(value["result"]["signature"], "root+past|sagd");
     assert_eq!(value["categories"]["morphRule"]["selfElapsedNs"], 18);
     assert_eq!(value["categories"]["morphRule"]["analysisSelfElapsedNs"], 0);
@@ -191,7 +195,7 @@ fn v2_retains_analysis_when_projection_is_unavailable() {
         .expect("v2 envelope serializes"),
     )
     .expect("v2 envelope is JSON");
-    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v3");
+    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v4");
     assert_eq!(value["provenance"]["grammar"]["name"], "Test");
     assert_eq!(
         value["provenance"]["grammar"]["grammarHashSemantics"],
@@ -233,7 +237,7 @@ fn rich_tree_preserves_nodes_beyond_default_json_parse_depth() {
     .unwrap();
     assert_eq!(rich.matches("\"type\":").count(), sink.len());
     assert_eq!(ordinary.matches("\"type\":").count(), sink.len());
-    assert!(rich.contains("\"schemaVersion\":\"pangloss.trace-details.v3\""));
+    assert!(rich.contains("\"schemaVersion\":\"pangloss.trace-details.v4\""));
 }
 
 #[test]
@@ -291,9 +295,12 @@ fn trace_details_for_grammar(
         "rich tracing must preserve the complete parse identity multiset"
     );
     assert_eq!(outcome.signature(), plain.signature());
+    let comparison_sink = pg_rules::trace::TreeTraceSink::with_failure_context();
+    let traced_without_stats = morpher.parse_word_traced(word, opts, &comparison_sink);
+    assert_eq!(outcome.work_steps, traced_without_stats.work_steps);
     assert!(!outcome.capped && !outcome.timed_out && !outcome.invalid_shape);
     assert!(!plain.capped && !plain.timed_out && !plain.invalid_shape);
-    serde_json::from_str(
+    let details: serde_json::Value = serde_json::from_str(
         &super::render(
             grammar,
             &sink,
@@ -306,7 +313,15 @@ fn trace_details_for_grammar(
         )
         .unwrap(),
     )
-    .unwrap()
+    .unwrap();
+    let total: u64 = details["categories"]
+        .as_object()
+        .unwrap()
+        .values()
+        .map(|category| category["work_steps"].as_u64().unwrap())
+        .sum();
+    assert_eq!(total, details["search"]["workSteps"].as_u64().unwrap());
+    details
 }
 
 #[test]

@@ -769,7 +769,7 @@ fn read_dimensions(
 }
 
 fn remap_cache(
-    cache: CacheData,
+    mut cache: CacheData,
     manifest: Manifest,
     owners: BTreeMap<(String, String), ExpectedObject>,
     dimensions: ExpectedDimensions,
@@ -777,6 +777,50 @@ fn remap_cache(
     cache_bytes: u64,
     manifest_sha256: String,
 ) -> Result<StatsProjection, FactsError> {
+    // The facts schema projects grammar-object counters, not the cache's word remainder.
+    let remainder_ids: Vec<i64> = cache
+        .objects
+        .iter()
+        .filter(|o| o.kind == "unattributed")
+        .map(|o| {
+            if o.key != "unattributed"
+                || o.label != "Unattributed"
+                || o.quality != "synthetic"
+                || o.morpheme_id != 0
+            {
+                return Err(FactsError::StatsRunUnavailable(
+                    "invalid unattributed stats object".into(),
+                ));
+            }
+            Ok(o.id)
+        })
+        .collect::<Result<_, _>>()?;
+    for fact in cache
+        .facts
+        .iter()
+        .filter(|f| remainder_ids.contains(&f.object_id))
+    {
+        if fact.stratum_id != 0
+            || fact.allomorph_id != 0
+            || fact.direction != "unattributed"
+            || fact.attempts != 0
+            || fact.work != 0
+            || fact.outputs != 0
+            || fact.not_applied != 0
+            || fact.no_root != 0
+            || fact.surface_mismatch != 0
+            || fact.uses != 0
+            || fact.self_time_ns != 0
+        {
+            return Err(FactsError::StatsRunUnavailable(
+                "invalid unattributed stats fact".into(),
+            ));
+        }
+    }
+    cache.objects.retain(|o| !remainder_ids.contains(&o.id));
+    cache
+        .facts
+        .retain(|f| !remainder_ids.contains(&f.object_id));
     let morphemes = remap_dimensions(cache.morphemes.clone(), &dimensions.morphemes, "morpheme")?;
     let strata = remap_dimensions(cache.strata.clone(), &dimensions.strata, "stratum")?;
     let allomorphs = remap_allomorphs(cache.allomorphs.clone(), &dimensions.allomorphs)?;
@@ -1915,6 +1959,7 @@ mod tests {
                         direction: pg_stats::Direction::Analysis,
                         attempts: 1,
                         work: 1,
+                        work_steps: 0,
                         outputs: 0,
                         not_applied: 0,
                         no_root: 0,
