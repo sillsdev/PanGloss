@@ -12,6 +12,7 @@ use pg_grammar_model::model::{
     PatternNode, PhonRuleDef, StratumId,
 };
 use pg_rules::cache::RuleCache;
+use pg_rules::required_slots::RequiredSlotLookahead;
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stats::OverlayPhase;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
@@ -35,6 +36,7 @@ pub struct Morpher<'g> {
     g: &'g Grammar,
     final_template_facts: pg_grammar_model::model::FinalTemplatePruneFacts,
     always_enforce_final_templates: bool,
+    prune_final_templates: bool,
     root_index: RootAllomorphIndex,
     overlay: Option<&'g SuppliedRootOverlay>,
     /// Every `IsPattern` root allomorph across every stratum, in document order; read only by guess.
@@ -52,6 +54,8 @@ pub struct Morpher<'g> {
     max_stem_count: u32,
     /// C# `Morpher.PruneDisagreeingCopies`; on by default, as in C#.
     prune_disagreeing_copies: bool,
+    /// C# `Morpher.RequiredSlotLookahead`; on by default, as in C#. `HC_RSL=off|shadow|on` overrides it for diagnostics.
+    required_slot_lookahead: RequiredSlotLookahead,
     /// C# `Morpher.MergeEquivalentAnalyses`, starting from `Grammar::merge_equivalent_analyses`; tracing turns merging off regardless, as C# does.
     merge_equivalent_analyses: bool,
     /// The host's `guessRoot` argument, starting from `Grammar::guess_roots`; read only by `Self::project_parse_options`.
@@ -436,6 +440,7 @@ impl<'g> Morpher<'g> {
             g,
             final_template_facts,
             always_enforce_final_templates: g.always_enforce_final_templates,
+            prune_final_templates: true,
             root_index: RootAllomorphIndex::build(g),
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
@@ -446,6 +451,11 @@ impl<'g> Morpher<'g> {
             lookup_replay: Some(crate::lookup_replay::LookupReplay::build(g)),
             max_stem_count: g.max_stem_count,
             prune_disagreeing_copies: true,
+            required_slot_lookahead: match std::env::var("HC_RSL").as_deref() {
+                Ok("off") => RequiredSlotLookahead::Off,
+                Ok("shadow") => RequiredSlotLookahead::Shadow,
+                _ => RequiredSlotLookahead::On,
+            },
             merge_equivalent_analyses: g.merge_equivalent_analyses,
             guess_roots: g.guess_roots,
         }
@@ -514,6 +524,12 @@ impl<'g> Morpher<'g> {
     /// `<HC><MakePartialsFinal>`, or `false`.
     pub fn with_always_enforce_final_templates(mut self, enforce: bool) -> Self {
         self.always_enforce_final_templates = enforce;
+        self
+    }
+
+    /// Turns off the grammar-derived final-template pruning of analysis (on by default), for measuring what it saves; `with_always_enforce_final_templates(true)` still forces it.
+    pub fn with_final_template_pruning(mut self, prune: bool) -> Self {
+        self.prune_final_templates = prune;
         self
     }
 
@@ -591,6 +607,12 @@ impl<'g> Morpher<'g> {
     /// Enable C# `Morpher.PruneDisagreeingCopies` behavior for repeated affix-process copies.
     pub fn with_prune_disagreeing_copies(mut self, prune: bool) -> Self {
         self.prune_disagreeing_copies = prune;
+        self
+    }
+
+    /// Set C# `Morpher.RequiredSlotLookahead`: `Off`, `Shadow` (count only; see `pg_rules::required_slots::take_shadow`) or `On`.
+    pub fn with_required_slot_lookahead(mut self, mode: RequiredSlotLookahead) -> Self {
+        self.required_slot_lookahead = mode;
         self
     }
 
@@ -784,6 +806,7 @@ impl<'g> Morpher<'g> {
             max_unapplications: 0,
             max_stem_count: self.max_stem_count,
             prune_disagreeing_copies: self.prune_disagreeing_copies,
+            required_slot_lookahead: self.required_slot_lookahead,
         };
         // Closure lives here because `pg-parse` owns `RootAllomorphIndex` and `pg-rules` cannot depend on `pg-parse`.
         let filter: NonHeadRootFilter =
@@ -816,7 +839,8 @@ impl<'g> Morpher<'g> {
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
                 let node_parent = w.trace.unwrap_or(root);
                 let enforce = self.always_enforce_final_templates
-                    || self.final_template_facts.default_prune_enabled()[s];
+                    || (self.prune_final_templates
+                        && self.final_template_facts.default_prune_enabled()[s]);
                 let policy = FinalTemplateAnalysisPolicy {
                     enforce,
                     all_templates_final: self.final_template_facts.all_templates_final()[s],

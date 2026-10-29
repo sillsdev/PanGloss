@@ -1602,6 +1602,11 @@ fn run_batch_with_counter(
             if std::env::var("HC_STEP_STATS").is_ok() {
                 eprintln!("STEPS\t{i}\t{word}\t{}", outcome.steps);
                 eprintln!("WORK_STEPS\t{i}\t{word}\t{}", outcome.work_steps);
+                let shadow = pg_rules::required_slots::take_shadow();
+                eprintln!(
+                    "RSL_SHADOW\t{i}\t{word}\t{}\t{}\t{}",
+                    shadow.fired, shadow.violated, shadow.completed_under_fired
+                );
                 eprintln!(
                     "IDENTITY_REFUSALS\t{i}\t{word}\t{}",
                     pg_parse::root_trie::take_identity_refusals()

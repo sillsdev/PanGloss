@@ -21,6 +21,8 @@ mod edge_prefilter_gate;
 mod effective_analysis_target;
 #[path = "../exact_analysis_fs_recall.rs"]
 mod exact_analysis_fs_recall;
+#[path = "../final_template_pruning_gate.rs"]
+mod final_template_pruning_gate;
 #[path = "../free_fluctuation_gate.rs"]
 mod free_fluctuation_gate;
 #[path = "../guesser_gate.rs"]
@@ -39,6 +41,8 @@ mod merged_analyses_fs_generalization;
 mod phonology_gate;
 #[path = "../reduplication_gate.rs"]
 mod reduplication_gate;
+#[path = "../required_slot_shadow_gate.rs"]
+mod required_slot_shadow_gate;
 #[path = "../root_trie_gate.rs"]
 mod root_trie_gate;
 #[path = "../stats_collector_gate.rs"]

@@ -25,11 +25,12 @@
 use pg_fst::Fst;
 use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, CompoundingRuleDef, Grammar, MRuleId, MetathesisRuleDef,
-    MorphRuleDef, MorphemeId, PRuleId, PhonRuleDef, TableId,
+    MorphRuleDef, MorphemeId, PRuleId, PhonRuleDef, TableId, TemplateId,
 };
 
 use crate::metathesis::{self, MetaCache};
 use crate::morph::{self, AnalysisLhs, CompoundCache};
+use crate::required_slots::RequiredSlotMaterial;
 use crate::rewrite::{self, EnvFst, PruleCache};
 
 // Owning-table resolution: table zero is never an implicit default, mirroring `pg_foma::replace::owning_table`'s precedent on the compiled-net side.
@@ -176,6 +177,8 @@ pub struct RuleCache {
     allomorphs: Vec<AllomorphCache>,
     /// Indexed by `MRuleId.0`; `Some` only for a `MorphRuleDef::Compounding` entry (an `AffixProcess` entry's matchers live in `allomorphs` instead).
     compounds: Vec<Option<CompoundCache>>,
+    /// Indexed by `TemplateId.0`; the required-slot look-ahead tables, read from the analysis LHS of `allomorphs`.
+    templates: Vec<RequiredSlotMaterial>,
     /// Skip an analysis allomorph whose mandatory pattern edge cannot unify with the word's mandatory edge segment. Pure speed; on by default.
     edge_prefilter: bool,
 }
@@ -222,12 +225,22 @@ impl RuleCache {
                 MorphRuleDef::AffixProcess(_) | MorphRuleDef::Realizational(_) => None,
             })
             .collect();
-        RuleCache {
+        let mut cache = RuleCache {
             prules,
             allomorphs,
             compounds,
+            templates: Vec::new(),
             edge_prefilter: true,
-        }
+        };
+        let templates = (0..g.templates.len())
+            .map(|t| RequiredSlotMaterial::build(g, TemplateId(t as u32), Some(&cache)))
+            .collect();
+        cache.templates = templates;
+        cache
+    }
+
+    pub(crate) fn template_material(&self, tid: TemplateId) -> &RequiredSlotMaterial {
+        &self.templates[tid.0 as usize]
     }
 
     /// Turns the analysis edge-segment prefilter on or off; it never changes an analysis.

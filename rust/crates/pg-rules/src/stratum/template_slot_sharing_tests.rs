@@ -125,10 +125,22 @@ fn analyzer<'a>(
     budget: &'a StepBudget,
     stats: Option<&'a StatsCollector>,
 ) -> StratumAnalyzer<'a, 'a, 'a, 'a, 'a, 'a> {
+    analyzer_with(g, budget, stats, RequiredSlotLookahead::default())
+}
+
+fn analyzer_with<'a>(
+    g: &'a Grammar,
+    budget: &'a StepBudget,
+    stats: Option<&'a StatsCollector>,
+    look_ahead: RequiredSlotLookahead,
+) -> StratumAnalyzer<'a, 'a, 'a, 'a, 'a, 'a> {
     StratumAnalyzer::new(
         g,
         StratumId(0),
-        AnalyzerConfig::default(),
+        AnalyzerConfig {
+            required_slot_lookahead: look_ahead,
+            ..AnalyzerConfig::default()
+        },
         None,
         None,
         None,
@@ -212,7 +224,7 @@ fn untraced_battery_runs_a_shared_slot_batch_once() {
 
     let own_stats = StatsCollector::new(&g);
     let budget = StepBudget::new(usize::MAX);
-    let a = analyzer(&g, &budget, Some(&own_stats));
+    let a = analyzer_with(&g, &budget, Some(&own_stats), RequiredSlotLookahead::Off);
     for &tid in &a.stratum.templates {
         a.analyze_template(tid, &input);
     }
@@ -220,7 +232,8 @@ fn untraced_battery_runs_a_shared_slot_batch_once() {
 
     let shared_stats = StatsCollector::new(&g);
     let budget = StepBudget::new(usize::MAX);
-    analyzer(&g, &budget, Some(&shared_stats)).run_template_batch(&input);
+    analyzer_with(&g, &budget, Some(&shared_stats), RequiredSlotLookahead::Off)
+        .run_template_batch(&input);
     let shared = battery_counters(&shared_stats);
 
     assert!(shared.shared_slot_batches > 0, "{shared:?}");

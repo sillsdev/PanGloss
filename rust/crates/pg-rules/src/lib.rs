@@ -11,6 +11,7 @@ pub mod cache;
 pub mod cascade;
 pub mod metathesis;
 pub mod morph;
+pub mod required_slots;
 pub mod rewrite;
 pub mod shape_feat;
 pub mod stats;
