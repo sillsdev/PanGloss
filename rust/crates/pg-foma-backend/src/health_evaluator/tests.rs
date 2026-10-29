@@ -502,7 +502,7 @@ fn representative_inputs() -> (u64, EmitReport) {
 }
 
 const GOLDEN_JSON: &str = r#"{
-  "schema_version": 8,
+  "schema_version": 9,
   "findings": [
     {
       "code": "PGF0001",

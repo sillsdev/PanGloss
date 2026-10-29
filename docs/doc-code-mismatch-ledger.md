@@ -360,3 +360,14 @@ Two candidate mechanisms, neither built:
 2. **Stop writing step-numbers and wiring status into module headers at all.** Put "what this owns"
    in the header and "where we are in the plan" in the plan. Wiring status has a shelf life; a
    module's purpose does not.
+
+## `#[ignore]` baseline (issue #47, counted on origin/main `8f29d338`)
+
+`git grep -E '^\s*#\[ignore'` over `rust/crates` finds attribute lines only (doc-comment mentions of `#[ignore]` are not counted). The pg-parse and pg-rules test directories hold 19:
+
+| Crate | Count | Files |
+|---|---|---|
+| pg-parse | 11 | `batch_determinism` 2, `free_fluctuation_gate` 1, `perf_cold_warm_probe` 1, `reduplication_gate` 1, `root_trie_gate` 3, `trace_gate` 1, `trace_rule_sequence_gate` 1, `xample_migration_differential_gate` 1 |
+| pg-rules | 8 | `morph_gate` 1, `nonhead_resolution_gate` 3, `p7_segments_union_census` 1, `part1_checkpoint` 2, `stratum_gate` 1 |
+
+Adjudication: none cites the conformance submodule. 18 need gitignored private corpus data under `samples/data/` (`*-hc.xml`, `*-words.txt`), `perf_cold_warm_probe` is diagnostic instrumentation that also needs that data, and `xample_migration_differential_gate` needs the XAMPLE witness at `PANGLOSS_MACHINE_DIR`. None is stale; each still has a real reason. The issue's remark that some cite the missing submodule does not hold for these two crates.

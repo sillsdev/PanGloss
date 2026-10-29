@@ -137,6 +137,17 @@ fn fst_health_schema_from_code_round_trips_every_registered_code() {
 }
 
 #[test]
+fn partial_coverage_code_has_distinct_wire_representation() {
+    let code = FindingCode::BackendCoveragePartial;
+    assert_eq!(serde_json::to_string(&code).unwrap(), "\"PGF0017\"");
+    assert_eq!(
+        serde_json::from_str::<FindingCode>("\"PGF0017\"").unwrap(),
+        code
+    );
+    assert_ne!(code.code(), FindingCode::BackendCoverageIncomplete.code());
+}
+
+#[test]
 fn fst_health_schema_from_code_rejects_unknown_code() {
     assert_eq!(FindingCode::from_code("PGF9999"), None);
 }
@@ -151,7 +162,7 @@ fn characterization_phase_has_product_vocabulary_on_the_wire() {
 
 #[test]
 fn dead_health_labels_bump_health_schema_version() {
-    assert_eq!(HEALTH_SCHEMA_VERSION, 8);
+    assert_eq!(HEALTH_SCHEMA_VERSION, 9);
 }
 
 /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -201,7 +212,7 @@ fn representative_report() -> HealthReport {
 }
 
 const GOLDEN_JSON: &str = r#"{
-  "schema_version": 8,
+  "schema_version": 9,
   "findings": [
     {
       "code": "PGF0001",
@@ -255,11 +266,11 @@ fn fst_health_schema_round_trip() {
 }
 
 #[test]
-fn fst_health_schema_rejects_stale_v6_reports() {
-    let stale = GOLDEN_JSON.replacen("\"schema_version\": 8", "\"schema_version\": 6", 1);
-    let error = HealthReport::from_json(&stale).expect_err("schema v6 must be rejected");
-    assert!(error.to_string().contains("schema version 6"));
-    assert!(error.to_string().contains("expected 8"));
+fn fst_health_schema_rejects_stale_v8_reports() {
+    let stale = GOLDEN_JSON.replacen("\"schema_version\": 9", "\"schema_version\": 8", 1);
+    let error = HealthReport::from_json(&stale).expect_err("schema v8 must be rejected");
+    assert!(error.to_string().contains("schema version 8"));
+    assert!(error.to_string().contains("expected 9"));
 }
 
 // fst_health_finding_class: FindingCode -> FindingClass, the four-question vocabulary.
@@ -271,13 +282,16 @@ fn every_finding_code_has_a_class() {
 }
 
 #[test]
-fn representability_is_the_only_class_that_denies_the_grammar() {
+fn coverage_codes_are_representability_findings() {
     assert_eq!(
         FindingCode::BackendCoverageIncomplete.class(),
         FindingClass::Representability
     );
     for code in FindingCode::ALL {
-        if *code == FindingCode::BackendCoverageIncomplete {
+        if *code == FindingCode::BackendCoverageIncomplete
+            || *code == FindingCode::BackendCoveragePartial
+        {
+            assert_eq!(code.class(), FindingClass::Representability);
             continue;
         }
         assert_ne!(

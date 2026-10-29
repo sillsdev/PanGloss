@@ -4149,13 +4149,21 @@ pub fn compose_envelope_with_semantics(
     plan: &Plan,
     registry: &PredicateRegistry,
 ) -> CompileDecision {
+    baseline_envelope_with_semantics(semantics, plan, registry).global()
+}
+
+/// The envelope behind `compose_envelope_with_semantics`, so a caller that reports on it reads the same derivation the scalar join came from.
+pub fn baseline_envelope_with_semantics(
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+    registry: &PredicateRegistry,
+) -> StrategyEnvelope {
     let grammar_wide = baseline_grammar_wide_checks();
     compose_envelope_across_strategies(
         semantics,
         plan,
         &CapabilityContributions::new(registry, &grammar_wide),
     )
-    .global()
 }
 
 // Narrowing a predicate away lands its kind on the default-disposition floor, never out of account.
@@ -4461,6 +4469,12 @@ pub struct StrategyEnvelope {
 }
 
 impl StrategyEnvelope {
+    /// An envelope from explicit verdicts, so a reporter's tests can name which compilers decline.
+    #[cfg(test)]
+    pub(crate) fn from_verdicts(verdicts: Vec<StrategyVerdict>) -> Self {
+        Self { verdicts }
+    }
+
     /// Every strategy's verdict, in `crate::strategy_coverage::ALL_STRATEGIES` order.
     pub fn verdicts(&self) -> &[StrategyVerdict] {
         &self.verdicts

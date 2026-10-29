@@ -1852,6 +1852,26 @@ function Get-ConformancePinnedCommit {
     return $null
 }
 
+function Get-ConformanceSubmoduleDrift {
+    <#
+      .DESCRIPTION
+      $null when the checked-out `machine` commit equals the commit this worktree's HEAD pins, or when
+      either side cannot be read (a sentinel-only directory, no gitlink): drift is reported only on
+      evidence. Otherwise a PSCustomObject with Pinned and CheckedOut SHAs -- a worktree whose pin moved
+      keeps the old submodule and so the wrong control exe unless the caller re-fetches.
+    #>
+    param([string]$RepoRoot = (Get-RepoRoot))
+    $machineDir = Join-Path $RepoRoot 'machine'
+    if (-not (Test-Path (Join-Path $machineDir '.git'))) { return $null }
+    $pinned = Get-ConformancePinnedCommit -RepoRoot $RepoRoot
+    if (-not $pinned) { return $null }
+    $head = (& git -C $machineDir rev-parse HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $head) { return $null }
+    $head = "$head".Trim()
+    if ($head -eq $pinned) { return $null }
+    return [PSCustomObject]@{ Pinned = $pinned; CheckedOut = $head }
+}
+
 function Get-ConformanceSubmoduleSizeMB {
     # Reported alongside a successful init so the record states what happened (sparse ~3.6MB vs. fallback ~41MB), not just "ok".
     param([string]$RepoRoot = (Get-RepoRoot))
@@ -1942,11 +1962,51 @@ function Initialize-ConformanceSubmodule {
     #>
     param([string]$RepoRoot = (Get-RepoRoot))
 
-    # 1. Fast idempotent path FIRST, before touching git at all.
-    if (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot) {
+    # 1. Fast idempotent path FIRST: a sentinel with no git checkout behind it costs no git call; a real checkout costs two local ones (pin and HEAD), never the network.
+    $drift = Get-ConformanceSubmoduleDrift -RepoRoot $RepoRoot
+    if ((Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot) -and -not $drift) {
         return [PSCustomObject]@{
             Ok = $true; AlreadyPresent = $true; Mode = 'already-present'
-            Detail          = 'machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)'
+            Detail          = 'machine/conformance/constructs.txt present at the pinned commit -- submodule already initialized (local git reads only, no network)'
+            RecoveryCommand = ''
+        }
+    }
+    if ($drift -and (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot)) {
+        $driftNote = "machine is at $($drift.CheckedOut.Substring(0, 12)) but this worktree pins $($drift.Pinned.Substring(0, 12))"
+        $machineGit = Join-Path $RepoRoot 'machine'
+        if ($env:PANGLOSS_RESYNC_MACHINE -ne '1') {
+            # A deliberate local checkout (a developer comparing against a machine branch) must not be moved silently.
+            $hint = "set PANGLOSS_RESYNC_MACHINE=1 to move it to the pin"
+            Write-Host "[conformance] $driftNote; leaving it alone -- $hint." -ForegroundColor Yellow
+            return [PSCustomObject]@{
+                Ok = $true; AlreadyPresent = $true; Mode = 'drift-kept'
+                Detail          = "$driftNote; left as is -- $hint"
+                RecoveryCommand = ''
+            }
+        }
+        & git -C $machineGit cat-file -e "$($drift.Pinned)^{commit}" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            $fetchOut = & git -C $machineGit fetch --no-tags origin $drift.Pinned 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "[conformance] $driftNote and the pinned commit is not local; the fetch failed (offline?). Keeping the current checkout." -ForegroundColor Yellow
+                return [PSCustomObject]@{
+                    Ok = $true; AlreadyPresent = $true; Mode = 'drift-offline'
+                    Detail          = "$driftNote; the pin is not in the local clone and fetching it failed ($($fetchOut -join ' | ')). Kept the current checkout; re-run with network access to move it."
+                    RecoveryCommand = "git -C `"$machineGit`" fetch origin $($drift.Pinned); git -C `"$machineGit`" checkout $($drift.Pinned)"
+                }
+            }
+        }
+        $coOut = & git -C $machineGit checkout $drift.Pinned 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return [PSCustomObject]@{
+                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
+                Detail          = "$driftNote; checkout of the pin failed: $($coOut -join ' | ')"
+                RecoveryCommand = "git -C `"$machineGit`" checkout $($drift.Pinned)"
+            }
+        }
+        return [PSCustomObject]@{
+            Ok = $true; AlreadyPresent = $false; Mode = 'resynced'
+            Detail          = "$driftNote; moved to the pin (PANGLOSS_RESYNC_MACHINE=1)"
             RecoveryCommand = ''
         }
     }

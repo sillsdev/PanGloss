@@ -35,9 +35,12 @@
 //! by mirroring `crate::capability`'s own private `node_decision` walk — same registry, same
 //! `crate::capability::CharacteristicsProfile`, same `crate::capability::meet` — over ONLY that
 //! module's own public API (this file never modifies
-//! `capability.rs`). `PlanDocument::overall_verdict` is, separately, the literal, unmodified return
-//! value of `crate::capability::compose_envelope` itself, so a reader always has the ONE
-//! authoritative whole-grammar answer available even where a characteristic has no distinct
+//! `capability.rs`). `PlanDocument::overall_verdict` is, separately, the whole-grammar JOIN across
+//! compilers (`crate::capability::StrategyEnvelope::global`, via `compose_envelope_with_semantics`):
+//! the BEST verdict any compiler offers, so it can read Admit or ConfirmOnly while per-node
+//! verdicts, which mirror the fully constrained (compiler-blind) walk, show refusals. The two are two
+//! models, not one answer; which compilers decline is `StrategyEnvelope::declining`'s report, not
+//! this diagram's. A reader always has the whole-grammar join available even where a characteristic has no distinct
 //! `crate::plan::PlanNodeKind` to hang a node-local verdict on (`compose_envelope`'s own doc names
 //! several: `Compounding`, `UnorderedMorphRuleApplication`, `MprGroupAppend`, `MprGroupOverwrite`,
 //! `CircumfixOutputAction`, `Reduplication`). This module's own `plan_diagram_root_verdict_matches_

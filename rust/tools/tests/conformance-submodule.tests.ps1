@@ -160,4 +160,75 @@ Test-Case 'Get-ConformanceSubmoduleSizeMB is 0 for a repo with no machine/ direc
     Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue
 }
 
+# --- Drift: a moved pin is only acted on with an explicit opt-in, and a pin already in the local clone never touches the network. ---
+
+function New-DriftedSubmoduleRepo {
+    # A superproject whose machine/ is a clone checked out at the OLD pin while HEAD pins the NEW one. $PinInLocalClone=$false makes the new pin exist only in the source repo, then breaks that source.
+    param([bool]$PinInLocalClone = $true)
+    $git = @('-c', 'user.email=test@example.com', '-c', 'user.name=test')
+    $source = New-TestTempDir -Prefix 'pg-conformance-drift-src'
+    git -C $source init -q -b main | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $source 'conformance') | Out-Null
+    Set-Content -Path (Join-Path $source 'conformance\constructs.txt') -Value 'one'
+    git -C $source add -A | Out-Null
+    git -C $source @git commit -q -m one | Out-Null
+    $first = (git -C $source rev-parse HEAD).Trim()
+    $repo = New-FakeGitRepoWithMachineGitlink -Sha $first -Url ($source -replace '\\', '/')
+    git clone -q $source (Join-Path $repo 'machine') | Out-Null
+    Set-Content -Path (Join-Path $source 'conformance\constructs.txt') -Value 'two'
+    git -C $source @git commit -q -am two | Out-Null
+    $second = (git -C $source rev-parse HEAD).Trim()
+    if ($PinInLocalClone) { git -C (Join-Path $repo 'machine') fetch -q origin | Out-Null }
+    git -C $repo update-index --cacheinfo "160000,$second,machine" | Out-Null
+    git -C $repo @git commit -q -m 'move pin' | Out-Null
+    return [PSCustomObject]@{ Repo = $repo; Source = $source; First = $first; Second = $second }
+}
+
+Test-Case 'a drifted submodule is reported by Get-ConformanceSubmoduleDrift and absent when the pin matches' {
+    $d = New-DriftedSubmoduleRepo
+    Assert-Equal $d.First (Get-ConformanceSubmoduleDrift -RepoRoot $d.Repo).CheckedOut
+    git -C (Join-Path $d.Repo 'machine') checkout -q $d.Second | Out-Null
+    Assert-Equal $null (Get-ConformanceSubmoduleDrift -RepoRoot $d.Repo)
+    Remove-Item -Recurse -Force $d.Repo, $d.Source -ErrorAction SilentlyContinue
+}
+
+Test-Case 'without the opt-in a drifted checkout is warned about and left exactly where it is' {
+    $d = New-DriftedSubmoduleRepo
+    $saved = $env:PANGLOSS_RESYNC_MACHINE; $env:PANGLOSS_RESYNC_MACHINE = $null
+    try {
+        $r = Initialize-ConformanceSubmodule -RepoRoot $d.Repo
+        Assert-True $r.Ok
+        Assert-Equal 'drift-kept' $r.Mode
+        Assert-True ($r.Detail -like '*PANGLOSS_RESYNC_MACHINE=1*') "the message must name the opt-in; got: $($r.Detail)"
+        Assert-Equal $d.First (git -C (Join-Path $d.Repo 'machine') rev-parse HEAD).Trim() 'the checkout must not move'
+    } finally { $env:PANGLOSS_RESYNC_MACHINE = $saved; Remove-Item -Recurse -Force $d.Repo, $d.Source -ErrorAction SilentlyContinue }
+}
+
+Test-Case 'with the opt-in and the pin already local, the checkout moves without touching the network' {
+    $d = New-DriftedSubmoduleRepo
+    # Break the remote: if the code fetched, it would fail and keep the old commit.
+    Remove-Item -Recurse -Force $d.Source
+    $saved = $env:PANGLOSS_RESYNC_MACHINE; $env:PANGLOSS_RESYNC_MACHINE = '1'
+    try {
+        $r = Initialize-ConformanceSubmodule -RepoRoot $d.Repo
+        Assert-True $r.Ok $r.Detail
+        Assert-Equal 'resynced' $r.Mode
+        Assert-Equal $d.Second (git -C (Join-Path $d.Repo 'machine') rev-parse HEAD).Trim()
+    } finally { $env:PANGLOSS_RESYNC_MACHINE = $saved; Remove-Item -Recurse -Force $d.Repo -ErrorAction SilentlyContinue }
+}
+
+Test-Case 'with the opt-in but the pin absent and the remote unreachable, it keeps the checkout and says so clearly' {
+    $d = New-DriftedSubmoduleRepo -PinInLocalClone $false
+    Remove-Item -Recurse -Force $d.Source
+    $saved = $env:PANGLOSS_RESYNC_MACHINE; $env:PANGLOSS_RESYNC_MACHINE = '1'
+    try {
+        $r = Initialize-ConformanceSubmodule -RepoRoot $d.Repo
+        Assert-True $r.Ok 'an unreachable remote must not turn a usable checkout into a failure'
+        Assert-Equal 'drift-offline' $r.Mode
+        Assert-True ($r.Detail -like '*fetching it failed*') "got: $($r.Detail)"
+        Assert-True ($r.RecoveryCommand.Length -gt 0)
+        Assert-Equal $d.First (git -C (Join-Path $d.Repo 'machine') rev-parse HEAD).Trim()
+    } finally { $env:PANGLOSS_RESYNC_MACHINE = $saved; Remove-Item -Recurse -Force $d.Repo -ErrorAction SilentlyContinue }
+}
+
 Write-TestSummary

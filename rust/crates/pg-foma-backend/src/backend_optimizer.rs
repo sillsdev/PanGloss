@@ -399,6 +399,7 @@ impl Score {
         )
     }
 
+    /// Diagnostic only: bare states plus arcs, the objective the project rejected for `key`. Used by the calibration test to compare against it; never rank candidates with it.
     pub fn scalar_objective(&self) -> u64 {
         self.states.saturating_add(self.arcs)
     }

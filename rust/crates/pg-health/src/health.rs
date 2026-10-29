@@ -96,8 +96,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 8 when the partial-morpheme production-policy code and its metric were registered.
-pub const HEALTH_SCHEMA_VERSION: u32 = 8;
+/// Bumped to 9 when the partial backend-coverage code was registered.
+pub const HEALTH_SCHEMA_VERSION: u32 = 9;
 
 // Severity + payload-size threshold
 
@@ -282,6 +282,8 @@ pub enum FindingCode {
     BuildProcessFailed,
     /// A backend is known to omit or reject one or more required grammar constructs.
     BackendCoverageIncomplete,
+    /// Some backends decline the grammar while at least one other backend offers a path.
+    BackendCoveragePartial,
     /// An exact, already-computed morphological x phonological rule-count product is large.
     /// Distinct from [`FindingCode::UnknownUnboundedConstruct`]: this cost IS bounded ahead of
     /// time, just large.
@@ -322,6 +324,7 @@ impl FindingCode {
         FindingCode::BackendCoverageIncomplete,
         FindingCode::RuleInteractionProduct,
         FindingCode::PartialMorphemeProductionPolicy,
+        FindingCode::BackendCoveragePartial,
     ];
 
     /// The current `PGFdddd` wire code. Exhaustive match, no catch-all arm — adding a variant
@@ -336,6 +339,7 @@ impl FindingCode {
             FindingCode::BackendCoverageIncomplete => "PGF0013",
             FindingCode::RuleInteractionProduct => "PGF0015",
             FindingCode::PartialMorphemeProductionPolicy => "PGF0016",
+            FindingCode::BackendCoveragePartial => "PGF0017",
         }
     }
 
@@ -364,6 +368,9 @@ impl FindingCode {
                 "A backend is known to omit or reject required grammar constructs and therefore \
                  cannot produce a complete artifact."
             }
+            FindingCode::BackendCoveragePartial => {
+                "Some backends decline the grammar while at least one other backend offers a path."
+            }
             FindingCode::RuleInteractionProduct => {
                 "An exact morphological x phonological rule-count product is large; this cost is \
                  bounded ahead of time, not unknown."
@@ -387,6 +394,7 @@ impl FindingCode {
     pub const fn class(self) -> FindingClass {
         match self {
             FindingCode::BackendCoverageIncomplete => FindingClass::Representability,
+            FindingCode::BackendCoveragePartial => FindingClass::Representability,
             FindingCode::PayloadSizeBand => FindingClass::Readiness,
             FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
             FindingCode::ResourceBudgetReached => FindingClass::Containment,

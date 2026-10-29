@@ -52,7 +52,9 @@
 //! # Design notes
 //! 1. **Semantic and cost uncertainty use different stable codes.** A `Refuse` verdict is a known
 //!    coverage gap and uses `crate::health::FindingCode::BackendCoverageIncomplete` with
-//!    `crate::health::Metric::BackendCoverageGapCount`. Recall-preserving `ConfirmOnly` and
+//!    `crate::health::Metric::BackendCoverageGapCount`. When only some backends decline,
+//!    `crate::health::FindingCode::BackendCoveragePartial` reports the gap at nonblocking
+//!    `Elevated` severity because another backend still offers a path. Recall-preserving `ConfirmOnly` and
 //!    unbounded quantifiers remain genuine cost uncertainty and use
 //!    `crate::health::FindingCode::UnknownUnboundedConstruct`; the rule-interaction proxy is an
 //!    exact bounded product instead and uses `crate::health::FindingCode::RuleInteractionProduct`.
@@ -66,8 +68,10 @@
 
 use std::sync::Mutex;
 
-use crate::backend_selection::best_case_across_backends;
-use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
+use crate::backend_selection::best_case_envelope;
+use crate::capability::{
+    CharacteristicsProfile, CompileDecision, ObservationDetail, StrategyEnvelope,
+};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
@@ -241,10 +245,12 @@ pub fn characterization_findings_with_semantics(
 ) -> Vec<HealthFinding> {
     // One derivation, shared, rather than a second characterize walk inside the join.
     let profile = semantics.characteristics();
-    let decision = best_case_across_backends(semantics);
+    let envelope = best_case_envelope(semantics);
+    let decision = envelope.global();
 
     let mut findings = Vec::new();
     findings.extend(semantic_uncertainty_finding(&decision));
+    findings.extend(partial_refusal_finding(&envelope));
     findings.extend(cost_uncertainty_finding(&decision));
     findings.extend(unbounded_quantifier_findings(profile));
     findings.extend(rule_interaction_product_finding(profile));
@@ -284,6 +290,52 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
         ),
     )
         .affecting(affected))
+}
+
+/// Some compilers decline while another still offers a path, so the scalar join warns about nothing. `None` when no compiler declines or when every one does (the `Refuse` finding already says so). Never blocks: the declining compilers are the ones a build must not pick.
+fn partial_refusal_finding(envelope: &StrategyEnvelope) -> Option<HealthFinding> {
+    if matches!(envelope.global(), CompileDecision::Refuse(_)) {
+        return None;
+    }
+    let declining = envelope.declining();
+    if declining.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = declining
+        .iter()
+        .map(|(strategy, diags)| {
+            let why: Vec<String> = diags
+                .iter()
+                .map(|d| format!("predicate={} construct={}", d.predicate, d.construct))
+                .collect();
+            format!("{strategy:?} declines ({})", why.join(", "))
+        })
+        .collect();
+    let mut affected: Vec<String> = declining
+        .iter()
+        .flat_map(|(_, diags)| diags.iter().map(|d| d.construct.clone()))
+        .collect();
+    affected.sort();
+    affected.dedup();
+    Some(
+        HealthFinding::new(
+            FindingCode::BackendCoveragePartial,
+            Severity::Elevated,
+            Phase::Characterization,
+            Metric::BackendCoverageGapCount,
+            MetricValue::Count(declining.len() as u64),
+            ValueProvenance::Observed,
+            format!(
+                "{} of {} compilers decline this grammar ({}); at least one other compiler still \
+                 offers a path, so the grammar is not refused, but a build must not select a \
+                 declining compiler.",
+                declining.len(),
+                envelope.verdicts().len(),
+                names.join("; "),
+            ),
+        )
+        .affecting(affected),
+    )
 }
 
 /// `CompileDecision::ConfirmOnly`: recall-preserving, but this characterization stage has no proven cost bound for the construct(s) that landed here. Always `LargeMultiplier`/`Predicted`; `None` for `Admit`/`Refuse`.
