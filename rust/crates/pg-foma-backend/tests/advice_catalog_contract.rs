@@ -6,6 +6,7 @@ use pg_foma_backend::advice_catalog::{
 };
 
 const REQUIRED_SHAPES: &[&str] = &[
+    "alpha-variable-environments",
     "late-structural-reachability",
     "nonregular-process-morphology",
     "null-cycle",

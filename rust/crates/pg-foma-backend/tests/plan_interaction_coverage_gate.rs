@@ -102,6 +102,7 @@ fn gate_group_reordering_agrees_on_every_multi_group_corpus_fixture() {
     let mut checked = 0usize;
     let mut skipped_single_group = 0usize;
     let mut skipped_unloadable = 0usize;
+    let mut refused_alpha = 0usize;
 
     for f in discover() {
         let xml = f.load_grammar_xml();
@@ -128,14 +129,16 @@ fn gate_group_reordering_agrees_on_every_multi_group_corpus_fixture() {
             continue;
         }
 
-        let (groups, result) =
-            fuzz_gate_group_reordering_for_grammar(&g, &words).unwrap_or_else(|e| {
-                panic!(
-                    "{}: both the default plan and its permuted twin must build under an unbounded \
-                     budget: {e:?}",
-                    f.label()
-                )
-            });
+        let (groups, result) = match fuzz_gate_group_reordering_for_grammar(&g, &words) {
+            Ok(value) => value,
+            Err(pg_foma::compose_budget::ComposeError::CannotRepresent { .. })
+                if pg_foma::emit::alpha_environment_refusal(&g) =>
+            {
+                refused_alpha += 1;
+                continue;
+            }
+            Err(e) => panic!("{}: both plans must build: {e:?}", f.label()),
+        };
         assert!(groups >= 2, "{}: gate_group_count contract", f.label());
 
         match result {
@@ -159,7 +162,7 @@ fn gate_group_reordering_agrees_on_every_multi_group_corpus_fixture() {
     eprintln!(
         "=== Gate-group-reordering fuzz slice (deliverable 5) === checked {checked} multi-group \
          fixtures, skipped {skipped_single_group} single/no-group fixtures, {skipped_unloadable} \
-         unloadable"
+         unloadable, {refused_alpha} alpha-environment refusals"
     );
     assert!(
         checked > 0,

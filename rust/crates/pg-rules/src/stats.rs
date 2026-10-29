@@ -20,7 +20,7 @@ use rustc_hash::FxHashMap as HashMap;
 pub const ALLOMORPH_NONE: u32 = 0;
 
 /// Counter meaning and instrumentation support recorded by each statistics run.
-pub const COUNTER_SEMANTICS_VERSION: i64 = 6;
+pub const COUNTER_SEMANTICS_VERSION: i64 = 7;
 
 /// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
 /// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key
@@ -71,12 +71,23 @@ pub fn self_time_supported(kind: ObjectKind) -> bool {
 /// Timing support for a direction, independent of whether that path fired in a word.
 pub fn self_time_supported_in_direction(kind: ObjectKind, direction: Direction) -> bool {
     match kind {
-        ObjectKind::MorphRule | ObjectKind::PhonRule => true,
-        ObjectKind::LexEntry
-        | ObjectKind::RootIndex
-        | ObjectKind::Guesser
-        | ObjectKind::Overlay => direction == Direction::Analysis,
+        ObjectKind::MorphRule | ObjectKind::PhonRule | ObjectKind::LexEntry => true,
+        ObjectKind::RootIndex | ObjectKind::Guesser | ObjectKind::Overlay => {
+            direction == Direction::Analysis
+        }
     }
+}
+
+/// Directional timing support as recorded by the producing counter-semantics version.
+pub fn self_time_supported_in_direction_for_semantics(
+    kind: ObjectKind,
+    direction: Direction,
+    semantics: i64,
+) -> bool {
+    if semantics < 7 && kind == ObjectKind::LexEntry && direction == Direction::Synthesis {
+        return false;
+    }
+    self_time_supported_in_direction(kind, direction)
 }
 
 /// Counters for one `(object, stratum, allomorph)` row.
@@ -1059,7 +1070,7 @@ pub fn counter_support_for_semantics(
         3 if kind == ObjectKind::PhonRule && matches!(counter, "uses" | "no_root") => {
             Ok(CounterSupport::NotWired)
         }
-        3 | 5 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
+        3 | 5 | 6 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
         unsupported => Err(unsupported),
     }
 }

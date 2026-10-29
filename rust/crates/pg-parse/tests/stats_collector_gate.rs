@@ -10,6 +10,34 @@ use pg_parse::Morpher;
 use pg_rules::stats::{Direction, ObjectKind, OverlayPhase, StatsRow};
 use pg_rules::trace::{TraceHandle, TreeTraceSink};
 
+#[test]
+fn alpha_environment_work_is_attributed_to_its_lexical_entry() {
+    use pg_grammar_model::model::EnvironmentDef;
+    let mut g = pg_grammar::load(include_str!("data/alpha-optional-environment.xml")).unwrap();
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("expected the alpha rewrite rule");
+    };
+    let pattern = rule.subrules[0].right_env.clone().unwrap();
+    g.entries[0].allomorphs[0]
+        .environments
+        .push(EnvironmentDef::new(false, None, Some(pattern)));
+    let morpher = Morpher::new(&g, usize::MAX);
+    let (outcome, rows) = morpher.parse_word_with_stats("bg", &ParseOptions::default());
+    assert!(!outcome.analyses.is_empty());
+    assert!(
+        rows.iter().any(|row| {
+            row.kind == ObjectKind::LexEntry
+                && row.object_index == 0
+                && row.allomorph == 1
+                && row.direction == Direction::Synthesis
+                && row.counters.work_steps > 1
+        }),
+        "the alpha environment's work must belong to its lexical entry"
+    );
+    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    assert!(attributed <= outcome.work_steps as u64);
+}
+
 /// One fixture-provided word to replay, paired with the grammar it belongs to.
 struct Case {
     label: &'static str,

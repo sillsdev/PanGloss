@@ -913,3 +913,11 @@ fn disjunctive_rules() {
     );
     assert_morphs_eq(&Morpher::new(&g5, usize::MAX).parse_word("ktʰb"), &["49"]);
 }
+
+#[test]
+fn alpha_environment_recovers_the_optional_deletion_candidate() {
+    let grammar = pg_grammar::load(include_str!("data/alpha-optional-environment.xml"))
+        .expect("alpha grammar loads");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    assert_morphs_eq(&morpher.parse_word("bg"), &["1"]);
+}

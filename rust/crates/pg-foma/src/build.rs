@@ -500,10 +500,9 @@ pub fn finish_controllable_net(
 /// panic on a caller-supplied slice not borrowed from `g.prules`).
 ///
 /// # Errors
-/// Only for the same reasons `crate::gate::compile_gated_grammar` itself returns `Err` -- the
-/// underlying emitter's compound-chain construction can refuse a grammar. No new failure vector is
-/// introduced here: `build_controllable` trusts the plan it is handed, per this function's own doc
-/// above, rather than re-deriving facts already baked into it.
+/// The compiler refuses grammars whose environments contain alpha variables, and the underlying
+/// emitter can also refuse a compound-chain construction. The representability decision is shared
+/// with the other FST compiler entry points and the backend selector.
 pub fn build_controllable(
     plan: &Plan,
     opts: &FomaOptions,
@@ -511,6 +510,11 @@ pub fn build_controllable(
     alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
 ) -> Result<GatedCompileResult, ComposeError> {
+    if crate::emit::alpha_environment_refusal(g) {
+        return Err(ComposeError::CannotRepresent {
+            reason: crate::emit::ALPHA_ENVIRONMENT_REFUSAL,
+        });
+    }
     let gate_id = find_gate_node(plan);
     let PlanNodeKind::Gate {
         partition,

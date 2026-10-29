@@ -1678,7 +1678,11 @@ pub(crate) fn insert_catalog(
             )?;
         }
         for direction in [Direction::Analysis, Direction::Synthesis] {
-            let supported = pg_rules::stats::self_time_supported_in_direction(kind, direction);
+            let supported = pg_rules::stats::self_time_supported_in_direction_for_semantics(
+                kind,
+                direction,
+                counter_semantics,
+            );
             tx.execute(
                 "INSERT INTO stats_counter_support(engine, counter_semantics, object_kind, counter, direction, support) VALUES ('hc', ?1, ?2, 'self_time_ns', ?3, ?4)",
                 params![

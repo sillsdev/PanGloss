@@ -646,7 +646,7 @@ pub(crate) fn diagnose_unsupported(
 }
 
 /// `true` iff `nodes`, at any nesting depth through a `Quantifier`'s `children`, contains a `Context` carrying an `AlphaVar` — the pre-lowering version of `slots_contain_alpha`, letting `diagnose_unsupported_nodes`'s `Quantifier` arm check without first building `Slot`s for a subtree it may reject for a different reason.
-fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
+pub(crate) fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
     nodes.iter().any(|n| match n {
         PatternNode::Context(sc) => !sc.vars.is_empty(),
         PatternNode::Quantifier { children, .. } => nodes_contain_alpha_context(children),

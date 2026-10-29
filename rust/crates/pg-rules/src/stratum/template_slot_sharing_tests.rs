@@ -50,6 +50,11 @@ fn work_attribution_excludes_nested_scopes_and_failed_reservations() {
         2
     );
     assert_eq!(budget.used(), 4);
+    assert_eq!(
+        rows.iter().map(|row| row.counters.work_steps).sum::<u64>() + 1,
+        budget.used() as u64,
+        "object work plus the one unscoped reservation equals the total"
+    );
 }
 
 const XML: &str = r#"

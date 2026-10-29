@@ -21,11 +21,13 @@ use pg_grammar::model::{Dir, PRuleId, PhonRuleDef};
 pub(super) fn assert_capabilities(name: &str, has_quantifier: bool) {
     let fixture = require_fixture("edge-cases", name);
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
-    assert!(
-        select_backends(&GrammarSemantics::derive(&grammar))
-            .report_for(EmissionStrategy::TemplatedUnderlyingTokens)
-            .expect("templated report")
-            .can_represent(),
+    let represented = select_backends(&GrammarSemantics::derive(&grammar))
+        .report_for(EmissionStrategy::TemplatedUnderlyingTokens)
+        .expect("templated report")
+        .can_represent();
+    assert_eq!(
+        represented,
+        !pg_foma::emit::alpha_environment_refusal(&grammar),
         "{name}"
     );
     let profile = characterize(&grammar);
@@ -118,4 +120,20 @@ pub(super) fn verify_owner(name: &str) -> (usize, usize, usize) {
 
 pub(super) fn verify_templated(name: &str) -> (usize, usize) {
     super::confirmed_rewrite_fixture::verify_templated_fixture(&require_fixture("edge-cases", name))
+}
+
+/// Real templated compilation refuses these environments even when the low-level experiment succeeds.
+pub(super) fn assert_templated_alpha_refusal(name: &str) {
+    let fixture = require_fixture("edge-cases", name);
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    assert!(pg_foma::emit::alpha_environment_refusal(&grammar), "{name}");
+    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
+    let result = pg_foma::emit::emit_underlying_templated(&grammar, &alphabet, None);
+    assert!(
+        matches!(
+            result.report.tier,
+            pg_foma::emit::FomaTier::CannotRepresent { .. }
+        ),
+        "{name}"
+    );
 }

@@ -94,7 +94,8 @@ word, including that row, exactly equals `word.work`. The `facts` export's exist
 projection excludes the remainder because it is not a grammar object.
 
 The batch TSV remains interface version 3: its optional columns describe the whole word and do
-not contain object rows. Cache counter semantics version 6 identifies this attribution.
+not contain object rows. Cache counter semantics version 7 identifies this attribution, including
+final allomorph-environment matching under its owning lexical entry or morphological rule.
 
 `fact.work` (per grammar object, and the trace-details `categories` that report it) is a
 **different unit**. It counts shape segments examined each time the object was tried. It does not

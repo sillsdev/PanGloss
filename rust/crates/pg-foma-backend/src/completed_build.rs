@@ -506,13 +506,13 @@ pub(crate) fn compile_tuned_surface_for_measurement(
     let grammar_id = grammar_identity(grammar);
     let emitted = crate::emit::emit_tuned_surface_for_request(grammar);
     let report = emitted.report;
+    validate_emit_report(&report)?;
     let closure = report.closure_evidence.as_ref().ok_or_else(|| {
         CompletedBuildError::IncompleteEvidence(
             "TunedSurface emitted no closure certificate".to_string(),
         )
     })?;
     validate_closure(closure)?;
-    validate_emit_report(&report)?;
     let mut network = fsm_lexc_parse_string(&FomaOptions::default(), None, &emitted.lexc_source)
         .ok_or_else(|| {
             CompletedBuildError::Compiler("TunedSurface lexc failed to compile".to_string())

@@ -295,6 +295,71 @@ fn suffix_allomorph(g: &Grammar) -> (AllomorphId, pg_grammar_model::model::Morph
     (def.allomorphs[0].id, def.morpheme)
 }
 
+#[test]
+fn environment_work_is_attributed_to_root_and_affix_owners() {
+    use pg_rules::stats::{Direction, ObjectKind, StatsCollector};
+    use pg_rules::trace::{NoopSink, TraceHandle};
+    use pg_rules::validity::allomorphs_valid_cached_traced_with_stats;
+
+    let mut g = load_gate_grammar();
+    let context = single(&g, "ncAll");
+    let root_index = g
+        .entries
+        .iter()
+        .position(|e| e.authored_id == "eBat")
+        .unwrap();
+    g.entries[root_index].allomorphs[0]
+        .environments
+        .push(env(true, None, Some(context.clone())));
+    let MorphRuleDef::AffixProcess(affix) = &mut g.mrules[0] else {
+        panic!("expected affix rule");
+    };
+    affix.allomorphs[0]
+        .environments
+        .push(env(true, Some(context), None));
+    let bat = &g.entries[root_index];
+    let (affix_allo, affix_morpheme) = suffix_allomorph(&g);
+    let mut w = Word::new(
+        entry_shape(&g, "batx"),
+        pg_grammar_model::model::StratumId(0),
+    );
+    w.syn_fs = g.fs_interner.get(bat.syn_fs).clone();
+    w.morphs = vec![
+        MorphRecord::new(bat.allomorphs[0].id, bat.morpheme, 0),
+        MorphRecord::new(affix_allo, affix_morpheme, 3),
+    ];
+    let cache = RuleCache::build(&g);
+    let stats = StatsCollector::new(&g);
+    let budget = pg_fst::work::WorkBudget::new(1000);
+    let _scope = budget.enter();
+    assert!(allomorphs_valid_cached_traced_with_stats(
+        &g,
+        &w,
+        &cache,
+        &NoopSink,
+        TraceHandle::DUMMY,
+        Some(&stats)
+    ));
+    let rows = stats.rows();
+    for (kind, index) in [
+        (ObjectKind::LexEntry, root_index as u32),
+        (ObjectKind::MorphRule, 0),
+    ] {
+        assert!(
+            rows.iter().any(|r| r.kind == kind
+                && r.object_index == index
+                && r.allomorph == 1
+                && r.direction == Direction::Synthesis
+                && r.counters.work_steps > 0),
+            "missing work for {kind:?}"
+        );
+    }
+    assert_eq!(
+        rows.iter().map(|r| r.counters.work_steps).sum::<u64>() + 2,
+        budget.used() as u64
+    );
+}
+
 /// Bare bound root ("bat" alone, no affix): must be rejected.
 #[test]
 fn bound_root_alone_is_rejected() {

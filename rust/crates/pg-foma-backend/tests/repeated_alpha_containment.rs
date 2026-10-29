@@ -1,4 +1,6 @@
-use super::rewrite_oracle_fixtures::{assert_capabilities, verify_owner, verify_templated};
+use super::rewrite_oracle_fixtures::{
+    assert_capabilities, assert_templated_alpha_refusal, verify_owner,
+};
 
 const FIXTURES: &[&str] = &[
     "quantified-alpha-bounded-ltr-left",
@@ -16,7 +18,7 @@ const FIXTURES: &[&str] = &[
 ];
 
 #[test]
-fn repeated_alpha_environments_are_admitted_for_confirmation() {
+fn repeated_alpha_environments_are_refused_by_the_backend() {
     for name in FIXTURES {
         assert_capabilities(name, true);
     }
@@ -38,14 +40,8 @@ fn repeated_alpha_propose_confirm_matches_recorded_oracle() {
 }
 
 #[test]
-fn templated_repeated_alpha_matches_recorded_oracle() {
-    let mut checked = 0;
-    let mut positives = 0;
+fn templated_repeated_alpha_refuses_each_environment() {
     for name in FIXTURES {
-        let counts = verify_templated(name);
-        checked += counts.0;
-        positives += counts.1;
+        assert_templated_alpha_refusal(name);
     }
-    assert_eq!(checked, 200);
-    assert!(positives > 0);
 }

@@ -1,6 +1,6 @@
 # 066 — Repeated alpha environments require optional FST proposals
 
-Ledger status: fixed-in-rust. The fix is on `main` (commit c99e4a6d; `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
+Ledger status: superseded for whole-backend admission by [116](116-fst-alpha-environment-gap.md); the lower-level proposal experiment remains historical evidence. Originally fixed-in-rust. The fix is on `main` (commit c99e4a6d; `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
 
 ## Kind and status
 
@@ -48,22 +48,21 @@ and `right-to-left-rewrite.reversal` where applicable; recorded parses are uncha
 
 `pg-foma-backend/tests/repeated_alpha_containment.rs` has three regression tests:
 
-- `repeated_alpha_environments_are_admitted_for_confirmation`: the quantifier and applicable
-  RTL capability predicates return ConfirmOnly for all twelve fixtures, and the real templated
-  backend's selection report admits their representation.
+- `repeated_alpha_environments_are_refused_by_the_backend`: the quantifier and applicable
+  RTL capability predicates still report their local outcomes, while the selector refuses each
+  grammar because its environment carries alpha variables.
 - `repeated_alpha_propose_confirm_matches_recorded_oracle`: the owning rewrite compiler builds
   with no skipped rules; all 200 confirmed multisets equal the recorded oracle. Apply budgets
   limit each word to 128 paths and 32 candidates; every result completes, and actual pruning
   and positive analyses are both required.
-- `templated_repeated_alpha_matches_recorded_oracle`: the real templated compiler constructs a
-  complete proposer; all 200 recorded rows complete within the same apply budgets and confirm
-  exactly to C#'s recorded multisets.
+- `templated_repeated_alpha_refuses_each_environment`: the real templated compiler now refuses
+  each of the twelve grammars under the whole-backend safety policy in entry 116.
 
-All three tests fail with the owner lowering removed and pass restored. The initial default-backend
+Historically, the proposal tests failed with the owner lowering removed and passed restored. The initial default-backend
 probe passed before the change and was discarded as evidence. PlanComposed's unrelated required
 subtree materializer refuses these particular full grammars, so the capability regression checks
 the owning variant predicates and the output regression composes the owning rewrite relation
-directly. The separate templated test supplies actual whole-backend coverage.
+directly. The templated test now verifies whole-backend refusal.
 
 Removing only optional rewriting also fails the output regression: mandatory rewriting loses
 `MIXED|ttca` on `quantified-alpha-bounded-ltr-left`. The variant capability still admits this

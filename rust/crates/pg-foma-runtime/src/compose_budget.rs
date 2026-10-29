@@ -199,6 +199,8 @@ impl ApplyBudget {
 /// Every way a `ComposeBudget`-checked call can fail.
 #[derive(Debug, Clone)]
 pub enum ComposeError {
+    /// This grammar cannot be represented faithfully by the compiler.
+    CannotRepresent { reason: &'static str },
     /// `check_chain_depth` found a cumulative derivation/unapplication step count exceeding `chain_depth_cap`.
     ChainDepthExceeded {
         depth: usize,
@@ -210,6 +212,7 @@ pub enum ComposeError {
 impl fmt::Display for ComposeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ComposeError::CannotRepresent { reason } => write!(f, "cannot represent grammar: {reason}"),
             ComposeError::ChainDepthExceeded { depth, limit, site } => write!(
                 f,
                 "chain-depth budget exceeded at {site:?}: {depth} nested derivation/unapplication \

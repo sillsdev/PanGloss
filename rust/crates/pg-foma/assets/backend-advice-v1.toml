@@ -2,6 +2,22 @@
 schema_version = 1
 
 [[entry]]
+shape_key = "alpha-variable-environments"
+backend_id = "foma"
+route = "environment-matching"
+failed_predicate = "alpha-variable environment bindings are not represented by the FST backend"
+evidence_refs = ["backend:foma", "route:environment-matching", "predicate:alpha-variable-environments"]
+
+[[entry.remedy]]
+rank = 10
+remedy_key = "use-full-parser"
+description = "Use the full morphological parser for this grammar."
+effort = "easy"
+prerequisites = ["the full morphological parser is available"]
+contraindications = ["the deployment requires an FST-only backend"]
+equivalence_caveat = "The full parser preserves variable bindings during environment matching."
+
+[[entry]]
 shape_key = "late-structural-reachability"
 backend_id = "foma"
 route = "surface-enumeration"

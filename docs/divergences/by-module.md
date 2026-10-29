@@ -267,3 +267,4 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | Template and slot merge / `run_template_batch_raw`, `apply_slot_batch` | 035 | `template-category-sharing` is not a collision discriminator |
 | Template battery / `run_template_batch` _(memo removed, 045)_ | 032, 045 | `template-category-sharing` checks exclusivity; replay was never validated |
 | Realizational synthesis application count | 114 | Code-constructed and XML-compiled regression tests; [Machine #474](https://github.com/sillsdev/machine/pull/474) |
+| FST alpha-variable environments | 116 | `alpha_environment_refuses_all_real_compilers_and_the_selector`; `alpha_environment_refusal_is_a_representability_failure` |

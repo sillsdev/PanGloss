@@ -104,6 +104,8 @@ pub enum FomaTier {
     /// Emitted lexc material with known uncovered constructs. This is development evidence, not a
     /// trusted proposer: confirmation cannot restore candidates that the emission omitted.
     Partial { uncovered: usize },
+    /// A grammar construct cannot be faithfully represented by this backend.
+    CannotRepresent { reason: String },
     /// Could not emit a usable network at all; the grammar is refused and any use of the full engine is the caller's choice.
     Unsupported { reason: String },
 }

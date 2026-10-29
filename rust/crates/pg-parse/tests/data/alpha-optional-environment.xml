@@ -1,0 +1,184 @@
+<?xml version="1.0" ?>
+<HermitCrabInput>
+  <Language>
+    <Name>Alpha</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV">
+        <Name>V</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="feat_cons">
+        <Name>cons</Name>
+        <Symbols>
+          <Symbol id="sym_cp">+</Symbol>
+          <Symbol id="sym_cm">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="feat_voi">
+        <Name>voi</Name>
+        <Symbols>
+          <Symbol id="sym_vp">+</Symbol>
+          <Symbol id="sym_vm">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="feat_poa">
+        <Name>poa</Name>
+        <Symbols>
+          <Symbol id="sym_lab">lab</Symbol>
+          <Symbol id="sym_vel">vel</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="char_a">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+          <FeatureValue feature="feat_cons" symbolValues="sym_cm"/>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vp"/>
+        </SegmentDefinition>
+        <SegmentDefinition id="char_p">
+          <Representations>
+            <Representation>p</Representation>
+          </Representations>
+          <FeatureValue feature="feat_cons" symbolValues="sym_cp"/>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vm"/>
+          <FeatureValue feature="feat_poa" symbolValues="sym_lab"/>
+        </SegmentDefinition>
+        <SegmentDefinition id="char_b">
+          <Representations>
+            <Representation>b</Representation>
+          </Representations>
+          <FeatureValue feature="feat_cons" symbolValues="sym_cp"/>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vp"/>
+          <FeatureValue feature="feat_poa" symbolValues="sym_lab"/>
+        </SegmentDefinition>
+        <SegmentDefinition id="char_k">
+          <Representations>
+            <Representation>k</Representation>
+          </Representations>
+          <FeatureValue feature="feat_cons" symbolValues="sym_cp"/>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vm"/>
+          <FeatureValue feature="feat_poa" symbolValues="sym_vel"/>
+        </SegmentDefinition>
+        <SegmentDefinition id="char_g">
+          <Representations>
+            <Representation>g</Representation>
+          </Representations>
+          <FeatureValue feature="feat_cons" symbolValues="sym_cp"/>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vp"/>
+          <FeatureValue feature="feat_poa" symbolValues="sym_vel"/>
+        </SegmentDefinition>
+        <SegmentDefinition id="char_n">
+          <Representations>
+            <Representation>n</Representation>
+          </Representations>
+          <FeatureValue feature="feat_cons" symbolValues="sym_cp"/>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vp"/>
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="nc_any">
+        <Name>Any</Name>
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="nc_cons">
+        <Name>C</Name>
+        <FeatureValue feature="feat_cons" symbolValues="sym_cp"/>
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="nc_voiced">
+        <Name>Voiced</Name>
+        <FeatureValue feature="feat_voi" symbolValues="sym_vp"/>
+      </FeatureNaturalClass>
+      <SegmentNaturalClass id="nc_n">
+        <Name>n</Name>
+        <Segment segment="char_n"/>
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="voice">
+        <Name>agree voice</Name>
+        <VariableFeatures>
+          <VariableFeature id="var1" name="α" phonologicalFeature="feat_poa"/>
+        </VariableFeatures>
+        <PhoneticInput>
+          <PhoneticSequence>
+            <SimpleContext naturalClass="nc_cons">
+              <AlphaVariables>
+                <AlphaVariable variableFeature="var1"/>
+              </AlphaVariables>
+            </SimpleContext>
+          </PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <SimpleContext naturalClass="nc_voiced"/>
+              </PhoneticSequence>
+            </PhoneticOutput>
+            <Environment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <SimpleContext naturalClass="nc_cons">
+                      <AlphaVariables>
+                        <AlphaVariable variableFeature="var1"/>
+                      </AlphaVariables>
+                    </SimpleContext>
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="delete">
+        <Name>delete b before g</Name>
+        <PhoneticInput>
+          <PhoneticSequence>
+            <Segment segment="char_b"/>
+          </PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <Environment>
+              <LeftEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <Segment segment="char_b"/>
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </LeftEnvironment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <Segment segment="char_g"/>
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" phonologicalRules="voice delete">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <MorphemeId>1</MorphemeId>
+            <Allomorphs>
+              <Allomorph id="a1">
+                <PhoneticShape>pbg</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

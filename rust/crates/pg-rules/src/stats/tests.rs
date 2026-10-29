@@ -1,4 +1,7 @@
-use super::{self_time_supported, self_time_supported_in_direction, Direction, ObjectKind};
+use super::{
+    self_time_supported, self_time_supported_in_direction,
+    self_time_supported_in_direction_for_semantics, Direction, ObjectKind,
+};
 
 #[test]
 fn self_time_support_matches_every_instrumented_kind() {
@@ -13,9 +16,14 @@ fn self_time_support_matches_every_instrumented_kind() {
     for (kind, expected) in support {
         assert_eq!(self_time_supported(kind), expected, "{kind:?}");
     }
-    assert!(!self_time_supported_in_direction(
+    assert!(self_time_supported_in_direction(
         ObjectKind::LexEntry,
         Direction::Synthesis
+    ));
+    assert!(!self_time_supported_in_direction_for_semantics(
+        ObjectKind::LexEntry,
+        Direction::Synthesis,
+        6,
     ));
     assert!(self_time_supported_in_direction(
         ObjectKind::MorphRule,

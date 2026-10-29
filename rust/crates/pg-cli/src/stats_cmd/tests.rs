@@ -2130,8 +2130,8 @@ fn timed_object_kinds_render_their_self_time() {
 }
 
 #[test]
-fn direction_filter_does_not_claim_unmeasured_lexical_synthesis_time() {
-    let row = pg_stats::PerObjectRow {
+fn direction_filter_distinguishes_measured_lexical_and_unmeasured_index_synthesis_time() {
+    let mut row = pg_stats::PerObjectRow {
         kind: "lex_entry".to_string(),
         label: "root".to_string(),
         identity_quality: "synthetic".to_string(),
@@ -2146,11 +2146,16 @@ fn direction_filter_does_not_claim_unmeasured_lexical_synthesis_time() {
     };
     assert_eq!(
         direction_time_view(object_row_view(&row), Some("synthesis")).self_time_ns,
-        None
+        Some(0)
     );
     assert_eq!(
         direction_time_view(object_row_view(&row), Some("analysis")).self_time_ns,
         Some(0)
+    );
+    row.kind = "root_index".to_string();
+    assert_eq!(
+        direction_time_view(object_row_view(&row), Some("synthesis")).self_time_ns,
+        None
     );
 }
 

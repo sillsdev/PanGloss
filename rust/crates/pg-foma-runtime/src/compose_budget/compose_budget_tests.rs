@@ -44,6 +44,9 @@ fn chain_depth_explicit_cap_trips_one_past_limit() {
         .check_chain_depth(25, "chain_depth_explicit_cap_trips_one_past_limit")
         .expect_err("depth == cap + 1 must trip");
     match err {
+        ComposeError::CannotRepresent { reason } => {
+            panic!("unexpected representability refusal: {reason}")
+        }
         ComposeError::ChainDepthExceeded { depth, limit, site } => {
             assert_eq!(depth, 25);
             assert_eq!(limit, 24);
@@ -65,6 +68,9 @@ fn chain_depth_absolute_ceiling_clamps_excessive_configured_cap() {
         )
         .expect_err("one past the clamped ceiling must trip");
     match err {
+        ComposeError::CannotRepresent { reason } => {
+            panic!("unexpected representability refusal: {reason}")
+        }
         ComposeError::ChainDepthExceeded { limit, .. } => {
             assert_eq!(limit, CHAIN_DEPTH_ABSOLUTE_CEILING);
         }
