@@ -52,15 +52,15 @@ fn registered_predicate_shape_keys() -> HashMap<crate::capability::PredicateId, 
 }
 
 /// Every `Refuse` diagnostic's predicate id must resolve to a declared shape key: a `GrammarWideCheck`'s own field, a registered `CapabilityPredicate`'s own field, or `strategy_floor`'s named constant (the one refusal with no registry entry to own a `shape_key` method, `capability.rs`'s own doc on that constant explains why). A closed registry has no unknown members, so any other id panics naming it rather than guessing.
-fn capability_shape_key(diagnostic: &CapabilityDiagnostic) -> &'static str {
+fn capability_shape_key(diagnostic: &CapabilityDiagnostic) -> Option<&'static str> {
     if let Some(&key) = grammar_wide_shape_keys().get(diagnostic.predicate) {
-        return key;
+        return Some(key);
     }
     if diagnostic.predicate == crate::capability::STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE {
-        return crate::capability::STRATEGY_FLOOR_NOT_REPRESENTABLE_SHAPE_KEY;
+        return crate::capability::strategy_floor_shape_key(diagnostic);
     }
     if let Some(&key) = registered_predicate_shape_keys().get(diagnostic.predicate) {
-        return key;
+        return Some(key);
     }
     panic!(
         "no GrammarWideCheck, registered CapabilityPredicate, or strategy-floor constant declares \
@@ -74,7 +74,7 @@ fn capability_shape_key(diagnostic: &CapabilityDiagnostic) -> &'static str {
 /// pin the (predicate, shape key) table this module actually produces rather than a
 /// reimplementation of the same logic that could silently drift from it.
 #[cfg(feature = "test-support")]
-pub fn capability_shape_key_for_test(diagnostic: &CapabilityDiagnostic) -> &'static str {
+pub fn capability_shape_key_for_test(diagnostic: &CapabilityDiagnostic) -> Option<&'static str> {
     capability_shape_key(diagnostic)
 }
 
@@ -94,7 +94,9 @@ pub fn refused(
     let mut shapes = Vec::new();
     let mut advice_references = Vec::new();
     for diagnostic in diagnostics {
-        let shape_key = capability_shape_key(diagnostic);
+        let Some(shape_key) = capability_shape_key(diagnostic) else {
+            continue;
+        };
         let entry = catalog
             .entry_for(shape_key)
             .expect("every capability-refusal shape must exist in the advice catalog");

@@ -1,0 +1,54 @@
+# oracle-provenance: forward-synthesis
+# (Forward-derived expectations, hand-traced below; NOT recorded from hc.dll.)
+# Both engines currently fail `nui` and `mu+i` (sillsdev/machine issue 520), so this
+# fixture records the independently justified forward-synthesis answer. Until the C# fix lands,
+# hc.dll is expected to disagree on those two words; that is the divergence-050 case, not a broken fixture.
+#
+# Forward derivation (every word):
+#   nui   : NIU "niu" (posSimpleMeta, SimpleMeta stratum) -> mrSimpleMeta swaps i,u -> "nui". The
+#           Morphology stratum's prHDel is scoped to posDel and never applies to this root.
+#   mu+i  : MI "mi" + 3SGU "+u" = "mi+u" -> mrComplexMeta swaps across the boundary -> "mu+i".
+#   ai    : AHI "ahi" (posDel) -> prHDel (h -> nothing / V _ V) fires -> "ai".
+#   ahi   : the raw underlying shape of AHI; prHDel is obligatory so it cannot surface.
+#   niu   : the raw underlying shape of NIU; mrSimpleMeta is obligatory so it cannot surface.
+#   pan   : PAN (posDel) has no h, nothing applies (control).
+#
+# Why it fails today: analysing "nui", prHDel's unapplication inserts an optional "h" between every
+# pair of vowels (it cannot know the part of speech yet), and metathesis analysis does not match
+# "u?i" across that inserted optional node, so the u-then-i adjacency is not found.
+
+language: PosScopedDeletionBlocksMetathesis
+inspired_by: ["synthetic probe (not modeling any real language)"]
+sources:
+  - "docs/divergences/050-pos-scoped-deletion-blocks-metathesis.md"
+  - "sillsdev/machine issue 520"
+  - "sillsdev/PanGloss issue 28"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: nui
+    note: Simple metathesis word, blocked today by the unrelated posDel-scoped h deletion.
+    parses:
+      - signature: "NIU|nui"
+        rules: [mrSimpleMeta]
+  - word: "mu+i"
+    note: Complex (boundary) metathesis word, blocked today by the same deletion.
+    parses:
+      - signature: "MI+3SGU|mu+?i"
+        rules: [mrUSuffix, mrComplexMeta]
+  - word: ai
+    note: Control, the deletion rule's own word, h deleted between vowels.
+    parses:
+      - signature: "AHI|ai"
+        rules: [prHDel]
+  - word: pan
+    note: Control, no rule applies.
+    parses:
+      - signature: "PAN|pan"
+        rules: []
+  - word: ahi
+    note: Raw underlying shape of AHI cannot surface, prHDel is obligatory.
+    expect_fail: true
+  - word: niu
+    note: Raw underlying shape of NIU cannot surface, mrSimpleMeta is obligatory.
+    expect_fail: true

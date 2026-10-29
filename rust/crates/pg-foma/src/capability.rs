@@ -1224,7 +1224,7 @@ fn compounding_recursive(g: &Grammar) -> HashSet<MRuleId> {
 
 /// Extends `compounding_recursive`'s one-hop boolean into a finite max-depth bound: a rule-count ceiling, not a typological nesting depth (the operative bound is `max_stem_count`, not this).
 /// See docs/research/pg-foma-capability-design-notes.md.
-fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
+fn compounding_max_depth(g: &Grammar, r: MRuleId) -> usize {
     let compounding_rules: Vec<(MRuleId, &pg_grammar::model::CompoundingRuleDef)> = g
         .mrules
         .iter()
@@ -1254,24 +1254,20 @@ fn compounding_max_depth(g: &Grammar) -> HashMap<MRuleId, usize> {
         }
     };
 
-    let mut result = HashMap::new();
-    for &(r, _) in &compounding_rules {
-        // Transitive closure BFS over distinct predecessors; terminates on any finite graph, cycles included.
-        let mut ancestors: HashSet<MRuleId> = HashSet::new();
-        let mut frontier: Vec<MRuleId> = vec![r];
-        while let Some(cur) = frontier.pop() {
-            for &(r2, _) in &compounding_rules {
-                if r2 != cur && feeds_one_hop(r2, cur) && ancestors.insert(r2) {
-                    frontier.push(r2);
-                }
+    // Transitive closure BFS over distinct predecessors; terminates on any finite graph, cycles included.
+    let mut ancestors: HashSet<MRuleId> = HashSet::new();
+    let mut frontier: Vec<MRuleId> = vec![r];
+    while let Some(cur) = frontier.pop() {
+        for &(r2, _) in &compounding_rules {
+            if r2 != cur && feeds_one_hop(r2, cur) && ancestors.insert(r2) {
+                frontier.push(r2);
             }
         }
-        // A genuine cycle can rediscover `r` as its own ancestor; remove it to avoid double-counting.
-        ancestors.remove(&r);
-        let ancestor_sum: usize = ancestors.iter().map(|&r2| max_apps_of(r2) as usize).sum();
-        result.insert(r, 1 + max_apps_of(r) as usize + ancestor_sum);
     }
-    result
+    // A genuine cycle can rediscover `r` as its own ancestor; remove it to avoid double-counting.
+    ancestors.remove(&r);
+    let ancestor_sum: usize = ancestors.iter().map(|&r2| max_apps_of(r2) as usize).sum();
+    1 + max_apps_of(r) as usize + ancestor_sum
 }
 
 thread_local! {
@@ -1309,7 +1305,6 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
     // A rule-graph reachability pass, computed once grammar-wide, not a per-rule check.
     let compounding_recursive_set = compounding_recursive(g);
     // The depth-BOUND sibling pass, computed alongside the boolean one above (never replacing it).
-    let compounding_max_depth_map = compounding_max_depth(g);
 
     // --- MorphRuleDef (model.rs:542) --------------------------------------------------------
     for (i, mrule) in g.mrules.iter().enumerate() {
@@ -1330,9 +1325,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                     ObservationDetail::Compounding(CompoundingDetail {
                         rule: id,
                         recursive: compounding_recursive_set.contains(&id),
-                        max_depth: compounding_max_depth_map.get(&id).copied().unwrap_or_else(
-                            || panic!("compounding_max_depth must cover every Compounding mrule id, missing {id:?}")
-                        ),
+                        max_depth: compounding_max_depth(g, id),
                     }),
                 ));
             }
@@ -4652,8 +4645,14 @@ pub fn compose_envelope_for_strategy(
 /// `strategy_floor`'s own refusal id -- not a registered `CapabilityPredicate` or `GrammarWideCheck` (it has no plan node and applies identically to every strategy), so `crate::backend_selection::capability_shape_key` reads this constant directly rather than the registry lookup those two shapes go through.
 pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE: &str =
     "strategy-coverage.construct-not-representable";
-/// The shape key `crate::backend_selection::capability_shape_key` returns for [`STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE`].
-pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_SHAPE_KEY: &str = "nonregular-process-morphology";
+/// The advice shape for a floor refusal of process morphology; the catalog's remedies are written for that construct only.
+const STRATEGY_FLOOR_PROCESS_MORPHOLOGY_SHAPE_KEY: &str = "nonregular-process-morphology";
+
+/// The advice shape key for a [`STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE`] refusal, or `None` when the catalog has no advice for that construct (realizational morphology, cross-table respelling): naming process-morphology remedies for them would be wrong advice.
+pub(crate) fn strategy_floor_shape_key(diagnostic: &CapabilityDiagnostic) -> Option<&'static str> {
+    (diagnostic.construct == format!("{:?}", CharacteristicKind::ProcessMorphology))
+        .then_some(STRATEGY_FLOOR_PROCESS_MORPHOLOGY_SHAPE_KEY)
+}
 
 // The per-strategy account's contribution alone; `compose_over_predicates` folds in the dispositions.
 fn strategy_floor(strategy: EmissionStrategy, kind: CharacteristicKind) -> CompileDecision {

@@ -1,7 +1,7 @@
 # 050 — A part-of-speech-scoped deletion blocks metathesis analysis of other words
 
-Kind: behavioural (shared: both engines)
-Status: open — [Machine issue #520](https://github.com/sillsdev/machine/issues/520)
+Kind: behavioural (shared upstream; fixed in PanGloss only)
+Status: fixed-in-rust (still open in C#) — [Machine issue #520](https://github.com/sillsdev/machine/issues/520)
 
 ## Sites
 
@@ -17,6 +17,12 @@ Adding `prHDel` (h -> nothing / V _ V, `requiredPartsOfSpeech="posRedup"`) to th
 - Reproduced 2026-09-25 with the PanGloss v0.4.0 release binary: with the variant grammar, `pangloss parse` returns `-` for both words; with the committed grammar it returns `NIU|nui` and `MI+3SGU|mu+?i`. C# reproduction and minimal grammar in #520.
 - The committed fixture uses `V _ a` so it does not trigger this; no fixture pins the bug yet.
 
-## Next step
+## Fix and fixture (PanGloss)
+
+`pg-rules/src/metathesis.rs` `analyze_with_pattern` rejected any match whose span was wider than the pattern (a width guard meant to refuse over-wide synthesis spans). In analysis, an optional node re-inserted by another rule's unapplication (here `prHDel`'s candidate `h`) sits between the switch nodes and widens the span without being a pattern node, so `u?i` never matched. Analysis now tries exact-width candidates first (unchanged), then candidates whose span is wider only by optional nodes, applying the union to the mandatory nodes of each switch group. Synthesis keeps the strict guard. Checked 2026-10-28 with a Machine master `hc.dll` built before #539 merged: it returns no parse for `nui` and `mu+i` and agrees on the controls.
+
+This is the one-sided, independently justified divergence the oracle hierarchy allows: C# still fails these words, forward generation is the evidence, and the report upstream is Machine #520. The staged fixture `conformance-staging/edge-cases/pos-scoped-deletion-blocks-metathesis` records the forward-derived expectations (`nui`, `mu+i` parse; hc.dll is expected to miss both until #520 is fixed).
+
+## Original next step (done)
 
 A conformance edge-case fixture with the `V _ V` variant, expected parses from forward generation, marked as an expected failure in both engines until the fix lands.

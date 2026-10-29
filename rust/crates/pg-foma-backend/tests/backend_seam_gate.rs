@@ -11,6 +11,9 @@ use pg_foma_backend::backend_selection::{capability_shape_key_for_test, select_b
 
 /// `(predicate id, shape key)`, deduplicated since construct text is fixture-specific free text a pinned literal should not depend on.
 type ShapeRow = (&'static str, &'static str);
+
+/// The shape column for a refusal the advice catalog deliberately has no entry for.
+const NO_ADVICE: &str = "(no advice)";
 type PartialFixtureRow = (&'static str, &'static str, &'static str, &'static str);
 type PartialAdmissionRow = (&'static str, &'static str);
 
@@ -58,7 +61,7 @@ fn sweep_shape_keys() -> (
             }
             if let CompileDecision::Refuse(diagnostics) = report.decision() {
                 for diagnostic in diagnostics {
-                    let shape_key = capability_shape_key_for_test(diagnostic);
+                    let shape_key = capability_shape_key_for_test(diagnostic).unwrap_or(NO_ADVICE);
                     eprintln!(
                         "SEAM_ROW\t{}\t{strategy:?}\t{}\t{shape_key}",
                         fixture.label(),
@@ -131,6 +134,7 @@ fn backend_seam_shape_key_table_is_pinned() {
             "wide-phonology",
         ),
         ("simultaneous.subrule-overlap", "wide-phonology"),
+        ("strategy-coverage.construct-not-representable", NO_ADVICE),
         (
             "strategy-coverage.construct-not-representable",
             "nonregular-process-morphology",

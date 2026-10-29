@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Staged for PanGloss issue 33 / divergence 087: a narrowing rule `+ [stop alpha-voice] -> [fricative alpha-voice]` (boundary BEFORE a Segment LHS constraint that carries an alpha variable). Merged Machine #539 stops zipping after a boundary and refuses unresolved variables; PanGloss resolves the variable and unions later Segment constraints. -->
+<HermitCrabInput>
+  <Language>
+    <Name>narrowing-boundary-first-alpha-lhs</Name>
+    <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+    <SymbolicFeature id="fVoice"><Name>voice</Name><Symbols><Symbol id="voicePlus">+voice</Symbol><Symbol id="voiceMinus">-voice</Symbol></Symbols></SymbolicFeature>
+    <SymbolicFeature id="fCont"><Name>cont</Name><Symbols><Symbol id="contPlus">+cont</Symbol><Symbol id="contMinus">-cont</Symbol></Symbols></SymbolicFeature>
+    <SymbolicFeature id="fCons"><Name>cons</Name><Symbols><Symbol id="consPlus">+cons</Symbol><Symbol id="consMinus">-cons</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c_p"><Representations><Representation>p</Representation></Representations><FeatureValue feature="fVoice" symbolValues="voiceMinus" /><FeatureValue feature="fCont" symbolValues="contMinus" /><FeatureValue feature="fCons" symbolValues="consPlus" /></SegmentDefinition>
+        <SegmentDefinition id="c_b"><Representations><Representation>b</Representation></Representations><FeatureValue feature="fVoice" symbolValues="voicePlus" /><FeatureValue feature="fCont" symbolValues="contMinus" /><FeatureValue feature="fCons" symbolValues="consPlus" /></SegmentDefinition>
+        <SegmentDefinition id="c_f"><Representations><Representation>f</Representation></Representations><FeatureValue feature="fVoice" symbolValues="voiceMinus" /><FeatureValue feature="fCont" symbolValues="contPlus" /><FeatureValue feature="fCons" symbolValues="consPlus" /></SegmentDefinition>
+        <SegmentDefinition id="c_v"><Representations><Representation>v</Representation></Representations><FeatureValue feature="fVoice" symbolValues="voicePlus" /><FeatureValue feature="fCont" symbolValues="contPlus" /><FeatureValue feature="fCons" symbolValues="consPlus" /></SegmentDefinition>
+        <SegmentDefinition id="c_a"><Representations><Representation>a</Representation></Representations><FeatureValue feature="fVoice" symbolValues="voicePlus" /><FeatureValue feature="fCont" symbolValues="contPlus" /><FeatureValue feature="fCons" symbolValues="consMinus" /></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions><BoundaryDefinition id="bPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncVowel"><Name>vowel</Name><FeatureValue feature="fCons" symbolValues="consMinus" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncStop"><Name>stop</Name><FeatureValue feature="fCons" symbolValues="consPlus" /><FeatureValue feature="fCont" symbolValues="contMinus" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncFric"><Name>fricative</Name><FeatureValue feature="fCons" symbolValues="consPlus" /><FeatureValue feature="fCont" symbolValues="contPlus" /></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prSpirant">
+        <Name>spirantizeAfterBoundary</Name>
+        <VariableFeatures><VariableFeature id="varVoice" name="α" phonologicalFeature="fVoice" /></VariableFeatures>
+        <PhoneticInput><PhoneticSequence><BoundaryMarker boundary="bPlus" /><SimpleContext naturalClass="ncStop"><AlphaVariables><AlphaVariable variableFeature="varVoice" polarity="plus" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncFric"><AlphaVariables><AlphaVariable variableFeature="varVoice" polarity="plus" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered" morphologicalRules="mrPA mrBA mrFA mrVA" phonologicalRules="prSpirant">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrPA" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN"><Name>sfxPA</Name><MorphologicalSubrules><MorphologicalSubrule id="subPA"><MorphologicalInput><PhoneticSequence id="stemPA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stemPA" /><InsertSegments><PhoneticShape>+pa</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>PA</MorphemeId><Gloss>pa</Gloss></MorphologicalRule>
+          <MorphologicalRule id="mrBA" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN"><Name>sfxBA</Name><MorphologicalSubrules><MorphologicalSubrule id="subBA"><MorphologicalInput><PhoneticSequence id="stemBA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stemBA" /><InsertSegments><PhoneticShape>+ba</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>BA</MorphemeId><Gloss>ba</Gloss></MorphologicalRule>
+          <MorphologicalRule id="mrFA" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN"><Name>sfxFA</Name><MorphologicalSubrules><MorphologicalSubrule id="subFA"><MorphologicalInput><PhoneticSequence id="stemFA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stemFA" /><InsertSegments><PhoneticShape>+fa</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>FA</MorphemeId><Gloss>fa</Gloss></MorphologicalRule>
+          <MorphologicalRule id="mrVA" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN"><Name>sfxVA</Name><MorphologicalSubrules><MorphologicalSubrule id="subVA"><MorphologicalInput><PhoneticSequence id="stemVA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stemVA" /><InsertSegments><PhoneticShape>+va</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>VA</MorphemeId><Gloss>va</Gloss></MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eAa" partOfSpeech="posN"><Allomorphs><Allomorph id="aAa"><PhoneticShape>aa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>AA</MorphemeId><Gloss>aa</Gloss></LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

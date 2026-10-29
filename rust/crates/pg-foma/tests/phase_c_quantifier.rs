@@ -40,9 +40,9 @@ fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
         .collect()
 }
 
-/// Was honestly skipped; now compiles. The generator always mints a genuinely UNBOUNDED (`max="-1"`) quantifier occupying the rule's WHOLE LHS focus; `Slot::Repeat`'s widening now renders it, so this compiles to `Some(net)` -- this unit test exercises the FST COMPILE side only, not confirm-side containment (a separate, pre-existing gap, see `crate::replace`'s "Confirm-engine finding").
+/// The generator mints a genuinely UNBOUNDED (`max="-1"`) quantifier occupying the rule's WHOLE LHS focus. C# fails rule compilation on a quantified focus and FieldWorks cannot author one (divergence 068), so the compiler refuses it: the rule is skipped and no network is built.
 #[test]
-fn quantifier_unbounded_lhs_focus_now_compiles() {
+fn quantifier_unbounded_lhs_focus_is_refused() {
     let recipe = recipe();
     let rendered = pg_grammar_gen::render_indexed(&recipe);
     let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| {
@@ -69,24 +69,16 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
     let composed =
         compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports);
 
-    // The quantifier-bearing rule is no longer skipped at all -- it compiles to a real network, alpha-free (a trivial 1-entry tuple report).
-    assert!(
-        skipped.is_empty(),
-        "the unbounded LHS-focus quantifier rule must no longer be skipped: {skipped:?}"
-    );
-    assert!(
-        composed.is_some(),
-        "an unbounded LHS-focus quantifier must compile to a real network, not a no-op cascade"
-    );
     assert_eq!(
-        tuple_reports.len(),
-        1,
-        "exactly one compiled (alpha-free) rule contributes a trivial tuple report"
+        skipped,
+        vec![quantifier.rule_xml_id.clone()],
+        "the quantified-focus rule must be reported skipped"
     );
-    assert_eq!(tuple_reports[0].0, quantifier.rule_xml_id);
-    assert_eq!(tuple_reports[0].1.len(), 1, "one alpha-free subrule");
-    assert_eq!(tuple_reports[0].1[0].raw_product, 1);
-    assert_eq!(tuple_reports[0].1[0].surviving, 1);
+    assert!(
+        composed.is_none(),
+        "a quantified focus must not compile to a network"
+    );
+    assert!(tuple_reports.is_empty());
 }
 
 // Bounded quantifier, IN AN ENVIRONMENT (see this file's top doc): synthetic fixtures, named by construct.

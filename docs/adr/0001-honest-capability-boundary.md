@@ -107,9 +107,14 @@ overclaim."
   size is unobservable (cost is enumeration-proxy + runtime only). The controllable
   composition path (today's P6 `replace.rs`/`gate.rs`, wired to production in Stage 2) admits
   **structural** capability proof and real state/arc cost gating. The characteristics profile
-  carries a **capability evidence provenance** field (`behavioral` vs `structural`) so the
-  two are never conflated. The capability/cost requirements are the explicit forcing function
-  for migrating constructs onto controllable composition.
+  carries a **capability evidence provenance** field so the two are never conflated.
+  **Amendment:** the field has one value today, `structural`; every predicate reads model
+  fields or lowered automata. `behavioral` is not a variant until a predicate actually
+  constrains on an oracle witness, because a variant nothing constructs is a control that
+  cannot act (`EvidenceProvenance` in `capability.rs`). One tier is enough for what is built;
+  adding the second is a design step that arrives with its first firing predicate. The
+  capability/cost requirements are the explicit forcing function for migrating constructs onto
+  controllable composition.
 
 ## Considered and rejected
 

@@ -15,6 +15,12 @@
       "kind": "forward-synthesis",
       "reason": "1/4 word(s) mismatched: sagui: expected [ROOT+A2B+B2A+THIRD|sagui | ROOT+A2B+B2A|sagui] got [ROOT+A2B+B2A|sagui | ROOT+A2B+THIRD|sagui]",
       "note": "Existing deliberate-red provenance narrowed to the exact 2026-09-30 staged observation; see words.yaml and its forward derivation. Unrelated negative-control failures now gate."
+    },
+    {
+      "fixture": "edge-cases/pos-scoped-deletion-blocks-metathesis",
+      "kind": "forward-synthesis",
+      "reason": "2/6 word(s) mismatched: nui: expected [NIU|nui] got []; mu+i: expected [MI+3SGU|mu+?i] got []",
+      "note": "Divergence 050 / Machine #520: hc.dll (master c2454760, includes #539) finds no parse for the two metathesis words while a POS-scoped deletion exists; expectations are hand-forward-derived, see words.yaml."
     }
   ],
   "evidence_measured_date": "2026-09-30"
