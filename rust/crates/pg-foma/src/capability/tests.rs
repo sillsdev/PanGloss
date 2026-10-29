@@ -468,15 +468,21 @@ fn compounding_max_depth_matches_compounding_recursive_boolean_exactly() {
     ] {
         let g = load(&xml);
         let recursive_set = compounding_recursive(&g);
-        let depth_map = compounding_max_depth(&g);
+        let compounding_ids: Vec<MRuleId> = g
+            .mrules
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| matches!(m, MorphRuleDef::Compounding(_)))
+            .map(|(i, _)| MRuleId(i as u32))
+            .collect();
         for mid in recursive_set
             .iter()
             .copied()
-            .chain(depth_map.keys().copied())
+            .chain(compounding_ids)
             .collect::<HashSet<_>>()
         {
             let is_recursive = recursive_set.contains(&mid);
-            let depth = depth_map[&mid];
+            let depth = compounding_max_depth(&g, mid);
             assert_eq!(
                 is_recursive,
                 depth > 2,
@@ -4072,5 +4078,26 @@ fn global_refuses_only_when_every_strategy_refuses() {
             EmissionStrategy::TemplatedUnderlyingTokens
         ],
         "the envelope must name which compilers declined, which a scalar decision cannot"
+    );
+}
+
+#[test]
+fn strategy_floor_advice_is_only_for_process_morphology() {
+    let refusal = |kind: CharacteristicKind| CapabilityDiagnostic {
+        predicate: STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE,
+        construct: format!("{kind:?}"),
+        witness: String::new(),
+    };
+    assert_eq!(
+        strategy_floor_shape_key(&refusal(CharacteristicKind::ProcessMorphology)),
+        Some("nonregular-process-morphology")
+    );
+    assert_eq!(
+        strategy_floor_shape_key(&refusal(CharacteristicKind::RealizationalMorphology)),
+        None
+    );
+    assert_eq!(
+        strategy_floor_shape_key(&refusal(CharacteristicKind::CrossTableRespelling)),
+        None
     );
 }

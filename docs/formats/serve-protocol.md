@@ -53,7 +53,7 @@ One JSON object per line. Blank lines are ignored.
 ## Responses
 
 ```json
-{"id":"1","type":"result","exitCode":0,"steps":28,"workSteps":935,"guessed":false,"result":{...}}
+{"id":"1","type":"result","exitCode":0,"status":"ok","steps":28,"workSteps":901,"guessed":false,"result":{...}}
 {"id":"1","type":"error","code":"bad_request","message":"..."}
 {"id":"2","type":"bye"}
 ```
@@ -71,6 +71,9 @@ For `traceDetails: true`, every field is identical to the cold document except t
 
 Every `result` response, in both modes, also carries the word's search counts beside `result`, outside the cold stdout:
 
+- `status`: `ok`, `CAP` when the attempt or work limit stopped the parse, `TIMEOUT` when the
+  time limit stopped it, or `SKIPPED` for an invalid shape. This optional field is absent from
+  older servers. `CAP` does not distinguish the attempt limit from the work limit.
 - `steps`: analysis attempts, the quantity `--step-cap` bounds.
 - `workSteps`: parser work, meaning every work unit the parse reserved. This is the quantity `--work-cap` bounds.
 

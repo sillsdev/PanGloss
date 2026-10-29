@@ -13,6 +13,8 @@ mod conformance_fixtures_gate;
 mod cross_table_metathesis_surface_match_gate;
 #[path = "../disjunctive_recheck_gate.rs"]
 mod disjunctive_recheck_gate;
+#[path = "../do_not_parse.rs"]
+mod do_not_parse;
 #[path = "../effective_analysis_target.rs"]
 mod effective_analysis_target;
 #[path = "../exact_analysis_fs_recall.rs"]

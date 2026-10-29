@@ -134,12 +134,13 @@ A number without those is not a smaller claim than one with them. It is an unfal
 **Recommendation:** re-measure once, record the method alongside the number, and supersede the others.
 Conclusions drawn from a figure that exists in three versions are unanchored.
 
-## Q8 — A promised fallback tier may not exist
+## Q8 — A promised fallback tier may not exist — ANSWERED, closed
 
-One module's documentation promises a fallback path; another says that path does not exist. Both are in
-the shipped compiler, not the prototype.
-
-**Recommendation:** determine which is true and correct the loser. Cheap.
+No fallback tier exists in the shipped compiler. A rule the rewrite compiler cannot render comes back as
+skipped and the emitter reports it uncovered; a grammar that cannot be emitted is refused with
+`FomaError`/`FomaTier::Unsupported`. Nothing in `pg-foma` or `pg-foma-runtime` calls another engine; whether
+to use the full parser is the caller's decision, made from the readiness verdict. The three doc comments that
+promised a fallback (`replace.rs` module doc, `FomaError`, `FomaTier::Unsupported`) now say so.
 
 ## Q9 — Which of the six unbuilt switches goes first?
 
