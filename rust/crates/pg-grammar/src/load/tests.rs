@@ -15,6 +15,48 @@ fn pos_symbol_count(g: &Grammar) -> usize {
     }
 }
 
+#[test]
+fn duplicate_realizational_labels_keep_distinct_morpheme_ids() {
+    let xml = r#"<HermitCrabInput><Language>
+      <Name>Duplicate labels</Name>
+      <PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+        <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions></CharacterDefinitionTable>
+      <NaturalClasses><FeatureNaturalClass id="any"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+      <Strata><Stratum characterDefinitionTable="t" morphologicalRules="r1 r2">
+        <Name>S</Name><MorphologicalRuleDefinitions>
+          <RealizationalRule id="r1"><Name>first</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="s1"><MorphologicalInput><PhoneticSequence id="p1">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p1" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules><MorphemeId>shared</MorphemeId></RealizationalRule>
+          <RealizationalRule id="r2"><Name>second</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="s2"><MorphologicalInput><PhoneticSequence id="p2">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p2" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules><MorphemeId>shared</MorphemeId></RealizationalRule>
+        </MorphologicalRuleDefinitions>
+      </Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+    let grammar = load(xml).expect("duplicate labels are accepted");
+    let rules = &grammar.strata[0].mrules;
+    assert_eq!(rules.len(), 2);
+    let morphemes: Vec<_> = rules
+        .iter()
+        .map(|id| match &grammar.mrules[id.0 as usize] {
+            MorphRuleDef::Realizational(rule) => rule.morpheme,
+            other => panic!("expected realizational rule, got {other:?}"),
+        })
+        .collect();
+    assert_ne!(morphemes[0], morphemes[1]);
+    for (id, key) in morphemes.into_iter().zip(["r1", "r2"]) {
+        let info = &grammar.morphemes[id.0 as usize];
+        assert_eq!(info.xml_key, key);
+        assert_eq!(info.morph_id.as_deref(), Some("shared"));
+    }
+}
+
 /// Load a real grammar and assert exact structural counts; every expected count was obtained independently of this loader by grepping the raw XML, so a match is real evidence, not an echo of its own output.
 #[allow(clippy::too_many_arguments)]
 fn check(
