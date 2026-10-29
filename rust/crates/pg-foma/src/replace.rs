@@ -1,7 +1,7 @@
 //! Compiles phonological rewrite and metathesis relations over the owning character table.
 //! Alpha branches and RTL reversal provide candidate relations that require confirmation.
 //! Widened repeated environments use optional rewriting so extra matches cannot remove a valid
-//! unchanged candidate. Compilation refusals preserve unsupported rules for the fallback path.
+//! unchanged candidate. Unsupported rules are returned as skipped and the emitter reports them uncovered; no rule-level fallback compiles them.
 
 use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use pg_featstruct::flat_unifiable;
 use pg_grammar::chardef::{CharDefId, CharDefTable};
 use pg_grammar::model::{
-    Dir, Grammar, MetathesisRuleDef, PRuleId, PhonRuleDef, RewriteMode, RewriteRuleDef,
-    RewriteSubruleDef, TableId,
+    Dir, Grammar, MetathesisRuleDef, PRuleId, PatternNode, PhonRuleDef, RewriteMode,
+    RewriteRuleDef, RewriteSubruleDef, TableId,
 };
 
 /// Private-Use-Area base codepoint every `CharDefId` is offset from; no in-scope grammar has enough char-defs to overflow the PUA block.
@@ -470,6 +470,11 @@ fn render_branch_regex(
     }
 }
 
+/// Parses rule text built from grammar data; text foma cannot parse is `None`, which callers report as a skipped rule.
+fn parse_rule_regex(opts: &FomaOptions, regex: &str) -> Option<Fsm> {
+    fsm_parse_regex(opts, regex, None, None)
+}
+
 /// Compiles one branch into a foma `Fsm`: `Dir::LeftToRight` renders the slots as given; `Dir::RightToLeft` unions that with `fsm_reverse` of the mirror rule's compile (LHS/RHS reversed, environments swapped-and-reversed).
 /// Worked example and why the union introduces no spurious identity path: `docs/research/pg-foma-replace-design-notes.md`, "`compile_rtl_branch_net`: worked example pinning the union's necessity".
 #[allow(clippy::too_many_arguments)]
@@ -482,15 +487,13 @@ fn compile_rtl_branch_net(
     left_slots: &[Slot],
     right_slots: &[Slot],
     asg: &AlphaAssignment,
-    rule_xml_id: &str,
-) -> Fsm {
+) -> Option<Fsm> {
     let plain_regex =
         render_branch_regex(alphabet, lhs_slots, rhs_slots, left_slots, right_slots, asg);
-    let plain_net = fsm_parse_regex(opts, &plain_regex, None, None).unwrap_or_else(|| {
-        panic!("foma rejected compiled regex for rule {rule_xml_id}: {plain_regex:?}")
-    });
+    // A regex foma cannot parse is an unsupported construct: `None` skips the rule like any other unsupported shape.
+    let plain_net = parse_rule_regex(opts, &plain_regex)?;
     match dir {
-        Dir::LeftToRight => plain_net,
+        Dir::LeftToRight => Some(plain_net),
         Dir::RightToLeft => {
             let mirror_lhs = reversed_slots(lhs_slots);
             let mirror_rhs = reversed_slots(rhs_slots);
@@ -505,15 +508,9 @@ fn compile_rtl_branch_net(
                 &mirror_right,
                 asg,
             );
-            let mirror_net =
-                fsm_parse_regex(opts, &mirror_regex, None, None).unwrap_or_else(|| {
-                    panic!(
-                        "foma rejected compiled mirror-rule regex for rule {rule_xml_id}: \
-                     {mirror_regex:?}"
-                    )
-                });
+            let mirror_net = parse_rule_regex(opts, &mirror_regex)?;
             let reversed_net = fsm_reverse(mirror_net);
-            fsm_union(opts, plain_net, reversed_net)
+            Some(fsm_union(opts, plain_net, reversed_net))
         }
     }
 }
@@ -538,13 +535,27 @@ pub fn compile_rewrite_rule(
     compile_rewrite_rule_subset(opts, g, rule, &|_| true)
 }
 
+/// Whether the focus or any replacement is a quantified group. C# fails rule compilation on that position and FieldWorks authors focus and replacement as simple contexts (divergence 068), so it is refused permanently; quantifiers stay admitted in environments.
+fn has_quantified_target(rule: &RewriteRuleDef) -> bool {
+    let quantified = |nodes: &[PatternNode]| {
+        nodes
+            .iter()
+            .any(|node| matches!(node, PatternNode::Quantifier { .. }))
+    };
+    quantified(&rule.lhs.nodes)
+        || rule
+            .subrules
+            .iter()
+            .any(|subrule| quantified(&subrule.rhs.nodes))
+}
+
 /// Whether `compile_rewrite_rule_subset` could produce a net for `rule` at all when every subrule
 /// is allowed, decided from the same shape/pattern-lowering checks that function runs before it
 /// ever builds an `Fsm` -- so a capability-envelope caller reads one computation with the real
 /// compiler rather than re-deriving an equivalent-looking check (this repo's own CLAUDE.md names
 /// three past attempts that failed exactly that way).
 pub fn rewrite_rule_is_lowerable(g: &Grammar, rule: &RewriteRuleDef) -> bool {
-    if !is_fully_supported_shape(g, rule) {
+    if !is_fully_supported_shape(g, rule) || has_quantified_target(rule) {
         return false;
     }
     let Some(table) = owning_table(g, rule) else {
@@ -605,7 +616,7 @@ fn compile_rewrite_rule_subset_inner(
     allowed: &dyn Fn(usize) -> bool,
     gated_optional: bool,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
-    if !is_fully_supported_shape(g, rule) {
+    if !is_fully_supported_shape(g, rule) || has_quantified_target(rule) {
         return None;
     }
     // Resolved once per rule, never an implicit table-zero default; `None` is treated like an unsupported construct, reported `skipped` by callers.
@@ -675,8 +686,7 @@ fn compile_rewrite_rule_subset_inner(
                 &left_slots,
                 &right_slots,
                 asg,
-                &rule.xml_id,
-            );
+            )?;
             subrule_net = Some(match subrule_net {
                 None => branch_net,
                 // Sequential composition, not union -- see the per-subrule composition note above this loop.
@@ -949,7 +959,6 @@ fn compile_metathesis_swap_net(
     slots: &[Slot],
     left_idx: usize,
     right_idx: usize,
-    rule_xml_id: &str,
     table: &CharDefTable,
     table_id: TableId,
     aliases: &RepresentationAliasMap,
@@ -1013,9 +1022,7 @@ fn compile_metathesis_swap_net(
             .collect::<Vec<_>>()
             .join(" ");
         let regex = format!("{lhs_text} -> {rhs_text}");
-        let branch_net = fsm_parse_regex(opts, &regex, None, None).unwrap_or_else(|| {
-            panic!("foma rejected compiled metathesis regex for rule {rule_xml_id}: {regex:?}")
-        });
+        let branch_net = parse_rule_regex(opts, &regex)?;
         net = Some(match net {
             None => branch_net,
             Some(prev) => fsm_union(opts, prev, branch_net),
@@ -1075,15 +1082,7 @@ pub(crate) fn compile_metathesis_rule(
     }
 
     let plain_net = compile_metathesis_swap_net(
-        opts,
-        alphabet,
-        &slots,
-        left_idx,
-        right_idx,
-        &rule.xml_id,
-        table,
-        table_id,
-        &alias_map,
+        opts, alphabet, &slots, left_idx, right_idx, table, table_id, &alias_map,
     )?;
 
     match rule.dir {
@@ -1099,7 +1098,6 @@ pub(crate) fn compile_metathesis_rule(
                 &mirror_slots,
                 mirror_left_idx,
                 mirror_right_idx,
-                &rule.xml_id,
                 table,
                 table_id,
                 &alias_map,
@@ -1120,3 +1118,6 @@ mod owning_table_tests;
 
 #[cfg(test)]
 mod rtl_repeat_children_reversal_tests;
+
+#[cfg(test)]
+mod regex_rejection_tests;

@@ -236,6 +236,16 @@ impl AccuracyVerdict {
     }
 }
 
+/// One occurrence whose proposal the per-word apply envelope refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyRefusalWitness {
+    pub word: String,
+    /// `ApplyDimension::label` of the envelope dimension that tripped.
+    pub dimension: &'static str,
+    pub value: u64,
+    pub limit: u64,
+}
+
 /// One candidate's accuracy result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateAccuracy {
@@ -247,6 +257,8 @@ pub struct CandidateAccuracy {
     pub realized_strategy: EmissionStrategy,
     pub verdict: AccuracyVerdict,
     pub counters: AccuracyCounters,
+    /// One witness per refused occurrence; `counters.apply_refusals` is its length.
+    pub apply_refusal_witnesses: Vec<ApplyRefusalWitness>,
 }
 
 /// Check ONE corpus occurrence: is every oracle admission key present among the candidate's

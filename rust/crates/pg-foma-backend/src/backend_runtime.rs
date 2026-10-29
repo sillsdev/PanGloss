@@ -2103,6 +2103,7 @@ pub fn assess_accuracy_with_cache(
                     ),
                 },
                 counters: AccuracyCounters::default(),
+                apply_refusal_witnesses: Vec::new(),
             })
             .collect();
     }
@@ -2123,6 +2124,7 @@ pub fn assess_accuracy_with_cache(
                         realized_strategy,
                         verdict: AccuracyVerdict::NotDetermined { reason },
                         counters: AccuracyCounters::default(),
+                        apply_refusal_witnesses: Vec::new(),
                     }
                 }
             };
@@ -2208,6 +2210,7 @@ fn assess_one(
 ) -> CandidateAccuracy {
     let mut counters = AccuracyCounters::default();
     let mut misses = Vec::new();
+    let mut apply_refusal_witnesses = Vec::new();
     for (occurrence_ordinal, (word, oracle)) in selection.expected.iter().enumerate() {
         // Bounded, and the bound is a refusal (apply_refusals forces NotDetermined, never Undergenerated), not unbounded: an unbounded apply_up path count can grow large enough to kill the process outright on a pathological word, and a dead process reports no verdict at all — strictly worse than an honest NotDetermined.
         let proposed = crate::composite::propose_union_peel_with_diagnostics(
@@ -2223,11 +2226,12 @@ fn assess_one(
                 Ok(complete) => complete,
                 Err((dimension, value, limit, diagnostics, proposal_calls)) => {
                     // This occurrence is counted as checked and refused, never silently skipped, so the refusal share in verdict_from's message is over the real denominator.
-                    eprintln!(
-                        "accuracy: proposal REFUSED for {word:?} -- per-word apply {} reached \
-                         {value} against a limit of {limit}",
-                        dimension.label()
-                    );
+                    apply_refusal_witnesses.push(crate::backend_accuracy::ApplyRefusalWitness {
+                        word: word.clone(),
+                        dimension: dimension.label(),
+                        value: value as u64,
+                        limit: limit as u64,
+                    });
                     counters.absorb(AccuracyCounters {
                         occurrences_checked: 1,
                         apply_refusals: 1,
@@ -2256,6 +2260,7 @@ fn assess_one(
         realized_strategy,
         verdict: crate::backend_accuracy::verdict_from(&counters, misses),
         counters,
+        apply_refusal_witnesses,
     }
 }
 

@@ -68,3 +68,32 @@ fn no_owning_table_is_permanently_refused() {
     }
     assert_refused(&grammar);
 }
+
+fn quantify(nodes: &mut Vec<PatternNode>) {
+    let children = std::mem::take(nodes);
+    nodes.push(PatternNode::Quantifier {
+        min: 1,
+        max: Some(1),
+        children,
+    });
+}
+
+#[test]
+fn quantified_focus_is_permanently_refused() {
+    let mut grammar = grammar();
+    let PhonRuleDef::Rewrite(rule) = &mut grammar.prules[0] else {
+        panic!("rewrite fixture")
+    };
+    quantify(&mut rule.lhs.nodes);
+    assert_refused(&grammar);
+}
+
+#[test]
+fn quantified_replacement_is_permanently_refused() {
+    let mut grammar = grammar();
+    let PhonRuleDef::Rewrite(rule) = &mut grammar.prules[0] else {
+        panic!("rewrite fixture")
+    };
+    quantify(&mut rule.subrules[0].rhs.nodes);
+    assert_refused(&grammar);
+}

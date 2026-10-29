@@ -9,7 +9,8 @@ use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, Low
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma_backend::backend_optimizer::Certification;
 use pg_foma_backend::backend_runtime::{
-    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, RuntimeEvaluation,
+    assess_accuracy_with_cache, evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
+    RuntimeEvaluation,
 };
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
@@ -237,4 +238,34 @@ fn none_resolves_to_the_calibrated_default_and_only_usize_max_opts_out() {
     .resolved_apply_budget();
     assert_eq!(explicit.path_cap(), Some(7));
     assert_eq!(explicit.candidate_cap(), Some(9));
+}
+
+/// An accuracy-path refusal is carried as a witness on the result, not printed and dropped.
+#[test]
+fn an_accuracy_apply_refusal_is_recorded_as_a_witness() {
+    let f = fixture(CONTROL_FIXTURE);
+    let grammar = pg_grammar::load(&f.load_grammar_xml()).expect("fixture grammar must load");
+    let words: Vec<String> = f
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|w| w.word)
+        .collect();
+    let budget = RuntimeBudget {
+        apply_path_budget: Some(1),
+        apply_candidate_budget: Some(1),
+        ..RuntimeBudget::default()
+    };
+    let plans = baseline_only(&grammar);
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, budget)
+        .unwrap_or_else(|_| panic!("{CONTROL_FIXTURE}: oracle preparation faulted"));
+    let assessed = assess_accuracy_with_cache(&grammar, &plans, &words, budget, &mut cache);
+    let accuracy = assessed.first().expect("one candidate in, one result out");
+    assert!(accuracy.counters.apply_refusals > 0, "{accuracy:?}");
+    assert_eq!(
+        accuracy.apply_refusal_witnesses.len() as u64,
+        accuracy.counters.apply_refusals
+    );
+    let witness = &accuracy.apply_refusal_witnesses[0];
+    assert!(words.contains(&witness.word) && witness.limit == 1 && witness.value > 1);
 }
