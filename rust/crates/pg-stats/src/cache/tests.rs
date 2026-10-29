@@ -25,6 +25,7 @@ fn sample_word(form: &str) -> WordRecord {
             direction: Direction::Analysis,
             attempts: 5,
             work: 20,
+            work_steps: 0,
             outputs: 2,
             not_applied: 1,
             no_root: 0,

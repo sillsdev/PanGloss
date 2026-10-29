@@ -556,6 +556,13 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
     let row: Vec<&str> = counted_tsv.lines().last().unwrap().split('\t').collect();
     assert_eq!(words.len(), 1);
     assert!(words[0].work > words[0].attempts, "{:?}", words[0]);
+    let (word_work, fact_work, remainder_count, attributed): (i64, i64, i64, i64) = conn.query_row(
+        "SELECT w.work, SUM(f.work_steps), SUM(CASE WHEN o.kind = 'unattributed' THEN 1 ELSE 0 END), SUM(CASE WHEN o.kind <> 'unattributed' THEN f.work_steps ELSE 0 END) FROM word w JOIN fact f ON f.word_id = w.word_id JOIN object o ON o.object_id = f.object_id GROUP BY w.word_id",
+        [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+    ).unwrap();
+    assert_eq!(word_work, fact_work);
+    assert_eq!(remainder_count, 1);
+    assert!(attributed > 0);
     assert_eq!(
         [words[0].attempts.to_string(), words[0].work.to_string()],
         row[row.len() - 2..],
@@ -1584,6 +1591,7 @@ fn empty_result_distinguishes_never_recorded_from_filtered_to_nothing() {
             direction: pg_stats::Direction::Analysis,
             attempts: 5,
             work: 10,
+            work_steps: 0,
             outputs: 2,
             not_applied: 1,
             no_root: 0,
@@ -1665,6 +1673,7 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
         direction: pg_stats::Direction::Analysis,
         attempts,
         work: attempts,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root: 0,
@@ -1837,6 +1846,7 @@ fn synthetic_fact(
         direction: pg_stats::Direction::Analysis,
         attempts,
         work: 10,
+        work_steps: 0,
         outputs: 2,
         not_applied: 1,
         no_root: 0,

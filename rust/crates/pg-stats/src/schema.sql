@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS word (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS word_form ON word(form);
 
--- `direction` is 'analysis' | 'synthesis', never a foreign key: unlike stratum/allomorph it has no
+-- `direction` is 'analysis' | 'synthesis', or 'unattributed' on the remainder row; it has no
 -- structural locator or label to intern, just a fixed two-value tag, so it is stored inline.
 CREATE TABLE IF NOT EXISTS fact (
   word_id          INTEGER NOT NULL,
@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS fact (
   direction        TEXT    NOT NULL,
   attempts         INTEGER NOT NULL,
   work             INTEGER NOT NULL,
+  work_steps       INTEGER NOT NULL DEFAULT 0,
   outputs          INTEGER NOT NULL,
   not_applied      INTEGER NOT NULL,
   no_root          INTEGER NOT NULL,

@@ -16,6 +16,7 @@ pub enum ObjectKind {
     RootIndex,
     Guesser,
     Overlay,
+    Unattributed,
 }
 
 impl ObjectKind {
@@ -27,6 +28,7 @@ impl ObjectKind {
             ObjectKind::RootIndex => "root_index",
             ObjectKind::Guesser => "guesser",
             ObjectKind::Overlay => "overlay",
+            ObjectKind::Unattributed => "unattributed",
         }
     }
 }
@@ -53,18 +55,18 @@ impl FromStr for ObjectKind {
             "root_index" => Ok(ObjectKind::RootIndex),
             "guesser" => Ok(ObjectKind::Guesser),
             "overlay" => Ok(ObjectKind::Overlay),
+            "unattributed" => Ok(ObjectKind::Unattributed),
             other => Err(UnknownVariant(other.to_string())),
         }
     }
 }
 
-/// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
-/// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key,
-/// stored inline rather than interned -- a fixed two-value tag has no locator or label to look up.
+/// The pass that produced a fact row, or `Unattributed` for the word's directionless remainder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     Analysis,
     Synthesis,
+    Unattributed,
 }
 
 impl Direction {
@@ -72,6 +74,7 @@ impl Direction {
         match self {
             Direction::Analysis => "analysis",
             Direction::Synthesis => "synthesis",
+            Direction::Unattributed => "unattributed",
         }
     }
 }
@@ -89,6 +92,7 @@ impl FromStr for Direction {
         match s {
             "analysis" => Ok(Direction::Analysis),
             "synthesis" => Ok(Direction::Synthesis),
+            "unattributed" => Ok(Direction::Unattributed),
             other => Err(UnknownVariant(other.to_string())),
         }
     }
@@ -196,7 +200,7 @@ pub struct FrozenWordSummary {
     pub invalid_shape: bool,
 }
 
-/// The seven counters for one `(object, stratum, allomorph)` combination inside one word.
+/// Counters for one `(object, stratum, allomorph)` combination inside one word.
 ///
 /// Counters are `u64` here, matching the collector; a value too large for SQLite's signed
 /// `INTEGER` storage is an error rather than a silent wraparound, pinned by
@@ -216,6 +220,8 @@ pub struct FactRecord {
     pub direction: Direction,
     pub attempts: u64,
     pub work: u64,
+    /// Successful work-budget reservations attributed exclusively to this row.
+    pub work_steps: u64,
     pub outputs: u64,
     pub not_applied: u64,
     pub no_root: u64,

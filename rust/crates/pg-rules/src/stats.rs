@@ -1,4 +1,4 @@
-//! The per-word `--stats` collector: seven `u64` counters per `(object, stratum, allomorph,
+//! The per-word `--stats` collector: `u64` counters per `(object, stratum, allomorph,
 //! direction)` row, gated behind `Option<&StatsCollector>` so an ordinary parse allocates nothing.
 //!
 //! Two storage shapes, because one does not fit both: **dense** `Vec<Cell<Counters>>` for
@@ -20,7 +20,7 @@ use rustc_hash::FxHashMap as HashMap;
 pub const ALLOMORPH_NONE: u32 = 0;
 
 /// Counter meaning and instrumentation support recorded by each statistics run.
-pub const COUNTER_SEMANTICS_VERSION: i64 = 5;
+pub const COUNTER_SEMANTICS_VERSION: i64 = 6;
 
 /// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
 /// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key
@@ -79,12 +79,13 @@ pub fn self_time_supported_in_direction(kind: ObjectKind, direction: Direction) 
     }
 }
 
-/// The seven counters for one `(object, stratum, allomorph)` row.
+/// Counters for one `(object, stratum, allomorph)` row.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Counters {
     /// Rule-level only: one unit per `StepBudget` tick, regardless of how many allomorphs were tried; every allomorph-dimension row (`allomorph != ALLOMORPH_NONE`) carries `attempts == 0`.
     pub attempts: u64,
     pub work: u64,
+    /// Successful reservations made in this object's scope, excluding nested object scopes.
     pub work_steps: u64,
     pub outputs: u64,
     /// Both rule-level (the `ALLOMORPH_NONE` row, one per invocation) and per-allomorph (one per failing try); a per-object report must sum only the former to stay comparable with `attempts`.
@@ -1058,7 +1059,7 @@ pub fn counter_support_for_semantics(
         3 if kind == ObjectKind::PhonRule && matches!(counter, "uses" | "no_root") => {
             Ok(CounterSupport::NotWired)
         }
-        3 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
+        3 | 5 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
         unsupported => Err(unsupported),
     }
 }
