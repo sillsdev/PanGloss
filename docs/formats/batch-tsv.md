@@ -79,9 +79,22 @@ whatever the setting.
 ## Relation to `batch --stats`
 
 The statistics cache's `word` table records the same two counts whether or not `--work-columns` is passed: `word.attempts` is `steps` and
-`word.work` is `work_steps`. The cache schema version is 9 (`run.schema_version` and
+`word.work` is `work_steps`. The cache schema version is 10 (`run.schema_version` and
 `cache_identity.schema_version`); a cache with another version is wiped and recreated, never
 migrated.
+
+`fact.work_steps` is the number of successful work-budget reservations assigned to the row's
+object, stratum, allomorph and direction. The innermost instrumented object scope receives a
+reservation, including inner matcher reservations; nested scopes never double-count. The
+synthetic object with `key = 'unattributed'` and `kind = 'unattributed'` has one row per word,
+with `direction = 'unattributed'` and sentinel stratum/allomorph IDs. It accounts for work outside
+instrumented object scopes, including segmentation, template and search orchestration, and
+matching or confirmation outside such a scope. Summing `fact.work_steps` across every row for a
+word, including that row, exactly equals `word.work`. The `facts` export's existing object-counter
+projection excludes the remainder because it is not a grammar object.
+
+The batch TSV remains interface version 3: its optional columns describe the whole word and do
+not contain object rows. Cache counter semantics version 6 identifies this attribution.
 
 `fact.work` (per grammar object, and the trace-details `categories` that report it) is a
 **different unit**. It counts shape segments examined each time the object was tried. It does not
