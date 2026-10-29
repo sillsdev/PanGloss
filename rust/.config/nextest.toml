@@ -1,10 +1,10 @@
 # cargo-nextest configuration for the PanGloss workspace.
 #
-# This file exists for ONE reason: to put a wall-clock ceiling on a test that never finishes.
-# Everything else nextest can configure is deliberately left at its default -- `pg.ps1` already
-# passes --test-threads from a machine-derived budget, and adding knobs here that duplicate or
-# contradict that would create the two-copies-that-drift problem the managed entry point exists to
-# avoid.
+# Two jobs: a wall-clock ceiling on a test that never finishes, and a CI profile. Parallelism is
+# NOT set here for local runs: `pg.ps1` passes --test-threads from a machine-derived budget (and
+# a second copy of that number would drift), so `default` leaves test-threads unset.
+#
+# Install (pinned in CI to the same version): see the "Testing" section of rust/README.md.
 #
 # WHY A KILL AND NOT JUST A WARNING. nextest's default `slow-timeout` only PRINTS a SLOW status; it
 # does not terminate anything unless `terminate-after` is set, whose default is "never". So before
@@ -30,6 +30,37 @@
 # signal is how you find out a test is drifting toward the ceiling before it hits it.
 [profile.default]
 slow-timeout = { period = "60s", terminate-after = 10 }
+# A count from a run that stopped at the first failure is not a count (AGENTS.md); pg.ps1 also
+# passes --no-fail-fast, this makes a hand-run profile agree.
+fail-fast = false
+failure-output = "immediate-final"
+status-level = "slow"
+final-status-level = "fail"
+
+# CI: no retries. Retrying hides flakes, and no test in this workspace is a known flake; if one is
+# found, list it here with a pointer to its issue and give it an `[[profile.ci.overrides]]` retry
+# rather than turning retries on globally. One test process per runner CPU.
+[profile.ci]
+inherits = "default"
+retries = 0
+test-threads = "num-cpus"
+fail-fast = false
+failure-output = "immediate-final"
+final-status-level = "skip"
+
+[profile.ci.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true
+
+# Real-process containment tests (job objects / cgroups / rlimits) act on process-wide kernel
+# state; run them one at a time so a limit set by one cannot be observed by another.
+[test-groups]
+containment = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "package(pg-worker-containment)"
+test-group = "containment"
 
 # Opt-in profile for deliberately-long MEASUREMENT tests (pg-foma's `aweti_enum_census` family:
 # an uncapped Aweti composite-entry census legitimately runs ~8 minutes). Same kill-don't-hang

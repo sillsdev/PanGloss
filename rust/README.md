@@ -84,6 +84,43 @@ On a machine running many parallel worktrees (e.g. `.claude/worktrees/*`), prefe
 `CARGO_TARGET_DIR` off the system drive, wire in `sccache`/`cargo-nextest` when installed, and
 gate concurrent builds across worktrees. See the doc comment at the top of each script.
 
+## Testing
+
+`rust/tools/pg.ps1 -Mode test` runs the suite with [cargo-nextest](https://nexte.st) when it is
+installed, then `cargo test --doc` (nextest does not run doctests). Without nextest it falls back to
+plain `cargo test` and says so, so nobody is blocked.
+
+Install (CI pins the same version; the prebuilt binary avoids a compile):
+
+```
+cargo install cargo-nextest --version 0.9.100 --locked
+# or, no compile (Linux):  curl -LsSf https://get.nexte.st/0.9.100/linux | tar zxf - -C ~/.cargo/bin
+```
+
+Profiles live in `rust/.config/nextest.toml`:
+
+| Profile | Use | Behaviour |
+|---|---|---|
+| `default` | local runs | all failures reported; a test is killed after 10 min (60s period x 10); `pg-worker-containment` tests run one at a time |
+| `ci` | GitHub Actions | `default` plus a JUnit report (`target/nextest/ci/junit.xml`), one process per CPU, no retries |
+| `census` | `--profile census` | 30 min ceiling for the deliberately long measurement tests |
+
+Concurrency is capped at 6 test processes (override: `-TestThreads N` or `PANGLOSS_MAX_TEST_THREADS`).
+Ignored tests: `-- --ignored` and `-- --include-ignored` are translated to nextest's
+`--run-ignored ignored-only|all`; `-Mode corpus-test` always runs them.
+
+Rerun one test:
+
+```
+rust\tools\pg.ps1 -Mode test -Package pg-foma -Filter f5_diacritics
+rust\tools\pg.ps1 -Mode test -Package pg-foma-backend -TestTarget net_dedup_gate
+rust\tools\pg.ps1 -Mode test -NoNextest        # force plain cargo test
+```
+
+Each nextest test is its own process, so statics and `OnceLock` caches are not shared between tests.
+A failure that appears only under nextest is a test relying on cross-test state; give the test its
+own setup, or add it to a `max-threads = 1` test group in the config.
+
 ## Status
 
 Under active construction per the milestone plan. See `../docs/history/rust-conversion.md` §10 and the

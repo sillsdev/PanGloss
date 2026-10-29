@@ -145,6 +145,8 @@ function Get-SpawnFloorGB {
 
 $script:MemoryPerCompileJobGB = if ($env:PANGLOSS_MEM_PER_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_JOB_GB } else { 1.5 }
 $script:MemoryPerLtoLinkJobGB = if ($env:PANGLOSS_MEM_PER_LTO_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_LTO_JOB_GB } else { 2 }
+# Test-process ceiling (this PC froze above it); -TestThreads or PANGLOSS_MAX_TEST_THREADS overrides.
+$script:MaxTestThreads = if ($env:PANGLOSS_MAX_TEST_THREADS) { [int]$env:PANGLOSS_MAX_TEST_THREADS } else { 6 }
 $script:MemoryPerTestProcessGB = if ($env:PANGLOSS_MEM_PER_TEST_GB) { [double]$env:PANGLOSS_MEM_PER_TEST_GB } else { 2.5 }
 
 function Get-MemoryPerProcessGB {
@@ -405,6 +407,127 @@ function Split-CargoFeatureArgs {
     [PSCustomObject]@{ CargoArgs = @($cargo) }
 }
 
+function ConvertTo-NextestRunnerArgs {
+    <#
+      .DESCRIPTION
+      libtest spells ignored-test selection `--ignored` / `--include-ignored`; nextest spells it
+      `--run-ignored ignored-only|all`, and passes a bare libtest flag through to the binary where it
+      selects nothing useful. Translate so a caller's flags mean the same on both runners. A lone `--`
+      left with nothing after it is dropped.
+    #>
+    param([string[]]$ExtraArgs = @(), [bool]$AlreadyRunsIgnored = $false)
+    $pre = @()
+    $post = @()
+    $afterSeparator = $false
+    foreach ($arg in $ExtraArgs) {
+        if ($arg -eq '--' -and -not $afterSeparator) { $afterSeparator = $true; continue }
+        if ($arg -eq '--ignored') { $pre += @('--run-ignored', 'ignored-only') }
+        elseif ($arg -eq '--include-ignored') { if (-not $AlreadyRunsIgnored) { $pre += @('--run-ignored', 'all') } }
+        elseif ($afterSeparator) { $post += $arg }
+        else { $pre += $arg }
+    }
+    if ($post.Count -gt 0) { return @($pre) + @('--') + @($post) }
+    return $pre
+}
+
+function Get-WorkspacePackages {
+    <# .DESCRIPTION Workspace members from `cargo metadata`: name, repo-relative dir, whether a library target (doctests) exists, and workspace dependency names. #>
+    param([Parameter(Mandatory)][string]$RustRoot, [Parameter(Mandatory)][string]$RepoRoot)
+    $json = & cargo metadata --format-version 1 --no-deps --locked --manifest-path (Join-Path $RustRoot 'Cargo.toml') 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
+    $meta = ($json -join "`n") | ConvertFrom-Json
+    $repo = (Resolve-Path -LiteralPath $RepoRoot).ProviderPath.TrimEnd('/', '\')
+    $names = @($meta.packages | ForEach-Object { $_.name })
+    foreach ($pkg in $meta.packages) {
+        $dir = (Split-Path -Parent $pkg.manifest_path).Replace('\', '/')
+        $rel = $dir.Substring($repo.Length).TrimStart('/')
+        [PSCustomObject]@{
+            Name   = $pkg.name
+            Dir    = $rel
+            HasLib = [bool]($pkg.targets | Where-Object { $_.kind -contains 'lib' -or $_.kind -contains 'rlib' -or $_.kind -contains 'proc-macro' })
+            Deps   = @($pkg.dependencies | ForEach-Object { $_.name } | Where-Object { $names -contains $_ } | Sort-Object -Unique)
+        }
+    }
+}
+
+function Get-AffectedScope {
+    <#
+      .DESCRIPTION
+      Map repo-relative changed paths to workspace packages. Global = the change can alter any test
+      (workspace manifest/lock, toolchain, nextest config, shared fixtures), so the caller runs the
+      whole suite. Docs, CI files and PowerShell tooling touch no Rust test and map to nothing.
+      Closure = changed packages plus every workspace package that depends on them (what nextest's
+      rdeps() selects), used to scope doctests.
+    #>
+    param([string[]]$ChangedPaths = @(), [Parameter(Mandatory)]$Packages)
+    $globalPrefixes = @('rust/Cargo.toml', 'rust/Cargo.lock', 'rust/rust-toolchain.toml', 'rust/.config/', 'rust/.cargo/', '.cargo/',
+        'conformance-staging/', 'machine/', 'samples/', 'rust/examples/')
+    $inert = @('rust/README.md', 'rust/tools/', 'rust/docs/', 'docs/', '.github/', '.claude/', 'openspec/', 'research/', 'reports/')
+    $changed = @{}
+    foreach ($raw in $ChangedPaths) {
+        $path = $raw.Replace('\', '/').TrimStart('./')
+        if (-not $path) { continue }
+        foreach ($g in $globalPrefixes) {
+            if ($path -eq $g.TrimEnd('/') -or $path.StartsWith($g)) {
+                return [PSCustomObject]@{ Global = $true; Reason = "$path is shared by every crate"; Changed = @(); Closure = @() }
+            }
+        }
+        $owner = $Packages | Where-Object { $path.StartsWith($_.Dir + '/') } | Sort-Object { $_.Dir.Length } -Descending | Select-Object -First 1
+        if ($owner) { $changed[$owner.Name] = $true; continue }
+        if ($inert | Where-Object { $path.StartsWith($_) }) { continue }
+        if ($path.StartsWith('rust/')) {
+            return [PSCustomObject]@{ Global = $true; Reason = "$path is under rust/ but belongs to no crate"; Changed = @(); Closure = @() }
+        }
+    }
+    $closure = @{}
+    foreach ($n in $changed.Keys) { $closure[$n] = $true }
+    do {
+        $grew = $false
+        foreach ($pkg in $Packages) {
+            if (-not $closure[$pkg.Name] -and ($pkg.Deps | Where-Object { $closure[$_] })) { $closure[$pkg.Name] = $true; $grew = $true }
+        }
+    } while ($grew)
+    [PSCustomObject]@{ Global = $false; Reason = ''; Changed = @($changed.Keys | Sort-Object); Closure = @($closure.Keys | Sort-Object) }
+}
+
+function Get-ChangedPaths {
+    <# .DESCRIPTION Paths changed since the merge-base with $Base, committed or not, including untracked files. #>
+    param([Parameter(Mandatory)][string]$RepoRoot, [string]$Base = 'origin/main')
+    $mb = (& git -C $RepoRoot merge-base $Base HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $mb) { throw "cannot find a merge-base with '$Base'; pass -AffectedBase <ref>" }
+    @(& git -C $RepoRoot diff --name-only $mb) + @(& git -C $RepoRoot ls-files --others --exclude-standard) | Where-Object { $_ } | Sort-Object -Unique
+}
+
+function Get-DoctestInvocation {
+    <# .DESCRIPTION The `cargo test --doc` run that accompanies a nextest run, scoped like it. #>
+    param(
+        [Parameter(Mandatory)][bool]$DebugProfile,
+        [Parameter(Mandatory)][int]$TestThreads,
+        [string]$Package = '',
+        [string[]]$Packages = @(),
+        [string]$Filter = '',
+        [bool]$FailFast = $false,
+        [string[]]$ExtraArgs = @()
+    )
+    $testProfile = if ($script:TestOptProfile) { $script:TestOptProfile } else { 'pg-test-opt' }
+    $cargoArgs = @('test', '--doc', '--locked')
+    if (-not $DebugProfile) { $cargoArgs += @('--profile', $testProfile) }
+    if ($Package) { $cargoArgs += @('-p', $Package) }
+    foreach ($name in $Packages) { $cargoArgs += @('-p', $name) }
+    # Only the cargo-level scope flags carry over; nextest-only flags (--run-ignored, -E, ...) would be errors here.
+    for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
+        $arg = $ExtraArgs[$i]
+        if ($arg -eq '--') { break }
+        if ($arg -in @('--workspace', '--all-features', '--no-default-features')) { $cargoArgs += $arg }
+        elseif ($arg -in @('--features', '-F', '-p', '--package', '--exclude') -and $i + 1 -lt $ExtraArgs.Count) { $cargoArgs += @($arg, $ExtraArgs[++$i]) }
+        elseif ($arg -match '^(--features|-F|--package|--exclude)=') { $cargoArgs += $arg }
+    }
+    if (-not $FailFast) { $cargoArgs += '--no-fail-fast' }
+    $trailing = @('--test-threads', "$TestThreads")
+    if ($Filter) { $trailing = @($Filter) + $trailing }
+    return @($cargoArgs + @('--') + $trailing)
+}
+
 function Get-CargoTestInvocation {
     param(
         [ValidateSet('quick', 'test', 'corpus-test', 'conformance-test')][Parameter(Mandatory)][string]$Mode,
@@ -460,13 +583,14 @@ function Get-CargoTestInvocation {
         }
     }
 
+    $cargoArgs += '--locked'
     if ($Package) { $cargoArgs += @('-p', $Package) }
     if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
     $cargoExtraArgs = @()
     $runnerExtraArgs = @()
     if ($UseNextest) {
-        $runnerExtraArgs = @($ExtraArgs)
+        $runnerExtraArgs = @(ConvertTo-NextestRunnerArgs -ExtraArgs $ExtraArgs -AlreadyRunsIgnored ($Mode -eq 'corpus-test'))
     } else {
         # Cargo flags belong before cargo test's `--`; a caller uses its own `--` to start libtest args.
         $runnerSeparator = [array]::IndexOf([string[]]$ExtraArgs, '--')
