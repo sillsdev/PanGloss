@@ -85,6 +85,7 @@ pub struct Counters {
     /// Rule-level only: one unit per `StepBudget` tick, regardless of how many allomorphs were tried; every allomorph-dimension row (`allomorph != ALLOMORPH_NONE`) carries `attempts == 0`.
     pub attempts: u64,
     pub work: u64,
+    pub work_steps: u64,
     pub outputs: u64,
     /// Both rule-level (the `ALLOMORPH_NONE` row, one per invocation) and per-allomorph (one per failing try); a per-object report must sum only the former to stay comparable with `attempts`.
     pub not_applied: u64,
@@ -241,6 +242,7 @@ pub fn summarize_kind(rows: &[StatsRow], kind: ObjectKind) -> Counters {
     for row in rows.iter().filter(|row| row.kind == kind) {
         total.attempts += row.counters.attempts;
         total.work += row.counters.work;
+        total.work_steps += row.counters.work_steps;
         total.outputs += row.counters.outputs;
         if row.allomorph == ALLOMORPH_NONE {
             total.not_applied += row.counters.not_applied;
@@ -383,6 +385,9 @@ impl<'a> MRuleStatsCtx<'a> {
 struct ObjTimeFrame {
     start: web_time::Instant,
     nested_ns: u64,
+    budget: Option<pg_fst::work::WorkBudget>,
+    work_start: usize,
+    nested_work: usize,
     kind: ObjectKind,
     stratum: StratumId,
     object_index: u32,
@@ -523,9 +528,20 @@ impl StatsCollector {
         allomorph: u32,
         direction: Direction,
     ) -> ObjectTimeGuard<'_> {
-        self.obj_time_stack.borrow_mut().push(ObjTimeFrame {
+        let budget = pg_fst::work::active_budget();
+        let mut stack = self.obj_time_stack.borrow_mut();
+        if let Some(parent) = stack.last() {
+            assert!(
+                same_budget(&parent.budget, &budget),
+                "nested stats scopes must share a work budget"
+            );
+        }
+        stack.push(ObjTimeFrame {
             start: web_time::Instant::now(),
             nested_ns: 0,
+            work_start: budget.as_ref().map_or(0, |b| b.used()),
+            budget,
+            nested_work: 0,
             kind,
             stratum,
             object_index,
@@ -547,18 +563,28 @@ impl StatsCollector {
     }
 
     fn time_exit(&self) {
-        let (self_ns, kind, stratum, object_index, allomorph, direction) = {
+        let (self_ns, self_work, kind, stratum, object_index, allomorph, direction) = {
             let mut stack = self.obj_time_stack.borrow_mut();
             let frame = stack
                 .pop()
                 .expect("StatsCollector::time_enter/time_exit must be LIFO");
             let elapsed_ns = frame.start.elapsed().as_nanos() as u64;
             let self_ns = elapsed_ns.saturating_sub(frame.nested_ns);
+            assert!(
+                same_budget(&frame.budget, &pg_fst::work::active_budget()),
+                "stats scope must exit under its work budget"
+            );
+            let elapsed_work = frame.budget.as_ref().map_or(0, |b| b.used()) - frame.work_start;
+            let self_work = elapsed_work
+                .checked_sub(frame.nested_work)
+                .expect("nested work exceeds parent work");
             if let Some(parent) = stack.last_mut() {
                 parent.nested_ns += elapsed_ns;
+                parent.nested_work += elapsed_work;
             }
             (
                 self_ns,
+                self_work as u64,
                 frame.kind,
                 frame.stratum,
                 frame.object_index,
@@ -569,12 +595,14 @@ impl StatsCollector {
         match kind {
             ObjectKind::MorphRule if allomorph == ALLOMORPH_NONE => {
                 self.morph.with_row(direction, stratum, object_index, |c| {
-                    c.self_time_ns += self_ns
+                    c.self_time_ns += self_ns;
+                    c.work_steps += self_work;
                 });
             }
             ObjectKind::PhonRule if allomorph == ALLOMORPH_NONE => {
                 self.phon.with_row(direction, stratum, object_index, |c| {
-                    c.self_time_ns += self_ns
+                    c.self_time_ns += self_ns;
+                    c.work_steps += self_work;
                 });
             }
             _ => {
@@ -586,7 +614,10 @@ impl StatsCollector {
                         allomorph,
                         direction,
                     },
-                    |c| c.self_time_ns += self_ns,
+                    |c| {
+                        c.self_time_ns += self_ns;
+                        c.work_steps += self_work;
+                    },
                 );
             }
         }
@@ -903,6 +934,17 @@ impl StatsCollector {
                 })
             })
             .collect()
+    }
+}
+
+fn same_budget(
+    left: &Option<pg_fst::work::WorkBudget>,
+    right: &Option<pg_fst::work::WorkBudget>,
+) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left.same_as(right),
+        (None, None) => true,
+        _ => false,
     }
 }
 

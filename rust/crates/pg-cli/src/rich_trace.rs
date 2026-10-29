@@ -1,4 +1,4 @@
-//! Renders opt-in rich trace-details v3 envelopes.
+//! Renders opt-in rich trace-details v4 envelopes.
 
 use std::time::Duration;
 
@@ -88,7 +88,7 @@ fn kind_name(kind: ObjectKind) -> &'static str {
     }
 }
 
-fn stats_json(rows: &[StatsRow]) -> Value {
+fn stats_json(rows: &[StatsRow], work_steps: usize) -> Value {
     let kinds = [
         ObjectKind::MorphRule,
         ObjectKind::PhonRule,
@@ -112,6 +112,7 @@ fn stats_json(rows: &[StatsRow]) -> Value {
         let mut category = json!({
             "attempts": counters.attempts,
             "work": counters.work,
+            "work_steps": counters.work_steps,
             "outputs": counters.outputs,
             "notApplied": counters.not_applied,
             "noRoot": counters.no_root,
@@ -127,7 +128,16 @@ fn stats_json(rows: &[StatsRow]) -> Value {
         }
         (kind_name(kind).to_owned(), category)
     });
-    serde_json::Map::from_iter(categories).into()
+    let mut categories = serde_json::Map::from_iter(categories);
+    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    let unattributed = (work_steps as u64)
+        .checked_sub(attributed)
+        .expect("object work steps exceed the word budget");
+    categories.insert(
+        "unattributed".to_owned(),
+        json!({"work_steps": unattributed}),
+    );
+    categories.into()
 }
 
 fn overlay_phases_json(rows: &[StatsRow]) -> Value {
@@ -902,13 +912,13 @@ fn envelope_json(
         total.saturating_add(row.counters.self_time_ns)
     });
     serde_json::to_string(&json!({
-        "schemaVersion": "pangloss.trace-details.v3",
+        "schemaVersion": "pangloss.trace-details.v4",
         "word": word,
         "provenance": {
             "parser": {
                 "name": "pangloss",
                 "version": env!("CARGO_PKG_VERSION"),
-                "traceProfile": "pangloss.trace-details.v3"
+                "traceProfile": "pangloss.trace-details.v4"
             },
             "grammar": {
                 "name": metadata.grammar_name,
@@ -940,7 +950,7 @@ fn envelope_json(
             "guessed": outcome.guessed,
             "analyses": analyses,
         },
-        "categories": stats_json(rows),
+        "categories": stats_json(rows, outcome.work_steps),
         "trace": trace,
     }))
     .map_err(|error| format!("serialize rich trace JSON: {error}"))

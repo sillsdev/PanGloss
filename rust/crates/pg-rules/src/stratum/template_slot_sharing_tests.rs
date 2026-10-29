@@ -2,6 +2,56 @@ use super::*;
 use crate::stats::{PruneCounters, StatsCollector};
 use pg_featstruct::FeatureStruct;
 
+#[test]
+fn work_attribution_excludes_nested_scopes_and_failed_reservations() {
+    use crate::stats::{Direction, ObjectKind, ALLOMORPH_NONE};
+    let g = grammar();
+    let stats = StatsCollector::new(&g);
+    let budget = pg_fst::work::WorkBudget::new(4);
+    let _scope = budget.enter();
+    assert!(budget.consume());
+    {
+        let _outer = stats.time_enter(
+            ObjectKind::MorphRule,
+            StratumId(0),
+            0,
+            ALLOMORPH_NONE,
+            Direction::Analysis,
+        );
+        assert!(budget.consume());
+        {
+            let _inner = stats.time_enter(
+                ObjectKind::MorphRule,
+                StratumId(0),
+                0,
+                1,
+                Direction::Analysis,
+            );
+            assert!(pg_fst::work::consume());
+            assert!(pg_fst::work::consume());
+            assert!(!pg_fst::work::consume());
+        }
+    }
+    let rows = stats.rows();
+    assert_eq!(
+        rows.iter()
+            .find(|r| r.allomorph == 0)
+            .unwrap()
+            .counters
+            .work_steps,
+        1
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|r| r.allomorph == 1)
+            .unwrap()
+            .counters
+            .work_steps,
+        2
+    );
+    assert_eq!(budget.used(), 4);
+}
+
 const XML: &str = r#"
 <HermitCrabInput>
   <Language>

@@ -66,6 +66,11 @@ impl WorkBudget {
         self.0.used.get()
     }
 
+    /// Whether two handles refer to the same allowance.
+    pub fn same_as(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
     pub fn capped(&self) -> bool {
         self.0.capped.get()
     }
@@ -84,6 +89,11 @@ impl WorkBudget {
             previous,
         }
     }
+}
+
+/// Capture the current allowance for a synchronous diagnostic scope.
+pub fn active_budget() -> Option<WorkBudget> {
+    ACTIVE.with(|active| active.borrow().clone())
 }
 
 /// Restores the preceding thread-local budget when synchronous work finishes.
