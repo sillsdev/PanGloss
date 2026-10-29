@@ -190,9 +190,9 @@ fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
     );
 }
 
-/// Ordinary suffix rules needing the harmony/gradation/epenthesis cascade, an infix rule in the same probe-refusing stratum, and bare-root vowel coalescence must all be proposable together.
+/// The full parser handles the harmony cascade while the FST backend refuses its alpha environment.
 #[test]
-fn suffixing_vowel_harmony_full_cascade_words_are_proposable() {
+fn suffixing_vowel_harmony_uses_the_full_parser() {
     let g = load("languages/suffixing-vowel-harmony/grammar.xml");
     let past = (0..g.mrules.len() as u32)
         .map(MRuleId)
@@ -209,29 +209,11 @@ fn suffixing_vowel_harmony_full_cascade_words_are_proposable() {
         "full-engine fallback returned {generated:?}"
     );
     let emitted = emit(&g);
-    assert!(
-        emitted.lexc_source.contains("kutagida"),
-        "kutagida missing before foma compilation: {:?}",
-        emitted.report.counts
-    );
-    let mut proposer = crate::analyzer::compile_proposer(&g).expect("compiles");
-    for word in [
-        "kutagida",
-        "kutagila",
-        "semitide",
-        "semitideler",
-        "semitile",
-        "unitide",
-        "satun",
-        "guan",
-        "duy",
-        "sueb",
-    ] {
-        assert!(
-            !proposer.propose(word).is_empty(),
-            "{word:?} must be proposable"
-        );
-    }
+    assert!(matches!(
+        emitted.report.tier,
+        FomaTier::CannotRepresent { .. }
+    ));
+    assert!(emitted.lexc_source.is_empty());
 }
 
 /// Every proposed candidate must survive confirm end-to-end via the real conformance path.
@@ -564,7 +546,8 @@ fn explicit_default_surface_strategy_matches_profiled_wrapper() {
 /// The profile must collect real per-stage data, not all-zero placeholders, including a stage only a real-phonology grammar exercises.
 #[test]
 fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
-    let g = load("languages/suffixing-vowel-harmony/grammar.xml");
+    let g =
+        load_without_realizational_rules("languages/suffixing-extension-slot-ordering/grammar.xml");
     let mut builder = crate::profile::CompileProfileBuilder::production();
     let result = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
     assert!(
@@ -595,7 +578,8 @@ fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
 /// Profiling must never change the emitted artifact: byte-identical lexc_source and EmitCounts with profiling on vs. off.
 #[test]
 fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
-    let g = load("languages/suffixing-vowel-harmony/grammar.xml");
+    let g =
+        load_without_realizational_rules("languages/suffixing-extension-slot-ordering/grammar.xml");
     let without_profile = emit_with_budget_profiled(&g, PrecisionConfig::Strip, None);
 
     let mut builder = crate::profile::CompileProfileBuilder::production();
@@ -681,7 +665,8 @@ fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
 /// Every group must report a nonzero line count, and the per-group counts must sum to no more than the total.
 #[test]
 fn fst_profile_group_line_counts_are_real_and_bounded_by_the_total() {
-    let g = load("languages/suffixing-vowel-harmony/grammar.xml");
+    let g =
+        load_without_realizational_rules("languages/suffixing-extension-slot-ordering/grammar.xml");
     let mut builder = crate::profile::CompileProfileBuilder::production();
     let _ = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
     let profile = builder.finish(None, None);

@@ -67,7 +67,10 @@ fn finish_profiled_compile(
     mut profile: CompileProfileBuilder,
     allow_incomplete: bool,
 ) -> (Result<FomaProposer>, CompileProfile) {
-    if matches!(result.report.tier, FomaTier::Unsupported { .. }) {
+    if matches!(
+        result.report.tier,
+        FomaTier::Unsupported { .. } | FomaTier::CannotRepresent { .. }
+    ) {
         return (
             Err(FomaError::Unsupported(Box::new(result.report))),
             profile.finish(None, None),

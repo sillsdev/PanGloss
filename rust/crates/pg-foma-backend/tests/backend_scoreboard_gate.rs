@@ -44,22 +44,22 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Measurements: docs/research/backend-scoreboard-extraction-reconciliation.md, parser-settings pin section.
+    // Divergence 116 moves 18 TSP and 17 TUT oracle-exact fixtures to refused.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 129,
+            oracle_exact: 111,
             compiles_but_misses: 6,
-            refused: 2,
+            refused: 20,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 107,
+            oracle_exact: 90,
             compiles_but_misses: 5,
-            refused: 25,
+            refused: 42,
             unmeasurable: 0,
         },
     ),

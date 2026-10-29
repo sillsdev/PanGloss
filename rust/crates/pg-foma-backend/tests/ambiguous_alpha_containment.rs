@@ -1,4 +1,6 @@
-use super::rewrite_oracle_fixtures::{assert_capabilities, verify_owner, verify_templated};
+use super::rewrite_oracle_fixtures::{
+    assert_capabilities, assert_templated_alpha_refusal, verify_owner, verify_templated,
+};
 
 const FIXTURES: &[(&str, bool)] = &[
     ("nullable-disagree-plain-ltr-right", false),
@@ -109,7 +111,7 @@ fn repeated_minus_with_partial_focus_matches_recorded_oracle_after_confirmation(
     let (checked, positives, pruned) = verify_owner(name);
     assert_eq!(checked, 16);
     assert!(positives > 0 && pruned > 0);
-    assert_eq!(verify_templated(name), (16, 1));
+    assert_templated_alpha_refusal(name);
 }
 
 #[test]
@@ -124,6 +126,6 @@ fn overwritten_alpha_matches_recorded_oracle_after_confirmation() {
         let (checked, positives, pruned) = verify_owner(name);
         assert_eq!(checked, 16);
         assert!(positives > 0 && pruned > 0);
-        assert_eq!(verify_templated(name), (16, 1));
+        assert_templated_alpha_refusal(name);
     }
 }

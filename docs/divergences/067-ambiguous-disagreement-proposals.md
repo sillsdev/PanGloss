@@ -1,6 +1,6 @@
 # 067 — Ambiguous disagreement requires confirmed membership proposals
 
-Ledger status: fixed-in-rust. The fix is on `main` (commit 5593447a (`77d050a2` records the witnesses); `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
+Ledger status: whole-backend alpha-environment admission is superseded by [116](116-fst-alpha-environment-gap.md); lower-level results below are historical evidence. Originally fixed-in-rust. The fix is on `main` (commit 5593447a (`77d050a2` records the witnesses); `git merge-base --is-ancestor` against main at `14975991` holds). Rechecked on that tree: `pg-parse` `conformance_fixtures_gate` 33 of 33 (replays the entry's staged fixtures), `pg-foma-backend` `ambiguous_alpha_containment` 9 of 9 and `repeated_alpha_containment` 3 of 3. The branch wording below is historical.
 
 ## Kind and status
 

@@ -74,3 +74,8 @@ Cebuano lists (200, 563 and 7,206 words; steps down 54x, 46x and 55x) and on the
 words), Sena (6,146) and Indonesian (70) reference grammars (steps unchanged). The Aweti and
 Mbugwe grammars have at most 64 char-defs, so the new branch cannot run on them; they were not
 rerun.
+
+
+The pinned Sena and Amharic worst-word lists are absent and are not covered by the 2026-10-27 port measurements; the NEW 30-word stride samples do not replace them.
+
+The committed code-constructed snapshot fixture `wide_featureless_suffix_requires_both_literal_segments` adds a positive `un` control and two near-miss words that share one of its two literal segments. It does not contain the private CEB-14 project or claim a C#-backed fixture.

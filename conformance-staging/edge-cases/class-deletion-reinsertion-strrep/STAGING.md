@@ -40,3 +40,10 @@ optional rules annotations (recorded from the oracle's trace).
 
 Promotion status: upstream_candidate.
 Upstream fixture PR: not opened; candidate destination is machine/conformance/edge-cases/class-deletion-reinsertion-strrep/.
+
+## 2026-10-27 inventory
+
+This staged fixture and its C#-recorded words were already tracked in PanGloss base `14975991`.
+The additional `two_reinserted_class_nodes_retain_members_and_exclude_other_roots` Rust test
+checks two re-insertion sites at the lookup level; fixture presence and the search regression are
+separate claims. The pinned Sena and Amharic worst-word lists were absent and not covered.

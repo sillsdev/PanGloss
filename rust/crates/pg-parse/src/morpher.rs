@@ -949,7 +949,7 @@ impl<'g> Morpher<'g> {
                                 break;
                             }
                             candidates_generated += 1;
-                            if !self.is_word_valid_traced(&vw, trace, root) {
+                            if !self.is_word_valid_traced_with_stats(&vw, trace, root, stats) {
                                 continue;
                             }
                             if !self.is_match_traced(&vw, word, trace, root) {
@@ -1034,7 +1034,7 @@ impl<'g> Morpher<'g> {
                                     break;
                                 }
                                 candidates_generated += 1;
-                                if self.is_word_valid_traced(&vw, trace, root)
+                                if self.is_word_valid_traced_with_stats(&vw, trace, root, stats)
                                     && self.is_match_traced(&vw, word, trace, root)
                                 {
                                     if alt_yield::enabled() {
@@ -1433,6 +1433,16 @@ impl<'g> Morpher<'g> {
     /// The implementation `Self::is_word_valid` also uses; owns only the two morpher-level failure clauses.
     /// Pinned by `partial_parse_is_reported_when_an_unapplied_rule_never_confirms`.
     fn is_word_valid_traced(&self, w: &Word, trace: &dyn TraceSink, parent: TraceHandle) -> bool {
+        self.is_word_valid_traced_with_stats(w, trace, parent, None)
+    }
+
+    fn is_word_valid_traced_with_stats(
+        &self,
+        w: &Word,
+        trace: &dyn TraceSink,
+        parent: TraceHandle,
+        stats: Option<&pg_rules::stats::StatsCollector>,
+    ) -> bool {
         let parent = w.trace.unwrap_or(parent);
         if w.mrule_app_index != -1 {
             // partial parse — not every unapplied rule was confirmed
@@ -1468,7 +1478,14 @@ impl<'g> Morpher<'g> {
                 return false;
             }
         }
-        pg_rules::validity::allomorphs_valid_cached_traced(self.g, w, &self.cache, trace, parent)
+        pg_rules::validity::allomorphs_valid_cached_traced_with_stats(
+            self.g,
+            w,
+            &self.cache,
+            trace,
+            parent,
+            stats,
+        )
     }
 
     /// Mirrors C#'s `Morpher.IsMatch`; call sites `&&` this after `Self::is_word_valid_traced` in that order, which decides which `Failed` node fires.

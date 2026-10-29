@@ -325,6 +325,30 @@ fn trace_details_for_grammar(
 }
 
 #[test]
+fn alpha_allomorph_environment_preserves_work_category_total() {
+    use pg_grammar::model::{EnvironmentDef, PhonRuleDef};
+    let mut grammar = pg_grammar::load(include_str!(
+        "../../../pg-parse/tests/data/alpha-optional-environment.xml"
+    ))
+    .unwrap();
+    let PhonRuleDef::Rewrite(rule) = &grammar.prules[0] else {
+        panic!("expected the alpha rewrite rule");
+    };
+    let pattern = rule.subrules[0].right_env.clone().unwrap();
+    grammar.entries[0].allomorphs[0]
+        .environments
+        .push(EnvironmentDef::new(false, None, Some(pattern)));
+    // The helper asserts that every category, including unattributed work, sums to workSteps.
+    let details = trace_details_for_grammar(&grammar, "bg", &pg_parse::ParseOptions::default());
+    assert!(
+        details["categories"]["lexEntry"]["work_steps"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+}
+
+#[test]
 fn snapshot_environment_guid_text_and_form_identity_reach_json() {
     let mut snapshot: pg_snapshot::Snapshot = serde_json::from_str(include_str!(
         "../../../../../docs/formats/examples/trace-details-v2-sample.snapshot.json"

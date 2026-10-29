@@ -272,6 +272,7 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
     let mut input_a = word(&g, "a", s);
     input_a.flags.is_last_applied_rule_final = Some(false);
     input_a.mrule_apps = vec![Some(r)];
+    input_a.allomorph_apps = vec![None; input_a.mrule_apps.len()];
     input_a.mrule_app_index = 0;
     let out_a = synthesize_stratum(&g, s, input_a, 10_000, &cache);
     assert!(
@@ -285,6 +286,7 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
     input_b.flags.is_last_applied_rule_final = Some(false);
     input_b.flags.is_partial = true;
     input_b.mrule_apps = vec![Some(r)];
+    input_b.allomorph_apps = vec![None; input_b.mrule_apps.len()];
     input_b.mrule_app_index = 0;
     // Applied to the rule directly: the stratum exit refuses any word still marked non-final, which is not this gate.
     let out_b = synthesize_with_policy(
@@ -321,6 +323,7 @@ fn gate4_template_rule_is_exempt_from_the_post_template_gates() {
     input.flags.is_last_applied_rule_final = Some(false);
     // is_partial stays false -- IsTemplateRule must exempt this rule regardless.
     input.mrule_apps = vec![Some(r)];
+    input.allomorph_apps = vec![None; input.mrule_apps.len()];
     input.mrule_app_index = 0;
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
     assert_eq!(

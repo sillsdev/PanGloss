@@ -154,6 +154,7 @@ fn reason_name(r: FailureReason) -> &'static str {
             "NonPartialRuleRequiredAfterNonFinalTemplate"
         }
         FailureReason::MaxApplicationCount => "MaxApplicationCount",
+        FailureReason::AllomorphNotApplicable => "AllomorphNotApplicable",
     }
 }
 

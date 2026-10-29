@@ -208,3 +208,61 @@ fn best_case_confirm_only_for_recursive_compounding_grammar() {
         CompileDecision::ConfirmOnly
     );
 }
+
+#[test]
+fn alpha_environment_refuses_all_real_compilers_and_the_selector() {
+    let xml = include_str!("../../../pg-parse/tests/data/alpha-optional-environment.xml");
+    let grammar = pg_grammar::load(xml).expect("alpha environment fixture loads");
+    assert!(crate::emit::alpha_environment_refusal(&grammar));
+    let selection = select_backends_for_grammar(&grammar);
+    for &strategy in ALL_STRATEGIES {
+        assert!(
+            matches!(selection.decision_for(strategy), CompileDecision::Refuse(_)),
+            "{strategy:?}"
+        );
+    }
+    let tuned = crate::emit::emit_tuned_surface(&grammar);
+    assert!(matches!(
+        tuned.report.tier,
+        crate::emit::FomaTier::CannotRepresent { .. }
+    ));
+    assert!(tuned.lexc_source.is_empty());
+    let alphabet = crate::replace::SegAlphabet::new(&grammar.char_tables[0]);
+    let templated = crate::emit::emit_underlying_templated(&grammar, &alphabet, None);
+    assert!(matches!(
+        templated.report.tier,
+        crate::emit::FomaTier::CannotRepresent { .. }
+    ));
+    assert!(templated.lexc_source.is_empty());
+    assert!(matches!(
+        crate::analyzer::compile_proposer_unproven(&grammar),
+        Err(crate::analyzer::FomaError::Unsupported(_))
+    ));
+    let direct = crate::gate::compile_gated_grammar(
+        &foma::options::FomaOptions::default(),
+        &grammar,
+        &alphabet,
+        &[],
+    );
+    assert!(matches!(
+        direct,
+        Err(crate::compose_budget::ComposeError::CannotRepresent { .. })
+    ));
+    let result = crate::build::build_controllable(
+        &crate::plan::Plan::new(),
+        &foma::options::FomaOptions::default(),
+        &grammar,
+        &alphabet,
+        &[],
+    );
+    assert!(matches!(
+        result,
+        Err(crate::compose_budget::ComposeError::CannotRepresent { .. })
+    ));
+    let plain = pg_grammar::load(ADMIT_XML).expect("plain fixture loads");
+    assert!(!crate::emit::alpha_environment_refusal(&plain));
+    assert!(!matches!(
+        crate::emit::emit_tuned_surface(&plain).report.tier,
+        crate::emit::FomaTier::CannotRepresent { .. }
+    ));
+}

@@ -250,6 +250,17 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
         FomaTier::Unsupported { reason } => {
             findings.push(unsupported_tier_finding(report, reason));
         }
+        FomaTier::CannotRepresent { reason } => {
+            findings.push(HealthFinding::new(
+                FindingCode::BackendCoverageIncomplete,
+                Severity::CannotRepresent,
+                Phase::Compile,
+                Metric::BackendCoverageGapCount,
+                MetricValue::Count(1),
+                ValueProvenance::Observed,
+                reason.clone(),
+            ));
+        }
     }
     findings
 }
@@ -257,6 +268,15 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
 /// Every `crate::compose_budget::ComposeError` variant, exhaustively.
 fn compose_error_finding(err: &ComposeError) -> HealthFinding {
     match err {
+        ComposeError::CannotRepresent { reason } => HealthFinding::new(
+            FindingCode::BackendCoverageIncomplete,
+            Severity::CannotRepresent,
+            Phase::Compile,
+            Metric::BackendCoverageGapCount,
+            MetricValue::Count(1),
+            ValueProvenance::Observed,
+            (*reason).to_owned(),
+        ),
         ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding::new(
             FindingCode::ResourceBudgetReached,
             Severity::NotProductionReady,

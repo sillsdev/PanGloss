@@ -67,7 +67,8 @@ use pg_shape::Shape;
 
 use crate::cache::RuleCache;
 use crate::morph::segs_of;
-use crate::rewrite::{compile_env_allomorph, left_env_ok, right_env_ok, EnvFst};
+use crate::rewrite::{compile_env_allomorph, independent_env_ok, EnvFst};
+use crate::stats::{Direction, ObjectKind, StatsCollector};
 use crate::trace::{
     EnvironmentResult, FailureReason, NoopSink, RejectionEvidence, TraceHandle, TraceObject,
     TraceSink,
@@ -105,6 +106,7 @@ pub fn environments_ok(
 
 /// One environment's require/exclude check, shared by the boolean and traced walks.
 fn env_side_ok(
+    g: &Grammar,
     env: &EnvironmentDef,
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
@@ -112,8 +114,8 @@ fn env_side_ok(
     start: u32,
     end: u32,
 ) -> bool {
-    let is_match =
-        left_env_ok(left, segs, start as usize) && right_env_ok(right, segs, end as usize + 1);
+    let is_match = independent_env_ok(g, left, segs, start as usize, true)
+        && independent_env_ok(g, right, segs, end as usize + 1, false);
     if env.require {
         is_match
     } else {
@@ -124,7 +126,7 @@ fn env_side_ok(
 /// Environment-matching mode: freshly compiled per call, or read from the `RuleCache`; threaded so the disjunctive loop's candidates share it too.
 enum EnvCheck<'a> {
     Fresh,
-    Cached(&'a RuleCache),
+    Cached(&'a RuleCache, Option<&'a StatsCollector>),
 }
 
 impl EnvCheck<'_> {
@@ -155,10 +157,39 @@ impl EnvCheck<'_> {
         if envs.is_empty() {
             return Ok(());
         }
+        let _time_owner = match self {
+            EnvCheck::Cached(_, Some(stats)) => {
+                let (kind, object_index, allomorph, morpheme) =
+                    match g.allomorph_owners[id.0 as usize] {
+                        AllomorphOwner::Root(entry, index) => (
+                            ObjectKind::LexEntry,
+                            entry.0,
+                            u32::from(index) + 1,
+                            g.entries[entry.0 as usize].morpheme,
+                        ),
+                        AllomorphOwner::Affix(rule, index) => (
+                            ObjectKind::MorphRule,
+                            rule.0,
+                            u32::from(index) + 1,
+                            g.mrules[rule.0 as usize]
+                                .morpheme()
+                                .expect("an affix allomorph has an owning morpheme"),
+                        ),
+                    };
+                Some(stats.time_enter(
+                    kind,
+                    g.morphemes[morpheme.0 as usize].stratum,
+                    object_index,
+                    allomorph,
+                    Direction::Synthesis,
+                ))
+            }
+            _ => None,
+        };
         let (segs, _node_of) = segs_of(g, TABLE, shape, true);
         let cached = match self {
             EnvCheck::Fresh => None,
-            EnvCheck::Cached(cache) => Some(&cache.allomorph(id).envs),
+            EnvCheck::Cached(cache, _) => Some(&cache.allomorph(id).envs),
         };
         let mut results = Vec::new();
         for (index, env) in envs.iter().enumerate() {
@@ -168,12 +199,12 @@ impl EnvCheck<'_> {
             let accepted = match cached {
                 Some(cache) => {
                     let (left, right) = &cache[index];
-                    env_side_ok(env, left, right, &segs, start, end)
+                    env_side_ok(g, env, left, right, &segs, start, end)
                 }
                 None => {
                     let left = compile_env_allomorph(g, TABLE, env.left.as_ref());
                     let right = compile_env_allomorph(g, TABLE, env.right.as_ref());
-                    env_side_ok(env, &left, &right, &segs, start, end)
+                    env_side_ok(g, env, &left, &right, &segs, start, end)
                 }
             };
             if accepted {
@@ -510,7 +541,19 @@ pub fn allomorphs_valid_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> bool {
-    allomorphs_valid_impl(g, w, EnvCheck::Cached(cache), trace, parent)
+    allomorphs_valid_cached_traced_with_stats(g, w, cache, trace, parent, None)
+}
+
+/// Validate cached allomorphs and attribute environment matching to their owners when collecting stats.
+pub fn allomorphs_valid_cached_traced_with_stats(
+    g: &Grammar,
+    w: &Word,
+    cache: &RuleCache,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    stats: Option<&StatsCollector>,
+) -> bool {
+    allomorphs_valid_impl(g, w, EnvCheck::Cached(cache, stats), trace, parent)
 }
 
 /// Emits the trace failure (guarded by `is_tracing()`) and returns `false`, keeping the two in lockstep.

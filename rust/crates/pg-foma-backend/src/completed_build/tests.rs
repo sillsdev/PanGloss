@@ -147,3 +147,15 @@ fn templated_route_refuses_before_emitting_when_the_envelope_refuses() {
         "expected CapabilityRefused; got {result:?}"
     );
 }
+
+#[test]
+fn tuned_measurement_refuses_alpha_environment_even_with_an_unrelated_selection() {
+    let plain = pg_grammar::load(MINIMAL_XML).expect("plain fixture loads");
+    let selection = crate::backend_selection::select_backends_for_grammar(&plain);
+    let xml = include_str!("../../../pg-parse/tests/data/alpha-optional-environment.xml");
+    let grammar = pg_grammar::load(xml).expect("alpha fixture loads");
+    let attempt = CompileAttempt::try_new().expect("attempt id constructs");
+    let result = crate::backend::backend_for(EmissionStrategy::TunedSurfaceProbed)
+        .compile_for_measurement(&grammar, &selection, &attempt);
+    assert!(matches!(result, Err(CompletedBuildError::IncompleteEvidence(ref reason)) if reason.contains("CannotRepresent")), "the real tuned compiler must refuse alpha environments");
+}

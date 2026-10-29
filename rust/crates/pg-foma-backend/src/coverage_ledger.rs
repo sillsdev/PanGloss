@@ -198,7 +198,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              rtl_cross_table_segments_environment_matches_oracle; \
              pg-foma-backend/tests/repeated_alpha_containment.rs::\
              repeated_alpha_propose_confirm_matches_recorded_oracle (+ \
-             templated_repeated_alpha_matches_recorded_oracle); \
+             templated_repeated_alpha_refuses_each_environment); \
              pg-foma-backend/tests/ambiguous_alpha_containment.rs::\
              ambiguous_disagreement_propose_confirm_matches_recorded_oracle (+ \
              templated_ambiguous_disagreement_matches_recorded_oracle, mixed_agreeing_class_matches_recorded_oracle_after_confirmation, \
@@ -297,7 +297,7 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              genuinely-unbounded case); \
              pg-foma-backend/tests/repeated_alpha_containment.rs::\
              repeated_alpha_propose_confirm_matches_recorded_oracle (+ \
-             templated_repeated_alpha_matches_recorded_oracle)",
+             templated_repeated_alpha_refuses_each_environment)",
             &[EmissionStrategy::PlanComposed, EmissionStrategy::TemplatedUnderlyingTokens],
             "Bounded- AND unbounded-quantifier containment against the real oracle, both at \
              min-boundary and zero counts, including repeated alpha agreement on both environment \
@@ -564,7 +564,7 @@ pub fn containment_evidence_for_variant(variant: ConstructVariant) -> Option<Con
         )),
         QuantifierBounded => Some((
             "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle; \
-             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_matches_recorded_oracle); \
+             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_refuses_each_environment); \
              pg-foma-backend/tests/ambiguous_alpha_containment.rs::ambiguous_disagreement_propose_confirm_matches_recorded_oracle (+ templated_ambiguous_disagreement_matches_recorded_oracle, mixed_agreeing_class_matches_recorded_oracle_after_confirmation, \
                repeated_minus_with_partial_focus_matches_recorded_oracle_after_confirmation, \
                overwritten_alpha_matches_recorded_oracle_after_confirmation)",
@@ -572,7 +572,7 @@ pub fn containment_evidence_for_variant(variant: ConstructVariant) -> Option<Con
         )),
         QuantifierUnbounded => Some((
             "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle; \
-             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_matches_recorded_oracle); \
+             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_refuses_each_environment); \
              pg-foma-backend/tests/ambiguous_alpha_containment.rs::ambiguous_disagreement_propose_confirm_matches_recorded_oracle (+ templated_ambiguous_disagreement_matches_recorded_oracle, mixed_agreeing_class_matches_recorded_oracle_after_confirmation, \
                repeated_minus_with_partial_focus_matches_recorded_oracle_after_confirmation, \
                overwritten_alpha_matches_recorded_oracle_after_confirmation)",

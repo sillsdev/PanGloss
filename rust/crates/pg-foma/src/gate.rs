@@ -288,6 +288,11 @@ pub fn compile_gated_grammar(
     alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
 ) -> Result<GatedCompileResult, ComposeError> {
+    if crate::emit::alpha_environment_refusal(g) {
+        return Err(ComposeError::CannotRepresent {
+            reason: crate::emit::ALPHA_ENVIRONMENT_REFUSAL,
+        });
+    }
     let gated = find_gated_subrules(g, prules_in_order);
     let groups = partition_entries(g, &gated, prules_in_order);
 

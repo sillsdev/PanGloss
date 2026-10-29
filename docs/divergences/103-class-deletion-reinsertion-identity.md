@@ -98,3 +98,8 @@ the same five `clitic-rule-designation` words and the same 14 dual-homed staged 
 
 None needed: C# already gives the node its class's structure. Before this change HC-Rust did more
 work than C# on such grammars; the change removes that gap rather than adding an optimization.
+
+
+The pinned Sena and Amharic worst-word lists are absent and are not covered by the 2026-10-27 port measurements; the NEW 30-word stride samples do not replace them.
+
+The C#-recorded synthetic staged fixture was already committed at the base revision; it was not missing from this checkout. `two_reinserted_class_nodes_retain_members_and_exclude_other_roots` adds a committed lookup-level regression over its two-site words. Its fixture signatures came from the C# oracle, while the lookup assertions specifically test Rust's extra-work fix.

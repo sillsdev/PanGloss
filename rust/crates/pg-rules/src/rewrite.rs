@@ -437,6 +437,7 @@ pub(crate) struct EnvFst {
     /// The capture-group name for each var-bearing `node_vars` entry (`None` if unwrapped); recovers which segment a quantifier elsewhere in the pattern let that node consume, since compilation erases variable-governed lanes before the FST is built and C# needs no such recovery (its arcs bind variables live).
     group_names: Vec<Option<String>>,
     agreement: Option<Vec<AgreementNode>>,
+    binding_nodes: Option<Vec<AgreementNode>>,
 }
 
 /// Compile an environment for **synthesis**, and for the allomorph-environment gate, which shares
@@ -559,6 +560,7 @@ fn compile_env_impl(
         node_vars: compiled.node_vars,
         group_names,
         agreement,
+        binding_nodes: compiled.uses_alpha_vars.then_some(compiled.agreement_nodes),
     })
 }
 
@@ -660,7 +662,32 @@ pub(crate) fn right_env_ok(env: &Option<EnvFst>, segs: &[Segment], right_start: 
     right_env_match(env, segs, right_start).is_some()
 }
 
-// Alpha-variable agreement: the FST cannot bind variables, so the real check runs against node lanes after a candidate span is reported, in C#'s target-then-left-then-right binding order.
+// Variable-bearing environments must wait for target bindings; variable-free ones retain the FST path.
+fn left_env_match_for_binding(
+    env: &Option<EnvFst>,
+    segs: &[Segment],
+    end: usize,
+) -> Option<Option<Vec<FstResult>>> {
+    if env.as_ref().is_some_and(|env| env.binding_nodes.is_some()) {
+        Some(None)
+    } else {
+        left_env_match(env, segs, end)
+    }
+}
+
+fn right_env_match_for_binding(
+    env: &Option<EnvFst>,
+    segs: &[Segment],
+    start: usize,
+) -> Option<Option<Vec<FstResult>>> {
+    if env.as_ref().is_some_and(|env| env.binding_nodes.is_some()) {
+        Some(None)
+    } else {
+        right_env_match(env, segs, start)
+    }
+}
+
+// Bind alpha variables in target, left-environment, then right-environment order.
 
 /// Bindings: `VarId.0` → (bound symbol bits, governing feature index, kept for the disagree/negation mask).
 type Bindings = HashMap<u16, (u64, usize)>;
@@ -694,6 +721,8 @@ fn resolve_bindings(
     ms: &MutShape,
     node_of: &[usize],
     target_nodes: &[usize],
+    segs: &[Segment],
+    s: usize,
     e: usize,
     lhs_vars: &[Vec<VarOccur>],
     left: &Option<EnvFst>,
@@ -713,14 +742,360 @@ fn resolve_bindings(
         }
     }
 
-    if let (Some(env), Some(matches)) = (left, left_match) {
-        bindings = bind_environment(g, ms, node_of, env, matches, (0, true), &bindings)?;
+    if let Some(env) = left {
+        if let Some(nodes) = &env.binding_nodes {
+            bindings = match_binding_environment(g, env, nodes, &segs[..s], true, &bindings)?;
+        } else if let Some(matches) = left_match {
+            bindings = bind_environment(g, ms, node_of, env, matches, (0, true), &bindings)?;
+        }
     }
-    if let (Some(env), Some(matches)) = (right, right_match) {
-        bindings = bind_environment(g, ms, node_of, env, matches, (e, false), &bindings)?;
+    if let Some(env) = right {
+        if let Some(nodes) = &env.binding_nodes {
+            bindings = match_binding_environment(g, env, nodes, &segs[e..], false, &bindings)?;
+        } else if let Some(matches) = right_match {
+            bindings = bind_environment(g, ms, node_of, env, matches, (e, false), &bindings)?;
+        }
     }
 
     Some(bindings)
+}
+
+pub(crate) fn independent_env_ok(
+    g: &Grammar,
+    env: &Option<EnvFst>,
+    segs: &[Segment],
+    boundary: usize,
+    reverse: bool,
+) -> bool {
+    let Some(compiled) = env else {
+        return true;
+    };
+    if let Some(nodes) = &compiled.binding_nodes {
+        let input = if reverse {
+            &segs[..boundary]
+        } else {
+            &segs[boundary..]
+        };
+        match_binding_environment(g, compiled, nodes, input, reverse, &Bindings::default())
+            .is_some()
+    } else if reverse {
+        left_env_ok(env, segs, boundary)
+    } else {
+        right_env_ok(env, segs, boundary)
+    }
+}
+
+fn environment_bindings(
+    g: &Grammar,
+    segs: &[Segment],
+    s: usize,
+    e: usize,
+    left: &Option<EnvFst>,
+    right: &Option<EnvFst>,
+    mut bindings: Bindings,
+) -> Option<Bindings> {
+    if let Some(env) = left {
+        if let Some(nodes) = &env.binding_nodes {
+            bindings = match_binding_environment(g, env, nodes, &segs[..s], true, &bindings)?;
+        } else if !left_env_ok(left, segs, s) {
+            return None;
+        }
+    }
+    if let Some(env) = right {
+        if let Some(nodes) = &env.binding_nodes {
+            bindings = match_binding_environment(g, env, nodes, &segs[e..], false, &bindings)?;
+        } else if !right_env_ok(right, segs, e) {
+            return None;
+        }
+    }
+    Some(bindings)
+}
+
+fn apply_variable_bindings(
+    g: &Grammar,
+    node: &mut MutNode,
+    vars: &[VarOccur],
+    bindings: &Bindings,
+) {
+    for occ in vars {
+        if let Some(&(bits, _)) = bindings.get(&occ.var) {
+            let mask = full_mask(g, occ.feature);
+            node.lanes[occ.feature] = if occ.plus { bits } else { mask & !bits };
+        }
+    }
+}
+
+#[derive(Clone)]
+enum BindingTask<'a> {
+    Node(&'a AgreementNode),
+    Repeat {
+        children: &'a [AgreementNode],
+        min: u32,
+        max: Option<u32>,
+        count: u32,
+        stalled: bool,
+    },
+    RepeatAfter {
+        children: &'a [AgreementNode],
+        min: u32,
+        max: Option<u32>,
+        count: u32,
+        previous: usize,
+    },
+}
+
+fn push_binding_nodes<'a>(
+    tasks: &mut Vec<BindingTask<'a>>,
+    nodes: &'a [AgreementNode],
+    reverse: bool,
+) {
+    if reverse {
+        tasks.extend(nodes.iter().map(BindingTask::Node));
+    } else {
+        tasks.extend(nodes.iter().rev().map(BindingTask::Node));
+    }
+}
+
+fn binding_constraint_can_match(
+    g: &Grammar,
+    nodes: &[AgreementNode],
+    segment: &Segment,
+    bindings: &Bindings,
+) -> bool {
+    nodes.iter().any(|node| {
+        if !pg_fst::work::consume() {
+            return false;
+        }
+        match node {
+            AgreementNode::Constraint { lanes, vars } => {
+                let mut candidate = bindings.clone();
+                pg_featstruct::flat_unifiable(&segment.lanes, lanes)
+                    && vars.iter().all(|occ| {
+                        bind_or_check(g, &mut candidate, occ, segment.lanes[occ.feature])
+                    })
+            }
+            AgreementNode::Alternation(branches) => {
+                binding_constraint_can_match(g, branches, segment, bindings)
+            }
+            AgreementNode::Repeat { children, .. } => {
+                binding_constraint_can_match(g, children, segment, bindings)
+            }
+        }
+    })
+}
+
+fn match_binding_environment(
+    g: &Grammar,
+    env: &EnvFst,
+    nodes: &[AgreementNode],
+    segs: &[Segment],
+    reverse: bool,
+    bindings: &Bindings,
+) -> Option<Bindings> {
+    let input: Vec<&Segment> = if reverse {
+        segs.iter().rev().collect()
+    } else {
+        segs.iter().collect()
+    };
+    let mut tasks = Vec::new();
+    push_binding_nodes(&mut tasks, nodes, reverse);
+    let anchored = if reverse {
+        env.anchor_start
+    } else {
+        env.anchor_end
+    };
+    // A mandatory segment no constraint can match bounds the endpoint.
+    let furthest = input
+        .iter()
+        .position(|segment| {
+            !segment.optional && !binding_constraint_can_match(g, nodes, segment, bindings)
+        })
+        .unwrap_or(input.len());
+    if pg_fst::work::stopped() {
+        return None;
+    }
+    walk_binding_environment(
+        g,
+        &input,
+        reverse,
+        anchored,
+        furthest,
+        tasks,
+        0,
+        bindings.clone(),
+    )
+    .map(|(_, bindings)| bindings)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_binding_environment<'a>(
+    g: &Grammar,
+    input: &[&Segment],
+    reverse: bool,
+    anchored: bool,
+    furthest: usize,
+    mut tasks: Vec<BindingTask<'a>>,
+    pos: usize,
+    bindings: Bindings,
+) -> Option<(usize, Bindings)> {
+    if !pg_fst::work::consume() {
+        return None;
+    }
+    let Some(task) = tasks.pop() else {
+        return (!anchored || input[pos..].iter().all(|segment| segment.optional))
+            .then_some((pos, bindings));
+    };
+    match task {
+        BindingTask::Node(AgreementNode::Constraint { lanes, vars }) => {
+            let mut candidate = pos;
+            let mut best: Option<(usize, Bindings)> = None;
+            while let Some(segment) = input.get(candidate) {
+                if !pg_fst::work::consume() {
+                    return None;
+                }
+                let mut next = bindings.clone();
+                if pg_featstruct::flat_unifiable(&segment.lanes, lanes)
+                    && vars
+                        .iter()
+                        .all(|occ| bind_or_check(g, &mut next, occ, segment.lanes[occ.feature]))
+                {
+                    if let Some(found) = walk_binding_environment(
+                        g,
+                        input,
+                        reverse,
+                        anchored,
+                        furthest,
+                        tasks.clone(),
+                        candidate + 1,
+                        next,
+                    ) {
+                        if found.0 == furthest {
+                            return Some(found);
+                        }
+                        if best.as_ref().is_none_or(|current| found.0 > current.0) {
+                            best = Some(found);
+                        }
+                    }
+                }
+                if !segment.optional {
+                    break;
+                }
+                candidate += 1;
+            }
+            if pg_fst::work::stopped() {
+                None
+            } else {
+                best
+            }
+        }
+        BindingTask::Node(AgreementNode::Alternation(branches)) => {
+            let mut best: Option<(usize, Bindings)> = None;
+            for branch in branches {
+                let mut next = tasks.clone();
+                next.push(BindingTask::Node(branch));
+                if let Some(found) = walk_binding_environment(
+                    g,
+                    input,
+                    reverse,
+                    anchored,
+                    furthest,
+                    next,
+                    pos,
+                    bindings.clone(),
+                ) {
+                    if found.0 == furthest {
+                        return Some(found);
+                    }
+                    if best.as_ref().is_none_or(|current| found.0 > current.0) {
+                        best = Some(found);
+                    }
+                }
+            }
+            if pg_fst::work::stopped() {
+                None
+            } else {
+                best
+            }
+        }
+        BindingTask::Node(AgreementNode::Repeat { min, max, children }) => {
+            tasks.push(BindingTask::Repeat {
+                children,
+                min: *min,
+                max: *max,
+                count: 0,
+                stalled: false,
+            });
+            walk_binding_environment(g, input, reverse, anchored, furthest, tasks, pos, bindings)
+        }
+        BindingTask::Repeat {
+            children,
+            min,
+            max,
+            count,
+            stalled,
+        } => {
+            let mut best: Option<(usize, Bindings)> = None;
+            if max.is_none_or(|max| count < max) && (!stalled || count < min) {
+                let mut next = tasks.clone();
+                next.push(BindingTask::RepeatAfter {
+                    children,
+                    min,
+                    max,
+                    count: count + 1,
+                    previous: pos,
+                });
+                push_binding_nodes(&mut next, children, reverse);
+                if let Some(found) = walk_binding_environment(
+                    g,
+                    input,
+                    reverse,
+                    anchored,
+                    furthest,
+                    next,
+                    pos,
+                    bindings.clone(),
+                ) {
+                    if found.0 == furthest {
+                        return Some(found);
+                    }
+                    best = Some(found);
+                }
+            }
+            if count >= min {
+                if let Some(found) = walk_binding_environment(
+                    g, input, reverse, anchored, furthest, tasks, pos, bindings,
+                ) {
+                    if found.0 == furthest {
+                        return Some(found);
+                    }
+                    if best.as_ref().is_none_or(|current| found.0 > current.0) {
+                        best = Some(found);
+                    }
+                }
+            }
+            if pg_fst::work::stopped() {
+                None
+            } else {
+                best
+            }
+        }
+        BindingTask::RepeatAfter {
+            children,
+            min,
+            max,
+            count,
+            previous,
+        } => {
+            tasks.push(BindingTask::Repeat {
+                children,
+                min,
+                max,
+                count,
+                stalled: previous == pos,
+            });
+            walk_binding_environment(g, input, reverse, anchored, furthest, tasks, pos, bindings)
+        }
+    }
 }
 
 fn bind_environment(
@@ -1469,6 +1844,8 @@ pub fn analyze(
                 if sr.self_opaquing {
                     let mut any = false;
                     while ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1482,6 +1859,8 @@ pub fn analyze(
                     any
                 } else {
                     ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1602,6 +1981,8 @@ pub(crate) fn analyze_cached(
                 if sr.self_opaquing {
                     let mut any = false;
                     while ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1615,6 +1996,8 @@ pub(crate) fn analyze_cached(
                     any
                 } else {
                     ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1710,6 +2093,8 @@ pub fn analyze_traced(
                 if sr.self_opaquing {
                     let mut any = false;
                     while ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1723,6 +2108,8 @@ pub fn analyze_traced(
                     any
                 } else {
                     ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1855,6 +2242,8 @@ pub fn analyze_cached_traced(
                 if sr.self_opaquing {
                     let mut any = false;
                     while ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1868,6 +2257,8 @@ pub fn analyze_cached_traced(
                     any
                 } else {
                     ana_epenthesis(
+                        g,
+                        sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
                         sr.rhs.nodes.len(),
@@ -1958,11 +2349,11 @@ fn syn_feature(
             {
                 continue;
             }
-            let Some(left_match) = left_env_match(left, &segs, s) else {
+            let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
                 rejected.insert(s);
                 continue;
             };
-            let Some(right_match) = right_env_match(right, &segs, e) else {
+            let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
                 rejected.insert(s);
                 continue;
             };
@@ -1972,6 +2363,8 @@ fn syn_feature(
                 ms,
                 &node_of,
                 &target_nodes,
+                &segs,
+                s,
                 e,
                 &lhs_vars,
                 left,
@@ -2057,10 +2450,10 @@ fn sim_feature(
         {
             continue;
         }
-        let Some(left_match) = left_env_match(left, &segs, s) else {
+        let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
             continue;
         };
-        let Some(right_match) = right_env_match(right, &segs, e) else {
+        let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
             continue;
         };
         let Some(bindings) = resolve_bindings(
@@ -2068,6 +2461,8 @@ fn sim_feature(
             ms,
             &node_of,
             &target_nodes,
+            &segs,
+            s,
             e,
             &lhs_vars,
             left,
@@ -2171,6 +2566,7 @@ fn ana_feature(
 ) -> bool {
     // RHS alpha-variable occurrences, positionally aligned to `sr.rhs.nodes` (needed by the target pattern, see `ana_feature_target_lanes`, and the changed-feature set below).
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
+    let lhs_vars = pattern_var_occurrences(&rule.lhs);
 
     let input_spellings: Vec<Option<u32>> = rule
         .lhs
@@ -2185,7 +2581,7 @@ fn ana_feature(
     // Recomputed rather than threaded in: the same recompile-per-call tradeoff `analyze` makes.
     let (target_lanes, target_vars) = ana_feature_target(g, table, rule, sr);
 
-    // The features each RHS node changed, paired with bits to OR onto the node's value on unapply: C# reduces to `L | R`, NOT a full-mask reset, since resetting would wrongly accept a third symbol neither side mentions on a feature with more than two symbols; an alpha-governed feature keeps the full-mask fallback and is still listed as changed so a vacuous-looking literal pin still fires.
+    // C# subtracts matching LHS and RHS variables before resolving bindings.
     let changed: Vec<Vec<(usize, u64)>> = rule
         .lhs
         .nodes
@@ -2200,7 +2596,7 @@ fn ana_feature(
                 .map(|(f, bits)| (f, lhs_lanes[f] & !bits))
                 .collect();
             for occ in &rhs_vars[k] {
-                if !fs.iter().any(|&(f, _)| f == occ.feature) {
+                if !lhs_vars[k].contains(occ) && !fs.iter().any(|&(f, _)| f == occ.feature) {
                     fs.push((occ.feature, full_mask(g, occ.feature)));
                 }
             }
@@ -2253,11 +2649,11 @@ fn ana_feature(
             if target_nodes.iter().any(|&n| ms.nodes[n].dirty) {
                 continue;
             }
-            let Some(left_match) = left_env_match(left, &segs, s) else {
+            let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
                 rejected.insert(s);
                 continue;
             };
-            let Some(right_match) = right_env_match(right, &segs, e) else {
+            let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
                 rejected.insert(s);
                 continue;
             };
@@ -2267,6 +2663,8 @@ fn ana_feature(
                 ms,
                 &node_of,
                 &target_nodes,
+                &segs,
+                s,
                 e,
                 &target_vars,
                 left,
@@ -2289,6 +2687,10 @@ fn ana_feature(
                 changed[k]
                     .iter()
                     .any(|&(f, neg)| ms.nodes[node].lanes[f] & neg != neg)
+                    || rhs_vars[k].iter().any(|occ| {
+                        let mask = full_mask(g, occ.feature);
+                        ms.nodes[node].lanes[occ.feature] & mask != mask
+                    })
                     || input_spellings[k].is_some_and(|cd| !ms.nodes[node].contains_strrep(cd))
             });
             if !nonvacuous {
@@ -2367,10 +2769,10 @@ fn syn_narrow(
             }) {
                 continue;
             }
-            let Some(left_match) = left_env_match(left, &segs, s) else {
+            let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
                 continue;
             };
-            let Some(right_match) = right_env_match(right, &segs, e) else {
+            let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
                 continue;
             };
             // Alpha-variable agreement over target + environments (mirrors `syn_feature`'s identical step); also the source of bindings the RHS resolution below reads.
@@ -2379,6 +2781,8 @@ fn syn_narrow(
                 ms,
                 &node_of,
                 &target_nodes,
+                &segs,
+                s,
                 e,
                 &lhs_vars,
                 left,
@@ -2456,10 +2860,10 @@ fn sim_narrow(
         }) {
             continue;
         }
-        let Some(left_match) = left_env_match(left, &segs, s) else {
+        let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
             continue;
         };
-        let Some(right_match) = right_env_match(right, &segs, e) else {
+        let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
             continue;
         };
         let Some(bindings) = resolve_bindings(
@@ -2467,6 +2871,8 @@ fn sim_narrow(
             ms,
             &node_of,
             &target_nodes,
+            &segs,
+            s,
             e,
             &lhs_vars,
             left,
@@ -2527,12 +2933,13 @@ fn ana_narrow_deletion(
         .collect();
 
     // Sites: gaps after each segment node where the (deleted) LHS could sit and both environments hold; insertion goes after the site node.
+    let lhs_vars = pattern_var_occurrences(&rule.lhs);
     let (segs, node_of) = ms.segs(false);
-    let mut sites: Vec<usize> = Vec::new(); // shape node index after which to insert
+    let mut sites: Vec<(usize, Bindings)> = Vec::new(); // shape node index after which to insert
 
     // The word-initial gap is a real site: C#'s substitute pattern matches the left anchor (node 0, here) and inserts right after it; without this a word-initial deletion can't be re-inserted.
-    if left_env_ok(left, &segs, 0) && right_env_ok(right, &segs, 0) {
-        sites.push(0);
+    if let Some(bindings) = environment_bindings(g, &segs, 0, 0, left, right, Bindings::default()) {
+        sites.push((0, bindings));
     }
     for (site, &node) in node_of.iter().enumerate() {
         if !pg_fst::work::consume() {
@@ -2540,8 +2947,16 @@ fn ana_narrow_deletion(
         }
         let left_end = site + 1; // context up to and including the site node
         let right_start = site + 1;
-        if left_env_ok(left, &segs, left_end) && right_env_ok(right, &segs, right_start) {
-            sites.push(node);
+        if let Some(bindings) = environment_bindings(
+            g,
+            &segs,
+            left_end,
+            right_start,
+            left,
+            right,
+            Bindings::default(),
+        ) {
+            sites.push((node, bindings));
         }
     }
     if sites.is_empty() {
@@ -2549,9 +2964,12 @@ fn ana_narrow_deletion(
     }
     // Apply descending so earlier insertions don't shift later site indices.
     count_class_identity(&lhs_nodes, sites.len());
-    for &site_node in sites.iter().rev() {
-        ms.nodes
-            .splice(site_node + 1..site_node + 1, lhs_nodes.iter().cloned());
+    for (site_node, bindings) in sites.iter().rev() {
+        let mut inserted = lhs_nodes.clone();
+        for (node, vars) in inserted.iter_mut().zip(&lhs_vars) {
+            apply_variable_bindings(g, node, vars, bindings);
+        }
+        ms.nodes.splice(site_node + 1..site_node + 1, inserted);
     }
     true
 }
@@ -2585,10 +3003,10 @@ fn ana_narrow_general(
     let (segs, node_of) = ms.segs(false);
     let mut matches: Vec<(usize, usize, Vec<usize>, Bindings)> = Vec::new();
     let mut consider = |s: usize, e: usize, target_nodes: Vec<usize>| {
-        let Some(left_match) = left_env_match(left, &segs, s) else {
+        let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
             return;
         };
-        let Some(right_match) = right_env_match(right, &segs, e) else {
+        let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
             return;
         };
         let Some(bindings) = resolve_bindings(
@@ -2596,6 +3014,8 @@ fn ana_narrow_general(
             ms,
             &node_of,
             &target_nodes,
+            &segs,
+            s,
             e,
             &rhs_vars,
             left,
@@ -2713,6 +3133,7 @@ fn syn_epenthesis(
         .map(|n| new_seg_node(g, table, n, false))
         .collect();
 
+    let rhs_vars = pattern_var_occurrences(&sr.rhs);
     if mode == RewriteMode::Iterative {
         if rhs_nodes.is_empty() {
             return false;
@@ -2752,7 +3173,7 @@ fn syn_epenthesis(
             if dir == Direction::RightToLeft {
                 candidates.reverse();
             }
-            let site_node = candidates.into_iter().find(|&node| {
+            let site = candidates.into_iter().find_map(|node| {
                 let (left_end, right_start) = match ms.nodes[node].kind {
                     NodeKind::LeftAnchor => (0, 0),
                     NodeKind::RightAnchor => (segs.len(), segs.len()),
@@ -2763,13 +3184,21 @@ fn syn_epenthesis(
                             .expect("epenthesis segment target must reach the matcher");
                         (site + 1, site + 1)
                     }
-                    NodeKind::Boundary => return false,
+                    NodeKind::Boundary => return None,
                 };
                 // WHY: An empty-LHS target has no C# Clean constraint, so a dirty insertion remains eligible.
-                let left_holds = left_env_ok(left, &segs, left_end);
-                left_holds && right_env_ok(right, &segs, right_start)
+                environment_bindings(
+                    g,
+                    &segs,
+                    left_end,
+                    right_start,
+                    left,
+                    right,
+                    Bindings::default(),
+                )
+                .map(|bindings| (node, bindings))
             });
-            let Some(site_node) = site_node else {
+            let Some((site_node, bindings)) = site else {
                 break;
             };
             // C# throws InfiniteLoopException at Shape.Count == 256 and the word gets no parse; the runaway shape left here can match no real surface, so this declines the same way without unwinding a caller.
@@ -2777,7 +3206,13 @@ fn syn_epenthesis(
                 return applied;
             }
             let mut inserted = iterative_rhs_nodes.clone();
-            for node in &mut inserted {
+            for (index, node) in inserted.iter_mut().enumerate() {
+                let vars_index = if dir == Direction::RightToLeft {
+                    rhs_vars.len() - 1 - index
+                } else {
+                    index
+                };
+                apply_variable_bindings(g, node, &rhs_vars[vars_index], &bindings);
                 node.dirty = true;
             }
             ms.nodes.splice(site_node + 1..site_node + 1, inserted);
@@ -2790,10 +3225,10 @@ fn syn_epenthesis(
 
     // Sites: gaps after a segment node where both environments hold, collected once against the current shape then inserted descending.
     let (segs, node_of) = ms.segs(true);
-    let mut sites: Vec<usize> = Vec::new();
+    let mut sites: Vec<(usize, Bindings)> = Vec::new();
     // The word-initial gap is a real site (synthesis twin of `ana_narrow_deletion`'s): C#'s empty-LHS pattern matches the left anchor and inserts right after it; anchors never appear in `node_of`, so the per-segment loop below can't reach this gap without it.
-    if left_env_ok(left, &segs, 0) && right_env_ok(right, &segs, 0) {
-        sites.push(0);
+    if let Some(bindings) = environment_bindings(g, &segs, 0, 0, left, right, Bindings::default()) {
+        sites.push((0, bindings));
     }
     for (site, &node) in node_of.iter().enumerate() {
         if !pg_fst::work::consume() {
@@ -2805,16 +3240,27 @@ fn syn_epenthesis(
         }
         let left_end = site + 1;
         let right_start = site + 1;
-        if left_env_ok(left, &segs, left_end) && right_env_ok(right, &segs, right_start) {
-            sites.push(node);
+        if let Some(bindings) = environment_bindings(
+            g,
+            &segs,
+            left_end,
+            right_start,
+            left,
+            right,
+            Bindings::default(),
+        ) {
+            sites.push((node, bindings));
         }
     }
     if sites.is_empty() {
         return false;
     }
-    for &site_node in sites.iter().rev() {
-        ms.nodes
-            .splice(site_node + 1..site_node + 1, rhs_nodes.iter().cloned());
+    for (site_node, bindings) in sites.iter().rev() {
+        let mut inserted = rhs_nodes.clone();
+        for (node, vars) in inserted.iter_mut().zip(&rhs_vars) {
+            apply_variable_bindings(g, node, vars, bindings);
+        }
+        ms.nodes.splice(site_node + 1..site_node + 1, inserted);
     }
     true
 }
@@ -2839,7 +3285,33 @@ fn ana_epenthesis_target_lanes(
 }
 
 /// C# `EpenthesisAnalysisRewriteRuleSpec` (reapply Normal/SelfOpaquing): matches the epenthesized segment(s) and marks them **optional** rather than deleting, so a later lexical lookup may skip them; the nonvacuous guard skips already-optional nodes.
+#[allow(clippy::too_many_arguments)]
+fn epenthesis_target_environments_match(
+    g: &Grammar,
+    ms: &MutShape,
+    segs: &[Segment],
+    target_nodes: &[usize],
+    target_vars: &[Vec<VarOccur>],
+    s: usize,
+    e: usize,
+    left: &Option<EnvFst>,
+    right: &Option<EnvFst>,
+) -> bool {
+    let mut bindings = Bindings::default();
+    for (&node, vars) in target_nodes.iter().zip(target_vars) {
+        for occ in vars {
+            if !bind_or_check(g, &mut bindings, occ, ms.nodes[node].lanes[occ.feature]) {
+                return false;
+            }
+        }
+    }
+    environment_bindings(g, segs, s, e, left, right, bindings).is_some()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn ana_epenthesis(
+    g: &Grammar,
+    sr: &RewriteSubruleDef,
     ms: &mut MutShape,
     target: Option<&Fst>,
     expected_len: usize,
@@ -2852,6 +3324,7 @@ fn ana_epenthesis(
         return false; // no RHS material to have epenthesized (see `ana_epenthesis_target_lanes`).
     };
 
+    let target_vars = pattern_var_occurrences(&sr.rhs);
     if mode == RewriteMode::Simultaneous {
         let (segs, node_of) = ms.segs(false);
         let mut applied = false;
@@ -2864,7 +3337,17 @@ fn ana_epenthesis(
             if !width_matches(&target_nodes, expected_len) {
                 continue;
             }
-            if !left_env_ok(left, &segs, s) || !right_env_ok(right, &segs, e) {
+            if !epenthesis_target_environments_match(
+                g,
+                ms,
+                &segs,
+                &target_nodes,
+                &target_vars,
+                s,
+                e,
+                left,
+                right,
+            ) {
                 continue;
             }
             // WHY: Require at least one target node that is not already optional.
@@ -2901,8 +3384,17 @@ fn ana_epenthesis(
             if target_nodes.is_empty()
                 || target_nodes.iter().any(|&n| ms.nodes[n].dirty)
                 || !width_matches(&target_nodes, expected_len)
-                || !left_env_ok(left, &segs, s)
-                || !right_env_ok(right, &segs, e)
+                || !epenthesis_target_environments_match(
+                    g,
+                    ms,
+                    &segs,
+                    &target_nodes,
+                    &target_vars,
+                    s,
+                    e,
+                    left,
+                    right,
+                )
                 || target_nodes.iter().all(|&n| ms.nodes[n].optional)
             {
                 continue;
@@ -3207,10 +3699,10 @@ fn probe_narrow(
             }) {
                 continue;
             }
-            let Some(left_match) = left_env_match(left, &segs, s) else {
+            let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
                 continue;
             };
-            let Some(right_match) = right_env_match(right, &segs, e) else {
+            let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
                 continue;
             };
             let Some(bindings) = resolve_bindings(
@@ -3218,6 +3710,8 @@ fn probe_narrow(
                 ms,
                 &node_of,
                 &target_nodes,
+                &segs,
+                s,
                 e,
                 &lhs_vars,
                 left,
@@ -3295,10 +3789,10 @@ fn probe_sim_narrow(
         }) {
             continue;
         }
-        let Some(left_match) = left_env_match(left, &segs, s) else {
+        let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
             continue;
         };
-        let Some(right_match) = right_env_match(right, &segs, e) else {
+        let Some(right_match) = right_env_match_for_binding(right, &segs, e) else {
             continue;
         };
         let Some(bindings) = resolve_bindings(
@@ -3306,6 +3800,8 @@ fn probe_sim_narrow(
             ms,
             &node_of,
             &target_nodes,
+            &segs,
+            s,
             e,
             &lhs_vars,
             left,

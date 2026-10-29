@@ -3905,10 +3905,46 @@ impl GrammarWideCheck for UntokenizableRootShapeCheck {
     }
 }
 
+/// Publishes the same representability decision made by each compiler.
+pub struct AlphaEnvironmentCheck(pub EmissionStrategy);
+
+impl GrammarWideCheck for AlphaEnvironmentCheck {
+    fn id(&self) -> PredicateId {
+        match self.0 {
+            EmissionStrategy::TunedSurfaceProbed => "alpha-environment.tuned",
+            EmissionStrategy::TemplatedUnderlyingTokens => "alpha-environment.templated",
+            EmissionStrategy::PlanComposed => "alpha-environment.plan",
+        }
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        self.0
+    }
+    fn shape_key(&self) -> &'static str {
+        "alpha-variable-environments"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::emit::alpha_environment_refusal(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: "alpha-variable environment".to_string(),
+                witness: crate::emit::ALPHA_ENVIRONMENT_REFUSAL.to_string(),
+            }])
+        })
+    }
+}
+
 /// The registry this crate ships: every grammar-wide fact `crate::backend_selection::select_backends`
 /// applies, named and strategy-scoped rather than threaded as a growing positional argument list.
 pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
     vec![
+        Box::new(AlphaEnvironmentCheck(EmissionStrategy::TunedSurfaceProbed)),
+        Box::new(AlphaEnvironmentCheck(
+            EmissionStrategy::TemplatedUnderlyingTokens,
+        )),
+        Box::new(AlphaEnvironmentCheck(EmissionStrategy::PlanComposed)),
         Box::new(TunedSurfaceMixedCircumfixZoneCheck),
         Box::new(TemplatedRouteUncoveredCheck),
         Box::new(RuleCascadeUncompilableCheck),

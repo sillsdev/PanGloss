@@ -124,6 +124,9 @@ fn backend_seam_shape_key_table_is_pinned() {
     }
 
     let expected: BTreeSet<ShapeRow> = [
+        ("alpha-environment.plan", "alpha-variable-environments"),
+        ("alpha-environment.templated", "alpha-variable-environments"),
+        ("alpha-environment.tuned", "alpha-variable-environments"),
         ("quantifier.bounded-expansion", "repeated-application"),
         (
             "reduplication.peel-eligible-rule-kind",

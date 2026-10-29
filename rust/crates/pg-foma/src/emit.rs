@@ -1238,6 +1238,56 @@ struct AtomicCarrier {
     choices: Vec<AtomicCarrierChoice>,
 }
 
+/// FST emission cannot preserve alpha bindings across environment traversal.
+pub const ALPHA_ENVIRONMENT_REFUSAL: &str = "alpha-variable environments are not represented by FST backends; use the full morphological parser";
+
+/// Shared representability decision used by each FST compiler and its capability envelope.
+pub fn alpha_environment_refusal(g: &Grammar) -> bool {
+    let has_alpha = |pattern: &Option<pg_grammar::model::Pattern>| {
+        pattern
+            .as_ref()
+            .is_some_and(|p| crate::lower::nodes_contain_alpha_context(&p.nodes))
+    };
+    let environment_has_alpha =
+        |env: &pg_grammar::model::EnvironmentDef| has_alpha(&env.left) || has_alpha(&env.right);
+    g.prules.iter().any(|rule| match rule {
+        PhonRuleDef::Rewrite(rule) => rule
+            .subrules
+            .iter()
+            .any(|s| has_alpha(&s.left_env) || has_alpha(&s.right_env)),
+        PhonRuleDef::Metathesis(_) => false,
+    }) || g
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.allomorphs)
+        .any(|a| a.environments.iter().any(&environment_has_alpha))
+        || g.mrules
+            .iter()
+            .filter_map(|rule| rule.affix_allomorphs())
+            .flatten()
+            .any(|a| a.environments.iter().any(&environment_has_alpha))
+}
+
+fn alpha_environment_emit_refusal(g: &Grammar) -> EmitResult {
+    EmitResult {
+        lexc_source: String::new(),
+        report: EmitReport {
+            uncovered: Vec::new(),
+            counts: EmitCounts {
+                entries: g.entries.len(),
+                rules: g.mrules.len(),
+                ..Default::default()
+            },
+            tier: FomaTier::CannotRepresent {
+                reason: ALPHA_ENVIRONMENT_REFUSAL.to_owned(),
+            },
+            enum_budget_exceeded: None,
+            closure_refusal: None,
+            closure_evidence: None,
+        },
+    }
+}
+
 #[derive(Clone)]
 struct AtomicCarrierChoice {
     alternative: Option<crate::structural_allomorph::SlotProjectionAlternative>,
@@ -2273,6 +2323,9 @@ fn compound_chain_depth_and_budget_check(
     let (depth, limit) = match compound_extra_levels_checked_with_cap(g, chain_depth_cap) {
         Ok(levels) => return Ok(levels),
         Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
+        Err(ComposeError::CannotRepresent { reason }) => {
+            unreachable!("chain depth check: {reason}")
+        }
     };
     {
         let reason = format!(
@@ -4261,6 +4314,9 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     allow_env_trace: bool,
 ) -> EmitResult {
+    if alpha_environment_refusal(g) {
+        return alpha_environment_emit_refusal(g);
+    }
     let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
     let table = surface_table(g);
@@ -5213,6 +5269,9 @@ pub fn emit_underlying_templated(
     alphabet: &SegAlphabet,
     allowed_entries: Option<&HashSet<LexEntryId>>,
 ) -> EmitResult {
+    if alpha_environment_refusal(g) {
+        return alpha_environment_emit_refusal(g);
+    }
     let width = tags::tag_width(g.morphemes.len());
     let table = alphabet.table();
 
@@ -6016,11 +6075,13 @@ pub fn templated_route_uncovered_refusal(g: &Grammar) -> Option<CompileDecision>
                 witness: item.reason.clone(),
             })
             .collect(),
-        FomaTier::Unsupported { reason } => vec![CapabilityDiagnostic {
-            predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
-            construct: "grammar (templated emission unsupported)".to_string(),
-            witness: reason.clone(),
-        }],
+        FomaTier::Unsupported { reason } | FomaTier::CannotRepresent { reason } => {
+            vec![CapabilityDiagnostic {
+                predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
+                construct: "grammar (templated emission unsupported)".to_string(),
+                witness: reason.clone(),
+            }]
+        }
     };
     if diagnostics.is_empty() {
         return None;

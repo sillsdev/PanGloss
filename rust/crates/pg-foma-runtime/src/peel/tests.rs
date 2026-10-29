@@ -113,6 +113,9 @@ fn deep_self_similar_chain_is_refused_deterministically_under_a_small_cap() {
              silently truncating or hanging",
         );
     match err {
+        ComposeError::CannotRepresent { reason } => {
+            panic!("unexpected representability refusal: {reason}")
+        }
         ComposeError::ChainDepthExceeded { depth, limit, site } => {
             assert_eq!(limit, 3);
             assert!(depth > limit, "the reported depth must exceed the cap");

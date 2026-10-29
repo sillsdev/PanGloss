@@ -586,3 +586,20 @@ fn fst_health_evaluator_golden_round_trips() {
         "round trip through canonical JSON must be lossless"
     );
 }
+
+#[test]
+fn alpha_environment_refusal_is_a_representability_failure() {
+    let report = EmitReport {
+        tier: FomaTier::CannotRepresent {
+            reason: "alpha environment".to_string(),
+        },
+        ..synthetic_full_emit_report()
+    };
+    let health = evaluate(compile_measurements(None, Some(&report), &[], &[]));
+    assert_eq!(health.admission(), Severity::CannotRepresent);
+    let errors = [ComposeError::CannotRepresent {
+        reason: "alpha environment",
+    }];
+    let health = evaluate(compile_measurements(None, None, &errors, &[]));
+    assert_eq!(health.admission(), Severity::CannotRepresent);
+}

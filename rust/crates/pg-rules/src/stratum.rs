@@ -934,6 +934,22 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let keeps_template_state =
             matches!(rule, MorphRuleDef::AffixProcess(def) if self.g.affix_rule_is_clitic(def));
         for o in &mut outs {
+            assert_eq!(
+                o.allomorph_apps.len(),
+                o.mrule_apps.len(),
+                "allomorph and rule trails are out of sync"
+            );
+            let selected = if matches!(rule, MorphRuleDef::AffixProcess(_)) {
+                Some(
+                    o.analysis_allomorph
+                        .take()
+                        .expect("affix analysis did not record its allomorph"),
+                )
+            } else {
+                o.analysis_allomorph = None;
+                None
+            };
+            o.allomorph_apps.push(selected);
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
             o.mrule_apps.push(Some(id));
             o.mrule_app_index = o.mrule_apps.len() as i32 - 1;

@@ -319,7 +319,8 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
     for (word, unvalued_has_analysis, valued_has_analysis) in [
         ("qta", false, true),
         ("kumata", false, false),
-        ("qtu", true, true),
+        // A front-valued q admits the earlier ta allomorph, which disjunctively blocks tu.
+        ("qtu", true, false),
         ("kumatu", true, true),
         ("q", false, false),
         ("kuma", false, false),
@@ -346,7 +347,7 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
         assert_eq!(
             inferred_direct == valued_direct,
             unvalued_has_analysis == valued_has_analysis,
-            "only the constrained q environment must distinguish the valued grammar for {word:?}"
+            "the constrained q environment and its blocking effect distinguish the valued grammar for {word:?}"
         );
         #[cfg(feature = "foma-tools")]
         {
