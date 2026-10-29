@@ -15,6 +15,8 @@ mod cross_table_metathesis_surface_match_gate;
 mod disjunctive_recheck_gate;
 #[path = "../do_not_parse.rs"]
 mod do_not_parse;
+#[path = "../edge_prefilter_gate.rs"]
+mod edge_prefilter_gate;
 #[path = "../effective_analysis_target.rs"]
 mod effective_analysis_target;
 #[path = "../exact_analysis_fs_recall.rs"]
@@ -27,6 +29,8 @@ mod guesser_gate;
 mod lexical_pattern_trie_exclusion_gate;
 #[path = "../loader_n3_pattern_shapes_gate.rs"]
 mod loader_n3_pattern_shapes_gate;
+#[path = "../lookup_replay_gate.rs"]
+mod lookup_replay_gate;
 #[path = "../merge_msas_conformance.rs"]
 mod merge_msas_conformance;
 #[path = "../merged_analyses_fs_generalization.rs"]

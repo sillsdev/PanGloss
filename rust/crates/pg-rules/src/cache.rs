@@ -176,6 +176,8 @@ pub struct RuleCache {
     allomorphs: Vec<AllomorphCache>,
     /// Indexed by `MRuleId.0`; `Some` only for a `MorphRuleDef::Compounding` entry (an `AffixProcess` entry's matchers live in `allomorphs` instead).
     compounds: Vec<Option<CompoundCache>>,
+    /// Skip an analysis allomorph whose mandatory pattern edge cannot unify with the word's mandatory edge segment. Pure speed; on by default.
+    edge_prefilter: bool,
 }
 
 impl RuleCache {
@@ -224,7 +226,18 @@ impl RuleCache {
             prules,
             allomorphs,
             compounds,
+            edge_prefilter: true,
         }
+    }
+
+    /// Turns the analysis edge-segment prefilter on or off; it never changes an analysis.
+    pub fn with_edge_prefilter(mut self, on: bool) -> Self {
+        self.edge_prefilter = on;
+        self
+    }
+
+    pub(crate) fn edge_prefilter(&self) -> bool {
+        self.edge_prefilter
     }
 
     pub(crate) fn prule_rewrite(&self, pid: PRuleId) -> &PruleCache {
