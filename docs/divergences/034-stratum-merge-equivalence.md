@@ -6,7 +6,7 @@ This entry separates implementation status from the evidence needed to trust it 
 behavioural.
 
 ## Status
-Partially aligned; broader reconciliation remains open. Machine #493 merged as `52d069f845b43f8bc88a95a56a8511aa58def26f`. Rust now uses gate-only template feature handling. State-key/fallback/widening equivalence is not established by this change.
+Partially aligned; broader reconciliation remains open. Machine #493 merged as `52d069f845b43f8bc88a95a56a8511aa58def26f`. Rust now uses gate-only template feature handling. State-key/fallback/widening equivalence is not established by this change. The merged PR status does not close those remaining questions.
 
 Implementation: PanGloss [`fc357daf`](https://github.com/sillsdev/PanGloss/commit/fc357daf).
 Independent Luna spec review and Sol correctness review accepted this narrow slice.
@@ -63,3 +63,6 @@ outside this correction.
 
 Published implementation evidence: [#505 update](https://github.com/sillsdev/machine/issues/505#issuecomment-5686179488)
 and [conformance PR update](https://github.com/sillsdev/machine/pull/480#issuecomment-5686179895).
+
+
+The pinned Sena and Amharic worst-word lists are absent and are not covered by the 2026-10-27 port measurements; the NEW 30-word stride samples do not replace them.

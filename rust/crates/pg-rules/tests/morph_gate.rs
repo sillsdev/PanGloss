@@ -7,7 +7,8 @@ use common::{load_alpha_grammar, nat_class};
 use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, CompoundingRuleDef, CompoundingSubruleDef,
     Grammar, MorphRuleDef, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
-    ReduplicationHint, SegmentedText, SimpleContext, StratumId, TableId, VarTable,
+    RealizationalRuleDef, ReduplicationHint, SegmentedText, SimpleContext, StratumId, TableId,
+    VarTable,
 };
 use pg_rules::morph::{analyze, synthesize};
 use pg_rules::{MorphRecord, Word};
@@ -109,6 +110,37 @@ fn affix_rule(morpheme: u32, allomorphs: Vec<AffixAllomorphDef>) -> MorphRuleDef
     })
 }
 
+#[test]
+fn realizational_rule_synthesizes_at_most_once_per_word() {
+    let g = load_alpha_grammar();
+    let stem = root_word(&g, "apa", 100);
+    let rule = |id| {
+        MorphRuleDef::Realizational(RealizationalRuleDef {
+            morpheme: MorphemeId(id),
+            name: None,
+            blockable: true,
+            required_syn_fs: pg_featstruct::FsId(0),
+            real_fs: pg_featstruct::FsId(0),
+            allomorphs: vec![allomorph(
+                id,
+                vec![one_or_more("nc_any", &g)],
+                vec![
+                    OutputAction::Copy(PartRef::Input(0)),
+                    insert_segments(&g, "n"),
+                ],
+            )],
+        })
+    };
+    let first = synthesize(&g, &stem, &rule(200));
+    assert_eq!(first.len(), 1);
+    assert!(synthesize(&g, &first[0], &rule(200)).is_empty());
+    let mut erased_morphs = first[0].clone();
+    erased_morphs.morphs.clear();
+    assert!(synthesize(&g, &erased_morphs, &rule(200)).is_empty());
+    assert_eq!(synthesize(&g, &first[0], &rule(201)).len(), 1);
+    assert_eq!(synthesize(&g, &stem, &rule(200)).len(), 1);
+}
+
 // Suffix: CopyFromInput + InsertSegments, mirroring C#'s `AffixProcessRuleTests.MorphosyntacticRules`. Root "apa" (100) + suffix "n" (200).
 
 #[test]
@@ -143,6 +175,40 @@ fn suffix_synthesis_appends_and_orders_root_then_affix() {
     assert_eq!(
         out[0].morpheme_sequence(),
         vec![MorphemeId(100), MorphemeId(200)]
+    );
+}
+
+#[test]
+fn uncached_synthesis_emits_only_the_recorded_allomorph() {
+    let g = load_alpha_grammar();
+    let mut stem = root_word(&g, "apa", 100);
+    stem.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
+    stem.allomorph_apps = vec![Some(AllomorphId(201))];
+    stem.mrule_app_index = 0;
+    let make_allomorph = |id| {
+        allomorph(
+            id,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "n"),
+            ],
+        )
+    };
+    let rule = affix_rule(
+        200,
+        vec![
+            make_allomorph(200),
+            make_allomorph(201),
+            make_allomorph(202),
+        ],
+    );
+    let out = synthesize(&g, &stem, &rule);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].morphs.last().unwrap().allomorph, AllomorphId(201));
+    assert_eq!(
+        out[0].morphs.last().unwrap().passed_over.as_deref(),
+        Some(&[0][..])
     );
 }
 

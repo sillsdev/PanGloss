@@ -58,6 +58,17 @@ fn a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar(
 }
 
 #[test]
+fn two_reinserted_class_nodes_retain_members_and_exclude_other_roots() {
+    let fixture = require_fixture("edge-cases", "class-deletion-reinsertion-strrep");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    assert_eq!(
+        looked_up_entries(&grammar, "amuma"),
+        ["ePuma", "eUma", "eUmpa"]
+    );
+    assert_eq!(looked_up_entries(&grammar, "umuma"), ["eUmbumpa"]);
+}
+
+#[test]
 fn strrep_rewrite_tracks_membership_when_a_provisional_literal_changes_identity() {
     use pg_grammar_model::model::PhonRuleDef;
     use pg_rules::{rewrite, shape_feat::segment_with_features};

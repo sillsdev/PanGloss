@@ -8,7 +8,7 @@ HermitCrab in `Machine` keeps evolving — bug fixes, new capabilities — this 
 
 **This is not the correctness gate.** Per project decision (2026-07-10): PanGloss's actual parity
 contract is passing the evolving conformance oracle that lives in `Machine` (see the FST plan docs
-and, once pulled in, the conformance submodule) — not this document, not the corpora under
+including the pinned conformance submodule and staged fixtures) — not this document, not the corpora under
 `samples/`, not unit tests. This doc exists purely as an **audit trail** — a way to reason about drift
 between the two engines over time, and a map of "where do I even look" when the oracle flags a new
 divergence. PanGloss's own algorithms are free to diverge from what's described here as the port
@@ -230,9 +230,10 @@ the change cannot alter parse outcomes.
   Pinned by `conformance-staging/edge-cases/recursive-endocentric-compounding`.
 - **`syn_epenthesis` is structurally Simultaneous-shaped regardless of a rule's declared `Iterative`
   mode** (`docs/p13-simultaneous-design.md` §2.3 / §7 item 2 — previously flagged there but undecided).
-  Two cascading Iterative epenthesis rules over-fire relative to C#'s true cursor walk. Pinned by the
-  `#[ignore]`d `epenthesis_rules_iterative_cascade_finding`, re-verified against the live C# oracle.
-  Fixing it means a real cursor-walk rewrite.
+  The historical cascading Iterative epenthesis mismatch was fixed by the cursor-walk rewrite;
+  see divergence entry 014 and its separate cursor regression. The active
+  `epenthesis_rules_iterative_cascade_finding` restores its feature-rule LHS but does not itself pin
+  that cursor behavior.
 - **Surface tokenization uses only the last stratum's character table**, so inner-stratum roots in a
   multi-table grammar cannot be tokenized at all. Architectural, consistent with
   `two_table_symbol_divergence.rs`'s documented convention — recorded so it is not re-diagnosed as a
@@ -301,8 +302,9 @@ either list.
 6. **A confirmed, still-open Rust-side bug** (not a missing capability, an actual divergence):
    `syn_epenthesis`'s environment check spuriously matches an internal morpheme boundary in one
    specific case, inserting an epenthetic segment the real C# oracle does not. Root cause narrowed
-   to two candidate mechanisms, not yet pinned to one. See the `#[ignore]`d note on
-   `epenthesis_rules` in `rust/crates/hc-parse/tests/csharp_port_rewrite.rs`.
+   to two candidate mechanisms, not yet pinned to one. See the historical note on `epenthesis_rules` in
+   `rust/crates/pg-parse/tests/csharp_port_rewrite.rs`; the separate
+   `epenthesis_rules_iterative_cascade_finding` test is active, not ignored.
 7. **A tracing-only divergence** (does not affect parse outcome): when two synthesis gates would
    both independently reject a candidate, Rust and C# can report a different *first* `FailureReason`
    because the two gates are checked in the opposite order in each engine.
@@ -312,12 +314,12 @@ Full narrative detail for all of the above (and everything already closed) lives
 `rust/docs/phase2-completed/` (the earlier, larger workstreams' archived rationale).
 
 **Housekeeping note (2026-07-10, at copy time):** 14 test files (36 test functions) under
-`rust/crates/hc-parse/tests/` and `rust/crates/hc-rules/tests/` read fixtures from
+`rust/crates/pg-parse/tests/` and `rust/crates/pg-rules/tests/` read fixtures from
 `rust/conformance/`, which was deliberately excluded from this copy (§5). Every affected test
-function was marked `#[ignore]` with a reason citing this section, rather than left to fail — they
-will start running again automatically once the conformance submodule is added, no manual
-un-ignoring needed. This does not represent any loss of engine capability, only loss of that
-specific regression coverage until the submodule lands.
+function was marked `#[ignore]` with a reason citing this section, rather than left to fail. This
+describes the original copy and is not a current test inventory. The conformance submodule is now
+pinned and initialized by the conformance tooling; individual tests may still be ignored for their
+own stated reasons.
 
 ## 4. Measured parity, at copy time (2026-07-10)
 
@@ -332,22 +334,19 @@ These numbers describe the state of the `machine` repo's `rust` branch at the mo
 copy. **Do not treat them as still current** once any work happens here — re-derive from the
 conformance oracle instead (§5).
 
-## 5. The conformance oracle (not yet pulled in)
+## 5. The conformance oracle
 
-`Machine`'s `conformance/` directory (a separate, evolving, engine-agnostic fixture suite — grammar +
-word list + oracle-generated expected output, covering single-feature, negative, cross-cutting, and
-pathological/stress cases) is meant to become PanGloss's actual correctness gate, pulled in as a git
-submodule once that work is further along in `Machine`. It is **deliberately not included** in this
-initial copy. When it's added:
-- Update this section with the submodule commit/tag pinned.
-- The adapter CLI contract it expects (`<engine-binary> batch <grammar.xml> <words.txt>
-  <output.tsv>`, producing the existing order-independent signature TSV format) is already what
-  `hc-rs batch` does — no engine-side changes should be needed to start consuming it.
+The `machine` submodule is pinned to `aab4c59819adb7b366915e09df2fb28c62b8c03a`, and its
+`conformance/` fixtures are replayed alongside `conformance-staging/` through the managed
+`rust/tools/conformance.ps1` and `rust/tools/pg.ps1 -Mode conformance-test` workflows. Fixture
+presence, oracle provenance, and demonstrated regression coverage are distinct claims; consult the
+divergence ledger and fixture `STAGING.md` for each. The original copy omitted this suite, as
+recorded above, but that historical limitation is no longer the current state.
 
 ## 6. Process for future audits
 
 When `Machine`'s HermitCrab gets a bug fix or new capability:
-1. Check whether it's covered by a fixture in the (eventually pulled-in) conformance submodule —
+1. Check whether it's covered by a fixture in the pinned conformance submodule —
    if the oracle catches it, that's the authoritative signal, use it first.
 2. If not yet fixture-covered, read the change directly against §2/§3 above: is it touching an
    already-ported construct (likely just needs picking up the fix) or a not-yet-ported one (needs

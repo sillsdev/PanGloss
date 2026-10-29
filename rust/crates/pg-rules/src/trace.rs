@@ -134,6 +134,7 @@ pub enum FailureReason {
     NonPartialRuleProhibitedAfterFinalTemplate,
     NonPartialRuleRequiredAfterNonFinalTemplate,
     MaxApplicationCount,
+    AllomorphNotApplicable,
 }
 
 /// The lookup strategy that produced a lexical lookup's candidate roots.

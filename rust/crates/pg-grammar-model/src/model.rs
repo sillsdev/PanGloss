@@ -696,8 +696,8 @@ impl MorphRuleDef {
 /// `<RealizationalRule>` → C# `RealizationalAffixProcessRule` (W5). Unlike `AffixProcessRuleDef`,
 /// there is no `partial`/`max_apps`/`out_syn_fs`/`obligatory_features`/`is_template_rule` — none of
 /// those C# fields exist on `RealizationalAffixProcessRule` (verified against the class itself and
-/// its `Synthesis`/`AnalysisRealizationalAffixProcessRule` companions: no `MaxApplicationCount`
-/// gate, no `IsPartial`/`IsLastAppliedRuleFinal` interaction, no `ObligatorySyntacticFeatures`, no
+/// its `Synthesis`/`AnalysisRealizationalAffixProcessRule` companions: synthesis caps the rule at
+/// one application per word; there is no `IsPartial`/`IsLastAppliedRuleFinal` interaction, no `ObligatorySyntacticFeatures`, no
 /// `OutMprFeatures` application on synthesis either — see `pg_rules::morph`'s realizational doc for
 /// the citation-by-citation diff against the regular affix path).
 #[derive(Debug)]

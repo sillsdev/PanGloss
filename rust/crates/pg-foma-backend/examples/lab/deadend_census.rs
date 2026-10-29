@@ -168,6 +168,7 @@ fn classify_reason(r: FailureReason) -> DClass {
         NonPartialRuleProhibitedAfterFinalTemplate
         | NonPartialRuleRequiredAfterNonFinalTemplate
         | PartialParse
+        | AllomorphNotApplicable
         | MaxApplicationCount => DClass::D5Ordering,
         // Real HC gates that don't map onto d1-d5's mechanisms; kept as raw reasons in the per-class histogram so this catch-all bucket's contents stay visible.
         AllomorphCoOccurrenceRules
@@ -291,6 +292,7 @@ fn reason_name(r: FailureReason) -> &'static str {
             "NonPartialRuleRequiredAfterNonFinalTemplate"
         }
         MaxApplicationCount => "MaxApplicationCount",
+        AllomorphNotApplicable => "AllomorphNotApplicable",
     }
 }
 

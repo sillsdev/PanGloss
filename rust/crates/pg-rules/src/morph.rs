@@ -1682,7 +1682,12 @@ fn synth_affix(
     // Indices already applied in this loop, recorded on each output morph before the producing index is added.
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
+    let recorded = word.current_recorded_allomorph();
+    let last = recorded.and_then(|id| rule.allomorphs.iter().position(|a| a.id == id));
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if last.is_some_and(|last| i > last) {
+            break;
+        }
         if !pg_fst::work::consume() {
             return Vec::new();
         }
@@ -1718,7 +1723,9 @@ fn synth_affix(
             &mut reached,
         );
         if let Some(w) = matched {
-            output.push(w);
+            if recorded.is_none_or(|id| id == allo.id) {
+                output.push(w);
+            }
             applied.push(i as u16);
             // Disjunctive-allomorph break: stop after the first match unless this allomorph is environment/syn-constrained or free-fluctuates with the next one.
             let next_free_fluctuates = rule
@@ -1791,7 +1798,12 @@ fn synth_affix_cached(
     let mut output = Vec::new();
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
+    let recorded = word.current_recorded_allomorph();
+    let last = recorded.and_then(|id| rule.allomorphs.iter().position(|a| a.id == id));
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if last.is_some_and(|last| i > last) {
+            break;
+        }
         if !pg_fst::work::consume() {
             return Vec::new();
         }
@@ -1840,10 +1852,21 @@ fn synth_affix_cached(
         );
         match matched {
             Some(mut w) => {
-                if trace.is_tracing() {
-                    w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
+                if recorded.is_none_or(|id| id == allo.id) {
+                    if trace.is_tracing() {
+                        w.trace =
+                            Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
+                    }
+                    output.push(w);
+                } else if trace.is_tracing() {
+                    trace.morphological_rule_not_applied(
+                        parent,
+                        mrid,
+                        i as i32,
+                        word,
+                        FailureReason::AllomorphNotApplicable,
+                    );
                 }
-                output.push(w);
                 applied.push(i as u16);
                 // Disjunctive-allomorph break — see `synth_affix`'s twin site.
                 let next_free_fluctuates = rule
@@ -1895,13 +1918,17 @@ fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> 
     true
 }
 
-/// C# `Apply`: gates in order are `real_fs` subsumption, `IsBlocked` (when `real_fs` non-empty), then the required-syn-FS unify via `synth_syn_fs`; unlike `synth_affix` this class has no partial/final/obligatory/max-application gates.
+/// C# `Apply`: cap this rule at one application, then check realizational features, blocking and required syntactic features.
 fn synth_realizational(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    if word.applied_realizational_rules.contains(&rule.morpheme) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
+        return Vec::new();
+    }
     let real_fs = g.fs_interner.get(rule.real_fs);
     if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -1955,7 +1982,8 @@ fn synth_realizational(
             u64::from(matched.is_some()),
             &mut reached,
         );
-        if let Some(w) = matched {
+        if let Some(mut w) = matched {
+            w.applied_realizational_rules.push(rule.morpheme);
             output.push(w);
             applied.push(i as u16);
             let next_free_fluctuates = rule
@@ -1974,7 +2002,7 @@ fn synth_realizational(
     output
 }
 
-/// `RuleCache`-aware sibling of `synth_realizational`: the first two gates stay untraced, since C# fires no trace event at either site.
+/// `RuleCache`-aware sibling of `synth_realizational`.
 #[allow(clippy::too_many_arguments)]
 fn synth_realizational_cached(
     g: &Grammar,
@@ -1986,6 +2014,19 @@ fn synth_realizational_cached(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
+    if word.applied_realizational_rules.contains(&rule.morpheme) {
+        if trace.is_tracing() {
+            trace.morphological_rule_not_applied(
+                parent,
+                mrid,
+                -1,
+                word,
+                FailureReason::MaxApplicationCount,
+            );
+        }
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
+        return Vec::new();
+    }
     let real_fs = g.fs_interner.get(rule.real_fs);
     if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2063,6 +2104,7 @@ fn synth_realizational_cached(
         );
         match matched {
             Some(mut w) => {
+                w.applied_realizational_rules.push(rule.morpheme);
                 if trace.is_tracing() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
                 }
@@ -2911,7 +2953,10 @@ fn ana_affix_allomorph(
         fst,
         segs,
         node_of,
-        |w| w.syn_fs = new_syn.clone(),
+        |w| {
+            w.syn_fs = new_syn.clone();
+            w.analysis_allomorph = Some(allo.id);
+        },
         prune_disagreeing_copies,
     )
 }

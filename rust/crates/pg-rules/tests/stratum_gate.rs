@@ -1522,6 +1522,7 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
     let mut root = word(&g, "a", s);
     // The trail a real analysis of "apk" would produce: B unapplied first (index 0), then A (index 1); guided synthesis walks it back off the end, A then B.
     root.mrule_apps = vec![Some(b), Some(a)];
+    root.allomorph_apps = vec![None; root.mrule_apps.len()];
     root.mrule_app_index = 1;
 
     let cache = RuleCache::build(&g);

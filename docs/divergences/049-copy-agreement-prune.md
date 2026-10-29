@@ -1,11 +1,11 @@
 # 049 — Copy-agreement pruning of reduplication matches
 
 Kind: efficiency
-Status: optimized-in-rust (mirrors [Machine PR #519](https://github.com/sillsdev/machine/pull/519), open)
+Status: optimized-in-rust; [Machine PR #519](https://github.com/sillsdev/machine/pull/519) merged as `2f70c046`, with broader coverage than Rust.
 
 ## Sites
 
-- C# site: `AnalysisMorphologicalTransform.HasDisagreeingCopies`, `CopyAgreementPatternRule`, `Morpher.PruneDisagreeingCopies` (PR #519, on by default).
+- C# site: `AnalysisMorphologicalTransform.HasDisagreeingCopies`, `CopyAgreementPatternRule`, `Morpher.PruneDisagreeingCopies` (merged PR #519, on by default).
 - Rust site: `pg-rules/src/morph.rs::copy_agreement_refuses_match` and `ana_allomorph_matches`; `pg-rules/src/stratum.rs::AnalyzerConfig::prune_disagreeing_copies`; `pg-parse/src/morpher.rs::Morpher::with_prune_disagreeing_copies`.
 
 ## Difference
@@ -14,7 +14,7 @@ Unapplying an affix-process allomorph whose output copies an input part two or m
 
 ## Why no parse can change
 
-Synthesis writes every copy of a part from the same input, and every later change to one copy (phonology, outer affixes) is unapplied before this rule, so a non-unifiable copy pair cannot synthesize the surface. A part is never pruned when the rule modifies it, a capture failed or is zero-width, or a copy contains an optional node (an unapplied deletion), including an optional run before the capture that reaches the start of the shape. Rust compares every copy pair where C# compares each against the first; with three or more copies Rust may prune more, but only matches that synthesis would reject.
+Synthesis writes every copy of a part from the same input, and every later change to one copy (phonology, outer affixes) is unapplied before this rule, so a non-unifiable copy pair cannot synthesize the surface. Rust retains a part when the rule modifies it, a capture failed or is zero-width, or a copy contains an optional node (an unapplied deletion), including an optional run before the capture that reaches the start of the shape. Both current implementations compare every copy pair. Machine additionally reasons about alignments of optional segments and applies pruning to compounding paths; Rust conservatively retains optional-containing copies and uses the shared guard for affix-process and realizational rules, but not compounding. The optional-alignment and compounding paths are not claimed as ported or covered by the Rust tests below.
 
 ## Evidence
 
@@ -33,3 +33,6 @@ v0.4.0 built a `HashMap` of repeated parts for every affix allomorph match, even
 | Amharic (8 threads, 10 s cap) | 1.01 | equal |
 
 The 4-12% slowdown first reported for Sena, Amharic and Mbugwe was mostly machine-load noise: v0.3.3 and v0.4.0 swapped order between rounds. The C# side got the matching change in PR #519 (`19a82cc8`, `HasRepeatedParts` cached per rule). Evidence: `machine/scratchpad/review-0923/bench040/noalloc` (local).
+
+
+The pinned Sena and Amharic worst-word lists are absent and are not covered by the 2026-10-27 port measurements; the NEW 30-word stride samples do not replace them.

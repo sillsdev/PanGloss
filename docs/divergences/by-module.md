@@ -26,7 +26,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `AnalysisScope.cs` | 023, 024, 025, 045 |
 | `AnalysisStateKey.cs` | 023, 024, 045 |
 | `AnalysisSyntacticFeatureMerge.cs` (research-only, `pr494` worktree) | 002 |
-| C# rewrite alpha binding / `RewriteRuleSpec.MatchSubrule` | 067 |
+| C# rewrite alpha binding / `RewriteRuleSpec.MatchSubrule` | 067, 115 |
 | `CharacterDefinitionTable.cs` (`Add` / `FeatureStruct.IsUnifiable`) | 010 |
 | `CharacterDefinitionTable.cs` (`GetMatchingStrReps`, `Add`) | 007, 009, 010 |
 | `CompoundingRuleTests.cs` | 003, 004, 005 |
@@ -130,7 +130,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/rewrite.rs` (`ana_narrow_general`, `grouped_target_positions`) | 083, 104 |
 | `pg-rules/src/rewrite.rs` (`ana_narrow_general` true-narrowing union, `union_narrowing_node`) | 087 |
 | `pg-rules/src/rewrite.rs` (`ana_feature_target`, `ana_feature`) | 069 |
-| `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |
+| `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026, 115 |
 | `pg-rules/src/rewrite.rs` (`compile_lane_fst`) | 012 |
 | `pg-rules/src/rewrite.rs` (`compile_lane_fst_grouped`) | 015 |
 | `pg-rules/src/rewrite.rs` (deletion unapplication), `pg-rules/src/metathesis.rs` (analysis) | 050 |
@@ -263,5 +263,7 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | Narrowing union encoding (speedup) | 087 | 14 fixtures, graduated to `machine/conformance` at `72dbd4f9`; [Machine PR #539](https://github.com/sillsdev/machine/pull/539) review recommends this variant |
 | Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `f412c252`) |
 | Stratum equivalence / `analyze_template` | 034 | Dedicated cross-engine collision fixture still missing |
+| Analysis-selected allomorph / synthesis confirmation | 113 | Code-constructed affix allomorph regression tests; [Machine #548](https://github.com/sillsdev/machine/pull/548) and [#560](https://github.com/sillsdev/machine/pull/560) |
 | Template and slot merge / `run_template_batch_raw`, `apply_slot_batch` | 035 | `template-category-sharing` is not a collision discriminator |
 | Template battery / `run_template_batch` _(memo removed, 045)_ | 032, 045 | `template-category-sharing` checks exclusivity; replay was never validated |
+| Realizational synthesis application count | 114 | Code-constructed and XML-compiled regression tests; [Machine #474](https://github.com/sillsdev/machine/pull/474) |

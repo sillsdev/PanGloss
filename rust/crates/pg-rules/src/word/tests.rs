@@ -31,6 +31,33 @@ fn dedup_key_keeps_selected_allomorph_and_annotation_order() {
 }
 
 #[test]
+fn analysis_allomorphs_survive_dedup_and_alternative_expansion() {
+    let mut source = w();
+    source.morphological_rule_unapplied(false, Some(MRuleId(1)));
+    source.allomorph_apps[0] = Some(AllomorphId(10));
+    let mut alternative = source.clone();
+    alternative.allomorph_apps[0] = Some(AllomorphId(11));
+    assert_ne!(source.dedup_key(), alternative.dedup_key());
+    source.alternatives.push(Rc::new(alternative));
+
+    let mut descendant = source.clone_without_alternatives();
+    descendant.source = Some(Rc::new(source));
+    descendant.morphological_rule_unapplied(false, Some(MRuleId(2)));
+    descendant.allomorph_apps[1] = Some(AllomorphId(12));
+    let expanded = descendant.expand_alternatives();
+    assert_eq!(expanded.len(), 2);
+    let mut trails: Vec<_> = expanded.into_iter().map(|w| w.allomorph_apps).collect();
+    trails.sort();
+    assert_eq!(
+        trails,
+        vec![
+            vec![Some(AllomorphId(10)), Some(AllomorphId(12))],
+            vec![Some(AllomorphId(11)), Some(AllomorphId(12))]
+        ]
+    );
+}
+
+#[test]
 fn dedup_key_ignores_procedural_passed_over_state() {
     let mut first = w();
     let mut second = w();

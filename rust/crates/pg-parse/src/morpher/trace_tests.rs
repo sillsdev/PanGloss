@@ -33,6 +33,7 @@ fn partial_parse_is_reported_when_an_unapplied_rule_never_confirms() {
     let mut word = w();
     // A leftover unapplied rule never re-confirmed by synthesis (C#'s `mruleAppIndex != -1`).
     word.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
+    word.allomorph_apps = vec![None; word.mrule_apps.len()];
     word.mrule_app_index = 0;
 
     let sink = TreeTraceSink::new();
@@ -90,6 +91,7 @@ fn noop_sink_path_is_unaffected_by_is_word_valid_traced() {
     let m = Morpher::new(&g, usize::MAX);
     let mut word = w();
     word.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
+    word.allomorph_apps = vec![None; word.mrule_apps.len()];
     word.mrule_app_index = 0;
     assert!(!m.is_word_valid(&word));
 }

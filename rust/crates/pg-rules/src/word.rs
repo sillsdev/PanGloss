@@ -221,6 +221,13 @@ pub struct Word {
     /// this list), so termination rests on rules ceasing to apply or the step cap, never on key
     /// equality.
     pub mrule_apps: Vec<Option<MRuleId>>,
+    /// Analysis-selected allomorph for each rule trail slot; `None` permits any allomorph.
+    pub allomorph_apps: Vec<Option<AllomorphId>>,
+    /// Allomorph selected by the current analysis call, before its rule is added to the trail.
+    pub analysis_allomorph: Option<AllomorphId>,
+    /// Owners of realizational rules already applied in synthesis. Each rule has a unique
+    /// morpheme in the grammar; unlike morph records this survives deletion of its segments.
+    pub applied_realizational_rules: Vec<MorphemeId>,
     /// Analysis-side phonological rules that applied, populated only when stats are collected.
     pub applied_phonological_rules: Vec<(StratumId, PRuleId)>,
     /// C# `Word._mruleAppIndex` (init `-1`). Grows in lock-step with `mrule_apps` during analysis,
@@ -316,6 +323,8 @@ pub struct WordKey {
     root_allomorph: Option<AllomorphId>,
     root_realization: Option<String>,
     mrule_apps: Vec<Option<MRuleId>>,
+    allomorph_apps: Vec<Option<AllomorphId>>,
+    applied_realizational_rules: Vec<MorphemeId>,
     mrule_app_index: i32,
     is_last_applied_rule_final: Option<bool>,
     final_template_state: FinalTemplateState,
@@ -344,6 +353,9 @@ impl Word {
             non_heads: Vec::new(),
             non_head_app_index: -1,
             mrule_apps: Vec::new(),
+            allomorph_apps: Vec::new(),
+            analysis_allomorph: None,
+            applied_realizational_rules: Vec::new(),
             applied_phonological_rules: Vec::new(),
             mrule_app_index: -1,
             root_allomorph: None,
@@ -392,9 +404,26 @@ impl Word {
             self.record_unapplication(id);
         }
         if !is_realizational {
+            assert_eq!(
+                self.allomorph_apps.len(),
+                self.mrule_apps.len(),
+                "allomorph and rule trails are out of sync"
+            );
+            self.allomorph_apps.push(None);
             self.mrule_apps.push(mrule);
             self.mrule_app_index = self.mrule_apps.len() as i32 - 1;
         }
+    }
+
+    /// The analysis-selected allomorph for the rule currently being confirmed.
+    pub fn current_recorded_allomorph(&self) -> Option<AllomorphId> {
+        let Ok(i) = usize::try_from(self.mrule_app_index) else {
+            return None;
+        };
+        *self
+            .allomorph_apps
+            .get(i)
+            .expect("pending morphological rule has no allomorph trail slot")
     }
 
     /// C# `Word.NonHeadUnapplied` (Word.cs:395-399): push a compounding non-head candidate and
@@ -428,6 +457,8 @@ impl Word {
             root_allomorph: self.root_allomorph,
             root_realization: self.root_runtime_id.clone(),
             mrule_apps: self.mrule_apps.clone(),
+            allomorph_apps: self.allomorph_apps.clone(),
+            applied_realizational_rules: self.applied_realizational_rules.clone(),
             mrule_app_index: self.mrule_app_index,
             is_last_applied_rule_final: self.flags.is_last_applied_rule_final,
             final_template_state: self.flags.final_template_state,
@@ -506,6 +537,17 @@ impl Word {
                     // Rules unapplied since the source (cs:509-511 `MorphologicalRuleUnapplied`).
                     for i in src.mrule_apps.len()..self.mrule_apps.len() {
                         let id = self.mrule_apps[i];
+                        assert_eq!(
+                            alt.allomorph_apps.len(),
+                            alt.mrule_apps.len(),
+                            "alternative rule and allomorph trails are out of sync"
+                        );
+                        alt.allomorph_apps.push(
+                            *self
+                                .allomorph_apps
+                                .get(i)
+                                .expect("source rule has no allomorph trail slot"),
+                        );
                         alt.mrule_apps.push(id);
                         // C#'s `mrule != null` guard; never actually `None` on this path, kept for type-level faithfulness.
                         if let Some(id) = id {
@@ -697,7 +739,9 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
         syn_fs: estimate_fs_bytes(&w.syn_fs),
         real_fs: estimate_fs_bytes(&w.real_fs),
         morphs: w.morphs.len() * std::mem::size_of::<MorphRecord>(),
-        mrule_apps: w.mrule_apps.len() * std::mem::size_of::<Option<MRuleId>>(),
+        mrule_apps: w.mrule_apps.len() * std::mem::size_of::<Option<MRuleId>>()
+            + w.allomorph_apps.len() * std::mem::size_of::<Option<AllomorphId>>()
+            + w.applied_realizational_rules.len() * std::mem::size_of::<MorphemeId>(),
         obligatory: w.obligatory.len() * std::mem::size_of::<FeatId>(),
         unapplied_rule_counts: w.unapplied_rule_counts.len()
             * (std::mem::size_of::<MRuleId>() + std::mem::size_of::<u32>()),
