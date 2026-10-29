@@ -126,6 +126,7 @@ $crateSpecs = @(
             'csharp_port_generation.rs', 'csharp_port_lex_entry.rs', 'csharp_port_metathesis.rs',
             'csharp_port_morpher.rs', 'csharp_port_rewrite.rs', 'disjunctive_recheck_gate.rs',
             'do_not_parse.rs', 'exact_analysis_fs_recall.rs', 'free_fluctuation_gate.rs', 'guesser_gate.rs',
+            'final_template_pruning_gate.rs', 'required_slot_shadow_gate.rs',
             'lexical_pattern_trie_exclusion_gate.rs', 'loader_n3_pattern_shapes_gate.rs',
             'merge_msas_conformance.rs', 'merged_analyses_fs_generalization.rs', 'perf_cold_warm_probe.rs',
             'reduplication_gate.rs', 'root_trie_gate.rs', 'stats_collector_gate.rs',

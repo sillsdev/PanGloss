@@ -79,6 +79,7 @@ pub(crate) enum RuleInvocationRole {
 
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
+use crate::required_slots::{RequiredSlotLookahead, RequiredSlotMaterial};
 use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
@@ -394,6 +395,13 @@ impl StepBudget {
     }
 }
 
+mod required_slot_check;
+
+#[cfg(test)]
+mod required_slot_lookahead_tests;
+#[cfg(test)]
+mod required_slot_order_tests;
+
 #[cfg(test)]
 mod step_budget_timeout_tests;
 
@@ -434,6 +442,8 @@ pub struct AnalyzerConfig {
     /// When enabled, reject an allomorph analysis match if repeated copies of an input part
     /// disagree in segment count or feature unifiability. Indeterminate captures are retained.
     pub prune_disagreeing_copies: bool,
+    /// Mirrors C# `Morpher.RequiredSlotLookahead` (default `On`): drop template partials whose required slot can no longer find the segments its affix inserts.
+    pub required_slot_lookahead: RequiredSlotLookahead,
 }
 
 impl Default for AnalyzerConfig {
@@ -443,6 +453,7 @@ impl Default for AnalyzerConfig {
             max_unapplications: 0,
             max_stem_count: 2,
             prune_disagreeing_copies: true,
+            required_slot_lookahead: RequiredSlotLookahead::default(),
         }
     }
 }
@@ -622,6 +633,8 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     parent: TraceHandle,
     /// The stratum's templates' reversed slot sequences, built on the first untraced battery.
     slot_trie: std::cell::OnceCell<SlotTrie>,
+    /// The look-ahead tables when there is no `RuleCache` to hold them.
+    fallback_material: std::cell::OnceCell<Vec<RequiredSlotMaterial>>,
 }
 
 /// Templates' slots in walk order (last first), sharing a node only while every walked slot is identical.
@@ -630,6 +643,8 @@ struct SlotTrie {
 }
 
 struct SlotTrieNode {
+    /// Slots walked from the root to reach this node.
+    depth: usize,
     /// The `(template, slot index)` of one slot this edge stands for; `None` at the root.
     slot: Option<(TemplateId, usize)>,
     children: Vec<usize>,
@@ -639,11 +654,30 @@ struct SlotTrieNode {
     below: Vec<usize>,
 }
 
+/// The per-call state of the shared walk: one flag per template (admitted, and dead once its look-ahead fails), and each template's outputs.
+struct TrieWalk {
+    admitted: Vec<bool>,
+    dead: Vec<bool>,
+    outs: Vec<HashMap<WordKey, Word>>,
+}
+
+impl TrieWalk {
+    fn live(&self, pos: usize) -> bool {
+        self.admitted[pos] && !self.dead[pos]
+    }
+}
+
+/// The slots fired for template `pos` on this path; empty outside shadow mode.
+fn fired_of(fired: &[Vec<usize>], pos: usize) -> &[usize] {
+    fired.get(pos).map_or(&[], Vec::as_slice)
+}
+
 impl SlotTrie {
     const ROOT: usize = 0;
 
     fn build(g: &Grammar, templates: &[TemplateId]) -> Self {
         let mut nodes = vec![SlotTrieNode {
+            depth: 0,
             slot: None,
             children: Vec::new(),
             terminal: Vec::new(),
@@ -665,6 +699,7 @@ impl SlotTrie {
                     Some(child) => child,
                     None => {
                         nodes.push(SlotTrieNode {
+                            depth: nodes[cur].depth + 1,
                             slot: Some((tid, index)),
                             children: Vec::new(),
                             terminal: Vec::new(),
@@ -721,6 +756,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             trace,
             parent,
             slot_trie: std::cell::OnceCell::new(),
+            fallback_material: std::cell::OnceCell::new(),
         }
     }
 
@@ -1052,15 +1088,14 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let mut out: HashMap<WordKey, Word> = HashMap::default();
         let slot_outcomes =
             (self.trace.is_tracing() && self.trace.captures_details()).then(Vec::new);
+        let last_slot = tmpl.slots.len() as isize - 1;
+        let mut fired = Vec::new();
+        if self.required_slot_cannot_unapply(tid, input, last_slot, &mut fired, &mut None) {
+            self.end_unapply_template(tid, input, false, None);
+            return Vec::new();
+        }
         // Descend from the last slot.
-        self.template_unapply_slots(
-            tid,
-            tmpl,
-            input,
-            tmpl.slots.len() as isize - 1,
-            &mut out,
-            slot_outcomes,
-        );
+        self.template_unapply_slots(tid, input, last_slot, &mut out, slot_outcomes, fired);
         out.into_values().collect()
     }
 
@@ -1107,46 +1142,55 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .iter()
             .map(|&tid| self.template_admits(tid, input))
             .collect();
-        let mut outs: Vec<HashMap<WordKey, Word>> =
-            (0..admitted.len()).map(|_| HashMap::default()).collect();
-        if admitted.iter().any(|&a| a) {
-            self.walk_slot_trie(trie, SlotTrie::ROOT, input, &admitted, &mut outs, true);
+        let mut walk = TrieWalk {
+            dead: vec![false; admitted.len()],
+            outs: (0..admitted.len()).map(|_| HashMap::default()).collect(),
+            admitted,
+        };
+        if walk.admitted.iter().any(|&a| a) {
+            self.walk_slot_trie(trie, SlotTrie::ROOT, input, &mut walk, &[], true);
         }
-        outs.into_iter()
+        walk.outs
+            .into_iter()
             .map(|out| out.into_values().collect())
             .collect()
     }
 
-    /// `template_unapply_slots` for every admitted template below `node`; `entered` is false on an optional skip.
+    /// `template_unapply_slots` for every live template below `node`; `entered` is false on an optional skip. A template that fails the look-ahead on `w` is dead below this node while its siblings go on (divergence 110).
     fn walk_slot_trie(
         &self,
         trie: &SlotTrie,
         node: usize,
         w: &Word,
-        admitted: &[bool],
-        outs: &mut [HashMap<WordKey, Word>],
+        walk: &mut TrieWalk,
+        fired: &[Vec<usize>],
         entered: bool,
     ) {
         if entered && self.over_budget() {
             return;
         }
         let here = &trie.nodes[node];
+        let (marked, fired_here) = self.shared_look_ahead(here, w, walk, fired);
+        let fired = fired_here.as_deref().unwrap_or(fired);
         for &pos in &here.terminal {
-            if admitted[pos] {
-                outs[pos].entry(w.dedup_key()).or_insert_with(|| w.clone());
+            if walk.admitted[pos] && !walk.dead[pos] {
+                self.shadow_completed(fired_of(fired, pos));
+                walk.outs[pos]
+                    .entry(w.dedup_key())
+                    .or_insert_with(|| w.clone());
             }
         }
         for &child in &here.children {
             let served = trie.nodes[child]
                 .below
                 .iter()
-                .filter(|&&pos| admitted[pos])
+                .filter(|&&pos| walk.live(pos))
                 .count();
             if served == 0 {
                 continue;
             }
             if !pg_fst::work::consume() {
-                return;
+                break;
             }
             let slot = trie.slot(self.g, child);
             if served > 1 {
@@ -1159,11 +1203,21 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
             }
             for (ow, _) in self.apply_slot_batch(slot, w) {
-                self.walk_slot_trie(trie, child, &ow, admitted, outs, true);
+                for &pos in &trie.nodes[child].below {
+                    let slot_index = self.g.templates[self.stratum.templates[pos].0 as usize]
+                        .slots
+                        .len()
+                        - trie.nodes[child].depth;
+                    self.shadow_violated(fired_of(fired, pos), slot_index);
+                }
+                self.walk_slot_trie(trie, child, &ow, walk, fired, true);
             }
             if slot_optional(slot) {
-                self.walk_slot_trie(trie, child, w, admitted, outs, false);
+                self.walk_slot_trie(trie, child, w, walk, fired, false);
             }
+        }
+        for pos in marked {
+            walk.dead[pos] = false;
         }
     }
 
@@ -1196,15 +1250,16 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     fn template_unapply_slots(
         &self,
         tid: TemplateId,
-        tmpl: &pg_grammar_model::model::AffixTemplateDef,
         in_word: &Word,
         index: isize,
         out: &mut HashMap<WordKey, Word>,
         mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
+        fired: Vec<usize>,
     ) {
         if self.over_budget() {
             return;
         }
+        let tmpl = &self.g.templates[tid.0 as usize];
         let mut i = index;
         while i >= 0 {
             if !pg_fst::work::consume() {
@@ -1221,7 +1276,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                         selected_rule: Some(rid),
                     });
                 }
-                self.template_unapply_slots(tid, tmpl, &ow, i - 1, out, applied_outcomes);
+                self.shadow_violated(&fired, slot_index);
+                let mut ow_fired = fired.clone();
+                if self.required_slot_cannot_unapply(tid, &ow, i - 1, &mut ow_fired, &mut None) {
+                    self.end_unapply_template(tid, &ow, false, None);
+                    continue;
+                }
+                self.template_unapply_slots(tid, &ow, i - 1, out, applied_outcomes, ow_fired);
             }
             if !slot_optional(slot) {
                 // This level's `in_word` could not get past a non-optional slot.
@@ -1255,6 +1316,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             outcomes.sort_by_key(|outcome| outcome.slot_index);
         }
         self.end_unapply_template(tid, in_word, true, slot_outcomes.as_deref());
+        self.shadow_completed(&fired);
         out.entry(in_word.dedup_key())
             .or_insert_with(|| in_word.clone());
     }

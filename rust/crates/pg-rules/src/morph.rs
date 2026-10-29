@@ -2311,6 +2311,59 @@ pub(crate) struct AnalysisLhs {
     modify: HashMap<String, (usize, SimpleContext)>,
 }
 
+/// The material an affix inserts, as the analysis LHS requires it, with its position among the copied parts.
+pub(crate) struct InsertedMaterial {
+    /// One constraint's lanes per inserted segment, in right-hand-side order.
+    pub(crate) sequence: Vec<Vec<u64>>,
+    /// How many of them come before the first copied part, and how many after the last.
+    pub(crate) pre: usize,
+    pub(crate) post: usize,
+    /// Some insertion lies between copied parts, or there is no copied part at all.
+    pub(crate) infix: bool,
+}
+
+impl AnalysisLhs {
+    /// The inserted segments' constraints: the only top-level constraints, since copied and modified parts are capture groups.
+    pub(crate) fn inserted_material(&self) -> InsertedMaterial {
+        let is_part = |n: &CompileNode| !matches!(n, CompileNode::Constraint(_));
+        let first = self.nodes.iter().position(is_part);
+        let last = self.nodes.iter().rposition(is_part);
+        let mut material = InsertedMaterial {
+            sequence: Vec::new(),
+            pre: 0,
+            post: 0,
+            infix: false,
+        };
+        for (i, node) in self.nodes.iter().enumerate() {
+            let CompileNode::Constraint(lanes) = node else {
+                continue;
+            };
+            material.sequence.push(lanes.clone());
+            match (first, last) {
+                (Some(f), _) if i < f => material.pre += 1,
+                (_, Some(l)) if i > l => material.post += 1,
+                _ => material.infix = true,
+            }
+        }
+        material
+    }
+}
+
+/// The analysis LHS of one affix allomorph without compiling its FST (the required-slot look-ahead reads only the inserted constraints).
+pub(crate) fn build_analysis_lhs_for(
+    g: &Grammar,
+    table: TableId,
+    allo: &AffixAllomorphDef,
+) -> Result<AnalysisLhs, BridgeError> {
+    let parts: Vec<(String, &Pattern)> = allo
+        .lhs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (format!("p{i}"), p))
+        .collect();
+    build_analysis_lhs(g, table, &parts, &allo.rhs)
+}
+
 /// Strips boundary char-defs from a pattern (C# `DeepCloneExceptBoundaries`); a quantifier whose children all vanish is dropped too.
 fn strip_boundaries(g: &Grammar, table: TableId, part: &Pattern) -> Pattern {
     fn is_boundary(g: &Grammar, table: TableId, cd: CharDefId) -> bool {

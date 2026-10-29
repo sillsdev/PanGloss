@@ -12,7 +12,9 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Allomorph.cs` (`IsWordValid` environment clause) | 006, 030, 090, 091 |
 | `AnalysisAffixProcessRule.cs` | 001, 038 |
 | `Morpher.cs` (`IsPrunedByLookupReplay`), `LookupReplay.cs` | 105 |
-| `AnalysisAffixTemplateRule.cs` (`Apply`, `ApplySlots`) | 095 |
+| `AnalysisAffixTemplateRule.cs` (`Apply`, `ApplySlots`) | 095, 109 |
+| `RequiredSlotMaterial.cs` (Machine #575, #576, #579) | 109, 111, 112 |
+| `AnalysisAffixTemplatesRule.cs` (`Walk`, Machine #577) | 110 |
 | `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply`), `SegmentNaturalClass.cs`, `RootAllomorphTrie.cs` | 103 |
 | `AnalysisCompoundingRule.cs` | 001 |
 | `AnalysisCompoundingRule.cs` (`Apply`, trace node types), `TraceManager.cs` | 092 |
@@ -141,6 +143,9 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg-rules/src/stratum.rs` (`synthesize_stratum_traced`) | 043 |
 | `pg-rules/src/stratum.rs` (`run_template_batch`, `shared_slot_battery`, `walk_slot_trie`, `SlotTrie`) | 095 |
+| `pg-rules/src/stratum.rs` (`template_unapply_slots`), `pg-rules/src/stratum/required_slot_check.rs`, `pg-rules/src/required_slots.rs` | 109, 111, 112 |
+| `pg-rules/src/stratum.rs` (`walk_slot_trie`, `TrieWalk`), `pg-rules/src/stratum/required_slot_check.rs` (`shared_look_ahead`) | 110 |
+| `pg-rules/src/required_slots/embed.rs`, `pg-rules/src/morph.rs` (`inserted_material`) | 111 |
 | `pg-rules/src/rewrite.rs` (`with_class_identity`), `pg-parse/src/root_trie.rs` (`search_segs_ident`, `edge_in_identity`) | 103 |
 | `pg-rules/src/stratum.rs` (`apply_one_mrule`, `analyze`, `synthesize_stratum_traced_with_policy`, `synth_apply_templates`), `pg-rules/src/morph.rs` (`synth_affix`, `synth_affix_cached`), `pg-grammar-model/src/model.rs` (`affix_rule_is_clitic`, `is_blocking_stratum`), `pg-grammar/src/load.rs` (`parse_is_clitic_rule`) | 102 |
 | `pg-rules/src/validity.rs` | 006, 030 |
@@ -161,6 +166,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/stratum/template_slot_sharing_tests.rs` | 095 |
 | `pg-parse/tests/edge_prefilter_gate.rs`, `pg-rules/src/morph/edge_prefilter.rs` (tests) | 038 |
 | `pg-parse/tests/lookup_replay_gate.rs`, `pg-parse/tests/edge_prefilter_gate.rs` (corpus measurement) | 105 |
+| `pg-rules/src/stratum/required_slot_lookahead_tests.rs`, `pg-parse/tests/required_slot_shadow_gate.rs` | 109 |
+| `pg-rules/src/stratum/required_slot_order_tests.rs` | 111, 112 |
 | `conformance-staging/edge-cases/class-deletion-reinsertion-strrep/`, `pg-parse/tests/conformance_fixtures_gate.rs` (`a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar`), `pg-parse/src/root_trie/tests.rs` | 103 |
 | `machine/conformance/edge-cases/clitic-rule-designation/`, `pg-parse/tests/clitic_template_state_gate.rs`, `pg-grammar/src/load/tests.rs` (`is_clitic_rule_*`) | 102 |
 | `conformance-staging/edge-cases/circumfix-conditioned-halves/` (HCLoader shape; fwdata path unpinned) | 039 |
