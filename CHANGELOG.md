@@ -3,12 +3,48 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.12.0
 
-- Trace details profile `pangloss.trace-details.v4` and statistics cache schema 10 expose
-  deterministic per-kind and per-object `work_steps`, with an explicit unattributed remainder
-  that reconciles to each word's total. The existing `work` segment counter and batch TSV
-  interface version 3 retain their meanings.
+### Interface changes
+
+Downstream tools such as Motif must gate on these versions.
+
+- Trace details profile is `pangloss.trace-details.v4` (was v3).
+- Statistics cache schema is 10 (was 9). Counter semantics are version 6 (was 5).
+- Health schema is 9 (was 8). It adds finding `PGF0017` `BackendCoveragePartial`: a backend
+  covers only part of the grammar, reported as nonblocking.
+- The existing `work` segment counter and batch TSV interface version 3 keep their meanings.
+
+### Work steps per object and kind
+
+- Traced words and the stats cache report `work_steps` per grammar-object kind and per object.
+  An explicit unattributed remainder makes each word's total reconcile exactly to its word total.
+
+### Parser performance
+
+- Template-walk partials whose required slots cannot be satisfied are pruned early, so the walk
+  does less work. Ordered and edge checks and final-template safety gates guard the pruning.
+- Analysis prefilters: an edge-segment prefilter and lookup replay skip affix allomorphs and
+  lexical-lookup alternatives that cannot match, leaving analyses and traces unchanged.
+
+### FST compiler and rewrite fixes
+
+- Grammar-derived FST paths return refusals instead of panicking or printing. Unparseable rule
+  text skips the rule, compound depth is computed per rule, and apply refusals are recorded.
+- Declared lexc tags stay in the compiled alphabet through mainline emit.
+- Metathesis matches across optional nodes recovered by another rule's unapplication, so a
+  POS-scoped deletion no longer blocks it.
+- Quantified focus and replacement are refused categorically by the rewrite compiler, as the
+  other permanent variant refusals are.
+- Floor refusals for constructs other than process morphology no longer carry process-morphology
+  advice.
+
+### Testing and conformance
+
+- CI runs tests with nextest while keeping doctests.
+- Conformance submodule drift is detected and reported more clearly.
+- Conformance fixtures for the rewrite work carry a FieldWorks-producible verdict, and a
+  multi-child bounded quantifier has an oracle-verified staged fixture.
 
 ## 0.11.0
 
