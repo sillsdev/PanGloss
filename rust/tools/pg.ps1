@@ -186,6 +186,9 @@ param(
     [switch]$TestOptBuild,
     [switch]$HygieneBootstrap,
     [switch]$NoNextest,
+    # test only: run just the tests of crates changed since -AffectedBase (and the crates depending on them); shared paths fall back to the full suite.
+    [switch]$Affected,
+    [string]$AffectedBase = 'origin/main',
     # Stop at the first failing test. Off by default -- see the header block.
     [switch]$FailFast,
     [int]$MaxConcurrent = 2,
@@ -222,6 +225,10 @@ if ($WhatIf -and $Mode -ne 'gc') {
 }
 if ($TestOptBuild -and ($Mode -ne 'build' -or $DebugProfile)) {
     Write-Host '[pg] -TestOptBuild applies to -Mode build only, and not with -DebugProfile.' -ForegroundColor Red
+    exit 2
+}
+if ($Affected -and ($Mode -ne 'test' -or $Package -or $TestTarget -or $Filter)) {
+    Write-Host '[pg] -Affected applies to plain -Mode test only (not with -Package, -TestTarget or -Filter).' -ForegroundColor Red
     exit 2
 }
 if ($All -and $Mode -ne 'preland') {
@@ -421,7 +428,10 @@ $testThreadsExplicit = ($TestThreads -gt 0)
 $testThreadsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent 1 -RunSlots 0) `
     -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $script:MemoryPerTestProcessGB -MaxConcurrent 1) `
     -Explicit:$testThreadsExplicit
-if (-not $testThreadsExplicit) { $TestThreads = $testThreadsBudget.Value }
+if (-not $testThreadsExplicit) {
+    $TestThreads = $testThreadsBudget.Value
+    if ($TestThreads -gt $script:MaxTestThreads) { $TestThreads = $script:MaxTestThreads }
+}
 
 $targetDir = Resolve-TargetDir -RustRoot $rustRoot
 if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
@@ -856,6 +866,10 @@ if ($Mode -ne 'run') {
 
 # build / test / corpus-test / release all run cargo from here.
 $useNextest = ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
+if (($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) -and -not $useNextest) {
+    if ($NoNextest) { Write-Host '[pg] -NoNextest: running plain `cargo test`.' -ForegroundColor DarkGray }
+    else { Write-Host '[pg] cargo-nextest is not installed; falling back to plain `cargo test` (slower, no per-test timeout). Install: see "Testing" in rust/README.md.' -ForegroundColor Yellow }
+}
 
 $cargoArgs = @()
 # A test file absorbed into a consolidated harness is still addressable by its own stem, in every mode.
@@ -866,6 +880,32 @@ if ($TestTarget -and $Package) {
         Write-Host "[pg] -TestTarget $TestTarget lives in harness '$($absorbed.Target)'; running only its '$($absorbed.Module)::' tests." -ForegroundColor DarkGray
         $TestTarget = $absorbed.Target
         $harnessModule = $absorbed.Module
+    }
+}
+$doctestPackages = @()
+$doctestScoped = $false
+if ($Affected) {
+    try {
+        $wsPackages = @(Get-WorkspacePackages -RustRoot $rustRoot -RepoRoot $repoRoot)
+        $affScope = Get-AffectedScope -ChangedPaths @(Get-ChangedPaths -RepoRoot $repoRoot -Base $AffectedBase) -Packages $wsPackages
+    } catch {
+        Write-Host "[pg] -Affected: $_ -- running the full suite." -ForegroundColor Yellow
+        $affScope = $null
+    }
+    if ($affScope -and $affScope.Global) {
+        Write-Host "[pg] -Affected: $($affScope.Reason); running the full suite." -ForegroundColor Yellow
+    } elseif ($affScope -and $affScope.Changed.Count -eq 0) {
+        Write-Host "[pg] -Affected: no Rust crate changed since $AffectedBase; nothing to run." -ForegroundColor Green
+        exit 0
+    } elseif ($affScope) {
+        Write-Host "[pg] -Affected: changed $($affScope.Changed -join ', '); testing $($affScope.Closure.Count) crate(s) via rdeps." -ForegroundColor Cyan
+        if ($useNextest) {
+            $ExtraArgs = @($ExtraArgs) + @('-E', (($affScope.Changed | ForEach-Object { "rdeps($_)" }) -join ' | '))
+            $doctestScoped = $true
+            $doctestPackages = @($wsPackages | Where-Object { $affScope.Closure -contains $_.Name -and $_.HasLib } | ForEach-Object { $_.Name })
+        } else {
+            Write-Host '[pg] -Affected needs nextest; running the full suite.' -ForegroundColor Yellow
+        }
     }
 }
 if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
@@ -1045,6 +1085,24 @@ try {
         }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-ManagedProcess @invokeArgs
+        # nextest does not run doctests; without this step they would silently stop being tested.
+        if ($code -eq 0 -and $useNextest -and $Mode -eq 'test' -and -not $TestTarget) {
+            $skipDoc = $false
+            if ($doctestScoped -and $doctestPackages.Count -eq 0) { $skipDoc = $true }
+            if ($Package -and -not $doctestScoped) {
+                # A bin-only package has no doctests, and `cargo test --doc -p` on it is an error.
+                $libs = @(Get-WorkspacePackages -RustRoot $rustRoot -RepoRoot $repoRoot | Where-Object { $_.Name -eq $Package -and $_.HasLib })
+                if ($libs.Count -eq 0) { $skipDoc = $true; Write-Host "[pg] $Package has no library target; no doctests to run." -ForegroundColor DarkGray }
+            }
+            if (-not $skipDoc) {
+                $docArgs = Get-DoctestInvocation -DebugProfile:$DebugProfile -TestThreads $TestThreads `
+                    -Package $Package -Packages $doctestPackages -Filter $Filter -FailFast:$FailFast -ExtraArgs $ExtraArgs
+                Write-Host "[pg] cargo $($docArgs -join ' ')  (doctests; nextest does not run them)" -ForegroundColor Cyan
+                $docInvoke = $invokeArgs.Clone()
+                $docInvoke['CmdArgs'] = $docArgs
+                $code = Invoke-ManagedProcess @docInvoke
+            }
+        }
         if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {
             $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile) -and (-not $TestOptBuild))
             $code = Invoke-BackendCardRegeneration -RustRoot $rustRoot -ReleaseBuild:$releaseBuild `

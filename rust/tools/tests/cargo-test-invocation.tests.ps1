@@ -55,6 +55,7 @@ function Get-LegacyCargoTestInvocation {
         }
     }
 
+    $args += '--locked'
     if ($Package) { $args += @('-p', $Package) }
     if ($TestTarget) { $args += @('--test', $TestTarget) }
 
@@ -160,6 +161,34 @@ Test-Case 'plain cargo test sends extra Cargo flags before the runner separator'
     $nocapture = [array]::IndexOf($runnerFlags.CargoArgs, '--nocapture')
     Assert-True ($feature -ge 0 -and $feature -lt $separator) 'Cargo feature must remain before the runner separator'
     Assert-True ($nocapture -gt $separator) 'libtest flags must follow the runner separator'
+}
+
+Test-Case 'nextest maps libtest ignored flags to --run-ignored and plain cargo test keeps them' {
+    $only = Get-CargoTestInvocation -Mode test -UseNextest:$true -DebugProfile:$false -TestThreads 1 -ExtraArgs @('--', '--ignored')
+    $i = [array]::IndexOf($only.CargoArgs, '--run-ignored')
+    Assert-True ($i -ge 0 -and $only.CargoArgs[$i + 1] -eq 'ignored-only') '--ignored selects ignored-only'
+    Assert-False ($only.CargoArgs -contains '--ignored') 'the libtest spelling must not reach nextest'
+    Assert-False ($only.CargoArgs -contains '--') 'an emptied runner separator is dropped'
+    $all = Get-CargoTestInvocation -Mode test -UseNextest:$true -DebugProfile:$false -TestThreads 1 -ExtraArgs @('--include-ignored')
+    $i = [array]::IndexOf($all.CargoArgs, '--run-ignored')
+    Assert-True ($i -ge 0 -and $all.CargoArgs[$i + 1] -eq 'all') '--include-ignored selects all'
+    $corpus = Get-CargoTestInvocation -Mode corpus-test -UseNextest:$true -DebugProfile:$false -TestThreads 1 -ExtraArgs @('--include-ignored')
+    Assert-Equal 1 @($corpus.CargoArgs | Where-Object { $_ -eq '--run-ignored' }).Count 'corpus-test already runs ignored; no duplicate'
+    $plain = Get-CargoTestInvocation -Mode test -UseNextest:$false -DebugProfile:$false -TestThreads 1 -ExtraArgs @('--', '--ignored')
+    Assert-Contains $plain.CargoArgs '--ignored' 'plain cargo test passes --ignored to libtest'
+}
+
+Test-Case 'both runners are locked' {
+    foreach ($nextest in @($false, $true)) {
+        $inv = Get-CargoTestInvocation -Mode test -UseNextest:$nextest -DebugProfile:$false -TestThreads 1
+        Assert-Contains $inv.CargoArgs '--locked' "runner nextest=$nextest"
+    }
+}
+
+Test-Case 'the doctest companion run keeps scope and drops nextest-only flags' {
+    $doc = Get-DoctestInvocation -DebugProfile:$false -TestThreads 2 -Package pg-ffi -Filter needle `
+        -ExtraArgs @('--run-ignored', 'all', '--features', 'x')
+    Assert-Equal 'test|--doc|--locked|--profile|pg-test-opt|-p|pg-ffi|--features|x|--no-fail-fast|--|needle|--test-threads|2' ($doc -join '|') 'doctest args'
 }
 
 Write-TestSummary

@@ -213,8 +213,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - working-directory: rust
-        run: cargo test --profile pg-test-opt --no-fail-fast --locked
+      # Pinned; the same version `rust/README.md` tells contributors to install.
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
+        with:
+          tool: nextest@0.9.100
+      - name: nextest (ci profile)
+        working-directory: rust
+        run: cargo nextest run --profile ci --cargo-profile pg-test-opt --no-fail-fast --locked
+      # nextest does not run doctests.
+      - name: doctests
+        working-directory: rust
+        run: cargo test --doc --profile pg-test-opt --no-fail-fast --locked
+      - name: Upload JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nextest-junit
+          path: rust/target/nextest/ci/junit.xml
+          if-no-files-found: ignore
 
   release-extras:
     name: release gates (hygiene, rustdoc, conformance)
