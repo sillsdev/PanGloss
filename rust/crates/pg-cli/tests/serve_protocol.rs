@@ -398,7 +398,7 @@ fn describe_publishes_the_serve_protocol_version() {
     let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(doc["interfaces"]["serveProtocol"], 1);
     assert_eq!(doc["schema_version"], 1);
-    assert_eq!(doc["interfaces"]["batchTsv"], 2);
+    assert_eq!(doc["interfaces"]["batchTsv"], 3);
     assert!(doc["commands"]
         .as_array()
         .unwrap()
@@ -415,4 +415,27 @@ fn describe_publishes_the_serve_protocol_version() {
         .unwrap()
         .iter()
         .any(|f| f["name"] == "--work-columns"));
+}
+
+#[test]
+fn result_status_distinguishes_work_limit_from_timeout_in_both_modes() {
+    for (args, expected) in [
+        (&[][..], "ok"),
+        (&["--step-cap", "unbounded", "--work-cap", "1"][..], "CAP"),
+        (&["--step-cap", "1"][..], "CAP"),
+        (&["--word-timeout-ms", "0"][..], "TIMEOUT"),
+    ] {
+        let (mut server, _) = Server::start(&data("trace-family.xml"), args);
+        for details in [false, true] {
+            let response = server.parse("word", "zodut", details);
+            assert_eq!(response["type"], "result");
+            assert_eq!(response["status"], expected, "{args:?}: {response}");
+            assert!(response["steps"].is_u64());
+            assert!(response["workSteps"].is_u64());
+            if args.contains(&"--work-cap") {
+                assert_eq!(response["workSteps"], 1);
+            }
+        }
+        assert!(server.finish().success());
+    }
 }

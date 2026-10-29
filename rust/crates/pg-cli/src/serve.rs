@@ -321,6 +321,7 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
                         "id": id,
                         "type": "result",
                         "exitCode": served.exit_code,
+                        "status": served.status,
                         "steps": served.steps,
                         "workSteps": served.work_steps,
                         "guessed": served.guessed,
@@ -352,6 +353,7 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
 struct Served {
     result: Value,
     exit_code: i32,
+    status: &'static str,
     /// Whether the guesser found the analyses, whatever the `--guess` flag.
     guessed: bool,
     steps: usize,
@@ -386,6 +388,7 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
         return Ok(Served {
             result: value,
             exit_code: 0,
+            status: crate::outcome_status(&outcome),
             guessed: outcome.guessed,
             steps: outcome.steps,
             work_steps: outcome.work_steps,
@@ -409,6 +412,7 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
     Ok(Served {
         result: Value::String(stdout),
         exit_code,
+        status: crate::outcome_status(&outcome),
         guessed: outcome.guessed,
         steps: outcome.steps,
         work_steps: outcome.work_steps,

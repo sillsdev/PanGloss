@@ -9,9 +9,10 @@ project that guesses roots by default (`<HC><GuessRoots>`, see below) still writ
 `--work-columns` is passed.
 
 A host can find out whether the flag exists. `pangloss --describe` reports
-`"interfaces": {"batchTsv": 2}` and lists `--work-columns` under `batch`. The describe
-`schema_version` stays 1, because the default output did not change. Pass `--work-columns` only
-when `interfaces.batchTsv` is at least 2. An older binary refuses the unknown flag.
+`"interfaces": {"batchTsv": 3}` and lists `--work-columns` under `batch`. Version 3 keeps
+version 2's layout and shares the result-status decision with `serve`; version 2 already supports
+`--work-columns`. The describe `schema_version` stays 1 because the default output did not change.
+Pass `--work-columns` only when `interfaces.batchTsv` is at least 2. An older binary refuses the flag.
 
 ## Result rows
 
@@ -84,24 +85,24 @@ migrated.
 
 `fact.work` (per grammar object, and the trace-details `categories` that report it) is a
 **different unit**. It counts shape segments examined each time the object was tried. It does not
-count work reservations, so a word's fact rows never add up to its `work_steps`, and the two do not
+count work reservations, so a word's fact rows do not generally add up to its `work_steps`, and the two do not
 bound each other. To get a word's total work, read `work_steps` (or `word.work`). Do not sum
 `fact.work`.
 
 What the two have in common: every analysis attempt reserves exactly one work unit, so
-`steps <= work_steps`. The `work_steps` remainder comes from work that no fact row records: the
-matchers' inner steps, segmentation, and confirmation reservations. Measured on the conformance
+`steps <= work_steps`. The `work_steps` remainder beyond `steps` includes reservations for matchers' inner steps,
+segmentation, and confirmation; it is not the sum of fact work. Measured on the conformance
 fixtures `languages/metathesis-phase-isolation` and `edge-cases/truncate-morphotactic`, with no
 cap:
 
 | word | steps | work_steps | sum of `fact.work` |
 |---|---|---|---|
-| sumulat | 28 | 935 | 401 |
-| keadilan | 132 | 2601 | 1558 |
-| katibɯd | 28 | 1055 | 369 |
+| sumulat | 28 | 901 | 394 |
+| keadilan | 132 | 2567 | 1552 |
+| katibɯd | 28 | 1021 | 364 |
 | katibɯt | 19 | 779 | 273 |
-| pur | 19 | 445 | 169 |
-| gas | 14 | 727 | 123 |
+| pur | 19 | 411 | 163 |
+| gas | 14 | 692 | 109 |
 
 The `fact_work_is_segments_examined_not_the_word_work_steps_total` test in
 `rust/crates/pg-parse/tests/stats_collector_gate.rs` pins these numbers.

@@ -381,9 +381,11 @@ fn extract_with(
     let feature_systems = features::extract_feature_systems(&mut ctx, lang_project);
     let phonology =
         phonology::extract_phonology(&mut ctx, lang_project, &feature_systems, &project.name);
-    let morphology =
+    let mut morphology =
         morphology::extract_morphology(&mut ctx, lang_project, &feature_systems, &project.name)?;
-    let lexicon = lexicon::extract_lexicon(&mut ctx, &feature_systems, &morphology);
+    let (lexicon, excluded) = lexicon::extract_lexicon(&mut ctx, &feature_systems, &morphology)?;
+    morphology.adhoc_prohibitions =
+        morphology::extract_adhoc_prohibitions(&mut ctx, lang_project, &excluded);
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
     finalize_unrecorded_tracked_objects(&mut ctx);
