@@ -3,6 +3,24 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Parser work and stop status
+
+- `serve` results now include an optional `status` identifying a completed parse, a work or
+  attempt cap, a timeout, or an invalid shape. The same status decision is used by `batch`;
+  its optional work columns keep their existing layout. `interfaces.batchTsv` is 3; the work
+  columns are available from version 2 onward. Serve protocol version 1 is unchanged.
+
+### FieldWorks entry exclusions
+
+- FieldWorks entries marked `DoNotUseForParsing` are excluded from the parser inventory; re-import
+  existing snapshots to apply the flag. Snapshot provenance records exclusions with the new
+  `doNotUseForParsing` reason code. Older PanGloss readers cannot deserialize snapshots containing
+  that code.
+- Ad hoc prohibitions involving an excluded entry's MSA or allomorph are omitted as whole rules,
+  since their complete prohibited sequence cannot occur. Other prohibitions are retained.
+
 ## 0.10.0
 
 ### FieldWorks projects guess roots, as FieldWorks does

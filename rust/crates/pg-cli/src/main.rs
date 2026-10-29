@@ -182,12 +182,16 @@ fn reject_unknown_option(command: &str, arg: &str) -> Result<(), String> {
     spec.reject_unknown_option(arg)
 }
 
-/// The `(status, signature)` pair both batch writers emit for a word that neither timed out nor was skipped.
-fn row_status(outcome: &pg_parse::ParseOutcome) -> (&'static str, String) {
-    if outcome.capped {
-        ("CAP", outcome.signature())
+/// The result status shared by batch and serve; timeout counts are wall-clock dependent.
+fn outcome_status(outcome: &pg_parse::ParseOutcome) -> &'static str {
+    if outcome.invalid_shape {
+        "SKIPPED"
+    } else if outcome.timed_out {
+        "TIMEOUT"
+    } else if outcome.capped {
+        "CAP"
     } else {
-        ("ok", outcome.signature())
+        "ok"
     }
 }
 
@@ -487,6 +491,18 @@ fn run_import(args: &[String]) -> Result<(), String> {
             .map_err(|error| format!("serialize import refusal: {error}"))?);
     }
 
+    let excluded_entries = report
+        .provenance
+        .import_load_decisions
+        .iter()
+        .filter(|decision| {
+            decision.subject.kind == pg_snapshot::InventoryKind::Entry
+                && decision.reason_code == pg_snapshot::LoadReasonCode::DoNotUseForParsing
+        })
+        .count();
+    if excluded_entries > 0 {
+        eprintln!("entries excluded by DoNotUseForParsing: {excluded_entries}");
+    }
     eprintln!("import warnings ({}):", report.warnings.len());
     for w in &report.warnings {
         eprintln!("  {w}");
@@ -1012,8 +1028,8 @@ fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
     dir.join(format!("{stem}-realize.toml"))
 }
 
-/// The batch TSV layout published as `interfaces.batchTsv` in `--describe`; 2 means `--work-columns` exists.
-pub(crate) const BATCH_TSV_VERSION: u32 = 2;
+/// Version 3 retains version 2's work columns and shares its result-status classification with serve.
+pub(crate) const BATCH_TSV_VERSION: u32 = 3;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
@@ -1560,21 +1576,27 @@ fn run_batch_with_counter(
             }
             let outcome = result.outcome;
             let elapsed_ms = result.elapsed.as_millis();
-            let (status, signature) = if outcome.invalid_shape {
-                skipped += 1;
-                ("SKIPPED", "-".to_string())
-            } else if outcome.timed_out {
-                // --word-timeout-ms fired; its counts are wall-clock dependent, unlike a CAP row's.
-                timed_out_words += 1;
-                eprintln!("TIMEOUT\t{i}\t{word}");
-                ("TIMEOUT", "-".to_string())
-            } else {
-                parsed += 1;
-                if outcome.capped {
+            let status = outcome_status(&outcome);
+            let signature = match status {
+                "SKIPPED" => {
+                    skipped += 1;
+                    "-".to_string()
+                }
+                "TIMEOUT" => {
+                    timed_out_words += 1;
+                    eprintln!("TIMEOUT\t{i}\t{word}");
+                    "-".to_string()
+                }
+                "CAP" => {
+                    parsed += 1;
                     capped_words += 1;
                     eprintln!("CAP\t{i}\t{word}");
+                    outcome.signature()
                 }
-                row_status(&outcome)
+                _ => {
+                    parsed += 1;
+                    outcome.signature()
+                }
             };
             // Diagnostic only: raw StepBudget tick count for this word, regardless of whether the cap fired.
             if std::env::var("HC_STEP_STATS").is_ok() {
@@ -1796,21 +1818,27 @@ fn run_batch_with_counter(
             let word = &words[i];
             let r = result.outcome;
             let elapsed_ms = r.elapsed.as_millis();
-            let (status, signature) = if r.outcome.invalid_shape {
-                skipped += 1;
-                ("SKIPPED", "-".to_string())
-            } else if r.outcome.timed_out {
-                // Same --word-timeout-ms outcome as the sequential path above; the row shape is identical in both thread modes.
-                timed_out_words += 1;
-                eprintln!("TIMEOUT\t{i}\t{word}");
-                ("TIMEOUT", "-".to_string())
-            } else {
-                parsed += 1;
-                if r.outcome.capped {
+            let status = outcome_status(&r.outcome);
+            let signature = match status {
+                "SKIPPED" => {
+                    skipped += 1;
+                    "-".to_string()
+                }
+                "TIMEOUT" => {
+                    timed_out_words += 1;
+                    eprintln!("TIMEOUT\t{i}\t{word}");
+                    "-".to_string()
+                }
+                "CAP" => {
+                    parsed += 1;
                     capped_words += 1;
                     eprintln!("CAP\t{i}\t{word}");
+                    r.outcome.signature()
                 }
-                row_status(&r.outcome)
+                _ => {
+                    parsed += 1;
+                    r.outcome.signature()
+                }
             };
             write_batch_row(
                 &mut w,
