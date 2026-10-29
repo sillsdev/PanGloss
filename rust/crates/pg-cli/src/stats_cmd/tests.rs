@@ -585,6 +585,46 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
 }
 
 #[test]
+fn batch_work_steps_reconcile_for_every_word() {
+    let (grammar_xml, word) = primary_fixture();
+    let forms = [word.clone(), format!("{word}x"), format!("{word}xx")];
+    let words_text = format!("{}\n", forms.join("\n"));
+    let dir = scratch_dir("work-steps-multi-word");
+    let cache_path = dir.join("cache.sqlite3");
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &words_text,
+        &["--stats", "--cache", cache_path.to_str().unwrap()],
+    );
+    crate::run_batch(&args).expect("multi-word stats batch");
+    let conn = rusqlite::Connection::open(&cache_path).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT w.form, w.work,
+                COALESCE(SUM(CASE WHEN o.kind <> 'unattributed' THEN f.work_steps ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN o.kind = 'unattributed' THEN f.work_steps ELSE 0 END), 0),
+                SUM(CASE WHEN o.kind = 'unattributed' THEN 1 ELSE 0 END)
+         FROM word w LEFT JOIN fact f ON f.word_id = w.word_id
+         LEFT JOIN object o ON o.object_id = f.object_id GROUP BY w.word_id",
+        )
+        .unwrap();
+    let rows: Vec<(String, i64, i64, i64, i64)> = stmt
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), forms.len());
+    for (form, total, attributed, unattributed, remainder_count) in rows {
+        assert!(forms.contains(&form), "unexpected word {form}");
+        assert_eq!(remainder_count, 1, "{form}");
+        assert_eq!(attributed + unattributed, total, "{form}");
+    }
+}
+
+#[test]
 fn batch_stats_parses_each_uncached_word_once() {
     let (grammar_xml, word) = primary_fixture();
     let words_text = format!("{word}\n{word}x\n");

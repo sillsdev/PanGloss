@@ -154,7 +154,8 @@ fn per_object_sql() -> String {
             JOIN object o ON o.object_id = f.object_id
             JOIN word w ON w.word_id = f.word_id
             LEFT JOIN stratum s ON s.stratum_id = f.stratum_id
-            WHERE (:kind IS NULL OR o.kind = :kind)
+            WHERE o.kind <> 'unattributed'
+              AND (:kind IS NULL OR o.kind = :kind)
               AND (:object_key IS NULL OR o.key = :object_key)
               AND (:stratum_key IS NULL OR s.key = :stratum_key)
               AND (:direction IS NULL OR f.direction = :direction)
@@ -257,7 +258,8 @@ const PER_ALLOMORPH_SELECTED_FACTS_CTE: &str = "
         JOIN word w ON w.word_id = f.word_id
         LEFT JOIN run r ON r.run_id = w.run_id
         LEFT JOIN allomorph a ON a.allomorph_id = f.allomorph_id
-        WHERE (:kind IS NULL OR o.kind = :kind)
+        WHERE o.kind <> 'unattributed'
+          AND (:kind IS NULL OR o.kind = :kind)
           AND (:object_key IS NULL OR o.key = :object_key)
           AND (:direction IS NULL OR f.direction = :direction)
           AND (:word IS NULL OR w.form = :word)
@@ -429,7 +431,8 @@ fn per_kind_sql() -> String {
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
-    WHERE (:kind IS NULL OR o.kind = :kind)
+    WHERE o.kind <> 'unattributed'
+      AND (:kind IS NULL OR o.kind = :kind)
       AND (:direction IS NULL OR f.direction = :direction)
       AND (:word IS NULL OR w.form = :word)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))

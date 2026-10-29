@@ -548,7 +548,7 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
            surface_mismatch = excluded.surface_mismatch,
            uses = excluded.uses,
            self_time_ns = excluded.self_time_ns,
-           work_steps = fact.work_steps + excluded.work_steps",
+           work_steps = excluded.work_steps",
         params![
             word_id,
             object_id,
