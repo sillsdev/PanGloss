@@ -3,7 +3,7 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.11.0
 
 ### Parser work and stop status
 
@@ -20,6 +20,19 @@ file has no section for.
   that code.
 - Ad hoc prohibitions involving an excluded entry's MSA or allomorph are omitted as whole rules,
   since their complete prohibited sequence cannot occur. Other prohibitions are retained.
+
+### Expansion rules survive an interposed Optional
+
+- An expansion rule (one whose right-hand side has more segments than its left, such as `u -> i i`)
+  now analyses correctly when a deletion earlier in the cascade leaves an Optional between its
+  right-hand-side segments. The parse was lost before this fix; narrowing rules already handled
+  the case, and the C# HermitCrab never lost it. See divergence entry 104.
+
+### Part-of-speech gated subrules reach the FST backends
+
+- Both FST backends now try every part-of-speech gated subrule. Previously a noun subrule could
+  preempt a verb subrule in an ungated cascade, and the fusion probe ignored the word's part of
+  speech. For `merge-subrules-pos-rtl-template`, both strategies now propose `TA_V+S`.
 
 ## 0.10.0
 
