@@ -1,0 +1,39 @@
+# oracle-provenance: founding-oracle
+# Verified 2026-10-28 with hc-conformance self-check (built from sillsdev/machine master c2454760,
+# which contains merged PR #539): [PASS], signatures and parse sets exactly as listed. The `rules:`
+# fields are not compared by the harness (PROTOCOL.md section 4).
+
+language: NarrowingBoundaryFirstAlphaLhs
+inspired_by: ["synthetic probe for divergence 087 (not modeling any real language)"]
+sources:
+  - "docs/divergences/087-narrowing-union-unapplication.md"
+  - "src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/NarrowAnalysisRewriteRuleSpec.cs"
+requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Engine-only: the rule's input (the left-hand side of the rewrite) carries a BoundaryMarker. FieldWorks'
+  phonological rule editor only accepts segment, natural-class and iteration contexts in a rule's
+  input; boundary markers are available only in the left and right environments, so this grammar
+  cannot be authored in the FieldWorks UI. It pins the analysis-side narrowing of an alpha-variable
+  segment after a boundary (divergence 087), which only an HC-XML grammar can reach.
+words:
+  - word: aafa
+    note: AA+FA (underlying f, boundary survives as an optional marker) and AA+PA (p spirantized after the boundary, alpha-voice kept).
+    parses:
+      - signature: "AA+FA|aa+?fa"
+        rules: [mrFA, prSpirant]
+      - signature: "AA+PA|aafa"
+        rules: [mrPA, prSpirant]
+  - word: aava
+    note: AA+VA and AA+BA (voiced stop spirantizes to the voiced fricative, so the alpha variable carries voicing).
+    parses:
+      - signature: "AA+VA|aa+?va"
+        rules: [mrVA, prSpirant]
+      - signature: "AA+BA|aava"
+        rules: [mrBA, prSpirant]
+  - word: aapa
+    note: The rule is obligatory after the boundary, so p never surfaces there.
+    expect_fail: true
+  - word: aaba
+    note: Same for b.
+    expect_fail: true

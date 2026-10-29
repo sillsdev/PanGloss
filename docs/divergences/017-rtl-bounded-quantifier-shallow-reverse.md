@@ -73,3 +73,7 @@ Not shown: any C# or conformance-fixture evidence, which does not apply to a Rus
 a real-language word. The `fixed-in-rust` status vocabulary requires oracle or fixture verification,
 so the status stays `open`; the recommendation is to close it as `fixed-in-rust` once an RTL
 multi-child-quantifier conformance fixture is staged, or as `not-a-bug` if the owner accepts the unit tests.
+
+## Fixture (added 2026-10-28, issue #45)
+
+`conformance-staging/edge-cases/right-to-left-multi-child-quantifier-rewrite` pins the multi-child shape (`(c d){1,2} t` in an RTL rule's right environment). hc-conformance self-check passes it, and on the backend scoreboard TunedSurfaceProbed and TemplatedUnderlyingTokens are oracle-exact on it (PlanComposed refuses it, the blanket empty-marker policy), so the shallow-reverse risk did not produce a missed parse for this shape. Status stays open: the code is unchanged.
