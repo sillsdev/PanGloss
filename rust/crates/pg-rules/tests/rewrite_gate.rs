@@ -248,6 +248,128 @@ fn defaults_allow_matching_the_declared_default_and_absent_default() {
     );
 }
 
+/// `default_probe_grammar` with `a` authoring `voi` as the full set {+,-} instead of omitting it, a present value C# `UseDefaults` leaves alone; C# verdicts are in docs/research/rewrite-explicit-full-set-csharp-probe.md.
+fn full_set_probe_grammar() -> Grammar {
+    let xml = GRAMMAR_XML
+        .replace(
+            "<SymbolicFeature id=\"feat_voi\">",
+            "<SymbolicFeature id=\"feat_voi\" defaultSymbol=\"sym_vm\">",
+        )
+        .replacen(
+            "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
+            "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp sym_vm\" />\n",
+            1,
+        );
+    pg_grammar::load(&xml).expect("full-set probe grammar loads")
+}
+
+#[test]
+fn explicit_full_set_unifies_with_environment_and_target_pins_that_an_absent_default_rejects() {
+    let absent = default_probe_grammar();
+    let full = full_set_probe_grammar();
+    for g in [&absent, &full] {
+        assert_eq!(
+            g.phon_features.default_bits(feat(g, "feat_voi")),
+            Some(0b10)
+        );
+    }
+    // Environment unification: voi=+ before t.
+    let env_rule = |g: &Grammar| {
+        rule(
+            pat_char(char_def(g, "char_t")),
+            subrule(
+                Pattern::default(),
+                Some(pat_ctx(nat_class(g, "nc_voi"))),
+                None,
+            ),
+        )
+    };
+    assert!(
+        pg_rules::rewrite::synthesize(&absent, &env_rule(&absent), &seg(&absent, "at")).is_empty()
+    );
+    assert!(!pg_rules::rewrite::synthesize(&full, &env_rule(&full), &seg(&full, "at")).is_empty());
+    // Target unification: delete a voi=+ segment, both modes.
+    for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+        let target_rule = |g: &Grammar| {
+            let mut r = rule(
+                pat_ctx(nat_class(g, "nc_voi")),
+                subrule(Pattern::default(), None, None),
+            );
+            r.mode = mode;
+            r
+        };
+        assert!(
+            pg_rules::rewrite::synthesize(&absent, &target_rule(&absent), &seg(&absent, "a"))
+                .is_empty()
+        );
+        assert!(
+            !pg_rules::rewrite::synthesize(&full, &target_rule(&full), &seg(&full, "a")).is_empty()
+        );
+    }
+    // Analysis target unification: an epenthesised voi=+ node.
+    let ana_rule = |g: &Grammar| {
+        rule(
+            Pattern::default(),
+            subrule(pat_ctx(nat_class(g, "nc_voi")), None, None),
+        )
+    };
+    assert!(
+        pg_rules::rewrite::analyze(&absent, &ana_rule(&absent), &seg(&absent, "a"), None)
+            .is_empty()
+    );
+    assert!(
+        !pg_rules::rewrite::analyze(&full, &ana_rule(&full), &seg(&full, "a"), None).is_empty()
+    );
+}
+
+#[test]
+fn explicit_full_set_keeps_its_whole_set_when_binding_an_alpha_variable() {
+    let absent = default_probe_grammar();
+    let full = full_set_probe_grammar();
+    let rule_for = |g: &Grammar| {
+        let voice = feat(g, "feat_voi");
+        let var = || PatternNode::Context(ctx_var(nat_class(g, "nc_voi"), voice, 0, true));
+        rule(
+            Pattern { nodes: vec![var()] },
+            subrule(
+                Pattern::default(),
+                None,
+                Some(Pattern { nodes: vec![var()] }),
+            ),
+        )
+    };
+    // Absent `a` binds the default -, which disagrees with + on d; explicit {+,-} binds the whole set, which agrees with both.
+    assert!(
+        pg_rules::rewrite::synthesize(&absent, &rule_for(&absent), &seg(&absent, "ad")).is_empty()
+    );
+    assert!(
+        !pg_rules::rewrite::synthesize(&absent, &rule_for(&absent), &seg(&absent, "at")).is_empty()
+    );
+    assert!(!pg_rules::rewrite::synthesize(&full, &rule_for(&full), &seg(&full, "ad")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&full, &rule_for(&full), &seg(&full, "at")).is_empty());
+}
+
+/// Pins current behaviour (GH#85): a rule re-derives `explicit_full` from `char_def`, so a featured rewrite's node reads as absent to the next rule; C# keeps it present; docs/research/rewrite-explicit-full-set-csharp-probe.md.
+#[test]
+fn explicit_full_set_is_dropped_between_rules_once_a_featured_rewrite_cleared_the_char_def() {
+    let full = full_set_probe_grammar();
+    // Rule 1 changes only `cons` on `a`; `voi` stays the authored full set {+,-}.
+    let featured = rule(
+        pat_char(char_def(&full, "char_a")),
+        subrule(pat_ctx(nat_class(&full, "nc_cons")), None, None),
+    );
+    // Rule 2 deletes a voi=+ segment, which the explicit full set unifies with and an absent default rejects.
+    let reads_default = rule(
+        pat_ctx(nat_class(&full, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    let input = seg(&full, "a");
+    assert!(!pg_rules::rewrite::synthesize(&full, &reads_default, &input).is_empty());
+    let after = pg_rules::rewrite::synthesize(&full, &featured, &input);
+    assert_eq!(after.len(), 1);
+    assert!(pg_rules::rewrite::synthesize(&full, &reads_default, &after[0]).is_empty());
+}
+
 // Feature-change: t -> [+voice] / V _ V (C# FeatureSynthesisRewriteSubruleSpec.ApplyRhs / FeatureAnalysisRewriteRuleSpec.Unapply)
 
 fn voicing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {

@@ -62,6 +62,8 @@ pub struct CharDef {
     /// Per-feature symbolic bits; absent values use full masks, with Type pinned to segment or boundary.
     feature_lanes: Vec<u64>,
     defaulted_feature_lanes: Vec<bool>,
+    /// Features authored with every symbol, which a full-mask lane alone cannot tell from an absent feature; C# keeps them present, so `UseDefaults` must not replace them.
+    explicit_full_features: Box<[u32]>,
     has_authored_features: bool,
     provisional: bool,
 }
@@ -130,6 +132,12 @@ impl CharDef {
     #[inline]
     pub fn feature_lanes(&self) -> &[u64] {
         &self.feature_lanes
+    }
+
+    /// Features authored with their full symbol set, ascending.
+    #[inline]
+    pub fn explicit_full_features(&self) -> &[u32] {
+        &self.explicit_full_features
     }
 
     /// Whether a lane retained its full-mask default during compilation. Explicit assignments and
@@ -212,6 +220,15 @@ impl CharDefTable {
             };
             defaulted_feature_lanes[type_idx] = false;
 
+            let explicit_full_features: Box<[u32]> = (0..feat_sys.len())
+                .filter(|&i| {
+                    !defaulted_feature_lanes[i]
+                        && i != type_idx
+                        && feature_lanes[i] == feat_sys.mask(FlatIndex(i as u32))
+                })
+                .map(|i| i as u32)
+                .collect();
+
             let id = CharDefId(defs.len() as u32);
             for norm in &representations_nfd {
                 lookup.insert(norm.clone(), id);
@@ -226,6 +243,7 @@ impl CharDefTable {
                 representations_nfd,
                 feature_lanes,
                 defaulted_feature_lanes,
+                explicit_full_features,
             });
         }
 
