@@ -79,7 +79,7 @@ fn the_prefilter_keeps_every_analysis_and_trace_and_saves_matcher_work() {
             sorted(b.analyses.clone()),
             "{word}"
         );
-        assert_eq!(a.steps, b.steps, "analysis attempts for {word}");
+        assert!(a.steps <= b.steps, "analysis attempts for {word}");
         steps_on += a.work_steps;
         steps_off += b.work_steps;
 
@@ -98,6 +98,40 @@ fn the_prefilter_keeps_every_analysis_and_trace_and_saves_matcher_work() {
         !on.parse_word("sagts").analyses.is_empty(),
         "digraph-ending suffix still parses"
     );
+}
+
+#[test]
+fn the_index_skips_rules_and_uses_each_intermediate_form() {
+    let g = grammar();
+    let on = Morpher::new(&g, usize::MAX);
+    let off = Morpher::new(&g, usize::MAX).with_edge_index(false);
+    let plain_on = on.parse_word("sag");
+    let plain_off = off.parse_word("sag");
+    assert_eq!(sorted(plain_on.analyses), sorted(plain_off.analyses));
+    assert!(plain_on.steps < plain_off.steps);
+
+    let chained_on = on.parse_word("sagds");
+    let chained_off = off.parse_word("sagds");
+    assert!(!chained_off.analyses.is_empty());
+    assert_eq!(sorted(chained_on.analyses), sorted(chained_off.analyses));
+}
+
+#[test]
+fn the_index_uses_the_shape_restored_by_a_deletion_rule() {
+    let delete = r#"<MorphologicalRule id="del" requiredPartsOfSpeech="posV"><Name>del</Name><MorphemeId>PRES</MorphemeId>
+        <MorphologicalSubrules><MorphologicalSubrule id="delSub"><MorphologicalInput>
+          <PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+          <PhoneticSequence id="2"><SimpleContext naturalClass="ncV" /></PhoneticSequence>
+        </MorphologicalInput><MorphologicalOutput><CopyFromInput index="1" /></MorphologicalOutput>
+        </MorphologicalSubrule></MorphologicalSubrules></MorphologicalRule>"#;
+    let rules = format!("{}{delete}", suffix("sufU", "u"));
+    let g = build_grammar("", "", &rules, "sufU del", "");
+    let on = Morpher::new(&g, usize::MAX).parse_word("tag");
+    let off = Morpher::new(&g, usize::MAX)
+        .with_edge_index(false)
+        .parse_word("tag");
+    assert_eq!(sorted(on.analyses.clone()), sorted(off.analyses.clone()));
+    assert!(csharp_port_common::morphs_set(&off).contains("47 sufUM PRES"));
 }
 
 /// Parses the first `PANGLOSS_EDGE_SAMPLE` (default 120) words of each reference corpus with the prefilter off and on, and prints `work_steps` per corpus. Words that hit the work cap in either arm are left out of both.

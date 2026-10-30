@@ -7,6 +7,9 @@ file has no section for.
 
 ### Interface changes
 
+- Analysis indexes affixes and clitics by mandatory edge segments. Rules rejected by the index
+  no longer increment per-word `steps`, so a word near `--step-cap` may search further or return a
+  different partial result. Completed parse results are unchanged.
 - Counter semantics are version 8. Cascade attempts, lexical lookup bookkeeping, and
   allomorph validation work steps now follow their owning objects. Named synthetic parser
   rows account for candidate expansion, stratum transitions, and surface matching. Per-word

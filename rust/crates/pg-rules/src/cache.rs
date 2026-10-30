@@ -29,6 +29,7 @@ use pg_grammar_model::model::{
 };
 
 use crate::metathesis::{self, MetaCache};
+use crate::morph::edge_index::EdgeIndex;
 use crate::morph::{self, AnalysisLhs, CompoundCache};
 use crate::required_slots::RequiredSlotMaterial;
 use crate::rewrite::{self, EnvFst, PruleCache};
@@ -181,6 +182,10 @@ pub struct RuleCache {
     templates: Vec<RequiredSlotMaterial>,
     /// Skip an analysis allomorph whose mandatory pattern edge cannot unify with the word's mandatory edge segment. Pure speed; on by default.
     edge_prefilter: bool,
+    /// Packed necessary-edge candidate rows, built once with the compiled allomorphs.
+    edge_index: EdgeIndex,
+    /// Enables candidate filtering; disabling it leaves the per-allomorph prefilter in place.
+    edge_index_enabled: bool,
 }
 
 impl RuleCache {
@@ -231,12 +236,37 @@ impl RuleCache {
             compounds,
             templates: Vec::new(),
             edge_prefilter: true,
+            edge_index: EdgeIndex::default(),
+            edge_index_enabled: true,
         };
         let templates = (0..g.templates.len())
             .map(|t| RequiredSlotMaterial::build(g, TemplateId(t as u32), Some(&cache)))
             .collect();
         cache.templates = templates;
+        cache.edge_index = EdgeIndex::build(g, &cache);
         cache
+    }
+
+    /// Heap bytes retained by the analysis edge index.
+    pub fn edge_index_allocated_bytes(&self) -> usize {
+        self.edge_index.allocated_bytes()
+    }
+
+    pub(crate) fn edge_candidates(
+        &self,
+        table: TableId,
+        shape: &pg_shape::Shape,
+    ) -> Option<crate::morph::edge_index::EdgeCandidates<'_>> {
+        if !self.edge_prefilter || !self.edge_index_enabled {
+            return None;
+        }
+        self.edge_index.candidates(table, shape)
+    }
+
+    /// Turns the rule-level edge index on or off independently of the allomorph prefilter.
+    pub fn with_edge_index(mut self, on: bool) -> Self {
+        self.edge_index_enabled = on;
+        self
     }
 
     pub(crate) fn template_material(&self, tid: TemplateId) -> &RequiredSlotMaterial {
