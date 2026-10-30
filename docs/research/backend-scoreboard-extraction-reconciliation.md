@@ -239,3 +239,29 @@ adds exact cells on TunedSurfaceProbed and TemplatedUnderlyingTokens and a typed
 refusal on PlanComposed. The scoreboard measures its own default grammar/word
 inputs; this does not establish support for every named settings variant. Those
 variants are checked separately by the parser replay and external adapter matrix.
+
+## Rewrite defaults fixture reconciliation
+
+This is a **correctness/representability** measurement, not a change to admission,
+refusal, or resource containment. Three staged `rewrite-default-*` fixtures add nine
+cells. Comparing the full all-scope scoreboard with and without those fixtures showed
+all 411 existing cells unchanged and no removals. The added cells are:
+
+| Fixture | TunedSurfaceProbed | TemplatedUnderlyingTokens | PlanComposed |
+| --- | --- | --- | --- |
+| rewrite-default-environment | oracle exact | oracle exact | refused |
+| rewrite-default-narrow | oracle exact | oracle exact | refused |
+| rewrite-default-epenthesis | compiles but misses | oracle exact | refused |
+
+For `rewrite-default-epenthesis`, the tuned-surface proposer misses `bdt`, whose
+`|b[ad(aa)]t` parse the C# oracle at Machine `aab4c59819adb7b366915e09df2fb28c62b8c03a`
+and the Rust confirm engine both accept. Proposal containment adds exactly two failed
+pairs, OrderedMorphRuleApplication and Epenthesis x tuned-surface-probed: 20 to 22,
+with no pre-existing pair removed and zero surviving candidate-only identities. The
+scoreboard now pins each added cell by name, and the containment ratchet records 22.
+
+An ablation removing `defaultSymbol` from a scratch copy still misses `bdt` in the
+tuned-surface route, so this observation alone does not prove that default handling
+causes the miss. It demonstrates an FST epenthesis proposal gap for this grammar; the
+extent of any additional default-specific FST gap remains to be investigated. Tracked in
+[#87](https://github.com/sillsdev/PanGloss/issues/87).

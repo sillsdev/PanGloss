@@ -438,6 +438,7 @@ pub(crate) struct EnvFst {
     group_names: Vec<Option<String>>,
     agreement: Option<Vec<AgreementNode>>,
     binding_nodes: Option<Vec<AgreementNode>>,
+    defaults: Vec<(usize, u64, u64)>,
 }
 
 /// Compile an environment for **synthesis**, and for the allomorph-environment gate, which shares
@@ -561,7 +562,30 @@ fn compile_env_impl(
         group_names,
         agreement,
         binding_nodes: compiled.uses_alpha_vars.then_some(compiled.agreement_nodes),
+        defaults: if id_lane {
+            Vec::new()
+        } else {
+            (0..g.phon_features.len())
+                .filter_map(|f| {
+                    g.phon_features
+                        .default_bits(FlatIndex(f as u32))
+                        .map(|bits| (f, full_mask(g, f), bits))
+                })
+                .collect()
+        },
     })
+}
+
+fn env_input(env: &EnvFst, segs: &[Segment]) -> Vec<Segment> {
+    let mut input = segs.to_vec();
+    for segment in &mut input {
+        for &(feature, mask, default) in &env.defaults {
+            if segment.lanes.get(feature) == Some(&mask) {
+                segment.lanes[feature] = default;
+            }
+        }
+    }
+    input
 }
 
 /// C# `DeepCloneExceptBoundaries`: drops nodes denoting a literal boundary char-def, recursing into quantifiers; a pre-segmented `Segments` node could embed a boundary too, but that shape only occurs on allomorphs, which take the unstripped `compile_env` path instead.
@@ -607,7 +631,7 @@ pub(crate) fn left_env_match(
     if left_end == 0 {
         return empty_env_match(env);
     }
-    let slice = segs[..left_end].to_vec();
+    let slice = env_input(env, &segs[..left_end]);
     let traversal = Transduce::new(&env.fst, slice).anchored(env.anchor_start, true);
     env_matches(env, traversal)
 }
@@ -637,7 +661,7 @@ pub(crate) fn right_env_match(
     if right_start >= segs.len() {
         return empty_env_match(env);
     }
-    let slice = segs[right_start..].to_vec();
+    let slice = env_input(env, &segs[right_start..]);
     let traversal = Transduce::new(&env.fst, slice).anchored(true, env.anchor_end);
     env_matches(env, traversal)
 }
@@ -714,6 +738,16 @@ fn bind_or_check(g: &Grammar, bindings: &mut Bindings, occ: &VarOccur, node_bits
     }
 }
 
+fn rewrite_variable_bits(g: &Grammar, occ: &VarOccur, bits: u64) -> u64 {
+    if bits == full_mask(g, occ.feature) {
+        g.phon_features
+            .default_bits(FlatIndex(occ.feature as u32))
+            .unwrap_or(bits)
+    } else {
+        bits
+    }
+}
+
 /// Resolve alpha-variable bindings for a candidate in C#'s `MatchSubrule` order (target, then left env, then right env); `None` means a bound variable was violated and the candidate must be rejected.
 #[allow(clippy::too_many_arguments)]
 fn resolve_bindings(
@@ -736,7 +770,8 @@ fn resolve_bindings(
     for (k, occs) in lhs_vars.iter().enumerate() {
         let node = target_nodes[k];
         for occ in occs {
-            if !bind_or_check(g, &mut bindings, occ, ms.nodes[node].lanes[occ.feature]) {
+            let bits = rewrite_variable_bits(g, occ, ms.nodes[node].lanes[occ.feature]);
+            if !bind_or_check(g, &mut bindings, occ, bits) {
                 return None;
             }
         }
@@ -892,10 +927,11 @@ fn match_binding_environment(
     reverse: bool,
     bindings: &Bindings,
 ) -> Option<Bindings> {
+    let defaulted = env_input(env, segs);
     let input: Vec<&Segment> = if reverse {
-        segs.iter().rev().collect()
+        defaulted.iter().rev().collect()
     } else {
-        segs.iter().collect()
+        defaulted.iter().collect()
     };
     let mut tasks = Vec::new();
     push_binding_nodes(&mut tasks, nodes, reverse);
@@ -1245,7 +1281,7 @@ fn agreement_node(
 }
 
 /// docs/research/rewrite-usedefaults-confirm.md
-/// The Feature-kind confirm step for C#'s `UseDefaults` matcher flag, which `pg_fst` cannot itself apply.
+/// Confirm C#'s `UseDefaults` matcher flag on a matched target.
 fn pattern_defaults_ok(
     g: &Grammar,
     ms: &MutShape,
@@ -1845,6 +1881,7 @@ pub fn analyze(
                     let mut any = false;
                     while ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         target.as_ref(),
@@ -1860,6 +1897,7 @@ pub fn analyze(
                 } else {
                     ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         target.as_ref(),
@@ -1982,6 +2020,7 @@ pub(crate) fn analyze_cached(
                     let mut any = false;
                     while ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
@@ -1997,6 +2036,7 @@ pub(crate) fn analyze_cached(
                 } else {
                     ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
@@ -2094,6 +2134,7 @@ pub fn analyze_traced(
                     let mut any = false;
                     while ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         target.as_ref(),
@@ -2109,6 +2150,7 @@ pub fn analyze_traced(
                 } else {
                     ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         target.as_ref(),
@@ -2243,6 +2285,7 @@ pub fn analyze_cached_traced(
                     let mut any = false;
                     while ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
@@ -2258,6 +2301,7 @@ pub fn analyze_cached_traced(
                 } else {
                     ana_epenthesis(
                         g,
+                        table,
                         sr,
                         &mut ms,
                         sc.ana_target.as_ref(),
@@ -2744,6 +2788,12 @@ fn syn_narrow(
     // The RHS gets the same alpha-variable resolution `syn_feature` does; skipping it would leave a narrowing RHS natural class bound from a merged LHS segment sitting at full-unconstrained.
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
+    let lhs_lanes: Vec<_> = rule
+        .lhs
+        .nodes
+        .iter()
+        .map(|n| node_full_lanes(g, table, n))
+        .collect();
 
     let mut applied = false;
     loop {
@@ -2760,6 +2810,9 @@ fn syn_narrow(
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             // An over-wide Optional-skip span would delete more physical nodes than the LHS matched — a silent wrong mutation here (no positional array to overrun into a panic); see `width_matches`.
             if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
+                continue;
+            }
+            if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes) {
                 continue;
             }
             // Widened to allow a matched Boundary node (Amharic `prule7`'s LHS has a real top-level `BoundaryMarker`): C#'s synthesis matcher filter is `Segment|Boundary|Anchor`, so its narrowing target can consume one too.
@@ -2844,6 +2897,12 @@ fn sim_narrow(
         .collect();
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
+    let lhs_lanes: Vec<_> = rule
+        .lhs
+        .nodes
+        .iter()
+        .map(|n| node_full_lanes(g, table, n))
+        .collect();
 
     let (segs, node_of) = ms.segs(true);
     let mut accepted: Vec<(Vec<usize>, Bindings)> = Vec::new();
@@ -2853,6 +2912,9 @@ fn sim_narrow(
         }
         let target_nodes: Vec<usize> = node_of[s..e].to_vec();
         if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
+            continue;
+        }
+        if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes) {
             continue;
         }
         if target_nodes.iter().any(|&n| {
@@ -2990,6 +3052,12 @@ fn ana_narrow_general(
     // The matched pattern here is the RHS, so its own alpha-variable occurrences get bound during matching (target position k ↔ RHS node k); the reconstructed LHS nodes consume those bindings before either insertion or union.
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
+    let rhs_lanes: Vec<_> = sr
+        .rhs
+        .nodes
+        .iter()
+        .map(|n| node_full_lanes(g, table, n))
+        .collect();
     let target_len = sr.rhs.nodes.len();
     let union_narrowing = target_len > 0 && rule.lhs.nodes.len() > target_len;
     let lhs_template: Vec<MutNode> = rule
@@ -3003,6 +3071,9 @@ fn ana_narrow_general(
     let (segs, node_of) = ms.segs(false);
     let mut matches: Vec<(usize, usize, Vec<usize>, Bindings)> = Vec::new();
     let mut consider = |s: usize, e: usize, target_nodes: Vec<usize>| {
+        if !pattern_defaults_ok(g, ms, &target_nodes, &rhs_lanes) {
+            return;
+        }
         let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
             return;
         };
@@ -3300,7 +3371,8 @@ fn epenthesis_target_environments_match(
     let mut bindings = Bindings::default();
     for (&node, vars) in target_nodes.iter().zip(target_vars) {
         for occ in vars {
-            if !bind_or_check(g, &mut bindings, occ, ms.nodes[node].lanes[occ.feature]) {
+            let bits = rewrite_variable_bits(g, occ, ms.nodes[node].lanes[occ.feature]);
+            if !bind_or_check(g, &mut bindings, occ, bits) {
                 return false;
             }
         }
@@ -3311,6 +3383,7 @@ fn epenthesis_target_environments_match(
 #[allow(clippy::too_many_arguments)]
 fn ana_epenthesis(
     g: &Grammar,
+    table: &CharDefTable,
     sr: &RewriteSubruleDef,
     ms: &mut MutShape,
     target: Option<&Fst>,
@@ -3325,6 +3398,12 @@ fn ana_epenthesis(
     };
 
     let target_vars = pattern_var_occurrences(&sr.rhs);
+    let target_lanes: Vec<_> = sr
+        .rhs
+        .nodes
+        .iter()
+        .map(|n| node_full_lanes(g, table, n))
+        .collect();
     if mode == RewriteMode::Simultaneous {
         let (segs, node_of) = ms.segs(false);
         let mut applied = false;
@@ -3335,6 +3414,9 @@ fn ana_epenthesis(
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             // WHY: Reject an over-wide Optional-skip span before it can mark the wrong extra node.
             if !width_matches(&target_nodes, expected_len) {
+                continue;
+            }
+            if !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes) {
                 continue;
             }
             if !epenthesis_target_environments_match(
@@ -3384,6 +3466,7 @@ fn ana_epenthesis(
             if target_nodes.is_empty()
                 || target_nodes.iter().any(|&n| ms.nodes[n].dirty)
                 || !width_matches(&target_nodes, expected_len)
+                || !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes)
                 || !epenthesis_target_environments_match(
                     g,
                     ms,
