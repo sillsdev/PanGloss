@@ -94,7 +94,7 @@ Check branch and PR state before building: a reused path is not an immutable rev
 
 ## 5. Reconcile the ledger
 
-Every divergence and every optimization gets an entry under `docs/divergences/`; reference extra
+A difference planned to stay gets an entry under `docs/divergences/`; a fix or speedup still to be done is a GitHub issue. Reference extra
 conformance grammars by name. Keep entry numbers stable and update `by-module.md`.
 For each entry record independently:
 - Current Rust implementation and commit.

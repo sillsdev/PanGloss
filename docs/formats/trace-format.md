@@ -84,7 +84,7 @@ stores that `-1` as `None` (`pg-rules/src/trace.rs`, `TraceNode::subrule_index: 
 `subrule` key for it: the key is never `-1` and never `null`. The text rendering likewise omits
 ` subrule=`. A consumer that expects C#'s `-1` should treat an absent `subrule` on a node that has a
 `failureReason` as "rejected before any subrule". Divergence
-[092](../divergences/092-compounding-analysis-trace-node-shape.md) covers the related difference in
+[092](../divergences/README.md#retired-entries) covers the related difference in
 which node type a compounding analysis attempt becomes.
 
 Nesting is depth: a rule's own attempt to apply becomes the parent of everything that happened

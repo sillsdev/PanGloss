@@ -1,190 +1,161 @@
-# HC-Rust / hc.dll divergence catalogue
+# HC-Rust / hc.dll permanent differences
 
-This folder is the standing ledger of every place `pg-parse`/`pg-rules`/`pg-featstruct`/`pg-memo`/
-`pg-grammar` (the Rust port, "HC-Rust") is known or suspected to differ from the founding oracle:
-`SIL.Machine.Morphology.HermitCrab`'s C# implementation (`hc.dll`) in
-`C:\Users\johnm\Documents\repos\machine`. Per the repo rule, HC-Rust must never produce a different
-parse than C# without that difference being documented here (and, if Rust believes its behaviour is
-an improvement, reported in a Machine issue, with a fix PR when available, rather than silently kept).
+This folder lists only the places where `pg-parse`/`pg-rules`/`pg-featstruct`/`pg-grammar` (the Rust
+port, "HC-Rust") differs from the founding oracle, `SIL.Machine.Morphology.HermitCrab`'s C#
+implementation (`hc.dll`), and is **planned to stay different**. Each entry is an intentional,
+long-standing difference.
 
-The 2026-10-27 port measurements did not cover the absent pinned Sena and Amharic worst-word lists.
-The NEW 30-word stride samples are separate inputs, not replacements.
+- Upcoming fixes, speedups and unproven equivalences are GitHub issues in
+  [sillsdev/PanGloss](https://github.com/sillsdev/PanGloss/issues), not entries here.
+- Retired entries (fixed, optimized, moot, or moved to an issue) live in git history; see
+  [Retired entries](#retired-entries).
+- Per the repo rule, HC-Rust must never produce a different parse than C# without that difference
+  being documented here (and, if Rust believes its behaviour is an improvement, reported in a Machine
+  issue). A new difference that is meant to stay gets an entry; one that is work-in-progress gets an issue.
 
 ## What counts as an entry
 
-One entry per distinct mechanism-level difference between the two engines, traceable to a specific
-C# file/method and a specific Rust file/function. A regression test that merely re-confirms an
-already-fixed divergence stays green is not a new entry; a test that is the ONLY thing standing
-between "fixed" and "silently reverted" is exactly the evidence an entry should cite.
+One entry per distinct mechanism-level difference between the two engines that is planned to stay,
+traceable to a specific C# file/method and a specific Rust file/function.
 
-## The five kinds
+## Kinds
 
-- **`behavioural`** — the two implementations can produce different parses/analyses for some input.
-  The serious kind. Every entry of this kind states which side is believed correct, whether a
-  fixture pins it, and whether an upstream PR exists or is needed.
-- **`efficiency`** — same observable parses, different work or memory (memoization, caches, indexes,
-  gates that only prune provably-dead branches). Allowed by repo policy, but each entry must explain
-  *why* the shortcut cannot change a parse, not just assert it.
-- **`representational`** — same behaviour, different data model or API shape (an `Option<FeatureStruct>`
-  where C# has a null, an interned id where C# has object identity, a `BTreeMap` where C# has a
-  `Dictionary` plus a hand-rolled XOR hash). Each entry flags whether the representation could become
-  behavioural under a future change.
-- **`unported`** — a C# feature/branch Rust does not implement at all, or vice versa. Each entry says
-  what happens today if that path is reached: panic, refusal, or (worst case) silent under-handling.
-- **`stale-claim`** — a documented divergence that no longer exists, or a comment whose claim could
-  not be verified against the current source of either engine.
+- **`behavioural`**: the two implementations can produce different parses for some input.
+- **`efficiency`**: same observable parses, different work or memory.
+- **`representational`**: same behaviour, different data model or API shape.
+- **`unported`**: a C# feature/branch Rust does not implement; the entry says what happens if reached.
+- **`diagnostic`**: a Rust-only report or tool behaviour with no parse difference.
 
 ## File naming
 
 One file per entry: `docs/divergences/NNN-short-slug.md`, `NNN` a zero-padded three-digit number
-assigned in discovery order (never reused, never renumbered — a retired entry keeps its number and
-gets `Status: reverted-in-rust` or similar rather than being deleted).
+assigned in discovery order. Numbers are never reused or renumbered; retired numbers stay listed in the
+table below, so the gaps in this folder are expected.
 
 ## Finding the entry for a file
 
-- **From a C# file:** grep this folder's `## C# site` lines for the filename, or use
-  `by-module.md`'s C#-side table.
-- **From a Rust module:** grep this folder's `## Rust site` lines for the module/function name, or
-  use `by-module.md`'s Rust-side table.
-- **From this README's status table below:** every entry is listed with both sites, kind, status,
-  and pinning fixture in one row.
-
-## Entry lifecycle
-
-An entry's `Status` is one of:
-
-- **`open`** — unresolved behavior, compatibility research, or missing discriminating evidence.
-  State separately what is implemented in Rust and C#, and whether a bug is reproduced or suspected.
-- **`superseded`** — a later algorithm replaced this Rust implementation; preserve its history and link the successor.
-- **`proposed-upstream`** — Rust's behaviour is believed better than hc.dll's, and a PR against
-  `sillsdev/machine` proposing hc.dll adopt it has been filed (name the PR number).
-- **`accepted-upstream`** — that PR merged; hc.dll now matches Rust, so the divergence is closed from
-  the C# side.
-- **`accepted-divergence`** — a known observable difference is deliberately retained as a long-term
-  PanGloss parity exception. The entry must state the accepted scope and evidence gaps; acceptance
-  does not establish which output is correct, prove safety, or imply parity.
-- **`reverted-in-rust`** — Rust changed to match hc.dll instead of pursuing an upstream change.
-- **`fixed-in-rust`** — Rust had a genuine bug (its output differed from hc.dll's), and it has been
-  fixed to match hc.dll, verified against the oracle or a fixture. No proposal to hc.dll was needed
-  because hc.dll was already correct.
-- **`optimized-in-rust`** — a Rust-only efficiency difference was removed with behavior unchanged,
-  demonstrated by stable-output and counter-parity evidence.
-- **`wont-fix`** — a real difference that no supported input can reach (typically an HC-XML-only
-  shape FieldWorks cannot author), closed deliberately with the reachability evidence in the entry.
-- **`not-a-bug`** — investigated as a suspected divergence and found, on reading both sources
-  directly, not to be one (a misdiagnosis, a stale suspicion, or a difference that provably cannot
-  affect any parse).
-
-A `stale-claim` entry uses whichever of the above best describes the current truth, plus a note on
-what the original claim got wrong.
+- **From a C# file or Rust module:** grep this folder's `## C# site` / `## Rust site` lines, or use
+  `by-module.md`.
+- **From the status table below:** every entry is listed with both sites, kind, status and pinning
+  fixture in one row.
 
 ## Status table
 
 | id | title | kind | status | C# site | Rust site | pinning fixture/test |
 |---|---|---|---|---|---|---|
-| 001 | [Analysis syntactic-FS fold: Add vs PriorityUnion](001-ana-syn-fs-add-vs-priority-union.md) | behavioural | superseded | `AnalysisAffixProcessRule.cs`/`AnalysisCompoundingRule.cs` (`.Add`) | `pg-rules/src/morph.rs::ana_syn_fs` | `pg-rules/tests/analysis_syn_fs_gate.rs` |
-| 002 | [Analysis syntactic-FS fold: exact inverse of synthesis](002-ana-syn-fs-exact-inverse.md) | behavioural | open | `AnalysisSyntacticFeatureMerge.cs` (research-only `Exact` mode, unmerged) | `pg-rules/src/morph.rs::ana_syn_fs` (main, `149f88df`) | `pg-parse/tests/exact_analysis_fs_recall.rs` |
-| 003 | [Compounding homophone-disjunction collapse](003-compounding-homophone-collapse.md) | behavioural | fixed-in-rust | `SynthesisCompoundingRule.ApplySubrule` / `Word` copy ctor | `pg-rules/src/morph.rs::synth_compound_subrule` | `csharp_port_compounding.rs::simple_rules_1_homophone_disjunction_finding` |
-| 004 | [`Word::current_non_head()` index vs last-element](004-current-non-head-index.md) | behavioural | fixed-in-rust | `Word.CurrentNonHead` (Word.cs) | `pg-rules/src/word.rs::current_non_head` | `csharp_port_generation.rs::direct_api_compounding_two_non_heads_resolve_distinct_slots` |
-| 005 | [Prefix-commutes-with-compounding misdiagnosis](005-prefix-compounding-misdiagnosis.md) | stale-claim | not-a-bug | `AnalysisCompoundingRule.Apply` | `pg_rules::morph::resolve_non_head_roots` | `csharp_port_compounding.rs::simple_rules_3_prefix_commutes_with_compounding` |
-| 006 | [Discontinuous-morph environment anchoring (W3.3)](006-discontinuous-morph-env-anchor.md) | behavioural | fixed-in-rust | `Word.GetMorphs`/`MarkMorphs` (Word.cs) | `pg-rules/src/validity.rs`, `pg-rules/src/morph.rs::attribute_morphs` | `machine/conformance/edge-cases/discontinuous-morph-environment` |
-| 007 | [`ModifyFromInput` char-def staleness](007-modify-from-input-char-def-staleness.md) | behavioural | fixed-in-rust | `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs` | `pg-rules/src/morph.rs::copy_part` | `csharp_port_affix_process.rs::simulfix_rules`/`modify_from_input_rules` |
-| 008 | [Morph-attribution drop on input-morph subsumption](008-morph-attribution-subsumption.md) | behavioural | fixed-in-rust | `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`, `MarkSubsumedMorph`/`MarkMorph` | `pg-rules/src/morph.rs::attribute_morphs` | `csharp_port_affix_process.rs::subsumed_affix_findings` |
-| 009 | [Analysis-side `char_def` staleness in rewrite rules](009-ana-feature-char-def-staleness.md) | behavioural | fixed-in-rust | `CharacterDefinitionTable.GetMatchingStrReps` | `pg-rules/src/rewrite.rs::ana_feature` | `csharp_port_rewrite.rs::common_feature_rules`/`boundary_rules` |
-| 010 | [Root lookup needs unification, not char-def identity, on feature-bearing tables](010-anchor-rules-root-unification.md) | behavioural | fixed-in-rust | `CharacterDefinitionTable.Add`/`FeatureStruct.IsUnifiable` | `pg-grammar/src/chardef.rs` (`unif_closure`), `pg-parse/src/root_trie.rs`, `pg-parse/src/surface.rs` (`matching_reps_for_node`) | `csharp_port_rewrite.rs::anchor_rules`; `conformance-staging/edge-cases/segment-natural-class-table-binding` (2026-09-02 update) |
-| 011 | [Missing word-initial epenthesis synthesis site](011-epenthesis-word-initial-site.md) | behavioural | fixed-in-rust | `SynthesisRewriteRuleSpec` pattern walk | `pg-rules/src/rewrite.rs::syn_epenthesis` | `pg-rules/tests/rewrite_gate.rs::epenthesis_synthesis_word_initial_site` |
-| 012 | [RTL analysis direction inversion for multi-node targets](012-epenthesis-rtl-direction-inversion.md) | behavioural | fixed-in-rust | `PatternNode.GenerateNfa` | `pg-rules/src/rewrite.rs::compile_lane_fst` | `pg-rules/tests/rewrite_gate.rs::epenthesis_analysis_multi_node_target_matches_document_order` |
-| 013 | [Boundary node counted as a spurious epenthesis site](013-epenthesis-boundary-spurious-site.md) | behavioural | fixed-in-rust | `SynthesisRewriteRuleSpec.cs:26-29` (empty-LHS pattern) | `pg-rules/src/rewrite.rs::syn_epenthesis` | `csharp_port_rewrite.rs::epenthesis_rules` |
-| 014 | [Iterative epenthesis cascading](014-iterative-epenthesis-cascading.md) | behavioural | fixed-in-rust | `IterativePhonologicalPatternRule.Apply` / `EpenthesisSynthesisRewriteSubruleSpec.ApplyRhs` | `pg-rules/src/rewrite.rs::syn_epenthesis` | `csharp_port_rewrite.rs::epenthesis_rules_iterative_cascade_finding`; `epenthesis_rules_iterative_rtl_self_feed_declines_the_word`; `machine/conformance/edge-cases/iterative-epenthesis-cascade` |
-| 015 | [Deletion-composition loses candidates behind an interposed Optional](015-deletion-composition-optional-interposed.md) | behavioural | fixed-in-rust | `FeatureAnalysisRewriteRuleSpec.cs:48,68-71` (`Group`) | `pg-rules/src/rewrite.rs::ana_feature` (`compile_lane_fst_grouped`) | `csharp_port_rewrite.rs::multiple_segment_rules_deletion_composition_finding` |
-| 016 | [`RewriteMode::Simultaneous` real semantics](016-simultaneous-rewrite-mode.md) | behavioural | fixed-in-rust | `SimultaneousPhonologicalPatternRule.Apply` | `pg-rules/src/rewrite.rs::sim_feature` | `machine/conformance/edge-cases/simultaneous-feeding` + `-control-iterative` |
-| 017 | [RTL + bounded quantifier: shallow-reverse mirror risk](017-rtl-bounded-quantifier-shallow-reverse.md) | behavioural | open | (no C# equivalent path; structural risk in the Rust FST builder) | `pg-foma/src/replace.rs::reversed_slots`, `compile_rtl_branch_net` | none — unreproduced by design |
-| 018 | [Realizational-FS diff: failed unify nulls the FS in C#, kept in Rust](018-realizational-fs-diff-null-avoidance.md) | behavioural | open | `Word.ExpandAlternatives`/`FeatureStruct.Unify` (Word.cs:515-524) | `pg-rules/src/word.rs::expand_alternatives` | [machine#510](https://github.com/sillsdev/machine/issues/510); no fixture yet |
-| 019 | [Root-allomorph trie previously mis-indexed pattern allomorphs](019-root-trie-pattern-indexing.md) | behavioural | fixed-in-rust | `Morpher.cs:39-47` (partition of pattern vs. non-pattern allomorphs) | `pg-parse/src/root_trie.rs::RootAllomorphTrie::build` | (see module doc; no dedicated named test found — unverified beyond the doc comment) |
-| 020 | [Bounded `Quantifier` spanning a whole LHS/RHS: silently inert, not refused](020-bounded-quantifier-whole-pattern-unsupported.md) | unported | wont-fix | rule-spec constructors (cast every LHS/RHS child to a non-quantifier type; throws on load) | `pg-rules/src/rewrite.rs::width_matches` and callers | none |
-| 021 | [Guesser FFI symbols could return an unmarked guessed analysis](021-guesser-ffi-unmarked-overclaim.md) | behavioural | fixed-in-rust | (no C# equivalent — FFI-boundary-only defect) | `pg_lexicon::analysis`, `hc_parse_word`/`hc_parse_batch` | `docs/hermitcrab-rust-port-audit.md` §3a |
-| 022 | [`Morpher.MaxStemCount`: hardcoded then made configurable](022-max-stem-count-configurable.md) | representational | fixed-in-rust | `Morpher.cs:56,72` | `pg-parse/src/morpher.rs::Morpher::with_max_stem_count` | `csharp_port_compounding.rs` (`SimpleRules` final reconfiguration) |
-| 023 | [`AnalysisStateKey` representation: interned ids vs live references](023-analysis-state-key-representation.md) | representational | moot (045) | `AnalysisStateKey.cs:26-34` | _(removed from Rust — `pg-memo` deleted)_ | none — structural, not test-pinned |
-| 024 | [Analysis memo key saturates unapplication counts; C# does not](024-memo-key-count-saturation.md) | representational | open | `AnalysisStateKey.cs:14-34` | `pg-rules/src/stratum.rs::state_key` (reader is now the merge fold) | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` |
-| 025 | [Two in-flight re-entrancy guards where C# has one](025-two-in-flight-guards.md) | representational | moot (045) | `AnalysisScope.cs:56-60` (`InProgress`) | _(removed from Rust — `pg-memo` deleted)_ | none — claimed correctness-neutral by construction |
-| 026 | [Syntactic-domain feature structures are provably variable-free; phonological variables live in a separate mechanism](026-featstruct-variable-domain-split.md) | representational | open | `FeatureValue`/`SimpleFeatureValue` (shared variable machinery for both domains) | `pg-featstruct/src/{tree,ops}.rs` vs `pg-rules/src/rewrite.rs` (`bind_or_check`) | none — argued sound by construction in `ops.rs`'s module doc |
-| 027 | [Guesser matcher bypasses the FST engine, and is bug-compatible with C#'s single-owning-entry fabrication](027-guesser-bypasses-fst.md) | representational | open | `Morpher.MatchNodesWithPattern`/`Morpher.LexicalGuess` (Morpher.cs:522-625) | `pg-parse/src/guess.rs` | `pg-parse/src/guess.rs` unit tests (ported from `MorpherTests.TestMatchNodesWithPattern`) |
-| 028 | [Confirmation-free accuracy screen: an unmeasured-until-now soundness hazard](028-confirmation-free-accuracy-hazard.md) | efficiency | open | (no C# equivalent — Rust-only evaluation harness) | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | `parity_divergence_census.rs`; `candidate_only_identities` measured 0 on current fixtures |
-| 029 | [Declared morpheme tags can vanish from the compiled lexc alphabet at depth](029-lexc-tag-alphabet-vanishing.md) | unported | open | (no C# equivalent — Rust-only foma compilation path) | `pg_foma::emit` (`verify_tags_reachable`) | `EmitReport::uncovered` (`kind: "unreachable-after-lexc-compile"`) |
-| 030 | [Disjunctive-allomorph / free-fluctuation re-check (W3.2), formerly deferred](030-disjunctive-recheck-w32.md) | behavioural | fixed-in-rust | `Allomorph.IsWordValid`'s second loop (Allomorph.cs:127-152) | `pg-rules/src/validity.rs` (`allomorphs_valid_impl`, `MorphRecord::passed_over`) | `machine/conformance/edge-cases/disjunctive-recheck/`, `pg-parse/tests/disjunctive_recheck_gate.rs` |
-| 031 | [Analysis cascade memoization](031-analysis-cascade-memo.md) | efficiency | superseded by 045 | `AnalysisStratumRule / AnalysisScope` | _(removed from Rust)_ | See entry: describes the pre-removal state |
-| 032 | [Template-battery memoization](032-template-battery-memo.md) | efficiency | superseded by 045 | `AnalysisAffixTemplatesRule / AnalysisScope` | _(removed from Rust)_ | See entry: describes the pre-removal state |
-| 033 | [Final-template analysis pruning](033-final-template-pruning.md) | efficiency | open (safety evidence); #491 merged | `AnalysisStratumRule / Word.FinalTemplateState` | `pg-rules/src/stratum.rs final-template policy` | `final_template_pruning_gate`; see entry: implementation, fixture and evidence status are separate |
-| 034 | [Stratum analysis-state merging](034-stratum-merge-equivalence.md) | behavioural | open in part; #493 merged | `AnalysisStratumRule.MergeEquivalentAnalyses / AnalysisAffixTemplateRule` | `pg-rules/src/stratum.rs analysis merge and analyze_template` | See entry: implementation, fixture and evidence status are separate |
-| 035 | [Template/slot feature collisions and widening](035-template-slot-fs-collisions.md) | behavioural | open | `AnalysisAffixTemplatesRule / AnalysisAffixTemplateRule` | `pg-rules/src/stratum.rs::run_template_batch_raw / apply_slot_batch` | See entry: implementation, fixture and evidence status are separate |
-| 036 | [Zero-width morpheme identity preservation](036-zero-width-morpheme-identity.md) | behavioural | open | `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs / MarkMorph` | `pg-rules/src/morph.rs::attribute_morphs` | See entry: implementation, fixture and evidence status are separate |
-| 037 | [Oracle annotation ordering instability](037-oracle-annotation-ordering.md) | behavioural | open | `BidirList / tied-node annotation ordering (suspected)` | `pg-parse oracle comparison dependency; no BidirList port claim` | See entry: implementation, fixture and evidence status are separate |
-| 038 | [Edge-segment prefilter](038-edge-segment-prefilter.md) | efficiency | optimized-in-rust | `AnalysisAffixProcessAllomorphRuleSpec candidate matching` (PR #574) | `pg-rules/src/morph/edge_prefilter.rs::AnalysisLhs::edge_rejects` | `edge_prefilter_gate::the_prefilter_keeps_every_analysis_and_trace_and_saves_matcher_work`; `morph::edge_prefilter::tests` |
-| 039 | [fwdata circumfix conditioning encoding](039-fwdata-circumfix-conditioning-encoding.md) | behavioural | fixed-in-rust | `HCLoader.LoadCircumfixAffixProcessAllomorph` (FieldWorks) | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `pg-grammar/tests/circumfix_conditioning_parity.rs::circumfix_cross_product_with_conditioned_halves_parses_all_four_cells`; `conformance-staging/edge-cases/circumfix-conditioned-halves` pins the HCLoader shape on the XML-authored path |
-| 040 | [FST rewrite/metathesis compilation was blind to cross-table shared representations](040-fst-cross-table-representation-aliasing.md) | behavioural | fixed-in-rust | (no C# equivalent — no FST precompilation stage exists) | `pg-foma/src/replace.rs` (`SegAlphabet::render_tokens`, `RepresentationAliasMap`, `compile_rewrite_rule_subset`, `compile_metathesis_swap_net`) | `two-table-shared-representation-recall`, `multi-table-metathesis-shared-representation` |
-| 041 | [Oracle-side (`pg-rules`) phonological/metathesis/allomorph resolution defaulted to table 0](041-oracle-table-zero-default.md) | behavioural | fixed-in-rust | `Stratum.CharacterDefinitionTable` (`Stratum.cs:95`) | `pg-rules/src/cache.rs` (`owning_table_for_*`), `pg-rules/src/metathesis.rs`, `pg-rules/src/morph.rs`, `pg-rules/src/rewrite.rs` | `segment-natural-class-table-binding`, `multi-table-metathesis-shared-representation`, `pg-rules/src/cache.rs::owning_table_tests` |
-| 042 | [Metathesis relocation left a stale origin-table char-def identity at the surface-match gate](042-metathesis-relocation-stale-table-identity.md) | behavioural | fixed-in-rust | (no C# equivalent — HermitCrab has exactly one table per grammar) | `pg-rules/src/metathesis.rs::synthesis_reorder`, `pg-parse/src/morpher.rs::is_match_traced` | `multi-table-metathesis-shared-representation` |
-| 043 | [Synthesis-direction stratum reassignment diverged from hc.dll's surface rendering](043-synthesis-stratum-reassignment-reverted.md) | behavioural | reverted-in-rust | `SynthesisStratumRule.Apply`/`AnalysisStratumRule.Apply` (`Stratum.cs`) | `pg-rules/src/stratum.rs::synthesize_stratum_traced`, `pg-parse/src/morpher.rs::surface_of` | `two-table-shared-representation-recall` |
-| 044 | [RTL rewrite-rule FST construction refused `Segments`-shaped patterns entirely](044-rtl-segments-pattern-coverage.md) | unported | fixed-in-rust | (no C# equivalent — no FST-compilability gate exists) | `pg-foma/src/replace.rs` (`pattern_slots`, `compile_rtl_branch_net`), `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | `right-to-left-segments-environment`, `right-to-left-cross-table-segments-environment` |
-| 045 | [Analysis memoization removed from HC-Rust](045-memoization-removed.md) | behavioural under a budget | removed-in-rust | `AnalysisScope / AnalysisStateKey` | `pg-memo` deleted; `pg-rules/src/analysis_state_key.rs` keeps the merge key | `-Mode test` + `-Mode conformance-test -Scope all`; `docs/research/memo-sena-bisect.md` and four companion measurement docs |
-| 048 | [`batch --stats` parsed each HC word twice](048-batch-stats-single-parse.md) | efficiency | optimized-in-rust | none — `--stats` is Rust CLI-only | `pg-cli/src/main.rs::run_batch` / `parse_batch_with_stats`; `pg-cli/src/stats_cmd.rs::prepare_batch_stats_hc` / `finish_batch_stats_hc` | `stats_cmd::tests::batch_stats_parses_each_uncached_word_once`; `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options` |
-| 049 | [Copy-agreement pruning of reduplication matches](049-copy-agreement-prune.md) | efficiency | optimized-in-rust | `AnalysisMorphologicalTransform.HasDisagreeingCopies` / `CopyAgreementPatternRule` (PR #519) | `pg-rules/src/morph.rs::copy_agreement_refuses_match` | `csharp_port_affix_process.rs` copy-agreement tests; `stratum_gate.rs::copy_agreement_pruning_is_on_by_default`; Machine conformance `f412c252` |
-| 050 | [A part-of-speech-scoped deletion blocks metathesis analysis of other words](050-pos-scoped-deletion-blocks-metathesis.md) | behavioural (shared) | fixed-in-rust (open in C#) | `AnalysisRewriteRule` deletion unapplication / `AnalysisMetathesisRule` (Machine #520) | `pg-rules/src/metathesis.rs` `analyze_with_pattern` | `conformance-staging/edge-cases/pos-scoped-deletion-blocks-metathesis` (forward-derived; C# expected red) |
-| 051 | [Invalid snapshot environments refused the whole grammar](051-invalid-environment-loading.md) | behavioural (Rust loader) | open (fix-removed check recorded; C# replay pending) | FieldWorks `HCLoader.LoadRootAllomorph`, `GetValidEnvironments`, `IsValidRuleForm` | `pg-grammar/src/compile/environment.rs`, `affixes.rs` | `compile::tests::sample_invalid_environments_compile_with_warnings_and_preserve_parses`, mixed restriction and infix position tests (passed in integrator Windows run; corrected tests pending) |
-| 052 | [Independent inner-work allowance preserves analysis attempts](052-shared-search-work-cap.md) | behavioural | open | `TraversalMethodBase`, `Word.ExpandAlternatives`, `Morpher` | `pg-fst::work`, `StepBudget`, `Morpher` | synthetic FST/stratum/trie/alternative and parse gates; execution pending |
-| 053 | [Grouped ad hoc prohibitions were omitted from `.fwdata` imports](053-grouped-fwdata-adhoc-prohibitions.md) | behavioural | reverted-in-rust | `HCLoader.cs:340-350` (all concrete ad hoc prohibition repository instances) | `pg-fwdata/src/xml.rs::ALLOWED_CLASSES`; `extract/inventory.rs::class_role`; `extract/morphology.rs::extract_adhoc_prohibitions` | `pg-cli/tests/fwdata_conformance_gate.rs::grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics`; FieldWorks export at Machine conformance `18cf242f` (execution pending) |
-| 054 | [`.fwdata` word-boundary identity was inferred from a missing marker record](054-fwdata-reserved-word-boundary-guid.md) | behavioural | fixed-in-rust | `HCLoader.cs:2351/2489-2498,2698` (reserved GUID recognition and marker-table exclusion) | `pg-fwdata/src/extract/phonology.rs::resolve_phon_context` / `extract_phoneme_set` | `pg-cli/tests/reserved_word_boundary.rs::reserved_word_boundary_record_is_a_word_anchor_and_literal_hash_remains_literal`; staged word-boundary and literal-hash oracle fixtures |
-| 058 | [Repeated environment alpha variables lose agreement in HC-Rust](058-repeated-environment-alpha-agreement.md) | behavioural | fixed-in-rust | `Quantifier.GenerateNfa` / environment variable matching | `pg-rules/src/bridge.rs::pattern_var_occurrences`, `pg-rules/src/rewrite.rs::resolve_bindings` | twelve `quantified-alpha-*` fixtures and fix-removed tests; separate ambiguous-disagreement blocker recorded in entry |
+| 020 | [Bounded `Quantifier` spanning a whole LHS/RHS: silently inert, not refused](020-bounded-quantifier-whole-pattern-unsupported.md) | unported | permanent (wont-fix) | rule-spec constructors (cast every LHS/RHS child to a non-quantifier type; throws on load) | `pg-rules/src/rewrite.rs::width_matches` and callers | none |
+| 024 | [Analysis memo key saturates unapplication counts; C# does not](024-memo-key-count-saturation.md) | representational | permanent | `AnalysisStateKey.cs:14-34` | `pg-rules/src/stratum.rs::state_key` (reader is now the merge fold) | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` |
+| 026 | [Syntactic-domain feature structures are provably variable-free; phonological variables live in a separate mechanism](026-featstruct-variable-domain-split.md) | representational | permanent | `FeatureValue`/`SimpleFeatureValue` (shared variable machinery for both domains) | `pg-featstruct/src/{tree,ops}.rs` vs `pg-rules/src/rewrite.rs` (`bind_or_check`) | none — argued sound by construction in `ops.rs`'s module doc |
+| 027 | [Guesser matcher bypasses the FST engine, and is bug-compatible with C#'s single-owning-entry fabrication](027-guesser-bypasses-fst.md) | representational | permanent | `Morpher.MatchNodesWithPattern`/`Morpher.LexicalGuess` (Morpher.cs:522-625) | `pg-parse/src/guess.rs` | `pg-parse/src/guess.rs` unit tests (ported from `MorpherTests.TestMatchNodesWithPattern`) |
+| 028 | [Confirmation-free accuracy screen: an unmeasured-until-now soundness hazard](028-confirmation-free-accuracy-hazard.md) | efficiency | permanent | (no C# equivalent — Rust-only evaluation harness) | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | `parity_divergence_census.rs`; `candidate_only_identities` measured 0 on current fixtures |
+| 045 | [Analysis memoization removed from HC-Rust](045-memoization-removed.md) | behavioural under a budget | permanent (removed-in-rust) | `AnalysisScope / AnalysisStateKey` | `pg-memo` deleted; `pg-rules/src/analysis_state_key.rs` keeps the merge key | `-Mode test` + `-Mode conformance-test -Scope all`; `docs/research/memo-sena-bisect.md` and four companion measurement docs |
+| 052 | [Independent inner-work allowance preserves analysis attempts](052-shared-search-work-cap.md) | behavioural | permanent | `TraversalMethodBase`, `Word.ExpandAlternatives`, `Morpher` | `pg-fst::work`, `StepBudget`, `Morpher` | synthetic FST/stratum/trie/alternative and parse gates; execution pending ([#83](https://github.com/sillsdev/PanGloss/issues/83)) |
 | 059 | [Construct variants FieldWorks cannot author stay refused by the fast path](059-fieldworks-unauthorable-variants.md) | unported (fast path only) | permanent refusal; LT-22826, LT-22827 | `HCLoader.cs` (`LoadMetathesisRule`, affix-process loading); `AnalysisMetathesisRuleSpec.cs` | `pg-foma/src/capability/variants.rs::permanent_refusal_reason` | `pg-foma-backend/tests/conformance_coverage_gate.rs`; staged `realizational-reduplication-no-proposal-route` |
-| 065 | [A nullable environment is rejected at the word edge](065-nullable-rewrite-environment.md) | behavioural | fixed-in-rust | `RewriteRuleSpec.MatchSubrule` / accepting start state | `pg-rules/src/rewrite.rs::empty_env_match` | eight fix-removed `nullable_disagree_*` regressions and plain control; 144 oracle rows, full local conformance |
-| 066 | [Repeated alpha environments require optional FST proposals](066-repeated-alpha-environment-proposals.md) | representational | fixed-in-rust | `Quantifier.GenerateNfa` / environment matching | `pg-foma/src/lower.rs::PatternLowerScope`, `replace.rs::render_branch_regex` | three fix-removed regression tests; twelve oracle-recorded fixtures, 200 rows through each owning and templated pipeline |
-| 067 | [Ambiguous disagreement requires confirmed membership proposals](067-ambiguous-disagreement-proposals.md) | representational | fixed-in-rust | C# rewrite alpha binding / `RewriteRuleSpec.MatchSubrule` | `pg-foma/src/lower.rs::alpha_members`, `replace.rs::compile_rewrite_rule_subset` | confirmed-contract owner regression and seven backend fix-removed tests; 240 owning / 242 templated oracle rows; partial classes still refuse |
-| 068 | [Permanent refusal reasons for unauthorable rewrite variants](068-permanent-rewrite-variant-refusals.md) | representational | three owner refusals detected; two target gates pending | `Quantifier.GenerateNfa`, `PatternNodeCastExtensions`; FieldWorks `HCLoader` | `pg-foma/src/lower.rs::slots_from_nodes`, `replace.rs::owning_table` | three detection tests; C# records and FieldWorks evidence for five reasons |
-| 069 | [Analysis binds an alpha feature overwritten by the replacement](069-analysis-binds-overridden-alpha.md) | behavioural | fixed-in-rust | `FeatureAnalysisRewriteRuleSpec` priority-union and match bindings | `pg-rules/src/rewrite.rs::ana_feature_target` / `resolve_bindings` | four failing-first/revert-checked fixtures; 144 grammars, 2,304 parse rows and 2,304 observed synthesis pairs |
-| 070 | [Feature-defined classes in allomorph environments bind, where XAMPLE loses them](070-xample-feature-class-environment.md) | behavioural (XAMPLE) | deliberate; FieldWorks export defect LT-22825 | FieldWorks XAMPLE export (`FxtM3ParserToXAmpleADCtl.xsl`, `NatClassStringToHvo`); no C# difference | `pg-grammar/src/compile/environment.rs::load_environment_pattern` | staged `underdefined/06-feature-class`, `11-distinct-feature-class` |
-| 071 | [Literal rewrite unapplication needs StrRep identity](071-strrep-rewrite-unapplication.md) | behavioural (shared bug and Rust divergence) | accepted-upstream (Machine #538 merged, in pin `aab4c598`) | `FeatureAnalysisRewriteRuleSpec`, `StringFeatureValue` | `pg-rules::bridge`, `rewrite`; `pg-cli` GUID projection | staged `strrep-rewrite-unapplication`, named matcher/vacuity test, seven-word kad/kat comparison, Machine synthetic tests |
-| 072 | [Provisional letter units](072-provisional-letter-unit.md) | behavioural | open | `CharacterDefinitionTable.GetShapeNodes` | `pg-grammar/src/compile/substrate.rs::failing_letter`, `exemplar_letter` | grapheme, root/prefix ambiguity and control regressions; multigraph handling deferred; separate measurement lane |
-| 073 | [Provisional letters excluded from classes with conditions](073-provisional-letter-no-natural-class.md) | behavioural | open | `CharacterDefinitionTable.Add` / feature unification | `pg-grammar-model/src/membership.rs`, `segment.rs`; `pg-rules` bridges | provisional membership, wildcard and runtime environment regressions; separate measurement lane |
-| 074 | [Featureless phonemes excluded from classes requiring values](074-featureless-phoneme-no-feature-class.md) | behavioural | open; upstream discussion in sillsdev/machine#537 | `CharacterDefinitionTable.Add` / analysis-side feature unification | `pg-grammar-model/src/chardef.rs`, `membership.rs`, `segment.rs` | retained lists, unconstrained wildcard and runtime environment regressions; separate measurement lane |
-| 075 | [Provisional definitions always apply](075-provisional-definitions-always-on.md) | behavioural | open | `CharacterDefinitionTable.Segment` / FieldWorks HC loader | `pg-grammar/src/compile/mod.rs`, `options.rs` | parser-provenance matrix regression; separate measurement lane |
-| 076 | [Underdefined natural-class membership decision](076-underdefined-natural-class-membership-decision.md) | behavioural | deliberate divergence; upstream discussion open in sillsdev/machine#537 | constrained-class subsumption / analysis-side unification | `pg-grammar-model/src/membership.rs`, `segment.rs`; rule bridges and Foma owner calls | constrained/list membership, unconstrained wildcard, `chained-output-feature-override-loss:zudi`; separate-lane witnesses 07 and 12 |
-| 077 | [Missing natural classes drop the whole environment and produce Info](077-missing-natural-class-environment-info.md) | diagnostic | deliberate; no parse divergence | FieldWorks environment export / `HCLoader.InvalidEnvironment` | `pg-grammar/src/compile/mod.rs::Ctx::environment_resolution`; `pg-snapshot` diagnostic metadata | staged `underdefined/05-missing-class`; named whole-drop, repaired-control and Info regression |
-| 078 | [XAMPLE minimum: authored phonology outranks XAMPLE](078-xample-minimum-authored-phonology.md) | behavioural | deliberate under ADR 0008 | XAMPLE ignores authored phonology; FieldWorks/HC discard unreadable literal environments | fwdata compiler and authored phonology; `pg-cli/tests/underdefined_stored_keys_gate.rs` | seven exact minimum exceptions; twelve profile-v2 structured-identity/status tables |
-| 079 | [Partial explicit classes in ambiguous-disagreement proposals](079-partial-explicit-class-disagreement.md) | representational | fixed-in-rust | `RewriteRuleSpec.MatchSubrule`; FieldWorks `HCLoader` explicit segment-class members | `pg-foma/src/lower.rs::project_explicit_members`, `alpha_members`; `replace.rs::compile_rewrite_rule_subset` | six partial-class fixtures; 96 oracle rows per owning and templated pipeline; recall proof and revert-checked regressions |
-| 081 | [Inflectional process allomorphs require their classes](081-process-allomorph-inflection-classes.md) | behavioural (Rust loader) | fixed-in-rust; source-backed | FieldWorks `HCLoader.LoadAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_process_allomorph` | `pg-grammar/tests/process_allomorph_inflection_classes.rs`; ordinary and derivational controls |
-| 082 | [Inflectional circumfixes require the prefix half's classes](082-circumfix-prefix-inflection-classes.md) | behavioural (Rust loader) | fixed-in-rust; source-backed | FieldWorks `HCLoader.LoadCircumfixAffixProcessAllomorph` | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `pg-grammar/tests/circumfix_inflection_classes.rs`; suffix-only and unrestricted controls |
-| 083 | [Narrowing unapplication loses an RHS match across an interposed Optional](083-narrowing-interposed-optional-rhs.md) | behavioural (shared C#/Rust bug) | accepted-upstream (Machine #540 merged, in pin `aab4c598`) | `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply` target-node walk) | `pg-rules/src/rewrite.rs::ana_narrow_general`, `grouped_target_positions` | `conformance-staging/edge-cases/interposed-optional-multi-rhs/`; T4 baseline and fix replay |
-| 086 | [Grammar health reports stored analyses lost to authored phonology](086-stored-analyses-lost-to-authored-phonology.md) | diagnostic | deliberate XAMPLE difference; no new parse divergence | XAMPLE ignores authored phonology; ADR 0008 requires reporting stored analyses that no longer parse | `pg-fwdata` stored-analysis extraction; `pg-cli/src/stored_analysis_health.rs`; `pg-parse` traced synthesis | staged 08 and 12 cases; control, unattributed, and synthesis-cap regressions; revert checks and final gates in lane report |
-| 087 | [Narrowing unapplication unions the LHS into the matched RHS nodes](087-narrowing-union-unapplication.md) | optimization (argued parse-preserving) | open; implemented in Rust; Machine #539 merged as a different (zipper) variant | `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply`) | `pg-rules/src/rewrite.rs::ana_narrow_general`, `union_narrowing_node` | 14 narrowing fixtures (5 forward-derived, 9 C#-master-observed); C# Amharic 587/587 parse-set identity |
-| 088 | [Grammar health compared stored analyses serially and import repeated provenance work](088-grammar-health-parallel-comparison-and-import-bookkeeping.md) | efficiency | optimized-in-rust | none — grammar health and the importer are Rust CLI facilities | `pg-cli/src/stored_analysis_health.rs::check_with_options`; `pg-fwdata/src/extract/mod.rs::extract_with`, `pg-fwdata/src/xml.rs`; `pg-snapshot/src/conversion.rs::has_load_decision` | `stored_analysis_comparison_is_identical_at_every_thread_count`; `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count` (renamed by 089); `has_load_decision_matches_a_scan_of_every_recorded_decision`; `duplicate_guid_issues_name_every_occurrence_in_first_occurrence_order` |
-| 089 | [Grammar health finishes when a stored-analysis comparison cannot](089-grammar-health-bounded-stored-analysis-comparison.md) | diagnostic | no parse divergence | none — grammar health is a Rust CLI facility | `pg-cli/src/stored_analysis_health.rs::check_with_options`, `compare_words_in_order`, `compare_word`; `pg-cli/src/grammar_health.rs` | `grammar_health_reports_a_capped_wordform_and_compares_the_rest`; `stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count`; `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count`; `grammar_health_stored_analyses_flag_selects_the_comparison` |
-| 090 | [Morphological and allomorph-environment matching lost segment identity on wide featureless tables](090-wide-table-morph-identity.md) | behavioural | fixed-in-rust | `Allomorph.cs` (`IsWordValid` environment clause); `AffixProcessRule` synthesis and analysis `Lhs` | `pg-rules/src/morph.rs::segs_of`, `compile_parts`, `build_analysis_lhs`; `pg-rules/src/rewrite.rs::compile_env_impl`; `pg-rules/src/bridge.rs::id_lane_width` | `slotted_left_environment_survives_a_large_letter_inventory`; `unslotted_left_environment_survives_a_large_letter_inventory`; `analysis_suffix_literal_matches_only_itself_on_a_large_letter_inventory`; `wide_featureless_suffix_requires_both_literal_segments` |
-| 091 | [Featured grammars lost segment identity in allomorph and rewrite environments](091-featured-segment-identity.md) | behavioural | fixed-in-rust | `Allomorph.cs` (`IsWordValid` environment clause); rewrite-rule environment matching | `pg-rules/src/bridge.rs::StrRepMatcher::identity`; `pg-rules/src/morph.rs::segs_of`, `compile_parts`; `pg-rules/src/rewrite.rs::compile_env_impl`, `MutShape::segs` | `featured_suffix_environment_names_a_segment_on_a_wide_table`; `featured_rewrite_environment_names_a_segment_on_a_wide_table`; `rewrite_identity_holds_at_exactly_64_and_65_char_defs` |
-| 092 | [Compounding analysis trace nodes: `CompoundingRuleAnalysis` with the subrule index where C# master emits `MorphologicalRuleAnalysis`](092-compounding-analysis-trace-node-shape.md) | diagnostic | open | `AnalysisCompoundingRule.cs::Apply` (cs:156, 161-162); `TraceManager.cs` | `pg-rules/src/morph.rs::ana_compound_traced`; `pg-rules/src/trace.rs` (`compounding_rule_not_unapplied`, `compounding_rule_unapplied`) | `compound_analysis_attempts_keep_owner_reason_and_subrule`; `prod_restrict_rule_traces_non_head_rejections_as_csharp_does` |
-| 093 | [`Morpher.DeletionReapplications` was never read: deletion unapplication always ran one pass](093-deletion-reapplications.md) | behavioural | fixed-in-rust | `AnalysisRewriteRule.cs::Apply` (`ReapplyType.Deletion`); `Morpher.cs` (`DeletionReapplications`); FieldWorks `HCParser.cs` (`DelReapps`) | `pg-rules/src/rewrite.rs::reapply_deletion`; `pg-fwdata/src/parser_params.rs`; `pg-grammar/src/compile/mod.rs` | `deletion_rules_deletion_reapplications`; `del_reapps_is_read_from_the_hc_element_and_defaults_to_zero`; `deletion_reapplications_parser_parameter_reaches_the_grammar` |
-| 094 | [FieldWorks `<HC><MaxRoots>` was never read: every project compounded at most two stems](094-hc-max-roots.md) | behavioural | fixed-in-rust | FieldWorks `HCParser.cs::LoadParser` (`MaxRoots`); `Morpher.cs` (`MaxStemCount`); `AnalysisCompoundingRule.cs:45` | `pg-fwdata/src/parser_params.rs::hc_max_roots`; `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs::Morpher::new` | `simple_rules_4_three_root_compound_from_grammar_max_stem_count`; `hc_max_roots_is_read_from_the_hc_element_apart_from_xample_max_roots`; `max_roots_parser_parameter_reaches_the_grammar_and_defaults_to_two` |
-| 095 | [The untraced affix-template battery runs a slot batch once for every template that shares it](095-shared-template-slot-batches.md) | optimization (argued parse-preserving) | optimized-in-rust | `AnalysisAffixTemplateRule.cs` (`Apply`, `ApplySlots`) | `pg-rules/src/stratum.rs::shared_slot_battery`, `walk_slot_trie`, `SlotTrie` | `shared_walk_matches_every_templates_own_walk_in_order`; `untraced_battery_runs_a_shared_slot_batch_once` |
-| 096 | [FieldWorks `<HC><MergeAnalyses>` was never read: analyses were always merged](096-hc-merge-analyses.md) | behavioural | fixed-in-rust | FieldWorks `HCParser.cs::LoadParser` (`MergeAnalyses`); `AnalysisStratumRule.cs:132` (`MergeEquivalentAnalyses`) | `pg-fwdata/src/parser_params.rs::hc_parser_bool`; `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs::Morpher::new` | `merge_analyses_off_from_the_grammar_keeps_the_analyses_and_stops_folding`; `merge_analyses_is_read_from_the_hc_element_and_defaults_to_true`; `merge_analyses_parser_parameter_reaches_the_grammar` |
-| 097 | [FieldWorks `<HC><MaxAlternatives>` is a documented PanGloss parity exception](097-hc-max-alternatives.md) | behavioural | accepted-divergence | FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`); `Morpher.cs` (`Synthesize*`), `AnalysisStratumRule.cs`, rule cascades | `pg-fwdata/src/parser_params.rs` (setting omitted); `pg-parse/src/morpher.rs` (separate resource caps and incomplete outcomes) | `pg-conformance-fixtures` unsupported-setting and incomplete-result tests; no positive-value parity fixture by design |
-| 098 | [FieldWorks `<HC><GuessRoots>` was never read; PanGloss guessed only on `--guess`](098-hc-guess-roots.md) | behavioural | fixed-in-rust | FieldWorks `HCParser.cs` (ctor, `LoadParser`, `ParseWord`); `Morpher.cs` (`ParseWord` guess branch, `LexicalGuess`) | `pg-fwdata/src/parser_params.rs::hc_parser_bool`; `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs` (`Morpher::new`, `project_parse_options`, guess branch); `pg-parse/src/parse_morph.rs`; `pg-cli` `--guess[=true\|false]` | `the_grammar_guess_roots_setting_is_the_morpher_default_and_parse_word_never_guesses`; `guessed_is_false_when_the_guess_branch_finds_nothing`; `guessing_without_a_lexical_pattern_changes_nothing`; `a_project_guesses_roots_by_default_without_changing_the_batch_tsv_layout`; `an_explicit_guess_flag_overrides_the_project_and_alone_adds_the_guessed_column` |
-| 099 | [FieldWorks `<HC><MergeMSAs>` was never read: equal MSAs loaded as separate morphemes](099-hc-merge-msas.md) | behavioural | fixed-in-rust | FieldWorks `HCParser.cs` (`LoadParser`, `RepresentativeMSAHvo`); `HCLoader.cs` (`RepresentativeMSA`, `UniqueMSAs`, sites cs:652-922, 2265); `ParseResult.cs` (`MatchesIWfiAnalysis`); liblcm `EqualsMsa` | `pg-fwdata/src/extract/msa_equality.rs`; `pg-fwdata/src/parser_params.rs`; `pg-grammar/src/compile/msa_merge.rs`, `lexicon.rs`, `mod.rs`; `pg-cli/src/stored_analysis_health.rs`; `pg-parse/src/source_identity.rs` | `pg-fwdata` `extract::msa_equality::tests`, `merge_msas_is_read_from_the_hc_element_and_defaults_to_true`, `imported_equal_msas_merge_into_the_sense_bearing_one`; `pg-grammar/tests/merge_msas.rs`; `pg-parse/tests/merge_msas_conformance.rs` (Rust-only project fixture); `stored_analysis_naming_a_merged_msa_matches_its_representatives_parse`; `a_merged_msa_resolves_through_its_representative` |
-| 100 | [A malformed HCLoader boolean is a warning in PanGloss but loads no parser in FieldWorks](100-hc-loader-booleans-warn.md) | diagnostic | open; not changed | FieldWorks `HCLoader.cs` ctor (`NotOnClitics`, `NoDefaultCompounding`, `AcceptUnspecifiedGraphemes`) | `pg-fwdata/src/parser_params.rs::hc_bool` | none |
-| 101 | [FieldWorks `<HC><MakePartialsFinal>` was never read: final templates were enforced only by a CLI flag](101-hc-make-partials-final.md) | behavioural | fixed-in-rust | FieldWorks `HCParser.cs::LoadParser` (`MakePartialsFinal`); `Morpher.cs` (`AlwaysEnforceFinalTemplates`) | `pg-fwdata/src/parser_params.rs::hc_parser_bool`; `pg-grammar/src/compile/mod.rs`; `pg-parse/src/morpher.rs::Morpher::new`; `pg-cli/src/main.rs` (`run_batch`) | `partial_rule`; `project_make_partials_final_reaches_batch_and_an_explicit_flag_overrides_it`; `make_partials_final_is_read_from_the_hc_element_and_defaults_to_false`; `make_partials_final_parser_parameter_reaches_the_grammar` |
-| 102 | [Clitic rules and blocking strata (Machine #529) were unported](102-clitic-rules-and-blocking-strata.md) | unported | fixed-in-rust | `MorphemicMorphologicalRule.cs` (`GetIsCliticRule`); `Morpher.cs` (`IsBlockingStratum`); `AnalysisStratumRule.cs`, `SynthesisStratumRule.cs`, `SynthesisAffixTemplatesRule.cs`, `AnalysisAffixProcessRule.cs`, `SynthesisAffixProcessRule.cs`; `XmlLanguageLoader.cs` (`isCliticRule`) | `pg-grammar-model/src/model.rs::affix_rule_is_clitic`, `is_blocking_stratum`; `pg-rules/src/stratum.rs`; `pg-rules/src/morph.rs::synth_affix`; `pg-grammar/src/load.rs::parse_is_clitic_rule` | `machine/conformance/edge-cases/clitic-rule-designation`; `non_clitic_state_crosses_a_non_blocking_stratum_and_prunes_its_final_template`; `is_clitic_rule_refuses_a_non_boolean_value` |
-| 103 | [A re-inserted segment-class node had no identity on a featureless grammar](103-class-deletion-reinsertion-identity.md) | behavioural | fixed-in-rust | `NarrowAnalysisRewriteRuleSpec.cs::Unapply`; `SegmentNaturalClass.cs`; `RootAllomorphTrie.cs` | `pg-rules/src/rewrite.rs::with_class_identity`; `pg-parse/src/root_trie.rs::search_segs_ident`, `edge_in_identity` | `a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar`; `a_char_def_less_query_node_with_an_identity_takes_only_member_edges`; `two_reinserted_class_nodes_retain_members_and_exclude_other_roots` |
-| 104 | [Expansion unapplication loses an RHS match across an interposed Optional](104-expansion-interposed-optional-rhs.md) | behavioural | fixed-in-rust | `NarrowAnalysisRewriteRuleSpec.cs` (`Unapply`; C# is exact) | `pg-rules/src/rewrite.rs::ana_narrow_general`, `build_prule_cache` | `conformance-staging/edge-cases/interposed-optional-expansion-rhs/` |
-| 105 | [Lexical-lookup alternatives are replayed against stem-name and MPR gates before synthesis](105-lookup-replay.md) | efficiency | optimized-in-rust | `Morpher.IsPrunedByLookupReplay`; `LookupReplay.IsMprFeasible` (PR #570) | `pg-parse/src/lookup_replay.rs::LookupReplay::is_feasible` | `lookup_replay_gate::the_replay_keeps_every_analysis_and_saves_synthesis_work` |
-| 109 | [The affix-template walk drops a partial whose required slot can no longer find its material](109-required-slot-lookahead.md) | optimization (argued parse-preserving) | optimized-in-rust | `AnalysisAffixTemplateRule.cs` (`Apply`, `ApplySlots`); `RequiredSlotMaterial.cs` (Machine #575) | `pg-rules/src/required_slots.rs`, `pg-rules/src/stratum/required_slot_check.rs`, `stratum.rs::template_unapply_slots` | `required_slot_lookahead_tests`; `required_slot_shadow_gate` |
-| 110 | [The shared template walk carries a per-template dead mask for the required-slot look-ahead](110-shared-walk-dead-mask.md) | optimization (argued parse-preserving) | optimized-in-rust | `AnalysisAffixTemplatesRule.cs` (`Walk`, `WalkState`; Machine #577) | `pg-rules/src/stratum.rs::walk_slot_trie`, `TrieWalk`; `pg-rules/src/stratum/required_slot_check.rs::shared_look_ahead` | `the_shared_walk_gives_each_template_its_own_walks_outputs_with_the_look_ahead`; `a_dead_template_stops_collecting_while_its_siblings_share_the_walk_on` |
-| 111 | [The required-slot look-ahead tests order, edges and one-node-per-slot as well as presence](111-ordered-required-slot-lookahead.md) | optimization (argued parse-preserving) | optimized-in-rust | `RequiredSlotMaterial.cs` (`SlotWalk`, `Embeds`; Machine #576) | `pg-rules/src/required_slots.rs`, `pg-rules/src/required_slots/embed.rs`, `morph.rs::inserted_material` | `required_slot_order_tests` |
-| 112 | [A slot whose unmatched parts are unbounded runs counts as pure for the required-slot look-ahead](112-unbounded-run-purity.md) | optimization (argued parse-preserving) | optimized-in-rust | `RequiredSlotMaterial.cs` (`IsPureAllomorph`, `RestoredSegments`; Machine #579) | `pg-rules/src/required_slots.rs::is_pure_allomorph`, `restored_segments` | `a_slot_deleting_an_unbounded_run_restores_nothing_so_the_look_ahead_goes_on` |
-| 113 | [Analysis-selected affix allomorphs guide synthesis](113-analysis-allomorph-confirmation.md) | efficiency | optimized-in-rust | `AnalysisAffixProcessRule`, `SynthesisAffixProcessRule`, `Word` | `pg-rules/src/morph.rs`, `stratum.rs`, `word.rs` | `synthesis_stops_after_the_analysis_allomorph`; `earlier_allomorph_is_checked_but_not_emitted`; `earlier_unconstrained_allomorph_blocks_the_recorded_allomorph` |
-| 114 | [Realizational rule synthesis application cap](114-realizational-synthesis-cap.md) | behavioural | fixed-in-rust | `SynthesisRealizationalAffixProcessRule` | `pg-rules/src/morph.rs`, `word.rs` | `realizational_rule_synthesizes_at_most_once_per_word`; `cached_realizational_synthesis_stops_after_first_application` |
-| 115 | [Alpha-variable environment matching loses alternatives](115-alpha-environment-gap.md) | behavioural | fixed-in-rust | `RewriteRuleSpec.MatchSubrule` | `pg-rules/src/rewrite.rs::resolve_bindings` | `pg-rules/tests/alpha_gate.rs`: optional candidates, shared and repeated bindings, bounded-work pruning; Mbugwe C# comparison |
-| 116 | [FST alpha-variable environment support](116-fst-alpha-environment-gap.md) | correctness/representability | open; broken until the alpha variable FST fix | `RewriteRuleSpec.MatchSubrule` | `pg-foma`, `pg-foma-backend` | `alpha_environment_refuses_all_real_compilers_and_the_selector`; `alpha_environment_refusal_is_a_representability_failure` |
+| 070 | [Feature-defined classes in allomorph environments bind, where XAMPLE loses them](070-xample-feature-class-environment.md) | behavioural (XAMPLE) | permanent; FieldWorks export defect LT-22825 | FieldWorks XAMPLE export (`FxtM3ParserToXAmpleADCtl.xsl`, `NatClassStringToHvo`); no C# difference | `pg-grammar/src/compile/environment.rs::load_environment_pattern` | staged `underdefined/06-feature-class`, `11-distinct-feature-class` |
+| 076 | [Underdefined natural-class membership decision](076-underdefined-natural-class-membership-decision.md) | behavioural | permanent; upstream discussion open in sillsdev/machine#537 | constrained-class subsumption / analysis-side unification | `pg-grammar-model/src/membership.rs`, `segment.rs`; rule bridges and Foma owner calls | constrained/list membership, unconstrained wildcard, `chained-output-feature-override-loss:zudi`; separate-lane witnesses 07 and 12 |
+| 077 | [Missing natural classes drop the whole environment and produce Info](077-missing-natural-class-environment-info.md) | diagnostic | permanent; no parse divergence | FieldWorks environment export / `HCLoader.InvalidEnvironment` | `pg-grammar/src/compile/mod.rs::Ctx::environment_resolution`; `pg-snapshot` diagnostic metadata | staged `underdefined/05-missing-class`; named whole-drop, repaired-control and Info regression |
+| 078 | [XAMPLE minimum: authored phonology outranks XAMPLE](078-xample-minimum-authored-phonology.md) | behavioural | permanent under ADR 0008 | XAMPLE ignores authored phonology; FieldWorks/HC discard unreadable literal environments | fwdata compiler and authored phonology; `pg-cli/tests/underdefined_stored_keys_gate.rs` | seven exact minimum exceptions; twelve profile-v2 structured-identity/status tables |
+| 086 | [Grammar health reports stored analyses lost to authored phonology](086-stored-analyses-lost-to-authored-phonology.md) | diagnostic | permanent; no new parse divergence | XAMPLE ignores authored phonology; ADR 0008 requires reporting stored analyses that no longer parse | `pg-fwdata` stored-analysis extraction; `pg-cli/src/stored_analysis_health.rs`; `pg-parse` traced synthesis | staged 08 and 12 cases; control, unattributed, and synthesis-cap regressions; revert checks and final gates in lane report |
+| 089 | [Grammar health finishes when a stored-analysis comparison cannot](089-grammar-health-bounded-stored-analysis-comparison.md) | diagnostic | permanent; no parse divergence | none — grammar health is a Rust CLI facility | `pg-cli/src/stored_analysis_health.rs::check_with_options`, `compare_words_in_order`, `compare_word`; `pg-cli/src/grammar_health.rs` | `grammar_health_reports_a_capped_wordform_and_compares_the_rest`; `stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count`; `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count`; `grammar_health_stored_analyses_flag_selects_the_comparison` |
+| 097 | [FieldWorks `<HC><MaxAlternatives>` is a documented PanGloss parity exception](097-hc-max-alternatives.md) | behavioural | permanent (accepted-divergence) | FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`); `Morpher.cs` (`Synthesize*`), `AnalysisStratumRule.cs`, rule cascades | `pg-fwdata/src/parser_params.rs` (setting omitted); `pg-parse/src/morpher.rs` (separate resource caps and incomplete outcomes) | `pg-conformance-fixtures` unsupported-setting and incomplete-result tests; no positive-value parity fixture by design |
 
-$R049
-$R050
+## Retired entries
+
+These entries were removed from this folder. Their latest pre-retirement files are intact at commit
+`995cb27a` (for example `git ls-tree 995cb27a docs/divergences/` then
+`git show 995cb27a:docs/divergences/<file>`). Entries that
+went to an issue are open work, not permanent differences. Evidence under `evidence/` and `history/` is kept.
+
+| id | title | went to |
+|---|---|---|
+| 001 | Analysis syntactic-FS fold: Add vs PriorityUnion | Superseded by Exact fold (149f88df); residual is 002; git history |
+| 002 | Analysis syntactic-FS fold: exact inverse of synthesis | #26 |
+| 003 | Compounding homophone-disjunction collapse | Fixed in Rust (or not a bug); git history |
+| 004 | `Word::current_non_head()` index vs last-element | Fixed in Rust (or not a bug); git history |
+| 005 | Prefix-commutes-with-compounding misdiagnosis | Not a bug; git history |
+| 006 | Discontinuous-morph environment anchoring (W3.3) | Fixed in Rust (or not a bug); git history |
+| 007 | `ModifyFromInput` char-def staleness | Fixed in Rust (or not a bug); git history |
+| 008 | Morph-attribution drop on input-morph subsumption | Fixed in Rust (or not a bug); git history |
+| 009 | Analysis-side `char_def` staleness in rewrite rules | Fixed in Rust (or not a bug); git history |
+| 010 | Root lookup needs unification, not char-def identity, on feature-bearing tables | Fixed in Rust (or not a bug); git history |
+| 011 | Missing word-initial epenthesis synthesis site | Fixed in Rust (or not a bug); git history |
+| 012 | RTL analysis direction inversion for multi-node targets | Fixed in Rust (or not a bug); git history |
+| 013 | Boundary node counted as a spurious epenthesis site | Fixed in Rust (or not a bug); git history |
+| 014 | Iterative epenthesis cascading | Fixed in Rust (or not a bug); git history |
+| 015 | Deletion-composition loses candidates behind an interposed Optional | Fixed in Rust (or not a bug); git history |
+| 016 | `RewriteMode::Simultaneous` real semantics | Fixed in Rust (or not a bug); git history |
+| 017 | RTL + bounded quantifier: shallow-reverse mirror risk | Code fixed; status text under #36 |
+| 018 | Realizational-FS diff: failed unify nulls the FS in C#, kept in Rust | #29 |
+| 019 | Root-allomorph trie previously mis-indexed pattern allomorphs | Fixed in Rust (or not a bug); git history |
+| 021 | Guesser FFI symbols could return an unmarked guessed analysis | Fixed in Rust (or not a bug); git history |
+| 022 | `Morpher.MaxStemCount`: hardcoded then made configurable | Fixed in Rust (or not a bug); git history |
+| 023 | `AnalysisStateKey` representation: interned ids vs live references | Moot after memoization removal (045); git history |
+| 025 | Two in-flight re-entrancy guards where C# has one | Moot after memoization removal (045); git history |
+| 029 | Declared morpheme tags can vanish from the compiled lexc alphabet at depth | #30 |
+| 030 | Disjunctive-allomorph / free-fluctuation re-check (W3.2), formerly deferred | Fixed in Rust (or not a bug); git history |
+| 031 | Analysis cascade memoization | Moot after memoization removal (045); git history |
+| 032 | Template-battery memoization | Moot after memoization removal (045); git history |
+| 033 | Final-template analysis pruning | #27 |
+| 034 | Stratum analysis-state merging | #26 |
+| 035 | Template/slot feature collisions and widening | #26 |
+| 036 | Zero-width morpheme identity preservation | PR #9 |
+| 037 | Oracle annotation ordering instability | #64 (machine#506) |
+| 038 | Edge-segment prefilter | Optimized in Rust; git history; Machine PR #574 |
+| 039 | fwdata circumfix conditioning encoding | Fixed in Rust (or not a bug); git history |
+| 040 | FST rewrite/metathesis compilation was blind to cross-table shared representations | Fixed in Rust (or not a bug); git history |
+| 041 | Oracle-side (`pg-rules`) phonological/metathesis/allomorph resolution defaulted to table 0 | Fixed in Rust (or not a bug); git history |
+| 042 | Metathesis relocation left a stale origin-table char-def identity at the surface-match gate | Fixed in Rust (or not a bug); git history |
+| 043 | Synthesis-direction stratum reassignment diverged from hc.dll's surface rendering | Reverted in Rust to match hc.dll; git history |
+| 044 | RTL rewrite-rule FST construction refused `Segments`-shaped patterns entirely | Fixed in Rust (or not a bug); git history |
+| 048 | `batch --stats` parsed each HC word twice | Optimized in Rust; git history |
+| 049 | Copy-agreement pruning of reduplication matches | Optimized in Rust; git history (049 refreshed in PR #13) |
+| 050 | A part-of-speech-scoped deletion blocks metathesis analysis of other words | Fixed in Rust; still open upstream (machine#520); #28 |
+| 051 | Invalid snapshot environments refused the whole grammar | #35 |
+| 053 | Grouped ad hoc prohibitions were omitted from `.fwdata` imports | Fixed in Rust (or not a bug); git history |
+| 054 | `.fwdata` word-boundary identity was inferred from a missing marker record | Fixed in Rust (or not a bug); git history |
+| 058 | Repeated environment alpha variables lose agreement in HC-Rust | Fixed in Rust on main (7638a6e5) |
+| 065 | A nullable environment is rejected at the word edge | Fixed in Rust on main (7638a6e5) |
+| 066 | Repeated alpha environments require optional FST proposals | Lower-level proposal work fixed; whole-backend admission superseded by 116 |
+| 067 | Ambiguous disagreement requires confirmed membership proposals | Lower-level proposal work fixed; whole-backend admission superseded by 116 |
+| 068 | Permanent refusal reasons for unauthorable rewrite variants | #31 |
+| 069 | Analysis binds an alpha feature overwritten by the replacement | Fixed in Rust on main (7638a6e5) |
+| 071 | Literal rewrite unapplication needs StrRep identity | Accepted upstream (machine#538); git history |
+| 072 | Provisional letter units | #32 |
+| 073 | Provisional letters excluded from classes with conditions | #32 |
+| 074 | Featureless phonemes excluded from classes requiring values | #32 |
+| 075 | Provisional definitions always apply | #32 |
+| 079 | Partial explicit classes in ambiguous-disagreement proposals | Fixed in Rust on main (7638a6e5) |
+| 081 | Inflectional process allomorphs require their classes | Fixed in Rust (or not a bug); git history |
+| 082 | Inflectional circumfixes require the prefix half's classes | Fixed in Rust (or not a bug); git history |
+| 083 | Narrowing unapplication loses an RHS match across an interposed Optional | Accepted upstream (machine#540); stale text under #36 |
+| 087 | Narrowing unapplication unions the LHS into the matched RHS nodes | #33 |
+| 088 | Grammar health compared stored analyses serially and import repeated provenance work | Optimized in Rust; git history |
+| 090 | Morphological and allomorph-environment matching lost segment identity on wide featureless tables | Fixed in Rust (or not a bug); git history |
+| 091 | Featured grammars lost segment identity in allomorph and rewrite environments | Fixed in Rust (or not a bug); git history |
+| 092 | Compounding analysis trace nodes: `CompoundingRuleAnalysis` with the subrule index where C# master emits `MorphologicalRuleAnalysis` | #34 |
+| 093 | `Morpher.DeletionReapplications` was never read: deletion unapplication always ran one pass | Fixed in Rust (or not a bug); git history |
+| 094 | FieldWorks `<HC><MaxRoots>` was never read: every project compounded at most two stems | Fixed in Rust (or not a bug); git history |
+| 095 | The untraced affix-template battery runs a slot batch once for every template that shares it | Optimized in Rust; git history |
+| 096 | FieldWorks `<HC><MergeAnalyses>` was never read: analyses were always merged | Fixed in Rust (or not a bug); git history |
+| 098 | FieldWorks `<HC><GuessRoots>` was never read; PanGloss guessed only on `--guess` | Fixed in Rust (or not a bug); git history |
+| 099 | FieldWorks `<HC><MergeMSAs>` was never read: equal MSAs loaded as separate morphemes | Fixed in Rust (or not a bug); git history |
+| 100 | A malformed HCLoader boolean is a warning in PanGloss but loads no parser in FieldWorks | #35 |
+| 101 | FieldWorks `<HC><MakePartialsFinal>` was never read: final templates were enforced only by a CLI flag | Fixed in Rust (or not a bug); git history |
+| 102 | Clitic rules and blocking strata (Machine #529) were unported | Fixed in Rust (or not a bug); git history |
+| 103 | A re-inserted segment-class node had no identity on a featureless grammar | Fixed in Rust (or not a bug); git history |
+| 104 | Expansion unapplication loses an RHS match across an interposed Optional | Fixed on main; git history |
+| 105 | Lexical-lookup alternatives are replayed against stem-name and MPR gates before synthesis | Optimized in Rust; git history |
+| 109 | Required-slot look-ahead | Optimized in Rust; git history |
+| 110 | Shared template walk dead mask for required-slot look-ahead | Optimized in Rust; git history |
+| 111 | Ordered required-slot look-ahead | Optimized in Rust; git history |
+| 112 | Unbounded-run purity for required-slot look-ahead | Optimized in Rust; git history |
+| 113 | Analysis-selected affix allomorphs guide synthesis | Optimized in Rust; git history |
+| 114 | Realizational rule synthesis application cap | Fixed in Rust; git history |
+| 115 | Alpha-variable environment matching loses alternatives | Fixed in Rust in PR #13; git history |
+| 116 | FST alpha-variable environment support | Planned: broken until the alpha variable FST fix; tracked in [#80](https://github.com/sillsdev/PanGloss/issues/80); git history |
+
+Issue numbers are in [sillsdev/PanGloss](https://github.com/sillsdev/PanGloss/issues); the `#NN` entries
+above refer to work tracked there.
 
 ## Evidence and upstream reporting
 

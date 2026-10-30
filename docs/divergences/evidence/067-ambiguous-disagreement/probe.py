@@ -36,7 +36,7 @@ for bound,side in [('bounded','right'),('unbounded','left')]:
         lines.extend(['    expect_fail: true'] if row[4]=='-' else ['    parses:',f'      - signature: "{row[4]}"'])
         lines.extend(['    exercises:',f'      - "quantifier.{bound}-unlowerable"','      - "right-to-left-rewrite.unlowerable"'])
     (folder/'words.yaml').write_text('\n'.join(lines)+'\n')
-    (folder/'STAGING.md').write_text(f'# {name}\n\nSynthetic partial vowel class with ambiguous minus alpha variables. C# still requires\nrewritten ia and rejects au despite the omitted u in the explicit class.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; sixteen complete rows.\nThis remains a documented FST refusal pending lowering proof, not a permanent carve-out.\nEntry: docs/divergences/067-ambiguous-disagreement-proposals.md.\nFieldWorks: HCLoader.cs:2338-2344,2745-2770.\nUpstream PR: none (network closed).\n')
+    (folder/'STAGING.md').write_text(f'# {name}\n\nSynthetic partial vowel class with ambiguous minus alpha variables. C# still requires\nrewritten ia and rejects au despite the omitted u in the explicit class.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; sixteen complete rows.\nThis remains a documented FST refusal pending lowering proof, not a permanent carve-out.\nEntry: retired divergence 067 (docs/divergences/README.md, Retired entries).\nFieldWorks: HCLoader.cs:2338-2344,2745-2770.\nUpstream PR: none (network closed).\n')
     results[name]=rows
     print(name,'oracle exit 0;16 complete rows;AU|ia',flush=True)
 (evidence/'partial-class-oracle-results.json').write_text(json.dumps(results,indent=2)+'\n')

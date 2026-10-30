@@ -4,7 +4,7 @@
 Unported.
 
 ## Status
-Won't fix. The shape is XML-only: LibLCM models `PhSegmentRule.StrucDesc` as a sequence of `PhSimpleContext` (MasterLCModel.xml, class 128, prop 6), and a `PhIterationContext` is not a simple context, so no FieldWorks project can put a bounded quantifier as the whole structural description. No conformance fixture exercises the shape either (checked 2026-09-16: no grammar.xml in either root has a lone quantified sequence as a rule's PhoneticInput or PhoneticOutput). Closed without a loader lint; reopen only if HC-XML authoring of this shape becomes a supported input.
+Permanent: won't fix. The shape is XML-only: LibLCM models `PhSegmentRule.StrucDesc` as a sequence of `PhSimpleContext` (MasterLCModel.xml, class 128, prop 6), and a `PhIterationContext` is not a simple context, so no FieldWorks project can put a bounded quantifier as the whole structural description. No conformance fixture exercises the shape either (checked 2026-09-16: no grammar.xml in either root has a lone quantified sequence as a rule's PhoneticInput or PhoneticOutput). Closed without a loader lint; reopen only if HC-XML authoring of this shape becomes a supported input.
 
 ## C# site
 The rule-spec constructors that build a `SynthesisRewriteRuleSpec`/`FeatureAnalysisRewriteRuleSpec`
@@ -51,6 +51,6 @@ rather than loading it into a silently-dead rule.
 This is the one candidate in this catalogue that most directly risks the "control that cannot act
 must fail loudly, not return quietly" rule this repo states elsewhere (CLAUDE.md, "A control that
 cannot act must say so"): a rule that can never match as authored currently produces neither a
-refusal nor an error, only silence. Recommended follow-up: add a loader-time
-`GrammarError::Unsupported` for a bounded `Quantifier` spanning an entire LHS/RHS, converging on C#'s
-refuse-rather-than-silently-limit behavior without reproducing its crash.
+refusal nor an error, only silence. The loader-time
+refusal that converges on C#'s refuse-rather-than-silently-limit behavior is tracked in
+[#81](https://github.com/sillsdev/PanGloss/issues/81).

@@ -6,7 +6,7 @@
 language: NarrowingBoundaryOrderAlphaLhs
 inspired_by: ["synthetic probe for divergence 087 (not modeling any real language)"]
 sources:
-  - "docs/divergences/087-narrowing-union-unapplication.md"
+  - "https://github.com/sillsdev/PanGloss/blob/995cb27a5fbced3d65a1b5dc62f7347c31fd1a3c/docs/divergences/087-narrowing-union-unapplication.md"
   - "src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/NarrowAnalysisRewriteRuleSpec.cs"
 requires: [phonology]
 fieldworks_producible: false

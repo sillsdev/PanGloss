@@ -49,5 +49,5 @@ for row in rows:
  lines.extend(['    expect_fail: true'] if row[4]=='-' else ['    parses:',f'      - signature: "{row[4]}"'])
  lines.extend(['    exercises:', '      - "quantifier.bounded-compilable"'])
 (folder/'words.yaml').write_text('\n'.join(lines)+'\n')
-(folder/'STAGING.md').write_text(f'# {name}\n\nSynthetic repeated minus alpha on a complete class and an agreeing focus on\na partial class. hc.dll requires ii from iu.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; 16 complete rows.\nEntry: docs/divergences/067-ambiguous-disagreement-proposals.md.\nFieldWorks: HCLoader.cs:2338-2344,2745-2770,2799-2808.\nUpstream PR: none (network closed).\n')
+(folder/'STAGING.md').write_text(f'# {name}\n\nSynthetic repeated minus alpha on a complete class and an agreeing focus on\na partial class. hc.dll requires ii from iu.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; 16 complete rows.\nEntry: retired divergence 067 (docs/divergences/README.md, Retired entries).\nFieldWorks: HCLoader.cs:2338-2344,2745-2770,2799-2808.\nUpstream PR: none (network closed).\n')
 print('oracle exit 0;16 complete rows;',[(r[1],r[4]) for r in rows if r[4]!='-'])

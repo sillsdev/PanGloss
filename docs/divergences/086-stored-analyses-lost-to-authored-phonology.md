@@ -1,7 +1,7 @@
 # 086: Grammar health reports stored analyses lost to authored phonology
 
 Kind: diagnostic (deliberate XAMPLE difference; no new parse divergence).
-Status: implements the accepted promise in [ADR 0008](../adr/0008-provisional-definitions.md), requested by the integration lead on 2026-10-09.
+Status: permanent; implements the accepted promise in [ADR 0008](../adr/0008-provisional-definitions.md), requested by the integration lead on 2026-10-09.
 Related comparison: [078](078-xample-minimum-authored-phonology.md).
 
 ## Contract and owner path

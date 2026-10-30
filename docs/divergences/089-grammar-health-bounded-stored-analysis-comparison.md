@@ -1,7 +1,7 @@
 # 089 — Grammar health finishes when a stored-analysis comparison cannot
 
 Kind: diagnostic (no parse divergence)
-Status: implemented in Rust; no C# counterpart
+Status: permanent diagnostic by design; implemented in Rust, no C# counterpart
 
 ## Sites
 

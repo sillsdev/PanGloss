@@ -1,7 +1,7 @@
 # 078: XAMPLE minimum: authored phonology outranks XAMPLE
 
 Kind: behavioural (XAMPLE minimum and unreadable literal environment).
-Status: deliberate divergence under [ADR 0008](../adr/0008-provisional-definitions.md).
+Status: permanent, deliberate divergence under [ADR 0008](../adr/0008-provisional-definitions.md).
 
 ## Contract and independent justification
 

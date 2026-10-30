@@ -2623,7 +2623,7 @@ fn a_circumfix_half_carrying_a_position_builds_with_it_unioned_in() {
     );
 }
 
-/// The structural half of docs/divergences/039's fix; parse behavior is pinned in `tests/circumfix_conditioning_parity.rs`.
+/// The structural half of retired divergence 039's fix (docs/divergences/README.md, Retired entries); parse behavior is pinned in `tests/circumfix_conditioning_parity.rs`.
 #[test]
 fn circumfix_cross_product_embeds_each_halfs_context_in_lhs_not_environment_union() {
     let (mut snapshot, f) = fixture();

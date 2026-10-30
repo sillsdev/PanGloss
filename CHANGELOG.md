@@ -732,7 +732,7 @@ implementation commitment.
 - v0.4.0 built a map of repeated parts for every affix allomorph match, even when nothing repeats.
   An allocation-free scan now runs first, and the map is built only when a part actually repeats.
   Against v0.4.0, Aweti takes about 0.63x the time on the words both complete; Mbugwe and Amharic
-  are unchanged. Analyses are identical (`docs/divergences/049-copy-agreement-prune.md`). The
+  are unchanged. Analyses are identical (`retired divergence 049 (docs/divergences/README.md#retired-entries)`). The
   4-12% slowdown first reported for v0.4.0 on Sena, Amharic and Mbugwe was mostly machine-load
   noise.
 

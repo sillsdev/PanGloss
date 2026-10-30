@@ -2274,7 +2274,7 @@ fn exports_environment_resolution_feature_extensions_and_rewrite_patterns() {
             |row| row.get::<_, i64>(0),
         )
         .unwrap(),
-        // PORT-DIVERGENCE: featureless ts cannot meet a feature constraint; docs/divergences/074-featureless-phoneme-no-feature-class.md.
+        // PORT-DIVERGENCE: featureless ts cannot meet a feature constraint; retired divergence 074 (docs/divergences/README.md, Retired entries).
         1
     );
     assert_eq!(

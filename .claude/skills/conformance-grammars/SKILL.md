@@ -327,7 +327,7 @@ what it pins.
 ## Shared correctness tracking
 
 For a fixture addressing shared HC semantics or a C# oracle dependency, open or reuse a Machine
-issue and link it from the fixture evidence and `docs/divergences/` entry. A Rust-only bug does not
+issue and link it from the fixture evidence and the GitHub issue (or the `docs/divergences/` entry if the difference is planned to stay). A Rust-only bug does not
 require a Machine issue without shared evidence. State whether the report is a reproduced defect,
 a hypothesis, or a coverage gap; link related PRs instead of recreating their work.
 
