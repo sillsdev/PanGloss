@@ -49,7 +49,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
             oracle_exact: 114,
-            compiles_but_misses: 7,
+            compiles_but_misses: 8,
             refused: 20,
             unmeasurable: 0,
         },
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 94,
+            oracle_exact: 95,
             compiles_but_misses: 5,
             refused: 42,
             unmeasurable: 0,
@@ -68,7 +68,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 46,
             compiles_but_misses: 2,
-            refused: 90,
+            refused: 91,
             unmeasurable: 3,
         },
     ),
@@ -102,11 +102,13 @@ const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
 const FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE: &str =
     "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
 
-// The tuned-surface epenthesis cell misses C#-accepted `bdt`; see the reconciliation note.
+// The tuned-surface epenthesis cells miss C#-accepted words; see the reconciliation note. The full-set fixture (GH#85) is measured and recorded as it stands: FST behaviour is deferred.
 const REWRITE_DEFAULT_EPENTHESIS: &str = "staging:edge-cases/rewrite-default-epenthesis";
+const REWRITE_DEFAULT_FULL_SET: &str = "staging:edge-cases/rewrite-default-full-set";
 const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
     "staging:edge-cases/rewrite-default-environment",
     REWRITE_DEFAULT_EPENTHESIS,
+    REWRITE_DEFAULT_FULL_SET,
     "staging:edge-cases/rewrite-default-narrow",
 ];
 
@@ -116,7 +118,11 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
     match (fixture, strategy) {
         (f, _) if f == BOUNDARY_NARROWING_FIXTURE => "oracle_exact",
         (f, PlanComposed) if REWRITE_DEFAULT_FIXTURES.contains(&f) => "refused",
-        (f, TunedSurfaceProbed) if f == REWRITE_DEFAULT_EPENTHESIS => "compiles_but_misses",
+        (f, TunedSurfaceProbed)
+            if f == REWRITE_DEFAULT_EPENTHESIS || f == REWRITE_DEFAULT_FULL_SET =>
+        {
+            "compiles_but_misses"
+        }
         (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
             if REWRITE_DEFAULT_FIXTURES.contains(&f) =>
         {

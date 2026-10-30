@@ -265,3 +265,12 @@ tuned-surface route, so this observation alone does not prove that default handl
 causes the miss. It demonstrates an FST epenthesis proposal gap for this grammar; the
 extent of any additional default-specific FST gap remains to be investigated. Tracked in
 [#87](https://github.com/sillsdev/PanGloss/issues/87).
+
+### `rewrite-default-full-set` (GH#85)
+
+`conformance-staging/edge-cases/rewrite-default-full-set` adds three cells with no FST change:
+TunedSurfaceProbed compiles but misses, TemplatedUnderlyingTokens oracle exact, PlanComposed
+refused. It is the `rewrite-default-epenthesis` grammar with `a` authoring both `nas` symbols, so
+the tuned-surface cell matches the epenthesis fixture's outcome and is presumed to be the same epenthesis proposal gap tracked in #87 (the missed word is not identified here; the #87 link is a presumption, not a finding).
+The containment ratchet stays at 22: the faithfulness gate passed unchanged, so no new failing
+pair appeared. FST behaviour is deferred; the cells are recorded as measured.

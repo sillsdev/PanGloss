@@ -112,6 +112,8 @@ pub mod profile {
 pub struct Segment {
     pub lanes: Vec<u64>,
     pub optional: bool,
+    /// Features whose full-mask lane was authored with every symbol, not left absent; `UseDefaults` must not replace them. Empty for nearly every segment.
+    pub explicit_full: Vec<u32>,
 }
 
 impl Segment {
@@ -119,13 +121,19 @@ impl Segment {
         Segment {
             lanes,
             optional: false,
+            explicit_full: Vec::new(),
         }
     }
     pub fn optional(lanes: Vec<u64>) -> Self {
         Segment {
             lanes,
             optional: true,
+            explicit_full: Vec::new(),
         }
+    }
+    pub fn with_explicit_full(mut self, explicit_full: Vec<u32>) -> Self {
+        self.explicit_full = explicit_full;
+        self
     }
 }
 

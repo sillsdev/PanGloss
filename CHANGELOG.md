@@ -5,6 +5,10 @@ file has no section for.
 
 ## Unreleased
 
+### Parse results
+
+- Parse results change for grammars whose char defs author a full feature set (every symbol of a feature): rewrite defaults no longer replace that explicit set, so they now match C# (#85).
+
 ### Interface changes
 
 - A per-word root-search cache retains immutable index results with a 1 MiB cap. Completed parse
