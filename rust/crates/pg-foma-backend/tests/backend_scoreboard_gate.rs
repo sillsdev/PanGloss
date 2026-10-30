@@ -48,7 +48,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 113,
+            oracle_exact: 114,
             compiles_but_misses: 7,
             refused: 20,
             unmeasurable: 0,
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 93,
+            oracle_exact: 94,
             compiles_but_misses: 5,
             refused: 42,
             unmeasurable: 0,
@@ -66,7 +66,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 45,
+            oracle_exact: 46,
             compiles_but_misses: 2,
             refused: 90,
             unmeasurable: 3,
@@ -84,6 +84,8 @@ const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
 const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
 
 const AMBIGUOUS_DISAGREEMENT_FIXTURE: &str = "machine:edge-cases/alpha-variable-name-collision";
+
+const BOUNDARY_NARROWING_FIXTURE: &str = "staging:edge-cases/boundary-narrowing-probe";
 
 const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
     "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
@@ -112,6 +114,7 @@ const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
     use EmissionStrategy::{PlanComposed, TemplatedUnderlyingTokens, TunedSurfaceProbed};
     match (fixture, strategy) {
+        (f, _) if f == BOUNDARY_NARROWING_FIXTURE => "oracle_exact",
         (f, PlanComposed) if REWRITE_DEFAULT_FIXTURES.contains(&f) => "refused",
         (f, TunedSurfaceProbed) if f == REWRITE_DEFAULT_EPENTHESIS => "compiles_but_misses",
         (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
@@ -225,6 +228,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                     if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         || row.label == REALIZATIONAL_UNBOUNDED_FIXTURE
                         || row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE
+                        || row.label == BOUNDARY_NARROWING_FIXTURE
                         || row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         || row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
                         || REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str())
@@ -238,6 +242,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                             REALIZATIONAL_UNBOUNDED_FIXTURE
                         } else if row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE {
                             AMBIGUOUS_DISAGREEMENT_FIXTURE
+                        } else if row.label == BOUNDARY_NARROWING_FIXTURE {
+                            BOUNDARY_NARROWING_FIXTURE
                         } else if row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE {
                             FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         } else if row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE {
@@ -310,7 +316,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        (5 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len() + REWRITE_DEFAULT_FIXTURES.len())
+        (6 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len() + REWRITE_DEFAULT_FIXTURES.len())
             * ALL_STRATEGIES.len(),
         "one of the pinned fixtures was not measured on every strategy -- has it been renamed, \
          removed, or excluded?"

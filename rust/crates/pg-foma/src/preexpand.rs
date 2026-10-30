@@ -271,7 +271,7 @@ fn morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> 
 
 /// One rule-allomorph's precomputed ordinary-surface strings, hoisted out of `reachable_via_ordinary_emission`'s hot path; see `build_allomorph_variants`.
 pub(crate) struct AllomorphVariants {
-    /// `surface_variants(text) ∪ phon.variants(text)` for one allomorph's `InsertSegments` text.
+    /// Literal and position-preserving probe variants for one allomorph's `InsertSegments` text.
     ordinary: Vec<String>,
     /// `phon.deletion_junctions(text)`, prefix-side only, mirroring `emit.rs`'s `{roots}Stripped` convention.
     deletion: Vec<String>,
@@ -299,7 +299,7 @@ pub(crate) fn build_allomorph_variants(
                 .map(|(v, _)| v)
                 .unwrap_or_default();
             if let Some(p) = phon {
-                ordinary.extend(p.variants(text));
+                ordinary.extend(p.variants_for_composite_redundancy(text));
             }
             let deletion = phon.map(|p| p.deletion_junctions(text)).unwrap_or_default();
             Some(AllomorphVariants { ordinary, deletion })

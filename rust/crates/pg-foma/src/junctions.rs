@@ -51,13 +51,19 @@ pub struct PhonologyProbe<'g> {
     neighbor_alphabet: Vec<String>,
     any_deletion_subrule: bool,
     // `Mutex`, not `RefCell`: `RefCell` is never `Sync`, which would block sharing `&self` across the rayon pool below.
-    variants_cache: Mutex<HashMap<String, Vec<String>>>,
+    variants_cache: Mutex<HashMap<String, ProbeVariants>>,
     junctions_cache: Mutex<HashMap<String, Vec<String>>>,
     /// Compile-once FST cache, built once here and reused across every probe rather than recompiling per call.
     rule_cache: RuleCache,
     /// A dedicated rayon pool, not the global default pool (`pg-parse/src/batch.rs` configures that one for its own stack needs), built once per grammar with `crate::emit::PROBE_STACK_BYTES`-sized stacks for `probe_synthesize`'s deep recursion; absent on wasm32, where the probe loops fall back to sequential.
     #[cfg(not(target_arch = "wasm32"))]
     pool: rayon::ThreadPool,
+}
+
+#[derive(Clone, Default)]
+struct ProbeVariants {
+    all: Vec<String>,
+    positional: Vec<String>,
 }
 
 /// The Segment-kind char-def id of the first real segment in `text` (skipping leading Boundary-kind matches, greedy longest-match), or `None` if `text` is entirely boundaries/empty or unsegmentable.
@@ -204,6 +210,16 @@ impl<'g> PhonologyProbe<'g> {
     /// on either side (mirrors `SurfacePhonology::variants`, `SurfacePhonology.cs:108-117`),
     /// memoized. Sorted (a `BTreeSet` internally) — callers don't need a particular order.
     pub fn variants(&self, underlying: &str) -> Vec<String> {
+        self.cached_variants(underlying).all
+    }
+
+    /// Conservative subset for composite redundancy: retain composites when a spelling was
+    /// discovered only in a length-changing window. PlanComposed relies on those composites.
+    pub(crate) fn variants_for_composite_redundancy(&self, underlying: &str) -> Vec<String> {
+        self.cached_variants(underlying).positional
+    }
+
+    fn cached_variants(&self, underlying: &str) -> ProbeVariants {
         {
             let cache = self.variants_cache.lock().expect("variants_cache poisoned");
             if let Some(v) = cache.get(underlying) {
@@ -219,17 +235,19 @@ impl<'g> PhonologyProbe<'g> {
     }
 
     /// Probes every alphabet neighbor `c` on both sides of `underlying`; each probe is independent and read-only over `&self`, so non-wasm32 targets run it across `Self::pool` while wasm32 stays sequential, sharing the same `probe_one` closure and collecting into the same order-independent `BTreeSet`.
-    fn compute_variants(&self, underlying: &str) -> Vec<String> {
+    fn compute_variants(&self, underlying: &str) -> ProbeVariants {
         let mut result: BTreeSet<String> = BTreeSet::new();
+        let mut positional: BTreeSet<String> = BTreeSet::new();
         let Some(underlying_len) = self.node_count(underlying) else {
-            return result.into_iter().collect(); // unsegmentable: nothing extra to offer.
+            return ProbeVariants::default(); // unsegmentable: nothing extra to offer.
         };
         if let Some(isolation) = self.surface_of(underlying) {
+            positional.insert(isolation.clone());
             result.insert(isolation);
         }
 
         // Left neighbor: c + underlying, affix span is everything after the neighbor's segment; right neighbor: underlying + c, everything before it.
-        let probe_one = |c: &String| -> [Option<String>; 2] {
+        let probe_one = |c: &String| -> [Option<(String, bool)>; 2] {
             [
                 self.boundary_variant(&format!("{c}{underlying}"), underlying_len, true),
                 self.boundary_variant(&format!("{underlying}{c}"), underlying_len, false),
@@ -237,35 +255,51 @@ impl<'g> PhonologyProbe<'g> {
         };
 
         #[cfg(target_arch = "wasm32")]
-        let hits: Vec<[Option<String>; 2]> = self.alphabet.iter().map(probe_one).collect();
+        let hits: Vec<[Option<(String, bool)>; 2]> = self.alphabet.iter().map(probe_one).collect();
         #[cfg(not(target_arch = "wasm32"))]
-        let hits: Vec<[Option<String>; 2]> = self
+        let hits: Vec<[Option<(String, bool)>; 2]> = self
             .pool
             .install(|| self.alphabet.par_iter().map(probe_one).collect());
 
         for pair in hits {
-            result.extend(pair.into_iter().flatten());
+            for (variant, is_positional) in pair.into_iter().flatten() {
+                if is_positional {
+                    positional.insert(variant.clone());
+                }
+                result.insert(variant);
+            }
         }
-        result.into_iter().collect()
+        ProbeVariants {
+            all: result.into_iter().collect(),
+            positional: positional.into_iter().collect(),
+        }
     }
 
-    /// The affix's own rendered span, or `None` when the probe window is unsegmentable, structurally unreliable (an insertion fired), or a surviving node has no single representation.
+    /// The affix's rendered span and whether its node count remained positional.
     fn boundary_variant(
         &self,
         context: &str,
         underlying_len: usize,
         from_end: bool,
-    ) -> Option<String> {
+    ) -> Option<(String, bool)> {
         let segs = self.surface_segments(context)?;
-        if segs.len() != underlying_len + 1 {
-            return None; // unsegmentable, or an insertion fired => no reliable affix-only portion.
+        let positional = segs.len() == underlying_len + 1;
+        if segs.len() < underlying_len + 1 {
+            return None;
         }
+        // Soft deletion preserves input-node order, so a surviving original edge is the neighbour.
         let morpheme_nodes: &[ProbeSeg] = if from_end {
+            if !positional && (!segs[0].from_input || segs[0].deleted) {
+                return None;
+            }
             &segs[1..]
         } else {
-            &segs[..underlying_len]
+            if !positional && (!segs.last()?.from_input || segs.last()?.deleted) {
+                return None;
+            }
+            &segs[..segs.len() - 1]
         };
-        surface_probe::render_nodes(self.table, morpheme_nodes)
+        surface_probe::render_nodes(self.table, morpheme_nodes).map(|v| (v, positional))
     }
 
     /// Every distinct surface spelling of `underlying` that, in SOME right-neighbor context,

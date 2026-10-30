@@ -7,6 +7,9 @@ use pg_foma::emit;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
+#[path = "f2_junction/boundary_narrowing_probe.rs"]
+mod boundary_narrowing_probe;
+
 /// The 7 real reduplication corpus words, excluded from the recall gate's denominator, each with why.
 const REDUP_EXCLUDED: &[(&str, &str)] = &[
     ("membagi-bagi", "reduplication — P2 peel"),
