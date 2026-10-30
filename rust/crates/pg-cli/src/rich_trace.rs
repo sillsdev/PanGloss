@@ -85,6 +85,7 @@ fn kind_name(kind: ObjectKind) -> &'static str {
         ObjectKind::RootIndex => "rootIndex",
         ObjectKind::Guesser => "guesser",
         ObjectKind::Overlay => "overlay",
+        ObjectKind::Parser => "parser",
     }
 }
 
@@ -96,6 +97,7 @@ fn stats_json(rows: &[StatsRow], work_steps: usize) -> Value {
         ObjectKind::RootIndex,
         ObjectKind::Guesser,
         ObjectKind::Overlay,
+        ObjectKind::Parser,
     ];
     let categories = kinds.into_iter().map(|kind| {
         let counters = stats::summarize_kind(rows, kind);
@@ -125,6 +127,17 @@ fn stats_json(rows: &[StatsRow], work_steps: usize) -> Value {
         });
         if kind == ObjectKind::Overlay {
             category["phases"] = overlay_phases_json(rows);
+        }
+        if kind == ObjectKind::Parser {
+            let work = pg_rules::stats::ParserWork::ALL.into_iter().map(|phase| {
+                let steps: u64 = rows
+                    .iter()
+                    .filter(|row| row.kind == kind && row.object_index == phase.index())
+                    .map(|row| row.counters.work_steps)
+                    .sum();
+                (phase.name().to_owned(), json!(steps))
+            });
+            category["workStepsByPhase"] = Value::Object(serde_json::Map::from_iter(work));
         }
         (kind_name(kind).to_owned(), category)
     });

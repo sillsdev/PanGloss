@@ -821,6 +821,46 @@ fn remap_cache(
     cache
         .facts
         .retain(|f| !remainder_ids.contains(&f.object_id));
+    // Parser work is not a grammar-object counter and this projection has no work_steps column.
+    let parser_ids: Vec<i64> = cache
+        .objects
+        .iter()
+        .filter(|o| o.kind == "parser")
+        .map(|o| {
+            let valid = pg_rules::stats::ParserWork::ALL.into_iter().any(|phase| {
+                let identity = stats_identity::parser_identity(phase.name());
+                o.key == identity.key && o.label == identity.label
+            });
+            if !valid || o.quality != "synthetic" || o.morpheme_id != 0 {
+                return Err(FactsError::StatsRunUnavailable(
+                    "invalid parser stats object".into(),
+                ));
+            }
+            Ok(o.id)
+        })
+        .collect::<Result<_, _>>()?;
+    for fact in cache
+        .facts
+        .iter()
+        .filter(|f| parser_ids.contains(&f.object_id))
+    {
+        if fact.allomorph_id != 0
+            || !matches!(fact.direction.as_str(), "analysis" | "synthesis")
+            || fact.attempts != 0
+            || fact.work != 0
+            || fact.outputs != 0
+            || fact.not_applied != 0
+            || fact.no_root != 0
+            || fact.surface_mismatch != 0
+            || fact.uses != 0
+        {
+            return Err(FactsError::StatsRunUnavailable(
+                "invalid parser stats fact".into(),
+            ));
+        }
+    }
+    cache.objects.retain(|o| !parser_ids.contains(&o.id));
+    cache.facts.retain(|f| !parser_ids.contains(&f.object_id));
     let morphemes = remap_dimensions(cache.morphemes.clone(), &dimensions.morphemes, "morpheme")?;
     let strata = remap_dimensions(cache.strata.clone(), &dimensions.strata, "stratum")?;
     let allomorphs = remap_allomorphs(cache.allomorphs.clone(), &dimensions.allomorphs)?;
@@ -1470,6 +1510,7 @@ fn grammar_kind(kind: GrammarObjectKind) -> pg_stats::ObjectKind {
         GrammarObjectKind::RootIndex => pg_stats::ObjectKind::RootIndex,
         GrammarObjectKind::Guesser => pg_stats::ObjectKind::Guesser,
         GrammarObjectKind::Overlay => pg_stats::ObjectKind::Overlay,
+        GrammarObjectKind::Parser => pg_stats::ObjectKind::Parser,
     }
 }
 
@@ -1757,6 +1798,7 @@ fn stats_kind_name(kind: pg_rules::stats::ObjectKind) -> &'static str {
         pg_rules::stats::ObjectKind::RootIndex => "root_index",
         pg_rules::stats::ObjectKind::Guesser => "guesser",
         pg_rules::stats::ObjectKind::Overlay => "overlay",
+        pg_rules::stats::ObjectKind::Parser => "parser",
     }
 }
 

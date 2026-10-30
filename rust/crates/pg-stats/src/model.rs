@@ -16,6 +16,7 @@ pub enum ObjectKind {
     RootIndex,
     Guesser,
     Overlay,
+    Parser,
     Unattributed,
 }
 
@@ -28,6 +29,7 @@ impl ObjectKind {
             ObjectKind::RootIndex => "root_index",
             ObjectKind::Guesser => "guesser",
             ObjectKind::Overlay => "overlay",
+            ObjectKind::Parser => "parser",
             ObjectKind::Unattributed => "unattributed",
         }
     }
@@ -55,6 +57,7 @@ impl FromStr for ObjectKind {
             "root_index" => Ok(ObjectKind::RootIndex),
             "guesser" => Ok(ObjectKind::Guesser),
             "overlay" => Ok(ObjectKind::Overlay),
+            "parser" => Ok(ObjectKind::Parser),
             "unattributed" => Ok(ObjectKind::Unattributed),
             other => Err(UnknownVariant(other.to_string())),
         }

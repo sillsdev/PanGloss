@@ -83,6 +83,7 @@ fn to_stats_kind(k: pg_grammar::stats_identity::ObjectKind) -> pg_stats::ObjectK
         G::RootIndex => pg_stats::ObjectKind::RootIndex,
         G::Guesser => pg_stats::ObjectKind::Guesser,
         G::Overlay => pg_stats::ObjectKind::Overlay,
+        G::Parser => pg_stats::ObjectKind::Parser,
     }
 }
 
@@ -180,7 +181,7 @@ fn fact_record_from_stats_row(
     grammar: &Grammar,
     identities: &StatsIdentityCatalog,
     row: &pg_rules::stats::StatsRow,
-) -> pg_stats::FactRecord {
+) -> Result<pg_stats::FactRecord, String> {
     let identity = match row.kind {
         pg_rules::stats::ObjectKind::MorphRule => {
             identities.morph_rule(MRuleId(row.object_index)).clone()
@@ -201,6 +202,11 @@ fn fact_record_from_stats_row(
             grammar,
             pg_grammar::stats_identity::OverlayPhase::from_index(row.object_index),
         ),
+        pg_rules::stats::ObjectKind::Parser => {
+            let phase = pg_rules::stats::ParserWork::from_index(row.object_index)
+                .ok_or_else(|| format!("stats: invalid parser work index {}", row.object_index))?;
+            pg_grammar::stats_identity::parser_identity(phase.name())
+        }
     };
     let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
     let allomorph = stats_row_allomorph_locator(grammar, identities, row);
@@ -216,7 +222,7 @@ fn fact_record_from_stats_row(
         pg_rules::stats::Direction::Analysis => pg_stats::Direction::Analysis,
         pg_rules::stats::Direction::Synthesis => pg_stats::Direction::Synthesis,
     };
-    pg_stats::FactRecord {
+    Ok(pg_stats::FactRecord {
         object_key: identity.key,
         object_kind: to_stats_kind(identity.kind),
         object_label: identity.label,
@@ -234,7 +240,7 @@ fn fact_record_from_stats_row(
         surface_mismatch: row.counters.surface_mismatch,
         uses: row.counters.uses,
         self_time_ns: row.counters.self_time_ns,
-    }
+    })
 }
 
 fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> Option<pg_rules::stats::ObjectKind> {
@@ -246,6 +252,7 @@ fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> Option<pg_rules::stats::
         S::RootIndex => pg_rules::stats::ObjectKind::RootIndex,
         S::Guesser => pg_rules::stats::ObjectKind::Guesser,
         S::Overlay => pg_rules::stats::ObjectKind::Overlay,
+        S::Parser => pg_rules::stats::ObjectKind::Parser,
         S::Unattributed => return None,
     })
 }
@@ -469,12 +476,12 @@ pub(crate) fn batch_stats_word(
     outcome: &pg_parse::BatchWordOutcome,
     rows: &[pg_rules::stats::StatsRow],
     prune_rows: &[pg_rules::stats::PruneRow],
-) -> BatchStatsWord {
+) -> Result<BatchStatsWord, String> {
     let prunes = sum_prune_rows(prune_rows);
     let mut facts: Vec<_> = rows
         .iter()
         .map(|row| fact_record_from_stats_row(grammar, identities, row))
-        .collect();
+        .collect::<Result<_, _>>()?;
     let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
     let unattributed = (outcome.outcome.work_steps as u64)
         .checked_sub(attributed)
@@ -498,7 +505,7 @@ pub(crate) fn batch_stats_word(
         uses: 0,
         self_time_ns: 0,
     });
-    BatchStatsWord {
+    Ok(BatchStatsWord {
         record: pg_stats::WordRecord {
             form: word.to_string(),
             elapsed_ns: outcome.elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
@@ -511,7 +518,7 @@ pub(crate) fn batch_stats_word(
             facts,
         },
         prunes,
-    }
+    })
 }
 
 pub(crate) struct BatchStatsCache {

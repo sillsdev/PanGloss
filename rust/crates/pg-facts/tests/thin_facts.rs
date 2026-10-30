@@ -2719,6 +2719,25 @@ fn write_exported_stats_run() -> ExportedStatsRun {
                             self_time_ns: 1,
                         },
                         FactRecord {
+                            object_key: "parser:surface_match".into(),
+                            object_kind: ObjectKind::Parser,
+                            object_label: "parser: surface_match".into(),
+                            identity_quality: IdentityQuality::Synthetic,
+                            stratum: None,
+                            allomorph: None,
+                            morpheme: None,
+                            direction: pg_stats::Direction::Synthesis,
+                            attempts: 0,
+                            work: 0,
+                            work_steps: 3,
+                            outputs: 0,
+                            not_applied: 0,
+                            no_root: 0,
+                            surface_mismatch: 0,
+                            uses: 0,
+                            self_time_ns: 1,
+                        },
+                        FactRecord {
                             object_key: "unattributed".into(),
                             object_kind: ObjectKind::Unattributed,
                             object_label: "Unattributed".into(),
@@ -2978,6 +2997,16 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         ..
     } = write_exported_stats_run();
     let db = Connection::open(&output).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM stats_object WHERE kind='parser'",
+            [],
+            |row| row.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0,
+        "parser work remains in the cache, outside the grammar-object projection"
+    );
     assert_eq!(
         db.query_row(
             "SELECT f.uses FROM stats_fact f JOIN stats_object o USING (object_id) WHERE o.kind='lex_entry'",

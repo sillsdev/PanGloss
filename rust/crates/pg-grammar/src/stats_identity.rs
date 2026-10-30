@@ -45,6 +45,7 @@ pub enum ObjectKind {
     RootIndex,
     Guesser,
     Overlay,
+    Parser,
 }
 
 /// A stable, human-legible identity for one runtime object.
@@ -298,6 +299,16 @@ pub fn overlay_identity(_grammar: &Grammar, phase: OverlayPhase) -> ObjectIdenti
         key: format!("overlay:{}", phase.name()),
         kind: ObjectKind::Overlay,
         label: format!("supplied roots: {}", phase.name()),
+        quality: IdentityQuality::Synthetic,
+    }
+}
+
+/// Stable identity for a named parser-owned work category.
+pub fn parser_identity(name: &str) -> ObjectIdentity {
+    ObjectIdentity {
+        key: format!("parser:{name}"),
+        kind: ObjectKind::Parser,
+        label: format!("parser: {name}"),
         quality: IdentityQuality::Synthetic,
     }
 }

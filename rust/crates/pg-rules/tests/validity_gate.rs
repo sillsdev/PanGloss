@@ -355,7 +355,7 @@ fn environment_work_is_attributed_to_root_and_affix_owners() {
         );
     }
     assert_eq!(
-        rows.iter().map(|r| r.counters.work_steps).sum::<u64>() + 2,
+        rows.iter().map(|r| r.counters.work_steps).sum::<u64>(),
         budget.used() as u64
     );
 }
