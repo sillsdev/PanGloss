@@ -41,7 +41,8 @@ fn ordinary_words_keep_their_analyses_and_attempt_counts_when_the_bound_does_not
     let grammar = suffix_grammar();
     let bounded = Morpher::new(&grammar, 100_000);
     let unbounded = Morpher::new(&grammar, usize::MAX);
-    for word in ["sag", "sagn"] {
+    // "sag" cannot end in the suffix's mandatory n, so the edge-dispatch index never attempts that rule for it.
+    for (word, attempts) in [("sag", 0), ("sagn", 1)] {
         let full = unbounded.parse_word(word);
         let actual = bounded.parse_word(word);
         assert!(!full.capped && !actual.capped);
@@ -54,10 +55,7 @@ fn ordinary_words_keep_their_analyses_and_attempt_counts_when_the_bound_does_not
         expected_analyses.sort();
         actual_analyses.sort();
         assert_eq!(actual_analyses, expected_analyses);
-        assert_eq!(
-            full.steps, 1,
-            "release baseline analysis attempts for {word}"
-        );
+        assert_eq!(full.steps, attempts, "analysis attempts for {word}");
         assert_eq!(actual.steps, full.steps);
         assert_eq!(actual.work_steps, full.work_steps);
         assert!(actual.work_steps > actual.steps);

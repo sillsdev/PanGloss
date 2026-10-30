@@ -42,7 +42,10 @@ use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
+mod edge_dispatch;
 mod edge_prefilter;
+
+pub(crate) use edge_dispatch::EdgeDispatch;
 
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
 
@@ -380,7 +383,7 @@ pub(crate) fn analyze_cached(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            ana_affix_cached(g, word, def, mrid, cache, mstats, prune_disagreeing_copies)
         }
         MorphRuleDef::Compounding(def) => {
             ana_compound_cached(g, word, def, mrid, cache, None, mstats)
@@ -408,7 +411,7 @@ pub(crate) fn analyze_cached_with_root_filter(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            ana_affix_cached(g, word, def, mrid, cache, mstats, prune_disagreeing_copies)
         }
         MorphRuleDef::Compounding(def) => {
             ana_compound_cached(g, word, def, mrid, cache, Some(root_filter), mstats)
@@ -589,14 +592,9 @@ fn ana_affix_cached_traced(
     record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
+    let admission = cache.edge_dispatch(mrid).map(|d| d.admit(&segs));
     for (i, allo) in rule.allomorphs.iter().enumerate() {
-        if !pg_fst::work::consume() {
-            return Vec::new();
-        }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
-            continue;
-        };
-        if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
+        if admission.as_ref().is_some_and(|a| !a.allows(i)) {
             record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
             trace.morphological_rule_not_unapplied(
                 parent,
@@ -607,6 +605,12 @@ fn ana_affix_cached_traced(
             );
             continue;
         }
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+            continue;
+        };
         let before = output.len();
         let matches = {
             let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -1016,26 +1020,73 @@ pub(crate) fn segs_of(
     shape: &Shape,
     include_boundaries: bool,
 ) -> (Vec<Segment>, Vec<usize>) {
-    // The `StrRep` identity lane: an `Unrestricted` node or a too-wide table omits it, and absent means all-ones (matches any identity), matching a C# node with no `StrRep`.
-    let id_width = crate::bridge::id_lane_width(g, table);
-    let id_bits = |i: usize| -> Option<u64> {
-        match shape.node_cd_set(i) {
-            pg_shape::EffectiveCdSet::Singleton(cd) => Some(1u64 << cd),
-            pg_shape::EffectiveCdSet::Members(b) => b.as_u64(),
-            pg_shape::EffectiveCdSet::Unrestricted => None,
+    let ids = SegmentIds::new(g, table);
+    let mut segs = Vec::new();
+    let mut node_of = Vec::new();
+    for i in 0..shape.len() {
+        match shape.kind(i) {
+            NodeKind::Segment => {
+                segs.push(ids.segment(shape, i));
+                node_of.push(i);
+            }
+            NodeKind::Boundary if include_boundaries => {
+                segs.push(Segment::optional(ids.lanes(shape, i)));
+                node_of.push(i);
+            }
+            _ => {}
         }
-    };
-    // A table too wide for the id lane carries identity in the chunked `StrRep` lanes instead, featured or not, so a literal or class constraint still discriminates segments.
-    let wide_strrep = id_width
-        .is_none()
-        .then(|| StrRepMatcher::identity(g, &g.char_tables[table.0 as usize]));
-    let with_id = |i: usize, mut lanes: Vec<u64>| -> Vec<u64> {
-        if let Some(w) = id_width {
+    }
+    (segs, node_of)
+}
+
+/// The first and last `Segment`-kind nodes of `shape` as `segs_of` (without boundaries) would build them, without building the rest.
+pub(crate) fn edge_segs_of(
+    g: &Grammar,
+    table: TableId,
+    shape: &Shape,
+) -> (Option<Segment>, Option<Segment>) {
+    let ids = SegmentIds::new(g, table);
+    let is_segment = |i: &usize| matches!(shape.kind(*i), NodeKind::Segment);
+    let first = (0..shape.len()).find(is_segment);
+    let last = (0..shape.len()).rev().find(is_segment);
+    (
+        first.map(|i| ids.segment(shape, i)),
+        last.map(|i| ids.segment(shape, i)),
+    )
+}
+
+/// How a shape node's identity joins its feature lanes in an FST segment.
+struct SegmentIds {
+    /// The `StrRep` identity lane: an `Unrestricted` node or a too-wide table omits it, and absent means all-ones (matches any identity), matching a C# node with no `StrRep`.
+    id_width: Option<usize>,
+    /// A table too wide for the id lane carries identity in the chunked `StrRep` lanes instead, featured or not, so a literal or class constraint still discriminates segments.
+    wide_strrep: Option<StrRepMatcher>,
+}
+
+impl SegmentIds {
+    fn new(g: &Grammar, table: TableId) -> Self {
+        let id_width = crate::bridge::id_lane_width(g, table);
+        SegmentIds {
+            id_width,
+            wide_strrep: id_width
+                .is_none()
+                .then(|| StrRepMatcher::identity(g, &g.char_tables[table.0 as usize])),
+        }
+    }
+
+    fn lanes(&self, shape: &Shape, i: usize) -> Vec<u64> {
+        let mut lanes = shape.node_lanes(i).to_vec();
+        if let Some(w) = self.id_width {
             // Only reached on ≤64-def tables, so a `Singleton` shift can never overflow.
-            if let Some(bits) = id_bits(i) {
+            let bits = match shape.node_cd_set(i) {
+                pg_shape::EffectiveCdSet::Singleton(cd) => Some(1u64 << cd),
+                pg_shape::EffectiveCdSet::Members(b) => b.as_u64(),
+                pg_shape::EffectiveCdSet::Unrestricted => None,
+            };
+            if let Some(bits) = bits {
                 crate::bridge::push_id_lane(&mut lanes, w, bits);
             }
-        } else if let Some(strrep) = wide_strrep {
+        } else if let Some(strrep) = self.wide_strrep {
             match shape.node_cd_set(i) {
                 pg_shape::EffectiveCdSet::Singleton(cd) => {
                     strrep.input(&mut lanes, cd, &pg_shape::CdSet::Unrestricted);
@@ -1053,28 +1104,17 @@ pub(crate) fn segs_of(
             }
         }
         lanes
-    };
-    let mut segs = Vec::new();
-    let mut node_of = Vec::new();
-    for i in 0..shape.len() {
-        match shape.kind(i) {
-            NodeKind::Segment => {
-                let lanes = with_id(i, shape.node_lanes(i).to_vec());
-                segs.push(if shape.flags(i).is_optional() {
-                    Segment::optional(lanes)
-                } else {
-                    Segment::new(lanes)
-                });
-                node_of.push(i);
-            }
-            NodeKind::Boundary if include_boundaries => {
-                segs.push(Segment::optional(with_id(i, shape.node_lanes(i).to_vec())));
-                node_of.push(i);
-            }
-            _ => {}
+    }
+
+    /// A `Segment`-kind node, optional when it carries its own Optional flag.
+    fn segment(&self, shape: &Shape, i: usize) -> Segment {
+        let lanes = self.lanes(shape, i);
+        if shape.flags(i).is_optional() {
+            Segment::optional(lanes)
+        } else {
+            Segment::new(lanes)
         }
     }
-    (segs, node_of)
 }
 
 /// Provenance of an output node, used for morph attribution and span remapping.
@@ -2754,11 +2794,28 @@ fn ana_affix(
     output
 }
 
+/// True when the edge-dispatch index proves every allomorph of `rule` fails to match `word`, so the rule yields nothing and need not be attempted at all.
+pub(crate) fn affix_rule_edge_rejected(
+    g: &Grammar,
+    mrid: MRuleId,
+    rule: &AffixProcessRuleDef,
+    word: &Word,
+    cache: &crate::cache::RuleCache,
+) -> bool {
+    let Some(dispatch) = cache.edge_dispatch(mrid) else {
+        return false;
+    };
+    let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
+    let (first, last) = edge_segs_of(g, table, &word.shape);
+    !dispatch.admit_edges(first.as_ref(), last.as_ref()).any()
+}
+
 /// `crate::cache::RuleCache`-aware sibling of `ana_affix`.
 fn ana_affix_cached(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
+    mrid: MRuleId,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
@@ -2772,17 +2829,19 @@ fn ana_affix_cached(
     record_analysis_segs_of(mstats);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
+    // Dispatched once ahead of the loop: an allomorph the index rules out is never reserved or attempted.
+    let admission = cache.edge_dispatch(mrid).map(|d| d.admit(&segs));
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if admission.as_ref().is_some_and(|a| !a.allows(i)) {
+            record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
+            continue;
+        }
         if !pg_fst::work::consume() {
             return Vec::new();
         }
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
-        if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
-            record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
-            continue;
-        }
         let before = output.len();
         // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
