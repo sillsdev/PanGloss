@@ -29,6 +29,8 @@ pub struct ProbeSeg {
     pub char_def: u32,
     pub lanes: Vec<u64>,
     pub deleted: bool,
+    /// Whether this node was present in the segmented input rather than inserted by a rewrite.
+    pub from_input: bool,
 }
 
 /// Run every stratum's phonological-rule cascade over `shape` (C# `SurfacePhonology.SurfaceNodes`),
@@ -71,6 +73,7 @@ pub fn probe_synthesize_for(
                 char_def: n.char_def,
                 lanes: n.lanes.clone(),
                 deleted: n.deleted,
+                from_input: n.from_input,
             })
             .collect(),
     )
@@ -102,6 +105,7 @@ pub fn render_shape(table: &CharDefTable, shape: &Shape) -> Option<String> {
             char_def,
             lanes: shape.node_lanes(i).to_vec(),
             deleted: false,
+            from_input: true,
         })
         .collect();
     render_nodes(table, &segs)

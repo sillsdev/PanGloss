@@ -41,6 +41,7 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 pub(crate) struct MutNode {
     pub(crate) kind: NodeKind,
     pub(crate) char_def: u32,
+    pub(crate) from_input: bool,
     pub(crate) cd_set: CdSet,
     pub(crate) lanes: Vec<u64>,
     pub(crate) optional: bool,
@@ -112,6 +113,7 @@ impl MutShape {
             .map(|i| MutNode {
                 kind: s.kind(i),
                 char_def: s.char_def(i),
+                from_input: true,
                 cd_set: CdSet::Unrestricted,
                 lanes: s.node_lanes(i).to_vec(),
                 optional: s.flags(i).is_optional(),
@@ -3638,6 +3640,7 @@ fn new_seg_node_dirty(
     MutNode {
         kind,
         char_def,
+        from_input: false,
         cd_set: CdSet::Unrestricted,
         lanes: node_full_lanes(g, table, node),
         optional,
