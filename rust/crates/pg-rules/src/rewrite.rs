@@ -44,6 +44,8 @@ pub(crate) struct MutNode {
     pub(crate) from_input: bool,
     pub(crate) cd_set: CdSet,
     pub(crate) lanes: Vec<u64>,
+    /// Features authored with every symbol: their lane equals the full mask like an absent feature's, but C# keeps them present so `UseDefaults` leaves them alone. Taken from the node's char-def; empty for nearly every node. Carried unchanged within one rule application, even when a featured rewrite sets `char_def` to NO_CHAR_DEF (stale-retained, not cleared); the next rule re-derives it from the shape's `char_def`, so a node a featured rule touched reads as absent again. Mostly harmless and closer to C# than before; it matters only for grammars that author a full set, which FieldWorks does not produce.
+    pub(crate) explicit_full: Vec<u32>,
     pub(crate) optional: bool,
     /// C# `Annotation.FeatureStruct[Deletion] == Deleted` (synthesis narrow marks then filters).
     pub(crate) deleted: bool,
@@ -53,6 +55,11 @@ pub(crate) struct MutNode {
 }
 
 impl MutNode {
+    /// Whether feature `f` is present with its full symbol set, so a default must not replace it.
+    fn is_explicit_full(&self, f: usize) -> bool {
+        self.explicit_full.contains(&(f as u32))
+    }
+
     fn contains_strrep(&self, cd: u32) -> bool {
         if self.char_def != pg_shape::NO_CHAR_DEF {
             self.char_def == cd
@@ -116,6 +123,7 @@ impl MutShape {
                 from_input: true,
                 cd_set: CdSet::Unrestricted,
                 lanes: s.node_lanes(i).to_vec(),
+                explicit_full: Vec::new(),
                 optional: s.flags(i).is_optional(),
                 deleted: false,
                 dirty: false,
@@ -137,6 +145,7 @@ impl MutShape {
             if let EffectiveCdSet::Members(bits) = s.node_cd_set(i) {
                 node.cd_set = CdSet::Members(bits.clone());
             }
+            node.explicit_full = explicit_full_of(table, node.char_def);
         }
         result
     }
@@ -221,11 +230,12 @@ impl MutShape {
             }
             match n.kind {
                 NodeKind::Segment => {
-                    segs.push(if n.optional {
+                    let seg = if n.optional {
                         Segment::optional(lanes)
                     } else {
                         Segment::new(lanes)
-                    });
+                    };
+                    segs.push(seg.with_explicit_full(n.explicit_full.clone()));
                     node_of.push(i);
                 }
                 NodeKind::Boundary if include_boundaries => {
@@ -240,6 +250,17 @@ impl MutShape {
 }
 
 // Feature-constraint helpers (the "which features does this node pin, and to what" resolution).
+
+/// The features a char-def authors with every symbol; empty for a node without char-def identity.
+fn explicit_full_of(table: &CharDefTable, char_def: u32) -> Vec<u32> {
+    if char_def == pg_shape::NO_CHAR_DEF {
+        return Vec::new();
+    }
+    table
+        .get(CharDefId(char_def))
+        .explicit_full_features()
+        .to_vec()
+}
 
 fn full_mask(g: &Grammar, f: usize) -> u64 {
     pg_grammar_model::membership::mask(&g.phon_features, f)
@@ -582,7 +603,9 @@ fn env_input(env: &EnvFst, segs: &[Segment]) -> Vec<Segment> {
     let mut input = segs.to_vec();
     for segment in &mut input {
         for &(feature, mask, default) in &env.defaults {
-            if segment.lanes.get(feature) == Some(&mask) {
+            if segment.lanes.get(feature) == Some(&mask)
+                && !segment.explicit_full.contains(&(feature as u32))
+            {
                 segment.lanes[feature] = default;
             }
         }
@@ -740,8 +763,9 @@ fn bind_or_check(g: &Grammar, bindings: &mut Bindings, occ: &VarOccur, node_bits
     }
 }
 
-fn rewrite_variable_bits(g: &Grammar, occ: &VarOccur, bits: u64) -> u64 {
-    if bits == full_mask(g, occ.feature) {
+fn rewrite_variable_bits(g: &Grammar, occ: &VarOccur, node: &MutNode) -> u64 {
+    let bits = node.lanes[occ.feature];
+    if bits == full_mask(g, occ.feature) && !node.is_explicit_full(occ.feature) {
         g.phon_features
             .default_bits(FlatIndex(occ.feature as u32))
             .unwrap_or(bits)
@@ -772,7 +796,7 @@ fn resolve_bindings(
     for (k, occs) in lhs_vars.iter().enumerate() {
         let node = target_nodes[k];
         for occ in occs {
-            let bits = rewrite_variable_bits(g, occ, ms.nodes[node].lanes[occ.feature]);
+            let bits = rewrite_variable_bits(g, occ, &ms.nodes[node]);
             if !bind_or_check(g, &mut bindings, occ, bits) {
                 return None;
             }
@@ -1297,7 +1321,10 @@ fn pattern_defaults_ok(
             if bits == mask {
                 continue; // unpinned at this position -- nothing for UseDefaults to confirm
             }
-            if f < g.phon_features.len() && ms.nodes[node].lanes[f] == mask {
+            if f < g.phon_features.len()
+                && ms.nodes[node].lanes[f] == mask
+                && !ms.nodes[node].is_explicit_full(f)
+            {
                 if let Some(default_bits) = g.phon_features.default_bits(FlatIndex(f as u32)) {
                     if default_bits & bits == 0 {
                         return false;
@@ -3373,7 +3400,7 @@ fn epenthesis_target_environments_match(
     let mut bindings = Bindings::default();
     for (&node, vars) in target_nodes.iter().zip(target_vars) {
         for occ in vars {
-            let bits = rewrite_variable_bits(g, occ, ms.nodes[node].lanes[occ.feature]);
+            let bits = rewrite_variable_bits(g, occ, &ms.nodes[node]);
             if !bind_or_check(g, &mut bindings, occ, bits) {
                 return false;
             }
@@ -3643,6 +3670,7 @@ fn new_seg_node_dirty(
         from_input: false,
         cd_set: CdSet::Unrestricted,
         lanes: node_full_lanes(g, table, node),
+        explicit_full: explicit_full_of(table, char_def),
         optional,
         deleted: false,
         dirty,
