@@ -42,6 +42,7 @@ use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
+pub(crate) mod edge_index;
 mod edge_prefilter;
 
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
@@ -69,6 +70,16 @@ fn record_mrule_reach(
         segments,
         outputs,
     );
+}
+
+/// Keep rule-attempt statistics aligned with the already-consumed tick when the work cap stops the first allomorph.
+fn record_interrupted_mrule_attempt(mstats: Option<MRuleStatsCtx>, reached: u32) {
+    if reached == 0 {
+        if let Some(ctx) = mstats {
+            ctx.stats
+                .record_mrule_reach_attempt(ctx.stratum, ctx.id, ctx.direction);
+        }
+    }
 }
 
 /// `record_mrule_reach` for an analysis allomorph or subrule, whose match ran one FST traversal.
@@ -591,6 +602,7 @@ fn ana_affix_cached_traced(
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if !pg_fst::work::consume() {
+            record_interrupted_mrule_attempt(mstats, reached);
             return Vec::new();
         }
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
@@ -1543,7 +1555,7 @@ fn synth_syn_fs(
 }
 
 /// C# "Exact" analysis mode (`AnalysisSyntacticFeatureMerge.CanUnapply`/`MergeRequired`): the true inverse of `synth_syn_fs`, shared by affix-process and compounding analysis.
-fn ana_syn_fs(
+pub(crate) fn ana_syn_fs(
     g: &Grammar,
     req: pg_featstruct::FsId,
     out: pg_featstruct::FsId,
@@ -2774,6 +2786,7 @@ fn ana_affix_cached(
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if !pg_fst::work::consume() {
+            record_interrupted_mrule_attempt(mstats, reached);
             return Vec::new();
         }
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {

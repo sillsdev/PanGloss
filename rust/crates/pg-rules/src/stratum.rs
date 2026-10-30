@@ -809,10 +809,28 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         self.budget.tick()
     }
 
+    fn edge_candidates<'a>(
+        &'a self,
+        w: &Word,
+        mut rules: impl Iterator<Item = MRuleId>,
+    ) -> Option<crate::morph::edge_index::EdgeCandidates<'a>> {
+        if self.trace.is_tracing() || self.over_budget() {
+            return None;
+        }
+        let candidates = self.cache?.edge_candidates(self.stratum.table, &w.shape)?;
+        rules.any(|id| candidates.rejects(id)).then_some(candidates)
+    }
+
     /// Unapply a single morphological rule and record the bookkeeping on every output; `morph::analyze` stays semantics-pure.
-    fn apply_one_mrule(&self, id: MRuleId, w: &Word, role: RuleInvocationRole) -> Vec<Word> {
+    fn apply_one_mrule(
+        &self,
+        id: MRuleId,
+        w: &Word,
+        role: RuleInvocationRole,
+        candidates: Option<&crate::morph::edge_index::EdgeCandidates<'_>>,
+    ) -> Vec<Word> {
         if !crate::branch_census::enabled() {
-            return self.apply_one_mrule_uncounted(id, w, role);
+            return self.apply_one_mrule_uncounted(id, w, role, candidates);
         }
         let parent = crate::branch_census::node(w);
         let may_compound = (w.non_heads.len() as u32 + 1) < self.cfg.max_stem_count
@@ -828,7 +846,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         let (steps0, work0) = (self.budget.steps(), self.budget.work_steps());
         let t0 = web_time::Instant::now();
-        let outs = self.apply_one_mrule_uncounted(id, w, role);
+        let outs = self.apply_one_mrule_uncounted(id, w, role, candidates);
         crate::branch_census::charge_analysis(
             parent,
             (self.budget.steps() - steps0) as u64,
@@ -846,6 +864,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         id: MRuleId,
         w: &Word,
         role: RuleInvocationRole,
+        candidates: Option<&crate::morph::edge_index::EdgeCandidates<'_>>,
     ) -> Vec<Word> {
         // Checked before the budget tick: a rejected-by-gate rule was never attempted.
         if !self.rule_admitted(RuleRef::MRule(id)) {
@@ -864,6 +883,25 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         // Once unapplied on `w`'s trail `max_apps` times, skipped for this candidate; outside `tick()`.
         if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
             return Vec::new();
+        }
+        if let (Some(candidates), MorphRuleDef::AffixProcess(affix)) = (candidates, rule) {
+            if morph::ana_syn_fs(self.g, affix.required_syn_fs, affix.out_syn_fs, w).is_some()
+                && candidates.rejects(id)
+            {
+                if candidates.charge_needed() {
+                    let _owner = self.stats.map(|stats| {
+                        stats.time_enter(
+                            crate::stats::ObjectKind::MorphRule,
+                            self.stratum_id,
+                            id.0,
+                            crate::stats::ALLOMORPH_NONE,
+                            crate::stats::Direction::Analysis,
+                        )
+                    });
+                    pg_fst::work::consume();
+                }
+                return Vec::new();
+            }
         }
         let _obj_time = self.stats.map(|stats| {
             stats.time_enter(
@@ -969,9 +1007,28 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
     /// The mrule cascade over the reversed rule list: permutation for `Linear`, combination for `Unordered`, deduped by full word key.
     fn run_mrule_cascade(&self, input: &Word) -> Vec<Word> {
-        let apply_rule = |i: usize, w: &Word| {
-            self.apply_one_mrule(self.reversed_mrules[i], w, RuleInvocationRole::Ordinary)
+        let prepare = |w: &Word, start: usize, applied: Option<&[bool]>| {
+            self.edge_candidates(
+                w,
+                self.reversed_mrules
+                    .iter()
+                    .enumerate()
+                    .skip(start)
+                    .filter(|(i, _)| applied.is_none_or(|a| !a[*i]))
+                    .map(|(_, &id)| id),
+            )
         };
+        let apply_rule =
+            |i: usize,
+             w: &Word,
+             candidates: &Option<crate::morph::edge_index::EdgeCandidates<'_>>| {
+                self.apply_one_mrule(
+                    self.reversed_mrules[i],
+                    w,
+                    RuleInvocationRole::Ordinary,
+                    candidates.as_ref(),
+                )
+            };
         let key = |w: &Word| w.dedup_key();
         let casc = Cascade::new(true, usize::MAX).with_rule_work_owner(
             self.stats,
@@ -981,8 +1038,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         );
         let n = self.reversed_mrules.len();
         let out = match self.order {
-            MorphRuleOrder::Linear => casc.permutation(n, input.clone(), &apply_rule, &key),
-            MorphRuleOrder::Unordered => casc.combination(n, input.clone(), &apply_rule, &key),
+            MorphRuleOrder::Linear => {
+                casc.permutation_prepared(n, input.clone(), &prepare, &apply_rule, &key)
+            }
+            MorphRuleOrder::Unordered => {
+                casc.combination_prepared(n, input.clone(), &prepare, &apply_rule, &key)
+            }
         };
         if frontier_profile::enabled() {
             frontier_profile::record_raw_cascade(
@@ -1352,8 +1413,14 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 slot.rules.len() as u64,
             );
         }
+        let candidates = self.edge_candidates(in_word, slot.rules.iter().copied());
         for &rid in &slot.rules {
-            for w in self.apply_one_mrule(rid, in_word, RuleInvocationRole::TemplateSlot) {
+            for w in self.apply_one_mrule(
+                rid,
+                in_word,
+                RuleInvocationRole::TemplateSlot,
+                candidates.as_ref(),
+            ) {
                 let key = w.dedup_key();
                 match seen.get(&key) {
                     // Same FS-blind collapse as `run_template_batch_raw`, one slot rule down: widen rather than drop.

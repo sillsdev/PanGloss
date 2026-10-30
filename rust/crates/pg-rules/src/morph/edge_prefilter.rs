@@ -31,10 +31,22 @@ fn edge_passes(constraint: Option<&[u64]>, edge: Option<&Segment>) -> bool {
 }
 
 impl AnalysisLhs {
+    pub(crate) fn edge_rejects_at(&self, edge: Option<&Segment>, first: bool) -> bool {
+        !edge_passes(edge_constraint(&self.nodes, first), edge)
+    }
+
+    pub(crate) fn inserted_edge_rejects_at(&self, edge: &Segment, first: bool) -> bool {
+        let node = if first {
+            self.nodes.first()
+        } else {
+            self.nodes.last()
+        };
+        matches!(node, Some(CompileNode::Constraint(_))) && self.edge_rejects_at(Some(edge), first)
+    }
+
     /// True when the matcher provably finds no match because a mandatory word edge cannot unify with the pattern's mandatory edge.
     pub(crate) fn edge_rejects(&self, segs: &[Segment]) -> bool {
-        !edge_passes(edge_constraint(&self.nodes, true), segs.first())
-            || !edge_passes(edge_constraint(&self.nodes, false), segs.last())
+        self.edge_rejects_at(segs.first(), true) || self.edge_rejects_at(segs.last(), false)
     }
 }
 

@@ -490,7 +490,7 @@ fn stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_coun
         &staged_underdefined_project("08-rule-context"),
         "en",
         &analyses,
-        1,
+        0,
         None,
         &[1, 2, 8],
     );

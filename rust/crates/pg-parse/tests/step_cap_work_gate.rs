@@ -55,8 +55,9 @@ fn ordinary_words_keep_their_analyses_and_attempt_counts_when_the_bound_does_not
         actual_analyses.sort();
         assert_eq!(actual_analyses, expected_analyses);
         assert_eq!(
-            full.steps, 1,
-            "release baseline analysis attempts for {word}"
+            full.steps,
+            usize::from(word == "sagn"),
+            "indexed analysis attempts for {word}"
         );
         assert_eq!(actual.steps, full.steps);
         assert_eq!(actual.work_steps, full.work_steps);

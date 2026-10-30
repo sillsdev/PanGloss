@@ -202,8 +202,32 @@ impl<'a> Cascade<'a> {
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
     {
+        self.permutation_prepared(
+            rule_count,
+            input,
+            &|_, _, _| (),
+            &|i, w, &()| apply_rule(i, w),
+            key,
+        )
+    }
+
+    pub fn permutation_prepared<T, K, P, A, F, B>(
+        &self,
+        rule_count: usize,
+        input: T,
+        prepare: &B,
+        apply_rule: &A,
+        key: &F,
+    ) -> CascadeOutput<T>
+    where
+        T: Clone,
+        K: Hash + Eq,
+        A: Fn(usize, &T, &P) -> Vec<T>,
+        F: Fn(&T) -> K,
+        B: Fn(&T, usize, Option<&[bool]>) -> P,
+    {
         let mut acc = Acc::new();
-        self.permutation_rec(rule_count, &input, 0, apply_rule, key, &mut acc);
+        self.permutation_rec(rule_count, &input, 0, prepare, apply_rule, key, &mut acc);
         CascadeOutput {
             words: acc.items,
             capped: acc.capped,
@@ -211,31 +235,34 @@ impl<'a> Cascade<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn permutation_rec<T, K, A, F>(
+    fn permutation_rec<T, K, P, A, F, B>(
         &self,
         rule_count: usize,
         input: &T,
         rule_index: usize,
+        prepare: &B,
         apply_rule: &A,
         key: &F,
         acc: &mut Acc<T, K>,
     ) where
         T: Clone,
         K: Hash + Eq,
-        A: Fn(usize, &T) -> Vec<T>,
+        A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,
+        B: Fn(&T, usize, Option<&[bool]>) -> P,
     {
+        let prepared = prepare(input, rule_index, None);
         for i in rule_index..rule_count {
             if acc.steps >= self.cap || !self.consume_attempt(i) {
                 acc.capped = true;
                 return;
             }
             acc.steps += 1;
-            for result in apply_rule(i, input) {
+            for result in apply_rule(i, input, &prepared) {
                 // avoid infinite loop (PermutationRuleCascade.cs:39)
                 if !self.multi_app || key(input) != key(&result) {
                     let next = if self.multi_app { i } else { i + 1 };
-                    self.permutation_rec(rule_count, &result, next, apply_rule, key, acc);
+                    self.permutation_rec(rule_count, &result, next, prepare, apply_rule, key, acc);
                 }
                 acc.add(key(&result), result);
             }
@@ -258,6 +285,30 @@ impl<'a> Cascade<'a> {
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
     {
+        self.combination_prepared(
+            rule_count,
+            input,
+            &|_, _, _| (),
+            &|i, w, &()| apply_rule(i, w),
+            key,
+        )
+    }
+
+    pub fn combination_prepared<T, K, P, A, F, B>(
+        &self,
+        rule_count: usize,
+        input: T,
+        prepare: &B,
+        apply_rule: &A,
+        key: &F,
+    ) -> CascadeOutput<T>
+    where
+        T: Clone,
+        K: Hash + Eq,
+        A: Fn(usize, &T, &P) -> Vec<T>,
+        F: Fn(&T) -> K,
+        B: Fn(&T, usize, Option<&[bool]>) -> P,
+    {
         let mut acc = Acc::new();
         // C#: `!MultipleApplication ? new HashSet<int>() : null`.
         let applied: Option<Vec<bool>> = if self.multi_app {
@@ -265,7 +316,9 @@ impl<'a> Cascade<'a> {
         } else {
             Some(vec![false; rule_count])
         };
-        self.combination_rec(rule_count, &input, applied, apply_rule, key, &mut acc);
+        self.combination_rec(
+            rule_count, &input, applied, prepare, apply_rule, key, &mut acc,
+        );
         CascadeOutput {
             words: acc.items,
             capped: acc.capped,
@@ -273,20 +326,23 @@ impl<'a> Cascade<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn combination_rec<T, K, A, F>(
+    fn combination_rec<T, K, P, A, F, B>(
         &self,
         rule_count: usize,
         input: &T,
         applied: Option<Vec<bool>>,
+        prepare: &B,
         apply_rule: &A,
         key: &F,
         acc: &mut Acc<T, K>,
     ) where
         T: Clone,
         K: Hash + Eq,
-        A: Fn(usize, &T) -> Vec<T>,
+        A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,
+        B: Fn(&T, usize, Option<&[bool]>) -> P,
     {
+        let prepared = prepare(input, 0, applied.as_deref());
         for i in 0..rule_count {
             if applied.as_ref().is_none_or(|a| !a[i]) {
                 if acc.steps >= self.cap || !self.consume_attempt(i) {
@@ -294,7 +350,7 @@ impl<'a> Cascade<'a> {
                     return;
                 }
                 acc.steps += 1;
-                for result in apply_rule(i, input) {
+                for result in apply_rule(i, input, &prepared) {
                     // avoid infinite loop (CombinationRuleCascade.cs:41)
                     if key(input) != key(&result) {
                         let next = applied.as_ref().map(|a| {
@@ -302,7 +358,9 @@ impl<'a> Cascade<'a> {
                             a2[i] = true;
                             a2
                         });
-                        self.combination_rec(rule_count, &result, next, apply_rule, key, acc);
+                        self.combination_rec(
+                            rule_count, &result, next, prepare, apply_rule, key, acc,
+                        );
                     }
                     acc.add(key(&result), result);
                 }

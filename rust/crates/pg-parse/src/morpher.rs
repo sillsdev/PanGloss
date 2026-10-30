@@ -633,6 +633,12 @@ impl<'g> Morpher<'g> {
         self
     }
 
+    /// Turns the rule-level edge index on or off independently of the allomorph prefilter.
+    pub fn with_edge_index(mut self, on: bool) -> Self {
+        self.cache = self.cache.with_edge_index(on);
+        self
+    }
+
     /// Turns the lookup-time stem-name and MPR replay on or off; it never changes an analysis.
     pub fn with_lookup_replay(mut self, on: bool) -> Self {
         self.lookup_replay = on.then(|| crate::lookup_replay::LookupReplay::build(self.g));
