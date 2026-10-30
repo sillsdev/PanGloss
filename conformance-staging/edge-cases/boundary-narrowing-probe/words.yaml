@@ -1,6 +1,6 @@
 # oracle-provenance: founding-oracle machine-commit=aab4c59819adb7b366915e09df2fb28c62b8c03a
 # C# hc.dll replay; see STAGING.md.
-language: BoundaryFirstInNarrowingLhs
+language: BoundaryNarrowingProbe
 inspired_by: ["synthetic boundary-initial narrowing probe"]
 sources: ["PanGloss issue 14"]
 requires: [phonology]

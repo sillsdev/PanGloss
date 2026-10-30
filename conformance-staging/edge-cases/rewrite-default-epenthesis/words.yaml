@@ -15,7 +15,7 @@ words:
     note: "C# oracle replay; see STAGING.md."
     parses:
       - signature: "|b[ad(aa)]t"
-        rules: []
+        rules: [pr1]
         exercises: ["RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
   - word: bt
     note: "C# oracle replay; see STAGING.md."

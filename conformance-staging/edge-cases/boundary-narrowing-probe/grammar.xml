@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
 <HermitCrabInput>
   <Language>
-    <Name>BoundaryFirstInNarrowingLhs</Name>
+    <Name>BoundaryNarrowingProbe</Name>
     <PartsOfSpeech>
       <PartOfSpeech id="posN">
         <Name>n</Name>
