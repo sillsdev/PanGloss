@@ -130,6 +130,38 @@ enum EnvCheck<'a> {
 }
 
 impl EnvCheck<'_> {
+    fn time_owner(
+        &self,
+        g: &Grammar,
+        id: AllomorphId,
+    ) -> Option<crate::stats::ObjectTimeGuard<'_>> {
+        let EnvCheck::Cached(_, Some(stats)) = self else {
+            return None;
+        };
+        let (kind, object_index, allomorph, morpheme) = match g.allomorph_owners[id.0 as usize] {
+            AllomorphOwner::Root(entry, index) => (
+                ObjectKind::LexEntry,
+                entry.0,
+                u32::from(index) + 1,
+                g.entries[entry.0 as usize].morpheme,
+            ),
+            AllomorphOwner::Affix(rule, index) => (
+                ObjectKind::MorphRule,
+                rule.0,
+                u32::from(index) + 1,
+                g.mrules[rule.0 as usize]
+                    .morpheme()
+                    .expect("an affix allomorph has an owning morpheme"),
+            ),
+        };
+        Some(stats.time_enter(
+            kind,
+            g.morphemes[morpheme.0 as usize].stratum,
+            object_index,
+            allomorph,
+            Direction::Synthesis,
+        ))
+    }
     fn envs_ok(
         &self,
         g: &Grammar,
@@ -157,35 +189,7 @@ impl EnvCheck<'_> {
         if envs.is_empty() {
             return Ok(());
         }
-        let _time_owner = match self {
-            EnvCheck::Cached(_, Some(stats)) => {
-                let (kind, object_index, allomorph, morpheme) =
-                    match g.allomorph_owners[id.0 as usize] {
-                        AllomorphOwner::Root(entry, index) => (
-                            ObjectKind::LexEntry,
-                            entry.0,
-                            u32::from(index) + 1,
-                            g.entries[entry.0 as usize].morpheme,
-                        ),
-                        AllomorphOwner::Affix(rule, index) => (
-                            ObjectKind::MorphRule,
-                            rule.0,
-                            u32::from(index) + 1,
-                            g.mrules[rule.0 as usize]
-                                .morpheme()
-                                .expect("an affix allomorph has an owning morpheme"),
-                        ),
-                    };
-                Some(stats.time_enter(
-                    kind,
-                    g.morphemes[morpheme.0 as usize].stratum,
-                    object_index,
-                    allomorph,
-                    Direction::Synthesis,
-                ))
-            }
-            _ => None,
-        };
+        let _time_owner = self.time_owner(g, id);
         let (segs, _node_of) = segs_of(g, TABLE, shape, true);
         let cached = match self {
             EnvCheck::Fresh => None,
@@ -646,6 +650,18 @@ fn allomorphs_valid_impl(
     let morph_list_morphemes: Vec<MorphemeId> = sorted.iter().map(|m| m.morpheme).collect();
 
     for (i, m) in sorted.iter().enumerate() {
+        let owner_id = if m.allomorph == AllomorphId::GUESSED {
+            m.runtime_root
+                .as_ref()
+                .and_then(|root| match root.as_ref() {
+                    crate::word::RuntimeRoot::Guessed(root) => Some(root.pattern_allo),
+                    crate::word::RuntimeRoot::Supplied(_) => None,
+                })
+        } else {
+            Some(m.allomorph)
+        };
+        // Attribute the entire validation of this morph to its owner.
+        let _owner = owner_id.and_then(|id| check.time_owner(g, id));
         if !pg_fst::work::consume() {
             return false;
         }
@@ -836,6 +852,7 @@ fn allomorphs_valid_impl(
                 // The candidate's own allomorph-co-occurrence rules are checked here; morpheme-level rules are provably a
                 // no-op per candidate and are intentionally omitted -- see docs/research/pg-rules-validity-design-notes.md.
                 for ci in disjunctive_candidates(m, idx as usize) {
+                    let _candidate_owner = check.time_owner(g, allos[ci].id);
                     if !pg_fst::work::consume() {
                         return false;
                     }
@@ -949,6 +966,7 @@ fn allomorphs_valid_impl(
                 }
                 // Same disjunctive re-check shape as the root arm above (see its comment).
                 for ci in disjunctive_candidates(m, idx as usize) {
+                    let _candidate_owner = check.time_owner(g, allos[ci].id);
                     if !pg_fst::work::consume() {
                         return false;
                     }

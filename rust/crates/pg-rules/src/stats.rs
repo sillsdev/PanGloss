@@ -20,7 +20,39 @@ use rustc_hash::FxHashMap as HashMap;
 pub const ALLOMORPH_NONE: u32 = 0;
 
 /// Counter meaning and instrumentation support recorded by each statistics run.
-pub const COUNTER_SEMANTICS_VERSION: i64 = 7;
+pub const COUNTER_SEMANTICS_VERSION: i64 = 8;
+
+/// Parser-owned reservation sites, persisted as synthetic objects.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ParserWork {
+    /// Expansion of analysis and synthesis candidates.
+    CandidateExpansion,
+    /// Moving a candidate between strata.
+    StratumTransition,
+    /// Comparing a synthesized candidate with the surface form.
+    SurfaceMatch,
+}
+
+impl ParserWork {
+    pub const ALL: [Self; 3] = [
+        Self::CandidateExpansion,
+        Self::StratumTransition,
+        Self::SurfaceMatch,
+    ];
+    pub fn index(self) -> u32 {
+        self as u32
+    }
+    pub fn from_index(index: u32) -> Option<Self> {
+        Self::ALL.get(index as usize).copied()
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::CandidateExpansion => "candidate_expansion",
+            Self::StratumTransition => "stratum_transition",
+            Self::SurfaceMatch => "surface_match",
+        }
+    }
+}
 
 /// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
 /// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key
@@ -51,6 +83,7 @@ pub enum ObjectKind {
     Guesser,
     /// The runtime supplied-root overlay: no grammar-resident object, one pseudo-row per grammar.
     Overlay,
+    Parser,
 }
 
 /// Whether this object kind has an actual `StatsCollector::time_enter` instrumentation boundary.
@@ -65,6 +98,7 @@ pub fn self_time_supported(kind: ObjectKind) -> bool {
             | ObjectKind::RootIndex
             | ObjectKind::Guesser
             | ObjectKind::Overlay
+            | ObjectKind::Parser
     )
 }
 
@@ -75,6 +109,7 @@ pub fn self_time_supported_in_direction(kind: ObjectKind, direction: Direction) 
         ObjectKind::RootIndex | ObjectKind::Guesser | ObjectKind::Overlay => {
             direction == Direction::Analysis
         }
+        ObjectKind::Parser => true,
     }
 }
 
@@ -84,6 +119,9 @@ pub fn self_time_supported_in_direction_for_semantics(
     direction: Direction,
     semantics: i64,
 ) -> bool {
+    if semantics < 8 && kind == ObjectKind::Parser {
+        return false;
+    }
     if semantics < 7 && kind == ObjectKind::LexEntry && direction == Direction::Synthesis {
         return false;
     }
@@ -433,6 +471,33 @@ pub struct StatsCollector {
 }
 
 impl StatsCollector {
+    /// Attribute parser orchestration to a stable named synthetic category.
+    pub fn time_parser(
+        &self,
+        category: ParserWork,
+        stratum: StratumId,
+        direction: Direction,
+    ) -> ObjectTimeGuard<'_> {
+        self.time_enter(
+            ObjectKind::Parser,
+            stratum,
+            category.index(),
+            ALLOMORPH_NONE,
+            direction,
+        )
+    }
+
+    /// Reserve one step under a parser category, preserving the work budget's return value.
+    pub fn consume_parser(
+        &self,
+        category: ParserWork,
+        stratum: StratumId,
+        direction: Direction,
+    ) -> bool {
+        let _owner = self.time_parser(category, stratum, direction);
+        pg_fst::work::consume()
+    }
+
     pub fn new(g: &Grammar) -> Self {
         StatsCollector {
             morph: DenseTable::new(g.strata.len(), g.mrules.len()),
@@ -1067,10 +1132,11 @@ pub fn counter_support_for_semantics(
     semantics: i64,
 ) -> Result<CounterSupport, i64> {
     match semantics {
+        3 | 5 | 6 | 7 if kind == ObjectKind::Parser => Ok(CounterSupport::NotWired),
         3 if kind == ObjectKind::PhonRule && matches!(counter, "uses" | "no_root") => {
             Ok(CounterSupport::NotWired)
         }
-        3 | 5 | 6 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
+        3 | 5 | 6 | 7 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
         unsupported => Err(unsupported),
     }
 }

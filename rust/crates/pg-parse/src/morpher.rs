@@ -14,7 +14,7 @@ use pg_grammar_model::model::{
 use pg_rules::cache::RuleCache;
 use pg_rules::required_slots::RequiredSlotLookahead;
 use pg_rules::shape_feat::segment_with_features;
-use pg_rules::stats::OverlayPhase;
+use pg_rules::stats::{Direction, OverlayPhase, ParserWork, StatsCollector};
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use pg_rules::stratum::{FinalTemplateAnalysisPolicy, FinalTemplateSynthesisPolicy};
 use pg_rules::trace::{
@@ -29,6 +29,17 @@ use crate::guess;
 use crate::identity::AnalysisIdentity;
 use crate::root_trie::{collect_lexical_patterns, RootAllomorphIndex};
 use crate::{result_signature, surface, AnalysisProvenance, SuppliedRootOverlay, WordAnalysis};
+
+fn consume_parser_work(
+    stats: Option<&StatsCollector>,
+    category: ParserWork,
+    stratum: StratumId,
+    direction: Direction,
+) -> bool {
+    stats.map_or_else(pg_fst::work::consume, |stats| {
+        stats.consume_parser(category, stratum, direction)
+    })
+}
 
 /// The compiled parser for one grammar: the immutable grammar plus its per-stratum root-allomorph
 /// tries (C# `Morpher`, built once, parses many words).
@@ -833,7 +844,12 @@ impl<'g> Morpher<'g> {
             }
             let mut output_set: HashMap<WordKey, Word> = HashMap::default();
             for w in input_set.values() {
-                if !pg_fst::work::consume() {
+                if !consume_parser_work(
+                    stats,
+                    ParserWork::StratumTransition,
+                    StratumId(s as u8),
+                    Direction::Analysis,
+                ) {
                     break;
                 }
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
@@ -881,7 +897,19 @@ impl<'g> Morpher<'g> {
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         if !opts.guess_only {
             for aw in results.values() {
-                if !pg_fst::work::consume() {
+                let dispatch_ok = {
+                    let _owner = stats.map(|stats| {
+                        stats.time_enter(
+                            pg_rules::stats::ObjectKind::RootIndex,
+                            aw.stratum,
+                            0,
+                            pg_rules::stats::ALLOMORPH_NONE,
+                            pg_rules::stats::Direction::Analysis,
+                        )
+                    });
+                    pg_fst::work::consume()
+                };
+                if !dispatch_ok {
                     break;
                 }
                 // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
@@ -915,14 +943,24 @@ impl<'g> Morpher<'g> {
                 });
                 let mut aw_matched = false;
                 for syn_word in looked_up {
-                    if !pg_fst::work::consume() {
+                    if !consume_parser_work(
+                        stats,
+                        ParserWork::CandidateExpansion,
+                        syn_word.stratum,
+                        Direction::Synthesis,
+                    ) {
                         break;
                     }
                     // Recovers the shape-equivalent candidates `merge_equivalent` folded away; skipping this loses real analyses whenever merging is on (the default).
                     let expanded = syn_word.expand_alternatives();
                     alt_yield::record_expansion(expanded.len());
                     for alt in expanded {
-                        if !pg_fst::work::consume() {
+                        if !consume_parser_work(
+                            stats,
+                            ParserWork::CandidateExpansion,
+                            alt.stratum,
+                            Direction::Synthesis,
+                        ) {
                             break;
                         }
                         if !trace.is_tracing()
@@ -952,7 +990,7 @@ impl<'g> Morpher<'g> {
                             if !self.is_word_valid_traced_with_stats(&vw, trace, root, stats) {
                                 continue;
                             }
-                            if !self.is_match_traced(&vw, word, trace, root) {
+                            if !self.is_match_traced(&vw, word, trace, root, stats) {
                                 self.record_surface_mismatch(stats, &vw);
                                 continue;
                             }
@@ -989,7 +1027,12 @@ impl<'g> Morpher<'g> {
             if opts.guess_root && matches.is_empty() && !self.lexical_patterns.is_empty() {
                 let mut guess_matches: Vec<Word> = Vec::new();
                 for aw in results.values() {
-                    if !pg_fst::work::consume() {
+                    if !consume_parser_work(
+                        stats,
+                        ParserWork::CandidateExpansion,
+                        aw.stratum,
+                        Direction::Analysis,
+                    ) {
                         break;
                     }
                     if let Some(stats) = stats {
@@ -1011,13 +1054,23 @@ impl<'g> Morpher<'g> {
                         guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
                     };
                     for synthesis_word in guessed_words {
-                        if !pg_fst::work::consume() {
+                        if !consume_parser_work(
+                            stats,
+                            ParserWork::CandidateExpansion,
+                            synthesis_word.stratum,
+                            Direction::Synthesis,
+                        ) {
                             break;
                         }
                         let expanded = synthesis_word.expand_alternatives();
                         alt_yield::record_expansion(expanded.len());
                         for alt in expanded {
-                            if !pg_fst::work::consume() {
+                            if !consume_parser_work(
+                                stats,
+                                ParserWork::CandidateExpansion,
+                                alt.stratum,
+                                Direction::Synthesis,
+                            ) {
                                 break;
                             }
                             for vw in self.synthesis_pipeline_traced(
@@ -1035,7 +1088,7 @@ impl<'g> Morpher<'g> {
                                 }
                                 candidates_generated += 1;
                                 if self.is_word_valid_traced_with_stats(&vw, trace, root, stats)
-                                    && self.is_match_traced(&vw, word, trace, root)
+                                    && self.is_match_traced(&vw, word, trace, root, stats)
                                 {
                                     if alt_yield::enabled() {
                                         if let Ok(id) = AnalysisIdentity::project(
@@ -1108,6 +1161,15 @@ impl<'g> Morpher<'g> {
         // Distinct entries in first-seen order; `lex_entry_filter` runs before the dedup, mirroring C#'s `.Where().Distinct()` order.
         let mut entries: Vec<LexEntryId> = Vec::new();
         for root in &matched {
+            let _owner = stats.map(|stats| {
+                stats.time_enter(
+                    pg_rules::stats::ObjectKind::RootIndex,
+                    aw.stratum,
+                    0,
+                    pg_rules::stats::ALLOMORPH_NONE,
+                    pg_rules::stats::Direction::Analysis,
+                )
+            });
             if !pg_fst::work::consume() {
                 break;
             }
@@ -1123,19 +1185,20 @@ impl<'g> Morpher<'g> {
         }
         let mut out = Vec::new();
         for le in entries {
+            let _entry_owner = stats.map(|stats| {
+                stats.time_enter(
+                    pg_rules::stats::ObjectKind::LexEntry,
+                    aw.stratum,
+                    le.0,
+                    pg_rules::stats::ALLOMORPH_NONE,
+                    pg_rules::stats::Direction::Analysis,
+                )
+            });
             if !pg_fst::work::consume() {
                 break;
             }
             let entry = &g.entries[le.0 as usize];
             for (allo_idx, allo) in entry.allomorphs.iter().enumerate() {
-                if !pg_fst::work::consume() {
-                    break;
-                }
-                if let Some(stats) = stats {
-                    // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
-                    stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
-                }
-                // Book this lexical entry's self time at its object boundary.
                 let _time_lex = stats.map(|stats| {
                     stats.time_enter(
                         pg_rules::stats::ObjectKind::LexEntry,
@@ -1145,6 +1208,13 @@ impl<'g> Morpher<'g> {
                         pg_rules::stats::Direction::Analysis,
                     )
                 });
+                if !pg_fst::work::consume() {
+                    break;
+                }
+                if let Some(stats) = stats {
+                    // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
+                    stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
+                }
                 // The clone drops alternatives and records `aw` as its source — the boundary `expand_alternatives` walks back from.
                 let mut nw = aw.clone_without_alternatives();
                 nw.source = Some(Rc::new(aw.clone()));
@@ -1153,14 +1223,24 @@ impl<'g> Morpher<'g> {
             }
         }
         for root in matched {
+            let _owner = stats.map(|stats| match &root {
+                ResolvedRoot::Supplied(_) => {
+                    stats.time_overlay(aw.stratum, OverlayPhase::Materialize)
+                }
+                ResolvedRoot::Grammar(..) => stats.time_enter(
+                    pg_rules::stats::ObjectKind::RootIndex,
+                    aw.stratum,
+                    0,
+                    pg_rules::stats::ALLOMORPH_NONE,
+                    pg_rules::stats::Direction::Analysis,
+                ),
+            });
             if !pg_fst::work::consume() {
                 break;
             }
             let ResolvedRoot::Supplied(root) = root else {
                 continue;
             };
-            let _overlay_time =
-                stats.map(|stats| stats.time_overlay(aw.stratum, OverlayPhase::Materialize));
             let mut nw = aw.clone_without_alternatives();
             nw.source = Some(Rc::new(aw.clone()));
             let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
@@ -1391,7 +1471,12 @@ impl<'g> Morpher<'g> {
             let admitted = rule_filter.is_none_or(|f| f(stratum_ref));
             let mut next: HashMap<WordKey, Word> = HashMap::default();
             for w in cur.values() {
-                if !pg_fst::work::consume() {
+                if !consume_parser_work(
+                    stats,
+                    ParserWork::StratumTransition,
+                    StratumId(s as u8),
+                    Direction::Synthesis,
+                ) {
                     break;
                 }
                 if !admitted {
@@ -1495,12 +1580,22 @@ impl<'g> Morpher<'g> {
         word: &str,
         trace: &dyn TraceSink,
         parent: TraceHandle,
+        stats: Option<&StatsCollector>,
     ) -> bool {
         let parent = w.trace.unwrap_or(parent);
         let g = self.g;
         let n = g.strata.len();
         let surface_table = &g.char_tables[g.strata[n - 1].table.0 as usize];
-        let ok = surface::is_match(surface_table, &w.shape, word);
+        let ok = {
+            let _owner = stats.map(|stats| {
+                stats.time_parser(
+                    ParserWork::SurfaceMatch,
+                    StratumId((n - 1) as u8),
+                    Direction::Synthesis,
+                )
+            });
+            surface::is_match(surface_table, &w.shape, word)
+        };
         if trace.is_tracing() {
             if ok {
                 trace.successful(parent, w);

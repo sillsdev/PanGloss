@@ -7,7 +7,7 @@ use pg_conformance_fixtures::require_fixture;
 use pg_grammar_model::model::PhonRuleDef;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
-use pg_rules::stats::{Direction, ObjectKind, OverlayPhase, StatsRow};
+use pg_rules::stats::{Direction, ObjectKind, OverlayPhase, ParserWork, StatsCollector, StatsRow};
 use pg_rules::trace::{TraceHandle, TreeTraceSink};
 
 #[test]
@@ -36,6 +36,68 @@ fn alpha_environment_work_is_attributed_to_its_lexical_entry() {
     );
     let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
     assert!(attributed <= outcome.work_steps as u64);
+}
+
+#[test]
+fn parser_work_categories_cover_real_reservations_without_changing_totals() {
+    let mut seen = [false; 3];
+    for (g, cases) in fixture_cases() {
+        let morpher = Morpher::new(&g, usize::MAX);
+        for case in cases {
+            let opts = ParseOptions::default();
+            let off = morpher.parse_word_opts(case.word, &opts);
+            let (on, rows) = morpher.parse_word_with_stats(case.word, &opts);
+            assert_eq!(off.work_steps, on.work_steps, "{}", case.label);
+            assert_eq!(off.analyses, on.analyses, "{}", case.label);
+            assert!(
+                rows.iter().map(|r| r.counters.work_steps).sum::<u64>() <= on.work_steps as u64
+            );
+            for row in rows
+                .iter()
+                .filter(|r| r.kind == ObjectKind::Parser && r.counters.work_steps > 0)
+            {
+                seen[row.object_index as usize] = true;
+            }
+        }
+    }
+    for category in ParserWork::ALL {
+        assert!(seen[category.index() as usize], "missing {:?}", category);
+    }
+}
+
+#[test]
+fn cascade_reservations_follow_the_rule_and_only_successful_work_is_counted() {
+    let (g, _) = fixture_cases()
+        .into_iter()
+        .find(|(g, _)| g.mrules.len() >= 2)
+        .unwrap();
+    let stats = StatsCollector::new(&g);
+    let budget = pg_fst::work::WorkBudget::new(1);
+    let _budget = budget.enter();
+    let rules = [
+        pg_grammar_model::model::MRuleId(1),
+        pg_grammar_model::model::MRuleId(0),
+    ];
+    let cascade = pg_rules::cascade::Cascade::new(false, usize::MAX).with_rule_work_owner(
+        Some(&stats),
+        pg_grammar_model::model::StratumId(0),
+        &rules,
+        Direction::Analysis,
+    );
+    let result = cascade.permutation(2, 0, &|_, _: &i32| Vec::new(), &|n: &i32| *n);
+    assert!(result.capped);
+    let rows = stats.rows();
+    assert_eq!(budget.used(), 1);
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.kind == ObjectKind::MorphRule && row.object_index == 1)
+            .map(|row| row.counters.work_steps)
+            .sum::<u64>(),
+        1
+    );
+    assert!(rows.iter().all(|row| row.kind != ObjectKind::MorphRule
+        || row.object_index != 0
+        || row.counters.work_steps == 0));
 }
 
 /// One fixture-provided word to replay, paired with the grammar it belongs to.

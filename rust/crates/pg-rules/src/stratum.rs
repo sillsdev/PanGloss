@@ -973,7 +973,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             self.apply_one_mrule(self.reversed_mrules[i], w, RuleInvocationRole::Ordinary)
         };
         let key = |w: &Word| w.dedup_key();
-        let casc = Cascade::new(true, usize::MAX);
+        let casc = Cascade::new(true, usize::MAX).with_rule_work_owner(
+            self.stats,
+            self.stratum_id,
+            &self.reversed_mrules,
+            crate::stats::Direction::Analysis,
+        );
         let n = self.reversed_mrules.len();
         let out = match self.order {
             MorphRuleOrder::Linear => casc.permutation(n, input.clone(), &apply_rule, &key),
@@ -2286,7 +2291,12 @@ fn synth_apply_mrules(
             RuleInvocationRole::Ordinary,
         )
     };
-    let casc = Cascade::new(true, usize::MAX);
+    let casc = Cascade::new(true, usize::MAX).with_rule_work_owner(
+        stats,
+        stratum,
+        &sd.mrules,
+        crate::stats::Direction::Synthesis,
+    );
     let n = sd.mrules.len();
     // Synthesis mrules are in declaration order — no reverse, unlike analysis.
     let cascade_out = match sd.mrule_order {

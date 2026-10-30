@@ -3,6 +3,19 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Interface changes
+
+- Counter semantics are version 8. Cascade attempts, lexical lookup bookkeeping, and
+  allomorph validation work steps now follow their owning objects. Named synthetic parser
+  rows account for candidate expansion, stratum transitions, and surface matching. Per-word
+  work totals are unchanged; consumers must gate on the counter-semantics version.
+- Facts may now contain `lex_entry` rows without an allomorph and `morph_rule` rows with zero
+  attempts that carry only work or self time. The `parser` object kind appears in the stats cache
+  and detailed trace but is excluded from facts. Trace JSON adds
+  `categories.parser.workStepsByPhase` for the three parser work categories.
+
 ## 0.12.1
 
 ### Interface changes

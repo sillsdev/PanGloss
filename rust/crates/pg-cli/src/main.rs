@@ -1126,10 +1126,10 @@ fn parse_batch_with_stats(
     start_idx: usize,
     existing_words: &HashSet<String>,
     parse_counter: &BatchParseCounter,
-) -> Vec<Option<BatchWordRun>> {
+) -> Result<Vec<Option<BatchWordRun>>, String> {
     use rayon::prelude::*;
     if words.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut pool_builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
     if max_threads > 0 {
@@ -1144,7 +1144,7 @@ fn parse_batch_with_stats(
             .enumerate()
             .map(|(index, word)| {
                 if index < start_idx && existing_words.contains(word.as_str()) {
-                    return None;
+                    return Ok(None);
                 }
                 let start = Instant::now();
                 parse_counter.record();
@@ -1161,11 +1161,11 @@ fn parse_batch_with_stats(
                     &result,
                     &rows,
                     &prune_rows,
-                );
-                Some(BatchWordRun {
+                )?;
+                Ok(Some(BatchWordRun {
                     outcome: result,
                     stats: Some(stats),
-                })
+                }))
             })
             .collect()
     })
@@ -1530,7 +1530,7 @@ fn run_batch_with_counter(
                         &result,
                         &rows,
                         &prune_rows,
-                    ));
+                    )?);
                 }
                 continue;
             }
@@ -1558,7 +1558,7 @@ fn run_batch_with_counter(
                     &result,
                     &rows,
                     &prune_rows,
-                );
+                )?;
                 (result, Some(stats))
             } else {
                 parse_counter.record();
@@ -1787,7 +1787,7 @@ fn run_batch_with_counter(
                     start_idx,
                     cache.0.existing_words(),
                     parse_counter,
-                ),
+                )?,
                 0,
             )
         } else {

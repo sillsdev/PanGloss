@@ -100,6 +100,43 @@ fn primary_fixture() -> (String, String) {
     fixture_grammar_and_word("languages", "metathesis-phase-isolation")
 }
 
+#[test]
+fn invalid_parser_work_index_refuses_stats_record() {
+    let (xml, word) = primary_fixture();
+    let dir = scratch_dir("invalid-parser-work");
+    let path = dir.join("grammar.xml");
+    fs::write(&path, xml).unwrap();
+    let (grammar, _) = crate::load_grammar(path.to_str().unwrap()).unwrap();
+    let identities = StatsIdentityCatalog::new(&grammar);
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let outcome = pg_parse::BatchWordOutcome {
+        outcome: morpher.parse_word_opts(&word, &pg_parse::ParseOptions::default()),
+        elapsed: std::time::Duration::ZERO,
+    };
+    let mut row = pg_rules::stats::StatsRow {
+        kind: pg_rules::stats::ObjectKind::Parser,
+        object_index: 0,
+        stratum: pg_grammar::model::StratumId(0),
+        allomorph: pg_rules::stats::ALLOMORPH_NONE,
+        direction: pg_rules::stats::Direction::Analysis,
+        counters: pg_rules::stats::Counters::default(),
+    };
+    for phase in pg_rules::stats::ParserWork::ALL {
+        row.object_index = phase.index();
+        let fact = fact_record_from_stats_row(&grammar, &identities, &row).unwrap();
+        assert_eq!(fact.object_key, format!("parser:{}", phase.name()));
+    }
+    row.object_index = u32::MAX;
+    let error = match batch_stats_word(&grammar, &identities, &word, &outcome, &[row], &[]) {
+        Ok(_) => panic!("unknown parser category must refuse the record"),
+        Err(error) => error,
+    };
+    assert!(
+        error.contains("invalid parser work index 4294967295"),
+        "{error}"
+    );
+}
+
 /// Every field set to a distinct prime, so a dropped or swapped field changes the output.
 fn distinct_prune_counters() -> pg_rules::stats::PruneCounters {
     pg_rules::stats::PruneCounters {
@@ -284,7 +321,7 @@ fn legacy_stats_words(
                 outcome,
                 elapsed: start.elapsed(),
             };
-            batch_stats_word(grammar, &identities, word, &result, &rows, &prune_rows)
+            batch_stats_word(grammar, &identities, word, &result, &rows, &prune_rows).unwrap()
         })
         .collect()
 }
@@ -385,7 +422,7 @@ fn batch_stats_resolves_each_entries_second_allomorph_to_its_stable_identity() {
              JOIN word w ON w.word_id = f.word_id \
              JOIN object o ON o.object_id = f.object_id \
              JOIN allomorph a ON a.allomorph_id = f.allomorph_id \
-             WHERE o.kind = 'lex_entry' \
+             WHERE o.kind = 'lex_entry' AND a.key IS NOT NULL \
              ORDER BY w.form, o.key, a.key",
         )
         .expect("prepare allomorph facts query")
@@ -482,7 +519,7 @@ fn per_allomorph_report_refuses_the_wrong_owner_shape_from_legacy_hc_facts() {
              JOIN word w ON w.word_id = f.word_id
              JOIN object o ON o.object_id = f.object_id
              JOIN allomorph a ON a.allomorph_id = f.allomorph_id
-             WHERE w.form = 'd' AND o.key = 'lex_entry:entry-second@main'
+             WHERE w.form = 'd' AND o.key = 'lex_entry:entry-second@main' AND a.key IS NOT NULL
              LIMIT 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),

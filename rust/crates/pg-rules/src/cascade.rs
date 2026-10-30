@@ -31,13 +31,21 @@ use std::hash::Hash;
 use rustc_hash::FxHashMap as HashMap;
 
 /// Cascade configuration + the shared accumulator threaded through the recursion.
-pub struct Cascade {
+pub struct Cascade<'a> {
     /// C# `MultipleApplication`: a rule may re-apply to its own output (recurse at the same index
     /// / no applied-rule blocking) rather than only to later rules.
     pub multi_app: bool,
     /// Max total `apply_rule` invocations before the walk bails with partial results (see module
     /// docs). `usize::MAX` = uncapped (C# behavior).
     pub cap: usize,
+    work_owner: Option<CascadeWorkOwner<'a>>,
+}
+
+struct CascadeWorkOwner<'a> {
+    stats: &'a crate::stats::StatsCollector,
+    stratum: pg_grammar_model::model::StratumId,
+    rules: &'a [pg_grammar_model::model::MRuleId],
+    direction: crate::stats::Direction,
 }
 
 /// Accumulated output: a dedup set keyed by `K`, preserving first-seen insertion order.
@@ -74,9 +82,43 @@ pub struct CascadeOutput<T> {
     pub capped: bool,
 }
 
-impl Cascade {
+impl<'a> Cascade<'a> {
     pub fn new(multi_app: bool, cap: usize) -> Self {
-        Cascade { multi_app, cap }
+        Cascade {
+            multi_app,
+            cap,
+            work_owner: None,
+        }
+    }
+
+    /// Attribute each successful cascade reservation to the rule it is about to try.
+    pub fn with_rule_work_owner(
+        mut self,
+        stats: Option<&'a crate::stats::StatsCollector>,
+        stratum: pg_grammar_model::model::StratumId,
+        rules: &'a [pg_grammar_model::model::MRuleId],
+        direction: crate::stats::Direction,
+    ) -> Self {
+        self.work_owner = stats.map(|stats| CascadeWorkOwner {
+            stats,
+            stratum,
+            rules,
+            direction,
+        });
+        self
+    }
+
+    fn consume_attempt(&self, index: usize) -> bool {
+        let _owner = self.work_owner.as_ref().map(|owner| {
+            owner.stats.time_enter(
+                crate::stats::ObjectKind::MorphRule,
+                owner.stratum,
+                owner.rules[index].0,
+                crate::stats::ALLOMORPH_NONE,
+                owner.direction,
+            )
+        });
+        pg_fst::work::consume()
     }
 
     /// Port of `LinearRuleCascade.Apply` (LinearRuleCascade.cs:25-56).
@@ -119,7 +161,7 @@ impl Cascade {
         F: Fn(&T) -> K,
     {
         for i in rule_index..rule_count {
-            if acc.steps >= self.cap || !pg_fst::work::consume() {
+            if acc.steps >= self.cap || !self.consume_attempt(i) {
                 acc.capped = true;
                 return false;
             }
@@ -184,7 +226,7 @@ impl Cascade {
         F: Fn(&T) -> K,
     {
         for i in rule_index..rule_count {
-            if acc.steps >= self.cap || !pg_fst::work::consume() {
+            if acc.steps >= self.cap || !self.consume_attempt(i) {
                 acc.capped = true;
                 return;
             }
@@ -247,7 +289,7 @@ impl Cascade {
     {
         for i in 0..rule_count {
             if applied.as_ref().is_none_or(|a| !a[i]) {
-                if acc.steps >= self.cap || !pg_fst::work::consume() {
+                if acc.steps >= self.cap || !self.consume_attempt(i) {
                     acc.capped = true;
                     return;
                 }

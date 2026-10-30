@@ -94,8 +94,18 @@ word, including that row, exactly equals `word.work`. The `facts` export's exist
 projection excludes the remainder because it is not a grammar object.
 
 The batch TSV remains interface version 3: its optional columns describe the whole word and do
-not contain object rows. Cache counter semantics version 7 identifies this attribution, including
-final allomorph-environment matching under its owning lexical entry or morphological rule.
+not contain object rows. Cache counter semantics version 8 attributes cascade reservations to the
+attempted morphological rule, lookup reservations to the root index, lexical entry, or overlay,
+and validation to the rule or allomorph being checked. Synthetic `parser` objects named
+`parser:candidate_expansion`, `parser:stratum_transition`, and `parser:surface_match` account for
+the corresponding parser work. The remaining `unattributed` row includes setup and other
+orchestration outside these scopes. Version 8 changes attribution, not per-word work totals.
+The `facts` export excludes parser rows because it projects grammar-object counters and has no
+work-step column. Its `lex_entry` facts can have no allomorph, and its `morph_rule` facts can
+have zero attempts while carrying work or self time. In the stats cache, the new object kind is
+`parser`; detailed trace JSON reports its work steps in `categories.parser.workStepsByPhase`,
+with keys `candidate_expansion`, `stratum_transition`, and `surface_match`. Version 7 attributed
+final allomorph-environment matching to its owner.
 
 `fact.work` (per grammar object, and the trace-details `categories` that report it) is a
 **different unit**. It counts shape segments examined each time the object was tried. It does not
