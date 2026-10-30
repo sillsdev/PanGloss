@@ -38,6 +38,23 @@ oracle rejects; only an oracle-diffed fixture caught it.*
 Before changing analysis/synthesis semantics, porting optimizations, auditing the ledger, or reporting
 shared correctness issues, load `.claude/skills/oracle-alignment/SKILL.md`.
 
+### Every bug gets a C# verdict and a conformance case
+
+This always happens, for every parse bug or suspected bug, whoever finds it:
+
+1. **Confirm the behaviour on C# HermitCrab** (`hc.dll` at the `machine` pin) whenever possible.
+   Replay a grammar and word on it; reading the C# source is not a confirmation.
+2. **Name the source of the bug** and record it: a misunderstanding (of the grammar, of HC
+   semantics, or of the test), the HC algorithm itself (C# is wrong or limited — also file a
+   `sillsdev/machine` issue), the Rust port (PanGloss differs from C#), or the fixture or data.
+3. **Add a conformance case** to `sillsdev/machine` PR #480, the conformance grammars (after #480
+   merges, to `machine/conformance`): a new grammar, or a word plus the smallest part of a grammar
+   that shows the behaviour. Do this whenever the C# behaviour is confirmed or the case is worth
+   pinning. Stage it in `conformance-staging/` first if it cannot go to #480 yet, and say where it
+   went.
+4. **Write the C# verdict, the source and the fixture's location** in the issue and in the PR that
+   fixes it.
+
 ## Rules with teeth
 
 Each is enforced. The enforcement explains itself when it fires, so this is a table, not an essay.
