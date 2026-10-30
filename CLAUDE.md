@@ -30,6 +30,11 @@ that C# lacks, by design (`docs/adr/0008-provisional-definitions.md`). That is n
 but each behaviour it introduces is still its own ledger entry and gated fixture. A fully defined
 project gets exact parity.
 
+The owner-approved memoization exception is limited to root-trie searches: a per-word cache keyed
+by exact stratum and shape, capped at 1 MiB of conservatively accounted allocations, may retain
+only immutable index results. Overlay suppression, filtering, deduplication and materialization
+still run on every lookup. The cache is discarded at the end of each word.
+
 A fixture authored against HC-Rust instead of the oracle records HC-Rust's behaviour, not
 correctness, and must say so in its `words.yaml` (`# oracle-provenance:`) — silence reads as
 "verified against hc.dll" and is the bug. *Scar: HC-Rust once accepted `xpitz`/`muat`, which the

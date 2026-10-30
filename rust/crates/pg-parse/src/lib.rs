@@ -16,6 +16,7 @@ pub mod morpher;
 pub mod overlay;
 pub mod parse_morph;
 pub mod phonology;
+mod root_search_cache;
 pub mod root_trie;
 pub mod source_identity;
 pub mod surface;

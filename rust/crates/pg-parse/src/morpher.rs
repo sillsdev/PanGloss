@@ -4,6 +4,7 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use pg_featstruct::{FeatId, FeatureStruct, FeatureValue, FsId};
@@ -491,6 +492,7 @@ impl<'g> Morpher<'g> {
         stratum: StratumId,
         shape: &pg_shape::Shape,
         stats: Option<&pg_rules::stats::StatsCollector>,
+        search_cache: &Mutex<crate::root_search_cache::RootSearchCache>,
     ) -> Vec<ResolvedRoot> {
         let mut roots = Vec::new();
         {
@@ -503,7 +505,26 @@ impl<'g> Morpher<'g> {
                     pg_rules::stats::Direction::Analysis,
                 )
             });
-            for (allo, entry) in self.root_index.search(self.g, stratum, shape) {
+            let cached = search_cache
+                .lock()
+                .expect("root cache poisoned")
+                .get(stratum, shape);
+            let raw = if let Some(cached) = cached {
+                cached
+            } else {
+                let budget = pg_fst::work::active_budget();
+                let before = budget.as_ref().map_or(0, |b| b.used());
+                let raw = self.root_index.search(self.g, stratum, shape);
+                let search_work = budget.as_ref().map_or(0, |b| b.used() - before);
+                search_cache.lock().expect("root cache poisoned").insert(
+                    stratum,
+                    shape,
+                    &raw,
+                    search_work,
+                );
+                raw
+            };
+            for (allo, entry) in raw {
                 let authored_id = &self.g.entries[entry.0 as usize].authored_id;
                 if !self
                     .overlay
@@ -807,6 +828,7 @@ impl<'g> Morpher<'g> {
             }
         };
         let mut input = Word::new(shape, surface_stratum);
+        let search_cache = Mutex::new(crate::root_search_cache::RootSearchCache::new(n));
 
         // `input.trace` carries the handle through every clone, so gates below find their ancestor via `w.trace`.
         let root = if trace.is_tracing() {
@@ -834,7 +856,7 @@ impl<'g> Morpher<'g> {
                     stats.record_root_index_attempt(st, shape.len() as u64);
                 }
                 pg_rules::branch_census::record_non_head_lookup(st, shape);
-                self.search_roots(st, shape, stats)
+                self.search_roots(st, shape, stats, &search_cache)
             };
         let mut input_set: HashMap<WordKey, Word> = HashMap::default();
         input_set.insert(input.dedup_key(), input);
@@ -927,8 +949,14 @@ impl<'g> Morpher<'g> {
                         budget.work_steps(),
                     )
                 });
-                let looked_up =
-                    self.lexical_lookup_filtered(aw, lex_entry_filter, trace, root, stats);
+                let looked_up = self.lexical_lookup_filtered(
+                    aw,
+                    lex_entry_filter,
+                    trace,
+                    root,
+                    stats,
+                    &search_cache,
+                );
                 if looked_up.is_empty() {
                     self.record_no_root(stats, aw);
                 }
@@ -1130,6 +1158,7 @@ impl<'g> Morpher<'g> {
             structured.push(self.structured_analysis(w, guessed));
         }
 
+        search_cache.lock().expect("root cache poisoned").finish();
         ParseOutcome {
             analyses,
             structured,
@@ -1151,6 +1180,7 @@ impl<'g> Morpher<'g> {
         trace: &dyn TraceSink,
         parent: TraceHandle,
         stats: Option<&pg_rules::stats::StatsCollector>,
+        search_cache: &Mutex<crate::root_search_cache::RootSearchCache>,
     ) -> Vec<Word> {
         // Fires once per call before any root-allomorph search; `aw.trace` resolves to its own node, not the parse root.
         let lookup = if trace.is_tracing() {
@@ -1163,7 +1193,7 @@ impl<'g> Morpher<'g> {
         if let Some(stats) = stats {
             stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
         }
-        let matched = self.search_roots(aw.stratum, &aw.shape, stats);
+        let matched = self.search_roots(aw.stratum, &aw.shape, stats, search_cache);
         // Distinct entries in first-seen order; `lex_entry_filter` runs before the dedup, mirroring C#'s `.Where().Distinct()` order.
         let mut entries: Vec<LexEntryId> = Vec::new();
         for root in &matched {
@@ -2482,3 +2512,6 @@ fn contains_feature(fs: &FeatureStruct, feat: FeatId) -> bool {
 
 #[cfg(test)]
 mod trace_tests;
+
+#[cfg(test)]
+mod root_cache_tests;

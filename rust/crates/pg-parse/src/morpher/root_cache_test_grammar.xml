@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>MergeFsGeneralization</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cZ"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="extraa"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrab"><Representations><Representation>b</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrac"><Representations><Representation>c</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrae"><Representations><Representation>e</Representation></Representations></SegmentDefinition><SegmentDefinition id="extraf"><Representations><Representation>f</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrag"><Representations><Representation>g</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrah"><Representations><Representation>h</Representation></Representations></SegmentDefinition><SegmentDefinition id="extraj"><Representations><Representation>j</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrak"><Representations><Representation>k</Representation></Representations></SegmentDefinition><SegmentDefinition id="extral"><Representations><Representation>l</Representation></Representations></SegmentDefinition><SegmentDefinition id="extram"><Representations><Representation>m</Representation></Representations></SegmentDefinition><SegmentDefinition id="extran"><Representations><Representation>n</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrao"><Representations><Representation>o</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrap"><Representations><Representation>p</Representation></Representations></SegmentDefinition><SegmentDefinition id="extraq"><Representations><Representation>q</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrar"><Representations><Representation>r</Representation></Representations></SegmentDefinition><SegmentDefinition id="extras"><Representations><Representation>s</Representation></Representations></SegmentDefinition><SegmentDefinition id="extraw"><Representations><Representation>w</Representation></Representations></SegmentDefinition><SegmentDefinition id="extrax"><Representations><Representation>x</Representation></Representations></SegmentDefinition><SegmentDefinition id="extray"><Representations><Representation>y</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAny"><Name>Any</Name>
+        <Segment segment="cZ" /><Segment segment="cU" /><Segment segment="cD" />
+        <Segment segment="cI" /><Segment segment="cT" />
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <!-- Lower (Morphophonemic-like): the root, plus r3 (V -> V, "+z"). -->
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="r3">
+        <Name>Morphophonemic</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="r3" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>r3</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub3">
+                <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>z</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>r3</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eSmRoot" partOfSpeech="posV"><MorphemeId>smRoot</MorphemeId>
+            <Allomorphs><Allomorph id="aSmRoot"><PhoneticShape>zud</PhoneticShape></Allomorph></Allomorphs>
+          </LexicalEntry>
+        <LexicalEntry id="entrya" partOfSpeech="posV"><MorphemeId>extraa</MorphemeId><Allomorphs><Allomorph id="alloa"><PhoneticShape>za</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryb" partOfSpeech="posV"><MorphemeId>extrab</MorphemeId><Allomorphs><Allomorph id="allob"><PhoneticShape>zb</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryc" partOfSpeech="posV"><MorphemeId>extrac</MorphemeId><Allomorphs><Allomorph id="alloc"><PhoneticShape>zc</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entrye" partOfSpeech="posV"><MorphemeId>extrae</MorphemeId><Allomorphs><Allomorph id="alloe"><PhoneticShape>ze</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryf" partOfSpeech="posV"><MorphemeId>extraf</MorphemeId><Allomorphs><Allomorph id="allof"><PhoneticShape>zf</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryg" partOfSpeech="posV"><MorphemeId>extrag</MorphemeId><Allomorphs><Allomorph id="allog"><PhoneticShape>zg</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryh" partOfSpeech="posV"><MorphemeId>extrah</MorphemeId><Allomorphs><Allomorph id="alloh"><PhoneticShape>zh</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryj" partOfSpeech="posV"><MorphemeId>extraj</MorphemeId><Allomorphs><Allomorph id="alloj"><PhoneticShape>zj</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryk" partOfSpeech="posV"><MorphemeId>extrak</MorphemeId><Allomorphs><Allomorph id="allok"><PhoneticShape>zk</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryl" partOfSpeech="posV"><MorphemeId>extral</MorphemeId><Allomorphs><Allomorph id="allol"><PhoneticShape>zl</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entrym" partOfSpeech="posV"><MorphemeId>extram</MorphemeId><Allomorphs><Allomorph id="allom"><PhoneticShape>zm</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryn" partOfSpeech="posV"><MorphemeId>extran</MorphemeId><Allomorphs><Allomorph id="allon"><PhoneticShape>zn</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryo" partOfSpeech="posV"><MorphemeId>extrao</MorphemeId><Allomorphs><Allomorph id="alloo"><PhoneticShape>zo</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryp" partOfSpeech="posV"><MorphemeId>extrap</MorphemeId><Allomorphs><Allomorph id="allop"><PhoneticShape>zp</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryq" partOfSpeech="posV"><MorphemeId>extraq</MorphemeId><Allomorphs><Allomorph id="alloq"><PhoneticShape>zq</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryr" partOfSpeech="posV"><MorphemeId>extrar</MorphemeId><Allomorphs><Allomorph id="allor"><PhoneticShape>zr</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entrys" partOfSpeech="posV"><MorphemeId>extras</MorphemeId><Allomorphs><Allomorph id="allos"><PhoneticShape>zs</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryw" partOfSpeech="posV"><MorphemeId>extraw</MorphemeId><Allomorphs><Allomorph id="allow"><PhoneticShape>zw</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryx" partOfSpeech="posV"><MorphemeId>extrax</MorphemeId><Allomorphs><Allomorph id="allox"><PhoneticShape>zx</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="entryy" partOfSpeech="posV"><MorphemeId>extray</MorphemeId><Allomorphs><Allomorph id="alloy"><PhoneticShape>zy</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
+      </Stratum>
+      <!-- Upper (Allophonic-like): r0 (N->V,"+i"), r1 (V->N,"+t"), r2 (V->N,"+it"). -->
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="r0 r1 r2 r4">
+        <Name>Allophonic</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="r0" requiredPartsOfSpeech="posN" outputPartOfSpeech="posV">
+            <Name>r0</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub0">
+                <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>i</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>r0</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="r1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN">
+            <Name>r1</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub1">
+                <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>r1</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="r2" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN">
+            <Name>r2</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub2">
+                <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>it</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>r2</MorphemeId>
+          </MorphologicalRule><MorphologicalRule id="r4" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN">
+            <Name>r4</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub4">
+                <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>it</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>r4</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

@@ -363,6 +363,7 @@ thread_local! {
 }
 
 /// Trie edges a query node's char-def set refused that its features alone would have taken, on this thread since the last call; resets the count.
+/// Counts actual trie searches: cache hits do not traverse edges or increment this diagnostic.
 pub fn take_identity_refusals() -> u64 {
     IDENTITY_REFUSALS.with(|c| c.replace(0))
 }

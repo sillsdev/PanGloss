@@ -7,6 +7,10 @@ file has no section for.
 
 ### Interface changes
 
+- A per-word root-search cache retains immutable index results with a 1 MiB cap. Completed parse
+  results are unchanged and work totals fall. With the #95 edge index, Cebuano base and g use
+  5,392,090 and 6,265,316 work steps (5,395,400 and 6,340,178 without the cache); Sena uses
+  138,405,255 work steps (182,297,249 before the edge index and cache).
 - Analysis indexes affixes and clitics by mandatory edge segments. Rules rejected by the index
   no longer increment per-word `steps`, so a word near `--step-cap` may search further or return a
   different partial result. Completed parse results are unchanged.
