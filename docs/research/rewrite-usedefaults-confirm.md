@@ -34,19 +34,18 @@ really valid if the default's bits intersect the LHS's pinned bits — mirroring
 
 ## Scope
 
-Ported for the **Feature-kind subrule target pattern only** (`syn_feature` + `ana_feature`), the
-dispatch kind whose `UseDefaults` branch can actually influence a feature-change decision, and the
-one the conformance fixture exercises. Not yet applied:
+Rewrite environments default missing input lanes before matching, including the traversal that
+binds variables through quantified patterns. Allomorph environments retain their separate matcher
+settings. Narrow synthesis and nonempty Narrow analysis targets, and Epenthesis analysis targets,
+also use the target confirmation. Rewrite target variables bind the default when the input lacks
+their feature. The rule tests exercise these paths, alongside the existing Feature target fixture.
+Three staged `rewrite-default-*` fixtures replay environments, Narrow targets, and Epenthesis
+targets against the pinned C# engine. Each detects a difference without the fix.
 
-- **Environments.** C# applies `UseDefaults` uniformly across target + both environments (one
-  `MatcherSettings` per rule), so a pattern pinning a defaulted feature only in an environment
-  would still over-match here.
-- **`Narrow`/`Epenthesis` target patterns.** Same one-line confirm shape if ever needed.
-
-No known reference grammar or fixture exercises either gap (no grammar in the corpus has
-`defaultSymbol` at all), so these are real follow-on gaps if one ever does, not blockers on this
-port — consistent with this module's existing environment-vs-target asymmetry documented on
-`resolve_bindings`.
+The full-mask distinction is an observable remaining gap: changing the epenthesis fixture's `a`
+to explicitly specify both `nas` symbols makes C# accept `bat` as `|b[ad(aa)]t`, while this
+port treats the full mask as absent, substitutes `nas=+`, and rejects it. The staged fixture
+itself deliberately leaves `nas` absent and agrees with C#.
 
 ## Parameter shapes
 

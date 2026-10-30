@@ -104,6 +104,150 @@ fn char_feature_lanes(g: &Grammar, xml_id: &str) -> Vec<u64> {
     table(g).get(char_def(g, xml_id)).feature_lanes().to_vec()
 }
 
+fn default_probe_grammar() -> Grammar {
+    let xml = GRAMMAR_XML
+        .replace(
+            "<SymbolicFeature id=\"feat_voi\">",
+            "<SymbolicFeature id=\"feat_voi\" defaultSymbol=\"sym_vm\">",
+        )
+        .replacen(
+            "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
+            "",
+            1,
+        );
+    pg_grammar::load(&xml).expect("default probe grammar loads")
+}
+
+#[test]
+fn defaults_reject_unspecified_rewrite_environment() {
+    let g = default_probe_grammar();
+    let r = rule(
+        pat_char(char_def(&g, "char_t")),
+        subrule(
+            Pattern::default(),
+            Some(pat_ctx(nat_class(&g, "nc_voi"))),
+            None,
+        ),
+    );
+    assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "at")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "dt")).is_empty());
+}
+
+#[test]
+fn defaults_reject_unspecified_narrow_synthesis_target() {
+    let g = default_probe_grammar();
+    let mut r = rule(
+        pat_ctx(nat_class(&g, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+        r.mode = mode;
+        assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "a")).is_empty());
+        assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "d")).is_empty());
+    }
+}
+
+#[test]
+fn defaults_reject_unspecified_epenthesis_analysis_target() {
+    let g = default_probe_grammar();
+    let mut r = rule(
+        Pattern::default(),
+        subrule(pat_ctx(nat_class(&g, "nc_voi")), None, None),
+    );
+    for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+        r.mode = mode;
+        let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"), None);
+        assert!(out.is_empty());
+        let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "d"), None);
+        assert!(out.iter().any(|shape| interior(shape)[0].3));
+    }
+}
+
+#[test]
+fn defaults_reject_unspecified_narrow_analysis_target() {
+    let g = default_probe_grammar();
+    let r = rule(
+        Pattern {
+            nodes: vec![
+                PatternNode::CharDef(char_def(&g, "char_t")),
+                PatternNode::CharDef(char_def(&g, "char_t")),
+            ],
+        },
+        subrule(pat_ctx(nat_class(&g, "nc_voi")), None, None),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"), None);
+    assert!(out.is_empty());
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "d"), None);
+    assert!(out.iter().any(|shape| interior(shape).len() > 1));
+}
+
+#[test]
+fn defaults_apply_when_target_binds_an_alpha_variable() {
+    let g = default_probe_grammar();
+    let voice = feat(&g, "feat_voi");
+    let var = || PatternNode::Context(ctx_var(nat_class(&g, "nc_voi"), voice, 0, true));
+    let r = rule(
+        Pattern { nodes: vec![var()] },
+        subrule(
+            Pattern::default(),
+            None,
+            Some(Pattern { nodes: vec![var()] }),
+        ),
+    );
+    assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ad")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "at")).is_empty());
+    assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "da")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "dd")).is_empty());
+}
+
+#[test]
+fn defaults_apply_to_quantified_right_environment_in_analysis() {
+    let g = default_probe_grammar();
+    let env = Pattern {
+        nodes: vec![PatternNode::Quantifier {
+            min: 1,
+            max: None,
+            children: vec![PatternNode::Context(ctx(nat_class(&g, "nc_voi")))],
+        }],
+    };
+    let r = rule(
+        pat_char(char_def(&g, "char_t")),
+        subrule(Pattern::default(), None, Some(env)),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"), None);
+    assert!(out.is_empty());
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "d"), None);
+    assert!(out.iter().any(|shape| interior(shape).len() > 1));
+}
+
+#[test]
+fn defaults_allow_matching_the_declared_default_and_absent_default() {
+    let xml = GRAMMAR_XML.replacen(
+        "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
+        "",
+        1,
+    );
+    let with_default = pg_grammar::load(&xml.replace(
+        "<SymbolicFeature id=\"feat_voi\">",
+        "<SymbolicFeature id=\"feat_voi\" defaultSymbol=\"sym_vp\">",
+    ))
+    .unwrap();
+    let r = rule(
+        pat_ctx(nat_class(&with_default, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    assert!(!pg_rules::rewrite::synthesize(&with_default, &r, &seg(&with_default, "a")).is_empty());
+    let without_default = pg_grammar::load(&xml).unwrap();
+    let r = rule(
+        pat_ctx(nat_class(&without_default, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    assert!(
+        !pg_rules::rewrite::synthesize(&without_default, &r, &seg(&without_default, "a"))
+            .is_empty()
+    );
+}
+
 // Feature-change: t -> [+voice] / V _ V (C# FeatureSynthesisRewriteSubruleSpec.ApplyRhs / FeatureAnalysisRewriteRuleSpec.Unapply)
 
 fn voicing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {

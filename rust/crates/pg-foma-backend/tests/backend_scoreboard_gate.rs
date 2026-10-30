@@ -48,8 +48,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 111,
-            compiles_but_misses: 6,
+            oracle_exact: 113,
+            compiles_but_misses: 7,
             refused: 20,
             unmeasurable: 0,
         },
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 90,
+            oracle_exact: 93,
             compiles_but_misses: 5,
             refused: 42,
             unmeasurable: 0,
@@ -68,7 +68,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 45,
             compiles_but_misses: 2,
-            refused: 87,
+            refused: 90,
             unmeasurable: 3,
         },
     ),
@@ -100,10 +100,25 @@ const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
 const FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE: &str =
     "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
 
+// The tuned-surface epenthesis cell misses C#-accepted `bdt`; see the reconciliation note.
+const REWRITE_DEFAULT_EPENTHESIS: &str = "staging:edge-cases/rewrite-default-epenthesis";
+const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
+    "staging:edge-cases/rewrite-default-environment",
+    REWRITE_DEFAULT_EPENTHESIS,
+    "staging:edge-cases/rewrite-default-narrow",
+];
+
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
     use EmissionStrategy::{PlanComposed, TemplatedUnderlyingTokens, TunedSurfaceProbed};
     match (fixture, strategy) {
+        (f, PlanComposed) if REWRITE_DEFAULT_FIXTURES.contains(&f) => "refused",
+        (f, TunedSurfaceProbed) if f == REWRITE_DEFAULT_EPENTHESIS => "compiles_but_misses",
+        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
+            if REWRITE_DEFAULT_FIXTURES.contains(&f) =>
+        {
+            "oracle_exact"
+        }
         (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
             if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE =>
         {
@@ -212,6 +227,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         || row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE
                         || row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         || row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        || REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str())
                         || PARTIAL_CLASS_DISAGREEMENT_FIXTURES
                             .iter()
                             .any(|fixture| row.label == *fixture)
@@ -226,6 +242,12 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                             FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         } else if row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE {
                             FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        } else if REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str()) {
+                            REWRITE_DEFAULT_FIXTURES
+                                .iter()
+                                .copied()
+                                .find(|fixture| row.label == *fixture)
+                                .expect("rewrite-default label was checked above")
                         } else {
                             PARTIAL_CLASS_DISAGREEMENT_FIXTURES
                                 .iter()
@@ -288,7 +310,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        (5 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len()) * ALL_STRATEGIES.len(),
+        (5 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len() + REWRITE_DEFAULT_FIXTURES.len())
+            * ALL_STRATEGIES.len(),
         "one of the pinned fixtures was not measured on every strategy -- has it been renamed, \
          removed, or excluded?"
     );
