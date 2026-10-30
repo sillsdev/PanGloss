@@ -865,7 +865,20 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
-        let _obj_time = self.stats.map(|stats| {
+        // An affix rule whose every allomorph the edge-dispatch index rules out cannot match, so it is not attempted: no attempt is reserved or counted. A trace still walks the rule so its per-allomorph events are reported, reserving and recording nothing, so a traced run matches an untraced one.
+        let edge_rejected = match (rule, self.cache) {
+            (MorphRuleDef::AffixProcess(def), Some(cache)) => {
+                morph::affix_rule_edge_rejected(self.g, id, def, w, cache)
+            }
+            _ => false,
+        };
+        if edge_rejected && !self.trace.is_tracing() {
+            return Vec::new();
+        }
+        if !edge_rejected && !self.tick() {
+            return Vec::new();
+        }
+        let _obj_time = self.stats.filter(|_| !edge_rejected).map(|stats| {
             stats.time_enter(
                 crate::stats::ObjectKind::MorphRule,
                 self.stratum_id,
@@ -874,16 +887,16 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 crate::stats::Direction::Analysis,
             )
         });
-        if !self.tick() {
-            return Vec::new();
-        }
         // `morph`'s allomorph loops record attempts/work/outputs themselves now; see `crate::stats::MRuleStatsCtx`.
-        let mstats = self.stats.map(|stats| crate::stats::MRuleStatsCtx {
-            stats,
-            stratum: self.stratum_id,
-            id,
-            direction: crate::stats::Direction::Analysis,
-        });
+        let mstats =
+            self.stats
+                .filter(|_| !edge_rejected)
+                .map(|stats| crate::stats::MRuleStatsCtx {
+                    stats,
+                    stratum: self.stratum_id,
+                    id,
+                    direction: crate::stats::Direction::Analysis,
+                });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
         let mut outs = match (rule, self.non_head_root_filter) {

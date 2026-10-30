@@ -1,4 +1,4 @@
-//! Machine #574: the analysis edge-segment prefilter changes matcher work only, never an analysis or a trace.
+//! Machine #574: the analysis edge-segment prefilter and its compile-time dispatch index change work only, never an analysis or a trace.
 
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
@@ -79,7 +79,7 @@ fn the_prefilter_keeps_every_analysis_and_trace_and_saves_matcher_work() {
             sorted(b.analyses.clone()),
             "{word}"
         );
-        assert_eq!(a.steps, b.steps, "analysis attempts for {word}");
+        assert!(a.steps <= b.steps, "analysis attempts for {word}");
         steps_on += a.work_steps;
         steps_off += b.work_steps;
 
@@ -98,6 +98,50 @@ fn the_prefilter_keeps_every_analysis_and_trace_and_saves_matcher_work() {
         !on.parse_word("sagts").analyses.is_empty(),
         "digraph-ending suffix still parses"
     );
+}
+
+/// Divergence 098: over every discovered conformance fixture, base and settings variants, the dispatch index (prefilter on) returns the identical analyses and shape verdict as the unindexed loop, and never spends more attempts or work.
+#[test]
+fn the_dispatch_index_keeps_every_conformance_identity_and_never_adds_work() {
+    use pg_conformance_fixtures::discover;
+    let (mut words, mut steps_on, mut steps_off, mut index_bytes) =
+        (0usize, 0usize, 0usize, 0usize);
+    for fixture in discover() {
+        let yaml = fixture.load_words_yaml();
+        if yaml.skip_in_generic_replay().is_some() {
+            continue;
+        }
+        let mut runs = vec![yaml.clone()];
+        runs.extend(yaml.variants.iter().map(|v| yaml.for_variant(v)));
+        for run in runs {
+            let g = fixture.load_grammar_with_settings(&run.morpher);
+            let on = Morpher::new(&g, usize::MAX);
+            let off = Morpher::new(&g, usize::MAX).with_edge_prefilter(false);
+            index_bytes = index_bytes.max(on.edge_dispatch_bytes());
+            let options =
+                ParseOptions::default().with_guess_root(run.morpher.guess_roots.unwrap_or(false));
+            for entry in &run.words {
+                let (a, b) = (
+                    on.parse_word_opts(&entry.word, &options),
+                    off.parse_word_opts(&entry.word, &options),
+                );
+                let id = format!("{} {}", fixture.label(), entry.word);
+                if a.capped || b.capped || a.timed_out || b.timed_out {
+                    continue;
+                }
+                assert_eq!(a.invalid_shape, b.invalid_shape, "{id}");
+                assert_eq!(sorted(a.analyses), sorted(b.analyses), "{id}");
+                assert!(a.steps <= b.steps, "analysis attempts for {id}");
+                assert!(a.work_steps <= b.work_steps, "{id}");
+                steps_on += a.work_steps;
+                steps_off += b.work_steps;
+                words += 1;
+            }
+        }
+    }
+    println!("dispatch corpus words={words} work_steps off={steps_off} on={steps_on} max_index_bytes={index_bytes}");
+    assert!(words > 0, "no conformance word was compared");
+    assert!(steps_on < steps_off, "on={steps_on} off={steps_off}");
 }
 
 /// Parses the first `PANGLOSS_EDGE_SAMPLE` (default 120) words of each reference corpus with the prefilter off and on, and prints `work_steps` per corpus. Words that hit the work cap in either arm are left out of both.

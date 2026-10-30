@@ -179,7 +179,9 @@ pub struct RuleCache {
     compounds: Vec<Option<CompoundCache>>,
     /// Indexed by `TemplateId.0`; the required-slot look-ahead tables, read from the analysis LHS of `allomorphs`.
     templates: Vec<RequiredSlotMaterial>,
-    /// Skip an analysis allomorph whose mandatory pattern edge cannot unify with the word's mandatory edge segment. Pure speed; on by default.
+    /// Indexed by `MRuleId.0`; `Some` for an affix rule with at least one allomorph that has a mandatory pattern edge to dispatch on.
+    edge_dispatch: Vec<Option<morph::EdgeDispatch>>,
+    /// Dispatch an analysis allomorph only when its mandatory pattern edge can unify with the word's edge segment. Pure speed; on by default.
     edge_prefilter: bool,
 }
 
@@ -230,8 +232,25 @@ impl RuleCache {
             allomorphs,
             compounds,
             templates: Vec::new(),
+            edge_dispatch: Vec::new(),
             edge_prefilter: true,
         };
+        cache.edge_dispatch = g
+            .mrules
+            .iter()
+            .map(|mr| match mr {
+                MorphRuleDef::AffixProcess(def) => {
+                    let index = morph::EdgeDispatch::build(def.allomorphs.iter().map(|allo| {
+                        cache.allomorphs[allo.id.0 as usize]
+                            .ana_lhs
+                            .as_ref()
+                            .map(|(_, lhs)| lhs)
+                    }));
+                    (!index.is_all_wildcard()).then_some(index)
+                }
+                MorphRuleDef::Compounding(_) | MorphRuleDef::Realizational(_) => None,
+            })
+            .collect();
         let templates = (0..g.templates.len())
             .map(|t| RequiredSlotMaterial::build(g, TemplateId(t as u32), Some(&cache)))
             .collect();
@@ -249,8 +268,23 @@ impl RuleCache {
         self
     }
 
-    pub(crate) fn edge_prefilter(&self) -> bool {
-        self.edge_prefilter
+    /// The affix edge-dispatch index for `mrid`, or `None` when the prefilter is off or the rule has nothing to dispatch on.
+    pub(crate) fn edge_dispatch(&self, mrid: MRuleId) -> Option<&morph::EdgeDispatch> {
+        if !self.edge_prefilter {
+            return None;
+        }
+        self.edge_dispatch[mrid.0 as usize].as_ref()
+    }
+
+    /// Heap bytes the affix edge-dispatch index keeps for the life of this cache.
+    pub fn edge_dispatch_bytes(&self) -> usize {
+        std::mem::size_of_val(&*self.edge_dispatch)
+            + self
+                .edge_dispatch
+                .iter()
+                .flatten()
+                .map(morph::EdgeDispatch::retained_bytes)
+                .sum::<usize>()
     }
 
     pub(crate) fn prule_rewrite(&self, pid: PRuleId) -> &PruleCache {

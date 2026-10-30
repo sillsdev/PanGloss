@@ -622,6 +622,11 @@ impl<'g> Morpher<'g> {
         self
     }
 
+    /// Heap bytes the affix edge-dispatch index keeps for the life of this morpher; the budget is a few MB.
+    pub fn edge_dispatch_bytes(&self) -> usize {
+        self.cache.edge_dispatch_bytes()
+    }
+
     /// Turns the lookup-time stem-name and MPR replay on or off; it never changes an analysis.
     pub fn with_lookup_replay(mut self, on: bool) -> Self {
         self.lookup_replay = on.then(|| crate::lookup_replay::LookupReplay::build(self.g));

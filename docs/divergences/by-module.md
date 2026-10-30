@@ -8,6 +8,7 @@ See `README.md` for the full status table and the kind definitions.
 | C# file | Entry ids |
 |---|---|
 | (none — no C# equivalent) | 028, 089 |
+| `AnalysisAffixProcessRule.cs` | 117 |
 | `AnalysisScope.cs` | 024, 045 |
 | `AnalysisStateKey.cs` | 024, 045 |
 | `FeatureValue.cs` / `SimpleFeatureValue.cs` (shared variable/negation machinery) | 026 |
@@ -30,6 +31,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-rules/src/analysis_state_key.rs` | 024, 045 |
 | `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |
 | `pg-rules/src/rewrite.rs` (`width_matches`) | 020 |
+| `pg-rules/src/morph/edge_dispatch.rs`, `pg-rules/src/morph/edge_prefilter.rs`, `pg-rules/src/cache.rs`, `pg-rules/src/morph.rs` (`ana_affix_cached`), `pg-rules/src/stratum.rs` (`apply_one_mrule_uncounted`) | 117 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
 

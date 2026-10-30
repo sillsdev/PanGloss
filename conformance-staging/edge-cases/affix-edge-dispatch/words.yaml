@@ -1,0 +1,110 @@
+# oracle-provenance: founding-oracle machine-commit=74ee09bf8521a6e0765949ea8ba7c4ec74236602 verified-date=2026-10-30
+# Signatures transcribed from a C# hc.dll replay (hc-dotnet-wrapper.sh batch), not hand-derived.
+language: AffixEdgeDispatch
+inspired_by: ["synthetic restricted-suffix and enclitic probe (suffix -ay, enclitic g), not a model of a real language"]
+sources:
+  - "https://github.com/sillsdev/PanGloss/issues/90"
+requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Hand-written HermitCrabInput probe; the enclitic sits in a stratum named Clitics, the one clitic designation a FieldWorks project can produce.
+words:
+  - word: sag
+    note: "Bare root: every suffix and clitic edge rejects it; the prefix u- edge rejects it too."
+    parses:
+      - signature: "SAG|sag"
+        rules: []
+  - word: pi
+    note: "Second root."
+    parses:
+      - signature: "PI|pi"
+        rules: []
+  - word: sagd
+    note: "Suffix whose mandatory last edge is d."
+    parses:
+      - signature: "SAG+D|sagd"
+        rules: [mrD]
+  - word: sags
+    note: "Suffix whose mandatory last edge is s."
+    parses:
+      - signature: "SAG+S|sags"
+        rules: [mrS]
+  - word: sagts
+    note: "Suffix ending in the digraph ts: the last edge is s, preceded by a mandatory t."
+    parses:
+      - signature: "SAG+TS|sagts"
+        rules: [mrTs]
+  - word: sagay
+    note: "Two-segment suffix -ay."
+    parses:
+      - signature: "SAG+AY|sagay"
+        rules: [mrAy]
+  - word: sagg
+    note: "Enclitic g in the Clitics stratum, on a bare root."
+    parses:
+      - signature: "SAG+G|sagg"
+        rules: [mrG]
+  - word: sagdg
+    note: "Enclitic g after a suffix."
+    parses:
+      - signature: "SAG+D+G|sagdg"
+        rules: [mrD, mrG]
+  - word: usag
+    note: "Prefix u-: the first-edge constraint."
+    parses:
+      - signature: "U+SAG|usag"
+        rules: [mrU]
+  - word: usagd
+    note: "Prefix then suffix; both orders derive it on an unordered stratum, so two identical signatures."
+    parses:
+      - signature: "U+SAG+D|usagd"
+        rules: [mrU, mrD]
+      - signature: "U+SAG+D|usagd"
+        rules: [mrU, mrD]
+  - word: usagay
+    note: "Prefix then -ay; two derivation orders."
+    parses:
+      - signature: "U+SAG+AY|usagay"
+        rules: [mrU, mrAy]
+      - signature: "U+SAG+AY|usagay"
+        rules: [mrU, mrAy]
+  - word: usagg
+    note: "Prefix then enclitic g."
+    parses:
+      - signature: "U+SAG+G|usagg"
+        rules: [mrU, mrG]
+  - word: sagsag
+    note: "Total reduplication: its pattern ends in a copy, so the edge is unknown and the allomorph is never skipped."
+    parses:
+      - signature: "SAG+RED|sagsag"
+        rules: [mrRed]
+  - word: pipi
+    note: "Total reduplication of the second root."
+    parses:
+      - signature: "PI+RED|pipi"
+        rules: [mrRed]
+  - word: sagtd
+    note: "Control: ends in d but no stem sagt."
+    expect_fail: true
+  - word: xyz
+    note: "Control: x is not a defined segment, so the shape is invalid."
+    expect_skip: true
+  - word: sagag
+    note: "Control: ends in g but no stem saga."
+    expect_fail: true
+  - word: saga
+    note: "Control: ends in a, which no suffix edge accepts."
+    expect_fail: true
+  - word: sagy
+    note: "Control: ends in y, which only -ay (preceded by a) accepts."
+    expect_fail: true
+  - word: sagayg
+    note: "-ay then enclitic g."
+    parses:
+      - signature: "SAG+AY+G|sagayg"
+        rules: [mrAy, mrG]
+  - word: sagayd
+    note: "-ay then suffix d."
+    parses:
+      - signature: "SAG+AY+D|sagayd"
+        rules: [mrAy, mrD]

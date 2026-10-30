@@ -23,7 +23,7 @@ fn edge_constraint(nodes: &[CompileNode], first: bool) -> Option<&[u64]> {
     })
 }
 
-fn edge_passes(constraint: Option<&[u64]>, edge: Option<&Segment>) -> bool {
+pub(super) fn edge_passes(constraint: Option<&[u64]>, edge: Option<&Segment>) -> bool {
     match (constraint, edge) {
         (Some(lanes), Some(seg)) if !seg.optional => flat_unifiable(&seg.lanes, lanes),
         _ => true,
@@ -31,7 +31,16 @@ fn edge_passes(constraint: Option<&[u64]>, edge: Option<&Segment>) -> bool {
 }
 
 impl AnalysisLhs {
-    /// True when the matcher provably finds no match because a mandatory word edge cannot unify with the pattern's mandatory edge.
+    /// The mandatory (first, last) edge constraints every match must meet; `None` for an edge that can match empty or branch.
+    pub(crate) fn edge_constraints(&self) -> (Option<&[u64]>, Option<&[u64]>) {
+        (
+            edge_constraint(&self.nodes, true),
+            edge_constraint(&self.nodes, false),
+        )
+    }
+
+    /// True when the matcher provably finds no match because a mandatory word edge cannot unify with the pattern's mandatory edge; the dispatch index's reference oracle in tests.
+    #[cfg(test)]
     pub(crate) fn edge_rejects(&self, segs: &[Segment]) -> bool {
         !edge_passes(edge_constraint(&self.nodes, true), segs.first())
             || !edge_passes(edge_constraint(&self.nodes, false), segs.last())
