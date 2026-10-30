@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>AffixEdgeDispatch</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" morphologicalRules="mrD mrS mrTs mrAy mrU mrRed">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrD" requiredPartsOfSpeech="posV">
+            <Name>Suffix d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrDSub">
+                <MorphologicalInput><PhoneticSequence id="mrDStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="mrDStem" /><InsertSegments><PhoneticShape>d</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>D</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrS" requiredPartsOfSpeech="posV">
+            <Name>Suffix s</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrSSub">
+                <MorphologicalInput><PhoneticSequence id="mrSStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="mrSStem" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>S</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrTs" requiredPartsOfSpeech="posV">
+            <Name>Suffix ts</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrTsSub">
+                <MorphologicalInput><PhoneticSequence id="mrTsStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="mrTsStem" /><InsertSegments><PhoneticShape>ts</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>TS</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrAy" requiredPartsOfSpeech="posV">
+            <Name>Suffix ay</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrAySub">
+                <MorphologicalInput><PhoneticSequence id="mrAyStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="mrAyStem" /><InsertSegments><PhoneticShape>ay</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>AY</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrU" requiredPartsOfSpeech="posV">
+            <Name>Prefix u</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrUSub">
+                <MorphologicalInput><PhoneticSequence id="mrUStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments><CopyFromInput index="mrUStem" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>U</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrRed" requiredPartsOfSpeech="posV">
+            <Name>Total reduplication</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrRedSub">
+                <MorphologicalInput><PhoneticSequence id="mrRedStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="mrRedStem" /><CopyFromInput index="mrRedStem" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>RED</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eSag" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aSag"><PhoneticShape>sag</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>SAG</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="ePi" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aPi"><PhoneticShape>pi</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>PI</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" morphologicalRules="mrG">
+        <Name>Clitics</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrG" requiredPartsOfSpeech="posV">
+            <Name>Enclitic g</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrGSub">
+                <MorphologicalInput><PhoneticSequence id="mrGStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="mrGStem" /><InsertSegments><PhoneticShape>g</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>G</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
