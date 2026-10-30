@@ -206,6 +206,47 @@ pub struct Shape {
 }
 
 impl Shape {
+    /// Work units for hashing and comparing every component of this shape.
+    pub fn key_work(&self) -> usize {
+        self.cd_sets.iter().fold(
+            self.len().saturating_mul(3 + self.feat_width as usize),
+            |total, set| match set {
+                CdSet::Members(bits) => total.saturating_add(bits.0.len()),
+                CdSet::Unrestricted => total,
+            },
+        )
+    }
+
+    /// Conservative heap allocation charge for a cloned shape, including allocator overhead.
+    pub fn heap_bytes_upper_bound(&self) -> usize {
+        fn allocation(bytes: usize) -> usize {
+            if bytes == 0 {
+                0
+            } else {
+                bytes.saturating_mul(2).saturating_add(4096)
+            }
+        }
+        let columns = allocation(self.kinds.len() * std::mem::size_of::<NodeKind>())
+            .saturating_add(allocation(
+                self.char_defs.len() * std::mem::size_of::<u32>(),
+            ))
+            .saturating_add(allocation(
+                self.flags.len() * std::mem::size_of::<NodeFlags>(),
+            ))
+            .saturating_add(allocation(
+                self.feat_lanes.len() * std::mem::size_of::<u64>(),
+            ))
+            .saturating_add(allocation(
+                self.cd_sets.len() * std::mem::size_of::<CdSet>(),
+            ));
+        self.cd_sets.iter().fold(columns, |total, set| match set {
+            CdSet::Members(bits) if bits.0.spilled() => {
+                total.saturating_add(allocation(bits.0.capacity() * std::mem::size_of::<u64>()))
+            }
+            _ => total,
+        })
+    }
+
     /// Number of nodes, **including the two anchors**.
     #[inline]
     pub fn len(&self) -> usize {
