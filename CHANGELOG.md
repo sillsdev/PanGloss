@@ -8,6 +8,8 @@ file has no section for.
 ### Parse results
 
 - Ad hoc allomorph prohibitions on a stem with several stem MSAs now apply to every copy of the stem, as `HCLoader.LoadAllomorphCoOccurrenceRules` does, instead of only the last copy. Words that used another copy and were wrongly analysed now have fewer analyses (#99).
+- Parse results change for ad hoc allomorph prohibitions on an affix allomorph: the prohibition now holds on every copy that C# `HCLoader` registers (one per MSA of its entry, per environment of the allomorph, and per prefix and suffix pairing of a circumfix, which is indexed under the circumfix lexeme form), not only the first. Parses it should have blocked no longer produce analyses, as in C# (#100, #102). A prohibition that names a circumfix half (rather than the circumfix) emits no rule and is reported as a warning, as in C#, instead of refusing the grammar.
+- Parse results change for ad hoc morpheme prohibitions: a prohibition on a main entry's MSA now also holds on the variant entries that borrow that MSA, as in C# (#102). It only removes analyses.
 
 ## 0.12.2
 
