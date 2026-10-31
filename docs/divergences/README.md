@@ -153,6 +153,7 @@ went to an issue are open work, not permanent differences. Evidence under `evide
 | 114 | Realizational rule synthesis application cap | Fixed in Rust; git history |
 | 115 | Alpha-variable environment matching loses alternatives | Fixed in Rust in PR #13; git history |
 | 116 | FST alpha-variable environment support | Planned: broken until the alpha variable FST fix; tracked in [#80](https://github.com/sillsdev/PanGloss/issues/80); git history |
+| 117 | Ad hoc allomorph prohibitions covered only the last MSA copy of a multi-MSA stem | Fixed in Rust (PR #101, issue #99). Source: the Rust port's fwdata compile step (`pg-grammar/src/compile/lexicon.rs` kept one allomorph id per GUID; `compile/mod.rs` `strata_assign_co_occurrence` attached the rule to it). C# verdict: `hc.dll` and `HCLoader.LoadAllomorphCoOccurrenceRules` (`Src/LexText/ParserCore/HCLoader.cs:2212-2238`, `Permute` 2240-2258, FieldWorks commit `620cd9903f46941ee85947615dba15c8888c8e7a`) keep every copy and emit one Exclude rule per copy and per combination; an `hc.dll` replay of the equivalent XML (rule on the last copy only parses, on every copy no parse) confirms C# is correct and HC-Rust was wrong. Case `pg-parse/tests/adhoc_allomorph_copies.rs`; git history |
 
 Issue numbers are in [sillsdev/PanGloss](https://github.com/sillsdev/PanGloss/issues); the `#NN` entries
 above refer to work tracked there.

@@ -723,7 +723,12 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     continue;
                 }
                 ctx.selected(key.clone());
-                let Some(&primary_id) = acc.allomorph_guid_index.get(primary) else {
+                let Some(primary_ids) = acc
+                    .allomorph_guid_index
+                    .get(primary)
+                    .filter(|copies| !copies.is_empty())
+                    .cloned()
+                else {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -735,12 +740,12 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 };
-                let mut other_ids = Vec::with_capacity(others.len());
+                let mut other_copies: Vec<Vec<AllomorphId>> = Vec::with_capacity(others.len());
                 let mut unresolved = Vec::new();
                 for o in others {
                     match acc.allomorph_guid_index.get(o) {
-                        Some(&id) => other_ids.push(id),
-                        None => unresolved.push(o.clone()),
+                        Some(copies) if !copies.is_empty() => other_copies.push(copies.clone()),
+                        _ => unresolved.push(o.clone()),
                     }
                 }
                 if !unresolved.is_empty() {
@@ -750,7 +755,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                          'others' target(s) {unresolved:?} do not resolve; refusing rather \
                          than silently dropping a prohibition on a real allomorph"
                     );
-                    match acc.allomorph_owners[primary_id.0 as usize] {
+                    match acc.allomorph_owners[primary_ids[0].0 as usize] {
                         // A root-owned allomorph always survives reachability compaction, so there is nothing to defer.
                         AllomorphOwner::Root(..) => ctx.refuse(
                             key,
@@ -769,7 +774,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     }
                     continue;
                 }
-                if other_ids.is_empty() {
+                if other_copies.is_empty() {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -778,31 +783,38 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 }
-                let index = allomorph_co_occurrence_len(acc, primary_id);
-                ctx.represent_via(
-                    LineageTarget::AllomorphCoOccurrence(primary_id.0, index),
-                    key,
-                );
-                let def = AllomorphCoOccurrenceRuleDef {
-                    require: false,
-                    others: other_ids,
-                    adjacency: adjacency(*adj),
-                };
-                match acc.allomorph_owners[primary_id.0 as usize] {
-                    AllomorphOwner::Root(le, idx) => {
-                        acc.entries[le.0 as usize].allomorphs[idx as usize]
-                            .co_occurrence
-                            .push(def);
+                // HCLoader.LoadAllomorphCoOccurrenceRules: one Exclude rule per choice of one copy for each 'others' form, attached to every copy of the primary.
+                for others_ids in copy_cross_product(&other_copies) {
+                    for &primary_id in &primary_ids {
+                        let index = allomorph_co_occurrence_len(acc, primary_id);
+                        ctx.represent_via(
+                            LineageTarget::AllomorphCoOccurrence(primary_id.0, index),
+                            key.clone(),
+                        );
+                        let def = AllomorphCoOccurrenceRuleDef {
+                            require: false,
+                            others: others_ids.clone(),
+                            adjacency: adjacency(*adj),
+                        };
+                        match acc.allomorph_owners[primary_id.0 as usize] {
+                            AllomorphOwner::Root(le, idx) => {
+                                acc.entries[le.0 as usize].allomorphs[idx as usize]
+                                    .co_occurrence
+                                    .push(def);
+                            }
+                            AllomorphOwner::Affix(mr, idx) => {
+                                match &mut acc.mrules[mr.0 as usize] {
+                                    MorphRuleDef::AffixProcess(d) => {
+                                        d.allomorphs[idx as usize].co_occurrence.push(def)
+                                    }
+                                    MorphRuleDef::Realizational(d) => {
+                                        d.allomorphs[idx as usize].co_occurrence.push(def)
+                                    }
+                                    MorphRuleDef::Compounding(_) => {}
+                                }
+                            }
+                        }
                     }
-                    AllomorphOwner::Affix(mr, idx) => match &mut acc.mrules[mr.0 as usize] {
-                        MorphRuleDef::AffixProcess(d) => {
-                            d.allomorphs[idx as usize].co_occurrence.push(def)
-                        }
-                        MorphRuleDef::Realizational(d) => {
-                            d.allomorphs[idx as usize].co_occurrence.push(def)
-                        }
-                        MorphRuleDef::Compounding(_) => {}
-                    },
                 }
             }
             AdhocProhibition::Morpheme {
@@ -916,6 +928,24 @@ fn resolve_pending_rule_refusals(
         };
         recorder.rejected(refusal.key, refusal.issue);
     }
+}
+
+/// Every way to pick one id from each list, in HCLoader's `Permute` order (first list varies slowest).
+fn copy_cross_product(lists: &[Vec<AllomorphId>]) -> Vec<Vec<AllomorphId>> {
+    let mut out: Vec<Vec<AllomorphId>> = vec![Vec::new()];
+    for list in lists {
+        out = out
+            .into_iter()
+            .flat_map(|prefix| {
+                list.iter().map(move |&id| {
+                    let mut next = prefix.clone();
+                    next.push(id);
+                    next
+                })
+            })
+            .collect();
+    }
+    out
 }
 
 /// The index the about-to-be-pushed co-occurrence rule will occupy on `primary_id`'s own list.
@@ -1266,8 +1296,8 @@ pub(crate) struct Acc {
     pub allomorph_sources: Vec<AllomorphSource>,
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
-    /// Allomorph guid -> registry id, for ad-hoc allomorph-prohibition resolution.
-    pub allomorph_guid_index: HashMap<String, AllomorphId>,
+    /// Allomorph guid -> every registry id compiled for it (one per stem MSA copy of its entry, as HCLoader's `m_allomorphs` lists), for ad-hoc allomorph-prohibition resolution.
+    pub allomorph_guid_index: HashMap<String, Vec<AllomorphId>>,
     /// MSA/entry guid -> morpheme registry id, for ad-hoc morpheme-prohibition resolution.
     /// Rebuilt from `morphemes[*].xml_key` right before the ad-hoc pass runs (see
     /// `compile_project`); unpopulated (and unused) before then.

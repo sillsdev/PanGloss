@@ -423,9 +423,13 @@ pub(crate) fn build_affix_rule(
             .and_then(|source| source.form_guids.first())
             .and_then(Option::as_deref)
         {
-            acc.allomorph_guid_index
+            let copies = acc
+                .allomorph_guid_index
                 .entry(guid.to_string())
-                .or_insert(allo_id);
+                .or_default();
+            if copies.is_empty() {
+                copies.push(allo_id);
+            }
         }
         allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
     }

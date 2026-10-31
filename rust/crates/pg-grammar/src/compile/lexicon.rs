@@ -538,7 +538,10 @@ fn build_stem_entry(
                     omitted: false,
                     placement: crate::model::SourceMorphPlacement::Append,
                 });
-                acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
+                acc.allomorph_guid_index
+                    .entry(allo.guid.clone())
+                    .or_default()
+                    .push(allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
                 ctx.represented(allo_key);
             }
@@ -943,7 +946,10 @@ fn build_variant_stem_entry(
                     omitted: false,
                     placement: crate::model::SourceMorphPlacement::Append,
                 });
-                acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
+                acc.allomorph_guid_index
+                    .entry(allo.guid.clone())
+                    .or_default()
+                    .push(allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
                 ctx.represented(allo_key);
             }
