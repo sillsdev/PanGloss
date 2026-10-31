@@ -437,6 +437,14 @@ namespace XampleProjector
 				throw new GrammarAuthorException($"{label}: redupMorphType=\"{redup}\" is unsupported");
 
 			var outChildren = outputEl.Elements().ToList();
+			string circumfixSuffixShape = null;
+			if (outChildren.Count == 3 && outChildren[0].Name == "InsertSegments" && outChildren[1].Name == "CopyFromInput" && outChildren[2].Name == "InsertSegments")
+			{
+				// A circumfix pairing (one prefix half x one suffix half), as HCLoader emits it
+				// (HCLoader.LoadCircumfixAffixProcessAllomorph).
+				circumfixSuffixShape = (string)outChildren[2].Element("PhoneticShape");
+				outChildren = outChildren.Take(2).ToList();
+			}
 			if (outChildren.Count != 2)
 			{
 				throw new GrammarAuthorException(
@@ -474,6 +482,7 @@ namespace XampleProjector
 				Id = id,
 				IsPrefix = isPrefix,
 				InsertShape = insertShape,
+				SuffixShape = circumfixSuffixShape,
 				RequiredMprFeatureIds = requiredMpr,
 				RequiredEnvironments = environments,
 			};

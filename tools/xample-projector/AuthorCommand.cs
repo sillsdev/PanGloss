@@ -36,6 +36,39 @@ namespace XampleProjector
 			if (ArgParser.TryGetOption(args, "--xample-max-analyses", out var maxAnalysesText))
 				xampleMaxAnalyses = int.Parse(maxAnalysesText);
 
+			// Each --msa-copies value is one comma-separated group of LexicalEntry ids (or of
+			// MorphologicalRule ids) that HCLoader would emit as the per-MSA copies of ONE
+			// FieldWorks entry; the first id names the entry that is authored, the rest become
+			// additional MSAs (each with its own sense) of that same entry.
+			var msaCopyGroups = ArgParser.GetOptions(args, "--msa-copies")
+				.Select(g => (System.Collections.Generic.IReadOnlyList<string>)g.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).ToList())
+				.ToList();
+
+			// Each --env-copies value is one comma-separated group of MorphologicalSubrule ids (of ONE rule)
+			// that HCLoader emits per environment of ONE FieldWorks affix allomorph
+			// (HCLoader.LoadAffixProcessAllomorphs, HCLoader.cs:1165-1178): the first id names the
+			// allomorph that is authored, each later id contributes its environment to that allomorph.
+			var envCopyGroups = ArgParser.GetOptions(args, "--env-copies")
+				.Select(g => (System.Collections.Generic.IReadOnlyList<string>)g.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).ToList())
+				.ToList();
+
+			// Each --half-prohib value is "stemAllomorphId=circumfixRuleId:halfShape": two extra FieldWorks
+			// ad hoc allomorph prohibitions (half first / stem first) naming ONE half (prefix or suffix
+			// alternate form) of the circumfix entry. HCLoader keys m_allomorphs by the circumfix's
+			// LexemeFormOA only, so a half resolves to nothing and no HC rule results; the grammar does
+			// not carry them.
+			var halfProhibs = ArgParser.GetOptions(args, "--half-prohib");
+
+			// Each --variant-of value is "variantEntryId=mainEntryId": the variant LexicalEntry is one HC
+			// copy of a FieldWorks variant entry (no senses/MSAs of its own, one LexEntryRef to the main
+			// entry) that HCLoader loads under the main entry's MSA (HCLoader.LoadLexEntryOfVariant).
+			var variantOf = new System.Collections.Generic.Dictionary<string, string>();
+			foreach (var v in ArgParser.GetOptions(args, "--variant-of"))
+			{
+				var parts = v.Split('=');
+				variantOf[parts[0].Trim()] = parts[1].Trim();
+			}
+
 			if (!File.Exists(grammarPath))
 			{
 				Console.Error.WriteLine("Author failure: grammar file not found: {0}", grammarPath);
@@ -46,6 +79,11 @@ namespace XampleProjector
 			try
 			{
 				grammar = GrammarParser.Parse(LoadGrammarDocument(grammarPath));
+				GrammarAuthor.ValidateMsaCopyGroups(grammar, msaCopyGroups);
+				GrammarAuthor.ValidateVariants(grammar, variantOf);
+				GrammarAuthor.ValidateEnvCopyGroups(grammar, envCopyGroups);
+				GrammarAuthor.ValidateCircumfixes(grammar);
+				GrammarAuthor.ValidateHalfProhibs(grammar, halfProhibs);
 			}
 			catch (GrammarAuthorException ex)
 			{
@@ -65,7 +103,7 @@ namespace XampleProjector
 			{
 				try
 				{
-					authored = GrammarAuthor.Author(cache, grammar, xampleMaxN, xampleMaxN, xampleMaxAnalyses);
+					authored = GrammarAuthor.Author(cache, grammar, xampleMaxN, xampleMaxN, xampleMaxAnalyses, msaCopyGroups, variantOf, envCopyGroups, halfProhibs);
 					// Commits are asynchronous; force the flush deterministically here (the same
 					// public call ProjectLockingService/ProjectBackupService use) rather than
 					// relying solely on Dispose, so the project's on-disk state is complete before
