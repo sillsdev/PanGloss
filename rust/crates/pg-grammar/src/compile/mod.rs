@@ -54,7 +54,7 @@ mod tests;
 mod warnings;
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use hashbrown::HashMap;
 
@@ -453,6 +453,7 @@ pub(crate) fn compile_project_recording(
         templates: Vec::new(),
         entries: Vec::new(),
         allomorph_guid_index: HashMap::new(),
+        circumfix_half_guids: HashSet::new(),
         msa_guid_index: HashMap::new(),
         slot_rules: HashMap::new(),
     };
@@ -537,10 +538,13 @@ pub(crate) fn compile_project_recording(
     let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx)?;
     rules::record_unreferenced_feature_constraints(snapshot, &ctx);
 
-    // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated; `xml_key` doubles as the MSA/entry guid this morpheme was built from.
+    // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated. A morpheme is registered under the MSA it was built from (`source_msa_guid`), so a variant entry's copy sits beside its main entry's, as HCLoader's `m_morphemes[msa]`; synthetic morphemes with no MSA fall back to their `xml_key`.
     for (i, m) in acc.morphemes.iter().enumerate() {
+        let guid = m.source_msa_guid.as_ref().unwrap_or(&m.xml_key);
         acc.msa_guid_index
-            .insert(m.xml_key.clone(), MorphemeId(i as u32));
+            .entry(guid.clone())
+            .or_default()
+            .push(MorphemeId(i as u32));
     }
     strata_assign_co_occurrence(snapshot, &ctx, &mut acc);
     environment::record_unattempted(snapshot, &ctx);
@@ -748,6 +752,22 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                         _ => unresolved.push(o.clone()),
                     }
                 }
+                if unresolved
+                    .iter()
+                    .any(|o| acc.circumfix_half_guids.contains(o))
+                {
+                    // HCLoader finds no `m_allomorphs` entry for a circumfix half and silently emits no rule; warn and drop instead of refusing.
+                    ctx.reject(
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!(
+                            "ad-hoc allomorph prohibition: 'others' names circumfix half \
+                             {unresolved:?}, which HCLoader does not register; skipped"
+                        ),
+                    );
+                    continue;
+                }
                 if !unresolved.is_empty() {
                     // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
                     let message = format!(
@@ -755,22 +775,29 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                          'others' target(s) {unresolved:?} do not resolve; refusing rather \
                          than silently dropping a prohibition on a real allomorph"
                     );
-                    match acc.allomorph_owners[primary_ids[0].0 as usize] {
-                        // A root-owned allomorph always survives reachability compaction, so there is nothing to defer.
-                        AllomorphOwner::Root(..) => ctx.refuse(
+                    // A root-owned copy always survives reachability compaction, so there is nothing to defer. Otherwise every copy is affix-owned and the refusal is fatal while ANY of their mrules survives.
+                    let affix_mrules: Vec<MRuleId> = primary_ids
+                        .iter()
+                        .filter_map(|id| match acc.allomorph_owners[id.0 as usize] {
+                            AllomorphOwner::Root(..) => None,
+                            AllomorphOwner::Affix(mr, _) => Some(mr),
+                        })
+                        .collect();
+                    if affix_mrules.len() < primary_ids.len() {
+                        ctx.refuse(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                        ),
-                        // An affix-owned primary's own mrule might still be pruned as unreachable dead code -- defer until that is known.
-                        AllomorphOwner::Affix(mr, _) => ctx.defer_cooccurrence_refusal(
+                        );
+                    } else {
+                        ctx.defer_cooccurrence_refusal(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                            mr,
-                        ),
+                            affix_mrules,
+                        );
                     }
                     continue;
                 }
@@ -842,7 +869,12 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                 ctx.selected(key.clone());
                 // HCLoader.cs:2265-2268: the key morpheme and the others, as their representatives.
                 let primary = ctx.msa_merge.representative_guid(primary);
-                let Some(&primary_id) = acc.msa_guid_index.get(primary) else {
+                let Some(primary_ids) = acc
+                    .msa_guid_index
+                    .get(primary)
+                    .filter(|copies| !copies.is_empty())
+                    .cloned()
+                else {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -854,41 +886,45 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 };
-                let mut other_ids = Vec::with_capacity(others.len());
+                let mut other_copies: Vec<Vec<MorphemeId>> = Vec::with_capacity(others.len());
                 let mut unresolved = Vec::new();
                 for o in ctx.msa_merge.unique_guids(others) {
                     match acc.msa_guid_index.get(o) {
-                        Some(&id) => other_ids.push(id),
-                        None => unresolved.push(o.to_string()),
+                        Some(copies) if !copies.is_empty() => other_copies.push(copies.clone()),
+                        _ => unresolved.push(o.to_string()),
                     }
                 }
                 if !unresolved.is_empty() {
-                    // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
+                    // primary_ids resolved, so dropping this would silently permit a combination it was authored to prohibit.
                     let message = format!(
                         "ad-hoc morpheme prohibition on active morpheme {primary:?}: \
                          'others' target(s) {unresolved:?} do not resolve; refusing rather \
                          than silently dropping a prohibition on a real morpheme"
                     );
-                    match morpheme_owning_mrule.get(&primary_id.0) {
-                        // A stem-entry morpheme always survives reachability compaction, so there is nothing to defer.
-                        None => ctx.refuse(
+                    // A stem-entry morpheme always survives reachability compaction, so there is nothing to defer. Otherwise every copy is affix-owned and the refusal is fatal while ANY of their mrules survives.
+                    let affix_mrules: Vec<MRuleId> = primary_ids
+                        .iter()
+                        .filter_map(|id| morpheme_owning_mrule.get(&id.0).copied())
+                        .collect();
+                    if affix_mrules.len() < primary_ids.len() {
+                        ctx.refuse(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                        ),
-                        // An affix-owned primary's own mrule might still be pruned as unreachable dead code -- defer until that is known.
-                        Some(&mr) => ctx.defer_cooccurrence_refusal(
+                        );
+                    } else {
+                        ctx.defer_cooccurrence_refusal(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                            mr,
-                        ),
+                            affix_mrules,
+                        );
                     }
                     continue;
                 }
-                if other_ids.is_empty() {
+                if other_copies.is_empty() {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -897,18 +933,23 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 }
-                let index = acc.morphemes[primary_id.0 as usize].co_occurrence.len();
-                ctx.represent_via(
-                    LineageTarget::MorphemeCoOccurrence(primary_id.0, index),
-                    key,
-                );
-                acc.morphemes[primary_id.0 as usize].co_occurrence.push(
-                    MorphemeCoOccurrenceRuleDef {
-                        require: false,
-                        others: other_ids,
-                        adjacency: adjacency(*adj),
-                    },
-                );
+                // HCLoader.LoadMorphemeCoOccurrenceRules: one Exclude rule per choice of one copy for each 'others' MSA, attached to every copy of the primary.
+                for others_ids in copy_cross_product(&other_copies) {
+                    for &primary_id in &primary_ids {
+                        let index = acc.morphemes[primary_id.0 as usize].co_occurrence.len();
+                        ctx.represent_via(
+                            LineageTarget::MorphemeCoOccurrence(primary_id.0, index),
+                            key.clone(),
+                        );
+                        acc.morphemes[primary_id.0 as usize].co_occurrence.push(
+                            MorphemeCoOccurrenceRuleDef {
+                                require: false,
+                                others: others_ids.clone(),
+                                adjacency: adjacency(*adj),
+                            },
+                        );
+                    }
+                }
             }
         }
     }
@@ -921,7 +962,7 @@ fn resolve_pending_rule_refusals(
     removed_mrules: &[u32],
 ) {
     for refusal in pending {
-        let refusal = if removed_mrules.contains(&refusal.mrule.0) {
+        let refusal = if refusal.mrules.iter().all(|m| removed_mrules.contains(&m.0)) {
             refusal.unreachable("owning rule is unreachable after reachability compaction")
         } else {
             refusal
@@ -931,8 +972,8 @@ fn resolve_pending_rule_refusals(
 }
 
 /// Every way to pick one id from each list, in HCLoader's `Permute` order (first list varies slowest).
-fn copy_cross_product(lists: &[Vec<AllomorphId>]) -> Vec<Vec<AllomorphId>> {
-    let mut out: Vec<Vec<AllomorphId>> = vec![Vec::new()];
+fn copy_cross_product<T: Copy>(lists: &[Vec<T>]) -> Vec<Vec<T>> {
+    let mut out: Vec<Vec<T>> = vec![Vec::new()];
     for list in lists {
         out = out
             .into_iter()
@@ -1007,7 +1048,8 @@ pub(crate) struct Ctx<'a> {
 pub(crate) struct PendingRuleRefusal {
     key: InventoryKey,
     issue: ConversionIssue,
-    mrule: MRuleId,
+    /// Every rule that keeps the refusal live; it is dead code only when all of them are removed.
+    mrules: Vec<MRuleId>,
 }
 
 impl PendingRuleRefusal {
@@ -1240,7 +1282,7 @@ impl Ctx<'_> {
         code: ImportWarningCode,
         class: IssueClass,
         message: String,
-        mrule: MRuleId,
+        mrules: Vec<MRuleId>,
     ) {
         let source = warnings::source_for_key(self.snapshot, &key);
         self.defer_rule_refusal(
@@ -1252,7 +1294,7 @@ impl Ctx<'_> {
                 fatal: true,
                 message,
             },
-            mrule,
+            mrules,
         );
     }
 
@@ -1260,11 +1302,11 @@ impl Ctx<'_> {
         &self,
         key: InventoryKey,
         issue: ConversionIssue,
-        mrule: MRuleId,
+        mrules: Vec<MRuleId>,
     ) {
         self.pending_rule_refusals
             .borrow_mut()
-            .push(PendingRuleRefusal { key, issue, mrule });
+            .push(PendingRuleRefusal { key, issue, mrules });
     }
 
     /// The `authored → considered → selected → represented|rejected` sequence every attachment-resolution site repeats; `resolved` picks the branch.
@@ -1298,10 +1340,12 @@ pub(crate) struct Acc {
     pub entries: Vec<LexEntryDef>,
     /// Allomorph guid -> every registry id compiled for it (one per stem MSA copy of its entry, as HCLoader's `m_allomorphs` lists), for ad-hoc allomorph-prohibition resolution.
     pub allomorph_guid_index: HashMap<String, Vec<AllomorphId>>,
-    /// MSA/entry guid -> morpheme registry id, for ad-hoc morpheme-prohibition resolution.
-    /// Rebuilt from `morphemes[*].xml_key` right before the ad-hoc pass runs (see
+    /// Prefix and suffix half guids of circumfix entries: HCLoader registers only the lexeme form, so a prohibition naming a half finds nothing and emits no rule.
+    pub circumfix_half_guids: HashSet<String>,
+    /// MSA guid -> every morpheme registry id built from it (the main entry's, and one per variant entry, clitic stem/rule copy or infl-type copy), for ad-hoc morpheme-prohibition resolution.
+    /// Rebuilt from `morphemes[*].source_msa_guid` right before the ad-hoc pass runs (see
     /// `compile_project`); unpopulated (and unused) before then.
-    pub msa_guid_index: HashMap<String, MorphemeId>,
+    pub msa_guid_index: HashMap<String, Vec<MorphemeId>>,
     /// Affix-template slot guid -> every loaded inflectional-affix rule whose MSA declared that
     /// slot (`MoInflAffMsa.SlotsRC`), in the order those rules were built. Populated by
     /// `affixes::build_affix_rule` while building each `Msa::Inflectional` rule; consumed by

@@ -416,20 +416,21 @@ pub(crate) fn build_affix_rule(
             omitted: false,
             placement,
         });
-        // First-wins for a circumfix, whose halves each appear in several pairings; this index only resolves ad-hoc co-occurrence references, where a miss is already a warning.
-        if let Some(guid) = acc
-            .allomorph_sources
-            .last()
-            .and_then(|source| source.form_guids.first())
-            .and_then(Option::as_deref)
-        {
-            let copies = acc
-                .allomorph_guid_index
-                .entry(guid.to_string())
-                .or_default();
-            if copies.is_empty() {
-                copies.push(allo_id);
-            }
+        // HCLoader registers one allomorph per (MSA, environment) pass in `m_allomorphs` (HCLoader.cs:1167-1178), so every built pass is a copy. A circumfix registers every pairing under its lexeme form (HCLoader.cs:1100-1122), never under a half.
+        let index_guid = if entry.lexeme_morph_type == MorphType::Circumfix {
+            entry.allomorphs.last().map(|lexeme| lexeme.guid.as_str())
+        } else {
+            acc.allomorph_sources
+                .last()
+                .and_then(|source| source.form_guids.first())
+                .and_then(Option::as_deref)
+        };
+        if let Some(guid) = index_guid {
+            let guid = guid.to_string();
+            acc.allomorph_guid_index
+                .entry(guid)
+                .or_default()
+                .push(allo_id);
         }
         allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
     }
@@ -531,6 +532,9 @@ fn build_circumfix_allomorphs(
     };
     let prefixes = halves(is_circumfix_prefix_half);
     let suffixes = halves(is_circumfix_suffix_half);
+    for half in prefixes.iter().chain(&suffixes) {
+        acc.circumfix_half_guids.insert(half.guid.clone());
+    }
 
     if prefixes.is_empty() || suffixes.is_empty() {
         let entry_name = super::entry_headword(entry, ctx.default_vernacular_ws.as_deref())
@@ -1404,7 +1408,7 @@ fn defer_environment_issue(
             fatal,
             message: message.into(),
         },
-        mrule,
+        vec![mrule],
     );
 }
 

@@ -80,11 +80,26 @@ pub(crate) fn finalize(
     removed_morpheme_cooccurrence: Vec<(u32, usize)>,
     removed_natural_classes: Vec<u32>,
 ) {
+    // An affix entry with several MSAs publishes the same Allomorph key under each of its mrules, so a key is revoked only once every mrule published under it is gone.
+    let mut published_mrule_keys: std::collections::BTreeMap<&InventoryKey, usize> =
+        Default::default();
+    for keys in lineage.mrules.values() {
+        for key in keys {
+            *published_mrule_keys.entry(key).or_default() += 1;
+        }
+    }
+    let mut removed_mrule_keys: std::collections::BTreeMap<InventoryKey, usize> =
+        Default::default();
     for id in removed_mrules {
         let keys = lineage.mrules.get(&id).unwrap_or_else(|| {
             panic!("mrule {id} removed by reachability compaction but published no lineage")
         });
         for key in keys.clone() {
+            let n = removed_mrule_keys.entry(key.clone()).or_default();
+            *n += 1;
+            if *n < published_mrule_keys[&key] {
+                continue;
+            }
             let source = super::warnings::source_for_key(snapshot, &key);
             recorder.revoke_represented(
                 key,
@@ -98,33 +113,64 @@ pub(crate) fn finalize(
             );
         }
     }
+    // All rules of one prohibition (one per primary copy per `others` combination) share one key, so the key is revoked only once every rule published under it is gone.
+    let mut published: std::collections::BTreeMap<&InventoryKey, usize> = Default::default();
+    for keys in lineage.allomorph_cooccurrence.values() {
+        for key in keys {
+            *published.entry(key).or_default() += 1;
+        }
+    }
+    let mut removed_count: std::collections::BTreeMap<InventoryKey, usize> = Default::default();
+    let mut removed_order: Vec<(InventoryKey, (u32, usize))> = Vec::new();
     for target in removed_allomorph_cooccurrence {
         let keys = lineage.allomorph_cooccurrence.get(&target).unwrap_or_else(|| {
             panic!("allomorph co-occurrence rule {target:?} removed by reachability compaction but published no lineage")
         });
-        for key in keys.clone() {
-            let source = super::warnings::source_for_key(snapshot, &key);
-            recorder.revoke_represented(
-                key,
-                ConversionIssue {
-                    code: super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE,
-                    class: IssueClass::UnreachableInGrammar,
-                    source,
-                    fatal: false,
-                    message: format!(
-                        "allomorph co-occurrence rule (owner {}, index {}) unreachable after \
-                         mrule reachability compaction",
-                        target.0, target.1
-                    ),
-                },
-            );
+        for key in keys {
+            let n = removed_count.entry(key.clone()).or_default();
+            *n += 1;
+            if *n == published[key] {
+                removed_order.push((key.clone(), target));
+            }
         }
     }
+    for (key, target) in removed_order {
+        let source = super::warnings::source_for_key(snapshot, &key);
+        recorder.revoke_represented(
+            key,
+            ConversionIssue {
+                code: super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE,
+                class: IssueClass::UnreachableInGrammar,
+                source,
+                fatal: false,
+                message: format!(
+                    "allomorph co-occurrence rule (owner {}, index {}) unreachable after \
+                     mrule reachability compaction",
+                    target.0, target.1
+                ),
+            },
+        );
+    }
+    // One prohibition publishes one rule per primary copy per `others` combination under one key, so the key is revoked only once every rule published under it is gone.
+    let mut published_morpheme: std::collections::BTreeMap<&InventoryKey, usize> =
+        Default::default();
+    for keys in lineage.morpheme_cooccurrence.values() {
+        for key in keys {
+            *published_morpheme.entry(key).or_default() += 1;
+        }
+    }
+    let mut removed_morpheme_count: std::collections::BTreeMap<InventoryKey, usize> =
+        Default::default();
     for target in removed_morpheme_cooccurrence {
         let keys = lineage.morpheme_cooccurrence.get(&target).unwrap_or_else(|| {
             panic!("morpheme co-occurrence rule {target:?} removed by reachability compaction but published no lineage")
         });
         for key in keys.clone() {
+            let n = removed_morpheme_count.entry(key.clone()).or_default();
+            *n += 1;
+            if *n < published_morpheme[&key] {
+                continue;
+            }
             let source = super::warnings::source_for_key(snapshot, &key);
             recorder.revoke_represented(
                 key,

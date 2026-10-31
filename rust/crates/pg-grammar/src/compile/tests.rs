@@ -6795,3 +6795,566 @@ fn template_slot_surface_ordinals_count_outward_from_the_stem() {
     .collect();
     assert_eq!(surface_by_slot, expected);
 }
+
+/// A suffix entry whose one allomorph `allo_guid` has one inflectional MSA per entry of `slots`, so it compiles to one morphological rule (with its own allomorph id) per MSA.
+fn multi_msa_suffix_entry(
+    entry: &str,
+    allo_guid: &str,
+    noun_pos: &str,
+    slots: &[&str],
+) -> LexEntry {
+    LexEntry {
+        guid: entry.to_string(),
+        citation_form: vec![ws("sen", "-ma")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph(allo_guid, MorphType::Suffix, "ma")],
+        msas: slots
+            .iter()
+            .enumerate()
+            .map(|(i, slot)| Msa::Inflectional {
+                guid: format!("{entry}-msa-{i}"),
+                part_of_speech: Some(noun_pos.to_string()),
+                slots: vec![slot.to_string()],
+                features: None,
+                exception_features: Vec::new(),
+            })
+            .collect(),
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    }
+}
+
+fn adhoc_allomorph(guid: &str, primary: &str, others: &[&str]) -> AdhocProhibition {
+    AdhocProhibition::Allomorph {
+        guid: guid.to_string(),
+        disabled: false,
+        primary: primary.to_string(),
+        others: others.iter().map(|o| o.to_string()).collect(),
+        adjacency: Adjacency::Anywhere,
+    }
+}
+
+/// Every affix allomorph in `grammar` whose source is `guid`, in rule order.
+fn affix_copies_of<'a>(
+    grammar: &'a crate::model::Grammar,
+    guid: &str,
+) -> Vec<&'a crate::model::AffixAllomorphDef> {
+    grammar
+        .mrules
+        .iter()
+        .filter_map(|r| r.affix_allomorphs())
+        .flatten()
+        .filter(|a| {
+            grammar.allomorph_sources[a.id.0 as usize]
+                .form_guids
+                .first()
+                .is_some_and(|g| g.as_deref() == Some(guid))
+        })
+        .collect()
+}
+
+/// An affix entry with two MSAs compiles to two morphological rules that each carry their own id for the one authored allomorph; an ad-hoc allomorph prohibition must cover every copy in both directions, as `HCLoader.LoadAllomorphCoOccurrenceRules` does (its `m_allomorphs` keeps all of them).
+#[test]
+fn adhoc_allomorph_prohibition_covers_every_mrule_copy_of_a_multi_msa_affix() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+        "entry-multi",
+        "allo-multi",
+        &f.noun_pos,
+        &[&f.slot, &f.slot],
+    ));
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_allomorph("coocc-affix-first", "allo-multi", &["allo-stem"]),
+        adhoc_allomorph("coocc-stem-first", "allo-stem", &["allo-multi"]),
+    ]);
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let copies = affix_copies_of(&grammar, "allo-multi");
+    assert_eq!(copies.len(), 2, "one affix allomorph per MSA");
+    let stem = &grammar.entries[0].allomorphs[0];
+    for copy in &copies {
+        assert_eq!(
+            copy.co_occurrence.len(),
+            1,
+            "affix first: every copy carries the rule"
+        );
+        assert_eq!(copy.co_occurrence[0].others, vec![stem.id]);
+    }
+    let mut targets: Vec<_> = stem
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected: Vec<_> = copies.iter().map(|c| c.id).collect();
+    expected.sort();
+    assert_eq!(targets, expected, "stem first: one rule per affix copy");
+}
+
+/// Two `others` forms with two copies each: HCLoader's `Permute` makes one rule per combination (2 x 2), attached to the primary.
+#[test]
+fn adhoc_allomorph_prohibition_crosses_two_multi_copy_affixes() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    for (entry, allo) in [
+        ("entry-multi-a", "allo-multi-a"),
+        ("entry-multi-b", "allo-multi-b"),
+    ] {
+        snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+            entry,
+            allo,
+            &f.noun_pos,
+            &[&f.slot, &f.slot],
+        ));
+    }
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+        "coocc-cross",
+        "allo-stem",
+        &["allo-multi-a", "allo-multi-b"],
+    ));
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let a: Vec<_> = affix_copies_of(&grammar, "allo-multi-a")
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    let b: Vec<_> = affix_copies_of(&grammar, "allo-multi-b")
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!((a.len(), b.len()), (2, 2));
+    let got: Vec<_> = grammar.entries[0].allomorphs[0]
+        .co_occurrence
+        .iter()
+        .map(|r| r.others.clone())
+        .collect();
+    let want = vec![
+        vec![a[0], b[0]],
+        vec![a[0], b[1]],
+        vec![a[1], b[0]],
+        vec![a[1], b[1]],
+    ];
+    assert_eq!(got, want, "one rule per combination, first list slowest");
+}
+
+/// All rules of one prohibition share one inventory key: when only one copy's mrule is compacted away as dead code, the key must stay represented because the sibling copy's rule survives.
+#[test]
+fn adhoc_prohibition_key_survives_while_any_copy_rule_remains_after_compaction() {
+    for primary_is_affix in [true, false] {
+        let (mut snapshot, f) = fixture();
+        snapshot.morphology.parser_parameters.merge_msas = false;
+        // Second MSA's slot is in no template, so its mrule is pruned.
+        snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+            "entry-multi",
+            "allo-multi",
+            &f.noun_pos,
+            &[&f.slot, "slot-never-templated"],
+        ));
+        snapshot
+            .morphology
+            .adhoc_prohibitions
+            .push(if primary_is_affix {
+                adhoc_allomorph("coocc-partial", "allo-multi", &["allo-stem"])
+            } else {
+                adhoc_allomorph("coocc-partial", "allo-stem", &["allo-multi"])
+            });
+
+        let (grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+        assert_eq!(
+            affix_copies_of(&grammar, "allo-multi").len(),
+            1,
+            "the dead copy is compacted"
+        );
+        let key = InventoryKey::object(
+            InventoryKind::AllomorphCoOccurrence,
+            "coocc-partial".to_string(),
+        );
+        assert!(
+            inventory.represented.contains(&key),
+            "primary_is_affix={primary_is_affix}: a copy's rule still holds"
+        );
+        assert!(!inventory.rejected.contains(&key));
+    }
+}
+
+/// The key is revoked once every rule under it is gone (all copies unreachable).
+#[test]
+fn adhoc_prohibition_key_is_revoked_when_every_copy_rule_is_compacted_away() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+        "entry-multi",
+        "allo-multi",
+        &f.noun_pos,
+        &["slot-never-templated", "slot-never-templated-2"],
+    ));
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+        "coocc-all-dead",
+        "allo-multi",
+        &["allo-stem"],
+    ));
+
+    let (_grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    let key = InventoryKey::object(
+        InventoryKind::AllomorphCoOccurrence,
+        "coocc-all-dead".to_string(),
+    );
+    assert!(inventory.rejected.contains(&key));
+    assert!(!inventory.represented.contains(&key));
+}
+
+/// Unresolved `others` on a multi-copy affix primary: refuses while ANY copy's mrule survives (here only the second copy does), and is non-fatal only when every copy is dead code.
+#[test]
+fn cooccurrence_refusal_on_a_multi_copy_affix_primary_is_fatal_while_any_copy_survives() {
+    let build = |slots: &[&str]| {
+        let (mut snapshot, f) = fixture();
+        snapshot.morphology.parser_parameters.merge_msas = false;
+        snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+            "entry-multi",
+            "allo-multi",
+            &f.noun_pos,
+            slots,
+        ));
+        snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+            "coocc-refused",
+            "allo-multi",
+            &["allo-does-not-exist"],
+        ));
+        compile_project_with(&snapshot, CompileOptions::default())
+    };
+    let err = build(&["slot-never-templated", "slot-pl"])
+        .expect_err("a surviving second copy must still make the refusal fatal");
+    assert!(err
+        .issues()
+        .iter()
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && i.fatal));
+
+    let out = build(&["slot-never-templated", "slot-never-templated-2"])
+        .expect("every copy dead: the refusal is non-fatal");
+    assert!(out
+        .inventory
+        .issues
+        .iter()
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && !i.fatal));
+}
+
+fn adhoc_morpheme(guid: &str, primary: &str, others: &[&str]) -> AdhocProhibition {
+    AdhocProhibition::Morpheme {
+        guid: guid.to_string(),
+        disabled: false,
+        primary: primary.to_string(),
+        others: others.iter().map(|o| o.to_string()).collect(),
+        adjacency: Adjacency::Anywhere,
+    }
+}
+
+/// Ids of every morpheme built from MSA `guid`: the main entry's, plus one per variant entry that borrows it (a variant's `xml_key` is `variant#msa`, its `source_msa_guid` the main MSA).
+fn morphemes_of_msa(grammar: &crate::model::Grammar, guid: &str) -> Vec<crate::model::MorphemeId> {
+    grammar
+        .morphemes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.source_msa_guid.as_deref() == Some(guid))
+        .map(|(i, _)| crate::model::MorphemeId(i as u32))
+        .collect()
+}
+
+/// A variant stem borrows its main entry's MSAs, and HCLoader registers it under the main MSA (`AddEntry` into `m_morphemes[msa]`), so an ad hoc morpheme prohibition on that MSA covers the main entry and every variant copy, in both directions.
+#[test]
+fn adhoc_morpheme_prohibition_covers_variant_stem_copies_of_a_multi_msa_main_entry() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    let stem_msa = |guid: &str| Msa::Stem {
+        guid: guid.to_string(),
+        part_of_speech: Some(f.noun_pos.clone()),
+        inflection_class: None,
+        features: None,
+        exception_features: Vec::new(),
+        from_parts_of_speech: Vec::new(),
+        slots: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-main".to_string(),
+        citation_form: vec![ws("sen", "kuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-main", MorphType::Stem, "kuta")],
+        msas: vec![stem_msa("msa-main-a"), stem_msa("msa-main-b")],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-var".to_string(),
+        citation_form: vec![ws("sen", "kuuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-var", MorphType::Stem, "kuuta")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-var".to_string(),
+            component_lexemes: vec!["entry-main".to_string()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_morpheme("coocc-main-first", "msa-main-a", &[&f.suffix_msa]),
+        adhoc_morpheme("coocc-suffix-first", &f.suffix_msa, &["msa-main-a"]),
+    ]);
+
+    let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let copies = morphemes_of_msa(&grammar, "msa-main-a");
+    assert_eq!(copies.len(), 2, "the main entry and its variant");
+    let suffix = morphemes_of_msa(&grammar, &f.suffix_msa);
+    assert_eq!(suffix.len(), 1);
+    for copy in &copies {
+        let rules = &grammar.morphemes[copy.0 as usize].co_occurrence;
+        assert_eq!(rules.len(), 1, "main-first: every copy carries the rule");
+        assert_eq!(rules[0].others, suffix);
+    }
+    let mut targets: Vec<_> = grammar.morphemes[suffix[0].0 as usize]
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected = copies.clone();
+    expected.sort();
+    assert_eq!(targets, expected, "suffix-first: one rule per stem copy");
+    // The other main MSA is not part of either prohibition.
+    for copy in morphemes_of_msa(&grammar, "msa-main-b") {
+        assert!(grammar.morphemes[copy.0 as usize].co_occurrence.is_empty());
+    }
+    for guid in ["coocc-main-first", "coocc-suffix-first"] {
+        let key = InventoryKey::object(InventoryKind::MorphemeCoOccurrence, guid.to_string());
+        assert!(inventory.represented.contains(&key), "{guid}");
+    }
+}
+
+/// A variant affix rule keeps its own morpheme under the main MSA's guid; both the main and the variant rule are 'others' copies, so the stem primary gets one rule per choice (HCLoader's `Permute`).
+#[test]
+fn adhoc_morpheme_prohibition_crosses_variant_affix_copies() {
+    let (mut snapshot, f) = fixture();
+    variant_affix_sharing_main_msa(&mut snapshot, &f);
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_morpheme(
+        "coocc-stem",
+        &f.stem_msa,
+        &[&f.suffix_msa],
+    ));
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let suffix = morphemes_of_msa(&grammar, &f.suffix_msa);
+    assert_eq!(suffix.len(), 2, "main affix rule and variant affix rule");
+    let stem = morphemes_of_msa(&grammar, &f.stem_msa);
+    assert_eq!(stem.len(), 1);
+    let mut targets: Vec<_> = grammar.morphemes[stem[0].0 as usize]
+        .co_occurrence
+        .iter()
+        .map(|r| {
+            assert_eq!(r.others.len(), 1);
+            r.others[0]
+        })
+        .collect();
+    targets.sort();
+    let mut expected = suffix.clone();
+    expected.sort();
+    assert_eq!(targets, expected, "one rule per affix copy");
+}
+
+/// Unresolved `others` on a variant-stem primary still refuses (a stem morpheme is never compacted away), now over every copy.
+#[test]
+fn adhoc_morpheme_refusal_on_a_variant_stem_primary_is_fatal() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-var".to_string(),
+        citation_form: vec![ws("sen", "kuuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-var", MorphType::Stem, "kuuta")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-var".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_morpheme(
+        "coocc-refused",
+        &f.stem_msa,
+        &["msa-does-not-exist"],
+    ));
+    let err = compile_project_with(&snapshot, CompileOptions::default())
+        .expect_err("an unresolved 'others' on a stem primary refuses");
+    assert!(err
+        .issues()
+        .iter()
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && i.fatal));
+}
+
+/// An affix allomorph naming two environments builds one allomorph per environment pass, and HCLoader registers each in `m_allomorphs` (HCLoader.cs:1167-1178), so an ad-hoc allomorph prohibition must reach every pass in both directions.
+#[test]
+fn adhoc_allomorph_prohibition_covers_every_environment_pass_of_an_affix_allomorph() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            display_name: None,
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    for (guid, name, representation) in [
+        ("env-after-vowel", "after vowel", "/[V]_"),
+        ("env-before-vowel", "before vowel", "/_[V]"),
+    ] {
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: guid.to_string(),
+                name: name.to_string(),
+                representation: representation.to_string(),
+            });
+    }
+    let mut entry = multi_msa_suffix_entry("entry-envs", "allo-envs", &f.noun_pos, &[&f.slot]);
+    entry.allomorphs[0].environments = vec![
+        "env-after-vowel".to_string(),
+        "env-before-vowel".to_string(),
+    ];
+    snapshot.lexicon.entries.push(entry);
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_allomorph("coocc-affix-first", "allo-envs", &["allo-stem"]),
+        adhoc_allomorph("coocc-stem-first", "allo-stem", &["allo-envs"]),
+    ]);
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let passes = affix_copies_of(&grammar, "allo-envs");
+    assert_eq!(passes.len(), 2, "one allomorph per environment pass");
+    let stem = &grammar.entries[0].allomorphs[0];
+    for pass in &passes {
+        assert_eq!(
+            pass.co_occurrence.len(),
+            1,
+            "affix first: every environment pass carries the rule"
+        );
+        assert_eq!(pass.co_occurrence[0].others, vec![stem.id]);
+    }
+    let mut targets: Vec<_> = stem
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected: Vec<_> = passes.iter().map(|c| c.id).collect();
+    expected.sort();
+    assert_eq!(
+        targets, expected,
+        "stem first: one rule per environment pass"
+    );
+}
+
+/// A circumfix registers every prefix x suffix pairing under its lexeme form and never under a half (HCLoader.cs:1100-1122), so a prohibition naming the lexeme form covers all pairings and one naming a half resolves to nothing.
+#[test]
+fn adhoc_allomorph_prohibition_on_a_circumfix_covers_every_pairing_under_the_lexeme_form() {
+    let (mut snapshot, _f) = circumfix_snapshot(&[], &[]);
+    let entry = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.guid == "entry-circumfix")
+        .expect("circumfix entry exists");
+    // A second prefix half and the circumfix-typed lexeme form (always last).
+    entry.allomorphs.insert(
+        1,
+        simple_allomorph("allo-circ-prefix-2", MorphType::Prefix, "ke"),
+    );
+    entry.allomorphs.push(simple_allomorph(
+        "allo-circ-lexeme",
+        MorphType::Circumfix,
+        "ka-...-ta",
+    ));
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_allomorph("coocc-lexeme-first", "allo-circ-lexeme", &["allo-stem"]),
+        adhoc_allomorph("coocc-stem-first", "allo-stem", &["allo-circ-lexeme"]),
+        adhoc_allomorph("coocc-half", "allo-circ-prefix", &["allo-stem"]),
+    ]);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    let pairings = circumfix_rule_allomorphs(&grammar);
+    assert_eq!(pairings.len(), 2, "two prefix halves x one suffix half");
+    let stem = &grammar.entries[0].allomorphs[0];
+    for pairing in &pairings {
+        assert_eq!(
+            pairing.co_occurrence.len(),
+            1,
+            "lexeme form first: every pairing carries exactly the lexeme-form rule, none from the half"
+        );
+        assert_eq!(pairing.co_occurrence[0].others, vec![stem.id]);
+    }
+    let mut targets: Vec<_> = stem
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected: Vec<_> = pairings.iter().map(|p| p.id).collect();
+    expected.sort();
+    assert_eq!(targets, expected, "stem first: one rule per pairing");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.message.contains("allo-circ-prefix")
+                && w.message.contains("does not resolve")),
+        "a prohibition naming a half resolves to nothing, as in HCLoader: {warnings:?}"
+    );
+}
+
+/// HCLoader registers a circumfix only under its lexeme form, so a prohibition naming a half in `others` finds nothing and emits no rule; the grammar still loads, with a warning.
+#[test]
+fn adhoc_allomorph_prohibition_naming_a_circumfix_half_in_others_warns_and_emits_no_rule() {
+    let (mut snapshot, _f) = circumfix_snapshot(&[], &[]);
+    let entry = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.guid == "entry-circumfix")
+        .expect("circumfix entry exists");
+    entry.allomorphs.push(simple_allomorph(
+        "allo-circ-lexeme",
+        MorphType::Circumfix,
+        "ka-...-ta",
+    ));
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+        "coocc-half-other",
+        "allo-stem",
+        &["allo-circ-prefix"],
+    ));
+
+    let (grammar, warnings) =
+        compile_project(&snapshot).expect("a half-named prohibition must not refuse the grammar");
+    let stem = &grammar.entries[0].allomorphs[0];
+    assert!(stem.co_occurrence.is_empty(), "no rule is emitted");
+    assert!(
+        circumfix_rule_allomorphs(&grammar)
+            .iter()
+            .all(|pairing| pairing.co_occurrence.is_empty()),
+        "no pairing carries a rule"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.message.contains("allo-circ-prefix") && w.message.contains("circumfix half")),
+        "the dropped prohibition is warned about: {warnings:?}"
+    );
+}
