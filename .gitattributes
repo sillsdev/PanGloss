@@ -31,3 +31,4 @@ rust/crates/pg-fwdata/tests/data/fixture.fwdata text eol=lf
 conformance-staging/underdefined/**/*.fwdata -text
 conformance-staging/underdefined/**/*.ldml -text
 conformance-staging/underdefined/**/grammar.xml -text
+conformance-staging/edge-cases/adhoc-prohibition-*/fieldworks/**/*.fwdata -text

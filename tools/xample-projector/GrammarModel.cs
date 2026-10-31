@@ -8,6 +8,9 @@ namespace XampleProjector
 		internal string Id { get; set; }
 		internal bool IsPrefix { get; set; }
 		internal string InsertShape { get; set; }
+		/// <summary>Set only for a circumfix pairing: the suffix half (InsertShape is the prefix half).</summary>
+		internal string SuffixShape { get; set; }
+		internal bool IsCircumfix => SuffixShape != null;
 		internal IReadOnlyList<string> RequiredMprFeatureIds { get; set; } = System.Array.Empty<string>();
 		internal IReadOnlyList<EnvironmentModel> RequiredEnvironments { get; set; } = System.Array.Empty<EnvironmentModel>();
 	}

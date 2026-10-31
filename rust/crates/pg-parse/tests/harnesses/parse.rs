@@ -5,6 +5,8 @@
 mod adhoc_affix_copies;
 #[path = "../adhoc_allomorph_copies.rs"]
 mod adhoc_allomorph_copies;
+#[path = "../adhoc_fieldworks_witnesses.rs"]
+mod adhoc_fieldworks_witnesses;
 #[path = "../adhoc_morpheme_variant_copies.rs"]
 mod adhoc_morpheme_variant_copies;
 #[path = "../batch_determinism.rs"]
