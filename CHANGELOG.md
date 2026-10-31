@@ -3,7 +3,7 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.12.3
 
 ### Parse results
 
