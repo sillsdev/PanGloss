@@ -4779,6 +4779,175 @@ fn allomorph_cooccurrence_rule_whose_only_target_is_compacted_away_is_revoked() 
     }
 }
 
+/// A stem entry with two stem MSAs (Verb first, Noun second) compiles to two grammar entries that each carry their own id for the one authored allomorph; an ad-hoc allomorph prohibition must cover every copy in both directions, as `HCLoader.LoadAllomorphCoOccurrenceRules` does.
+#[test]
+fn adhoc_allomorph_prohibition_covers_every_msa_copy_of_a_multi_msa_stem() {
+    let (mut snapshot, f) = fixture();
+    // Each stem MSA stays its own grammar entry only with MSA merging off (or unequal MSAs).
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot.morphology.parts_of_speech.push(PartOfSpeech {
+        guid: "pos-verb".to_string(),
+        name: "Verb".to_string(),
+        abbreviation: "v".to_string(),
+        children: Vec::new(),
+        inflection_classes: Vec::new(),
+        default_inflection_class: None,
+        inflectable_features: Vec::new(),
+        stem_names: Vec::new(),
+        affix_slots: Vec::new(),
+        affix_templates: Vec::new(),
+    });
+    let stem_msa = |guid: &str, pos: &str| Msa::Stem {
+        guid: guid.to_string(),
+        part_of_speech: Some(pos.to_string()),
+        inflection_class: None,
+        features: None,
+        exception_features: Vec::new(),
+        from_parts_of_speech: Vec::new(),
+        slots: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-two".to_string(),
+        citation_form: vec![ws("sen", "kuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-two", MorphType::Stem, "kuta")],
+        msas: vec![
+            stem_msa("msa-two-verb", "pos-verb"),
+            stem_msa("msa-two-noun", &f.noun_pos),
+        ],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    for (guid, primary, other) in [
+        ("coocc-stem-first", "allo-two", "allo-suffix"),
+        ("coocc-affix-first", "allo-suffix", "allo-two"),
+    ] {
+        snapshot
+            .morphology
+            .adhoc_prohibitions
+            .push(AdhocProhibition::Allomorph {
+                guid: guid.to_string(),
+                disabled: false,
+                primary: primary.to_string(),
+                others: vec![other.to_string()],
+                adjacency: Adjacency::Anywhere,
+            });
+    }
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let copies: Vec<_> = grammar
+        .entries
+        .iter()
+        .filter(|e| e.authored_id == "entry-two")
+        .collect();
+    assert_eq!(copies.len(), 2, "one grammar entry per stem MSA");
+    let copy_ids: Vec<_> = copies.iter().map(|e| e.allomorphs[0].id).collect();
+    assert_ne!(copy_ids[0], copy_ids[1]);
+
+    // Stem first: the prohibition rides on EVERY copy, naming the suffix.
+    let suffix_rule = grammar
+        .mrules
+        .iter()
+        .find_map(|r| r.affix_allomorphs().filter(|a| !a.is_empty()))
+        .and_then(|a| a.first())
+        .expect("suffix allomorph");
+    for copy in &copies {
+        let rules = &copy.allomorphs[0].co_occurrence;
+        assert_eq!(rules.len(), 1, "each stem copy carries the rule");
+        assert_eq!(rules[0].others, vec![suffix_rule.id]);
+    }
+
+    // Affix first: one rule per stem copy on the suffix allomorph.
+    let mut others: Vec<_> = suffix_rule
+        .co_occurrence
+        .iter()
+        .map(|r| {
+            assert_eq!(r.others.len(), 1);
+            r.others[0]
+        })
+        .collect();
+    others.sort();
+    let mut expected = copy_ids.clone();
+    expected.sort();
+    assert_eq!(others, expected, "one rule per stem copy");
+}
+
+/// Two `others` stems with two MSA copies each: HCLoader's `Permute` makes one rule per combination (2 x 2), attached to the primary, first list slowest.
+#[test]
+fn adhoc_allomorph_prohibition_crosses_two_multi_copy_others() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    for (entry, allo, form) in [
+        ("entry-two-a", "allo-two-a", "kuta"),
+        ("entry-two-b", "allo-two-b", "kuka"),
+    ] {
+        let msas = (0..2)
+            .map(|i| Msa::Stem {
+                guid: format!("{entry}-msa-{i}"),
+                part_of_speech: Some(f.noun_pos.clone()),
+                inflection_class: None,
+                features: None,
+                exception_features: Vec::new(),
+                from_parts_of_speech: Vec::new(),
+                slots: Vec::new(),
+            })
+            .collect();
+        snapshot.lexicon.entries.push(LexEntry {
+            guid: entry.to_string(),
+            citation_form: vec![ws("sen", form)],
+            lexeme_morph_type: MorphType::Stem,
+            allomorphs: vec![simple_allomorph(allo, MorphType::Stem, form)],
+            msas,
+            senses: Vec::new(),
+            entry_refs: Vec::new(),
+        });
+    }
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-cross".to_string(),
+            disabled: false,
+            primary: "allo-suffix".to_string(),
+            others: vec!["allo-two-a".to_string(), "allo-two-b".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let ids = |entry: &str| -> Vec<_> {
+        grammar
+            .entries
+            .iter()
+            .filter(|e| e.authored_id == entry)
+            .map(|e| e.allomorphs[0].id)
+            .collect()
+    };
+    let (a, b) = (ids("entry-two-a"), ids("entry-two-b"));
+    assert_eq!((a.len(), b.len()), (2, 2));
+    let suffix = grammar
+        .mrules
+        .iter()
+        .find_map(|r| r.affix_allomorphs().filter(|a| !a.is_empty()))
+        .and_then(|a| a.first())
+        .expect("suffix allomorph");
+    let got: Vec<_> = suffix
+        .co_occurrence
+        .iter()
+        .map(|r| r.others.clone())
+        .collect();
+    let want = vec![
+        vec![a[0], b[0]],
+        vec![a[0], b[1]],
+        vec![a[1], b[0]],
+        vec![a[1], b[1]],
+    ];
+    assert_eq!(got, want, "one rule per combination, first list slowest");
+}
+
 /// An allomorph co-occurrence rule whose owner and every `others` target survive stays represented.
 #[test]
 fn allomorph_cooccurrence_rule_whose_owner_and_targets_survive_stays_represented() {

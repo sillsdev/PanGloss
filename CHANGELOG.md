@@ -3,6 +3,12 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Parse results
+
+- Ad hoc allomorph prohibitions on a stem with several stem MSAs now apply to every copy of the stem, as `HCLoader.LoadAllomorphCoOccurrenceRules` does, instead of only the last copy. Words that used another copy and were wrongly analysed now have fewer analyses (#99).
+
 ## 0.12.2
 
 ### Parse results
