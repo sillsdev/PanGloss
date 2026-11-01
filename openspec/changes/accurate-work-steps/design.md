@@ -84,6 +84,26 @@ reports:
 
 Known hard cases must be in the set: the memo on/off pair and the `distinct` fix.
 
+First result, on today's `work_steps`, with six real pairs plus one no-change control over five
+grammars (stratified samples, words `ok` on both sides, PMC instructions):
+
+- Control: `work_steps` moved exactly 0, instructions at most 0.28%, cycles up to 17%.
+- Where instructions moved at least 5%, work agreed in sign on 11 of 11; at least 2%, 14 of 15; at
+  least 1%, 16 of 18. Steps agreed on 6, 9 and 10 of the same results, and often did not move.
+- Read from the host side: where `work_steps` moved at least 5%, instructions agreed on 9 of 9; at
+  least 2%, 16 of 17.
+- Steps fail on coverage, not direction: when they moved at least 1%, instructions agreed on 11 of
+  12, but they stayed still on 8 of the 18 results where instructions moved at least 1%.
+- Correlation of the changes: 0.91 for work, 0.24 for steps.
+- Direction is reliable, size is not: one pair moved work 20.3% and instructions 3.7%.
+- The two disagreements are `root-search-cache` on one grammar (work -2.2%, instructions +1.2%) and
+  turning required-slot lookahead off on another (work -0.7%, instructions +4.0%). Both are
+  consistent with a mechanism whose own cost is uncharged; that cause is not yet measured.
+
+Today's `work_steps` therefore misses the 95% bar at 1% and reaches it at about 5%. The results are
+not independent, since seven pairs produce them, and neither hard case is in the set yet. Task group
+3 must show the bar moving toward 1%.
+
 ### D6: The attempt cap goes last, behind a recall gate
 
 Scar: the first shared-unit cap took a 400-word sample from 73 to 6 words with analyses, which is why
@@ -110,7 +130,9 @@ deadline, so the control can always act.
 The Motif number is the ratio of total work on the same word list and PanGloss version, under
 `--work-cap` with no deadline. Capped words make the result "at least". It sits beside parse changes
 and never compares two languages. Total, not geometric mean: total tracks time, and a mean lets many
-cheap words outvote one expensive word. The display band comes from D5's results.
+cheap words outvote one expensive word. The display band comes from D5's results: provisionally, a
+change of at least 5% reads as better or worse, 2-5% as probably, and under 2% as no clear change.
+That covers code changes on one grammar; grammar edits are not measured yet (task 7.1).
 
 ## Risks / Trade-offs
 
