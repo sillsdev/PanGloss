@@ -69,6 +69,21 @@ namespace XampleProjector
 				variantOf[parts[0].Trim()] = parts[1].Trim();
 			}
 
+			// Each --enclitic-of value is "entryId=ruleId": the stem LexicalEntry and the clitic rule (a rule of the Clitics
+			// stratum) that HCLoader emits together for ONE FieldWorks entry whose morph type is enclitic (a clitic rule
+			// plus a stem entry copy). They are authored as that one entry; a prohibition on either id binds its MSA.
+			var encliticOf = new System.Collections.Generic.Dictionary<string, string>();
+			foreach (var v in ArgParser.GetOptions(args, "--enclitic-of"))
+			{
+				var parts = v.Split('=');
+				if (parts.Length != 2)
+				{
+					Console.Error.WriteLine("Author failure: --enclitic-of expects entryId=ruleId, got '{0}'", v);
+					return ExitCodes.Usage;
+				}
+				encliticOf[parts[0].Trim()] = parts[1].Trim();
+			}
+
 			if (!File.Exists(grammarPath))
 			{
 				Console.Error.WriteLine("Author failure: grammar file not found: {0}", grammarPath);
@@ -81,6 +96,7 @@ namespace XampleProjector
 				grammar = GrammarParser.Parse(LoadGrammarDocument(grammarPath));
 				GrammarAuthor.ValidateMsaCopyGroups(grammar, msaCopyGroups);
 				GrammarAuthor.ValidateVariants(grammar, variantOf);
+				GrammarAuthor.ValidateEnclitics(grammar, encliticOf, msaCopyGroups, variantOf);
 				GrammarAuthor.ValidateEnvCopyGroups(grammar, envCopyGroups);
 				GrammarAuthor.ValidateCircumfixes(grammar);
 				GrammarAuthor.ValidateHalfProhibs(grammar, halfProhibs);
@@ -103,7 +119,7 @@ namespace XampleProjector
 			{
 				try
 				{
-					authored = GrammarAuthor.Author(cache, grammar, xampleMaxN, xampleMaxN, xampleMaxAnalyses, msaCopyGroups, variantOf, envCopyGroups, halfProhibs);
+					authored = GrammarAuthor.Author(cache, grammar, xampleMaxN, xampleMaxN, xampleMaxAnalyses, msaCopyGroups, variantOf, envCopyGroups, halfProhibs, encliticOf);
 					// Commits are asynchronous; force the flush deterministically here (the same
 					// public call ProjectLockingService/ProjectBackupService use) rather than
 					// relying solely on Dispose, so the project's on-disk state is complete before

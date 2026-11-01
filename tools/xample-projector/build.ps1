@@ -1238,6 +1238,133 @@ finally {
 	Remove-Item -Path $parserRefusalTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- Enclitic authoring probe: a clitic MorphologicalRule of the Clitics stratum plus its stem LexicalEntry copy (the pair
+#     HCLoader emits for ONE FieldWorks enclitic entry) is authored as one entry of the enclitic morph
+#     type, and a MorphemeCoOccurrenceRule naming it by either id becomes one MoMorphAdhocProhib that
+#     binds in the live HC engine. Refusals: a table of small mutations of the probe grammar (the pairing, the partner entry's
+#     shape and stratum, the clitic rule, the Clitics stratum), each of which must exit 7 naming its cause. Needs no machine submodule. ---
+$encliticGrammar = Join-Path $root 'testdata\enclitic-probe.grammar.xml'
+$encliticTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-enclitic-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $encliticTempRoot -Force | Out-Null
+try {
+	$encliticOutDir = Join-Path $encliticTempRoot 'enclitic-out'
+	New-Item -ItemType Directory -Path $encliticOutDir -Force | Out-Null
+	& $exePath author --grammar $encliticGrammar --out-dir $encliticOutDir --name Enclitic --enclitic-of eX=mrX --enclitic-of eY=mrY
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Enclitic authoring probe: 'author' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$encliticResponsePath = Join-Path $encliticOutDir 'author-response.json'
+	$encliticResponse = Get-Content $encliticResponsePath -Raw | ConvertFrom-Json
+	# Three LexicalEntries stay three LexEntries: each clitic rule is the same entry as its stem copy,
+	# and the two prohibition rules (one per id of the enclitic) are one MoMorphAdhocProhib.
+	if ($encliticResponse.authored.LexEntry -ne 3 -or $encliticResponse.authored.MoMorphAdhocProhib -ne 1) {
+		Write-Error "Enclitic authoring probe: expected authored LexEntry == 3 and MoMorphAdhocProhib == 1, got '$($encliticResponse.authored.LexEntry)' and '$($encliticResponse.authored.MoMorphAdhocProhib)'."
+		exit 1
+	}
+	foreach ($pair in @(@('mrX', 'eX'), @('subX', 'aX'), @('mrY', 'eY'), @('subY', 'aY'))) {
+		if ($encliticResponse.guidMap.($pair[0]) -ne $encliticResponse.guidMap.($pair[1])) {
+			Write-Error "Enclitic authoring probe: guidMap '$($pair[0])' ($($encliticResponse.guidMap.($pair[0]))) is not the same object as '$($pair[1])' ($($encliticResponse.guidMap.($pair[1])))."
+			exit 1
+		}
+	}
+	$encliticFwdata = Join-Path $encliticOutDir 'Enclitic\Enclitic.fwdata'
+	$encliticFwdataText = Get-Content -LiteralPath $encliticFwdata -Raw
+	# The morph type is the well-known enclitic guid (MoMorphTypeTags.kguidMorphEnclitic). A project with no
+	# enclitic form names it twice (the type's own record and its owner's reference); each enclitic form adds one.
+	$encliticTypeGuid = 'd7f713e1-e8cf-11d3-9764-00c04f186933'
+	if (([regex]::Matches($encliticFwdataText, $encliticTypeGuid)).Count -lt 4) {
+		Write-Error "Enclitic authoring probe: the authored project does not reference the enclitic morph type ($encliticTypeGuid) from its two enclitic forms."
+		exit 1
+	}
+	$encliticProjectedDir = Join-Path $encliticTempRoot 'projected'
+	New-Item -ItemType Directory -Path $encliticProjectedDir -Force | Out-Null
+	& $exePath project --project $encliticFwdata --out-dir $encliticProjectedDir --database Enclitic
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Enclitic authoring probe: 'project' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$encliticWords = Join-Path $encliticTempRoot 'words.txt'
+	Set-Content -LiteralPath $encliticWords -Value @('k', 'kx', 'ky') -Encoding utf8
+	$encliticCapture = Join-Path $encliticTempRoot 'hc.json'
+	& $exePath parse-hc --project $encliticFwdata --hc-xml (Join-Path $encliticProjectedDir 'Enclitic.hc.xml') --words $encliticWords --out $encliticCapture
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Enclitic authoring probe: 'parse-hc' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$encliticCounts = (Get-Content $encliticCapture -Raw | ConvertFrom-Json).words | ForEach-Object { "$($_.word)=$(@($_.analyses).Count)" }
+	if (($encliticCounts -join ' ') -ne 'k=1 kx=0 ky=1') {
+		Write-Error "Enclitic authoring probe: expected 'k=1 kx=0 ky=1' from the live HC engine, got '$($encliticCounts -join ' ')'."
+		exit 1
+	}
+	Write-Host "Enclitic authoring probe OK: one enclitic entry per clitic rule + stem copy, one MoMorphAdhocProhib, and the live HC engine gives k=1 kx=0 ky=1."
+
+	# Refusal probes, table-driven: each case is a small mutation of the probe grammar (pairs of old,new text, each old text
+	# must occur exactly once), the author arguments, and the words the refusal message must name. Every case must exit 7,
+	# name its cause, and leave no .fwdata behind.
+	$encliticRefusalGrammar = Get-Content $encliticGrammar -Raw
+	$stratumTag = '<Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrX mrY">'
+	$subruleXTag = '<MorphologicalSubrule id="subX">'
+	$bothPartners = @('--enclitic-of', 'eX=mrX', '--enclitic-of', 'eY=mrY')
+	# A first-stratum stem with the partner's shape x, so an --msa-copies group eX,eW passes ValidateMsaCopyGroups and reaches the enclitic check.
+	$sameShapeStem = '<LexicalEntry id="eW" partOfSpeech="posV"><Allomorphs><Allomorph id="aW"><PhoneticShape>x</PhoneticShape></Allomorph></Allomorphs><MorphemeId>W</MorphemeId></LexicalEntry>'
+	$strayStem = '<LexicalEntry id="eZ" partOfSpeech="posV"><Allomorphs><Allomorph id="aZ"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs><MorphemeId>Z</MorphemeId></LexicalEntry>'
+	$slotTemplate = '<AffixTemplates><AffixTemplate><Name>tpl</Name><Slot morphologicalRules="mrX"><Name>slot</Name></Slot></AffixTemplate></AffixTemplates>'
+	$mprFeatures = '<MorphologicalPhonologicalRuleFeatures><MorphologicalPhonologicalRuleFeature id="mprA">a</MorphologicalPhonologicalRuleFeature></MorphologicalPhonologicalRuleFeatures>'
+	$encliticRefusals = @(
+		# The pairing itself.
+		@{ Name = 'clitic rule without an --enclitic-of partner'; Edits = @(); Args = @('--enclitic-of', 'eY=mrY'); Expect = @('mrX', 'enclitic-of') },
+		@{ Name = 'two partners for one clitic rule'; Edits = @(); Args = @('--enclitic-of', 'eX=mrX', '--enclitic-of', 'eK=mrX', '--enclitic-of', 'eY=mrY'); Expect = @('mrX', 'exactly one') },
+		@{ Name = 'partner that is not a LexicalEntry'; Edits = @(); Args = @('--enclitic-of', 'eNope=mrX', '--enclitic-of', 'eY=mrY'); Expect = @('eNope', 'LexicalEntry') },
+		@{ Name = 'partner declared in the first stratum'; Edits = @(); Args = @('--enclitic-of', 'eK=mrX', '--enclitic-of', 'eY=mrY'); Expect = @('eK', 'first Stratum', 'Clitics') },
+		@{ Name = 'ordinary stem entry declared in the Clitics stratum'; Edits = @(, @('<LexicalEntry id="eY" partOfSpeech="posV">', ($strayStem + '<LexicalEntry id="eY" partOfSpeech="posV">'))); Args = $bothPartners; Expect = @('eZ', 'Clitics', 'ordinary stem') },
+		# The partner entry's shape.
+		@{ Name = 'partner without a part of speech'; Edits = @(, @('<LexicalEntry id="eX" partOfSpeech="posV">', '<LexicalEntry id="eX">')); Args = $bothPartners; Expect = @('eX', 'part of speech') },
+		@{ Name = 'partner whose allomorph shape is not the inserted shape'; Edits = @(, @('<Allomorph id="aX"><PhoneticShape>x</PhoneticShape></Allomorph>', '<Allomorph id="aX"><PhoneticShape>k</PhoneticShape></Allomorph>')); Args = $bothPartners; Expect = @('eX', 'inserted shape') },
+		@{ Name = 'partner with two allomorphs'; Edits = @(, @('<Allomorph id="aX"><PhoneticShape>x</PhoneticShape></Allomorph>', '<Allomorph id="aX"><PhoneticShape>x</PhoneticShape></Allomorph><Allomorph id="aX2"><PhoneticShape>x</PhoneticShape></Allomorph>')); Args = $bothPartners; Expect = @('eX', 'one environment-free allomorph') },
+		@{ Name = 'partner with a rule feature'; Edits = @(@('</PartsOfSpeech>', ('</PartsOfSpeech>' + $mprFeatures)), @('<LexicalEntry id="eX" partOfSpeech="posV">', '<LexicalEntry id="eX" partOfSpeech="posV" ruleFeatures="mprA">')); Args = $bothPartners; Expect = @('eX', 'one environment-free allomorph') },
+		@{ Name = 'partner that is also a --variant-of main entry'; Edits = @(); Args = ($bothPartners + @('--variant-of', 'eY=eX')); Expect = @('eX', 'cannot also be') },
+		@{ Name = 'partner that is also an --msa-copies member'; Edits = @(, @('<LexicalEntry id="eK" partOfSpeech="posV">', ($sameShapeStem + '<LexicalEntry id="eK" partOfSpeech="posV">'))); Args = ($bothPartners + @('--msa-copies', 'eX,eW')); Expect = @('eX', 'cannot also be') },
+		# The clitic rule itself.
+		@{ Name = 'proclitic'; Edits = @(, @('<CopyFromInput index="stemX" /><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>', '<InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments><CopyFromInput index="stemX" />')); Args = $bothPartners; Expect = @('mrX', 'proclitic') },
+		@{ Name = 'clitic rule with a part of speech'; Edits = @(, @('<MorphologicalRule id="mrX">', '<MorphologicalRule id="mrX" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">')); Args = $bothPartners; Expect = @('mrX', 'requiredPartsOfSpeech') },
+		@{ Name = 'clitic rule with a required environment'; Edits = @(, @($subruleXTag, ($subruleXTag + '<RequiredEnvironments><Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cK" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment></RequiredEnvironments>'))); Args = $bothPartners; Expect = @('mrX', 'RequiredEnvironments') },
+		@{ Name = 'clitic rule in an affix template slot'; Edits = @(, @('<Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">', ('<Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">' + $slotTemplate))); Args = $bothPartners; Expect = @('mrX', 'clitic', 'slot') },
+		@{ Name = 'clitic rule carrying the isCliticRule attribute'; Edits = @(, @('<MorphologicalRule id="mrX">', '<MorphologicalRule id="mrX" isCliticRule="true">')); Args = $bothPartners; Expect = @('mrX', 'isCliticRule') },
+		@{ Name = 'clitic rule missing from the Clitics morphologicalRules'; Edits = @(, @('morphologicalRules="mrX mrY"', 'morphologicalRules="mrX"')); Args = $bothPartners; Expect = @('mrY', 'morphologicalRules') },
+		@{ Name = 'Clitics morphologicalRules listing an id that is not its rule'; Edits = @(, @('morphologicalRules="mrX mrY"', 'morphologicalRules="mrX mrY eK"')); Args = $bothPartners; Expect = @('eK', 'morphologicalRules') },
+		# The Clitics stratum itself.
+		@{ Name = 'second stratum not named Clitics'; Edits = @(, @('<Name>Clitics</Name>', '<Name>Other</Name>')); Args = $bothPartners; Expect = @('Clitics') },
+		@{ Name = 'inactive Clitics stratum'; Edits = @(, @($stratumTag, $stratumTag.Replace('<Stratum ', '<Stratum isActive="no" '))); Args = $bothPartners; Expect = @('Clitics', 'isActive') },
+		@{ Name = 'Clitics stratum with another character table'; Edits = @(, @($stratumTag, $stratumTag.Replace('"t1"', '"t2"'))); Args = $bothPartners; Expect = @('Clitics', 'characterDefinitionTable') },
+		@{ Name = 'Clitics stratum with phonologicalRules'; Edits = @(, @($stratumTag, $stratumTag.Replace('<Stratum ', '<Stratum phonologicalRules="prX" '))); Args = $bothPartners; Expect = @('Clitics', 'phonologicalRules') },
+		@{ Name = 'cyclic Clitics stratum'; Edits = @(, @($stratumTag, $stratumTag.Replace('<Stratum ', '<Stratum cyclicity="cyclic" '))); Args = $bothPartners; Expect = @('Clitics', 'cyclic') },
+		@{ Name = 'AffixTemplates in the Clitics stratum'; Edits = @(, @('<Name>Clitics</Name>', ('<Name>Clitics</Name>' + $slotTemplate))); Args = $bothPartners; Expect = @('Clitics', 'AffixTemplates') }
+	)
+	$encliticCaseIndex = 0
+	foreach ($case in $encliticRefusals) {
+		$encliticCaseIndex++
+		$mutated = $encliticRefusalGrammar
+		foreach ($edit in $case.Edits) {
+			$occurrences = ([regex]::Matches($mutated, [regex]::Escape($edit[0]))).Count
+			if ($occurrences -ne 1) { Write-Error "Enclitic refusal probe '$($case.Name)': expected its edit anchor to occur once in the probe grammar, found $occurrences (anchor: $($edit[0]))."; exit 1 }
+			$mutated = $mutated.Replace($edit[0], $edit[1])
+		}
+		$caseGrammarPath = Join-Path $encliticTempRoot "refusal-$encliticCaseIndex.grammar.xml"
+		Set-Content -LiteralPath $caseGrammarPath -Value $mutated -Encoding utf8
+		$caseOutDir = Join-Path $encliticTempRoot "refusal-$encliticCaseIndex-out"
+		Assert-ProjectorExit -ExePath $exePath -Label "Enclitic refusal probe '$($case.Name)'" -ExpectedExitCode 7 -ExpectedSubstrings $case.Expect -Arguments (@('author', '--grammar', $caseGrammarPath, '--out-dir', $caseOutDir, '--name', 'Refused') + $case.Args) | Out-Null
+		if ((Test-Path $caseOutDir) -and (Get-ChildItem -Path $caseOutDir -Recurse -Filter '*.fwdata' -ErrorAction SilentlyContinue)) {
+			Write-Error "Enclitic refusal probe '$($case.Name)': exit was 7 but a .fwdata was left on disk under $caseOutDir."
+			exit 1
+		}
+	}
+	Write-Host "Enclitic refusal probes OK: $($encliticRefusals.Count) refusals (pairing, partner shape, clitic rule, Clitics stratum) each exit 7 naming the cause and leave no .fwdata."
+}
+finally {
+	Remove-Item -Path $encliticTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- author / verify-parity live tests: the `machine` conformance submodule's own fixtures,
 #     not Sena 3 -- independent of whether Sena3 is reachable above. ---
 $conformanceRoot = Join-Path $root '..\..\machine\conformance'

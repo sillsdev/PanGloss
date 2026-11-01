@@ -53,10 +53,22 @@ namespace XampleProjector
 			var mprFeatures = ParseMprFeatures(language, seenIds);
 
 			var strata = language.Element("Strata")?.Elements("Stratum").ToList() ?? new List<XElement>();
-			if (strata.Count != 1)
-				throw new GrammarAuthorException($"Strata: expected exactly 1 Stratum, found {strata.Count} (unsupported -- only a single-stratum grammar is supported in this slice)");
+			// One stratum, or that stratum plus the Clitics stratum HCLoader emits for FieldWorks enclitic entries.
+			var cliticStratum = strata.Count == 2 && (string)strata[1].Element("Name") == "Clitics" && (string)strata[0].Element("Name") != "Clitics" ? strata[1] : null;
+			if (strata.Count != 1 && cliticStratum == null)
+				throw new GrammarAuthorException($"Strata: expected exactly 1 Stratum, or one plus a second named \"Clitics\", found {strata.Count} (unsupported -- only a single-stratum grammar and its Clitics stratum are supported in this slice)");
 			var stratum = strata[0];
 			RefuseIfInactive(stratum, "Stratum");
+			if (cliticStratum != null)
+			{
+				RefuseIfInactive(cliticStratum, "Stratum \"Clitics\"");
+				if ((string)cliticStratum.Attribute("characterDefinitionTable") != (string)stratum.Attribute("characterDefinitionTable"))
+					throw new GrammarAuthorException("Stratum \"Clitics\": characterDefinitionTable differs from the first Stratum's (unsupported -- one character table)");
+				if ((string)cliticStratum.Attribute("phonologicalRules") != null || (string)cliticStratum.Attribute("cyclicity") == "cyclic")
+					throw new GrammarAuthorException("Stratum \"Clitics\": phonologicalRules and cyclicity=\"cyclic\" are unsupported");
+				if (cliticStratum.Element("AffixTemplates") != null)
+					throw new GrammarAuthorException("Stratum \"Clitics\": AffixTemplates are unsupported (an enclitic is applied from the stratum's rule list, not from a slot)");
+			}
 
 			var unmapped = new List<string>();
 			var morphRuleOrder = (string)stratum.Attribute("morphologicalRuleOrder");
@@ -144,17 +156,37 @@ namespace XampleProjector
 			};
 
 			var rules = new Dictionary<string, MorphologicalRuleModel>();
-			var ruleDefsElem = stratum.Element("MorphologicalRuleDefinitions");
-			if (ruleDefsElem != null)
+			ParseStratumRules(stratum, clitic: false);
+			if (cliticStratum != null)
 			{
-				foreach (var el in ruleDefsElem.Elements())
+				ParseStratumRules(cliticStratum, clitic: true);
+				// The engine applies a Clitics-stratum rule only if the stratum lists it; HCLoader's own stratum is filled
+				// the same way, so a rule left out of the list would author an enclitic that never applies.
+				var cliticListed = SplitIds((string)cliticStratum.Attribute("morphologicalRules"));
+				foreach (var clitic in rules.Values.Where(r => r.IsClitic))
+				{
+					if (!cliticListed.Contains(clitic.Id))
+						throw new GrammarAuthorException($"MorphologicalRule \"{clitic.Id}\": a rule of the Clitics stratum must be listed in that Stratum's morphologicalRules");
+				}
+				foreach (var id in cliticListed.Where(id => !(rules.TryGetValue(id, out var listed) && listed.IsClitic)))
+					throw new GrammarAuthorException($"Stratum \"Clitics\" morphologicalRules lists \"{id}\", which is not one of its MorphologicalRules");
+			}
+
+			void ParseStratumRules(XElement stratumElement, bool clitic)
+			{
+				var definitions = stratumElement.Element("MorphologicalRuleDefinitions");
+				if (definitions == null)
+					return;
+				foreach (var el in definitions.Elements())
 				{
 					if (el.Name != "MorphologicalRule")
 					{
 						throw new GrammarAuthorException(
 							$"MorphologicalRuleDefinitions contains unsupported element <{el.Name}> (id=\"{(string)el.Attribute("id")}\") -- only MorphologicalRule is supported in this slice");
 					}
-					var rule = ParseMorphologicalRule(el, ctx);
+					var rule = ParseMorphologicalRule(el, ctx, clitic);
+					if (rules.ContainsKey(rule.Id))
+						throw new GrammarAuthorException($"MorphologicalRule \"{rule.Id}\" is defined in both strata");
 					rules[rule.Id] = rule;
 				}
 			}
@@ -185,6 +217,8 @@ namespace XampleProjector
 						{
 							if (!rules.ContainsKey(rid))
 								throw new GrammarAuthorException($"AffixTemplate \"{templateName}\" slot \"{slotName}\" references unknown MorphologicalRule \"{rid}\"");
+							if (rules[rid].IsClitic)
+								throw new GrammarAuthorException($"AffixTemplate \"{templateName}\" slot \"{slotName}\" references clitic MorphologicalRule \"{rid}\" (unsupported -- a FieldWorks enclitic is not slotted)");
 							referencedRuleIds.Add(rid);
 						}
 						// A slot has exactly one of PrefixSlotsRS/SuffixSlotsRS to be added to.
@@ -209,7 +243,7 @@ namespace XampleProjector
 
 			foreach (var ruleId in rules.Keys)
 			{
-				if (!referencedRuleIds.Contains(ruleId))
+				if (!referencedRuleIds.Contains(ruleId) && !rules[ruleId].IsClitic)
 				{
 					throw new GrammarAuthorException(
 						$"MorphologicalRule \"{ruleId}\" is not referenced by any AffixTemplate slot (unsupported in this slice -- derivational back-out is a later expansion)");
@@ -226,6 +260,8 @@ namespace XampleProjector
 			}
 
 			var lexicalEntries = ParseLexicalEntries(stratum, ctx);
+			if (cliticStratum != null)
+				lexicalEntries = lexicalEntries.Concat(ParseLexicalEntries(cliticStratum, ctx, inClitics: true)).ToList();
 
 			// A MorphemeCoOccurrenceRule references a MorphologicalRule or LexicalEntry id; an
 			// AllomorphCoOccurrenceRule references a MorphologicalSubrule or Allomorph id.
@@ -342,13 +378,15 @@ namespace XampleProjector
 			return result;
 		}
 
-		private static MorphologicalRuleModel ParseMorphologicalRule(XElement el, ParseCtx ctx)
+		private static MorphologicalRuleModel ParseMorphologicalRule(XElement el, ParseCtx ctx, bool isClitic)
 		{
 			var id = (string)el.Attribute("id");
 			RegisterId(ctx.SeenIds, id, "MorphologicalRule");
 			RefuseIfInactive(el, $"MorphologicalRule \"{id}\"");
 			if ((string)el.Attribute("partial") == "true")
 				throw new GrammarAuthorException($"MorphologicalRule \"{id}\": partial=\"true\" is unsupported");
+			if ((string)el.Attribute("isCliticRule") != null)
+				throw new GrammarAuthorException($"MorphologicalRule \"{id}\": isCliticRule is unsupported (HCLoader never sets it; put an enclitic rule in a Stratum named Clitics)");
 			if ((string)el.Attribute("requiredStemName") != null)
 				throw new GrammarAuthorException($"MorphologicalRule \"{id}\": requiredStemName is unsupported (StemNames unsupported)");
 			if ((string)el.Attribute("requiredSubcategorizedRules") != null || (string)el.Attribute("outputSubcategorization") != null)
@@ -385,9 +423,21 @@ namespace XampleProjector
 					$"MorphologicalRule \"{id}\": requiredMPRFeatures differ across subrules (unsupported -- FieldWorks' FromProdRestrictRC applies to the whole affix, not per subrule)");
 			}
 
+			if (isClitic)
+			{
+				if (requiredPos != null || outputPos != null)
+					throw new GrammarAuthorException($"MorphologicalRule \"{id}\": a Clitics-stratum rule with requiredPartsOfSpeech/outputPartOfSpeech is unsupported (HCLoader emits an enclitic without a part of speech)");
+				var only = subrules.Count == 1 ? subrules[0] : null;
+				if (only == null || only.IsPrefix || only.IsCircumfix)
+					throw new GrammarAuthorException($"MorphologicalRule \"{id}\": a Clitics-stratum rule is supported only as one suffix subrule (an enclitic); a proclitic, a circumfix or several subrules is unsupported");
+				if (only.RequiredEnvironments.Count != 0 || only.RequiredMprFeatureIds.Count != 0)
+					throw new GrammarAuthorException($"MorphologicalRule \"{id}\": a clitic subrule with RequiredEnvironments or requiredMPRFeatures is unsupported");
+			}
+
 			return new MorphologicalRuleModel
 			{
 				Id = id,
+				IsClitic = isClitic,
 				RequiredPartOfSpeechId = requiredPos,
 				OutputPartOfSpeechId = outputPos,
 				MorphemeId = (string)el.Element("MorphemeId"),
@@ -590,7 +640,7 @@ namespace XampleProjector
 			return segId;
 		}
 
-		private static List<LexicalEntryModel> ParseLexicalEntries(XElement stratum, ParseCtx ctx)
+		private static List<LexicalEntryModel> ParseLexicalEntries(XElement stratum, ParseCtx ctx, bool inClitics = false)
 		{
 			var result = new List<LexicalEntryModel>();
 			var container = stratum.Element("LexicalEntries");
@@ -658,6 +708,7 @@ namespace XampleProjector
 					PartOfSpeechId = posId,
 					MorphemeId = (string)el.Element("MorphemeId"),
 					Gloss = (string)el.Element("Gloss"),
+					InCliticsStratum = inClitics,
 					Allomorphs = allomorphs,
 					RuleFeatureIds = ruleFeatureIds,
 				});

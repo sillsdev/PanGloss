@@ -70,3 +70,18 @@ fn fieldworks_witness_of_affix_environment_copies_matches_the_oracle() {
 fn fieldworks_witness_of_circumfix_pairings_matches_the_oracle() {
     assert_witness_agrees("adhoc-prohibition-circumfix-pairings");
 }
+
+#[test]
+fn fieldworks_witness_of_variant_enclitic_first_matches_the_oracle() {
+    assert_witness_agrees("adhoc-prohibition-variant-enclitic-first");
+}
+
+#[test]
+fn fieldworks_witness_of_variant_main_first_enclitic_matches_the_oracle() {
+    assert_witness_agrees("adhoc-prohibition-variant-main-first-enclitic");
+}
+
+#[test]
+fn fieldworks_witness_of_allomorph_variant_control_matches_the_oracle() {
+    assert_witness_agrees("adhoc-prohibition-allomorph-variant-control");
+}
