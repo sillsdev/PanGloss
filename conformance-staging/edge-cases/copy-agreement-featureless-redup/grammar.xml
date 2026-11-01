@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput><Language><Name>CopyAgreementFeaturelessRedup</Name>
+<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+<CharacterDefinitionTable id="t1"><Name>Main</Name><SegmentDefinitions>
+      <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cU"><Representations><Representation>u</Representation><Representation>ú</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions></CharacterDefinitionTable>
+<NaturalClasses>
+  <SegmentNaturalClass id="ncC"><Name>C</Name><Segment segment="cP"/><Segment segment="cT"/><Segment segment="cK"/><Segment segment="cS"/></SegmentNaturalClass>
+  <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="cA"/><Segment segment="cI"/><Segment segment="cU"/></SegmentNaturalClass>
+  <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+</NaturalClasses>
+<PhonologicalRuleDefinitions>
+  <PhonologicalRule id="prLen"><Name>k to s between vowels</Name>
+    <PhoneticInput><PhoneticSequence><Segment segment="cK"/></PhoneticSequence></PhoneticInput>
+    <PhonologicalSubrules><PhonologicalSubrule>
+      <PhoneticOutput><PhoneticSequence><Segment segment="cS"/></PhoneticSequence></PhoneticOutput>
+      <Environment>
+        <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV"/></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+        <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV"/></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+      </Environment>
+    </PhonologicalSubrule></PhonologicalSubrules>
+  </PhonologicalRule>
+</PhonologicalRuleDefinitions>
+<Strata><Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prLen" morphologicalRules="mrRed"><Name>S</Name>
+<MorphologicalRuleDefinitions>
+  <MorphologicalRule id="mrRed"><Name>redCV</Name><MorphemeId>RED</MorphemeId>
+    <MorphologicalSubrules><MorphologicalSubrule id="sub1">
+      <MorphologicalInput>
+        <PhoneticSequence id="c"><SimpleContext naturalClass="ncC"/></PhoneticSequence>
+        <PhoneticSequence id="v"><SimpleContext naturalClass="ncV"/></PhoneticSequence>
+        <PhoneticSequence id="rest"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny"/></OptionalSegmentSequence></PhoneticSequence>
+      </MorphologicalInput>
+      <MorphologicalOutput><CopyFromInput index="c"/><CopyFromInput index="v"/><CopyFromInput index="c"/><CopyFromInput index="v"/><CopyFromInput index="rest"/></MorphologicalOutput>
+    </MorphologicalSubrule></MorphologicalSubrules>
+  </MorphologicalRule>
+</MorphologicalRuleDefinitions>
+<LexicalEntries>
+  <LexicalEntry id="e1" partOfSpeech="posV"><MorphemeId>tasi</MorphemeId><Allomorphs><Allomorph id="a1"><PhoneticShape>tasi</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+  <LexicalEntry id="e2" partOfSpeech="posV"><MorphemeId>tuka</MorphemeId><Allomorphs><Allomorph id="a2"><PhoneticShape>tuka</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+  <LexicalEntry id="e3" partOfSpeech="posV"><MorphemeId>pasa</MorphemeId><Allomorphs><Allomorph id="a3"><PhoneticShape>pasa</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+  <LexicalEntry id="e4" partOfSpeech="posV"><MorphemeId>kata</MorphemeId><Allomorphs><Allomorph id="a4"><PhoneticShape>kata</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+</LexicalEntries>
+</Stratum></Strata></Language></HermitCrabInput>
