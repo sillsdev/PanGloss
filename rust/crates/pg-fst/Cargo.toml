@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 pg-featstruct.workspace = true
 pg-shape.workspace = true
+rustc-hash.workspace = true
 smallvec.workspace = true
 web-time.workspace = true
 

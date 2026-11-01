@@ -7,6 +7,8 @@ use std::rc::Rc;
 // std::time::Instant panics on wasm32-unknown-unknown; web-time is a drop-in replacement needed since the O2 profiling calls below are unconditional on every traversal.
 use web_time::Instant;
 
+use rustc_hash::{FxBuildHasher, FxHashSet};
+
 use crate::fst::Fst;
 use crate::{Cmd, Direction, Register, CURRENT_POSITION};
 
@@ -533,7 +535,7 @@ impl<'f> Transduce<'f> {
         } else {
             let __o2_nondet_start = Instant::now();
             // Same visited-set key as before: the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
-            let mut traversed: HashSet<(usize, usize, RegKey)> = HashSet::new();
+            let mut traversed: FxHashSet<(usize, usize, RegKey)> = FxHashSet::default();
             let n = self.n();
             let min_hops = self.fst.min_hops_to_accept();
             while let Some(inst) = stack.pop() {
@@ -694,24 +696,50 @@ fn result_hash<H: std::hash::Hasher>(r: &FstResult, hasher: &mut H) {
 /// See `docs/research/pg-fst-traverse-design-notes.md` for why which duplicate survives matters and how equality semantics stay bit-for-bit identical.
 fn distinct(results: Vec<FstResult>) -> Vec<FstResult> {
     use std::collections::HashMap;
-    use std::hash::{BuildHasher, Hasher};
+    use std::hash::{BuildHasher, BuildHasherDefault};
 
-    let state = std::collections::hash_map::RandomState::new();
-    let mut buckets: HashMap<u64, Vec<usize>> = HashMap::with_capacity(results.len());
+    // Keyed by the already-computed `result_hash`, so the map's own hasher is the identity.
+    let mut buckets: HashMap<u64, Vec<usize>, BuildHasherDefault<PassThroughHasher>> =
+        HashMap::with_capacity_and_hasher(results.len(), BuildHasherDefault::default());
     let mut out: Vec<FstResult> = Vec::new();
     for r in results {
         if !crate::work::consume() {
             return Vec::new();
         }
-        let mut hasher = state.build_hasher();
+        let mut hasher = FxBuildHasher.build_hasher();
         result_hash(&r, &mut hasher);
-        let bucket = buckets.entry(hasher.finish()).or_default();
+        let bucket = buckets
+            .entry(std::hash::Hasher::finish(&hasher))
+            .or_default();
         if bucket.iter().all(|&i| !out[i].result_eq(&r)) {
             bucket.push(out.len());
             out.push(r);
         }
     }
     out
+}
+
+/// A `Hasher` for keys that are already well-mixed `u64` hashes: `finish` returns the last `u64` written.
+#[derive(Default)]
+struct PassThroughHasher(u64);
+
+impl std::hash::Hasher for PassThroughHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = self.0.rotate_left(8) ^ u64::from(b);
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n;
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }
 
 #[cfg(test)]

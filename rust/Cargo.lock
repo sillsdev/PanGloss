@@ -914,6 +914,7 @@ version = "0.12.3"
 dependencies = [
  "pg-featstruct",
  "pg-shape",
+ "rustc-hash",
  "smallvec",
  "web-time",
 ]
