@@ -1882,10 +1882,17 @@ function Get-ConformanceSubmoduleSizeMB {
     return [math]::Round($bytes / 1MB, 1)
 }
 
+function Get-ConformanceDriverFileNames {
+    # Non-Windows .NET builds the extensionless apphost; `.exe` stays accepted there so a hand-made symlink keeps working.
+    if ($IsLinux -or $IsMacOS) { return @('hc-conformance', 'hc-conformance.exe') }
+    return @('hc-conformance.exe')
+}
+
 function Find-PinMatchedConformanceDriver {
     <#
       .DESCRIPTION
-      Finds an already-built `hc-conformance.exe` whose Machine worktree HEAD is exactly
+      Finds an already-built conformance driver (`hc-conformance.exe` on Windows, `hc-conformance` elsewhere; see
+      Get-ConformanceDriverFileNames) whose Machine worktree HEAD is exactly
       $PinCommit, so the driver's fixture loader matches the pinned fixture format. Probes the
       documented `.worktrees\pin-<sha>` location first, then every worktree of each Machine checkout
       (`PANGLOSS_MACHINE_CHECKOUTS`, `;`-separated, overrides the defaults). Returns an object with
@@ -1893,12 +1900,14 @@ function Find-PinMatchedConformanceDriver {
     #>
     param([Parameter(Mandatory)][string]$PinCommit)
 
-    $checkouts = if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
-        @($env:PANGLOSS_MACHINE_CHECKOUTS -split ';' | Where-Object { $_ })
+    # The outer @() keeps a single checkout an array; otherwise `$checkouts[0]` below is that path's first character.
+    $checkouts = @(if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
+        $env:PANGLOSS_MACHINE_CHECKOUTS -split ';' | Where-Object { $_ }
     } else {
-        @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine')
-    }
-    $relative = 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\{0}\net10.0\hc-conformance.exe'
+        'C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine'
+    })
+    $driverNames = Get-ConformanceDriverFileNames
+    $relative = 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\{0}\net10.0\{1}'
     $worktrees = [System.Collections.Generic.List[string]]::new()
     foreach ($checkout in $checkouts) {
         $worktrees.Add((Join-Path $checkout ".worktrees\pin-$PinCommit"))
@@ -1912,8 +1921,12 @@ function Find-PinMatchedConformanceDriver {
     # A worktree with local source edits, or an exe older than its HEAD commit, may not be the pin's driver.
     $probed = @()
     foreach ($config in 'Release', 'Debug') {
-        foreach ($wt in $worktrees) {
-            $exe = Join-Path $wt ($relative -f $config)
+        $candidates = foreach ($wt in $worktrees) {
+            foreach ($name in $driverNames) { [PSCustomObject]@{ Worktree = $wt; Exe = Join-Path $wt ($relative -f $config, $name) } }
+        }
+        foreach ($candidate in $candidates) {
+            $wt = $candidate.Worktree
+            $exe = $candidate.Exe
             $probed += $exe
             if (-not (Test-Path -LiteralPath $exe)) { continue }
             $worktreeRoot = & git -C $wt rev-parse --show-toplevel 2>$null | Select-Object -First 1
@@ -1938,7 +1951,7 @@ function Find-PinMatchedConformanceDriver {
         }
     }
     $first = $checkouts[0]
-    $detail = "no hc-conformance.exe built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
+    $detail = "no conformance driver ($($driverNames -join ' or ')) built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
         "Build one: git -C $first worktree add --detach .worktrees\pin-$PinCommit $PinCommit; " +
         "dotnet build $first\.worktrees\pin-$PinCommit\src\SIL.Machine.Morphology.HermitCrab.Conformance -c Release"
     return [PSCustomObject]@{ Ok = $false; ExePath = $null; Detail = $detail }
