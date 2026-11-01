@@ -101,7 +101,7 @@ impl SynthesisBudget {
         self.candidates.set(self.candidates.get() + 1);
         true
     }
-    pub fn steps(&self) -> usize {
+    pub fn work_steps(&self) -> usize {
         self.steps.work_steps()
     }
     pub fn candidates(&self) -> usize {

@@ -16,6 +16,9 @@ struct State {
     timed_out: Cell<bool>,
 }
 
+/// Reservations between clock reads: a read costs about 90 instructions, and a timeout overshoots by at most this many units.
+const DEADLINE_POLL_INTERVAL: usize = 64;
+
 thread_local! {
     static ACTIVE: RefCell<Option<WorkBudget>> = const { RefCell::new(None) };
 }
@@ -39,7 +42,12 @@ impl WorkBudget {
     /// Reserve one work unit before exploring a branch or materializing a candidate.
     /// Failed reservations latch the reason and never advance the counter beyond the cap.
     pub fn consume(&self) -> bool {
-        if self.stopped() {
+        let stopped = if self.0.used.get().is_multiple_of(DEADLINE_POLL_INTERVAL) {
+            self.stopped()
+        } else {
+            self.exhausted()
+        };
+        if stopped {
             return false;
         }
         self.0.used.set(self.0.used.get().saturating_add(1));
@@ -48,15 +56,23 @@ impl WorkBudget {
 
     /// A poll at the cap latches exhaustion even when the last reservation succeeded.
     pub fn stopped(&self) -> bool {
+        if self.exhausted() {
+            return true;
+        }
+        if self.0.deadline.get().is_some_and(|d| Instant::now() >= d) {
+            self.0.timed_out.set(true);
+            return true;
+        }
+        false
+    }
+
+    /// The deterministic half of `stopped`: latched stops and the cap, without reading the clock.
+    fn exhausted(&self) -> bool {
         if self.0.capped.get() || self.0.timed_out.get() {
             return true;
         }
         if self.0.used.get() >= self.0.cap {
             self.0.capped.set(true);
-            return true;
-        }
-        if self.0.deadline.get().is_some_and(|d| Instant::now() >= d) {
-            self.0.timed_out.set(true);
             return true;
         }
         false
