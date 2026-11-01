@@ -9,30 +9,49 @@ use pg_shape::{CdBits, CdSet, NodeFlags, NodeKind, Shape, ShapeBuilder};
 
 /// Segments `p t k s a i u` where `u` also spells `ú`; a CV copy rule `redCV` (copy C, V, C, V, then the rest); roots `tasi`, `tuka`, `pasa`.
 fn featureless_grammar() -> Grammar {
-    let seg = |id: &str, reps: &[&str]| {
+    copy_grammar(false)
+}
+
+/// The same grammar with one feature, `cons`, that is `+` on every consonant and `-` on every vowel, so copies that differ in spelling still unify.
+fn one_feature_grammar() -> Grammar {
+    copy_grammar(true)
+}
+
+fn copy_grammar(with_feature: bool) -> Grammar {
+    let seg = |id: &str, reps: &[&str], cons: bool| {
         let reps: String = reps
             .iter()
             .map(|r| format!("<Representation>{r}</Representation>"))
             .collect();
+        let value = match (with_feature, cons) {
+            (false, _) => "",
+            (true, true) => r#"<FeatureValue feature="fCons" symbolValues="sPlus"/>"#,
+            (true, false) => r#"<FeatureValue feature="fCons" symbolValues="sMinus"/>"#,
+        };
         format!(
-            r#"<SegmentDefinition id="{id}"><Representations>{reps}</Representations></SegmentDefinition>"#
+            r#"<SegmentDefinition id="{id}"><Representations>{reps}</Representations>{value}</SegmentDefinition>"#
         )
     };
     let segments = [
-        seg("cp", &["p"]),
-        seg("ct", &["t"]),
-        seg("ck", &["k"]),
-        seg("cs", &["s"]),
-        seg("ca", &["a"]),
-        seg("ci", &["i"]),
-        seg("cu", &["u", "ú"]),
+        seg("cp", &["p"], true),
+        seg("ct", &["t"], true),
+        seg("ck", &["k"], true),
+        seg("cs", &["s"], true),
+        seg("ca", &["a"], false),
+        seg("ci", &["i"], false),
+        seg("cu", &["u", "ú"], false),
     ]
     .concat();
+    let feature_system = if with_feature {
+        r#"<PhonologicalFeatureSystem><SymbolicFeature id="fCons"><Name>cons</Name><Symbols><Symbol id="sPlus">+</Symbol><Symbol id="sMinus">-</Symbol></Symbols></SymbolicFeature></PhonologicalFeatureSystem>"#
+    } else {
+        ""
+    };
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput><Language><Name>FeaturelessCopy</Name>
 <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t1"><Name>Main</Name><SegmentDefinitions>{segments}</SegmentDefinitions></CharacterDefinitionTable>
+{feature_system}<CharacterDefinitionTable id="t1"><Name>Main</Name><SegmentDefinitions>{segments}</SegmentDefinitions></CharacterDefinitionTable>
 <NaturalClasses>
   <SegmentNaturalClass id="ncC"><Name>C</Name><Segment segment="cp"/><Segment segment="ct"/><Segment segment="ck"/><Segment segment="cs"/></SegmentNaturalClass>
   <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="ca"/><Segment segment="ci"/><Segment segment="cu"/></SegmentNaturalClass>
@@ -94,6 +113,26 @@ fn the_grammar_really_has_no_phonological_features() {
     );
 }
 
+/// With features a segment carries no spelling, so copies that differ in spelling but unify in features keep the match.
+#[test]
+fn spelling_differences_are_not_refused_when_the_grammar_has_features() {
+    let g = one_feature_grammar();
+    assert!(
+        g.char_tables[0].unif_closure_rows().is_some(),
+        "this grammar must be in the feature regime"
+    );
+    for word in ["pasapa", "tatika"] {
+        let off = analysis_outputs(&g, shape_of(&g, word), false);
+        let on = analysis_outputs(&g, shape_of(&g, word), true);
+        assert_eq!(off.len(), 1, "{word}: unpruned analysis proposes the split");
+        assert_eq!(
+            on.len(),
+            1,
+            "{word}: spelling alone must not refuse a match"
+        );
+    }
+}
+
 /// Two different characters in the copied consonant slot disagree, so the split is dropped.
 #[test]
 fn disagreeing_characters_are_pruned_without_features() {
@@ -138,53 +177,97 @@ fn spellings_of_one_segment_agree() {
     assert_eq!(analysis_outputs(&g, shape, true).len(), 1);
 }
 
-/// Replaces the second consonant of `pasapa` (node 3) with a class-derived node that has no fixed character.
-fn with_abstract_second_consonant(g: &Grammar, cd_set: CdSet) -> Shape {
-    let shape = shape_of(g, "pasapa");
-    let lanes = shape.node_lanes(3).to_vec();
-    let mut builder = ShapeBuilder::from_shape(&shape);
-    builder.delete(3);
-    builder.insert_with_set(3, NodeFlags::EMPTY, &lanes, cd_set);
-    builder.freeze()
+/// Replaces the consonants of `pasapa` (node 1 is the first copy's, node 3 the second copy's) with class-derived nodes that have no fixed character; `None` keeps the spelled consonant.
+fn with_abstract_consonants(g: &Grammar, first: Option<CdSet>, second: Option<CdSet>) -> Shape {
+    let mut shape = shape_of(g, "pasapa");
+    for (index, cd_set) in [(1, first), (3, second)] {
+        let Some(cd_set) = cd_set else { continue };
+        let lanes = shape.node_lanes(index).to_vec();
+        let mut builder = ShapeBuilder::from_shape(&shape);
+        builder.delete(index);
+        builder.insert_with_set(index, NodeFlags::EMPTY, &lanes, cd_set);
+        shape = builder.freeze();
+    }
+    shape
 }
 
-/// A class-derived node with no member restriction could be any character: unsure, so it keeps the match.
+fn members(g: &Grammar, spellings: &[&str]) -> CdSet {
+    CdSet::Members(CdBits::from_ids(
+        spellings
+            .iter()
+            .map(|s| shape_of(g, &format!("{s}a")).char_def(1)),
+    ))
+}
+
+/// Pruning on versus off for a shape: (analyses kept when unpruned, analyses kept when pruned).
+fn kept(g: &Grammar, shape: Shape) -> (usize, usize) {
+    (
+        analysis_outputs(g, shape.clone(), false).len(),
+        analysis_outputs(g, shape, true).len(),
+    )
+}
+
+/// A class-derived node with no member restriction could be any character: unsure, so it keeps the match, in either copy.
 #[test]
 fn an_unrestricted_abstract_node_keeps_the_match() {
     let g = featureless_grammar();
-    let shape = with_abstract_second_consonant(&g, CdSet::Unrestricted);
-    assert_eq!(shape.char_def(3), pg_shape::NO_CHAR_DEF);
-    assert_eq!(analysis_outputs(&g, shape.clone(), false).len(), 1);
-    assert_eq!(analysis_outputs(&g, shape, true).len(), 1);
+    let second = with_abstract_consonants(&g, None, Some(CdSet::Unrestricted));
+    assert_eq!(second.char_def(3), pg_shape::NO_CHAR_DEF);
+    assert_eq!(kept(&g, second), (1, 1));
+    let first = with_abstract_consonants(&g, Some(CdSet::Unrestricted), None);
+    assert_eq!(first.char_def(1), pg_shape::NO_CHAR_DEF);
+    assert_eq!(kept(&g, first), (1, 1));
 }
 
-/// A class-derived node whose members include the other copy's character could agree, so it keeps the match.
+/// A class-derived node whose members include the other copy's character could agree, so it keeps the match, in either copy.
 #[test]
 fn an_abstract_node_that_includes_the_character_keeps_the_match() {
     let g = featureless_grammar();
-    let p = shape_of(&g, "pa").char_def(1);
-    let s = shape_of(&g, "sa").char_def(1);
-    let shape = with_abstract_second_consonant(&g, CdSet::Members(CdBits::from_ids([p, s])));
-    assert_eq!(analysis_outputs(&g, shape, true).len(), 1);
+    let second = with_abstract_consonants(&g, None, Some(members(&g, &["p", "s"])));
+    assert_eq!(kept(&g, second), (1, 1));
+    let first = with_abstract_consonants(&g, Some(members(&g, &["p", "s"])), None);
+    assert_eq!(kept(&g, first), (1, 1));
 }
 
-/// A class-derived node whose members exclude the other copy's character cannot agree, so the match goes.
+/// A class-derived node whose members exclude the other copy's character cannot agree, so the match goes, in either copy.
 #[test]
 fn an_abstract_node_that_excludes_the_character_is_pruned() {
     let g = featureless_grammar();
-    let s = shape_of(&g, "sa").char_def(1);
-    let k = shape_of(&g, "ka").char_def(1);
-    let shape = with_abstract_second_consonant(&g, CdSet::Members(CdBits::from_ids([s, k])));
-    assert_eq!(analysis_outputs(&g, shape.clone(), false).len(), 1);
-    assert_eq!(analysis_outputs(&g, shape, true).len(), 0);
+    let second = with_abstract_consonants(&g, None, Some(members(&g, &["s", "k"])));
+    assert_eq!(kept(&g, second), (1, 0));
+    let first = with_abstract_consonants(&g, Some(members(&g, &["t", "k"])), None);
+    assert_eq!(kept(&g, first), (1, 0));
 }
 
-/// An optional node in a copy is an unapplied deletion: undecidable, so it keeps the match.
+/// Two class-derived copies agree when their member sets intersect and disagree when they are disjoint.
+#[test]
+fn two_abstract_nodes_agree_exactly_when_their_members_intersect() {
+    let g = featureless_grammar();
+    let overlapping = with_abstract_consonants(
+        &g,
+        Some(members(&g, &["p", "s"])),
+        Some(members(&g, &["s", "k"])),
+    );
+    assert_eq!(kept(&g, overlapping), (1, 1));
+    let disjoint = with_abstract_consonants(
+        &g,
+        Some(members(&g, &["p", "t"])),
+        Some(members(&g, &["s", "k"])),
+    );
+    assert_eq!(kept(&g, disjoint), (1, 0));
+}
+
+/// An optional node in a copy is an unapplied deletion: undecidable, so it keeps the match even though its spelling disagrees with the other copy.
 #[test]
 fn an_optional_copy_node_keeps_the_match() {
     let g = featureless_grammar();
     let shape = shape_of(&g, "pasapa");
     let char_def = shape.char_def(3);
+    assert_ne!(
+        char_def,
+        shape.char_def(1),
+        "the optional node must disagree in spelling with the first copy"
+    );
     let lanes = shape.node_lanes(3).to_vec();
     let mut builder = ShapeBuilder::from_shape(&shape);
     builder.delete(3);
@@ -195,11 +278,7 @@ fn an_optional_copy_node_keeps_the_match() {
         NodeFlags(NodeFlags::OPTIONAL),
         &lanes,
     );
-    let shape = builder.freeze();
-    assert_eq!(
-        analysis_outputs(&g, shape.clone(), true).len(),
-        analysis_outputs(&g, shape, false).len()
-    );
+    assert_eq!(kept(&g, builder.freeze()), (1, 1));
 }
 
 /// Parses are the same with pruning on and off; only wasted analysis candidates go.

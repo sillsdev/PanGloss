@@ -2830,7 +2830,7 @@ fn identities_may_agree(left: EffectiveCdSet<'_>, right: EffectiveCdSet<'_>) -> 
     }
 }
 
-/// True when two copies of an unmodified part differ in length or fail to unify; unsure cases keep the match. `compare_characters` is true only for a grammar with no phonological features: C# then keeps the segment spelling (`StrRep`) on every segment node, so `FeatureStruct.IsUnifiable` in `CanAlign` compares characters. With features a segment carries no spelling and only feature lanes are compared.
+/// True when two copies of an unmodified part differ in length or fail to unify; unsure cases keep the match. `compare_characters` is true only for a grammar with no phonological features: C# then keeps the segment spelling (`StrRep`) on every segment node, so `FeatureStruct.IsUnifiable` in `CanAlign` compares characters, while with features only feature lanes are compared. C# decides per segment (HCLoader.cs:2723-2742 gives `StrRep` to featureless phonemes even when features are declared) and PanGloss per grammar, so a mixed grammar is not pruned on spelling: wasted work only, never a lost parse.
 fn copy_agreement_refuses_match(
     compare_characters: bool,
     shape: &Shape,
