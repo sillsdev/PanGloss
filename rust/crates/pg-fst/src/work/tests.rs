@@ -52,3 +52,40 @@ fn zero_deadline_refuses_inner_search_work_without_a_step() {
     assert!(budget.timed_out());
     assert!(!budget.capped());
 }
+
+fn budget_past_its_deadline_mid_interval() -> WorkBudget {
+    let budget = WorkBudget::new(1_000).with_timeout(Some(Duration::from_millis(200)));
+    assert!(budget.consume());
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    budget
+}
+
+#[test]
+fn a_deadline_stops_reservations_within_one_poll_interval() {
+    let budget = budget_past_its_deadline_mid_interval();
+    let granted = (0..DEADLINE_POLL_INTERVAL)
+        .take_while(|_| budget.consume())
+        .count();
+    assert_eq!(granted, DEADLINE_POLL_INTERVAL - 1);
+    assert!(budget.timed_out());
+    assert!(!budget.capped());
+}
+
+#[test]
+fn a_poll_observes_the_deadline_between_reservation_polls() {
+    let budget = budget_past_its_deadline_mid_interval();
+    assert!(budget.stopped());
+    assert!(budget.timed_out());
+    assert_eq!(budget.used(), 1);
+}
+
+#[test]
+fn the_cap_is_exact_between_clock_reads() {
+    let budget =
+        WorkBudget::new(DEADLINE_POLL_INTERVAL + 3).with_timeout(Some(Duration::from_secs(3600)));
+    let granted = (0..DEADLINE_POLL_INTERVAL * 2)
+        .take_while(|_| budget.consume())
+        .count();
+    assert_eq!(granted, DEADLINE_POLL_INTERVAL + 3);
+    assert!(budget.capped());
+}

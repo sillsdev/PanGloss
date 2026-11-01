@@ -243,7 +243,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
         ),
         ordinary
     );
-    assert!(ample.steps() > 0);
+    assert!(ample.work_steps() > 0);
     assert!(ample.candidates() > 0);
 
     let step = pg_parse::SynthesisBudget::new(1, 10_000, Duration::from_secs(1));
@@ -256,7 +256,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
         &step,
     );
     assert!(step.step_capped());
-    assert_eq!(step.steps(), 1);
+    assert_eq!(step.work_steps(), 1);
 
     let candidates = pg_parse::SynthesisBudget::new(10_000, 1, Duration::from_secs(1));
     let _ = morpher.synthesize_resolved_stem_bounded(
