@@ -13,7 +13,9 @@ Heavy measurement, policy and code are separate tasks. Real-language data is nev
 - [ ] 2.1 Land the Valgrind per-word instruction script under `rust/tools/`, with its validation against PMC data
 - [ ] 2.2 Land the Windows PMC trace script under `rust/tools/`, refusing a stale trace
 - [ ] 2.3 Publish `docs/design/work-measurement.md`: tools, noise floors, what each misses
-- [ ] 2.4 Measurement: A/B pair set, including a no-change control, memo on/off and the `distinct` fix
+- [x] 2.4 Measurement: first A/B pair set with a no-change control, recorded in D5
+- [ ] 2.5 Add the known hard cases to the set: memo on/off and the `distinct` fix
+- [ ] 2.6 Re-measure the two D5 disagreements with `cost_units` and name their cause
 
 ## 3. Report-only size charges
 
