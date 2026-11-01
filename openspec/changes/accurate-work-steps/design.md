@@ -96,13 +96,25 @@ grammars (stratified samples, words `ok` on both sides, PMC instructions):
   12, but they stayed still on 8 of the 18 results where instructions moved at least 1%.
 - Correlation of the changes: 0.91 for work, 0.24 for steps.
 - Direction is reliable, size is not: one pair moved work 20.3% and instructions 3.7%.
-- The two disagreements are `root-search-cache` on one grammar (work -2.2%, instructions +1.2%) and
-  turning required-slot lookahead off on another (work -0.7%, instructions +4.0%). Both are
-  consistent with a mechanism whose own cost is uncharged; that cause is not yet measured.
+- The two disagreements were `root-search-cache` on one grammar (work -2.2%, instructions +1.2%) and
+  turning required-slot lookahead off on another (work -0.7%, instructions +4.0%).
 
 Today's `work_steps` therefore misses the 95% bar at 1% and reaches it at about 5%. The results are
-not independent, since seven pairs produce them, and neither hard case is in the set yet. Task group
-3 must show the bar moving toward 1%.
+not independent, since seven pairs produce them.
+
+Second result, using work + bytes + registers (experiment branch `cost-units-experiment`). Counts for
+the lookahead pair were joined to its stored instructions. The root cache was measured as a runtime
+switch in one binary, with a repeat run as control.
+
+- Results where instructions moved at least 0.5%: work alone 5 of 6 in sign, mean error 7.3 points,
+  worst 21.7. Fixed weights 6 of 6, mean 1.9, worst 6.7. Six results from two pairs prove direction
+  on these cases only; the 95% bar is still unproven.
+- The lookahead miss is fixed: weighted cost +2.3% against measured +4.0%.
+- The cache miss did not reproduce. In one binary the cache saves 0.6% on that grammar and work agrees
+  in sign. The first reading crossed two builds, so that commit's other effects were in it.
+- The worst remaining gap is the cache on the largest grammar: measured 3.8%, work 25.5%, weighted
+  10.5%. Direction is right and size is still 2.7x high.
+- Control: weighted cost moved exactly 0, instructions at most 0.12% in one binary.
 
 ### D6: The attempt cap goes last, behind a recall gate
 
@@ -133,6 +145,53 @@ and never compares two languages. Total, not geometric mean: total tracks time, 
 cheap words outvote one expensive word. The display band comes from D5's results: provisionally, a
 change of at least 5% reads as better or worse, 2-5% as probably, and under 2% as no clear change.
 That covers code changes on one grammar; grammar edits are not measured yet (task 7.1).
+
+### D10: Weights are stored with the project and read only while designing a grammar
+
+Cost = work × a + bytes allocated × b + registers copied × c. The built-in weights are 676, 2 and 268
+instructions per unit. Both sides of a comparison use one weight set, so the verdict is deterministic
+and load cannot touch it. Weights never reach a cap, deadline or parse decision (D1).
+
+Measured on the same words and build, raw wall time moved +5-10% with three copies running, +19-82%
+beside 20 spinning processes and +89-121% with 20 copies running. Counts did not move.
+
+| Where | Source of weights |
+|---|---|
+| Development machine, building a grammar | Instructions; load does not affect them |
+| Motif, designing a grammar | Wall time on a word subset, behind the load gate |
+| WASM, deployed grammar | None; see D11 |
+
+Rules for a calibration run:
+
+- About 40 words: a fit on 20 is already within about a point of the fit on 100.
+- One thread. Refuse to update if thread CPU time / wall time is under 0.95. Measured: idle
+  0.983-0.994, 20 spinners 0.48-0.72, 20 copies 0.50-0.57. Three copies read 0.983-0.987 and pass;
+  that case slows everything evenly and is harmless to relative weights.
+- Remove machine speed first, then bound each weight to ×0.75-1.5 of built-in. Across 30 random
+  subsets, unbounded wall-time fits reached 13 points of error at p95 and bounded ones about 7.5,
+  without loss of direction.
+- Per-word median load checks do not work. Beside spinners the median word was unchanged while the
+  total rose up to 82%, because preemption lands on a few heavy words.
+
+Calibration does not yet beat the built-in weights. On those six results no calibrated set improved
+on mean error 1.9 by more than 0.1 point, whether from instructions or wall time, and the median of
+five conditions was no better. The built-in weights came from the same five grammars, so calibration
+is the protection for a grammar unlike them, and that case is unmeasured. Built-in weights ship first;
+the calibration command waits for a test on a held-out grammar.
+
+Size variables: one per-site class weight each, with or without input length, is not stable. Held
+out by word, classes with a size term beat work + bytes + registers on some grammars and lost badly
+on others, and fitted class weights fell to 0 on several grammars. Bytes and registers already carry
+most of what segment count and environment length would add. Affix count was not tested directly.
+
+### D11: Deployed grammars bypass work accounting
+
+The WASM path uses the default cap today (`analyze_word_opts`) and reports `capped`. Deployed
+grammars bypass it: no counters, no category counts, no weights, no cap. This is host-visible: a word
+that caps today completes, or runs long, which matches C# having no cap. A host that sets a work cap
+or deadline turns the budget back on for that word, because `consume` is also where limits are
+checked. If bypass is compiled out instead, setting a limit refuses with an error. Allocation
+counting is never built into WASM.
 
 ## Risks / Trade-offs
 
