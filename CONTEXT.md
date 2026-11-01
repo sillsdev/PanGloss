@@ -134,6 +134,10 @@ _Avoid_: Detected construct, configuration (for a variant)
 A positive and negative oracle-backed pair proving that a semantic variant is exercised and distinguished. For detected unsupported variants, it proves reliable detection and rejection, not compilation support.
 _Avoid_: Fixture coverage
 
+**FieldWorks source witness**:
+A LibLCM-authored project that shows a grammar can come from real FieldWorks data. It proves where a grammar came from, not how it behaves, so it is not a Construct witness.
+_Avoid_: Witness (unqualified)
+
 **Interaction coverage**:
 Oracle-backed evidence for declared combinations of two or more semantic variants, normally selected by a pairwise covering array before seeded fuzzing.
 _Avoid_: Full coverage
@@ -388,6 +392,10 @@ _Avoid_: Clean-slate redesign, assumed equivalence
 **Duplicate analysis evidence**:
 The count and provenance of repeated copies of one semantic analysis before result deduplication. Duplicates do not change semantic parity, but are first-class FST/runtime health evidence because overlapping proposal paths or rules may produce large redundant confirmation work.
 _Avoid_: Extra semantic analysis
+
+**Expanded copy**:
+One of the several rules or allomorphs that one lexical source expands into when a grammar is loaded or compiled: one per MSA, environment, circumfix pairing or variant stem. Every expanded copy of a source obeys the same ad hoc prohibitions. An expanded copy repeats a rule; a duplicate analysis repeats a result.
+_Avoid_: Registered copy, duplicate, instance
 
 **Cross-engine validation batch**:
 A native CLI/PowerShell validation run over a caller-supplied word set. It compares the combined pipeline with Rust HermitCrab-only and can additionally invoke C# HermitCrab for HC-XML source grammars. It reports authoritative comparison evidence and availability, never a publish/deny decision; C# execution is never included in WASM.
