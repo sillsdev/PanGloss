@@ -60,8 +60,10 @@ namespace XampleProjector
 
 		internal static AuthorResult Author(LcmCache cache, GrammarModel grammar, int xampleMaxPrefixes, int xampleMaxSuffixes, int xampleMaxAnalyses,
 			IReadOnlyList<IReadOnlyList<string>> msaCopyGroups = null, IReadOnlyDictionary<string, string> variantOf = null,
-			IReadOnlyList<IReadOnlyList<string>> envCopyGroups = null, IReadOnlyList<string> halfProhibs = null)
+			IReadOnlyList<IReadOnlyList<string>> envCopyGroups = null, IReadOnlyList<string> halfProhibs = null,
+			IReadOnlyDictionary<string, string> encliticOf = null)
 		{
+			encliticOf = encliticOf ?? new Dictionary<string, string>();
 			envCopyGroups = envCopyGroups ?? Array.Empty<IReadOnlyList<string>>();
 			halfProhibs = halfProhibs ?? Array.Empty<string>();
 			msaCopyGroups = msaCopyGroups ?? Array.Empty<IReadOnlyList<string>>();
@@ -96,7 +98,7 @@ namespace XampleProjector
 				CreateAffixRules(cache, grammar, posMap, mprMap, ruleMsaMap, ruleEntryMap, alloFormMap, result, envCtx, msaCopyGroups, envCopyGroups);
 
 				var stemEntryMsaMap = new Dictionary<string, IMoStemMsa>();
-				CreateStemEntries(cache, grammar, posMap, mprMap, stemEntryMsaMap, alloFormMap, result, envCtx, msaCopyGroups, variantOf);
+				CreateStemEntries(cache, grammar, posMap, mprMap, stemEntryMsaMap, alloFormMap, result, envCtx, msaCopyGroups, variantOf, encliticOf);
 
 				CreateAffixTemplatesAndSlots(cache, grammar, posMap, ruleMsaMap, result);
 				CreateCoOccurrenceRules(cache, grammar, ruleMsaMap, stemEntryMsaMap, alloFormMap, result, halfProhibs);
@@ -235,6 +237,8 @@ namespace XampleProjector
 
 			foreach (var rule in grammar.MorphologicalRules.Values)
 			{
+				if (rule.IsClitic)
+					continue; // authored with its paired stem entry by CreateStemEntries
 				var pos = posMap[rule.RequiredPartOfSpeechId];
 				var isPrefix = rule.Subrules[0].IsPrefix;
 				var gloss = rule.Gloss ?? rule.MorphemeId ?? rule.Id;
@@ -372,7 +376,8 @@ namespace XampleProjector
 		private static void CreateStemEntries(LcmCache cache, GrammarModel grammar, Dictionary<string, IPartOfSpeech> posMap,
 			Dictionary<string, ICmPossibility> mprMap, Dictionary<string, IMoStemMsa> stemEntryMsaMap, Dictionary<string, IMoForm> alloFormMap,
 			AuthorResult result, EnvCtx envCtx,
-			IReadOnlyList<IReadOnlyList<string>> msaCopyGroups, IReadOnlyDictionary<string, string> variantOf)
+			IReadOnlyList<IReadOnlyList<string>> msaCopyGroups, IReadOnlyDictionary<string, string> variantOf,
+			IReadOnlyDictionary<string, string> encliticOf)
 		{
 			var entryFactory = cache.ServiceLocator.GetInstance<ILexEntryFactory>();
 			var copyMembers = CopyMemberToCanonical(msaCopyGroups);
@@ -385,6 +390,29 @@ namespace XampleProjector
 			{
 				var pos = lexEntry.PartOfSpeechId != null ? posMap[lexEntry.PartOfSpeechId] : null;
 				var gloss = lexEntry.Gloss ?? lexEntry.MorphemeId ?? lexEntry.Id;
+
+				if (encliticOf.TryGetValue(lexEntry.Id, out var cliticRuleId))
+				{
+					// An enclitic: one entry of the enclitic morph type with one stem MSA. The paired clitic rule
+					// and its subrule are the same entry and allomorph under their own ids.
+					var encliticType = cache.ServiceLocator.GetInstance<IMoMorphTypeRepository>().GetObject(MoMorphTypeTags.kguidMorphEnclitic);
+					var encliticEntry = entryFactory.Create(encliticType,
+						TsStringUtils.MakeString(lexEntry.Allomorphs[0].Shape, cache.DefaultVernWs), gloss,
+						new SandboxGenericMSA { MsaType = MsaType.kStem, MainPOS = pos });
+					var encliticMsa = (IMoStemMsa)encliticEntry.MorphoSyntaxAnalysesOC.First();
+					var encliticForm = encliticEntry.LexemeFormOA;
+					alloFormMap[lexEntry.Allomorphs[0].Id] = encliticForm;
+					result.Note(lexEntry.Allomorphs[0].Id, encliticForm.Guid, "MoStemAllomorph");
+					result.Note(lexEntry.Id, encliticEntry.Guid, "LexEntry");
+					entryByLexId[lexEntry.Id] = encliticEntry;
+					stemEntryMsaMap[lexEntry.Id] = encliticMsa;
+					var cliticRule = grammar.MorphologicalRules[cliticRuleId];
+					stemEntryMsaMap[cliticRuleId] = encliticMsa;
+					result.NoteAlias(cliticRuleId, encliticEntry.Guid);
+					alloFormMap[cliticRule.Subrules[0].Id] = encliticForm;
+					result.NoteAlias(cliticRule.Subrules[0].Id, encliticForm.Guid);
+					continue;
+				}
 
 				if (variantOf.TryGetValue(lexEntry.Id, out var mainLexId))
 				{
@@ -582,6 +610,40 @@ namespace XampleProjector
 					|| !rule.Subrules.Any(s => s.InsertShape == rs[1] || s.SuffixShape == rs[1]))
 					throw new GrammarAuthorException($"author.half-prohib: \"{h}\" must be stemAllomorphId=circumfixRuleId:halfShape");
 			}
+		}
+
+		/// <summary>
+		/// Refuses a clitic rule with no --enclitic-of partner, an --enclitic-of partner outside the Clitics stratum, an
+		/// ordinary stem entry inside it, and an --enclitic-of pair that is not a one-allomorph
+		/// stem entry with a part of speech whose shape is the clitic rule's inserted shape: only then are they what
+		/// HCLoader emits for ONE FieldWorks enclitic entry.
+		/// </summary>
+		internal static void ValidateEnclitics(GrammarModel grammar, IReadOnlyDictionary<string, string> encliticOf,
+			IReadOnlyList<IReadOnlyList<string>> msaCopyGroups, IReadOnlyDictionary<string, string> variantOf)
+		{
+			foreach (var rule in grammar.MorphologicalRules.Values.Where(r => r.IsClitic))
+			{
+				if (encliticOf.Values.Count(v => v == rule.Id) != 1)
+					throw new GrammarAuthorException($"author.enclitic: clitic rule \"{rule.Id}\" needs exactly one --enclitic-of entryId={rule.Id} (its stem entry copy)");
+			}
+			var grouped = new HashSet<string>(msaCopyGroups.SelectMany(g => g));
+			foreach (var kv in encliticOf)
+			{
+				var entry = grammar.LexicalEntries.FirstOrDefault(e => e.Id == kv.Key);
+				if (!grammar.MorphologicalRules.TryGetValue(kv.Value, out var rule) || !rule.IsClitic || entry == null)
+					throw new GrammarAuthorException($"author.enclitic: \"{kv.Key}={kv.Value}\" must be a LexicalEntry id and a MorphologicalRule id of the Clitics stratum");
+				if (!entry.InCliticsStratum)
+					throw new GrammarAuthorException($"author.enclitic: entry \"{entry.Id}\" is declared in the first Stratum; an --enclitic-of partner must be a LexicalEntry of the Stratum named Clitics (HCLoader keeps an enclitic's stem copy there)");
+				if (entry.PartOfSpeechId == null || entry.Allomorphs.Count != 1 || entry.Allomorphs[0].RequiredEnvironments.Count != 0
+					|| entry.RuleFeatureIds.Count != 0 || entry.Allomorphs[0].Shape != rule.Subrules[0].InsertShape)
+					throw new GrammarAuthorException($"author.enclitic: entry \"{entry.Id}\" needs a part of speech and exactly one environment-free allomorph whose shape is clitic rule \"{rule.Id}\"'s inserted shape \"{rule.Subrules[0].InsertShape}\"");
+				if (grouped.Contains(entry.Id) || variantOf.ContainsKey(entry.Id) || variantOf.Values.Contains(entry.Id))
+					throw new GrammarAuthorException($"author.enclitic: entry \"{entry.Id}\" cannot also be an --msa-copies or --variant-of member");
+			}
+			// The Clitics stratum holds only enclitic stem copies; an ordinary stem there is not what HCLoader emits.
+			// Together with the partner check above, the two strata cannot be mixed up.
+			foreach (var stray in grammar.LexicalEntries.Where(e => e.InCliticsStratum && !encliticOf.ContainsKey(e.Id)))
+				throw new GrammarAuthorException($"author.enclitic: entry \"{stray.Id}\" is declared in the Stratum named Clitics but is no --enclitic-of partner (an ordinary stem entry belongs in the first Stratum)");
 		}
 
 		internal static void ValidateVariants(GrammarModel grammar, IReadOnlyDictionary<string, string> variantOf)

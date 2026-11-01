@@ -331,7 +331,8 @@ Supported:
   input with its own built-in "any segment" pattern regardless of what LCM natural classes exist, so
   authoring one would be inert. Any other use of a `FeatureNaturalClass`, or one that declares
   features, is refused.
-- Exactly one `Stratum` (more -> refused). `morphologicalRuleOrder`/`morphologicalRules` are recorded
+- Exactly one `Stratum`, or that one plus a second named `Clitics` (see the enclitic bullet below; any other
+  second stratum -> refused). `morphologicalRuleOrder`/`morphologicalRules` are recorded
   in `unmapped`, never authored -- FieldWorks orders rules via slots/templates, not a stratum list.
 - `LexicalEntry` -> `ILexEntryFactory.Create(stem morph type, ..., SandboxGenericMSA{kStem, MainPOS})`.
   Multiple `Allomorph`s: the fixture's LAST allomorph becomes `LexemeFormOA`, every earlier one an
@@ -365,6 +366,24 @@ Supported:
   anywhere, 1 somewhereToLeft, 2 somewhereToRight, 3 adjacentToLeft, 4 adjacentToRight).
   `isActive="no"` on one of these sets `.Disabled = true`; `type="require"`, or `isActive="no"`
   anywhere else in the document, is refused.
+- An enclitic: a `MorphologicalRule` of the second `Stratum`, the one named `Clitics` (one suffix subrule, no
+  part of speech, no environments, listed in that stratum's `morphologicalRules`) plus the stem `LexicalEntry`
+  copy that HCLoader emits beside it (also in the `Clitics` stratum), paired with `--enclitic-of entryId=ruleId`,
+  is authored as ONE `LexEntry` of the enclitic morph type with one `IMoStemMsa` (part of speech from the entry)
+  and one `IMoStemAllomorph`. HCLoader makes three strata (Morphology, Clitics, Surface) and designates a clitic
+  rule by its stratum's name, never by `isCliticRule`; a grammar here has the first stratum plus `Clitics` and
+  nothing for Surface, and the attribute is refused. The rule, its subrule, the entry and its allomorph all map to
+  that one object in `guidMap`, so a `MorphemeCoOccurrenceRule` naming either id binds the enclitic's stem MSA (two
+  rules with the same MSAs are one `IMoMorphAdhocProhib`). All of these are refused, each with a message naming
+  the cause and each exercised by a `build.ps1 -Mode test` probe: a clitic rule with no partner or two partners;
+  a partner that is not a `LexicalEntry`, is declared in the first stratum, has no part of speech, has an
+  allomorph shape other than the rule's inserted shape, has several allomorphs or a rule feature, or is also an
+  `--msa-copies`/`--variant-of` member; an ordinary stem entry declared in the `Clitics` stratum; a proclitic
+  (prefix) clitic rule, or one with a part of speech, an environment or a slot; the `isCliticRule` attribute; a
+  clitic rule missing from the `Clitics` `morphologicalRules`, or that list naming an id that is not one of its
+  rules; and a second stratum under any other name, an inactive `Clitics` stratum, one with a different character
+  table, with `phonologicalRules` or `cyclicity="cyclic"`, or with affix templates. `--msa-copies` and
+  `--variant-of` compose with it for the stems the prohibition names.
 - `Gloss` -> the LexSense gloss FieldWorks' `HCLoader.GetGloss` reads; when the fixture gives none,
   the fixture's own `MorphemeId` is used as the gloss instead -- this is also what lets
   `verify-parity` trace a produced rule back to its fixture origin (see above), since HCLoader never
@@ -390,6 +409,7 @@ the rows marked pilot below; the rest are exercised only by the smaller probes n
 | Multi-`Allomorph` `LexicalEntry` (`AlternateFormsOS` ordering) | implemented (`CreateStemEntries`), no live `author`/`verify-parity` fixture yet |
 | `RequiredEnvironments` / `FieldWorksEnvironmentSyntax` string building | implemented, no live fixture yet |
 | `MorphemeCoOccurrenceRule type="exclude"` | implemented, no live fixture yet |
+| Enclitic (`Clitics`-stratum rule + `--enclitic-of` stem entry copy) and a `MorphemeCoOccurrenceRule` over it | `testdata/enclitic-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe: authored counts, one object per clitic rule and stem copy, and the live HC engine gives `k=1 kx=0 ky=1`), plus the two enclitic ad hoc prohibition fixtures under `conformance-staging/edge-cases` |
 | `AllomorphCoOccurrenceRule type="exclude"` | `testdata/allomorph-cooccurrence-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe, not a `machine` conformance fixture; `verify-parity --expect k=1 --expect xk=0` additionally proves the exclusion binds in the live HC engine, not just that an `IMoAlloAdhocProhib` object exists -- these two counts follow from the probe's own designed semantics (one optional prefix slot, excluded "anywhere" from the sole lexical entry), not an oracle, since this fixture is not a `machine` conformance fixture) |
 | `verify-parity --guid-map` binding (class, slot order, `SlotsRC`, allomorph order) | pilot fixture (positive case) + two deliberately-corrupted copies of its own `author-response.json` (negative cases, exit 8) |
 
