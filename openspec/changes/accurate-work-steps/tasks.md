@@ -14,8 +14,9 @@ Heavy measurement, policy and code are separate tasks. Real-language data is nev
 - [ ] 2.2 Land the Windows PMC trace script under `rust/tools/`, refusing a stale trace
 - [ ] 2.3 Publish `docs/design/work-measurement.md`: tools, noise floors, what each misses
 - [x] 2.4 Measurement: first A/B pair set with a no-change control, recorded in D5
-- [ ] 2.5 Add the known hard cases to the set: memo on/off and the `distinct` fix
-- [ ] 2.6 Re-measure the two D5 disagreements with `cost_units` and name their cause
+- [ ] 2.5 Add the remaining hard cases to the set: other memo pairs and the `distinct` fix; root cache on/off is done
+- [x] 2.6 Re-measure the two D5 disagreements with counts: one fixed, one did not reproduce in one binary
+- [ ] 2.7 Score weighted cost on all seven pairs, which needs counters on the older builds
 
 ## 3. Report-only size charges
 
@@ -24,6 +25,21 @@ Heavy measurement, policy and code are separate tasks. Real-language data is nev
 - [ ] 3.2 Gate: parses, `work_steps` and `CAP` byte-identical to the base build across conformance
 - [ ] 3.3 Measurement: fit against stored instructions, per grammar and held out by grammar
 - [ ] 3.4 Decide: which categories earn a charge, recorded in `design.md`
+
+- [ ] 3.5 Report weighted cost from built-in weights beside `work_steps`, read by no decision
+- [ ] 3.6 Measure a grammar outside the five fitted: built-in weights against its own instructions
+
+## 3a. Project calibration (needs 3.6 to show built-in weights drift)
+
+- [ ] 3a.1 Add a calibration command: about 40 words, one thread, instructions or wall time
+- [ ] 3a.2 Refuse an update when thread CPU / wall is under 0.95, and bound weights per D10
+- [ ] 3a.3 Store weights with the project with their source, word count and PanGloss version
+
+## 3b. Deployed bypass
+
+- [ ] 3b.1 Run WASM with no accounting unless the host sets a limit; refuse a limit it cannot honour
+- [ ] 3b.2 Gate: parses identical to a run with an unreachable cap, across conformance
+- [ ] 3b.3 Measure the speed gain and the longest word on the deployed path
 
 ## 4. Acceptance test
 
