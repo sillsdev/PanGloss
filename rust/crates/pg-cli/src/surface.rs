@@ -559,7 +559,7 @@ const STATS_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--wide",
         takes_value: false,
-        summary: "append work/not_applied/no_root/surface_mismatch/identity_quality columns",
+        summary: "append work (and, with --group object, work_steps)/not_applied/no_root/surface_mismatch/identity_quality columns",
     },
     FlagSpec {
         name: "--by-kind",
