@@ -455,6 +455,7 @@ fn configure_database(connection: &Connection) -> Result<(), FactsError> {
             "PRAGMA journal_mode=DELETE;\n",
             "PRAGMA synchronous=FULL;\n",
             "PRAGMA foreign_keys=ON;\n",
+            "PRAGMA ignore_check_constraints=ON;\n",
             "PRAGMA application_id={};\n",
             "PRAGMA user_version={};"
         ),
@@ -510,7 +511,9 @@ fn source_inventory_status(status: pg_snapshot::SourceInventoryStatus) -> &'stat
     }
 }
 
+/// Turns CHECK enforcement back on first: `integrity_check` skips CHECK constraints while it is off.
 fn verify_database(connection: &Connection) -> Result<(), FactsError> {
+    connection.execute_batch("PRAGMA ignore_check_constraints=OFF;")?;
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
         return Err(FactsError::Integrity(integrity));
@@ -550,8 +553,11 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    use super::write_facts_inner;
+    use rusqlite::Connection;
+
+    use super::{configure_database, verify_database, write_facts_inner};
     use crate::metadata::ProducerIdentity;
+    use crate::FactsError;
 
     const CONTEXT: &[u8] = br#"{"format":"pangloss-facts-context","version":1,"baselineToken":{"id":"commit-count"},"inputKind":"baseline","dryRunDigest":null}"#;
 
@@ -619,5 +625,58 @@ mod tests {
             1,
             "schema and facts rows should share one write transaction"
         );
+    }
+
+    /// A facts file built with CHECKs ignored holds a bad row only if verify fails to find it.
+    #[test]
+    fn verify_reports_a_row_that_violates_a_check_planted_during_the_build() {
+        let temporary = tempdir().unwrap();
+        let connection = Connection::open(temporary.path().join("facts.sqlite")).unwrap();
+        configure_database(&connection).unwrap();
+        connection
+            .execute_batch(include_str!("schema.sql"))
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO artifact_section(section, status, source_scope) VALUES ('project', 'not-a-status', 'x')",
+                [],
+            )
+            .unwrap();
+        let during_build: String = connection
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            during_build, "ok",
+            "the planted row is invisible while CHECKs are ignored"
+        );
+
+        match verify_database(&connection) {
+            Err(FactsError::Integrity(message)) => assert!(
+                message.contains("CHECK constraint failed"),
+                "unexpected message: {message}"
+            ),
+            other => panic!("verify must report the CHECK violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_clean_database_passes_verify_with_checks_enforced_again() {
+        let temporary = tempdir().unwrap();
+        let connection = Connection::open(temporary.path().join("facts.sqlite")).unwrap();
+        configure_database(&connection).unwrap();
+        connection
+            .execute_batch(include_str!("schema.sql"))
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO artifact_section(section, status, source_scope) VALUES ('project', 'complete', 'x')",
+                [],
+            )
+            .unwrap();
+        verify_database(&connection).unwrap();
+        let ignoring: i64 = connection
+            .query_row("PRAGMA ignore_check_constraints", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(ignoring, 0);
     }
 }
