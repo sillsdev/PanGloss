@@ -3,6 +3,17 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.13.1
+
+### Performance
+
+- `pangloss facts` no longer scans every compile decision per reference: 91% less CPU on Cebuano, 1,560 s to 135 s, one run each; 0.06-14.2% fewer instructions on the six other real grammars measured (#125).
+- `pangloss facts` parses each insert once and checks constraints at verify: 31-54% fewer instructions on seven real grammars (#127). Peak memory falls on large grammars and rises by up to 33 MB on small ones, as a transient.
+
+### Parse results
+
+- Parse results are unchanged. Grammar facts output is byte-identical apart from the recorded build revision.
+
 ## 0.13.0
 
 ### Interface changes
