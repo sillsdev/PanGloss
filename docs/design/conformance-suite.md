@@ -110,14 +110,26 @@ moves to a driver that accepts `claims`: `run-conformance.sh`, the `conformance-
 PanGloss's own Rust loader (`pg-conformance-fixtures`) reads `claims`.
 
 Renaming the key is not the whole gap. On a scratch copy of the suite with `claims` renamed back, the
-pin driver passes 138 of 142 runs against the Java-free C# oracle and fails four fixtures:
-`head-ambiguous-compounding` and `truncate-morphotactic-copy-u`, `-identity` and `-subsumption`. Those
-encode behaviour newer than the pin (machine #556 and #500). Driven by `pangloss batch` instead, the pin
-driver gives 121 passed, 4 failed and 17 skipped of 142 runs: `simultaneous-epenthesis-cascade` (a
-known divergence) and the three `truncate-morphotactic-*` fixtures. PanGloss agrees with the pin on
-those, so two Rust gates stay red until the oracle pin moves and HC-Rust is ported:
-`conformance_fixtures_gate::all_discovered_fixtures_match_oracle` and
-`templated_conformance_proposal_pins::truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens`.
+pin driver passes 137 of 142 runs against the Java-free C# oracle and fails five fixtures:
+`head-ambiguous-compounding`, `truncate-morphotactic` ("ga") and `truncate-morphotactic-copy-u`,
+`-identity` and `-subsumption`. The suite rows are the C# oracle at machine `hermitcrab-conformance-runner`
+b3da08f5, whose runner passes all 142 in self-check. Reverting single engine files to the pin's
+versions on that tree shows which machine change each row needs: `-subsumption` needs #500 (the
+`ApplyRhs` relocation, 157c031e), `-copy-u` and `-identity` need #500 and #556 (`BidirList` tie
+boundaries, d98d12a5), and `truncate-morphotactic` "ga" needs either. #548 changes none of them.
+
+Driven by `pangloss batch` instead, either driver gives 121 passed, 4 failed and 17 skipped of 142
+runs: `simultaneous-epenthesis-cascade` (a known divergence; the C# oracle crashes with
+`InfiniteLoopException`, PanGloss answers "no analysis", and no machine commit changed it) and the three
+`truncate-morphotactic-*` fixtures. There PanGloss does not miss parses: the parse counts and sets
+match, but the morph order inside the signatures of subsumed and zero-width truncation markers differs,
+and it agrees with neither the pin nor the post-#500/#556 oracle. So moving the pin alone does not turn
+`conformance_fixtures_gate::all_discovered_fixtures_match_oracle` green: the Rust gates compare HC-Rust
+to the suite rows, which are already the newer behaviour. It is an HC-Rust port of the #500/#556
+ordering (`pg-rules` `morph.rs` `attribute_morphs` and its final sort). The pin move only unblocks
+the C# replays. `templated_conformance_proposal_pins::truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens`
+is a separate, proposer-side gap: the suite's new word "a" has two rule-order identities and the templated
+route offers one.
 
 Do not paper over this in the suite or with a loader shim here. The two honest ways out are a later
 `machine` pin whose loader accepts `claims`, or (only if a bump must wait) an adapter on the PanGloss
