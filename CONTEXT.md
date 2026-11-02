@@ -497,9 +497,9 @@ _Avoid_: Cost, size (as if exact)
 The per-word counter of analysis work that enforces the logical work budget. It decides when a word caps, and it is not a measure of time.
 _Avoid_: Steps, parse time
 
-**Parse cost**:
-A deterministic estimate of the instructions one word's parse takes, built from work steps and other counted quantities. It covers parsing only and is compared only within one PanGloss version. It decides nothing in a parse.
-_Avoid_: Cost (unqualified), score
+**Parser work**:
+A deterministic estimate of the instructions one word's parse takes, built from work steps and other counted quantities. It covers parsing only and is compared only within one PanGloss version. It decides nothing in a parse. Commands and files still name it `cost`.
+_Avoid_: Parse cost, cost (unqualified), score
 
 **Instructions**:
 The count of machine instructions a run retired. It is the verdict on any speedup, because machine load does not move it.
@@ -522,7 +522,7 @@ A change that does less counted work, so work steps or other counted quantities 
 _Avoid_: Optimization (unqualified)
 
 **Constant-factor change**:
-A change that keeps the counts and makes each unit cheaper. Work steps and parse cost do not move; only instructions show it.
+A change that keeps the counts and makes each unit cheaper. Work steps and parser work do not move; only instructions show it.
 _Avoid_: Optimization (unqualified), micro-optimization
 
 **Committed plan**:
