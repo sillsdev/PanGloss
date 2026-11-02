@@ -53,11 +53,11 @@ impl std::fmt::Display for Refusal {
     }
 }
 
-fn columns(counts: &Counts) -> [f64; 3] {
+fn columns(counts: &Counts, weights: [f64; 3]) -> [f64; 3] {
     [
-        counts.work as f64 * WORK_WEIGHT as f64,
-        counts.bytes as f64 * BYTE_WEIGHT as f64,
-        counts.registers as f64 * REGISTER_WEIGHT as f64,
+        counts.work as f64 * weights[0],
+        counts.bytes as f64 * weights[1],
+        counts.registers as f64 * weights[2],
     ]
 }
 
@@ -69,6 +69,24 @@ fn median(mut values: Vec<f64>) -> f64 {
 /// Fits bounded multipliers on relative error. `cpu_share` is `None` for a count of instructions,
 /// which load cannot disturb.
 pub fn fit(samples: &[Sample], cpu_share: Option<f64>) -> Result<Fit, Refusal> {
+    fit_from(samples, cpu_share, current_weights())
+}
+
+/// The fixed weights as the fit's starting point.
+pub fn current_weights() -> [f64; 3] {
+    [
+        WORK_WEIGHT as f64,
+        BYTE_WEIGHT as f64,
+        REGISTER_WEIGHT as f64,
+    ]
+}
+
+/// `fit` starting from other weights, so a fit that hit a bound can be continued without editing the constants.
+pub fn fit_from(
+    samples: &[Sample],
+    cpu_share: Option<f64>,
+    weights: [f64; 3],
+) -> Result<Fit, Refusal> {
     if let Some(cpu_share) = cpu_share.filter(|share| *share < MIN_CPU_SHARE) {
         return Err(Refusal::MachineBusy { cpu_share });
     }
@@ -84,12 +102,12 @@ pub fn fit(samples: &[Sample], cpu_share: Option<f64>) -> Result<Fit, Refusal> {
     let speed = median(
         usable
             .iter()
-            .map(|sample| sample.measured / sample.counts.cost() as f64)
+            .map(|sample| sample.measured / columns(&sample.counts, weights).iter().sum::<f64>())
             .collect(),
     );
     let rows: Vec<[f64; 3]> = usable
         .iter()
-        .map(|sample| columns(&sample.counts).map(|x| x * speed / sample.measured))
+        .map(|sample| columns(&sample.counts, weights).map(|x| x * speed / sample.measured))
         .collect();
     let mut factors = [1.0f64; 3];
     for _ in 0..SWEEPS {

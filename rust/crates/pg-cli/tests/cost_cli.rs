@@ -297,4 +297,77 @@ mod calibrate {
         assert!(!output.status.success());
         assert!(!output.stderr.is_empty());
     }
+
+    #[test]
+    fn counts_out_keeps_one_row_per_parsed_word_even_when_the_fit_refuses() {
+        let dir = scratch("calibrate-counts");
+        let (words, targets, counts) = (
+            dir.join("words.txt"),
+            dir.join("targets.tsv"),
+            dir.join("counts.tsv"),
+        );
+        std::fs::write(&words, WORDS).unwrap();
+        std::fs::write(&targets, "0\t1000000\n1\t2000000\n").unwrap();
+        let grammar = grammar();
+        let output = pangloss(&[
+            "cost-calibrate",
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            "--targets",
+            targets.to_str().unwrap(),
+            "--counts-out",
+            counts.to_str().unwrap(),
+        ]);
+        assert!(!output.status.success(), "two words cannot be fitted");
+        let rows: Vec<Vec<String>> = std::fs::read_to_string(&counts)
+            .unwrap()
+            .lines()
+            .map(|line| line.split('\t').map(str::to_string).collect())
+            .collect();
+        assert_eq!(rows.len(), 2, "only words with a target and no cap");
+        assert_eq!((rows[0][0].as_str(), rows[1][0].as_str()), ("0", "1"));
+        assert!(rows.iter().all(|row| row.len() == 5));
+        assert!(rows[0][1].parse::<u64>().unwrap() > 0, "work counted");
+        assert_eq!(rows[1][4], "2000000");
+    }
+
+    #[test]
+    fn parse_only_prints_one_status_row_per_word_and_counts_nothing() {
+        let words = scratch("calibrate-parse-only").join("words.txt");
+        std::fs::write(&words, WORDS).unwrap();
+        let grammar = grammar();
+        let output = pangloss(&[
+            "cost-calibrate",
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            "--parse-only",
+        ]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let rows: Vec<Vec<&str>> = stdout.lines().map(|l| l.split('\t').collect()).collect();
+        assert_eq!(rows.len(), 3, "{stdout}");
+        assert_eq!(rows[0], ["0", "ok"]);
+        assert_eq!(rows[1], ["1", "ok"]);
+        assert_eq!(rows[2][0], "2");
+        assert!(!stdout.contains("milu"), "no word text is printed");
+    }
+
+    #[test]
+    fn parse_only_accepts_an_empty_list_as_a_start_up_measurement() {
+        let words = scratch("calibrate-parse-only-empty").join("words.txt");
+        std::fs::write(&words, "").unwrap();
+        let grammar = grammar();
+        let output = pangloss(&[
+            "cost-calibrate",
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            "--parse-only",
+        ]);
+        assert!(output.status.success());
+        assert!(output.stdout.is_empty());
+    }
 }

@@ -76,6 +76,31 @@ constants to a code change.
   time. Measured: idle 0.98-0.99, 20 spinning processes 0.48-0.72, 20 copies 0.50-0.57.
 - Machine speed is removed first, and one run can move a weight only ×0.75-1.5.
 
+## Retuning after a parser change
+
+After a change to the parser gets a GO from `rust/tools/instruction-compare.ps1`, `rust/tools/retune-parser-work.ps1`
+tests whether the weights still fit; the steps, the skip rule and what an owner decides are in
+`.claude/skills/retune-parser-work/SKILL.md`. It refits on the fit grammars from per-word Valgrind
+instructions (`cost-calibrate --parse-only`, `--targets`, `--counts-out`, `--fit-counts`) and scores old and
+new weights on grammars held out of the fit. The rule it prints:
+
+- **ACCEPT** only if the fit settled and, on the held-out set, direction is no worse, median error is lower
+  and worst error is no worse. A real pair whose counts did not change has no direction rows and can still
+  ACCEPT on level error; the reason then says "direction unmeasured (0 rows)".
+- **KEEP** otherwise, including a fit that did not settle and any `-NoChangeCheck` run (a proof run of the
+  tool, which never exits 0).
+- **REFUSED** when a measurement cannot be trusted: a failed no-change control, a status change, a missing
+  grammar, or fewer than 8 scored words in any held-out grammar.
+
+One fit moves a weight at most ×0.75-1.5, so the tool continues it from its own result until it settles; the
+counts do not depend on the weights. Beside the level error it prints a scale-free error (the median
+predicted/measured ratio divided out), report-only, so an ACCEPT shows whether the shape improved or the
+weights only rescaled. It warns when a weight moves by more than a quarter, and a result from 40-word samples
+is not evidence to adopt.
+
+It never edits a weight and never touches `work_steps`. Memory, simulated cache misses and CPU time print
+beside the result and stay out of the fit.
+
 ## Deployed grammars
 
 WASM keeps its default cap. `PanGlossGrammar.withoutWorkLimits` removes the attempt and work limits

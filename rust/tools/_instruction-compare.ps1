@@ -90,7 +90,7 @@ function Assert-TraceIntact {
 }
 
 function Get-CallgrindTotal {
-    param([Parameter(Mandatory)][string[]]$Lines)
+    param([Parameter(Mandatory)][AllowEmptyString()][string[]]$Lines)
     $summary = $null
     foreach ($line in $Lines) {
         if ($line -like 'totals:*') { return [double](($line -split '\s+')[1]) }
@@ -134,8 +134,11 @@ function Get-ComparabilityProblem {
 }
 
 function Test-RepeatsIdentical {
-    param([Parameter(Mandatory)][double[]]$Values)
-    return @($Values | Select-Object -Unique).Count -le 1
+    # Exact by default; RelativeTolerance is the allowed (max - min) / min, for callgrind runs whose pinned residue is not zero.
+    param([Parameter(Mandatory)][double[]]$Values, [double]$RelativeTolerance = 0)
+    if (@($Values | Select-Object -Unique).Count -le 1) { return $true }
+    $min = ($Values | Measure-Object -Minimum).Minimum
+    return $min -gt 0 -and (($Values | Measure-Object -Maximum).Maximum - $min) / $min -le $RelativeTolerance
 }
 
 function Get-VerdictExitCode {

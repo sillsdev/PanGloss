@@ -101,3 +101,24 @@ fn too_few_usable_words_are_refused() {
     }; 50];
     assert_eq!(fit(&tiny, None), Err(Refusal::TooFewWords { usable: 0 }));
 }
+
+#[test]
+fn a_fit_can_continue_from_other_weights() {
+    let truth = [200.0, 2.0, 100.0];
+    let data = samples(truth);
+    let from_truth = fit_from(&data, None, truth).unwrap();
+    assert!(
+        (from_truth.work_factor - 1.0).abs() < 0.01,
+        "{from_truth:?}"
+    );
+    assert!(
+        (from_truth.register_factor - 1.0).abs() < 0.01,
+        "{from_truth:?}"
+    );
+    let from_current = fit(&data, None).unwrap();
+    assert!(
+        (from_current.work_factor - 1.0).abs() > 0.05
+            || (from_current.register_factor - 1.0).abs() > 0.05,
+        "{from_current:?}"
+    );
+}

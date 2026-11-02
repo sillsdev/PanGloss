@@ -1,0 +1,111 @@
+---
+name: retune-parser-work
+description: >-
+  Use after a change to the parser gets a GO from instruction-compare, to test whether the parser-work
+  weights in pg-cost (work, bytes allocated, FST registers copied) still describe the code and, if a refit
+  is better on held-out grammars, to propose it. Trigger on "retune the cost weights", "recalibrate parser
+  work", "did this speedup move the weights", "676 / 2 / 268". Skip it for any change that does not reach
+  the parser, including pangloss facts. It never retunes work_steps, which is the cap.
+---
+
+# Retune the parser-work weights
+
+Parser work (named cost in the commands and `pg-cost`) = a x work_steps + b x bytes allocated + c x FST registers copied, in instructions, with a, b, c
+fixed at 676, 2 and 268 in `rust/crates/pg-cost/src/lib.rs`. A parser change can move what one unit costs,
+and then the weights drift. It is report-only: no cap, deadline or parse decision reads it, so changing
+its weights cannot change a parse. `work_steps` is the cap and is never retuned here: retuning it could
+change a parse, and that is a separate, output-affecting change.
+
+## When to use
+
+After a parser change got **GO** from `rust/tools/instruction-compare.ps1` (a change beyond its noise
+floor, a no-change control inside it). Run it before the change lands if the weights should move with it,
+or in the next change if not.
+
+## When to skip
+
+Skip when the change does not reach the parser. Decide with the diff, not a guess:
+
+```
+git diff --name-only origin/main...HEAD | grep -E '^rust/(crates/(pg-parse|pg-rules|pg-fst|pg-shape|pg-featstruct|pg-grammar-model|pg-snapshot|pg-cost|pg-grammar)/(src/|Cargo\.toml$)|crates/pg-cli/src/main\.rs$|Cargo\.toml$|Cargo\.lock$)' | grep -vE '(^|/)tests?(\.rs|/)'
+```
+
+The crates are `pg-parse` and its normal dependencies in the workspace, plus `pg-grammar`, which builds the
+grammar the parser reads. No output: skip. Output: read it. A `Cargo.lock` or profile change counts only if
+it moves a dependency of those crates or the release profile. The global allocator in
+`rust/crates/pg-cli/src/main.rs` also counts, because it prices every allocated byte; read that file's hunk. Changes to
+`pg-facts`, `pg-assess`, the rest of `pg-cli`, tests, tooling and docs do not reach the parser, so a
+`pangloss facts` speedup never triggers this skill. The rule held on #123 (FST traversal hash: reaches),
+#122 (pruning: reaches), and #127 and #125 (facts: skip).
+
+A change that only makes each counted unit cheaper at a constant factor leaves the counts identical, and
+cost cannot see it; the weights then move only if the refit says so.
+
+## Procedure
+
+1. Confirm the trigger: the GO, and the path rule above.
+2. Build **Before** and **After** release binaries with `--features cost-calibration`, both from trees that
+   contain `cost-calibrate --counts-out` (set `PANGLOSS_EXTRA_ARGS='--features cost-calibration'`, then
+   `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode build -Package pg-cli`). Copy each `pangloss` out of the
+   target directory. An older build lacks the command and the tool refuses it by name.
+3. Write a manifest in local scratch, never in the repo (format in the header of `rust/tools/retune-parser-work.ps1`).
+   Default split: indonesian, aweti, amharic, mbugwe and sena fit; Swahili and Cebuano held out. Use scratch
+   copies of the grammars and word lists, with every word status ok (the tool refuses SKIPPED, CAP and
+   TIMEOUT words, and prints counts, not words).
+4. Run it, one managed job at a time, with `-SaveDir <scratch>` so a rerun reuses the saved counts and
+   instruction-compare output:
+   `pwsh -NoProfile -File rust/tools/retune-parser-work.ps1 -Manifest <manifest> -Before <old> -After <new> -SaveDir <scratch>`.
+   It verifies with instruction-compare and a no-change control, refits on the fit set from per-word
+   Valgrind instructions, scores old and new weights on the held-out set, and decides. Plan about an hour
+   for the default seven grammars (Cebuano alone is about 13 minutes per cache-simulation run). It is slow:
+   Valgrind runs at 30 to 200 times native speed and a large grammar's start-up dominates, so keep each list
+   to fast words (under about 0.3 s native). Options:
+   - `-Words N` (8 to 400, default 40): words per grammar. Start-up dominates the run time, so more words add little time and more evidence.
+   - `-MaxFitRounds N` (default 20): the most fits it chains before it calls the fit unsettled.
+   - `-SkipSideReports`: skip the memory and cache part, the last third of the run.
+   - `-NoChangeCheck`: proves the tool on a same-build pair; it is capped at KEEP and never exits 0.
+   - `-PairResult` / `-ControlResult`: read saved instruction-compare output; only grammar file names are checked against the manifest.
+5. Read the exit code. 0 is ACCEPT. Its reason names the direction evidence: "direction no worse" with
+   8 or more rows, "direction weak" with fewer, and "direction unmeasured (0 rows)" when the change left the
+   counts equal, so only the level error discriminated; read the printed scale-free error and shape note to
+   see whether the shape improved or the weights only rescaled. 10 is KEEP: stop, and record the numbers in
+   the PR; it also covers a fit that did not settle and every `-NoChangeCheck` run. 3 is REFUSED: a failed
+   control, a status change, a missing file or a held-out grammar with under 8 scored words; fix the
+   measurement, never the rule. 2 means it could not start.
+6. One fit moves a weight at most x0.75-1.5, so the tool continues the fit from its own result until it settles
+   and prints the first fit, the number of fits and the settled weights. A fit that did not settle is KEEP and
+   never a candidate. A weight pinned at 1 (the lowest) means the fit wants it lower than an integer can say.
+7. Memory, simulated cache misses and CPU time print beside the result. They are never in the fit or the
+   decision; read them to see whether the change traded memory for instructions.
+
+## Applying accepted weights
+
+The tool never edits a weight. After the owner agrees:
+
+1. Edit `WORK_WEIGHT`, `BYTE_WEIGHT` and `REGISTER_WEIGHT` in `rust/crates/pg-cost/src/lib.rs`, and the
+   numbers in the formula and evidence block of `docs/design/parse-cost.md` (pair count, grammars, rows,
+   direction, r, median and worst error, from this run).
+2. Add a line to `CHANGELOG.md` naming the old and new weights; the `batch --cost-column` line quotes them.
+3. Run `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode check -Jobs 4`, then `-Mode preland -Jobs 4`.
+4. Land by squash PR, from a branch rebased on main. Do not push or merge unasked.
+
+Costs from different PanGloss versions are never compared, so a weight change needs no migration.
+
+## What an owner must decide
+
+- Whether to retune at all when the change moved only constant factors: the fit can find a drift that the
+  change did not cause.
+- Whether a candidate that moves a weight by more than a quarter is credible, given the integer resolution
+  of the byte weight (2 steps to 1 or 3). The tool prints a warning for each such move. A proof run on the
+  default five-plus-two grammars with 40 words each moved work from 676 to 55 (x0.08): a result from
+  40-word samples is not adoptable evidence, and its per-grammar fits spread about x2.
+- The held-out set. Changing it changes what ACCEPT means.
+- Whether to fold the measured instructions-per-cost-unit into the weights. The tool does; the fit itself
+  removes it.
+- Whether a KEEP with a large gap in the candidate warrants a second look at the grammars.
+
+## Limits
+
+Direction uses words whose instructions moved at least 2%; with a no-change pair or a constant-factor change
+there are none, and only the level error can move the decision (a no-change pair is capped at KEEP). Valgrind counts are compared only against Valgrind counts, with
+`std` hash keys pinned. The tool runs on Linux and WSL only; `perf stat` does not work under WSL.
