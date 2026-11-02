@@ -109,6 +109,16 @@ moves to a driver that accepts `claims`: `run-conformance.sh`, the `conformance-
 `--fixtures` to the driver, never the manifest flags, so the v2 manifest is not a second break.
 PanGloss's own Rust loader (`pg-conformance-fixtures`) reads `claims`.
 
+Renaming the key is not the whole gap. On a scratch copy of the suite with `claims` renamed back, the
+pin driver passes 138 of 142 runs against the Java-free C# oracle and fails four fixtures:
+`head-ambiguous-compounding` and `truncate-morphotactic-copy-u`, `-identity` and `-subsumption`. Those
+encode behaviour newer than the pin (machine #556 and #500). Driven by `pangloss batch` instead, the pin
+driver gives 121 passed, 4 failed and 17 skipped of 142 runs: `simultaneous-epenthesis-cascade` (a
+known divergence) and the three `truncate-morphotactic-*` fixtures. PanGloss agrees with the pin on
+those, so two Rust gates stay red until the oracle pin moves and HC-Rust is ported:
+`conformance_fixtures_gate::all_discovered_fixtures_match_oracle` and
+`templated_conformance_proposal_pins::truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens`.
+
 Do not paper over this in the suite or with a loader shim here. The two honest ways out are a later
 `machine` pin whose loader accepts `claims`, or (only if a bump must wait) an adapter on the PanGloss
 side that copies the suite to a scratch directory with the key renamed back. Move the pin with a
