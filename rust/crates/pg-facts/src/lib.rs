@@ -9,6 +9,7 @@ mod lexicon;
 mod load;
 mod metadata;
 mod morphology;
+mod owner_loads;
 mod phonology;
 mod references;
 mod settings;

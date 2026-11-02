@@ -17,6 +17,7 @@ use crate::features::FeatureStructureIds;
 use crate::lexicon::reads_positions;
 use crate::load::subject_key;
 use crate::morphology::checked_guid;
+use crate::owner_loads::OwnerLoads;
 use crate::FactsError;
 
 const COMPILE_CONTEXT: &str = "production";
@@ -66,6 +67,7 @@ pub(crate) fn insert_authored(
     feature_structures: &FeatureStructureIds,
     environment_resolutions: &[EnvironmentResolution],
     decisions: &[LoadDecision],
+    owner_loads: &OwnerLoads<'_>,
     grammar: Option<&pg_grammar::model::Grammar>,
 ) -> Result<(), FactsError> {
     insert_phoneme_set(tx, snapshot)?;
@@ -75,7 +77,13 @@ pub(crate) fn insert_authored(
     insert_feature_constraints(tx, snapshot)?;
     insert_environments(tx, snapshot, environment_resolutions)?;
     insert_allomorph_environments(tx, snapshot)?;
-    insert_environment_usage(tx, snapshot, environment_resolutions, decisions)?;
+    insert_environment_usage(
+        tx,
+        snapshot,
+        environment_resolutions,
+        decisions,
+        owner_loads,
+    )?;
     insert_effective_members(tx, snapshot, grammar)?;
     insert_environment_sides(tx, snapshot, environment_resolutions, grammar)?;
     insert_phonological_rules(tx, snapshot, grammar)?;
@@ -282,6 +290,7 @@ fn insert_environment_usage(
     snapshot: &Snapshot,
     resolutions: &[EnvironmentResolution],
     decisions: &[LoadDecision],
+    owner_loads: &OwnerLoads<'_>,
 ) -> Result<(), FactsError> {
     let edges = EnvironmentEdges::new(snapshot, resolutions);
     for entry in &snapshot.lexicon.entries {
@@ -292,8 +301,13 @@ fn insert_environment_usage(
             ] {
                 let consumed = role == "phone" || reads_positions(allomorph);
                 for (ordinal, environment_guid) in guids.iter().enumerate() {
-                    let edge =
-                        edges.outcome(&allomorph.guid, environment_guid, consumed, decisions)?;
+                    let edge = edges.outcome(
+                        &allomorph.guid,
+                        environment_guid,
+                        consumed,
+                        decisions,
+                        owner_loads,
+                    )?;
                     let link = edge.decision.map(load_decision_link).transpose()?;
                     tx.execute(
                         "INSERT INTO environment_usage(allomorph_guid, role, ordinal, compile_context_key, environment_guid, resolved_environment_guid, compiled, result, load_subject_kind, load_subject_key, load_pipeline_stage, load_context_key, load_decision_ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
@@ -365,6 +379,7 @@ impl<'a> EnvironmentEdges<'a> {
         environment_guid: &str,
         consumed: bool,
         decisions: &'a [LoadDecision],
+        owner_loads: &OwnerLoads<'_>,
     ) -> Result<EdgeOutcome<'a>, FactsError> {
         let attachment = InventoryKey::attachment(
             InventoryKind::Environment,
@@ -377,7 +392,7 @@ impl<'a> EnvironmentEdges<'a> {
         let owner_decision = latest_decision(decisions, &owner_key);
         let owner_loaded = owner_decision
             .and_then(|value| value.loaded)
-            .or_else(|| inventory_owner_loaded(&owner_key, decisions));
+            .or_else(|| owner_loads.loaded(&owner_key));
         let outcome = environment_usage_outcome(
             self.exists(environment_guid),
             self.resolved.get(environment_guid).copied(),
@@ -480,17 +495,6 @@ fn latest_decision<'a>(
             decision.subject == *subject && decision.pipeline_stage == LoadPipelineStage::Compile
         })
         .max_by_key(|decision| decision.decision_ordinal)
-}
-
-pub(crate) fn inventory_owner_loaded(
-    subject: &InventoryKey,
-    decisions: &[LoadDecision],
-) -> Option<bool> {
-    let value = decisions
-        .iter()
-        .filter(|decision| decision.subject == *subject)
-        .max_by_key(|decision| decision.decision_ordinal)?;
-    value.loaded
 }
 
 type LoadDecisionLink = (String, String, String, String, i64);

@@ -17,9 +17,10 @@ use rusqlite::{params, Transaction};
 
 use crate::lexicon::{form_class, reads_positions, GateEffects, MS_ENV_PART_OF_SPEECH_EFFECT};
 use crate::morphology::all_parts_of_speech;
+use crate::owner_loads::OwnerLoads;
 use crate::phonology::{
-    environment_literals, feature_class_phonemes, inventory_owner_loaded, natural_class_guid,
-    rule_feature_target_kind, EnvironmentEdges,
+    environment_literals, feature_class_phonemes, natural_class_guid, rule_feature_target_kind,
+    EnvironmentEdges,
 };
 use crate::FactsError;
 
@@ -51,6 +52,7 @@ pub(crate) fn insert(
     tx: &Transaction<'_>,
     snapshot: &Snapshot,
     decisions: &[LoadDecision],
+    owner_loads: &OwnerLoads<'_>,
     environment_resolutions: &[EnvironmentResolution],
     allomorph_gates: &[AllomorphGateOutcome],
     compiled: CompiledInputs<'_>,
@@ -63,6 +65,7 @@ pub(crate) fn insert(
         tx,
         known: Known::new(snapshot),
         decisions,
+        owner_loads,
         descendants,
         next_ordinal: BTreeMap::new(),
     };
@@ -185,6 +188,7 @@ struct Writer<'a, 'c> {
     tx: &'a Transaction<'c>,
     known: Known,
     decisions: &'a [LoadDecision],
+    owner_loads: &'a OwnerLoads<'a>,
     /// Every class GUID mapped to its descendants, which the compiler's subclass closure can use.
     descendants: BTreeMap<String, Vec<String>>,
     /// Next ordinal per referrer and role, so repeated references stay distinct by key.
@@ -255,7 +259,7 @@ impl Writer<'_, '_> {
         fixed: Option<&'static str>,
     ) -> &'static str {
         fixed.unwrap_or_else(|| {
-            owner_effect(self.decisions, owner, self.known.has(target_kind, target))
+            owner_effect(self.owner_loads, owner, self.known.has(target_kind, target))
         })
     }
 
@@ -298,7 +302,13 @@ impl Writer<'_, '_> {
                 ] {
                     let consumed = role == "phone_env" || reads_positions(allomorph);
                     for environment in environments {
-                        let edge = edges.outcome(guid, environment, consumed, self.decisions)?;
+                        let edge = edges.outcome(
+                            guid,
+                            environment,
+                            consumed,
+                            self.decisions,
+                            self.owner_loads,
+                        )?;
                         self.add(Reference {
                             target_kind: "environment",
                             target: environment,
@@ -408,7 +418,13 @@ impl Writer<'_, '_> {
                 ] {
                     for environment in environments {
                         if edges
-                            .outcome(&allomorph.guid, environment, consumed, self.decisions)?
+                            .outcome(
+                                &allomorph.guid,
+                                environment,
+                                consumed,
+                                self.decisions,
+                                self.owner_loads,
+                            )?
                             .result
                             == "represented"
                         {
@@ -1058,7 +1074,7 @@ impl Writer<'_, '_> {
             for feature in features {
                 // A feature naming no class, exception feature or value keeps its row as `mprFeature`.
                 let kind = rule_feature_target_kind(snapshot, feature);
-                let effect = owner_effect(self.decisions, owner, kind != "unresolved");
+                let effect = owner_effect(self.owner_loads, owner, kind != "unresolved");
                 self.add(Reference {
                     target_kind: if kind == "unresolved" {
                         "mprFeature"
@@ -1148,8 +1164,12 @@ impl Writer<'_, '_> {
 }
 
 /// `owner_not_loaded` unless the compiler loaded the owner; then `applied`, or `unresolved` if dangling.
-fn owner_effect(decisions: &[LoadDecision], owner: &InventoryKey, resolves: bool) -> &'static str {
-    match inventory_owner_loaded(owner, decisions) {
+fn owner_effect(
+    owner_loads: &OwnerLoads<'_>,
+    owner: &InventoryKey,
+    resolves: bool,
+) -> &'static str {
+    match owner_loads.loaded(owner) {
         Some(true) if resolves => "applied",
         Some(true) => "unresolved",
         _ => "owner_not_loaded",
