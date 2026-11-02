@@ -186,7 +186,11 @@ fn cost_compare_reads_two_cost_runs_into_a_verdict() {
     assert_eq!(same["verdict"], "no clear change");
     assert_eq!(same["words"], 3);
     assert_eq!(same["parseChanges"], 0);
-    assert_eq!(same["atLeast"], false);
+    assert_eq!(
+        same["excludedWords"], 1,
+        "the skipped word is left out of the totals"
+    );
+    assert_eq!(same["statusChanges"], 0);
 
     let doubled = scaled(&run, "doubled", 2, 1);
     assert_eq!(verdict(&run, &doubled)["verdict"], "worse");
