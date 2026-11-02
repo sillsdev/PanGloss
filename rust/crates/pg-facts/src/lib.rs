@@ -13,6 +13,7 @@ mod owner_loads;
 mod phonology;
 mod references;
 mod settings;
+mod sql;
 mod stats;
 mod variants;
 mod write;

@@ -328,7 +328,8 @@ where
             },
         )?;
         for section in &sections {
-            transaction.execute(
+            crate::sql::execute(
+                &transaction,
                 "INSERT INTO artifact_section(section, status, source_scope, reason_code) VALUES (?1, ?2, ?3, ?4)",
                 params![section.section, section.status, section.source_scope, section.reason_code],
             )?;
@@ -395,7 +396,11 @@ where
             crate::stats::insert(&transaction, stats)?;
         }
         crate::guid::canonicalize_stored_guids(&transaction)?;
-        transaction.execute("UPDATE artifact_meta SET complete=1 WHERE singleton=1", [])?;
+        crate::sql::execute(
+            &transaction,
+            "UPDATE artifact_meta SET complete=1 WHERE singleton=1",
+            [],
+        )?;
         transaction.commit()?;
         verify_database(&connection)?;
     }
@@ -457,6 +462,7 @@ fn configure_database(connection: &Connection) -> Result<(), FactsError> {
         crate::FACT_SCHEMA_VERSION
     );
     connection.execute_batch(&pragmas)?;
+    connection.set_prepared_statement_cache_capacity(crate::sql::STATEMENT_CACHE_CAPACITY);
     Ok(())
 }
 
@@ -464,7 +470,8 @@ fn insert_metadata(
     tx: &rusqlite::Transaction<'_>,
     metadata: MetadataInput<'_>,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO artifact_meta(singleton, application_id, schema_version, format, writer_version, compiler_version, source_revision, build_identity, snapshot_format, snapshot_version, provenance_schema_version, source_inventory_status, source_sha256, grammar_hash, model_fingerprint, baseline_token_json, baseline_key, input_kind, dry_run_digest, compile_options_json, compile_options_sha256, compile_status, complete, run_manifest_sha256) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 0, ?22)",
         params![
             crate::APPLICATION_ID,

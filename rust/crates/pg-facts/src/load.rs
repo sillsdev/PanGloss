@@ -37,7 +37,8 @@ pub(crate) fn insert_inventory_and_issues(
     load_decisions: &[LoadDecision],
 ) -> Result<(), FactsError> {
     let provenance = &snapshot.conversion_provenance;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO source_census(singleton, total_occurrences, ordered_header_sha256) VALUES (1, ?1, ?2)",
         params![
             provenance.source_census.total_occurrences as i64,
@@ -51,7 +52,8 @@ pub(crate) fn insert_inventory_and_issues(
             .get(class_name)
             .copied()
             .unwrap_or_default();
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO source_class_count(class_name, occurrences, unhandled_occurrences) VALUES (?1, ?2, ?3)",
             params![class_name, *count as i64, unhandled as i64],
         )?;
@@ -64,7 +66,8 @@ pub(crate) fn insert_inventory_and_issues(
         {
             continue;
         }
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO source_class_count(class_name, occurrences, unhandled_occurrences) VALUES (?1, 0, ?2)",
             params![class_name, *count as i64],
         )?;
@@ -87,7 +90,8 @@ pub(crate) fn insert_inventory_and_issues(
                 })
             })
             .transpose()?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO source_object(source_key, source_ordinal, class_name, raw_guid, canonical_guid, inventory_kind, handled, retained, duplicate) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 source_key,
@@ -141,7 +145,8 @@ pub(crate) fn insert_inventory_and_issues(
                 .get(&(pipeline_stage, inventory_stage))
                 .copied()
                 .unwrap_or(0);
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO conversion_stage(pipeline_stage, inventory_stage, item_count) VALUES (?1, ?2, ?3)",
                 params![pipeline_stage, inventory_stage, count as i64],
             )?;
@@ -202,7 +207,8 @@ fn write_inventory_set<'a>(
 ) -> Result<(), FactsError> {
     for key in items {
         let (kind, subject_key, subject_guid) = subject_key(key)?;
-        let inserted = tx.execute(
+        let inserted = crate::sql::execute(
+            tx,
             "INSERT OR IGNORE INTO conversion_item(pipeline_stage, inventory_stage, subject_kind, subject_key, subject_guid) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![pipeline, stage, kind, subject_key, subject_guid],
         )?;
@@ -272,7 +278,8 @@ fn insert_issues<'a>(
         let key_input = format!("{canonical}#{occurrence}");
         *occurrence += 1;
         let issue_key = pg_assess::sha256_bytes(key_input.as_bytes());
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO conversion_issue(issue_key, pipeline_stage, code, issue_class, fatal, source_kind, source_guid, message) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 issue_key,
@@ -404,7 +411,8 @@ fn insert_object_state(tx: &Transaction<'_>) -> Result<(), FactsError> {
             .min_by(|left, right| (left.3, &left.4, &left.5).cmp(&(right.3, &right.4, &right.5)))
             .map(|row| row.8.clone())
             .unwrap_or_default();
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO object_state(subject_kind, subject_guid, final_stage, loaded, dispositions, primary_reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![kind, guid, final_stage, loaded, dispositions, primary],
         )?;
@@ -517,7 +525,8 @@ fn insert_load_fact(
         .and_then(|key| issue_keys.get(&key))
         .filter(|keys| keys.len() == 1)
         .and_then(|keys| keys.first());
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO load_fact(subject_kind, subject_key, pipeline_stage, decision_ordinal, subject_guid, context_key, disposition, loaded, reason_code, effective_value_json, issue_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             kind,

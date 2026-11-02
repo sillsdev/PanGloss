@@ -102,7 +102,8 @@ pub(crate) fn insert_authored(
     decisions: &[LoadDecision],
     compile_completed: bool,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO project(singleton, name) VALUES (1, ?1)",
         [&snapshot.project.name],
     )?;
@@ -162,21 +163,23 @@ pub(crate) fn insert_authored(
         }
     }
     for tag in writing_systems {
-        tx.execute("INSERT INTO writing_system(tag) VALUES (?1)", [tag])?;
+        crate::sql::execute(tx, "INSERT INTO writing_system(tag) VALUES (?1)", [tag])?;
     }
     for (role, systems) in [
         ("vernacular", &snapshot.project.vernacular_writing_systems),
         ("analysis", &snapshot.project.analysis_writing_systems),
     ] {
         for (ordinal, tag) in systems.iter().enumerate() {
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO project_writing_system(role, ordinal, writing_system_tag) VALUES (?1, ?2, ?3)",
                 params![role, ordinal as i64, tag],
             )?;
         }
     }
     for (ordinal, character) in snapshot.project.exemplar_characters.iter().enumerate() {
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO project_exemplar_character(ordinal, character) VALUES (?1, ?2)",
             params![ordinal as i64, character],
         )?;
@@ -202,7 +205,8 @@ pub(crate) fn insert_definitions(
     feature_structures: &FeatureStructureIds,
 ) -> Result<(), FactsError> {
     for exception in &snapshot.morphology.exception_features {
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO exception_feature(guid, name, abbreviation) VALUES (?1, ?2, ?3)",
             params![
                 checked_guid(&exception.guid, "exceptionFeature.guid")?,
@@ -220,7 +224,8 @@ pub(crate) fn insert_definitions(
                 .iter()
                 .filter(|region| !region.values.is_empty())
                 .count() as i64;
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO stem_name(guid, category_guid, name, abbreviation, nonempty_region_count) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     guid,
@@ -239,7 +244,8 @@ pub(crate) fn insert_definitions(
                             "stem-name region has no feature structure".into(),
                         )
                     })?;
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO stem_name_region(stem_name_guid, ordinal, fs_id) VALUES (?1, ?2, ?3)",
                     params![guid, ordinal as i64, fs_id],
                 )?;
@@ -251,12 +257,14 @@ pub(crate) fn insert_definitions(
         let fs_id = feature_structures
             .get(&("inflType".into(), guid.clone(), "features".into()))
             .copied();
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO lex_entry_infl_type(guid, name, abbreviation, fs_id) VALUES (?1, ?2, ?3, ?4)",
             params![guid, infl_type.name, infl_type.abbreviation, fs_id],
         )?;
         for (ordinal, slot) in infl_type.slots.iter().enumerate() {
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO lex_entry_infl_type_slot(infl_type_guid, ordinal, slot_guid) VALUES (?1, ?2, ?3)",
                 params![
                     guid,
@@ -311,7 +319,8 @@ fn insert_categories(
 ) -> Result<(), FactsError> {
     for (ordinal, pos) in items.iter().enumerate() {
         let guid = checked_guid(&pos.guid, "category.guid")?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO category(guid, parent_guid, sibling_ordinal, name, abbreviation, default_inflection_class_guid) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 guid,
@@ -327,7 +336,8 @@ fn insert_categories(
         )?;
         for (feature_ordinal, feature_guid) in pos.inflectable_features.iter().enumerate() {
             let feature_guid = checked_guid(feature_guid, "category.inflectableFeature")?;
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO category_feature(category_guid, ordinal, feature_guid) VALUES (?1, ?2, ?3)",
                 params![guid, feature_ordinal as i64, feature_guid],
             )?;
@@ -405,7 +415,8 @@ fn insert_compound_rule(
     head_last: Option<bool>,
     max_applications: Option<i64>,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO compound_rule(guid, kind, name, disabled, head_last, max_applications) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             guid,
@@ -433,7 +444,8 @@ fn insert_compound_side(
         None,
     )?;
     for (ordinal, feature) in requirement.exception_features.iter().enumerate() {
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO compound_rule_exception_feature(rule_guid, side, ordinal, target_guid) VALUES (?1, ?2, ?3, ?4)",
             params![
                 rule_guid,
@@ -473,7 +485,8 @@ fn insert_compound_side_row(
     let inflection_class = inflection_class
         .map(|guid| checked_guid(guid, "compoundRule.inflectionClass"))
         .transpose()?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO compound_rule_side(rule_guid, side, category_guid, inflection_class_guid) VALUES (?1, ?2, ?3, ?4)",
         params![rule_guid, side, category, inflection_class],
     )?;
@@ -488,7 +501,8 @@ fn insert_classes(
 ) -> Result<(), FactsError> {
     for (ordinal, class) in classes.iter().enumerate() {
         let guid = checked_guid(&class.guid, "inflectionClass.guid")?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO inflection_class(guid, owner_category_guid, parent_guid, sibling_ordinal, name, abbreviation) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 guid,
@@ -544,7 +558,8 @@ fn insert_pos_templates(
         let category_guid = checked_guid(&pos.guid, "affixTemplate.categoryGuid")?;
         for slot in &pos.affix_slots {
             let slot_guid = checked_guid(&slot.guid, "affixSlot.guid")?;
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO affix_slot(guid, category_guid, name, optional) VALUES (?1, ?2, ?3, ?4)",
                 params![
                     slot_guid,
@@ -556,7 +571,8 @@ fn insert_pos_templates(
         }
         for template in &pos.affix_templates {
             let template_guid = checked_guid(&template.guid, "affixTemplate.guid")?;
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO affix_template(guid, category_guid, name, disabled, is_final) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     template_guid,
@@ -590,7 +606,8 @@ fn insert_pos_templates(
                         }
                         None => (None, None),
                     };
-                    tx.execute(
+                    crate::sql::execute(
+                        tx,
                         "INSERT INTO template_slot(template_guid, side, ordinal, slot_guid, compiled_order, surface_ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                         params![template_guid, side, ordinal, slot_guid, compiled_order, surface_ordinal],
                     )?;
@@ -677,13 +694,15 @@ fn insert_entry(
 ) -> Result<(), FactsError> {
     let entry_guid = checked_guid(&entry.guid, "lexicon.entries.guid")?;
     let morph_type = enum_string(&entry.lexeme_morph_type)?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO lex_entry(guid, source_ordinal, lexeme_morph_type) VALUES (?1, ?2, ?3)",
         params![entry_guid, entry_ordinal as i64, morph_type],
     )?;
     crate::lexicon::insert_allomorphs(tx, &entry_guid, &entry.allomorphs)?;
     for (ordinal, form) in entry.citation_form.iter().enumerate() {
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO entry_citation_form(entry_guid, ordinal, writing_system, form) VALUES (?1, ?2, ?3, ?4)",
             params![entry_guid, ordinal as i64, form.ws, form.form],
         )?;
@@ -698,13 +717,15 @@ fn insert_entry(
             .as_deref()
             .map(|guid| checked_guid(guid, "lexicon.entries.senses.msa"))
             .transpose()?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO sense(sense_guid, entry_guid, msa_guid) VALUES (?1, ?2, ?3)",
             params![sense_guid, entry_guid, msa_guid],
         )?;
         for (kind, forms) in [("gloss", &sense.gloss), ("definition", &sense.definition)] {
             for (ordinal, form) in forms.iter().enumerate() {
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO sense_text(sense_guid, kind, ordinal, writing_system, text) VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![sense_guid, kind, ordinal as i64, form.ws, form.form],
                 )?;
@@ -722,7 +743,8 @@ fn insert_msa(tx: &Transaction<'_>, entry_guid: &str, msa: &Msa) -> Result<(), F
         Msa::Derivational { .. } => "derivational",
         Msa::Unclassified { .. } => "unclassified",
     };
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO msa(msa_guid, entry_guid, kind) VALUES (?1, ?2, ?3)",
         params![msa_guid, entry_guid, kind],
     )?;
@@ -782,7 +804,8 @@ fn insert_msa(tx: &Transaction<'_>, entry_guid: &str, msa: &Msa) -> Result<(), F
             insert_optional_class(tx, &msa_guid, "to_class", to_inflection_class.as_deref())?;
             if let Some(guid) = from_stem_name {
                 let guid = checked_guid(guid, "MSA stem-name reference")?;
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO msa_stem_name(msa_guid, role, stem_name_guid) VALUES (?1, 'from_stem_name', ?2)",
                     params![msa_guid, guid],
                 )?;
@@ -821,7 +844,8 @@ fn insert_category(
     guid: &str,
 ) -> Result<(), FactsError> {
     let guid = checked_guid(guid, "MSA category reference")?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO msa_category(msa_guid, role, ordinal, category_guid) VALUES (?1, ?2, ?3, ?4)",
         params![msa_guid, role, ordinal as i64, guid],
     )?;
@@ -836,7 +860,8 @@ fn insert_optional_class(
 ) -> Result<(), FactsError> {
     if let Some(guid) = guid {
         let guid = checked_guid(guid, "MSA inflection-class reference")?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO msa_inflection_class(msa_guid, role, class_guid) VALUES (?1, ?2, ?3)",
             params![msa_guid, role, guid],
         )?;
@@ -852,7 +877,8 @@ fn insert_slot(
     guid: &str,
 ) -> Result<(), FactsError> {
     let guid = checked_guid(guid, "MSA slot reference")?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO msa_slot(msa_guid, role, ordinal, slot_guid) VALUES (?1, ?2, ?3, ?4)",
         params![msa_guid, role, ordinal as i64, guid],
     )?;
@@ -867,7 +893,8 @@ fn insert_exception(
     guid: &str,
 ) -> Result<(), FactsError> {
     let guid = checked_guid(guid, "MSA exception-feature reference")?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO msa_exception_feature(msa_guid, role, ordinal, target_guid) VALUES (?1, ?2, ?3, ?4)",
         params![msa_guid, role, ordinal as i64, guid],
     )?;

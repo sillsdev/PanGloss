@@ -21,7 +21,8 @@ pub(crate) fn insert(
 ) -> Result<(), FactsError> {
     for output in outputs {
         let conditioning = output.conditioning.as_ref();
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO compiled_output(output_id, kind, key, owner_output_id, stratum_key, bucket, compiled_order, identity_quality, realization_kind, has_phone_condition, has_morph_gate, gate_signature, is_unconditioned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 i64::from(output.output_id),
@@ -41,7 +42,8 @@ pub(crate) fn insert(
         )?;
     }
     for mapping in mappings {
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO compiled_mapping(source_kind, source_guid, source_key, output_id, relation_role, source_ordinal, identity_quality) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 mapping.source_kind,
@@ -86,7 +88,8 @@ fn insert_form_segments(
 ) -> Result<(), FactsError> {
     for (output_id, segments) in form_segments {
         for (ordinal, segment) in segments.iter().enumerate() {
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO compiled_form_segment(output_id, ordinal, segment_kind, phoneme_guid, boundary_guid, natural_class_guid, token_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     i64::from(*output_id),

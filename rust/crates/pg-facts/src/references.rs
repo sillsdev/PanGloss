@@ -235,7 +235,8 @@ impl Writer<'_, '_> {
             .or_insert(0);
         let ordinal = *slot;
         *slot += 1;
-        self.tx.execute(
+        crate::sql::execute(
+            self.tx,
             "INSERT INTO statement_reference(target_kind, target_guid, referrer_kind, referrer_guid, role, ordinal, parser_effect) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 reference.target_kind,
