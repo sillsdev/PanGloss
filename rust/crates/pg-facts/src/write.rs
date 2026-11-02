@@ -561,8 +561,7 @@ mod tests {
 
     const CONTEXT: &[u8] = br#"{"format":"pangloss-facts-context","version":1,"baselineToken":{"id":"commit-count"},"inputKind":"baseline","dryRunDigest":null}"#;
 
-    #[test]
-    fn facts_write_commits_schema_and_rows_once() {
+    fn fixture_source() -> Vec<u8> {
         let snapshot = Snapshot::new(
             Project {
                 name: "Commit-count fixture".into(),
@@ -595,7 +594,18 @@ mod tests {
             Morphology::default(),
             Lexicon::default(),
         );
-        let source = snapshot.to_json().into_bytes();
+        snapshot.to_json().into_bytes()
+    }
+
+    const PRODUCER: ProducerIdentity<'static> = ProducerIdentity {
+        compiler_version: "0.8.3",
+        source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    };
+
+    #[test]
+    fn facts_write_commits_schema_and_rows_once() {
+        let source = fixture_source();
         let temporary = tempdir().unwrap();
         let output = temporary.path().join("facts.sqlite");
         let commits = Arc::new(AtomicUsize::new(0));
@@ -605,11 +615,7 @@ mod tests {
             &source,
             CONTEXT,
             &output,
-            ProducerIdentity {
-                compiler_version: "0.8.3",
-                source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            },
+            PRODUCER,
             None,
             move |connection| {
                 connection.commit_hook(Some(move || {
@@ -678,5 +684,71 @@ mod tests {
             .query_row("PRAGMA ignore_check_constraints", [], |row| row.get(0))
             .unwrap();
         assert_eq!(ignoring, 0);
+    }
+
+    fn names_in(directory: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_output_name_appears_only_after_the_file_is_built_and_verified() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let directory = temporary.path().to_path_buf();
+        let output = directory.join("facts.sqlite");
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let hook_seen = Arc::clone(&seen);
+        let hook_output = output.clone();
+        let hook_directory = directory.clone();
+
+        write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            PRODUCER,
+            None,
+            move |connection| {
+                connection.commit_hook(Some(move || {
+                    hook_seen
+                        .lock()
+                        .unwrap()
+                        .push((hook_output.exists(), names_in(&hook_directory)));
+                    false
+                }));
+            },
+        )
+        .unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        let (output_existed, names) = &seen[0];
+        assert!(
+            !output_existed,
+            "the final name must not exist while rows are written"
+        );
+        assert!(
+            !names.is_empty() && names.iter().all(|name| name.starts_with(".tmp")),
+            "only temporary files exist mid-write: {names:?}"
+        );
+        assert_eq!(names_in(&directory), ["facts.sqlite"]);
+    }
+
+    #[test]
+    fn an_aborted_write_leaves_neither_the_output_nor_a_temporary_file() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let output = temporary.path().join("facts.sqlite");
+
+        let result = write_facts_inner(&source, CONTEXT, &output, PRODUCER, None, |connection| {
+            connection.commit_hook(Some(|| true));
+        });
+
+        assert!(result.is_err());
+        assert_eq!(names_in(temporary.path()), Vec::<String>::new());
     }
 }
