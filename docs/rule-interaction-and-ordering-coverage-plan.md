@@ -51,7 +51,7 @@ conformance grammar", because rules are not in the model.
 | Sense | Where | Covered today |
 |---|---|---|
 | Morphotactic slot/template order (d5, the proposer) | dead-end census | per grammar |
-| Within-rule application mode (simultaneous vs iterative) | `multipleApplicationOrder` | **live fixture** in `machine/conformance/languages/templatic-root-modification` (`prSimulFeeding`/`prIterFeedingControl`, identical Lhs/Env, different pinned outputs under different POS gates) |
+| Within-rule application mode (simultaneous vs iterative) | `multipleApplicationOrder` | **live fixture** in `conformance/languages/templatic-root-modification` (`prSimulFeeding`/`prIterFeedingControl`, identical Lhs/Env, different pinned outputs under different POS gates) |
 | Between-rule cascade order (A feeds/bleeds B) | `ReplaceCascadeSpec.rules` | **nothing** |
 
 `docs/research/grammar-feature-space.md` cites that feeding/bleeding pair as living in

@@ -8,7 +8,7 @@ restructure (task #7) — both touch the same test-harness files.
 All conformance grammars belong in the `machine` repo's suite at the end of the day, but
 acceptance there can't always happen right away. PanGloss therefore gets a committed staging
 space + mechanism so a bug fix can land WITH its conformance fixture immediately — no waiting
-on machine review, no waiting on a submodule bump — and the fixture is REMOVED here once
+on machine review, no waiting on a pin bump — and the fixture is REMOVED here once
 accepted upstream. This unblocks the standing policy "every bug fix lands with a conformance
 addition" (see the `worktree-foma-diacritics-fix` commit message) from the upstream loop.
 
@@ -18,24 +18,24 @@ addition" (see the `worktree-foma-diacritics-fix` commit message) from the upstr
 
 `conformance-staging/` at the PanGloss repo root, COMMITTED (never gitignored — these are
 small synthetic fixtures with no licensing/privacy constraints; that's what distinguishes them
-from `samples/data`'s real-language corpora). Layout mirrors `machine/conformance` exactly
+from `samples/data`'s real-language corpora). Layout mirrors `conformance` exactly
 (`edge-cases/<fixture-name>/`, `languages/<fixture-name>/`, same file anatomy per
-`machine/conformance/PROTOCOL.md`), so graduation is a pure copy into a machine PR with zero
+`conformance/PROTOCOL.md`), so graduation is a pure copy into a `sillsdev/fieldworks-parser-conformance` PR with zero
 reshaping. Each staged fixture additionally carries a `STAGING.md` (why it exists, what bug it
 pins, which engine generated `expected.tsv`, upstream PR link once opened, and exactly one promotion
 status: `local_regression`, `upstream_candidate`, `upstream_submitted`, `upstream_accepted`, or
-`pangloss_specific`). Once an accepted semantic fixture appears in the pinned Machine submodule,
+`pangloss_specific`). Once an accepted semantic fixture appears in the pinned `conformance/` suite,
 the local duplicate is removed. FST/package/resource/diagnostic fixtures are
 `pangloss_specific` and are never promoted merely because they mention HermitCrab.
 
 ### The mechanism
 
 1. **Discovery**: the in-repo conformance-driven tests enumerate fixtures from BOTH roots —
-   `machine/conformance/**` (when the submodule is initialized) and `conformance-staging/**`
+   `conformance/**` (once fetched at `conformance.commit`) and `conformance-staging/**`
    (always present). One shared helper, not per-test copies of path logic.
 2. **Graduation guard** (the "removed when accepted" enforcement): a fast, always-on test that
    FAILS if the same fixture name exists under both roots, with the message "accepted upstream
-   — delete the staged copy". So a submodule bump that brings a graduated fixture in forces
+   — delete the staged copy". So a `conformance.commit` bump that brings a graduated fixture in forces
    the staging deletion in the same change; divergence between a staged copy and its accepted
    twin is structurally impossible.
 3. **Default-suite/CI fit**: staged fixtures are committed and small, so they run in the
@@ -68,16 +68,16 @@ delete the dead tests), un-ignoring whatever survives.
 
 `.claude/skills/conformance-grammars/` — ONE skill covering the full lifecycle, triggering on
 "write/add/update a conformance grammar/fixture/test":
-- **Author**: fixture anatomy per `machine/conformance/PROTOCOL.md` (grammar.xml =
+- **Author**: fixture anatomy per `conformance/PROTOCOL.md` (grammar.xml =
   HermitCrabInput; words file; expected.tsv format + signature algorithm), naming conventions
   (edge-cases vs languages), minimality bar (smallest grammar that pins the behavior), oracle
   discipline (above).
 - **Stage**: where to put it (`conformance-staging/`), the required `STAGING.md`, how the
   dual-root discovery picks it up, verifying it runs in the default suite.
 - **Update**: editing an existing fixture (machine-owned fixtures are edited via machine PRs,
-  never patched in the submodule checkout; staged ones are edited in place).
-- **Graduate**: open the machine PR (conformance-framework branch), on acceptance bump the
-  submodule and DELETE the staged copy in the same commit; the graduation guard enforces it.
+  never patched in the suite clone; staged ones are edited in place).
+- **Graduate**: open the machine PR (conformance-framework branch), on acceptance bump
+  `conformance.commit` and DELETE the staged copy in the same commit; the graduation guard enforces it.
 
 ## Pathology-mimic fixtures (John's directive, 2026-07-17)
 

@@ -170,7 +170,7 @@ are small (`[[build-for-full-scale-grammars]]`); design for 10⁴–10⁵ entrie
   structure (Sena has 72 env constraints and zero rewrite rules, yet d1 was <2% and d5
   dominated).
 - **Worktree agent traps** apply to every build agent: no `git stash` (shared across
-  worktrees), `--ignore-submodules=all`, copy gitignored `samples/data` + `machine/conformance`
+  worktrees), `--ignore-submodules=all`, copy gitignored `samples/data` + `conformance`
   fixtures, run gates foreground, don't trust timing measured while siblings compile. See
   `[[worktree-agent-traps]]`.
 - **Verify the worktree base FIRST — this has bitten twice.** A freshly created worktree is

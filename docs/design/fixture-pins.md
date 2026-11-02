@@ -19,7 +19,7 @@ the legacy gates did, and it failed exactly the way this repo's central rule pre
 sites across 14 test files pointed at a `rust/conformance/` layout that does not exist in this
 tree.** They skipped twice over: once on `#[ignore]`, and again on the guard, which survives
 `--include-ignored`. A fixture-layout migration retired the v1 paths underneath them, some fixtures
-were carried into `machine/conformance/edge-cases/` under new names and some were not, and no test
+were carried into `conformance/edge-cases/` under new names and some were not, and no test
 failed at any point. The flagship demonstration of oracle discipline — the W3.3 discontinuous-morph
 pin CLAUDE.md cites by name — was among them, protecting nothing since July.
 
@@ -43,7 +43,7 @@ test keyed to a location is a test with an expiry date.
    found only one of them.
 3. **Filtering discovery on `root == Root::Staging`.** The subtlest, because it uses the discovery
    API and still looks right. It asserts the fixture is *staged*, which graduation is guaranteed to
-   falsify. Bumping the submodule pin and deleting four graduated copies broke seven tests this way
+   falsify. Bumping the suite pin and deleting four graduated copies broke seven tests this way
    at once. A repo-wide sweep (2026-09) found this shape well beyond the two `compounding-non-recursive`
    sites (`cross_compiler_equivalence_gate.rs`, `uflexc_compound_loop.rs`) that first surfaced it:
    roughly a dozen more single-fixture lookups across `pg-foma`/`pg-foma-backend`/`pg-cli` test files, plus three

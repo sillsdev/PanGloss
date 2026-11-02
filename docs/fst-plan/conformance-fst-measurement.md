@@ -945,17 +945,17 @@ pwsh -File pg.ps1 -Mode build -Package pg-cli
 PG=C:/cargo-targets/conformance-fst-measure/release/pangloss.exe
 
 # Q1 -- MprGroupOverwrite's real capability verdict (two fixtures with a real, touched Overwrite group)
-$PG parse machine/conformance/languages/fusional-realizational-morphology/grammar.xml xyz \
+$PG parse conformance/languages/fusional-realizational-morphology/grammar.xml xyz \
     --engine=foma --no-enforce-capability
-$PG parse machine/conformance/languages/suffixing-extension-slot-ordering/grammar.xml xyz \
+$PG parse conformance/languages/suffixing-extension-slot-ordering/grammar.xml xyz \
     --engine=foma --no-enforce-capability
 # -> both: "capability: ConfirmOnly [advisory/preview ...]" -- never Refuse
 
 # Q2 -- POS-gated phonological subrule, mainline engine
 printf "pat\nbat\n" > words.txt
-$PG batch machine/conformance/edge-cases/subrule-morphosyntactic-gating/grammar.xml words.txt out.tsv \
+$PG batch conformance/edge-cases/subrule-morphosyntactic-gating/grammar.xml words.txt out.tsv \
     --engine=foma --threads 1
-$PG fst-health machine/conformance/edge-cases/subrule-morphosyntactic-gating/grammar.xml words.txt \
+$PG fst-health conformance/edge-cases/subrule-morphosyntactic-gating/grammar.xml words.txt \
     health.json
 # -> out.tsv matches oracle exactly; health.json shows 18 candidates / 2 confirmed (9x over-generation)
 
@@ -966,11 +966,11 @@ $PG batch conformance-staging/edge-cases/unbounded-iterative-quantifier-expansio
 # -> matches STAGING.md's recorded oracle output exactly, including eccccct (5-consonant witness)
 
 # Q4 -- ordinary-subrule MPR exclusion, mainline engine
-grep -E "^\s*- word:" machine/conformance/edge-cases/mpr-gated-exception/words.yaml \
+grep -E "^\s*- word:" conformance/edge-cases/mpr-gated-exception/words.yaml \
     | sed -E 's/^\s*- word:\s*//' > words.txt
-$PG batch machine/conformance/edge-cases/mpr-gated-exception/grammar.xml words.txt out.tsv \
+$PG batch conformance/edge-cases/mpr-gated-exception/grammar.xml words.txt out.tsv \
     --engine=foma --threads 1
-$PG fst-health machine/conformance/edge-cases/mpr-gated-exception/grammar.xml words.txt health.json
+$PG fst-health conformance/edge-cases/mpr-gated-exception/grammar.xml words.txt health.json
 # -> out.tsv matches oracle exactly (vokadan correctly "-"); health.json shows 9 candidates / 8
 #    confirmed, 11.1% rejection share -- exactly one over-proposed-then-rejected candidate (vokadan)
 ```

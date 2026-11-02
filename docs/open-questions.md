@@ -173,7 +173,7 @@ defect; PanGloss matches the founding oracle. C# renders a word's surface throug
 table (`Word.cs:576`, `Shape.ToRegexString(Stratum.CharacterDefinitionTable, true)`), and a synthesized
 word takes its stratum from its root entry (`Word.cs:145`) and is never reassigned during synthesis.
 `Morpher::surface_of` does the same, so an inner-stratum root is rendered with the inner table. The
-upstream fixture `machine/conformance/edge-cases/cross-table-root-respelling` records exactly this from
+upstream fixture `conformance/edge-cases/cross-table-root-respelling` records exactly this from
 the oracle: for `tu`, the ROOT1 analysis is `ROOT1+SUF|m` with the suffix's segment absent, because the
 inner table has no matching segment, and the fixture's note states that `Word.Stratum` "tracks where the
 analysis bottomed out". The default `conformance_fixtures_gate` replays that fixture and passes

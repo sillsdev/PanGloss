@@ -34,11 +34,11 @@ forms that instantiate that shape — never the sources' own examples.
 
 **Method.** The construct vocabulary combines two sources, per the assignment:
 `rust/crates/pg-foma/src/capability.rs`'s 20 `CharacteristicKind` variants (the compiler's own
-capability-envelope inventory, `CharacteristicKind::ALL`), and `machine/conformance/constructs.txt`'s
+capability-envelope inventory, `CharacteristicKind::ALL`), and `conformance/constructs.txt`'s
 25-row conformance checklist (12 of whose rows have no `CharacteristicKind` at all — see
 `openspec/changes/plan-construct-coverage-completion/design.md` D3). Coverage status below was
 checked directly against every `exercises:` value actually present in
-`machine/conformance/languages/*/words.yaml` and `machine/conformance/edge-cases/*/words.yaml`
+`conformance/languages/*/words.yaml` and `conformance/edge-cases/*/words.yaml`
 (not inferred) — a construct is marked "covered" only if some existing fixture's `words.yaml`
 actually cites it.
 
@@ -49,7 +49,7 @@ actually cites it.
 ### 1.1 Already representatively covered — no new pattern needed
 
 These 21 of 25 `constructs.txt` rows are each cited by at least one existing
-`machine/conformance/languages/*` or `edge-cases/*` fixture's `exercises:` list today, and the
+`conformance/languages/*` or `edge-cases/*` fixture's `exercises:` list today, and the
 existing fixture's own pattern is typologically well-motivated (not a toy-grammar artefact). No new
 fixture is proposed for any of these; each entry below is deliberately brief per the assignment's own
 "the gap list matters more than the covered list."
@@ -491,9 +491,9 @@ Each is included here only so a future reader does not mistake "not discussed ab
 ### 1.4 No solid representative pattern found
 
 - **`Tracing (TraceType)`** — the one `constructs.txt` row cited by **zero** fixtures anywhere in
-  `machine/conformance/languages/`, `machine/conformance/edge-cases/`, or `conformance-staging/`
+  `conformance/languages/`, `conformance/edge-cases/`, or `conformance-staging/`
   (confirmed by direct search: `Tracing`/`TraceType` appear only in `constructs.txt` itself,
-  `parity-check.py`, and `README.md`). `machine/conformance/README.md` states this explicitly:
+  `parity-check.py`, and `README.md`). `conformance/README.md` states this explicitly:
   *"`Tracing (TraceType)` is out of scope — it was never in `expected.tsv`'s domain."* This is
   flagged honestly rather than papered over: **Tracing is not a cross-linguistic morphological or
   phonological phenomenon at all** — it is an engine-internal verification mechanism (does a traced
