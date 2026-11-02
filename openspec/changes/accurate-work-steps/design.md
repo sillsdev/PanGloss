@@ -66,7 +66,7 @@ is the most stable weight (1.8x across grammars); registers copied varies 3.6x.
 
 ### D4: Report-only before charged
 
-New counts first appear beside `work_steps`, in a separate `cost_units` value that no decision reads.
+New counts first appear beside `work_steps`, in a separate `ParseOutcome.cost` value that no decision reads.
 Only after the acceptance test passes do they move into the budget. Moving them changes which words
 hit `CAP`, so that step is output-affecting: it bumps `SEARCH_BUDGET_SEMANTICS`, recalibrates the
 default cap and updates divergence 052.

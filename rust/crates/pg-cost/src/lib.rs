@@ -1,6 +1,6 @@
 //! Deterministic parse cost: fixed weights over work units, bytes allocated and registers copied.
 //!
-//! Cost is a report. No cap, deadline or parse decision reads it, so it cannot change a parse.
+//! Cost is a report, never an input to parsing.
 //! The weights are constants of the code, not of a grammar: see `docs/design/parse-cost.md`.
 
 #![deny(unsafe_code)]

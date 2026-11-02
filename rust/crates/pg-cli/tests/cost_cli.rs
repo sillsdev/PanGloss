@@ -199,6 +199,29 @@ fn cost_compare_reads_two_cost_runs_into_a_verdict() {
 }
 
 #[test]
+fn cost_compare_gives_no_percent_when_no_word_is_comparable() {
+    let (run, _) = batch("nothing-comparable", &["--cost-column"]);
+    let capped = run.with_file_name("all-capped.tsv");
+    let rows: String = std::fs::read_to_string(&run)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let mut fields: Vec<&str> = line.split('\t').collect();
+            if fields.len() >= 5 {
+                fields[3] = "CAP";
+            }
+            fields.join("\t") + "\n"
+        })
+        .collect();
+    std::fs::write(&capped, rows).unwrap();
+
+    let result = verdict(&run, &capped);
+    assert_eq!(result["verdict"], "inconclusive");
+    assert_eq!(result["percent"], Value::Null);
+    assert_eq!(result["excludedWords"], 3);
+}
+
+#[test]
 fn cost_compare_refuses_a_run_without_the_cost_column() {
     let (plain, _) = batch("no-cost", &[]);
     let (work, _) = batch("no-cost-work", &["--work-columns"]);

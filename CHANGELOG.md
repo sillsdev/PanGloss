@@ -3,6 +3,25 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.13.0
+
+### Interface changes
+
+- `pangloss batch --cost-column` adds a deterministic `cost` as the last numeric field of each row: work plus bytes allocated plus FST registers copied, at fixed weights (676, 2, 268). `--stats` with it is refused. `pangloss cost-compare <before.tsv> <after.tsv> [--json]` gives a better-or-worse verdict from two such runs, totals only words that finished `ok` on both, and reports `inconclusive` if any word's status changed. Cost is a report; it reads no differently on a loaded machine and decides nothing in a parse. It sees changes in counted work, not constant-factor speedups. See `docs/design/parse-cost.md`. `batchTsv` stays 4.
+- `withoutWorkLimits()` on the WASM binding and `AnalysisPolicy::without_limits()` turn off the work cap for a deployed grammar. The default keeps it: an uncapped word can run for minutes or exhaust WASM memory.
+- `pangloss` now uses a counting global allocator; it counts only when `--cost-column` is set. The rest of the default path measured about 1% or less more instructions, which is within the noise of a no-change control on these runs.
+- Building with the `cost-calibration` feature adds a developer `cost-calibrate` command for retuning the fixed weights. Release binaries do not include it.
+- `rust/tools/instruction-compare.ps1` compares two `pangloss` binaries per grammar in retired instructions, with a go/no-go line (#124).
+
+### Performance
+
+- FST traversal hashes its visited set with FxHash, doing the same work 16-48% cheaper (#123).
+- Disagreeing reduplication copies are pruned in grammars with no phonological features (#122).
+
+### Parse results
+
+- Completed parse results are unchanged by this release's cost and speed changes.
+
 ## 0.12.3
 
 ### Parse results

@@ -21,7 +21,7 @@ Heavy measurement, policy and code are separate tasks. Real-language data is nev
 ## 3. Report-only size charges
 
 - [ ] 3.0 Speedup, separate from this signal work: about 27-54% of instructions are SipHash in one `HashMap` in `pg_fst::traverse`; prove no iteration-order dependence, then file or fix it
-- [x] 3.1 Add `cost_units` for allocated bytes and registers copied, read by no cap, deadline or decision
+- [x] 3.1 Add `ParseOutcome.cost` for allocated bytes and registers copied, read by no cap, deadline or decision
 - [ ] 3.2 Gate: parses, `work_steps` and `CAP` byte-identical to the base build across conformance
 - [x] 3.3 Measurement: fit against stored instructions, per grammar and held out by grammar
 - [x] 3.4 Decide: which categories earn a charge, recorded in `design.md`

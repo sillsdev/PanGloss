@@ -122,7 +122,7 @@ fn compare(
     let total_before = sum(counted().map(|(a, _)| a.cost).collect())?;
     let total_after = sum(counted().map(|(_, b)| b.cost).collect())?;
     if total_before == 0 && status_changes == 0 {
-        return Err("the first run has no measured cost".into());
+        return Err("no word with a measured cost finished ok on both runs".into());
     }
     let percent = if total_before == 0 {
         0.0
@@ -164,6 +164,7 @@ pub(crate) fn run_cost_compare(args: &[String]) -> Result<(), String> {
         parse_rows(&text, path)
     };
     let result = compare(&read(before_path)?, &read(after_path)?)?;
+    let percent = (result.before > 0).then_some(result.percent);
     if json {
         println!(
             "{}",
@@ -171,7 +172,7 @@ pub(crate) fn run_cost_compare(args: &[String]) -> Result<(), String> {
                 "words": result.words,
                 "before": result.before,
                 "after": result.after,
-                "percent": result.percent,
+                "percent": percent,
                 "verdict": result.verdict,
                 "parseChanges": result.parse_changes,
                 "excludedWords": result.excluded_words,
@@ -179,10 +180,10 @@ pub(crate) fn run_cost_compare(args: &[String]) -> Result<(), String> {
             })
         );
     } else {
+        let change = percent.map_or("no comparable".to_string(), |p| format!("{p:+.2}%"));
         println!(
-            "{}: {:+.2}% cost over {} of {} words",
+            "{}: {change} cost over {} of {} words",
             result.verdict,
-            result.percent,
             result.words - result.excluded_words,
             result.words
         );
