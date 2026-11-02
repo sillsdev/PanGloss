@@ -60,10 +60,16 @@ def totals(path, pids):
     wanted = set(pids)
     last, tid_pid = {}, {}
     instructions = {p: 0 for p in pids}
-    state = {"switches": 0, "gaps_on_target": 0, "counters": 0}
+    state = {"switches": 0, "gaps_on_target": 0, "counters": 0, "callback_errors": 0}
     target_tids = set()
 
     def on_event(record):
+        try:
+            handle_event(record)
+        except Exception:
+            state["callback_errors"] += 1
+
+    def handle_event(record):
         r = record.contents
         h = r.EventHeader
         if h.ProviderId.a != THREAD_PROVIDER_A:
@@ -123,6 +129,7 @@ def totals(path, pids):
         "switches": state["switches"],
         "counters": state["counters"],
         "gaps_on_target": state["gaps_on_target"],
+        "callback_errors": state["callback_errors"],
         "threads": {str(p): sum(1 for t in target_tids if tid_pid.get(t) == p) for p in pids},
         "instructions": {str(p): v for p, v in instructions.items()},
     }

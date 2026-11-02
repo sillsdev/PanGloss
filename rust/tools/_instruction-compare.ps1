@@ -4,10 +4,12 @@ function Read-BatchSignatures {
     # idx -> "status<TAB>signature" for every result row of a batch TSV; the word column is never kept.
     param([Parameter(Mandatory)][string]$Path)
     $rows = @{}
-    foreach ($line in [System.IO.File]::ReadLines($Path)) {
+    foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
         $f = $line.Split("`t")
         if ($f.Count -lt 5 -or $f[2] -eq 'STARTED') { continue }
-        $rows[[int]$f[0]] = "$($f[3])`t$($f[4])"
+        $idx = 0
+        if (-not [int]::TryParse($f[0], [ref]$idx)) { throw "a result row has a non-numeric index field (row $($rows.Count + 1)); batch output is not in the expected format" }
+        $rows[$idx] = "$($f[3])`t$($f[4])"
     }
     return $rows
 }
@@ -45,16 +47,20 @@ function Get-InstructionVerdict {
         [Parameter(Mandatory)][double[]]$AfterNet,
         [Parameter(Mandatory)][int]$DifferingWords,
         [double]$NoiseMultiple = 2.0,
-        [double]$MinPercent = 0.5
+        [double]$MinPercent = 0.5,
+        [double]$EmptySpreadInstructions = 0.0,
+        [string]$Problem = ''
     )
     $refuse = { param($why) [PSCustomObject]@{ Refused = $true; Reason = $why; Verdict = 'REFUSED'; DeltaPercent = $null; NoisePercent = $null; ThresholdPercent = $null } }
+    if ($Problem) { return & $refuse $Problem }
     if ($DifferingWords -gt 0) { return & $refuse "$DifferingWords word(s) differ in status or signature between the binaries; an instruction count compares only identical parses" }
     if ($BeforeNet.Count -lt 2 -or $AfterNet.Count -lt 2) { return & $refuse 'each side needs at least 2 measured runs to measure run-to-run noise' }
+    if (@($BeforeNet + $AfterNet | Where-Object { $_ -le 0 }).Count -gt 0) { return & $refuse 'a run counted no instructions beyond startup, so its net count is meaningless' }
     $meanBefore = ($BeforeNet | Measure-Object -Average).Average
     $meanAfter = ($AfterNet | Measure-Object -Average).Average
     if ($meanBefore -le 0 -or $meanAfter -le 0) { return & $refuse 'a side counted no instructions beyond startup, so the word list gave it nothing to measure' }
     $delta = 100.0 * ($meanAfter - $meanBefore) / $meanBefore
-    $noise = [Math]::Max((Get-SpreadPercent $BeforeNet), (Get-SpreadPercent $AfterNet))
+    $noise = [Math]::Max((Get-SpreadPercent $BeforeNet), (Get-SpreadPercent $AfterNet)) + 100.0 * $EmptySpreadInstructions / $meanBefore
     $threshold = [Math]::Max($NoiseMultiple * $noise, $MinPercent)
     $verdict = if ($delta -le -$threshold) { 'GO' } elseif ($delta -ge $threshold) { 'NO-GO (regression beyond noise)' } else { 'NO-GO (within noise)' }
     return [PSCustomObject]@{ Refused = $false; Reason = $null; Verdict = $verdict; DeltaPercent = $delta; NoisePercent = $noise; ThresholdPercent = $threshold }
@@ -75,6 +81,7 @@ function Assert-TraceIntact {
     if ($Report.events_lost -gt 0 -or $Report.buffers_lost -gt 0) {
         throw "trace lost events ($($Report.events_lost) events, $($Report.buffers_lost) buffers); the counts would be short by an unknown amount"
     }
+    if ($Report.callback_errors -gt 0) { throw "$($Report.callback_errors) trace event(s) failed to process; the counts would be short by an unknown amount" }
     if ($Report.switches -le 0 -or $Report.counters -lt 1) { throw 'trace carries no counter values on context switches; the PMC tasks did not record hardware counters' }
     if ($Report.gaps_on_target -gt 0) { throw "$($Report.gaps_on_target) context-switch gap(s) touched a measured process; its instruction count is incomplete" }
     foreach ($p in $Pids) {
@@ -109,4 +116,32 @@ function New-MeasurementPlan {
         }
     }
     return $plan
+}
+
+function Assert-DistinctPids {
+    param([Parameter(Mandatory)][int[]]$Pids)
+    $dup = @($Pids | Group-Object | Where-Object Count -gt 1)
+    if ($dup.Count -gt 0) { throw "$($dup.Count) process id(s) were used by more than one run; their instructions would merge in the trace" }
+}
+
+function Get-ComparabilityProblem {
+    # $null when the two result sets are comparable, otherwise the reason they are not.
+    param([int]$Words, [int]$SkippedBefore, [int]$SkippedAfter, [int]$RowsBefore, [int]$RowsAfter, [int]$InputWords)
+    if ($Words -eq 0) { return 'no words were compared' }
+    if ($SkippedBefore + $SkippedAfter -gt 0) { return "$($SkippedBefore + $SkippedAfter) result row(s) are SKIPPED, so those words were never parsed" }
+    if ($RowsBefore -ne $InputWords -or $RowsAfter -ne $InputWords) { return "result rows ($RowsBefore before, $RowsAfter after) do not match the $InputWords input word(s)" }
+    return $null
+}
+
+function Test-RepeatsIdentical {
+    param([Parameter(Mandatory)][double[]]$Values)
+    return @($Values | Select-Object -Unique).Count -le 1
+}
+
+function Get-VerdictExitCode {
+    # 0 every grammar GO, 10 any NO-GO, 3 any grammar refused (refusal wins), 2 is reserved for whole-run refusals.
+    param([Parameter(Mandatory)][string[]]$Verdicts)
+    if ($Verdicts -contains 'REFUSED') { return 3 }
+    if (@($Verdicts | Where-Object { $_ -ne 'GO' }).Count -gt 0) { return 10 }
+    return 0
 }

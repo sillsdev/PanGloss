@@ -86,13 +86,14 @@ Test-Case 'absent PMC tasks are refused by name' {
 }
 
 Test-Case 'a trace that lost events, lacks counters, has gaps, or missed a pid is refused' {
-    $good = [PSCustomObject]@{ rc = 0; events_lost = 0; buffers_lost = 0; switches = 10; counters = 3; gaps_on_target = 0; instructions = [PSCustomObject]@{ '41' = 5e6 } }
+    $good = [PSCustomObject]@{ rc = 0; events_lost = 0; buffers_lost = 0; switches = 10; counters = 3; gaps_on_target = 0; callback_errors = 0; instructions = [PSCustomObject]@{ '41' = 5e6 } }
     Assert-TraceIntact -Report $good -Pids @(41)
     foreach ($case in @(
             @{ Field = 'events_lost'; Value = 2; Match = 'lost events' },
             @{ Field = 'buffers_lost'; Value = 1; Match = 'lost events' },
             @{ Field = 'switches'; Value = 0; Match = 'no counter values' },
             @{ Field = 'gaps_on_target'; Value = 1; Match = 'gap' },
+            @{ Field = 'callback_errors'; Value = 4; Match = 'failed to process' },
             @{ Field = 'rc'; Value = 5; Match = 'unreadable' })) {
         $bad = $good.PSObject.Copy()
         $bad.($case.Field) = $case.Value
@@ -127,6 +128,58 @@ Test-Case 'the plan alternates which side runs first and gives each side an empt
 
 Test-Case 'arguments with spaces are quoted for the child process' {
     Assert-Equal 'batch "a b.xml" c.txt' (ConvertTo-ArgumentString @('batch', 'a b.xml', 'c.txt'))
+}
+
+Test-Case 'duplicate pids are refused and distinct pids pass' {
+    Assert-DistinctPids -Pids @(10, 11, 12)
+    $threw = $false
+    try { Assert-DistinctPids -Pids @(10, 11, 10) } catch { $threw = $true }
+    Assert-True $threw
+}
+
+Test-Case 'the empty-list spread widens the noise and can turn a GO into a NO-GO' {
+    $plain = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(970000, 970000) -DifferingWords 0
+    Assert-Equal 'GO' $plain.Verdict
+    $noisy = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(970000, 970000) -DifferingWords 0 -EmptySpreadInstructions 20000
+    Assert-Equal 'NO-GO (within noise)' $noisy.Verdict
+    Assert-True ($noisy.NoisePercent -ge 2)
+}
+
+Test-Case 'a non-positive single net is refused even when the mean is positive' {
+    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(2000000, -5) -DifferingWords 0
+    Assert-True $v.Refused
+}
+
+Test-Case 'comparability: zero words, SKIPPED rows and row-count mismatch are each refused' {
+    Assert-Equal $null (Get-ComparabilityProblem -Words 5 -SkippedBefore 0 -SkippedAfter 0 -RowsBefore 5 -RowsAfter 5 -InputWords 5)
+    Assert-True ((Get-ComparabilityProblem -Words 0 -SkippedBefore 0 -SkippedAfter 0 -RowsBefore 0 -RowsAfter 0 -InputWords 0) -match 'no words')
+    Assert-True ((Get-ComparabilityProblem -Words 5 -SkippedBefore 1 -SkippedAfter 0 -RowsBefore 5 -RowsAfter 5 -InputWords 5) -match 'SKIPPED')
+    Assert-True ((Get-ComparabilityProblem -Words 5 -SkippedBefore 0 -SkippedAfter 0 -RowsBefore 5 -RowsAfter 4 -InputWords 5) -match 'do not match')
+    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(500000, 500000) -DifferingWords 0 -Problem 'x'
+    Assert-True $v.Refused
+}
+
+Test-Case 'a non-numeric index field is refused without echoing its text' {
+    $dir = New-TestTempDir
+    try {
+        $p = Write-Batch $dir 'bad.tsv' @("SECRETTEXT`tw`t1`tok`tsig")
+        $msg = ''
+        try { Read-BatchSignatures $p | Out-Null } catch { $msg = $_.Exception.Message }
+        Assert-True ($msg.Length -gt 0) 'must refuse'
+        Assert-False ($msg -match 'SECRETTEXT') 'the refusal echoed row text'
+    } finally { Remove-Item -LiteralPath $dir -Recurse -Force }
+}
+
+Test-Case 'pinned repeats must be identical to the instruction' {
+    Assert-True (Test-RepeatsIdentical @(5, 5, 5))
+    Assert-False (Test-RepeatsIdentical @(5, 6))
+}
+
+Test-Case 'exit code: all GO is 0, any NO-GO is 10, any refusal is 3 and wins' {
+    Assert-Equal 0 (Get-VerdictExitCode @('GO', 'GO'))
+    Assert-Equal 10 (Get-VerdictExitCode @('GO', 'NO-GO (within noise)'))
+    Assert-Equal 10 (Get-VerdictExitCode @('NO-GO (regression beyond noise)'))
+    Assert-Equal 3 (Get-VerdictExitCode @('NO-GO (within noise)', 'REFUSED'))
 }
 
 Write-TestSummary
