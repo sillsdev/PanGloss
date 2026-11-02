@@ -1215,6 +1215,7 @@ fn sample_object_row(no_root: i64) -> pg_stats::PerObjectRow {
         surface_mismatch: 0,
         uses: 1,
         self_time_ns: 150,
+        work_steps: 0,
     }
 }
 
@@ -1579,6 +1580,7 @@ fn a_shown_row_states_its_share_of_every_matched_row_not_of_the_excerpt() {
         outputs: Some(0),
         uses: Some(0),
         work: Some(0),
+        work_steps: None,
         not_applied: Some(0),
         no_root: Some(0),
         surface_mismatch: Some(0),
@@ -2134,6 +2136,7 @@ fn newly_timed_object_kinds_render_self_time() {
             surface_mismatch: 0,
             uses: 0,
             self_time_ns: 0,
+            work_steps: 0,
         };
         assert_eq!(object_row_view(&row).self_time_ns, Some(0), "{kind}");
     }
@@ -2161,6 +2164,7 @@ fn timed_object_kinds_render_their_self_time() {
             surface_mismatch: 0,
             uses: 0,
             self_time_ns: 7,
+            work_steps: 0,
         };
         assert_eq!(object_row_view(&row).self_time_ns, Some(7), "{kind}");
     }
@@ -2180,6 +2184,7 @@ fn direction_filter_distinguishes_measured_lexical_and_unmeasured_index_synthesi
         surface_mismatch: 1,
         uses: 0,
         self_time_ns: 0,
+        work_steps: 0,
     };
     assert_eq!(
         direction_time_view(object_row_view(&row), Some("synthesis")).self_time_ns,
@@ -2985,4 +2990,101 @@ fn frozen_batch_manifest_rejects_colliding_paths_before_creating_outputs() {
         assert_eq!(fs::read(&words_path).unwrap(), before_words);
         assert!(!cache_path.exists());
     }
+}
+
+fn jsonl_rows_of(
+    dir: &std::path::Path,
+    grammar_path: &std::path::Path,
+    cache_path: &std::path::Path,
+    group: &str,
+) -> Vec<serde_json::Value> {
+    let out = dir.join(format!("{group}.jsonl"));
+    let args: Vec<String> = vec![
+        grammar_path.to_string_lossy().into_owned(),
+        "--group".to_string(),
+        group.to_string(),
+        "--cache".to_string(),
+        cache_path.to_string_lossy().into_owned(),
+        "--format".to_string(),
+        "jsonl".to_string(),
+        "--out".to_string(),
+        out.to_string_lossy().into_owned(),
+    ];
+    run_stats(&args).expect("run_stats jsonl");
+    fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn object_rows_report_work_steps_that_reconcile_with_word_work() {
+    let (grammar_xml, word) = primary_fixture();
+    let dir = scratch_dir("object-work-steps");
+    let cache_path = dir.join("cache.sqlite3");
+    let words = format!("{word}\n{word}x\n{word}xx\n");
+    let (batch_args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &words,
+        &["--stats", "--cache", cache_path.to_str().unwrap()],
+    );
+    crate::run_batch(&batch_args).expect("seed the cache via batch --stats");
+    let grammar_path = dir.join("grammar.xml");
+
+    let rows = jsonl_rows_of(&dir, &grammar_path, &cache_path, "object");
+    assert!(!rows.is_empty());
+    let object_total: i64 = rows
+        .iter()
+        .map(|row| {
+            row["work_steps"]
+                .as_i64()
+                .expect("every object row has work_steps")
+        })
+        .sum();
+    assert!(object_total > 0);
+    let conn = rusqlite::Connection::open(&cache_path).unwrap();
+    let (word_total, remainder): (i64, i64) = conn
+        .query_row(
+            "SELECT (SELECT SUM(work) FROM word),
+                    (SELECT COALESCE(SUM(f.work_steps), 0) FROM fact f JOIN object o ON o.object_id = f.object_id WHERE o.kind = 'unattributed')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(object_total + remainder, word_total);
+
+    let by_kind = jsonl_rows_of(&dir, &grammar_path, &cache_path, "group");
+    assert!(!by_kind.is_empty());
+    assert!(
+        by_kind.iter().all(|row| row.get("work_steps").is_none()),
+        "only the object orientation reports work_steps"
+    );
+}
+
+#[test]
+fn wide_object_table_shows_work_steps_and_other_views_do_not() {
+    let denoms = Denominators {
+        total_time_ns: Some(100),
+        attempts_by_kind: HashMap::new(),
+    };
+    let object = object_row_view(&pg_stats::PerObjectRow {
+        work_steps: 321,
+        ..sample_object_row(0)
+    });
+    assert_eq!(object.work_steps, Some(321));
+    let (headers, cells) = render_narrow(std::slice::from_ref(&object), true, &denoms, &[]);
+    let column = headers.iter().position(|h| *h == "work_steps").unwrap();
+    assert_eq!(cells[0][column], "321");
+    let (narrow_headers, _) = render_narrow(std::slice::from_ref(&object), false, &denoms, &[]);
+    assert!(!narrow_headers.contains(&"work_steps"));
+
+    let mut other = object.clone();
+    other.work_steps = None;
+    let (other_headers, _) = render_narrow(std::slice::from_ref(&other), true, &denoms, &[]);
+    assert!(!other_headers.contains(&"work_steps"));
+    let (omitted_headers, _) = render_narrow(&[object], true, &denoms, &["work_steps"]);
+    assert!(!omitted_headers.contains(&"work_steps"));
 }

@@ -121,6 +121,11 @@ pangloss stats <grammar> --cache <cache.sqlite3> --group object --stratum <key>
 pangloss stats <grammar> --cache <cache.sqlite3> --group object --kind morph_rule --wide
 ```
 
+`--wide` on `--group object` also shows `work_steps`, the work steps each object's rows account for
+(the unit `--work-cap` bounds and `word.work` records). Unlike the `work` column, which counts shape
+segments examined, `work_steps` adds up: with no filter, the object rows plus the unattributed
+remainder equal the words' total work.
+
 Stratum and direction are filters, not report orientations. Aggregating attempts across unrelated
 object kinds would mix different units, so attempt shares and comparisons remain within compatible
 kinds. For example, a morphological-rule attempt and a lexical-entry lookup are both useful counts,

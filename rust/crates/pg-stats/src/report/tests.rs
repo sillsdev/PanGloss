@@ -1141,3 +1141,122 @@ fn kind_has_any_recorded_object_distinguishes_absent_from_present() {
         "no phon_rule fact was ever recorded in this cache"
     );
 }
+
+fn fact_with_work_steps(
+    object_key: &str,
+    kind: ObjectKind,
+    direction: Direction,
+    work_steps: u64,
+) -> FactRecord {
+    FactRecord {
+        work_steps,
+        ..fact_with_direction(object_key, kind, direction, 1, 1, 0)
+    }
+}
+
+fn remainder_fact(work_steps: u64) -> FactRecord {
+    FactRecord {
+        stratum: None,
+        ..fact_with_work_steps(
+            "unattributed",
+            ObjectKind::Unattributed,
+            Direction::Unattributed,
+            work_steps,
+        )
+    }
+}
+
+fn word_with_work(form: &str, work: u64, facts: Vec<FactRecord>) -> WordRecord {
+    WordRecord {
+        work,
+        ..word_record(form, 100, facts)
+    }
+}
+
+#[test]
+fn object_work_steps_sum_across_words_and_directions_and_reconcile_with_word_work() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let words = [
+        word_with_work(
+            "apu",
+            100,
+            vec![
+                fact_with_work_steps("rule-a", ObjectKind::MorphRule, Direction::Analysis, 40),
+                fact_with_work_steps("rule-a", ObjectKind::MorphRule, Direction::Synthesis, 10),
+                fact_with_work_steps("root-a", ObjectKind::LexEntry, Direction::Analysis, 30),
+                remainder_fact(20),
+            ],
+        ),
+        WordRecord {
+            capped: true,
+            ..word_with_work(
+                "beta",
+                70,
+                vec![
+                    fact_with_work_steps("rule-a", ObjectKind::MorphRule, Direction::Analysis, 50),
+                    remainder_fact(20),
+                ],
+            )
+        },
+    ];
+    outcome.cache.flush(&run(), &words).unwrap();
+    let conn = outcome.cache.connection();
+
+    let rows = per_object_report(conn, &PerObjectFilter::default()).unwrap();
+    let steps_of = |label: &str| rows.iter().find(|r| r.label == label).unwrap().work_steps;
+    assert_eq!(steps_of("rule-a"), 100);
+    assert_eq!(steps_of("root-a"), 30);
+    assert_eq!(
+        rows.len(),
+        2,
+        "the unattributed remainder is not an object row"
+    );
+
+    let remainder: i64 = conn
+        .query_row(
+            "SELECT SUM(f.work_steps) FROM fact f JOIN object o ON o.object_id = f.object_id
+             WHERE o.kind = 'unattributed'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let word_total: i64 = conn
+        .query_row("SELECT SUM(work) FROM word", [], |row| row.get(0))
+        .unwrap();
+    let object_total: i64 = rows.iter().map(|r| r.work_steps).sum();
+    assert_eq!(object_total + remainder, word_total);
+    assert_eq!(object_total + remainder, 170);
+
+    let analysis = per_object_report(
+        conn,
+        &PerObjectFilter {
+            direction: Some("analysis".to_string()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        analysis
+            .iter()
+            .find(|r| r.label == "rule-a")
+            .unwrap()
+            .work_steps,
+        90
+    );
+    let uncensored = per_object_report(
+        conn,
+        &PerObjectFilter {
+            exclude_censored_words: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        uncensored
+            .iter()
+            .find(|r| r.label == "rule-a")
+            .unwrap()
+            .work_steps,
+        50
+    );
+}

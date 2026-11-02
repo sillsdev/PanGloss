@@ -1003,7 +1003,7 @@ pub(crate) fn run_batch_stats_hc(
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide (also work_steps with --group object)] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
@@ -1033,7 +1033,7 @@ struct Filters {
     top_n: Option<usize>,
     sort: Option<pg_stats::SortKey>,
     exclude_censored: bool,
-    /// `--wide`: appends `work`/`not_applied`/`no_root`/`surface_mismatch`/`identity_quality`.
+    /// `--wide`: appends `work`/`work_steps` (object group only)/`not_applied`/`no_root`/`surface_mismatch`/`identity_quality`.
     wide: bool,
     /// `--by-kind`: one section per kind, each with its share of the run's total time.
     by_kind: bool,
@@ -1122,8 +1122,12 @@ fn engine_omitted_counters(engine: &str) -> &'static [&'static str] {
 }
 
 /// The text-mode note explaining an engine-level column omission; `None` when nothing is omitted.
-fn omitted_counters(engine: &str, _orientation: &str) -> Vec<&'static str> {
-    engine_omitted_counters(engine).to_vec()
+fn omitted_counters(engine: &str, orientation: &str) -> Vec<&'static str> {
+    let mut omitted = engine_omitted_counters(engine).to_vec();
+    if orientation == "object" && !omitted.is_empty() {
+        omitted.push("work_steps");
+    }
+    omitted
 }
 
 fn engine_omission_note(engine: &str, omitted: &[&str]) -> Option<String> {
@@ -1174,6 +1178,9 @@ fn apply_engine_omission(rows: Vec<RowView>, omitted: &[&str]) -> Vec<RowView> {
             }
             if has("work") {
                 r.work = None;
+            }
+            if has("work_steps") {
+                r.work_steps = None;
             }
             if has("outputs") {
                 r.outputs = None;
@@ -1232,6 +1239,8 @@ struct RowView {
     outputs: Option<i64>,
     uses: Option<i64>,
     work: Option<i64>,
+    /// Parser work reservations: only the object orientation reports them, so every other orientation leaves this `None` and omits the field.
+    work_steps: Option<i64>,
     not_applied: Option<i64>,
     no_root: Option<i64>,
     surface_mismatch: Option<i64>,
@@ -1247,6 +1256,7 @@ fn object_row_view(r: &pg_stats::PerObjectRow) -> RowView {
         outputs: cell_value(&r.kind, "outputs", r.outputs),
         uses: cell_value(&r.kind, "uses", r.uses),
         work: cell_value(&r.kind, "work", r.work),
+        work_steps: Some(r.work_steps),
         not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
         no_root: cell_value(&r.kind, "no_root", r.no_root),
         surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
@@ -1274,6 +1284,7 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
             cell_value(&r.object_kind, "uses", r.uses)
         },
         work: cell_value(&r.object_kind, "work", r.work),
+        work_steps: None,
         not_applied: cell_value(&r.object_kind, "not_applied", r.not_applied),
         no_root: if r.allomorph_key.is_some() && r.object_kind == "morph_rule" {
             None
@@ -1295,6 +1306,7 @@ fn morpheme_row_view(r: &pg_stats::PerMorphemeRow) -> RowView {
         outputs: cell_value(KIND, "outputs", r.outputs),
         uses: cell_value(KIND, "uses", r.uses),
         work: cell_value(KIND, "work", r.work),
+        work_steps: None,
         not_applied: cell_value(KIND, "not_applied", r.not_applied),
         no_root: cell_value(KIND, "no_root", r.no_root),
         surface_mismatch: cell_value(KIND, "surface_mismatch", r.surface_mismatch),
@@ -1311,6 +1323,7 @@ fn kind_row_view(r: &pg_stats::PerKindRow) -> RowView {
         outputs: cell_value(&r.kind, "outputs", r.outputs),
         uses: cell_value(&r.kind, "uses", r.uses),
         work: cell_value(&r.kind, "work", r.work),
+        work_steps: None,
         not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
         no_root: cell_value(&r.kind, "no_root", r.no_root),
         surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
@@ -1459,6 +1472,7 @@ fn render_narrow(
     let show_amp = show_attempts && show("outputs");
     let show_uses = show("uses");
     let show_work = show("work");
+    let show_work_steps = show("work_steps") && rows.iter().any(|r| r.work_steps.is_some());
     let show_not_applied = show("not_applied");
     let show_no_root = show("no_root");
     let show_surface_mismatch = show("surface_mismatch");
@@ -1477,6 +1491,9 @@ fn render_narrow(
     if wide {
         if show_work {
             headers.push("work");
+        }
+        if show_work_steps {
+            headers.push("work_steps");
         }
         if show_not_applied {
             headers.push("not_applied");
@@ -1511,6 +1528,9 @@ fn render_narrow(
                 if show_work {
                     cells.push(fmt_opt_i64(r.work));
                 }
+                if show_work_steps {
+                    cells.push(fmt_opt_i64(r.work_steps));
+                }
                 if show_not_applied {
                     cells.push(fmt_opt_i64(r.not_applied));
                 }
@@ -1537,7 +1557,7 @@ fn row_view_to_json(r: &RowView) -> serde_json::Value {
         (Some(a), Some(o)) if a > 0 => Some(o as f64 / a as f64),
         _ => None,
     };
-    serde_json::json!({
+    let mut row = serde_json::json!({
         "label": r.label,
         "kind": r.kind,
         "identity_quality": r.identity_quality,
@@ -1550,7 +1570,11 @@ fn row_view_to_json(r: &RowView) -> serde_json::Value {
         "not_applied": r.not_applied,
         "no_root": r.no_root,
         "surface_mismatch": r.surface_mismatch,
-    })
+    });
+    if let Some(work_steps) = r.work_steps {
+        row["work_steps"] = work_steps.into();
+    }
+    row
 }
 
 /// The totals/attribution line printed under every orientation: row count, row-time sum, and its "N% attributed" check against cached word elapsed time, narrowed by `--word` when selected.

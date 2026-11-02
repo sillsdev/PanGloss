@@ -31,7 +31,7 @@ idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]  [cost]
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
 | `steps` | present only with `--work-columns`. Analysis attempts: the quantity `--step-cap` bounds |
-| `work_steps` | present only with `--work-columns`. Parser work: every work unit the word reserved, across analysis, the inner matchers and confirmation. This is the quantity `--work-cap` bounds |
+| `work_steps` | present only with `--work-columns`. Work steps: every work unit the word reserved, across analysis, the inner matchers and confirmation. This is the quantity `--work-cap` bounds |
 | `cost` | present only with `--cost-column`. The word's fixed-weight parse cost; see `docs/design/parse-cost.md`. Refused together with `--stats` |
 
 When present, `cost` is always the last field, the two count columns come just before it, and every
@@ -101,7 +101,7 @@ object rows. Cache counter semantics version 8 attributes cascade reservations t
 attempted morphological rule, lookup reservations to the root index, lexical entry, or overlay,
 and validation to the rule or allomorph being checked. Synthetic `parser` objects named
 `parser:candidate_expansion`, `parser:stratum_transition`, and `parser:surface_match` account for
-the corresponding parser work. The remaining `unattributed` row includes setup and other
+the corresponding work steps. The remaining `unattributed` row includes setup and other
 orchestration outside these scopes. Version 8 changes attribution, not per-word work totals.
 The `facts` export excludes parser rows because it projects grammar-object counters and has no
 work-step column. Its `lex_entry` facts can have no allomorph, and its `morph_rule` facts can
@@ -109,6 +109,15 @@ have zero attempts while carrying work or self time. In the stats cache, the new
 `parser`; detailed trace JSON reports its work steps in `categories.parser.workStepsByPhase`,
 with keys `candidate_expansion`, `stratum_transition`, and `surface_match`. Version 7 attributed
 final allomorph-environment matching to its owner.
+
+`pangloss stats --group object` reports `work_steps` per object: the sum of `fact.work_steps` over the
+object's rows under the report's filters, as a `work_steps` field on each `--format jsonl` row and a
+`work_steps` column with `--wide`. It is the same unit as `word.work`. The `unattributed` remainder is
+not a grammar object, so it has no row: with no filter, the object rows' `work_steps` plus the
+remainder equal the sum of `word.work`. A cache whose engine records no work reservations
+(`foma`) leaves the field out and lists it under `unmeasured`. No other `--group` reports it. The
+cache schema version is unchanged and `--describe` has no interface version for `stats` output, so
+a reader tells a binary that reports it by the field's presence.
 
 `fact.work` (per grammar object, and the trace-details `categories` that report it) is a
 **different unit**. It counts shape segments examined each time the object was tried. It does not
