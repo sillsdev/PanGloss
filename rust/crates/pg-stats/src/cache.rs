@@ -2,7 +2,7 @@
 //!
 //! Read queries live in `crate::report`; this module only knows how to get bytes in.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
 
@@ -294,11 +294,12 @@ impl StatsCache {
         )?;
         let run_id = tx.last_insert_rowid();
 
+        let mut interner = Interner::default();
         for word in words {
             let word_id = upsert_word(&tx, run_id, word)?;
-            tx.execute("DELETE FROM fact WHERE word_id = ?1", params![word_id])?;
+            execute_cached(&tx, "DELETE FROM fact WHERE word_id = ?1", params![word_id])?;
             for fact in &word.facts {
-                write_fact(&tx, word_id, fact)?;
+                write_fact(&tx, &mut interner, word_id, fact)?;
             }
         }
 
@@ -487,7 +488,8 @@ fn read_frozen_bool(field: &'static str, value: i64) -> Result<bool, StatsError>
 }
 
 fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, StatsError> {
-    tx.execute(
+    execute_cached(
+        tx,
         "INSERT INTO word (run_id, form, elapsed_ns, attempts, work, passes, capped, timed_out, invalid_shape)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
          ON CONFLICT(form) DO UPDATE SET
@@ -511,16 +513,40 @@ fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, 
             i64::from(word.invalid_shape),
         ],
     )?;
-    tx.query_row(
+    query_id_cached(
+        tx,
         "SELECT word_id FROM word WHERE form = ?1",
         params![word.form],
-        |row| row.get(0),
     )
-    .map_err(Into::into)
 }
 
-fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), StatsError> {
-    let object_id = intern_object_on(
+/// Runs a statement the write loop repeats once per word, fact or intern, parsing its SQL once per connection instead of once per row.
+fn execute_cached(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<(), StatsError> {
+    conn.prepare_cached(sql)?.execute(params)?;
+    Ok(())
+}
+
+fn query_id_cached(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<i64, StatsError> {
+    conn.prepare_cached(sql)?
+        .query_row(params, |row| row.get(0))
+        .map_err(Into::into)
+}
+
+fn write_fact(
+    tx: &Transaction,
+    interner: &mut Interner,
+    word_id: i64,
+    fact: &FactRecord,
+) -> Result<(), StatsError> {
+    let object_id = interner.object(
         tx,
         &fact.object_key,
         fact.object_kind,
@@ -529,14 +555,15 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
         fact.morpheme.as_ref(),
     )?;
     let stratum_id = match &fact.stratum {
-        Some(locator) => intern_stratum_on(tx, locator)?,
+        Some(locator) => interner.locator(tx, LocatorTable::Stratum, locator)?,
         None => 0,
     };
     let allomorph_id = match &fact.allomorph {
-        Some(locator) => intern_allomorph_on(tx, locator)?,
+        Some(locator) => interner.locator(tx, LocatorTable::Allomorph, locator)?,
         None => 0,
     };
-    tx.execute(
+    execute_cached(
+        tx,
         "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns, work_steps)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT(word_id, object_id, stratum_id, allomorph_id, direction) DO UPDATE SET
@@ -603,22 +630,76 @@ fn intern_object_on(
         Some(locator) => intern_morpheme_on(conn, locator)?,
         None => 0,
     };
-    conn.execute(
+    execute_cached(
+        conn,
         "INSERT OR IGNORE INTO object (key, kind, label, identity_quality, morpheme_id) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![key, kind.as_str(), label, identity_quality.as_str(), morpheme_id],
     )?;
-    conn.query_row(
+    query_id_cached(
+        conn,
         "SELECT object_id FROM object WHERE key = ?1 AND kind = ?2",
         params![key, kind.as_str()],
-        |row| row.get(0),
     )
-    .map_err(Into::into)
 }
 
+#[derive(Clone, Copy)]
 enum LocatorTable {
     Stratum,
     Allomorph,
     Morpheme,
+}
+
+/// Ids one flush already interned, valid because its write lock keeps them from changing; first sight still inserts, so ids and first labels are unchanged.
+#[derive(Default)]
+struct Interner {
+    objects: HashMap<&'static str, HashMap<String, i64>>,
+    strata: HashMap<String, i64>,
+    allomorphs: HashMap<String, i64>,
+    morphemes: HashMap<String, i64>,
+}
+
+impl Interner {
+    fn object(
+        &mut self,
+        conn: &Connection,
+        key: &str,
+        kind: ObjectKind,
+        label: &str,
+        identity_quality: IdentityQuality,
+        morpheme: Option<&StructuralLocator>,
+    ) -> Result<i64, StatsError> {
+        if let Some(locator) = morpheme {
+            self.locator(conn, LocatorTable::Morpheme, locator)?;
+        }
+        if let Some(&id) = self.objects.get(kind.as_str()).and_then(|ids| ids.get(key)) {
+            return Ok(id);
+        }
+        let id = intern_object_on(conn, key, kind, label, identity_quality, morpheme)?;
+        self.objects
+            .entry(kind.as_str())
+            .or_default()
+            .insert(key.to_string(), id);
+        Ok(id)
+    }
+
+    fn locator(
+        &mut self,
+        conn: &Connection,
+        table: LocatorTable,
+        locator: &StructuralLocator,
+    ) -> Result<i64, StatsError> {
+        let ids = match table {
+            LocatorTable::Stratum => &mut self.strata,
+            LocatorTable::Allomorph => &mut self.allomorphs,
+            LocatorTable::Morpheme => &mut self.morphemes,
+        };
+        if let Some(&id) = ids.get(&locator.key) {
+            return Ok(id);
+        }
+        let id = intern_locator_on(conn, table, locator)?;
+        ids.insert(locator.key.clone(), id);
+        Ok(id)
+    }
 }
 
 fn intern_locator_on(
@@ -640,9 +721,8 @@ fn intern_locator_on(
             "SELECT morpheme_id FROM morpheme WHERE key = ?1",
         ),
     };
-    conn.execute(insert, params![locator.key, locator.label])?;
-    conn.query_row(select, params![locator.key], |row| row.get(0))
-        .map_err(Into::into)
+    execute_cached(conn, insert, params![locator.key, locator.label])?;
+    query_id_cached(conn, select, params![locator.key])
 }
 
 fn intern_stratum_on(conn: &Connection, locator: &StructuralLocator) -> Result<i64, StatsError> {
