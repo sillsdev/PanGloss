@@ -313,7 +313,7 @@ namespace XampleProjector
 		{
 			var language = XmlLanguageLoader.Load(hcXmlPath);
 			// Never assign any Morpher property beyond the constructor -- every expected.tsv in
-			// machine/conformance was generated the same way (conformance/PROTOCOL.md section 8).
+			// conformance was generated the same way (conformance/PROTOCOL.md section 8).
 			var morpher = new Morpher(new TraceManager(), language);
 			var counts = new JObject();
 			foreach (var (word, expectedCount) in expectations)

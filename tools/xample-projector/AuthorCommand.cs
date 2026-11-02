@@ -153,8 +153,8 @@ namespace XampleProjector
 		private static XDocument LoadGrammarDocument(string path)
 		{
 			// The DTD's SYSTEM identifier is relative to grammar.xml's own directory, which does
-			// not always contain a copy of HermitCrabInput.dtd (e.g. machine/conformance/*/*/grammar.xml
-			// references machine/conformance/HermitCrabInput.dtd, one directory up) -- DTD
+			// not always contain a copy of HermitCrabInput.dtd (e.g. conformance/*/*/grammar.xml
+			// references conformance/HermitCrabInput.dtd, one directory up) -- DTD
 			// processing is ignored entirely since this parser never needs entity/attlist defaults,
 			// only the element tree.
 			var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore };

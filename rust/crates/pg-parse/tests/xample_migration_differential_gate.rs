@@ -247,11 +247,11 @@ fn captured_project_response_parses_with_source_and_generated_digests() {
 // The ratchets are tunable bounds that are 0 today; `<=` stays so raising one needs no code change.
 #[allow(clippy::absurd_extreme_comparisons)]
 // Ignored because the witness is a FieldWorks project plus a built projector, neither of which CI has.
-#[ignore = "needs the FieldWorks/XAMPLE witness: set PANGLOSS_MACHINE_DIR at a checkout that has it"]
+#[ignore = "needs the FieldWorks/XAMPLE witness: set HC_CONFORMANCE_SUITE at a suite checkout that has it"]
 #[test]
 fn xample_migration_differential_gate() {
-    let machine_dir = fieldworks::machine_dir();
-    let witness_dir = fieldworks::witness_dir(&machine_dir);
+    let suite_dir = fieldworks::suite_dir();
+    let witness_dir = fieldworks::witness_dir(&suite_dir);
     let witness_fwdata = witness_dir.join("project.fwdata");
     let manifest_path = witness_dir.join("phonology-mutations.yaml");
 
@@ -259,10 +259,10 @@ fn xample_migration_differential_gate() {
         assert!(
             allow_no_fieldworks(),
             "no FieldWorks witness at {} (project.fwdata + phonology-mutations.yaml). Set \
-             {} to a `machine` checkout that has it, or set {}=1 to explicitly skip this live \
+             {} to a conformance suite checkout that has it, or set {}=1 to explicitly skip this live \
              comparison.",
             witness_dir.display(),
-            fieldworks::MACHINE_DIR_ENV,
+            fieldworks::SUITE_DIR_ENV,
             fieldworks::ALLOW_NO_FIELDWORKS_ENV
         );
         eprintln!(
