@@ -108,7 +108,7 @@ went to an issue are open work, not permanent differences. Evidence under `evide
 | 043 | Synthesis-direction stratum reassignment diverged from hc.dll's surface rendering | Reverted in Rust to match hc.dll; git history |
 | 044 | RTL rewrite-rule FST construction refused `Segments`-shaped patterns entirely | Fixed in Rust (or not a bug); git history |
 | 048 | `batch --stats` parsed each HC word twice | Optimized in Rust; git history |
-| 049 | Copy-agreement pruning of reduplication matches | Optimized in Rust; git history (049 refreshed in PR #13) |
+| 049 | Copy-agreement pruning of reduplication matches | Optimized in Rust; git history (049 refreshed in PR #13; a grammar with no phonological features now compares segment identity as C# does, `copy_agreement_featureless.rs`; a grammar with features but some featureless phonemes is not pruned on identity) |
 | 050 | A part-of-speech-scoped deletion blocks metathesis analysis of other words | Fixed in Rust; still open upstream (machine#520); #28 |
 | 051 | Invalid snapshot environments refused the whole grammar | #35 |
 | 053 | Grouped ad hoc prohibitions were omitted from `.fwdata` imports | Fixed in Rust (or not a bug); git history |

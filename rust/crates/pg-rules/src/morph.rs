@@ -2819,8 +2819,20 @@ fn ana_affix_cached(
     output
 }
 
-/// True when two copies of an unmodified part differ in length or fail to unify; unsure cases keep the match.
+/// Can two segment nodes stand for the same character? A concrete node is one character definition; a class-derived node is the set it was born with, or any character when unrestricted. Mirrors `StrRep` unification, which is a non-empty intersection of spelling sets.
+fn identities_may_agree(left: EffectiveCdSet<'_>, right: EffectiveCdSet<'_>) -> bool {
+    match (left, right) {
+        (EffectiveCdSet::Singleton(id), other) | (other, EffectiveCdSet::Singleton(id)) => {
+            other.contains(id)
+        }
+        (EffectiveCdSet::Unrestricted, _) | (_, EffectiveCdSet::Unrestricted) => true,
+        (EffectiveCdSet::Members(a), EffectiveCdSet::Members(b)) => a.intersect(b).count() > 0,
+    }
+}
+
+/// True when two copies of an unmodified part differ in length or fail to unify; unsure cases keep the match. `compare_characters` is true only for a grammar with no phonological features: C# then keeps the segment spelling (`StrRep`) on every segment node, so `FeatureStruct.IsUnifiable` in `CanAlign` compares characters, while with features only feature lanes are compared. C# decides per segment (HCLoader.cs:2723-2742 gives `StrRep` to featureless phonemes even when features are declared) and PanGloss per grammar, so a mixed grammar is not pruned on spelling: wasted work only, never a lost parse.
 fn copy_agreement_refuses_match(
+    compare_characters: bool,
     shape: &Shape,
     node_of: &[usize],
     fst: &Fst,
@@ -2893,6 +2905,14 @@ fn copy_agreement_refuses_match(
                     if !flat_unifiable(shape.node_lanes(left_node), shape.node_lanes(right_node)) {
                         return true;
                     }
+                    if compare_characters
+                        && !identities_may_agree(
+                            shape.node_cd_set(left_node),
+                            shape.node_cd_set(right_node),
+                        )
+                    {
+                        return true;
+                    }
                 }
             }
         }
@@ -2923,6 +2943,10 @@ fn ana_allomorph_matches(
     let mut allo_out: Vec<Word> = Vec::new();
     let repeated_parts = (prune_disagreeing_copies && has_repeated_part_action_group(&allo.rhs))
         .then(|| repeated_part_action_groups(&allo.rhs));
+    // Featureless grammar: no static unifiability closure (see `CharDefTable::unif_closure`), so character identity decides.
+    let compare_characters = g.char_tables[table.0 as usize]
+        .unif_closure_rows()
+        .is_none();
     let matches = Transduce::new(fst, segs.to_vec())
         .anchored(true, true)
         .all_matches();
@@ -2931,7 +2955,15 @@ fn ana_allomorph_matches(
             return Vec::new();
         }
         if repeated_parts.as_ref().is_some_and(|groups| {
-            copy_agreement_refuses_match(&word.shape, node_of, fst, &result, &allo.rhs, groups)
+            copy_agreement_refuses_match(
+                compare_characters,
+                &word.shape,
+                node_of,
+                fst,
+                &result,
+                &allo.rhs,
+                groups,
+            )
         }) {
             continue;
         }

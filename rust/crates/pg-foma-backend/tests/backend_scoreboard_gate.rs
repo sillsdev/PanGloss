@@ -49,7 +49,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
             oracle_exact: 122,
-            compiles_but_misses: 8,
+            compiles_but_misses: 9,
             refused: 20,
             unmeasurable: 0,
         },
@@ -59,7 +59,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 103,
             compiles_but_misses: 5,
-            refused: 42,
+            refused: 43,
             unmeasurable: 0,
         },
     ),
@@ -68,7 +68,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 53,
             compiles_but_misses: 2,
-            refused: 92,
+            refused: 93,
             unmeasurable: 3,
         },
     ),
@@ -95,6 +95,10 @@ const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
     "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
     "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
+
+// Tuned-surface misses two words here (a rewritten second copy and a second spelling of one vowel), each by one identity; see the reconciliation note's altered-copy gap. The other two strategies refuse the reduplication shape.
+const COPY_AGREEMENT_FEATURELESS_REDUP: &str =
+    "staging:edge-cases/copy-agreement-featureless-redup";
 
 const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
     "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
@@ -163,6 +167,10 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
             "oracle_exact"
         }
         (f, PlanComposed) if PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) => "refused",
+        (f, TunedSurfaceProbed) if f == COPY_AGREEMENT_FEATURELESS_REDUP => "compiles_but_misses",
+        (f, TemplatedUnderlyingTokens | PlanComposed) if f == COPY_AGREEMENT_FEATURELESS_REDUP => {
+            "refused"
+        }
         (f, s) => panic!("no pinned expectation for ({f}, {s:?})"),
     }
 }
@@ -237,6 +245,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         || row.label == BOUNDARY_NARROWING_FIXTURE
                         || row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         || row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        || row.label == COPY_AGREEMENT_FEATURELESS_REDUP
                         || REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str())
                         || PARTIAL_CLASS_DISAGREEMENT_FIXTURES
                             .iter()
@@ -254,6 +263,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                             FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         } else if row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE {
                             FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        } else if row.label == COPY_AGREEMENT_FEATURELESS_REDUP {
+                            COPY_AGREEMENT_FEATURELESS_REDUP
                         } else if REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str()) {
                             REWRITE_DEFAULT_FIXTURES
                                 .iter()
@@ -322,7 +333,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        (6 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len() + REWRITE_DEFAULT_FIXTURES.len())
+        (7 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len() + REWRITE_DEFAULT_FIXTURES.len())
             * ALL_STRATEGIES.len(),
         "one of the pinned fixtures was not measured on every strategy -- has it been renamed, \
          removed, or excluded?"
