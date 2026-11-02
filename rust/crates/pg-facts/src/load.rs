@@ -8,6 +8,7 @@ use rusqlite::{params, Transaction};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::light::Profile;
 use crate::FactsError;
 
 type IssueMatchKey = (String, String, String);
@@ -35,6 +36,7 @@ pub(crate) fn insert_inventory_and_issues(
     compile_inventory: &InventoryDelta,
     compile_issues: &[ConversionIssue],
     load_decisions: &[LoadDecision],
+    profile: Profile,
 ) -> Result<(), FactsError> {
     let provenance = &snapshot.conversion_provenance;
     crate::sql::execute(
@@ -78,7 +80,8 @@ pub(crate) fn insert_inventory_and_issues(
         .iter()
         .filter(|source_object| source_object.inventory_kind.is_some())
         .collect();
-    for source_object in &grammar_sources {
+    let write_source_objects = !profile.omits_table("source_object");
+    for source_object in grammar_sources.iter().filter(|_| write_source_objects) {
         let source_key = subject_key(&source_object.key())?.1;
         let inventory_kind = source_object
             .inventory_kind
@@ -107,6 +110,51 @@ pub(crate) fn insert_inventory_and_issues(
         )?;
     }
 
+    if !profile.omits_table("conversion_item") {
+        insert_conversion_items(
+            tx,
+            provenance,
+            compile_inventory,
+            load_decisions,
+            !profile.omits_table("conversion_stage"),
+        )?;
+    }
+
+    let mut issue_rows = Vec::new();
+    issue_rows.extend(
+        provenance
+            .import_issues
+            .iter()
+            .map(|issue| ("import", issue)),
+    );
+    issue_rows.extend(compile_issues.iter().map(|issue| ("compile", issue)));
+    let issue_keys = insert_issues(
+        tx,
+        issue_rows,
+        !profile.nulls_column("load_fact", "issue_key"),
+    )?;
+    insert_load_facts(
+        tx,
+        provenance,
+        compile_inventory,
+        load_decisions,
+        &issue_keys,
+        profile,
+    )?;
+    if !profile.omits_table("object_state") {
+        insert_object_state(tx)?;
+    }
+    Ok(())
+}
+
+/// Writes every inventory item and, when asked, the per-stage counts of the items it wrote.
+fn insert_conversion_items(
+    tx: &Transaction<'_>,
+    provenance: &pg_snapshot::ConversionProvenance,
+    compile_inventory: &InventoryDelta,
+    load_decisions: &[LoadDecision],
+    with_stage_counts: bool,
+) -> Result<(), FactsError> {
     let mut item_counts = BTreeMap::new();
     write_inventory(
         tx,
@@ -132,6 +180,9 @@ pub(crate) fn insert_inventory_and_issues(
         compacted.iter(),
         &mut item_counts,
     )?;
+    if !with_stage_counts {
+        return Ok(());
+    }
     for pipeline_stage in ["import", "snapshot", "compile", "compact"] {
         for inventory_stage in [
             "authored",
@@ -152,29 +203,6 @@ pub(crate) fn insert_inventory_and_issues(
             )?;
         }
     }
-
-    let mut issue_rows = Vec::new();
-    issue_rows.extend(
-        provenance
-            .import_issues
-            .iter()
-            .map(|issue| ("import", issue)),
-    );
-    issue_rows.extend(compile_issues.iter().map(|issue| ("compile", issue)));
-    let issue_keys = insert_issues(tx, issue_rows)?;
-    let grammar_source_keys: BTreeSet<_> = grammar_sources
-        .iter()
-        .map(|source_object| source_object.key())
-        .collect();
-    insert_load_facts(
-        tx,
-        provenance,
-        compile_inventory,
-        load_decisions,
-        &issue_keys,
-        &grammar_source_keys,
-    )?;
-    insert_object_state(tx)?;
     Ok(())
 }
 
@@ -222,6 +250,7 @@ fn write_inventory_set<'a>(
 fn insert_issues<'a>(
     tx: &Transaction<'_>,
     issues: impl IntoIterator<Item = (&'static str, &'a ConversionIssue)>,
+    index_keys: bool,
 ) -> Result<IssueKeyIndex, FactsError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -292,6 +321,9 @@ fn insert_issues<'a>(
                 identity.message
             ],
         )?;
+        if !index_keys {
+            continue;
+        }
         if let (Some(source_kind), Some(guid)) = (identity.source_kind, identity.source_guid) {
             issue_keys
                 .entry((identity.code.to_string(), source_kind, guid))
@@ -314,44 +346,98 @@ fn issue_class(class: pg_snapshot::IssueClass) -> &'static str {
     }
 }
 
+/// A load decision with the subject columns of its `load_fact` row.
+struct LoadRow {
+    decision: LoadDecision,
+    kind: &'static str,
+    subject_key: String,
+    subject_guid: Option<String>,
+}
+
 fn insert_load_facts(
     tx: &Transaction<'_>,
     provenance: &pg_snapshot::ConversionProvenance,
     inventory: &InventoryDelta,
     decisions: &[LoadDecision],
     issue_keys: &IssueKeyIndex,
-    grammar_source_keys: &BTreeSet<InventoryKey>,
+    profile: Profile,
 ) -> Result<(), FactsError> {
-    let records = load_records(provenance, inventory, decisions);
-    let mut records = records
-        .into_iter()
-        .filter(|decision| {
-            decision.subject.kind != InventoryKind::SourceObject
-                || grammar_source_keys.contains(&decision.subject)
-        })
-        .map(|decision| {
-            let subject_key = subject_key(&decision.subject)?.1;
-            Ok((decision, subject_key))
-        })
-        .collect::<Result<Vec<_>, FactsError>>()?;
-    records.sort_by(|(left, left_key), (right, right_key)| {
+    let mut kept_cells = [[None::<bool>; 4]; 64];
+    let mut keeps = |kind: InventoryKind, stage: LoadPipelineStage| {
+        let compute = || {
+            profile.keeps_row(
+                "load_fact",
+                &[
+                    ("subject_kind", kind_name(kind)),
+                    ("pipeline_stage", stage.as_str()),
+                ],
+            )
+        };
+        match kept_cells
+            .get_mut(kind as usize)
+            .and_then(|row| row.get_mut(stage as usize))
+        {
+            Some(cell) => *cell.get_or_insert_with(compute),
+            None => compute(),
+        }
+    };
+    let mut grammar_source_keys: Option<BTreeSet<InventoryKey>> = None;
+    let mut rows = Vec::new();
+    for decision in load_records(provenance, inventory, decisions, &mut keeps) {
+        if decision.subject.kind == InventoryKind::SourceObject {
+            let known = grammar_source_keys.get_or_insert_with(|| {
+                provenance
+                    .source_objects
+                    .iter()
+                    .filter(|source_object| source_object.inventory_kind.is_some())
+                    .map(|source_object| source_object.key())
+                    .collect()
+            });
+            if !known.contains(&decision.subject) {
+                continue;
+            }
+        }
+        let (subject_key, subject_guid) = load_subject(profile, &decision.subject)?;
+        rows.push(LoadRow {
+            kind: kind_name(decision.subject.kind),
+            decision,
+            subject_key,
+            subject_guid,
+        });
+    }
+    rows.sort_by(|left, right| {
         (
-            left.pipeline_stage,
-            left_key,
-            &left.context_key,
-            left.decision_ordinal,
+            left.decision.pipeline_stage,
+            &left.subject_key,
+            &left.decision.context_key,
+            left.decision.decision_ordinal,
         )
             .cmp(&(
-                right.pipeline_stage,
-                right_key,
-                &right.context_key,
-                right.decision_ordinal,
+                right.decision.pipeline_stage,
+                &right.subject_key,
+                &right.decision.context_key,
+                right.decision.decision_ordinal,
             ))
     });
-    for (decision, _) in records {
-        insert_load_fact(tx, &decision, issue_keys)?;
+    for row in &rows {
+        insert_load_fact(tx, row, issue_keys, profile)?;
     }
     Ok(())
+}
+
+/// The subject columns of a load row: the full canonical key, or in a light file the GUID alone for a plain object.
+fn load_subject(
+    profile: Profile,
+    subject: &InventoryKey,
+) -> Result<(String, Option<String>), FactsError> {
+    if profile.shortens_column("load_fact", "subject_key") {
+        if let InventoryIdentity::Object { guid } = &subject.identity {
+            let guid = normalize_guid(guid)?;
+            return Ok((guid.clone(), Some(guid)));
+        }
+    }
+    let (_, key, guid) = subject_key(subject)?;
+    Ok((key, guid))
 }
 
 /// Publishes each subject's final load state, stage by the rule documented on `object_state`.
@@ -435,48 +521,68 @@ pub(crate) fn accounting_is_complete(
     inventory: &InventoryDelta,
     decisions: &[LoadDecision],
 ) -> bool {
-    load_records(provenance, inventory, decisions)
-        .iter()
-        .all(|decision| decision.disposition != LoadDisposition::Unknown)
+    unrecorded_subjects(provenance, inventory, decisions).is_empty()
+        && provenance
+            .import_load_decisions
+            .iter()
+            .chain(decisions)
+            .all(|decision| decision.disposition != LoadDisposition::Unknown)
 }
 
+/// The imported and compiled subjects no stage recorded a decision for.
+fn unrecorded_subjects<'a>(
+    provenance: &'a pg_snapshot::ConversionProvenance,
+    inventory: &'a InventoryDelta,
+    decisions: &'a [LoadDecision],
+) -> Vec<(&'a InventoryKey, LoadPipelineStage)> {
+    let recorded = |stage: LoadPipelineStage| -> BTreeSet<&InventoryKey> {
+        provenance
+            .import_load_decisions
+            .iter()
+            .chain(decisions)
+            .filter(|decision| decision.pipeline_stage == stage)
+            .map(|decision| &decision.subject)
+            .collect()
+    };
+    let imported = recorded(LoadPipelineStage::Import);
+    let compiled = recorded(LoadPipelineStage::Compile);
+    let mut unrecorded = Vec::new();
+    for subject in inventory_keys(&provenance.graph_to_snapshot).difference(&imported) {
+        unrecorded.push((*subject, LoadPipelineStage::Import));
+    }
+    for subject in inventory_keys(&inventory.inventory).difference(&compiled) {
+        unrecorded.push((*subject, LoadPipelineStage::Compile));
+    }
+    unrecorded
+}
+
+/// The decisions a file writes: recorded ones plus an unknown for each unrecorded subject, `keeps` choosing by kind and stage before anything is cloned.
 fn load_records(
     provenance: &pg_snapshot::ConversionProvenance,
     inventory: &InventoryDelta,
     decisions: &[LoadDecision],
+    keeps: &mut impl FnMut(InventoryKind, LoadPipelineStage) -> bool,
 ) -> Vec<LoadDecision> {
-    let mut records = provenance.import_load_decisions.clone();
-    records.extend(decisions.iter().cloned());
-    let imported_keys = inventory_keys(&provenance.graph_to_snapshot);
-    let import_recorded: BTreeSet<_> = records
+    let mut records: Vec<LoadDecision> = provenance
+        .import_load_decisions
         .iter()
-        .filter(|decision| decision.pipeline_stage == LoadPipelineStage::Import)
-        .map(|decision| decision.subject.clone())
+        .chain(decisions)
+        .filter(|decision| keeps(decision.subject.kind, decision.pipeline_stage))
+        .cloned()
         .collect();
-    for subject in imported_keys.difference(&import_recorded) {
-        records.push(unknown_decision(
-            subject.clone(),
-            LoadPipelineStage::Import,
-            LoadReasonCode::DecisionUnrecorded,
-        ));
-    }
-    let recorded: BTreeSet<_> = records
-        .iter()
-        .filter(|decision| decision.pipeline_stage == LoadPipelineStage::Compile)
-        .map(|decision| decision.subject.clone())
-        .collect();
-    let compiler_keys = inventory_keys(&inventory.inventory);
-    for subject in compiler_keys.difference(&recorded) {
-        records.push(unknown_decision(
-            subject.clone(),
-            LoadPipelineStage::Compile,
-            LoadReasonCode::DecisionUnrecorded,
-        ));
+    for (subject, stage) in unrecorded_subjects(provenance, inventory, decisions) {
+        if keeps(subject.kind, stage) {
+            records.push(unknown_decision(
+                subject.clone(),
+                stage,
+                LoadReasonCode::DecisionUnrecorded,
+            ));
+        }
     }
     records
 }
 
-fn inventory_keys(inventory: &ConversionInventory) -> BTreeSet<InventoryKey> {
+fn inventory_keys(inventory: &ConversionInventory) -> BTreeSet<&InventoryKey> {
     inventory
         .authored
         .iter()
@@ -485,7 +591,6 @@ fn inventory_keys(inventory: &ConversionInventory) -> BTreeSet<InventoryKey> {
         .chain(&inventory.represented)
         .chain(&inventory.rejected)
         .chain(&inventory.synthesized)
-        .cloned()
         .collect()
 }
 
@@ -509,40 +614,84 @@ fn unknown_decision(
 
 fn insert_load_fact(
     tx: &Transaction<'_>,
-    decision: &LoadDecision,
+    row: &LoadRow,
     issue_keys: &IssueKeyIndex,
+    profile: Profile,
 ) -> Result<(), FactsError> {
-    let (kind, subject_key, subject_guid) = subject_key(&decision.subject)?;
+    let decision = &row.decision;
     let pipeline_stage = decision.pipeline_stage.as_str();
-    let issue_key = decision
-        .issue_code
-        .as_ref()
-        .and_then(|code| {
-            subject_guid
-                .as_ref()
-                .map(|guid| (code.clone(), kind.clone(), guid.clone()))
-        })
-        .and_then(|key| issue_keys.get(&key))
-        .filter(|keys| keys.len() == 1)
-        .and_then(|keys| keys.first());
+    let issue_key = if profile.nulls_column("load_fact", "issue_key") {
+        None
+    } else {
+        decision
+            .issue_code
+            .as_ref()
+            .and_then(|code| {
+                row.subject_guid
+                    .as_ref()
+                    .map(|guid| (code.clone(), row.kind.to_string(), guid.clone()))
+            })
+            .and_then(|key| issue_keys.get(&key))
+            .filter(|keys| keys.len() == 1)
+            .and_then(|keys| keys.first())
+    };
+    let effective_value = if profile.nulls_column("load_fact", "effective_value_json") {
+        None
+    } else {
+        decision.effective_value_json.as_ref()
+    };
     crate::sql::execute(
         tx,
         "INSERT INTO load_fact(subject_kind, subject_key, pipeline_stage, decision_ordinal, subject_guid, context_key, disposition, loaded, reason_code, effective_value_json, issue_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
-            kind,
-            subject_key,
+            row.kind,
+            row.subject_key,
             pipeline_stage,
             decision.decision_ordinal as i64,
-            subject_guid,
+            row.subject_guid,
             decision.context_key,
             decision.disposition.as_str(),
             decision.loaded.map(|loaded| if loaded { 1_i64 } else { 0_i64 }),
             decision.reason_code.as_str(),
-            decision.effective_value_json,
+            effective_value,
             issue_key
         ],
     )?;
     Ok(())
+}
+
+/// The serialized `kind` of an inventory kind, the text `subject_kind` holds.
+fn kind_name(kind: InventoryKind) -> &'static str {
+    match kind {
+        InventoryKind::Entry => "entry",
+        InventoryKind::Sense => "sense",
+        InventoryKind::EntryReference => "entryReference",
+        InventoryKind::Msa => "msa",
+        InventoryKind::Allomorph => "allomorph",
+        InventoryKind::AffixProcess => "affixProcess",
+        InventoryKind::Environment => "environment",
+        InventoryKind::Phoneme => "phoneme",
+        InventoryKind::BoundaryMarker => "boundaryMarker",
+        InventoryKind::NaturalClass => "naturalClass",
+        InventoryKind::FeatureDefinition => "featureDefinition",
+        InventoryKind::FeatureValue => "featureValue",
+        InventoryKind::FeatureStructure => "featureStructure",
+        InventoryKind::PhonologicalContext => "phonologicalContext",
+        InventoryKind::FeatureConstraint => "featureConstraint",
+        InventoryKind::MorphemeCoOccurrence => "morphemeCoOccurrence",
+        InventoryKind::AllomorphCoOccurrence => "allomorphCoOccurrence",
+        InventoryKind::PhonologicalRule => "phonologicalRule",
+        InventoryKind::CompoundRule => "compoundRule",
+        InventoryKind::PartOfSpeech => "partOfSpeech",
+        InventoryKind::InflectionClass => "inflectionClass",
+        InventoryKind::StemName => "stemName",
+        InventoryKind::RuleFeature => "ruleFeature",
+        InventoryKind::ParserSetting => "parserSetting",
+        InventoryKind::StrataConfiguration => "strataConfiguration",
+        InventoryKind::Template => "template",
+        InventoryKind::TemplateSlot => "templateSlot",
+        InventoryKind::SourceObject => "sourceObject",
+    }
 }
 
 pub(crate) fn subject_key(
@@ -615,4 +764,49 @@ fn normalize_key(key: &InventoryKey) -> Result<InventoryKey, FactsError> {
 fn normalize_guid(value: &str) -> Result<String, FactsError> {
     pg_snapshot::canonical_guid(value)
         .ok_or_else(|| FactsError::InvalidSnapshot(format!("invalid inventory GUID {value:?}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `kind_name` stands in for serializing the kind, so it must match serde for every kind.
+    #[test]
+    fn kind_name_matches_the_serialized_kind() {
+        use InventoryKind::*;
+        for kind in [
+            Entry,
+            Sense,
+            EntryReference,
+            Msa,
+            Allomorph,
+            AffixProcess,
+            Environment,
+            Phoneme,
+            BoundaryMarker,
+            NaturalClass,
+            FeatureDefinition,
+            FeatureValue,
+            FeatureStructure,
+            PhonologicalContext,
+            FeatureConstraint,
+            MorphemeCoOccurrence,
+            AllomorphCoOccurrence,
+            PhonologicalRule,
+            CompoundRule,
+            PartOfSpeech,
+            InflectionClass,
+            StemName,
+            RuleFeature,
+            ParserSetting,
+            StrataConfiguration,
+            Template,
+            TemplateSlot,
+            SourceObject,
+        ] {
+            let serialized = serde_json::to_value(kind).unwrap();
+            assert_eq!(serialized.as_str(), Some(kind_name(kind)));
+            assert!((kind as usize) < 64);
+        }
+    }
 }

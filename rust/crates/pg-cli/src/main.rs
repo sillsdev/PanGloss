@@ -435,7 +435,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
-         usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--json]\n\
+         usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
          usage: pangloss fst-health <grammar> [<out.json>]\n\
          usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\

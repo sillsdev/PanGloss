@@ -6567,3 +6567,436 @@ fn root_position_sharing_an_invalid_environment_exports_as_not_attempted() {
         "not_attempted"
     );
 }
+
+/// Gives every sense a definition, so a light file has definition rows to leave out.
+fn with_definitions(mut source: Snapshot) -> Snapshot {
+    for entry in &mut source.lexicon.entries {
+        for sense in &mut entry.senses {
+            sense.definition = vec![ws("en", "a definition")];
+        }
+    }
+    source
+}
+
+fn build_as(path: &Path, source: &[u8], light: bool) -> Result<pg_facts::FactsResult, FactsError> {
+    pg_facts::write_facts_with_options(
+        source,
+        context(),
+        path,
+        producer(),
+        pg_facts::FactsOptions { light, stats: None },
+    )
+}
+
+fn table_names(db: &Connection) -> Vec<String> {
+    let mut statement = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .unwrap();
+    let names = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    names
+}
+
+fn count(db: &Connection, sql: &str) -> i64 {
+    db.query_row(sql, [], |row| row.get(0)).unwrap()
+}
+
+/// What the light file holds of `table`, given as the full file's rows narrowed by `filter`.
+fn assert_rows_match(db: &Connection, table: &str, filter: &str, label: &str) {
+    let kept = format!("SELECT * FROM main.{table} WHERE {filter}");
+    let light = format!("SELECT * FROM light.{table}");
+    for (left, right) in [(&kept, &light), (&light, &kept)] {
+        assert_eq!(
+            count(db, &format!("SELECT count(*) FROM ({left} EXCEPT {right})")),
+            0,
+            "{label}: {table} differs between full and light"
+        );
+    }
+    assert_eq!(
+        count(db, &format!("SELECT count(*) FROM ({kept})")),
+        count(db, &format!("SELECT count(*) FROM ({light})")),
+        "{label}: {table} row counts differ"
+    );
+}
+
+#[test]
+fn a_light_file_equals_the_full_file_except_for_what_it_declares_it_omits() {
+    let fixtures: [(&str, Snapshot); 6] = [
+        ("snapshot", snapshot()),
+        ("t2", t2_snapshot()),
+        ("compacted", compacted_snapshot()),
+        ("references", reference_snapshot()),
+        ("closure", closure_snapshot()),
+        ("gates", gate_snapshot()),
+    ];
+    let mut definitions_seen = 0;
+    let mut references_left_out = 0;
+    let mut load_rows_left_out = 0;
+    let mut segments_left_out = 0;
+    for (label, fixture) in fixtures {
+        let temp = tempfile::tempdir().unwrap();
+        let full_path = temp.path().join("full.sqlite");
+        let light_path = temp.path().join("light.sqlite");
+        let source = with_definitions(fixture).to_json().into_bytes();
+        let full = build_as(&full_path, &source, false).unwrap();
+        let light = build_as(&light_path, &source, true).unwrap();
+
+        assert_eq!(light.grammar_hash, full.grammar_hash, "{label}");
+        assert_eq!(light.model_fingerprint, full.model_fingerprint, "{label}");
+        assert_eq!(light.source_sha256, full.source_sha256, "{label}");
+        assert_eq!(light.compile_status, full.compile_status, "{label}");
+        assert!(light.output_bytes < full.output_bytes, "{label}");
+
+        let db = Connection::open(&full_path).unwrap();
+        db.execute(
+            "ATTACH DATABASE ?1 AS light",
+            [light_path.to_str().unwrap()],
+        )
+        .unwrap();
+        let omitted_tables = [
+            "source_object",
+            "conversion_item",
+            "conversion_stage",
+            "object_state",
+            "compiled_form_segment",
+        ];
+        for table in table_names(&db) {
+            match table.as_str() {
+                "artifact_meta" | "artifact_section" => {}
+                "load_fact" => {
+                    let kept = "subject_kind NOT IN ('sense', 'msa', 'entry', 'entryReference') AND (pipeline_stage IN ('compile', 'compact') OR subject_kind = 'affixProcess')";
+                    let cells = "subject_kind, pipeline_stage, decision_ordinal, subject_guid, context_key, disposition, loaded, reason_code";
+                    for (left, right) in [("main", "light"), ("light", "main")] {
+                        let filter = if left == "main" { kept } else { "1" };
+                        assert_eq!(
+                            count(
+                                &db,
+                                &format!("SELECT count(*) FROM (SELECT {cells} FROM {left}.load_fact WHERE {filter} EXCEPT SELECT {cells} FROM {right}.load_fact)")
+                            ),
+                            0,
+                            "{label}: load_fact differs between full and light"
+                        );
+                    }
+                    let kept_rows = count(
+                        &db,
+                        &format!("SELECT count(*) FROM main.load_fact WHERE {kept}"),
+                    );
+                    assert_eq!(
+                        kept_rows,
+                        count(&db, "SELECT count(*) FROM light.load_fact"),
+                        "{label}: load_fact row counts differ"
+                    );
+                    load_rows_left_out +=
+                        count(&db, "SELECT count(*) FROM main.load_fact") - kept_rows;
+                    assert_eq!(
+                        count(
+                            &db,
+                            "SELECT count(*) FROM light.load_fact WHERE effective_value_json IS NOT NULL OR issue_key IS NOT NULL"
+                        ),
+                        0,
+                        "{label}: the unread load_fact columns must be NULL"
+                    );
+                    assert_eq!(
+                        count(
+                            &db,
+                            "SELECT count(*) FROM light.load_fact AS l WHERE NOT EXISTS (SELECT 1 FROM main.load_fact AS f WHERE f.subject_kind=l.subject_kind AND f.pipeline_stage=l.pipeline_stage AND f.decision_ordinal=l.decision_ordinal AND f.context_key=l.context_key AND f.subject_guid IS l.subject_guid AND (f.subject_key=l.subject_key OR (l.subject_key=f.subject_guid AND f.subject_key LIKE '%\"kind\":\"object\"%')))"
+                        ),
+                        0,
+                        "{label}: a light subject_key is the full key or the GUID of an object identity"
+                    );
+                }
+                "sense_text" => {
+                    assert_rows_match(&db, &table, "kind='gloss'", label);
+                    definitions_seen += count(
+                        &db,
+                        "SELECT count(*) FROM main.sense_text WHERE kind='definition'",
+                    );
+                    assert_eq!(
+                        count(
+                            &db,
+                            "SELECT count(*) FROM light.sense_text WHERE kind='definition'"
+                        ),
+                        0,
+                        "{label}"
+                    );
+                }
+                "statement_reference" => {
+                    assert_rows_match(
+                        &db,
+                        &table,
+                        "target_kind IN ('environment', 'naturalClass')",
+                        label,
+                    );
+                    references_left_out += count(
+                        &db,
+                        "SELECT count(*) FROM main.statement_reference WHERE target_kind NOT IN ('environment', 'naturalClass')",
+                    );
+                }
+                name if omitted_tables.contains(&name) => {
+                    if name == "compiled_form_segment" {
+                        segments_left_out +=
+                            count(&db, "SELECT count(*) FROM main.compiled_form_segment");
+                    }
+                    assert_eq!(
+                        count(&db, &format!("SELECT count(*) FROM light.{name}")),
+                        0,
+                        "{label}: {name} must be empty in a light file"
+                    );
+                    assert!(
+                        count(&db, &format!("SELECT count(*) FROM main.{name}")) > 0
+                            || name == "source_object"
+                            || name == "compiled_form_segment",
+                        "{label}: {name} has no rows in the full file, so the check proves nothing"
+                    );
+                }
+                name => assert_rows_match(&db, name, "1", label),
+            }
+        }
+
+        let columns = |schema: &str| -> Vec<String> {
+            let mut statement = db
+                .prepare(&format!(
+                    "SELECT name FROM pragma_table_info('artifact_meta', '{schema}')"
+                ))
+                .unwrap();
+            let names = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            names
+        };
+        let full_columns = columns("main");
+        let light_columns = columns("light");
+        assert!(
+            !full_columns.contains(&"light_omissions".to_string()),
+            "{label}"
+        );
+        assert_eq!(
+            &light_columns[..full_columns.len()],
+            full_columns,
+            "{label}"
+        );
+        assert_eq!(light_columns.len(), full_columns.len() + 1, "{label}");
+        let shared = full_columns.join(", ");
+        assert_eq!(
+            count(
+                &db,
+                &format!(
+                    "SELECT count(*) FROM (SELECT {shared} FROM main.artifact_meta EXCEPT SELECT {shared} FROM light.artifact_meta)"
+                )
+            ),
+            0,
+            "{label}: artifact_meta changed beyond its added column"
+        );
+        let omissions: String = db
+            .query_row(
+                "SELECT light_omissions FROM light.artifact_meta",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let omissions: serde_json::Value = serde_json::from_str(&omissions).unwrap();
+        let tags: BTreeSet<&str> = omissions
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|omission| omission["omit"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            tags,
+            BTreeSet::from([
+                "table",
+                "rowsWhere",
+                "rowsExcept",
+                "rowsWhereUnless",
+                "columnsNull",
+                "columnShortened",
+                "index"
+            ]),
+            "{label}"
+        );
+        let indexes = |schema: &str| -> BTreeSet<String> {
+            let mut statement = db
+                .prepare(&format!(
+                    "SELECT name FROM {schema}.sqlite_master WHERE type='index' AND sql IS NOT NULL"
+                ))
+                .unwrap();
+            let names = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<Result<BTreeSet<_>, _>>()
+                .unwrap();
+            names
+        };
+        let dropped: BTreeSet<String> = indexes("main")
+            .difference(&indexes("light"))
+            .cloned()
+            .collect();
+        assert!(
+            indexes("light").is_subset(&indexes("main")) && dropped.contains("object_state_guid"),
+            "{label}: a light file only lacks indexes, e.g. {dropped:?}"
+        );
+        assert_eq!(dropped.len(), 8, "{label}: {dropped:?}");
+
+        let sections = |schema: &str| -> BTreeMap<String, (String, Option<String>)> {
+            let mut statement = db
+                .prepare(&format!(
+                    "SELECT section, status, reason_code FROM {schema}.artifact_section"
+                ))
+                .unwrap();
+            let rows = statement
+                .query_map([], |row| Ok((row.get(0)?, (row.get(1)?, row.get(2)?))))
+                .unwrap()
+                .collect::<Result<BTreeMap<_, _>, _>>()
+                .unwrap();
+            rows
+        };
+        let full_sections = sections("main");
+        let light_sections = sections("light");
+        let changed: BTreeSet<&str> = full_sections
+            .iter()
+            .filter(|(name, value)| light_sections[*name] != **value)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert!(
+            changed.is_superset(&BTreeSet::from(["conversion_inventory", "entries"]))
+                && changed.is_subset(&BTreeSet::from([
+                "conversion_inventory",
+                "entries",
+                "load_accounting",
+                "effective_grammar"
+            ])),
+            "{label}: only the sections a skip names change status (a Snapshot built by hand has no source census to narrow): {changed:?}"
+        );
+        assert_eq!(
+            light_sections["source_census"], full_sections["source_census"],
+            "{label}: an unavailable census stays unavailable"
+        );
+        for name in ["conversion_inventory", "entries"] {
+            assert_eq!(
+                light_sections[name],
+                ("partial".to_string(), Some("light".to_string())),
+                "{label}: {name}"
+            );
+        }
+        let accounting_was_complete = full_sections["load_accounting"].0 == "complete";
+        assert_eq!(
+            light_sections["load_accounting"],
+            if accounting_was_complete {
+                ("partial".to_string(), Some("light".to_string()))
+            } else {
+                full_sections["load_accounting"].clone()
+            },
+            "{label}: load_accounting covers the cut load_fact rows, and is narrowed only from complete (a hand-built Snapshot has no source census, so none of these is complete; real grammars are checked by the unit test on declare() and by scripts/cmp_light.py)"
+        );
+        let scope: String = db
+            .query_row(
+                "SELECT source_scope FROM light.artifact_section WHERE section='entries'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            scope.contains("sense_text rows with kind in (definition)"),
+            "{scope}"
+        );
+        assert_eq!(
+            light
+                .sections
+                .iter()
+                .map(|s| (s.section.clone(), s.status.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            light_sections
+                .iter()
+                .map(|(name, (status, _))| (name.clone(), status.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            "{label}: the result names the statuses the file holds"
+        );
+    }
+    assert!(definitions_seen > 0, "no fixture had a definition to omit");
+    assert!(
+        references_left_out > 0,
+        "no fixture had a reference to omit"
+    );
+    assert!(load_rows_left_out > 0, "no fixture had a load row to omit");
+    assert!(
+        segments_left_out > 0,
+        "no fixture had a form segment to omit"
+    );
+}
+
+#[test]
+fn a_light_file_keeps_the_stats_tables_and_their_section_when_a_run_is_attached() {
+    let run = write_exported_stats_run();
+    let light_output = run.temp.path().join("light-with-stats.sqlite");
+    let result = pg_facts::write_facts_with_options(
+        &run.source,
+        context(),
+        &light_output,
+        producer(),
+        pg_facts::FactsOptions {
+            light: true,
+            stats: Some(pg_facts::StatsInput::new(
+                &run.cache_path,
+                &run.manifest_path,
+            )),
+        },
+    )
+    .unwrap();
+    let status_of = |section: &str| {
+        result
+            .sections
+            .iter()
+            .find(|s| s.section == section)
+            .map(|s| (s.status.clone(), s.reason_code.clone()))
+            .unwrap()
+    };
+    assert_eq!(status_of("stats").0, "complete");
+
+    let full = Connection::open(&run.output).unwrap();
+    let light = Connection::open(&light_output).unwrap();
+    full.execute(
+        "ATTACH DATABASE ?1 AS light",
+        [light_output.to_str().unwrap()],
+    )
+    .unwrap();
+    drop(light);
+    for table in ["stats_object", "stats_form", "stats_object_form"] {
+        if full
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                [table],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+            == 0
+        {
+            continue;
+        }
+        let only_full: i64 = full
+            .query_row(
+                &format!("SELECT count(*) FROM (SELECT * FROM main.{table} EXCEPT SELECT * FROM light.{table})"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let only_light: i64 = full
+            .query_row(
+                &format!("SELECT count(*) FROM (SELECT * FROM light.{table} EXCEPT SELECT * FROM main.{table})"),
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!((only_full, only_light), (0, 0), "{table} differs");
+    }
+    let rows: i64 = full
+        .query_row("SELECT count(*) FROM light.stats_object", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert!(rows > 0, "the light file carries the stats run");
+}

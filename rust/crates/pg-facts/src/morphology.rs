@@ -11,6 +11,7 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 
 use crate::features::FeatureStructureIds;
+use crate::light::Profile;
 use crate::FactsError;
 
 type TemplateSlotPlacementMap = BTreeMap<(String, String, i64), (String, i64, i64)>;
@@ -101,6 +102,7 @@ pub(crate) fn insert_authored(
     snapshot: &Snapshot,
     decisions: &[LoadDecision],
     compile_completed: bool,
+    profile: Profile,
 ) -> Result<(), FactsError> {
     crate::sql::execute(
         tx,
@@ -193,7 +195,7 @@ pub(crate) fn insert_authored(
     )?;
     insert_compound_rules(tx, snapshot)?;
     for (entry_ordinal, entry) in snapshot.lexicon.entries.iter().enumerate() {
-        insert_entry(tx, entry, entry_ordinal)?;
+        insert_entry(tx, entry, entry_ordinal, profile)?;
     }
     crate::adhoc::insert_authored(tx, snapshot)
 }
@@ -691,6 +693,7 @@ fn insert_entry(
     tx: &Transaction<'_>,
     entry: &LexEntry,
     entry_ordinal: usize,
+    profile: Profile,
 ) -> Result<(), FactsError> {
     let entry_guid = checked_guid(&entry.guid, "lexicon.entries.guid")?;
     let morph_type = enum_string(&entry.lexeme_morph_type)?;
@@ -723,6 +726,9 @@ fn insert_entry(
             params![sense_guid, entry_guid, msa_guid],
         )?;
         for (kind, forms) in [("gloss", &sense.gloss), ("definition", &sense.definition)] {
+            if !profile.keeps_row("sense_text", &[("kind", kind)]) {
+                continue;
+            }
             for (ordinal, form) in forms.iter().enumerate() {
                 crate::sql::execute(
                     tx,

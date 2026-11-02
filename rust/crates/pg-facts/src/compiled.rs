@@ -9,6 +9,7 @@ use pg_shape::NO_CHAR_DEF;
 use pg_snapshot::Snapshot;
 use rusqlite::{params, Transaction};
 
+use crate::light::Profile;
 use crate::phonology::{canonical_key, segment_identity, SourceGuids};
 use crate::FactsError;
 
@@ -18,6 +19,7 @@ pub(crate) fn insert(
     mappings: &[CompiledMapping],
     allomorph_order: &[CompiledAllomorphOrder],
     form_segments: &[(u32, Vec<FormSegment>)],
+    profile: Profile,
 ) -> Result<(), FactsError> {
     for output in outputs {
         let conditioning = output.conditioning.as_ref();
@@ -56,7 +58,9 @@ pub(crate) fn insert(
             ],
         )?;
     }
-    insert_form_segments(tx, form_segments)?;
+    if !profile.omits_table("compiled_form_segment") {
+        insert_form_segments(tx, form_segments)?;
+    }
     crate::variants::insert_compiled_order(tx, allomorph_order)
 }
 

@@ -204,6 +204,8 @@ pangloss facts <snapshot.json> --out <facts.sqlite> --context <facts-context.jso
   --stats <cache.sqlite> --stats-manifest <manifest.json> [--json]
 ```
 
+Add `--light` for a file that leaves out what Motif does not read; see [Light files](#light-files).
+
 Only `.json` Snapshot input is accepted. Use `pangloss import` first for a FieldWorks project.
 `--out` must name a new path. The writer never replaces an existing file. `--json` writes one
 result object to stdout; diagnostics go to stderr. A structured compiler refusal still publishes
@@ -256,7 +258,8 @@ The `artifact_meta` singleton records:
 | `model_fingerprint` | `pg_assess::model_fingerprint(SourceKind::Snapshot, source, compiler_version)`. It covers canonical source JSON, including conversion provenance, and compiler version. |
 | `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest` | The caller-supplied evidence context and its identity. |
 | `compile_options_json`, `compile_options_sha256` | The production default options with `SemanticLossPolicy::Refuse`. Provisional definitions are unconditional and have no option. |
-| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v8 schema was written and verified. It does not mean every section is available. |
+| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v8 schema, less what a [light file](#light-files) declares it omits, was written and verified. It does not mean every section is available. |
+| `light_omissions` | Present only in a light file: JSON list of the omitted tables and rows. |
 | `run_manifest_sha256` | Nullable SHA-256 of the exact accepted stats manifest bytes. NULL when no stats run was requested. |
 
 Digests use the `sha256:<hex>` spelling except `grammar_hash`, which follows the existing
@@ -276,6 +279,44 @@ atomic publication leave no final artifact. A refused conversion is distinct: it
 authored/diagnostic database is published, with `compile_status=refused` and `effective_grammar`
 unavailable. If the file is published but its directory cannot be synced or its response digest
 cannot be read, the command reports that the complete output already exists and names its path.
+
+## Light files
+
+`pangloss facts --light` builds the same file without the tables and rows no Motif measure reads. It
+does not compute them either, so it is also less work. The schema, `application_id`, `user_version`,
+`grammar_hash`, `model_fingerprint` and `source_sha256` are those of a full file, and every other
+table holds exactly the rows a full file holds, with the same ordinals.
+
+| Omitted | Declared in section |
+|---|---|
+| `source_object` | `source_census` |
+| `conversion_item` and `conversion_stage` (which counts what `conversion_item` lists) | `conversion_inventory` |
+| `compiled_form_segment` | `effective_grammar` |
+| `object_state` | `load_accounting` |
+| `sense_text` rows whose `kind` is `definition` (glosses stay) | `entries` |
+| `statement_reference` rows whose `target_kind` is not `environment` or `naturalClass` | `load_accounting` |
+| `load_fact` rows of subject kind `sense`, `msa`, `entry` or `entryReference`, and rows at the `import` and `snapshot` stages other than `affixProcess` subjects | `load_accounting` |
+| `load_fact.effective_value_json` and `load_fact.issue_key`, written as NULL | `load_accounting` |
+| `load_fact.subject_key`, which holds the subject GUID for a plain object identity and the full canonical key otherwise | `load_accounting` |
+| the indexes `category_ancestor_ancestor`, `inflection_class_ancestor_ancestor`, `allomorph_gate_target`, `source_object_canonical_guid`, `object_state_guid`, `compiled_allomorph_order_source`, `pattern_node_phoneme` and `msa_category_category` | none; see `light_omissions` |
+
+A light file says so in two places. A section whose tables it narrows is `partial` with reason code
+`light`, and its `source_scope` ends with `Light file, omitted:` and the list. A section that was already
+`partial` or `unavailable` keeps that status and reason. And `artifact_meta` gains one more column,
+`light_omissions`: the JSON list of everything omitted, including the indexes no section covers. A full
+file has no such column, so read it only after `pragma_table_info('artifact_meta')` names it. `complete`
+still means the write finished and verified; it does not say nothing was omitted, so a reader must not
+stop at `complete=1`. `load_accounting` is `partial` with reason `light` because it covers the
+`load_fact` family and its rows are cut; its accounting figures are still computed from provenance
+and the compiler's decisions, not from the rows a light file leaves out, so the answer to "were all
+decisions recorded" does not change. A light file is schema v8 and shares `application_id` and
+`user_version` with a full file.
+
+`statement_reference` in a light file reads as incomplete through its sources: `entries` and `load_accounting` are
+`partial` with reason `light`. A reader that accepts that must read only `environment` and `naturalClass` targets.
+A `load_fact` row that is present is the row a full file holds,
+apart from the columns above; a missing row is not an absence of a decision, so a reader of decisions for
+the omitted subject kinds or stages needs a full file.
 
 ## Sections
 
@@ -318,7 +359,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 
 | Table | Key and columns |
 |---|---|
-| `artifact_meta` | `singleton`, `application_id`, `schema_version`, `format`, `writer_version`, `compiler_version`, `source_revision`, `build_identity`, `snapshot_format`, `snapshot_version`, `provenance_schema_version`, `source_inventory_status`, `source_sha256`, `grammar_hash`, `model_fingerprint`, `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest`, `compile_options_json`, `compile_options_sha256`, `compile_status`, `complete`, and `run_manifest_sha256`. One singleton row; each column is described under Identity and publication. |
+| `artifact_meta` | `singleton`, `application_id`, `schema_version`, `format`, `writer_version`, `compiler_version`, `source_revision`, `build_identity`, `snapshot_format`, `snapshot_version`, `provenance_schema_version`, `source_inventory_status`, `source_sha256`, `grammar_hash`, `model_fingerprint`, `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest`, `compile_options_json`, `compile_options_sha256`, `compile_status`, `complete`, and `run_manifest_sha256`, plus `light_omissions` in a light file. One singleton row; each column is described under Identity and publication. |
 | `artifact_section` | `section`, `status`, `source_scope`, and nullable `reason_code`. One row per v8 section; see Sections. |
 | `compiled_output` | `output_id`, `kind`, `key`, nullable `owner_output_id`, nullable `stratum_key`, `bucket`, nullable `compiled_order`, `identity_quality`, and the allomorph shape columns `realization_kind`, `has_phone_condition`, `has_morph_gate`, `gate_signature`, and `is_unconditioned`. Column meanings are under Compiled output keys. |
 | `object_state` | `subject_kind`, `subject_guid`, `final_stage`, nullable `loaded`, `dispositions`, and `primary_reason`, derived by the rule under Final object state. |

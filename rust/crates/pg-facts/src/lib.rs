@@ -6,6 +6,7 @@ mod context;
 mod features;
 mod guid;
 mod lexicon;
+mod light;
 mod load;
 mod metadata;
 mod morphology;
@@ -29,7 +30,17 @@ pub use metadata::{
 };
 pub use stats::StatsInput;
 pub use write::write_facts;
+pub use write::write_facts_with_options;
 pub use write::write_facts_with_stats;
+
+/// What a facts build is asked for beyond the Snapshot and context.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FactsOptions<'a> {
+    /// Leave out the tables and rows nothing in Motif reads, and declare it in the file.
+    pub light: bool,
+    /// One manifest-bound frozen stats run to attach.
+    pub stats: Option<StatsInput<'a>>,
+}
 
 /// The result of publishing a complete facts database.
 #[derive(Debug, Clone, Serialize)]
