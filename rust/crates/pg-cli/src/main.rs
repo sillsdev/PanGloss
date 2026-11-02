@@ -430,6 +430,7 @@ fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
          usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
@@ -460,6 +461,10 @@ fn print_usage_and_fail() -> ExitCode {
          guess on stderr, and `batch --analyses` reports each guessed morph's guessedString.\n\
          --work-columns (`batch`) appends `steps` and `work_steps` to every result row\n\
          (docs/formats/batch-tsv.md); off by default, the row layout is unchanged.\n\
+         --cost-column (`batch`) appends each word's fixed-weight parse cost as the last field; off by\n\
+         default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
+         ok in both, reports the rest, and says inconclusive when a status changed. Use the total;\n\
+         per-word costs repeat exactly only with --threads 1 (docs/design/parse-cost.md).\n\
          --always-enforce-final-templates is result-changing: enforce template order even\n\
          when partial-rule rescue would otherwise allow an interleaving. A FieldWorks project\n\
          sets it with <HC><MakePartialsFinal>; an explicit flag overrides the project, and\n\

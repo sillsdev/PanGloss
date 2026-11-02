@@ -8,6 +8,9 @@ const CLEAR_PERCENT: f64 = 5.0;
 /// A change this large, in percent, reads as probably better or worse.
 const PROBABLE_PERCENT: f64 = 2.0;
 
+/// The values of the status field; a tab inside a word shifts the fields and breaks this.
+const STATUSES: [&str; 4] = ["ok", "CAP", "TIMEOUT", "SKIPPED"];
+
 #[derive(Debug, PartialEq, Eq)]
 struct Row {
     word: String,
@@ -21,6 +24,9 @@ fn parse_row(line: &str) -> Result<Option<(usize, Row)>, String> {
     let fields: Vec<&str> = line.split('\t').collect();
     if fields.len() < 5 {
         return Ok(None);
+    }
+    if !STATUSES.contains(&fields[3]) {
+        return Err("a row has an unexpected shape".into());
     }
     let guessed = usize::from(matches!(fields.get(5), Some(&"true") | Some(&"false")));
     if (fields.len() - 5 - guessed).is_multiple_of(2) {
@@ -68,9 +74,15 @@ struct Comparison {
     after: u64,
     percent: f64,
     verdict: &'static str,
+    /// Words with a different signature, among those totalled.
     parse_changes: usize,
-    capped_words: usize,
+    /// Words left out of the totals because they were not `ok` on both sides.
+    excluded_words: usize,
+    /// Words whose status differs between the runs.
+    status_changes: usize,
 }
+
+const INCONCLUSIVE: &str = "inconclusive";
 
 fn verdict(percent: f64) -> &'static str {
     if percent <= -CLEAR_PERCENT {
@@ -98,28 +110,42 @@ fn compare(
     {
         return Err("the two runs must cover the same word list".into());
     }
-    let total = |rows: &BTreeMap<usize, Row>| rows.values().map(|row| row.cost).sum::<u64>();
-    let (total_before, total_after) = (total(before), total(after));
-    if total_before == 0 {
+    let pairs = || before.values().zip(after.values());
+    let status_changes = pairs().filter(|(a, b)| a.status != b.status).count();
+    let counted = || pairs().filter(|(a, b)| a.status == "ok" && b.status == "ok");
+    let sum = |costs: Vec<u64>| {
+        costs
+            .into_iter()
+            .try_fold(0u64, u64::checked_add)
+            .ok_or_else(|| "a total cost is too large to compare".to_string())
+    };
+    let total_before = sum(counted().map(|(a, _)| a.cost).collect())?;
+    let total_after = sum(counted().map(|(_, b)| b.cost).collect())?;
+    if total_before == 0 && status_changes == 0 {
         return Err("the first run has no measured cost".into());
     }
-    let percent = 100.0 * (total_after as f64 / total_before as f64 - 1.0);
-    let pairs = || before.values().zip(after.values());
+    let percent = if total_before == 0 {
+        0.0
+    } else {
+        100.0 * (total_after as f64 / total_before as f64 - 1.0)
+    };
     Ok(Comparison {
         words: before.len(),
         before: total_before,
         after: total_after,
         percent,
-        verdict: verdict(percent),
-        parse_changes: pairs()
-            .filter(|(a, b)| a.signature != b.signature || a.status != b.status)
+        verdict: if status_changes > 0 {
+            INCONCLUSIVE
+        } else {
+            verdict(percent)
+        },
+        parse_changes: counted()
+            .filter(|(a, b)| a.signature != b.signature)
             .count(),
-        capped_words: pairs()
-            .filter(|(a, b)| a.status == "CAP" || b.status == "CAP")
-            .count(),
+        excluded_words: before.len() - counted().count(),
+        status_changes,
     })
 }
-
 pub(crate) fn run_cost_compare(args: &[String]) -> Result<(), String> {
     let mut json = false;
     let mut paths = Vec::new();
@@ -148,23 +174,22 @@ pub(crate) fn run_cost_compare(args: &[String]) -> Result<(), String> {
                 "percent": result.percent,
                 "verdict": result.verdict,
                 "parseChanges": result.parse_changes,
-                "cappedWords": result.capped_words,
-                "atLeast": result.capped_words > 0,
+                "excludedWords": result.excluded_words,
+                "statusChanges": result.status_changes,
             })
         );
     } else {
-        let at_least = if result.capped_words > 0 {
-            "at least "
-        } else {
-            ""
-        };
         println!(
-            "{}: {at_least}{:+.2}% cost over {} words",
-            result.verdict, result.percent, result.words
+            "{}: {:+.2}% cost over {} of {} words",
+            result.verdict,
+            result.percent,
+            result.words - result.excluded_words,
+            result.words
         );
         println!("cost: {} -> {}", result.before, result.after);
         println!("parse changes: {}", result.parse_changes);
-        println!("capped words: {}", result.capped_words);
+        println!("excluded words: {}", result.excluded_words);
+        println!("status changes: {}", result.status_changes);
     }
     Ok(())
 }

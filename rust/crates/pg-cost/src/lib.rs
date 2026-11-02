@@ -3,6 +3,8 @@
 //! Cost is a report. No cap, deadline or parse decision reads it, so it cannot change a parse.
 //! The weights are constants of the code, not of a grammar: see `docs/design/parse-cost.md`.
 
+#![deny(unsafe_code)]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::fmt;

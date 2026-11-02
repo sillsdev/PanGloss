@@ -788,7 +788,7 @@ impl<'g> Morpher<'g> {
         self.parse_word_core_selected(word, opts, trace, None, None, None)
     }
 
-    /// `Self::parse_word_measured` plus this parse's cost counts; every entry point passes through here.
+    /// `Self::parse_word_unmetered` plus this parse's cost counts; every entry point passes through here.
     fn parse_word_core_selected(
         &self,
         word: &str,
@@ -800,13 +800,13 @@ impl<'g> Morpher<'g> {
     ) -> ParseOutcome {
         let meter = pg_cost::Meter::start();
         let mut outcome =
-            self.parse_word_measured(word, opts, trace, lex_entry_filter, rule_filter, stats);
+            self.parse_word_unmetered(word, opts, trace, lex_entry_filter, rule_filter, stats);
         outcome.cost = meter.map(|meter| meter.finish(outcome.work_steps));
         outcome
     }
 
-    /// The actual shared implementation; `Self::parse_word_core` is a thin `(None, None, None)` wrapper over this.
-    fn parse_word_measured(
+    /// The shared implementation, run without the cost meter; `Self::parse_word_core_selected` wraps it with one.
+    fn parse_word_unmetered(
         &self,
         word: &str,
         opts: &ParseOptions,

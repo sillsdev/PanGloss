@@ -36,9 +36,16 @@ until a host asks for it, and asking on a build without `pg_cost::CountingAlloca
 rather than a cost that silently omits allocation. `batch` refuses `--cost-column` with `--stats`,
 because the collector's own allocations would count as parse cost.
 
-Cost is compared only within one PanGloss version, on one word list, with no deadline. A capped word
-makes the result "at least", and parse changes are reported beside the verdict. It never compares
-two languages.
+Cost is compared only within one PanGloss version, on one word list, with no deadline. It never
+compares two languages.
+
+A capped cost is a lower bound for that side, so a word that newly caps would shrink the total and
+read as an improvement. `cost-compare` therefore totals only words that are `ok` on both sides, and
+reports how many words it left out (`excludedWords` in `--json`), including words capped on both
+sides. If any word's status differs between the runs (`statusChanges`), the verdict is
+"inconclusive" whatever the percent. A different signature on an `ok` word is reported beside the
+verdict as `parseChanges`. A row whose status field is not `ok`, `CAP`, `TIMEOUT` or `SKIPPED`, as
+happens when a word contains a tab, is refused as an unexpected shape.
 
 ## Tuning the weights
 
@@ -55,8 +62,9 @@ constants to a code change.
 
 WASM keeps its default cap. `PanGlossGrammar.withoutWorkLimits` removes the attempt and work limits
 for a host that trusts its grammar. The counters remain, but no cap can stop a word: counting costs
-under 1% of a parse, and the root search cache sizes its entries from the work counted. A word with
-no limit can run for minutes and blocks its thread, so it belongs off the UI thread. WASM installs no
+under 1% of a parse, and the root search cache admits entries by the work counted. On wasm32 `usize::MAX` is 2^32-1, so the limit is still about 4.29e9 units and a word can report
+capped there. A word with no limit can run for minutes, blocks its thread, and can exhaust linear
+memory and trap, so it belongs off the UI thread. WASM installs no
 counting allocator, so it cannot report cost.
 
 The evidence and open questions are in `openspec/changes/accurate-work-steps/design.md`.

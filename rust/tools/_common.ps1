@@ -655,6 +655,7 @@ function Get-ExampleFeaturePackages {
         }
     }
 }
+$script:ClippyGatedFeatures = @('pg-cli/cost-calibration')
 function Get-ClippyInvocation {
     <#
       .DESCRIPTION
@@ -675,6 +676,8 @@ function Get-ClippyInvocation {
     }
     if (-not $PSBoundParameters.ContainsKey('ExamplePackages')) { $ExamplePackages = @(Get-ExampleFeaturePackages -DefaultOnly:(-not $Package -and $ExtraArgs -notcontains '--workspace')) }
     $features = @($ExamplePackages | Where-Object { -not $Package -or $_ -eq $Package } | ForEach-Object { "$_/examples" })
+    # Feature-gated code that no default build compiles would rot unlinted, so CI lints it too.
+    $features += @($script:ClippyGatedFeatures | Where-Object { -not $Package -or $_.StartsWith("$Package/") })
     if ($features.Count -gt 0) { $cargoArgs += @('--features', ($features -join ',')) }
     if ($Package) { $cargoArgs += @('-p', $Package) }
     if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }

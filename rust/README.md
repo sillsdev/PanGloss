@@ -29,6 +29,7 @@ Language Pack. Build reports and word-assessment reports are separate immutable 
 | `pg-fst` | pattern compile, FSA traversal, registers (CSR arc storage) |
 | `pg-rules` | phonological + morphological rules, templates, strata, cascades |
 | `pg-parse` | Morpher pipeline: segment → analyze → lookup → synthesize → dedup |
+| `pg-cost` | Deterministic parse cost: fixed weights over work units, bytes allocated and registers copied |
 | `pg-ffi` | C ABI (`cdylib`) with `catch_unwind` boundary |
 | `pg-cli` | `pangloss` binary: batch, parity-diff, bench (mirrors C# `hc batch` TSV) |
 | `pg-snapshot` | PanGloss's owned, versioned JSON project-snapshot format (serde model + IO + validation) |

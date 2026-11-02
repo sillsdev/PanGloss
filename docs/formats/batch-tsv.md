@@ -42,11 +42,7 @@ then `steps` and `work_steps` from the end of what remains.
 ### Determinism
 
 `steps` and `work_steps` depend only on the grammar, the word, the cap settings and the PanGloss
-version. They do not depend on thread count, machine or load. `cost` repeats exactly for one word
-list and thread count. The first words on a thread also carry one-time allocation, so one word's cost
-can differ under another thread count or word order, while the run's total moved at most 0.0001%
-when measured. Compare totals. Use `pangloss cost-compare
-before.tsv after.tsv` to compare parse cost; `elapsed_ms` is a secondary figure.
+version. They do not depend on thread count, machine or load. `cost` repeats exactly for one word list only with `--threads 1`. Under more threads the first words on each thread carry one-time allocation, and a word's cost has been seen to differ by 248 bytes across thread counts, so per-word equality is not promised. The run's total moved at most 0.0001% when measured, so compare totals: use `pangloss cost-compare before.tsv after.tsv`, which totals only words that are `ok` in both runs. `elapsed_ms` is a secondary figure.
 
 - A `CAP` row is deterministic: the same inputs stop at the same point with the same counts. On a
   work-cap stop, `work_steps` equals the work cap.

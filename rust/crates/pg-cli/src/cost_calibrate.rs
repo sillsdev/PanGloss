@@ -29,6 +29,14 @@ fn read_targets(path: &str) -> Result<HashMap<usize, f64>, String> {
         .collect()
 }
 
+/// `count` indices spread evenly over `len` words, or all of them when there are fewer.
+fn sample_indices(len: usize, count: usize) -> Vec<usize> {
+    if count >= len {
+        return (0..len).collect();
+    }
+    (0..count).map(|i| i * len / count).collect()
+}
+
 pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
     let mut positional = Vec::new();
     let mut targets_path = None;
@@ -41,7 +49,9 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
                 let value = it.next().ok_or("--words requires a value")?;
                 sample = value
                     .parse()
-                    .map_err(|_| format!("invalid --words: {value}"))?;
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or_else(|| format!("invalid --words: {value}"))?;
             }
             flag if flag.starts_with("--") => return Err(format!("unknown flag {flag}")),
             path => positional.push(path),
@@ -67,14 +77,15 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
     let targets = targets_path.map(|path| read_targets(path)).transpose()?;
     let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap())
         .with_work_cap(resolved_work_cap(DEFAULT_STEP_CAP, None));
-    let stride = (words.len() / sample.max(1)).max(1);
+    let opts = morpher.project_parse_options();
 
     let mut samples = Vec::new();
     let wall_start = Instant::now();
     let cpu_start = pg_cost::thread_cpu_time();
-    for (idx, word) in words.iter().enumerate().step_by(stride) {
+    for idx in sample_indices(words.len(), sample) {
+        let word = words[idx];
         let started = Instant::now();
-        let outcome = morpher.parse_word(word);
+        let outcome = morpher.parse_word_opts(word, &opts);
         let elapsed = started.elapsed().as_secs_f64();
         if outcome.capped || outcome.timed_out {
             continue;
@@ -118,4 +129,52 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
         })
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_file(name: &str, text: &str) -> String {
+        let path = std::env::temp_dir().join(format!("pg-calibrate-{}-{name}", std::process::id()));
+        fs::write(&path, text).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn targets_are_read_as_index_and_instruction_pairs() {
+        let path = temp_file("ok.tsv", "0\t1500.5\n7\t200\n");
+        let targets = read_targets(&path).unwrap();
+        fs::remove_file(&path).unwrap();
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[&0], 1500.5);
+        assert_eq!(targets[&7], 200.0);
+    }
+
+    #[test]
+    fn a_malformed_targets_row_is_refused() {
+        for (name, text) in [("tab", "0 1500\n"), ("idx", "x\t5\n"), ("val", "1\ty\n")] {
+            let path = temp_file(name, text);
+            let result = read_targets(&path);
+            fs::remove_file(&path).unwrap();
+            assert!(result.is_err(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn the_sample_is_close_to_the_requested_count() {
+        assert_eq!(sample_indices(79, 40).len(), 40);
+        assert_eq!(sample_indices(10, 40), (0..10).collect::<Vec<_>>());
+        let spread = sample_indices(100, 40);
+        assert_eq!((spread[0], spread.len()), (0, 40));
+        assert!(spread.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    fn zero_words_is_refused_before_any_work() {
+        let args: Vec<String> = ["g.xml", "w.txt", "--words", "0"].map(String::from).into();
+        assert!(run_cost_calibrate(&args)
+            .unwrap_err()
+            .contains("invalid --words"));
+    }
 }
