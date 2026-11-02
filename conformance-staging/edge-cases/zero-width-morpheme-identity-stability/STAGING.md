@@ -76,6 +76,6 @@ or a count) for all four words.
 ## Graduation
 
 Not yet proposed upstream as its own PR (issue #506 is open; Machine PR #500 is the existing partial
-fix). Candidate destination: `machine/conformance/edge-cases/
+fix). Candidate destination: `conformance/edge-cases/
 zero-width-morpheme-identity-stability/`. On acceptance, delete this staged copy in the same change
 (graduation guard enforces this mechanically).

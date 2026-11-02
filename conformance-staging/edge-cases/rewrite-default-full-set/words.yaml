@@ -2,7 +2,7 @@
 # C# hc.dll replay; see STAGING.md.
 language: rewrite-default-full-set
 inspired_by: ["synthetic default feature probe"]
-sources: ["machine/conformance/edge-cases/loader-default-symbol"]
+sources: ["conformance/edge-cases/loader-default-symbol"]
 requires: [phonology]
 fieldworks_producible: false
 fieldworks_producible_notes: "HCLoader does not currently emit SymbolicFeature.defaultSymbol."

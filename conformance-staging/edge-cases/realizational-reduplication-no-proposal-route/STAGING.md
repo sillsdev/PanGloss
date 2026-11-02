@@ -20,6 +20,6 @@ FieldWorks' `HCLoader.cs:976-979` returns an `AffixProcessRule` from its inflect
 loader and marks realizational affix process support as a TODO. The fixture's `RealizationalRule`
 cannot be produced by FieldWorks' HCLoader.
 
-Graduation target: `machine/conformance/edge-cases/realizational-reduplication-no-proposal-route/`.
+Graduation target: `conformance/edge-cases/realizational-reduplication-no-proposal-route/`.
 
 Upstream PR: none (not opened).

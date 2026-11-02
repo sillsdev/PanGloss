@@ -102,4 +102,4 @@ one that runs it.
 Not yet proposed upstream (no `sillsdev/machine` PR opened). This fixture's directory carries a
 third file (`filter-expectation.json`) that the upstream fixture contract does not define, so
 graduation means contributing `grammar.xml` + `words.yaml` under
-`machine/conformance/edge-cases/<name>/` and leaving the expectation file behind here.
+`conformance/edge-cases/<name>/` and leaving the expectation file behind here.
