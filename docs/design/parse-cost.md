@@ -3,7 +3,7 @@
 Parse cost is a deterministic estimate of a word's instructions:
 
 ```
-cost = work_steps × 500 + bytes allocated × 2 + registers copied × 330
+cost = work_steps × 676 + bytes allocated × 2 + registers copied × 268
 ```
 
 `work_steps` counts budget reservations. Bytes are requested from the allocator, and registers are
@@ -24,11 +24,29 @@ replace that run, because a code change can change what a unit costs.
 
 ## Why the weights are fixed
 
-Fitted on four grammars and scored on the fifth, the weights stayed close (work 311-700, bytes
-2.09-2.55, registers 259-385) and predicted the held-out grammar's instruction rate within 2-14%.
-They follow the code more than the grammar, so a stored per-project weight earns nothing. A code
-change can move them, which is what `cost-calibrate` is for.
+The weights follow the code more than the grammar, so a stored per-project weight earns nothing. A
+code change can move them, which is what `cost-calibrate` is for.
 
+Evidence for 676 / 2 / 268, from 6 historic change pairs across 5 grammars (30 rows, 6113 words kept
+because their status was `ok` on both sides, 0 work-count mismatches against the stored runs):
+
+- When cost moved by 2% or more, its direction matched instructions 17 of 17 times; at 5% or more,
+  10 of 10.
+- Pearson r 0.978, median error 0.46 points, worst 9.51 points. `work_steps` alone: direction 16 of
+  17, r 0.908, worst 16.67 points.
+- These weights came from the same grammars they are scored on, so this is in-sample.
+  Leave-one-grammar-out fits ranged work 311-700, bytes 2.09-2.55, registers 259-385, with scale
+  0.98-1.14 against the built-in weights. 676 / 2 / 268 tied 500 / 2 / 330 on direction and had the
+  lower median and worst error.
+
+Limits:
+
+- Magnitude is rough. A real -45% read about -55%; a real -9% read -3%.
+- Changes under 2% are not resolved: a real +1.15% read -0.71%.
+- Cost only sees changes in how much counted work happens. A constant-factor change, such as a
+  cheaper hash per register copied, leaves the counts identical and reads as no change. Instruction
+  comparison (`rust/tools/instruction-compare.ps1`) remains the required measure for algorithm
+  changes; cost is the quick grammar-author signal.
 ## Cost is a report
 
 No cap, deadline or parse decision reads cost, so it cannot change a parse. Measurement stays off
