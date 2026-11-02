@@ -12,6 +12,10 @@
 /research/data/local/*
 !/research/data/local/README.md
 /.worktrees/
+# The conformance suite: a clone of sillsdev/fieldworks-parser-conformance at the commit conformance.commit
+# names, fetched by rust/tools/conformance.ps1 (and by pg.ps1 before Cargo starts). Never committed here.
+/conformance/
+/.conformance-clone-*/
 /rust/examples/native-abi/csharp/bin/
 /rust/examples/native-abi/csharp/obj/
 

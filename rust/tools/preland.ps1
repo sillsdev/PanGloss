@@ -7,7 +7,7 @@
     clippy        `pg.ps1 -Mode check` (rustfmt, comment hygiene, CI's clippy). Always.
     tool-tests    every rust/tools/tests/*.tests.ps1, in parallel, as CI's Windows job runs them.
                   Always; overlaps the cargo checks below.
-    conformance   the C# Machine driver over machine/conformance with a freshly built `pangloss` as
+    conformance   the C# Machine driver over conformance with a freshly built `pangloss` as
                   its adapter, filtered by known-conformance-divergences.txt exactly as
                   run-conformance.sh does in Conformance CI. `pangloss` is built with the
                   pg-test-opt profile check and test share. Path-gated.
@@ -235,7 +235,7 @@ $changes = Get-PrelandChangedPaths -RepoRoot $repoRoot -Base $Base
 $force = if ($All) { 'forced by -All' } elseif (-not $changes.Ok) { "forced: $($changes.Detail)" } else { '' }
 Write-Host "[preland] $(if ($changes.Ok) { $changes.Detail } else { $changes.Detail + ' -- running every check' })" -ForegroundColor Cyan
 
-$shared = @('machine', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/rust-toolchain.toml', 'rust/tools/preland.ps1')
+$shared = @('machine', 'conformance', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/rust-toolchain.toml', 'rust/tools/preland.ps1')
 $scoreboardRoots = $null
 $scoreboardLabel = ''
 try {
@@ -261,16 +261,15 @@ $toolJob = $toolTestFiles | ForEach-Object -ThrottleLimit $ToolTestThrottle -AsJ
 }
 Write-Host "[preland] tool-tests: $($toolTestFiles.Count) script(s) started in parallel (throttle $ToolTestThrottle)" -ForegroundColor Cyan
 
-# Both gated checks read machine/conformance; grading a submodule off the staged pin grades fixtures CI never sees.
+# Both gated checks read conformance/; $pinCommit is the oracle build (the `machine` gitlink), matched to a prebuilt driver.
 $fixtureProblem = $null
+$pinCommit = ((& git -C $repoRoot ls-files -s machine 2>$null) -split '\s+')[1]
 if ($scoreboardGate.Run -or $conformanceGate.Run) {
-    $submodule = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
-    $pinCommit = ((& git -C $repoRoot ls-files -s machine 2>$null) -split '\s+')[1]
-    $headCommit = (& git -C (Join-Path $repoRoot 'machine') rev-parse HEAD 2>$null | Select-Object -First 1)
-    if (-not $submodule.Ok) {
-        $fixtureProblem = "machine/conformance unavailable: $($submodule.Detail)"
-    } elseif (-not $pinCommit -or $pinCommit -ne $headCommit) {
-        $fixtureProblem = "machine submodule HEAD $headCommit is not the staged pin $pinCommit, so these fixtures are not the ones CI tests. Run preland in the worktree being landed; stage a deliberate pin move, or check out $pinCommit in machine/"
+    $suite = Sync-ConformanceSuite -RepoRoot $repoRoot
+    if (-not $suite.Ok) {
+        $fixtureProblem = "conformance unavailable: $($suite.Detail)"
+    } elseif ($suite.Mode -eq 'override') {
+        $fixtureProblem = "HC_CONFORMANCE_SUITE is set, so the fixtures are not the ones conformance.commit pins and CI tests; unset it to run preland"
     }
 }
 
@@ -321,7 +320,7 @@ if (-not $conformanceGate.Run) {
             $verdict = "built, but the build output named no pangloss that exists (resolved: '$pangloss')"
         } else {
             Write-Host "[preland] conformance: pangloss $pangloss (written $((Get-Item -LiteralPath $pangloss).LastWriteTimeUtc.ToString('u'))); driver $($driver.ExePath)" -ForegroundColor Cyan
-            $driverLines = @(& $driver.ExePath --fixtures (Join-Path $repoRoot 'machine/conformance') `
+            $driverLines = @(& $driver.ExePath --fixtures (Join-Path $repoRoot 'conformance') `
                     --adapter "$pangloss batch {grammar} {words} {output}" --capabilities phonology 2>&1 | ForEach-Object { "$_" })
             $driverExit = $LASTEXITCODE
             $driverLines | Where-Object { $_ -notmatch '^\[PASS\]' } | ForEach-Object { Write-Host "  $_" }

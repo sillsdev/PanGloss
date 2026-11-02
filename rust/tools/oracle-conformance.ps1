@@ -33,7 +33,7 @@
 
   Usage:
     rust\tools\oracle-conformance.ps1                       # self-check over conformance-staging
-    rust\tools\oracle-conformance.ps1 -Scope all             # + machine/conformance as a control
+    rust\tools\oracle-conformance.ps1 -Scope all             # + conformance as a control
     rust\tools\oracle-conformance.ps1 -IncludePathological
     rust\tools\oracle-conformance.ps1 -Propose               # print reconciliation patches for any
                                                               # genuine signature mismatch found
@@ -42,7 +42,7 @@
   Exit codes: 0 = no new divergence (baselined ones may still be present, and are printed). 25
   ($script:ExitCodeOracleUnavailable) = dotnet or hc-conformance.exe not found, or the harness itself
   could not run (bad path, zero fixtures discovered). 26 ($script:ExitCodeOracleDivergence) = at
-  least one FAIL (or, for -Scope all's machine/conformance control, ANY FAIL at all) outside the
+  least one FAIL (or, for -Scope all's conformance control, ANY FAIL at all) outside the
   known-divergence baseline.
 #>
 [CmdletBinding()]
@@ -90,12 +90,12 @@ function Find-OracleExe {
 function Find-PinOracleExe {
     <#
       .DESCRIPTION
-      The machine/conformance control (-Scope all) needs an exe built from the EXACT commit
-      PanGloss's `machine` submodule pins, not the conformance-framework tip: the tip's
-      WordsYamlLoader rejects a key (`claimed_cells`) present in the pinned commit's own fixture
-      data, because the pin is not an ancestor of the tip (the branch was rebased since PanGloss
-      pinned) -- so the two commits' loader/fixture pairs are genuinely incompatible with each
-      other's fixture format. A commit-matched exe has no such mismatch by construction.
+      The conformance control (-Scope all) needs an exe built from the EXACT commit
+      PanGloss's `machine` submodule pins (the oracle, tagged `pangloss-oracle-pin-aab4c598` on
+      sillsdev/machine), not a newer machine tip: a loader and the fixtures it reads are a pair, and
+      a newer loader and an older suite disagree on field names. The suite renamed
+      `claimed_cells` to `claims`, which that pin's WordsYamlLoader rejects: see
+      docs/design/conformance-suite.md ("Oracle pin and the suite's field names").
     #>
     param([string]$Explicit, [string]$PinCommit)
 
@@ -294,15 +294,15 @@ if ($null -eq $ok) { exit $script:ExitCodeOracleUnavailable }
 
 $allOk = $ok
 if ($Scope -eq 'all') {
-    $machineConformanceRoot = Join-Path $repoRoot 'machine\conformance'
-    if (-not (Test-Path (Join-Path $machineConformanceRoot 'constructs.txt'))) {
-        Write-Host "[oracle-conformance] -Scope all requested but machine/conformance is not initialized. Run rust\tools\conformance.ps1 first." -ForegroundColor Red
+    $suiteRoot = Get-ConformanceSuiteDir -RepoRoot $repoRoot
+    if (-not (Test-Path (Join-Path $suiteRoot 'constructs.txt'))) {
+        Write-Host "[oracle-conformance] -Scope all requested but conformance is not initialized. Run rust\tools\conformance.ps1 first." -ForegroundColor Red
         exit $script:ExitCodeOracleUnavailable
     }
-    # The control needs an exe matching the submodule's OWN pinned commit; read it from git, never hardcode it.
-    $pinCommit = git -C (Join-Path $repoRoot 'machine') rev-parse HEAD 2>$null
+    # The control needs an exe built from the oracle commit the `machine` gitlink pins; read the gitlink (the machine checkout need not exist), never hardcode it.
+    $pinCommit = Get-SubmodulePinnedCommit -RepoRoot $repoRoot -Path 'machine'
     if (-not $pinCommit) {
-        Write-Host "[oracle-conformance] could not read the machine submodule's pinned commit (git rev-parse HEAD failed)." -ForegroundColor Red
+        Write-Host "[oracle-conformance] could not read the machine submodule's pinned commit (git ls-tree HEAD -- machine returned nothing)." -ForegroundColor Red
         exit $script:ExitCodeOracleUnavailable
     }
     $pinExe = Find-PinOracleExe -Explicit $PinExePath -PinCommit $pinCommit
@@ -312,7 +312,7 @@ if ($Scope -eq 'all') {
         exit $script:ExitCodeOracleUnavailable
     }
     Write-Host "[oracle-conformance] control exe (pin-matched, commit $pinCommit): $pinExe" -ForegroundColor Cyan
-    $controlOk = Test-SelfCheckRun -ExePath $pinExe -FixturesRoot $machineConformanceRoot -RootLabel 'machine/conformance (control, upstream, pin-matched exe)' `
+    $controlOk = Test-SelfCheckRun -ExePath $pinExe -FixturesRoot $suiteRoot -RootLabel 'conformance (control, upstream, pin-matched exe)' `
         -Baseline @{} -IncludePathological:$IncludePathological -Propose:$Propose -ExpectCleanBaseline
     if ($null -eq $controlOk) { exit $script:ExitCodeOracleUnavailable }
     $allOk = $allOk -and $controlOk

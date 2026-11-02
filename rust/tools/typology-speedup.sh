@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the per-word timing harness for `openspec/changes/certify-language-readiness` section 1
 # (rust/crates/pg-foma/tests/typology_speedup.rs) over the synthetic-language conformance suite --
-# both discovery roots (`machine/conformance/**` and `conformance-staging/**`) -- in both engine
+# both discovery roots (`conformance/**` and `conformance-staging/**`) -- in both engine
 # modes (complete Rust HermitCrab, and the compiled proposer + confirm path), and writes:
 #   - typology-speedup.csv  (the canonical per-word/per-outcome data)
 #   - typology-speedup.md   (a rendered Markdown table, grouped per fixture/construct/typology)
@@ -20,8 +20,8 @@
 # hook. The result was a finished harness that nothing could start -- while docs/fst-plan/
 # grammar-optimization-techniques.md called per-candidate apply cost "the one dimension with no
 # measurement gap" and cited this file. An unreachable tool reads exactly like an absent one.
-# The .ps1 routes the same run through pg.ps1 -Mode test, which additionally auto-initializes the
-# conformance submodule -- so the silently-narrower "only staging fixtures will be measured"
+# The .ps1 routes the same run through pg.ps1 -Mode test, which additionally fetches the
+# conformance suite -- so the silently-narrower "only staging fixtures will be measured"
 # degraded run warned about below cannot happen there.
 #
 # Env vars the harness itself reads (set by this script from the flags above, or export them
@@ -57,9 +57,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ ! -f "$repo_root/machine/conformance/PROTOCOL.md" ]; then
-  echo "warning: $repo_root/machine/conformance is empty -- only conformance-staging/ fixtures \
-will be measured (run 'git submodule update --init machine' for the full corpus)" >&2
+if [ ! -f "${HC_CONFORMANCE_SUITE:-$repo_root/conformance}/PROTOCOL.md" ]; then
+  echo "warning: the conformance suite is missing -- only conformance-staging/ fixtures \
+will be measured (run 'pwsh rust/tools/conformance.ps1' for the full corpus)" >&2
 fi
 
 mkdir -p "$out_dir"

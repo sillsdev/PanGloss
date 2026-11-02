@@ -13,7 +13,7 @@
 
   Routing through `pg.ps1 -Mode test` also buys three things the bash driver could not:
   `--run-ignored all` is already the default, `-TestTarget` compiles one test binary rather than
-  every target in the package, and preflight initializes the conformance submodule -- without which
+  every target in the package, and preflight fetches the conformance suite -- without which
   the run silently measures only the staging fixtures and still produces a confident-looking CSV.
   The run is also slot-gated and memory-capped, which matters here because timing every word in two
   engines over the whole suite is long and memory-hungry.
