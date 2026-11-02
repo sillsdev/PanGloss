@@ -117,6 +117,5 @@ has been filled in from the oracle's own trace (`[prRtlSegEnv]`). `words.yaml`'s
 
 ## Graduation
 
-Not yet proposed upstream. Candidate destination:
-`machine/conformance/edge-cases/right-to-left-segments-environment/`. On acceptance, delete this
-staged copy in the same change (graduation guard enforces this mechanically).
+Not proposed upstream: the suite already has a differently shaped `right-to-left-segments-environment`, and this
+copy exists to keep the `<Segments>` right-environment shape pinned here.
