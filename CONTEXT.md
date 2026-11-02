@@ -493,6 +493,38 @@ _Avoid_: Optimization (unqualified), pruning (as if always safe)
 A calibrated heuristic estimate carrying an error bound, used to rank compilation plans before building. Overlapping bounds mean "close" — build the top candidates and measure. A point estimate never prunes a candidate by itself, and projected cost is never a correctness gate.
 _Avoid_: Cost, size (as if exact)
 
+**Work steps**:
+The per-word counter of analysis work that enforces the logical work budget. It decides when a word caps, and it is not a measure of time.
+_Avoid_: Steps, parse time
+
+**Parse cost**:
+A deterministic estimate of the instructions one word's parse takes, built from work steps and other counted quantities. It covers parsing only and is compared only within one PanGloss version. It decides nothing in a parse.
+_Avoid_: Cost (unqualified), score
+
+**Instructions**:
+The count of machine instructions a run retired. It is the verdict on any speedup, because machine load does not move it.
+_Avoid_: Cycles, speed
+
+**Wall time**:
+Elapsed time on a clock: what a person waits for. Machine load moves it, so it never decides a comparison on a shared machine.
+_Avoid_: Time (unqualified), latency
+
+**CPU time**:
+The time a processor spent running a command, user plus system. Load moves it less than wall time, but it still moves.
+_Avoid_: Time (unqualified)
+
+**Phase**:
+One job within a run: import, compile, parse or facts. Each is measured on its own, because a change to one leaves the others untouched.
+_Avoid_: Stage (for this meaning), step
+
+**Algorithmic change**:
+A change that does less counted work, so work steps or other counted quantities fall.
+_Avoid_: Optimization (unqualified)
+
+**Constant-factor change**:
+A change that keeps the counts and makes each unit cheaper. Work steps and parse cost do not move; only instructions show it.
+_Avoid_: Optimization (unqualified), micro-optimization
+
 **Committed plan**:
 The reviewed compilation plan recorded authoritatively in grammar configuration and used by every normal build for reproducibility. Distinct from the derived plan cache, a disposable fail-safe local optimization that is never authoritative over it. A tuning run proposes a plan diff; committing it is an explicit human-reviewed action.
 _Avoid_: Cached plan (as authoritative), default path
