@@ -18,18 +18,21 @@ use pg_parse::Morpher;
 // The exercises, named by what they compose rather than by any language.
 
 /// Compounding exercise 1: rule-level MPR gating of the head (group-unaware) plus a syntactic non-head gate.
-const COMPOUNDING_MPR_GATED: Fixture = Fixture::staged("compounding-non-recursive");
+const COMPOUNDING_MPR_GATED: Fixture = Fixture::upstream("edge-cases", "compounding-non-recursive");
 /// Compounding exercise 2: a rule whose own output re-enters its own input.
-const COMPOUNDING_SELF_FEEDING: Fixture = Fixture::staged("recursive-endocentric-compounding");
+const COMPOUNDING_SELF_FEEDING: Fixture =
+    Fixture::upstream("edge-cases", "recursive-endocentric-compounding");
 
 /// Interdigitation exercise 1: literal segments inserted between two copies of a split root.
-const INTERDIGITATION_INSERT_SEGMENTS: Fixture = Fixture::staged("infix-interdigitation");
+const INTERDIGITATION_INSERT_SEGMENTS: Fixture =
+    Fixture::upstream("edge-cases", "infix-interdigitation");
 /// Interdigitation exercise 2: a natural class inserted into a split root, and a root-internal modification with no affix material at all.
 const INTERDIGITATION_MODIFY_INPUT: Fixture =
     Fixture::upstream("languages", "templatic-root-modification");
 
 /// Bounded-metathesis exercise 1: right-to-left direction, multi-member switch classes, one table.
-const METATHESIS_RIGHT_TO_LEFT: Fixture = Fixture::staged("right-to-left-metathesis-reversal");
+const METATHESIS_RIGHT_TO_LEFT: Fixture =
+    Fixture::upstream("edge-cases", "right-to-left-metathesis-reversal");
 /// Bounded-metathesis exercise 2: two tables declaring one spelling at misaligned raw indices.
 const METATHESIS_ACROSS_TABLES: Fixture =
     Fixture::staged("multi-table-metathesis-shared-representation");
@@ -59,12 +62,6 @@ const EXERCISES: &[Fixture] = &[
     PEELED_COPY_SUFFIX_SCAN,
     COPY_BOUNDED_AND_UNBOUNDED,
 ];
-
-/// Fixture pairs where one is a clone of the other.
-const CLONE_PAIRS: &[(Fixture, Fixture)] = &[(
-    Fixture::staged("backend-ordered-generic"),
-    Fixture::upstream("languages", "metathesis-phase-isolation"),
-)];
 
 // Fixture addressing. Both roots, because four of this file's six mechanisms have their strongest (or only) witness upstream.
 
@@ -1303,7 +1300,7 @@ fn the_exercise_set_has_the_shape_it_claims() {
     let upstream = EXERCISES.len() - staged;
     assert_eq!(
         (staged, upstream),
-        (5, 5),
+        (1, 9),
         "four of this file's six mechanisms have their strongest (or only) witness upstream, so \
          both roots must be represented -- a change to this split means an exercise moved and its \
          independence argument needs re-checking"
@@ -1328,60 +1325,30 @@ fn the_exercise_set_has_the_shape_it_claims() {
     }
 }
 
-/// Prevents a staging clone from being counted as an independent exercise.
+/// Prevents a clone from being counted as an independent exercise: no two exercise fixtures may hold the same grammar once the language name is normalized away.
 #[test]
-fn clone_fixtures_are_pinned_as_clones_not_independent_exercises() {
-    for (clone, original) in CLONE_PAIRS {
-        let clone_ref = clone.resolve();
-        let original_ref = original.resolve();
-        let clone_xml = clone_ref.load_grammar_xml();
-        let original_xml = original_ref.load_grammar_xml();
-
-        let clone_words = clone_ref.load_words_yaml();
-        let original_words = original_ref.load_words_yaml();
-        let clone_name = clone_words.language.clone();
-        let original_name = original_words.language.clone();
-        assert_ne!(
-            clone_name,
-            original_name,
-            "{}: a clone must at least differ in its language name",
-            clone_ref.label()
-        );
-
-        let clone_inputs: Vec<&str> = clone_words
-            .words
-            .iter()
-            .map(|word| word.word.as_str())
-            .collect();
-        let original_inputs: Vec<&str> = original_words
-            .words
-            .iter()
-            .map(|word| word.word.as_str())
-            .collect();
-        assert_eq!(
-            clone_inputs,
-            original_inputs,
-            "{} does not exercise the same ordered word inputs as {}; a clone used to hold backend \
-             input constant must track additions and removals too",
-            clone_ref.label(),
-            original_ref.label()
-        );
-
-        let normalize = |xml: &str, name: &str| {
-            xml.replace(&format!("<Name>{name}</Name>"), "<Name>NORMALIZED</Name>")
+fn exercise_fixtures_are_not_clones_of_each_other() {
+    let normalized: Vec<(String, String)> = EXERCISES
+        .iter()
+        .map(|fixture| {
+            let fixture = fixture.resolve();
+            let name = fixture.load_words_yaml().language;
+            let xml = fixture
+                .load_grammar_xml()
+                .replace(&format!("<Name>{name}</Name>"), "<Name>NORMALIZED</Name>")
                 .split_whitespace()
                 .collect::<Vec<_>>()
-                .join(" ")
-        };
-        assert_eq!(
-            normalize(&clone_xml, &clone_name),
-            normalize(&original_xml, &original_name),
-            "{} is no longer a clone of {}. If that divergence is deliberate, update CLONE_PAIRS \
-             AND re-check every 'two independent exercises' claim that involved either fixture -- \
-             the two were previously identical modulo the language name, so any pairing across them \
-             was one exercise with two names.",
-            clone_ref.label(),
-            original_ref.label()
-        );
+                .join(" ");
+            (fixture.label(), xml)
+        })
+        .collect();
+    for (i, (label, xml)) in normalized.iter().enumerate() {
+        for (other_label, other_xml) in &normalized[i + 1..] {
+            assert_ne!(
+                xml, other_xml,
+                "{label} and {other_label} hold the same grammar modulo the language name; they \
+                 are one exercise with two names"
+            );
+        }
     }
 }

@@ -1,17 +1,20 @@
 //! Shared dual-root discovery + `words.yaml` parsing + oracle-replay helper for this repo's
 //! conformance fixtures, per `docs/conformance-staging-plan.md`. One helper, used by every test
-//! that walks `machine/conformance/**` and/or `conformance-staging/**`, so the path logic and the
+//! that walks `conformance/**` and/or `conformance-staging/**`, so the path logic and the
 //! `words.yaml` schema are defined exactly once rather than duplicated per test file (the plan
 //! doc's explicit requirement).
 //!
 //! The two roots:
-//! - `machine/conformance/**` — the `sillsdev/machine` submodule (`conformance-framework` branch),
-//!   the eventual permanent home for every fixture.
+//! - `conformance/**` — a clone of `sillsdev/fieldworks-parser-conformance` at the commit
+//!   `conformance.commit` names (gitignored; `pwsh rust/tools/conformance.ps1` fetches it), or the
+//!   directory `HC_CONFORMANCE_SUITE` points at, the permanent home for every fixture. ([`Root::Machine`] keeps its name from when this was
+//!   `machine/conformance`: its `machine:` label is baked into fixture keys elsewhere, such as
+//!   `pg-foma-backend`'s `fixture_coverage.rs`.)
 //! - `conformance-staging/**` — this repo, committed, for fixtures that pin a bug/pathology
 //!   immediately, ahead of upstream acceptance. See `docs/conformance-staging-plan.md`.
 //!
-//! Either root may be absent (a fresh clone with the `machine` submodule not initialized still
-//! discovers staged fixtures fine); `discover` tolerates both independently.
+//! The staging root may be absent. The suite may not: a run that claims `all` and finds no suite
+//! panics with the command that fetches it, instead of discovering staged fixtures alone and passing.
 //!
 //! # A run must claim its scope
 //! `discover` covers whichever roots the run CLAIMED, via `SCOPE_ENV`, and there is no default:
@@ -29,7 +32,7 @@ use serde::{Deserialize, Serialize};
 /// Which of the two fixture roots a fixture was found under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Root {
-    /// `machine/conformance/**`.
+    /// `conformance/**`.
     Machine,
     /// `conformance-staging/**`.
     Staging,
@@ -168,8 +171,32 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-pub fn machine_conformance_root() -> PathBuf {
-    repo_root().join("machine").join("conformance")
+/// Names a local suite copy to use instead of `conformance/`; the pin in `conformance.commit` is not checked for it.
+pub const SUITE_ENV: &str = "HC_CONFORMANCE_SUITE";
+
+/// The conformance suite checkout: `HC_CONFORMANCE_SUITE` when set, otherwise the clone of
+/// `sillsdev/fieldworks-parser-conformance` at `conformance/` in the repository root. Every test
+/// that names a suite file goes through this, so the suite's location is written once.
+pub fn suite_root() -> PathBuf {
+    match std::env::var_os(SUITE_ENV) {
+        Some(path) if !path.is_empty() => PathBuf::from(path),
+        _ => repo_root().join("conformance"),
+    }
+}
+
+/// Panics with the exact command that fetches the suite when `suite_root()` is not a directory: a test run that needs the suite never passes without it.
+fn require_suite_present() {
+    let root = suite_root();
+    if root.is_dir() {
+        return;
+    }
+    panic!(
+        "the conformance suite is not at {}.\n\nFetch it at the commit conformance.commit pins:\n    \
+         pwsh rust/tools/conformance.ps1\nor point {SUITE_ENV} at a local checkout of \
+         sillsdev/fieldworks-parser-conformance. This is a failure, not a skip: a run that finds no \
+         suite would otherwise pass over the staged fixtures alone.",
+        root.display()
+    );
 }
 
 pub fn staging_root() -> PathBuf {
@@ -308,7 +335,8 @@ pub fn discover_scoped(scope: ConformanceScope) -> Vec<FixtureRef> {
     match scope {
         ConformanceScope::Local => {}
         ConformanceScope::All => {
-            scan_one_root(&machine_conformance_root(), Root::Machine, &mut out)
+            require_suite_present();
+            scan_one_root(&suite_root(), Root::Machine, &mut out);
         }
     }
     scan_one_root(&staging_root(), Root::Staging, &mut out);
@@ -330,9 +358,9 @@ pub fn require_fixture(category: &str, name: &str) -> FixtureRef {
     panic!(
         "no conformance fixture `{category}/{name}` exists under either root.\n\n\
          This test names a specific fixture, so an absent one is a failure, not a reason to skip. \
-         Either the fixture moved (the v1 -> v2 migration renamed many, e.g. \
-         `loader/n1-isactive` -> `edge-cases/loader-isactive`), or it was never carried over and \
-         this pin needs a replacement authored against the C# founding oracle.\n\n\
+         Either the fixture moved (the v1 -> v2 migration renamed many), the suite retired it \
+         (see `conformance/docs/engine-only-fixture-retirement.md`), or it was never carried over \
+         and this pin needs a replacement authored against the C# founding oracle.\n\n\
          {} fixture(s) discovered:\n  {}",
         all.len(),
         available.join("\n  ")
@@ -341,7 +369,7 @@ pub fn require_fixture(category: &str, name: &str) -> FixtureRef {
 
 /// The "graduation guard": fixture `(category, name)` identities that exist under BOTH roots.
 /// Non-empty means a staged fixture has been accepted upstream (its name now also exists under
-/// `machine/conformance/`) and the staged copy must be deleted in the same change — see
+/// `conformance/`) and the staged copy must be deleted in the same change — see
 /// `docs/conformance-staging-plan.md`'s "graduation guard" mechanism.
 pub fn graduation_guard_violations(fixtures: &[FixtureRef]) -> Vec<(String, String)> {
     use std::collections::HashSet;
@@ -415,7 +443,7 @@ pub enum FieldworksProducibility {
     EngineOnly { notes: String },
     /// The field is absent from this fixture's `words.yaml`. Never treated as [`Self::Producible`]
     /// — silence must not read as a claim, and this is the honest state for every fixture under a
-    /// submodule pin that predates the field existing upstream.
+    /// suite pin that predates the field existing upstream.
     Unmarked,
 }
 
@@ -664,8 +692,9 @@ struct WordEntryWire {
     expect_skip: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_present")]
     exercises: Option<Vec<String>>,
-    #[serde(default)]
-    claimed_cells: Vec<ClaimedCellWire>,
+    // `claimed_cells` is the key the oracle pin's driver still requires, so staged words keep it.
+    #[serde(default, alias = "claimed_cells")]
+    claims: Vec<ClaimWire>,
     #[serde(default)]
     parses: Vec<ParseEntryWire>,
 }
@@ -686,7 +715,7 @@ struct ParseEntryWire {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
-struct ClaimedCellWire {
+struct ClaimWire {
     cell: String,
     #[serde(default, deserialize_with = "deserialize_present")]
     severing: Option<String>,
@@ -753,10 +782,10 @@ impl WordEntryWire {
         }
 
         let mut unique_claims = std::collections::HashSet::new();
-        for (index, claim) in self.claimed_cells.iter().enumerate() {
-            claim.validate(&format!("{path}.claimed_cells[{index}]"))?;
+        for (index, claim) in self.claims.iter().enumerate() {
+            claim.validate(&format!("{path}.claims[{index}]"))?;
             if !unique_claims.insert(claim) {
-                return Err(format!("{path}.claimed_cells contains a duplicate entry"));
+                return Err(format!("{path}.claims contains a duplicate entry"));
             }
         }
 
@@ -773,10 +802,10 @@ impl WordEntryWire {
                     .exercises
                     .as_ref()
                     .is_some_and(|values| !values.is_empty())
-                || !self.claimed_cells.is_empty())
+                || !self.claims.is_empty())
         {
             return Err(format!(
-                "{path} may not declare blocked_by, neutralizes, exercises, or claimed_cells; variant coverage belongs to the base run"
+                "{path} may not declare blocked_by, neutralizes, exercises, or claims; variant coverage belongs to the base run"
             ));
         }
         Ok(())
@@ -792,11 +821,7 @@ impl WordEntryWire {
             neutralizes: self.neutralizes.unwrap_or_default(),
             expect_skip: self.expect_skip.unwrap_or(false),
             exercises: self.exercises.unwrap_or_default(),
-            claimed_cells: self
-                .claimed_cells
-                .into_iter()
-                .map(ClaimedCellWire::into_value)
-                .collect(),
+            claims: self.claims.into_iter().map(ClaimWire::into_value).collect(),
             parses: self
                 .parses
                 .into_iter()
@@ -842,7 +867,7 @@ impl ParseEntryWire {
     }
 }
 
-impl ClaimedCellWire {
+impl ClaimWire {
     fn validate(&self, path: &str) -> Result<(), String> {
         if self.cell.is_empty() {
             return Err(format!("{path}.cell must be nonempty"));
@@ -1145,7 +1170,7 @@ pub struct WordEntry {
     #[serde(default)]
     pub exercises: Vec<String>,
     #[serde(default)]
-    pub claimed_cells: Vec<serde_yaml::Value>,
+    pub claims: Vec<serde_yaml::Value>,
     #[serde(default)]
     pub parses: Vec<ParseEntry>,
 }
@@ -1347,7 +1372,7 @@ pub fn replay_fixture_runs(fixture: &FixtureRef, words_yaml: &WordsYaml) -> Vec<
 /// The signature check compares the produced and declared analyses as **multisets**, not as the
 /// joined signature string: two `parses` entries (or two produced analyses) with the identical
 /// rendered signature are two distinct analyses, not one repeated twice —
-/// `machine/conformance/PROTOCOL.md` section 4 rule 3 ("a genuine difference ... in how many times
+/// `conformance/PROTOCOL.md` section 4 rule 3 ("a genuine difference ... in how many times
 /// a given entry appears IS a failure"), witnessed by `edge-cases/mpr-gated-exception`'s
 /// `mentanukam` and `edge-cases/head-ambiguous-compounding`'s `dakimo`. `pg_parse::result_multiset`
 /// and [`WordEntry::expected_multiset`] are the same sort-without-dedup each side's `signature()`

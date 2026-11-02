@@ -356,8 +356,8 @@ fn all_discovered_fixtures_match_oracle() {
     let fixtures = discover();
     assert!(
         !fixtures.is_empty(),
-        "no conformance fixtures discovered at all — check the `machine` submodule is \
-         initialized (`git submodule update --init machine`) and conformance-staging/ exists"
+        "no conformance fixtures discovered at all — check the suite is fetched \
+         (`pwsh rust/tools/conformance.ps1`) and conformance-staging/ exists"
     );
 
     let mut total_checked = 0usize;
@@ -464,7 +464,7 @@ fn staged_fixtures_carry_recognized_oracle_provenance() {
     assert!(
         missing.is_empty(),
         "fixture(s) missing a recognized `# oracle-provenance: founding-oracle|rust-only` marker \
-         in words.yaml (see CLAUDE.md's oracle hierarchy / machine/conformance/PROTOCOL.md): {missing:?}"
+         in words.yaml (see CLAUDE.md's oracle hierarchy / conformance/PROTOCOL.md): {missing:?}"
     );
 }
 

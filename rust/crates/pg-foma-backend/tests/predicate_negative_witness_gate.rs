@@ -23,15 +23,15 @@ const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
 const FEATURE_CLASS_NEGATIVE_WITNESSES: &[(&str, &str)] = &[
     (
         "quantifier.bounded-expansion",
-        "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
+        "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
     ),
     (
         "right-to-left-rewrite.faithful-reversal-construction",
-        "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
+        "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
     ),
     (
         "quantifier.bounded-expansion",
-        "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr",
+        "machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr",
     ),
 ];
 

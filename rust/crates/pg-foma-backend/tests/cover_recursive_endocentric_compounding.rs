@@ -1,7 +1,6 @@
 //! Pins the current, honest behavior for a self-feeding `CompoundingRuleDef` (`multipleApplication="9"`, PoS re-entering its own input set): (1) the capability gate's structural verdict, and (2) the oracle's own behavior on real words, including an independently-discovered resource ceiling (`AnalyzerConfig::max_stem_count`, hardcoded to 2) that separately blocks genuine 3-stem self-feeding compounding, unrelated to the FST capability gate.
 
 use std::fs;
-use std::path::Path;
 
 use pg_foma::capability::CompileDecision;
 use pg_foma_backend::backend_selection::best_case_for_grammar;
@@ -9,9 +8,8 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/recursive-endocentric-compounding/grammar.xml",
-    )
+    pg_conformance_fixtures::require_fixture("edge-cases", "recursive-endocentric-compounding")
+        .grammar_path()
 }
 
 fn load() -> Grammar {

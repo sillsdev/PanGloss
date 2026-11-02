@@ -518,7 +518,7 @@ pub struct MetathesisRuleDef {
     /// `pg_rules::metathesis::synthesize`'s own `synthesis_reorder`/`move_nodes_after` algorithm).
     /// Every attested grammar tags the physically-last of the two `left_switch` — the only
     /// convention any real HermitCrab fixture this repo has seen uses, e.g.
-    /// `machine/conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/`mrComplexMeta`
+    /// `conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/`mrComplexMeta`
     /// — so there tag order and physical order agree. They do NOT agree under the reverse tagging
     /// (`left_switch` physically first), which is DTD-legal and reachable via
     /// `pg_grammar_gen::build::metathesis::build`'s own recipe; see

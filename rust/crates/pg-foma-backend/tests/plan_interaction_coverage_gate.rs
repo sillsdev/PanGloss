@@ -85,7 +85,7 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
     assert!(
         uncovered.is_empty(),
         "COVERAGE REGRESSION: {} required adjacency tuple(s) have zero covering fixture in \
-         the discovered corpus (machine/conformance/** + conformance-staging/**): {:?}\n\
+         the discovered corpus (conformance/** + conformance-staging/**): {:?}\n\
          Either an existing fixture regressed (its plan no longer realizes this tuple shape), or \
          the corpus lost its only fixture exercising this shape. Author or restore a \
          conformance fixture whose grammar structurally realizes this tuple -- see \

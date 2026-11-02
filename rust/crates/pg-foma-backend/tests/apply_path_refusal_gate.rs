@@ -36,7 +36,7 @@ fn fixture(name: &str) -> FixtureRef {
         .into_iter()
         .find(|f| f.name == name)
         .unwrap_or_else(|| {
-            panic!("fixture {name} is not discoverable -- machine submodule initialized?")
+            panic!("fixture {name} is not discoverable -- fetch the suite with `pwsh rust/tools/conformance.ps1`")
         })
 }
 

@@ -1,14 +1,15 @@
 //! Regression: root-allomorph char-def lookup must resolve each entry's own stratum table rather than assuming the grammar's last stratum table, or a multi-table grammar (this fixture: strata over differently-sized tables) panics on an out-of-bounds index instead of compiling the `ConfirmOnly` construct it actually is.
 
 use std::fs;
-use std::path::Path;
 
 use pg_grammar::model::Grammar;
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../machine/conformance/edge-cases/bistratal-overlapping-segment-representation/grammar.xml",
+    pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "bistratal-overlapping-segment-representation",
     )
+    .grammar_path()
 }
 
 fn load() -> Grammar {

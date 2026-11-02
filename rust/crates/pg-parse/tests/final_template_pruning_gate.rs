@@ -145,7 +145,7 @@ fn a_partial_affix_rule_turns_default_pruning_off_because_pruning_would_lose_a_p
 /// The template state from `Clitics` crosses into `Main` (entry 102); pruning there removes no parse.
 #[test]
 fn a_lower_stratum_state_prunes_the_upper_strata_template_and_no_parse_changes() {
-    let fixture = require_fixture("edge-cases", "clitic-rule-designation");
+    let fixture = require_fixture("edge-cases", "clitic-rule-designation-iscliticrule");
     let g = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture loads");
     let (mut on, mut off) = (0, 0);
     for word in ["sagdt", "sagds"] {

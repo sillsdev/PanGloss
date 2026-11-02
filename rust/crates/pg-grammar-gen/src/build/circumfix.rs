@@ -1,5 +1,5 @@
 //! Circumfix `MorphologicalRule` builder -- UNPROVEN, dormant on every reference
-//! grammar this repo has. Mirrors `machine/conformance/languages/fusional-realizational-morphology/grammar.xml`'s
+//! grammar this repo has. Mirrors `conformance/languages/fusional-realizational-morphology/grammar.xml`'s
 //! own `mrCircumfixGeT` shape exactly (the only REAL circumfix fixture in this repo): a single
 //! `MorphologicalInput` capturing the whole root, an output of `InsertSegments` (prefix) +
 //! `CopyFromInput` (the captured root) + `InsertSegments` (suffix) -- a LEADING and a TRAILING

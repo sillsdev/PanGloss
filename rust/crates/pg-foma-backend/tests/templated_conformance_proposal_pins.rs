@@ -1,25 +1,19 @@
 //! Focused templated conformance proposal pins.
 
-use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root, WordEntry};
+use pg_conformance_fixtures::{assert_matches_oracle, FixtureRef, WordEntry};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma_backend::scoreboard::{self, CellOutcome};
 use pg_foma_backend::templated_compile::compile_templated_morphotactics;
 use pg_grammar::model::{Grammar, MorphemeId};
 use pg_parse::{Morpher, ParseOptions};
 
-fn fixture(root: Root, category: &str, name: &str) -> FixtureRef {
-    discover()
-        .into_iter()
-        .find(|f| f.root == root && f.category == category && f.name == name)
-        .unwrap_or_else(|| panic!("missing conformance fixture {root:?}:{category}/{name}"))
+// (category, name) is unique across the suite and the staging root, so the root is never part of the lookup.
+fn fixture(category: &str, name: &str) -> FixtureRef {
+    pg_conformance_fixtures::require_fixture(category, name)
 }
 
-fn open(
-    root: Root,
-    category: &str,
-    name: &str,
-) -> (String, Grammar, pg_conformance_fixtures::WordsYaml) {
-    let fixture = fixture(root, category, name);
+fn open(category: &str, name: &str) -> (String, Grammar, pg_conformance_fixtures::WordsYaml) {
+    let fixture = fixture(category, name);
     let label = fixture.label();
     let grammar = pg_grammar::load(&fixture.load_grammar_xml())
         .unwrap_or_else(|e| panic!("{label}: fixture failed to load: {e}"));
@@ -91,7 +85,7 @@ fn assert_proposes_oracle_identity(
 
 #[test]
 fn loader_default_symbol_proposes_bat_root_and_keeps_bdt_rule_control_analyzable() {
-    let (label, grammar, words) = open(Root::Machine, "edge-cases", "loader-default-symbol");
+    let (label, grammar, words) = open("edge-cases", "loader-default-symbol");
     assert_eq!(
         assert_matches_oracle(&label, &words, &Morpher::new(&grammar, usize::MAX)),
         words.words.len()
@@ -110,11 +104,7 @@ fn loader_default_symbol_proposes_bat_root_and_keeps_bdt_rule_control_analyzable
 
 #[test]
 fn subrule_morphosyntactic_gating_proposes_bare_and_derived_identities() {
-    let (label, grammar, words) = open(
-        Root::Machine,
-        "edge-cases",
-        "subrule-morphosyntactic-gating",
-    );
+    let (label, grammar, words) = open("edge-cases", "subrule-morphosyntactic-gating");
     assert_eq!(
         assert_matches_oracle(&label, &words, &Morpher::new(&grammar, usize::MAX)),
         words.words.len()
@@ -127,11 +117,7 @@ fn subrule_morphosyntactic_gating_proposes_bare_and_derived_identities() {
 /// `eGuessPat`'s `[Any]*` now compiles (see `pattern_root_token_route_gate.rs`); this checks the unrelated raised-surface derivation still proposes correctly on the same, unstripped grammar.
 #[test]
 fn polysynthetic_stratal_derivation_chain_admits_pattern_and_proposes_raised_surface() {
-    let (label, grammar, words) = open(
-        Root::Machine,
-        "languages",
-        "polysynthetic-stratal-derivation-chain",
-    );
+    let (label, grammar, words) = open("languages", "polysynthetic-stratal-derivation-chain");
 
     compile_templated_morphotactics(&grammar)
         .unwrap_or_else(|e| panic!("{label}: eGuessPat's pattern root must now compile: {e}"));
@@ -195,11 +181,7 @@ fn assert_proposes_all_oracle_identities(
 /// `mrSetX`/`mrSetY` are Unordered siblings, so both relative orders ("daboxayu"/"daboyuxa") must propose.
 #[test]
 fn mpr_overwrite_order_dependence_proposes_both_relative_orders() {
-    let (label, grammar, words) = open(
-        Root::Machine,
-        "edge-cases",
-        "mpr-overwrite-order-dependence",
-    );
+    let (label, grammar, words) = open("edge-cases", "mpr-overwrite-order-dependence");
     assert_proposes_oracle_identity(&label, &grammar, &words, "daboxayu");
     assert_proposes_oracle_identity(&label, &grammar, &words, "daboyuxa");
 }
@@ -207,7 +189,7 @@ fn mpr_overwrite_order_dependence_proposes_both_relative_orders() {
 /// `rulePfx`/`ruleObj` are Unordered siblings, so "imat" must propose all 3 oracle identities (either stacking order, or `ruleObj` alone).
 #[test]
 fn strrep_identity_proposes_every_stacking_order() {
-    let (label, grammar, words) = open(Root::Machine, "edge-cases", "strrep-identity");
+    let (label, grammar, words) = open("edge-cases", "strrep-identity");
     assert_proposes_all_oracle_identities(&label, &grammar, &words, "imat");
     assert_proposes_all_oracle_identities(&label, &grammar, &words, "ndpat");
 }
@@ -215,13 +197,13 @@ fn strrep_identity_proposes_every_stacking_order() {
 /// `prAlpha` flips featHigh on the output vowel (polarity="minus"); "isk" needs the disagree-polarity resolution `resolve_alpha_tuples` now implements.
 #[test]
 fn feature_system_breadth_proposes_alpha_polarity_flip() {
-    let (label, grammar, words) = open(Root::Machine, "edge-cases", "feature-system-breadth");
+    let (label, grammar, words) = open("edge-cases", "feature-system-breadth");
     assert_proposes_oracle_identity(&label, &grammar, &words, "isk");
 }
 
 #[test]
 fn alpha_variable_name_collision_matches_oracle_after_confirmation() {
-    let fixture = fixture(Root::Machine, "edge-cases", "alpha-variable-name-collision");
+    let fixture = fixture("edge-cases", "alpha-variable-name-collision");
     assert_eq!(
         super::confirmed_rewrite_fixture::verify_templated_fixture(&fixture),
         (2, 1)
@@ -238,7 +220,7 @@ fn partial_class_disagreement_matches_oracle_after_confirmation() {
         "partial-class-disagree-unbounded-ltr-right",
         "partial-class-disagree-unbounded-rtl-right",
     ] {
-        let fixture = fixture(Root::Staging, "edge-cases", name);
+        let fixture = fixture("edge-cases", name);
         assert_eq!(
             super::confirmed_rewrite_fixture::verify_templated_fixture(&fixture),
             (16, 1),
@@ -249,7 +231,7 @@ fn partial_class_disagreement_matches_oracle_after_confirmation() {
 
 #[test]
 fn truncate_morphotactic_proposes_successful_truncation_controls() {
-    let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
+    let (label, grammar, words) = open("edge-cases", "truncate-morphotactic");
 
     assert_proposes_oracle_identity(&label, &grammar, &words, "sa");
     assert_proposes_oracle_identity(&label, &grammar, &words, "ag");
@@ -260,7 +242,7 @@ fn truncate_morphotactic_proposes_successful_truncation_controls() {
 /// "gas" has a direct one-rule oracle identity and a chained two-rule one; the templated route proposes both.
 #[test]
 fn truncate_morphotactic_proposes_both_gas_analyses() {
-    let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
+    let (label, grammar, words) = open("edge-cases", "truncate-morphotactic");
     let entry = word(&words, "gas");
     let morpher = Morpher::new(&grammar, usize::MAX);
     let outcome = morpher.parse_word_opts("gas", &ParseOptions::default());
@@ -336,7 +318,7 @@ fn truncate_morphotactic_proposes_both_gas_analyses() {
 /// Pins this fixture's scoreboard cell at `OracleExact` under the templated route (see the pin above).
 #[test]
 fn truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens() {
-    let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
+    let (label, grammar, words) = open("edge-cases", "truncate-morphotactic");
     let words: Vec<String> = words
         .words
         .iter()

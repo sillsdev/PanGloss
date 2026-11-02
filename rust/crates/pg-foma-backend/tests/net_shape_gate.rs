@@ -549,7 +549,7 @@ fn net_shape_census_over_every_discoverable_conformance_fixture() {
     let fixtures: Vec<FixtureRef> = discover().into_iter().collect();
     assert!(
         !fixtures.is_empty(),
-        "no conformance fixture was discovered -- is the `machine` submodule initialized?"
+        "no conformance fixture was discovered -- fetch the suite with `pwsh rust/tools/conformance.ps1`"
     );
 
     let mut inspected = 0usize;

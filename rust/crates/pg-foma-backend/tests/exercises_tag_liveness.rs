@@ -1,26 +1,25 @@
 //! Validates generic construct tags and predicate-owned variant tags in fixture words.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
 
 use pg_conformance_fixtures::discover;
 
-/// Anchored at `CARGO_MANIFEST_DIR`, never the process CWD, which differs between `cargo test` and a bare test-binary invocation.
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-}
-
-/// Parses `constructs.txt`'s row ids (one per line, `#`-comments and blank lines ignored); a line parser only, not a second fixture-discovery implementation.
+/// Parses the suite's `constructs.txt` and the staging root's own (`conformance-staging/constructs.txt`) row ids (one per line, `#`-comments and blank lines ignored); a line parser only, not a second fixture-discovery implementation.
 fn known_construct_ids() -> BTreeSet<String> {
-    let path = repo_root().join("machine/conformance/constructs.txt");
-    let text =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let mut ids: BTreeSet<String> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(str::to_string)
-        .collect();
+    let mut ids = BTreeSet::new();
+    for path in [
+        pg_conformance_fixtures::suite_root().join("constructs.txt"),
+        pg_conformance_fixtures::staging_root().join("constructs.txt"),
+    ] {
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        ids.extend(
+            text.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(str::to_string),
+        );
+    }
     for predicate in pg_foma::capability::default_registry().predicates() {
         ids.extend(predicate.variants().iter().map(|v| v.id().to_string()));
     }
@@ -80,7 +79,7 @@ fn every_exercises_tag_is_a_known_construct_id() {
     );
     assert!(
         offenders.is_empty(),
-        "{} exercises: tag(s) do not match a machine/conformance/constructs.txt row id or an \
+        "{} exercises: tag(s) do not match a conformance/constructs.txt row id or an \
          owning capability predicate's variant id. Fix each unknown tag:\n  {}",
         offenders.len(),
         offenders.join("\n  ")

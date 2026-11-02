@@ -17,20 +17,20 @@ enum Expected {
 
 const EXPECTED: &[(&str, [Expected; 3])] = &[
     (
-        "machine:edge-cases/cross-table-root-respelling",
+        "staging:edge-cases/cross-table-root-respelling",
         [Expected::Exact, Expected::Exact, Expected::Refused],
     ),
     (
-        "machine:edge-cases/rewrite-analysis-feature-neutralization",
-        [Expected::Refused, Expected::Exact, Expected::Refused],
-    ),
-    // The respelled root ("w" as the final table's "i") is then changed by a rule; the construct is present even though hc.dll renders the signature's surface half empty.
-    (
-        "machine:edge-cases/synthesis-stratum-render-stale-table",
+        "staging:edge-cases/rewrite-analysis-feature-neutralization",
         [Expected::Refused, Expected::Exact, Expected::Refused],
     ),
     (
         "staging:edge-cases/segment-natural-class-table-binding",
+        [Expected::Refused, Expected::Exact, Expected::Refused],
+    ),
+    // The respelled root ("w" as the final table's "i") is then changed by a rule; the construct is present even though hc.dll renders the signature's surface half empty.
+    (
+        "staging:edge-cases/synthesis-stratum-render-stale-table",
         [Expected::Refused, Expected::Exact, Expected::Refused],
     ),
 ];
@@ -158,7 +158,7 @@ fn every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere() {
 fn plan_composed_spells_by_bundle_not_by_index() {
     let fixture = discover()
         .into_iter()
-        .find(|f| f.label() == "machine:edge-cases/cross-table-root-respelling")
+        .find(|f| f.label() == "staging:edge-cases/cross-table-root-respelling")
         .expect("the isolating fixture is discovered under PANGLOSS_CONFORMANCE_SCOPE=all");
     let xml = fixture.load_grammar_xml();
     let block = |id: &str| -> String {

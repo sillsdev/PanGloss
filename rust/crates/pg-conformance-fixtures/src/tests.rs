@@ -71,7 +71,7 @@ fn local_scope_reaches_no_upstream_fixture() {
 #[test]
 fn require_fixture_finds_an_upstream_fixture_whatever_the_claimed_scope_is() {
     // A named pin makes no coverage claim, so scope must not hide a healthy upstream fixture.
-    let found = require_fixture("edge-cases", "loader-isactive");
+    let found = require_fixture("edge-cases", "loader-pattern-shapes");
     assert_eq!(found.root, Root::Machine);
     assert!(found.grammar_path().is_file());
 }
@@ -121,7 +121,7 @@ fn graduation_guard_flags_same_key_both_roots() {
             root: Root::Machine,
             category: "edge-cases".into(),
             name: "foo".into(),
-            dir: PathBuf::from("machine/conformance/edge-cases/foo"),
+            dir: PathBuf::from("conformance/edge-cases/foo"),
         },
         FixtureRef {
             root: Root::Staging,
@@ -387,7 +387,7 @@ fn words_and_parses_require_nonempty_schema_values_and_reject_unknown_fields() {
         ("    note: valid\n    parses:\n      - signature: OK|foo\n        rules: [\"\"]\n", "rules[0] must be nonempty"),
         ("    note: valid\n    unknown_word_field: true\n", "unknown field `unknown_word_field`"),
         ("    note: valid\n    parses:\n      - signature: OK|foo\n        rules: []\n        unknown_parse_field: true\n", "unknown field `unknown_parse_field`"),
-        ("    note: valid\n    claimed_cells: [{cell: key, unknown_claim_field: true}]\n", "unknown field `unknown_claim_field`"),
+        ("    note: valid\n    claims: [{cell: key, unknown_claim_field: true}]\n", "unknown field `unknown_claim_field`"),
     ] {
         let doc = format!("language: Test\nrequires: [morpher-settings]\nwords:\n  - word: foo\n{word_fields}variants:\n  - name: strict\n    morpher: {{GuessRoots: false}}\n    words:\n      - word: foo\n        note: control\n        expect_fail: true\n");
         let error = serde_yaml::from_str::<WordsYaml>(&doc)
@@ -462,7 +462,7 @@ fn variants_require_valid_unique_names_nonempty_known_settings_and_identical_inp
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        blocked_by: [rule]\n", "may not declare blocked_by"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        neutralizes: [rule]\n", "may not declare blocked_by"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        exercises: [rule]\n", "may not declare blocked_by"),
-        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        claimed_cells: [{cell: key}]\n", "may not declare blocked_by"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        claims: [{cell: key}]\n", "may not declare blocked_by"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: FOO|foo\n            rules: []\n            exercises: [rule]\n", "exercises must be empty"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: \"\"\n            rules: []\n", "signature must be nonempty"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: FOO|foo\n", "missing field `rules`"),

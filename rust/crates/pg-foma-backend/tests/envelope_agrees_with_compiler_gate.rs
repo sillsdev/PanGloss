@@ -213,7 +213,7 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
     );
 }
 
-/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make. `claimed == 0` is the currently-measured state (its one witness, `staging:edge-cases/circumfix-non-first-allomorph-selection`, now compiles), not a proof the condition can never recur -- a genuinely unowned zone mismatch on a future grammar can still trip it.
+/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make. `claimed == 0` is the currently-measured state (its one witness, `machine:edge-cases/circumfix-non-first-allomorph-selection`, now compiles), not a proof the condition can never recur -- a genuinely unowned zone mismatch on a future grammar can still trip it.
 #[test]
 fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
     let mut claimed = 0usize;

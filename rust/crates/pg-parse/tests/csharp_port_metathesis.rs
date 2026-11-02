@@ -1,4 +1,4 @@
-//! Ports `MetathesisRuleTests` (`MetathesisRuleTests.cs`); a multi-node (`<Segments>`/`<OptionalSegmentSequence>`) switch group is DTD-legal but not authorable against the real C# oracle, and `<MetathesisRule>` has no MPR/POS gating attribute at all, so neither scope gap has a fixture — the metathesis fixtures upstream (`machine/conformance/**`) are what this file's scenarios were frozen as.
+//! Ports `MetathesisRuleTests` (`MetathesisRuleTests.cs`); a multi-node (`<Segments>`/`<OptionalSegmentSequence>`) switch group is DTD-legal but not authorable against the real C# oracle, and `<MetathesisRule>` has no MPR/POS gating attribute at all, so neither scope gap has a fixture — the metathesis fixtures upstream (`conformance/**`) are what this file's scenarios were frozen as.
 
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;

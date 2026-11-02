@@ -2753,7 +2753,7 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 ///   `PredicateVerdict::ConfirmOnly` — the selected construction is a faithful proposer
 ///   (`tests/f6_reduplication_peel_chain_depth.rs`'s own containment fixture proves oracle-exact
 ///   CONTAINMENT against `pg_parse::Morpher` for a real, previously-zero-coverage full-stem
-///   reduplication construct — `machine/conformance/languages/
+///   reduplication construct — `conformance/languages/
 ///   suffixing-extension-slot-ordering`'s `mrRedup`, "kimbiakimbia"), but no PROVEN
 ///   no-false-negative admission-filter argument exists — confirm-only-by-default, the same
 ///   landing spot every other `ConfigPredicate` characteristic in this registry already uses.
@@ -3826,7 +3826,7 @@ impl GrammarWideCheck for PlanComposedMarkerCheck {
 /// `Unbounded`-branch witnesses (`languages/polysynthetic-stratal-derivation-chain`,
 /// `edge-cases/backend-strata-generic`, `edge-cases/guesser-pattern-root-fallback` all now compile
 /// clean under `TunedSurfaceProbed`; see `tests/pattern_root_regex_route_gate.rs`). The current
-/// `Unbounded`-branch witness is `staging:edge-cases/pattern-root-required-environment`, whose
+/// `Unbounded`-branch witness is `machine:edge-cases/pattern-root-required-environment`, whose
 /// pattern root carries a `<RequiredEnvironments>` the regex route cannot honour. Either way the
 /// ARTIFACT the eager route would produce is not a faithful proposer for the affected entry —
 /// confirmed by `FomaProposer::new` itself refusing to trust it
