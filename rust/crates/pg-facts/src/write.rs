@@ -99,8 +99,11 @@ where
     let context = FactsContext::parse(context_bytes)?;
     let source = std::str::from_utf8(source_bytes)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
-    pg_assess::jcs::parse_strict_json(source)
+    let strict = pg_assess::jcs::parse_strict_json(source)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
+    // The strict parse is the only one the fingerprint needs; its error surfaces where it always did.
+    let fingerprint = pg_assess::snapshot_value_fingerprint(&strict, producer.compiler_version);
+    drop(strict);
     let snapshot = Snapshot::from_json(source).map_err(|error| match error {
         pg_snapshot::SnapshotError::UnsupportedVersion { found } => {
             FactsError::UnsupportedSnapshotVersion(found)
@@ -119,12 +122,8 @@ where
 
     let source_sha256 = pg_assess::source_sha256(source_bytes);
     let grammar_hash = snapshot.grammar_hash();
-    let model_fingerprint = pg_assess::model_fingerprint(
-        pg_assess::SourceKind::Snapshot,
-        source,
-        producer.compiler_version,
-    )
-    .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
+    let model_fingerprint =
+        fingerprint.map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
     if let Some(expected) = &context.expected_model_fingerprint {
         if expected != &model_fingerprint {
             return Err(FactsError::ModelMismatch {
@@ -750,5 +749,22 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(names_in(temporary.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_stored_model_fingerprint_is_that_of_the_source_text() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let output = temporary.path().join("facts.sqlite");
+
+        let result = write_facts_inner(&source, CONTEXT, &output, PRODUCER, None, |_| {}).unwrap();
+
+        let expected = pg_assess::model_fingerprint(
+            pg_assess::SourceKind::Snapshot,
+            std::str::from_utf8(&source).unwrap(),
+            PRODUCER.compiler_version,
+        )
+        .unwrap();
+        assert_eq!(result.model_fingerprint, expected);
     }
 }

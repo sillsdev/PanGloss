@@ -90,3 +90,35 @@ fn xml_attribute_order_moves_the_fingerprint_a_known_conservative_limit() {
         model_fingerprint(SourceKind::HcXml, b, VERSION).unwrap()
     );
 }
+
+#[test]
+fn a_parsed_snapshot_value_gives_the_fingerprint_of_its_text() {
+    let documents = [
+        r#"{ "b": 1, "a": [2, 3] }"#,
+        r#"{"n":[0,-7,18446744073709551615,-9223372036854775808],"s":"\u00e9\n\"x","t":true,"z":null,"o":{"k":{}}}"#,
+        "[]",
+        "{}",
+    ];
+    for text in documents {
+        let value = crate::jcs::parse_strict_json(text).unwrap();
+        assert_eq!(
+            snapshot_value_fingerprint(&value, VERSION).unwrap(),
+            model_fingerprint(SourceKind::Snapshot, text, VERSION).unwrap(),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_parsed_snapshot_value_fails_where_its_text_fails() {
+    let text = r#"{"x":1.5}"#;
+    let value = crate::jcs::parse_strict_json(text).unwrap();
+    assert_eq!(
+        snapshot_value_fingerprint(&value, VERSION)
+            .unwrap_err()
+            .to_string(),
+        model_fingerprint(SourceKind::Snapshot, text, VERSION)
+            .unwrap_err()
+            .to_string()
+    );
+}
