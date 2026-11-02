@@ -198,11 +198,33 @@ impl PanGlossGrammar {
     /// gracefully to Leipzig-only glosses in that case (e.g. today's Sena sample).
     #[wasm_bindgen(constructor)]
     pub fn new(xml: &str, realize_toml: Option<String>) -> Result<PanGlossGrammar, JsValue> {
+        Self::with_policy(xml, realize_toml, pg_lexicon::AnalysisPolicy::default())
+    }
+
+    /// `new` with no attempt or work limit, for a deployed grammar the host trusts: a pathological
+    /// word runs until it finishes and blocks the calling thread, so run this off the UI thread.
+    #[wasm_bindgen(js_name = withoutWorkLimits)]
+    pub fn without_work_limits(
+        xml: &str,
+        realize_toml: Option<String>,
+    ) -> Result<PanGlossGrammar, JsValue> {
+        Self::with_policy(
+            xml,
+            realize_toml,
+            pg_lexicon::AnalysisPolicy::without_limits(),
+        )
+    }
+
+    fn with_policy(
+        xml: &str,
+        realize_toml: Option<String>,
+        policy: pg_lexicon::AnalysisPolicy,
+    ) -> Result<PanGlossGrammar, JsValue> {
         let grammar = Arc::new(pg_grammar::load(xml).map_err(|e| js_err("load grammar", &e))?);
         let realizer =
             TableRealizer::new().map_err(|e| js_err("load embedded English table", &e))?;
         let realize_map = build_realize_map(&grammar, realize_toml.as_deref())?;
-        let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), xml)
+        let runtime = pg_lexicon::SuppliedLexiconRuntime::with_policy(grammar.clone(), xml, policy)
             .map_err(|e| js_err("initialize supplied lexicon", &e))?;
         let orthographic_characters = grammar.orthographic_characters();
         Ok(PanGlossGrammar {

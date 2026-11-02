@@ -19,6 +19,14 @@ impl AnalysisPolicy {
     pub const fn native_abi_v1() -> Self {
         Self { step_cap: 500_000 }
     }
+
+    /// No attempt or work limit: a pathological word runs until it finishes. The work cap follows
+    /// the attempt cap and saturates, so the counters remain but can never stop a word.
+    pub const fn without_limits() -> Self {
+        Self {
+            step_cap: usize::MAX,
+        }
+    }
 }
 
 impl Default for AnalysisPolicy {

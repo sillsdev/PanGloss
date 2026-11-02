@@ -127,6 +127,9 @@ impl BatchParseCounter {
 
 pub(crate) mod build_info;
 mod compile_failure;
+#[cfg(feature = "cost-calibration")]
+mod cost_calibrate;
+mod cost_compare;
 mod facts_cmd;
 mod generate_request;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
@@ -391,6 +394,11 @@ fn resolved_work_cap(step_cap: StepCap, work_cap: Option<StepCap>) -> usize {
 #[global_allocator]
 static GLOBAL_ALLOC: alloc_trace::CountingAlloc = alloc_trace::CountingAlloc;
 
+/// Inert until `--cost-column` or `cost-calibrate` turns counting on.
+#[cfg(not(feature = "alloc-trace"))]
+#[global_allocator]
+static GLOBAL_ALLOC: pg_cost::CountingAllocator = pg_cost::CountingAllocator;
+
 fn main() -> ExitCode {
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on heavy corpus words exceeds the default 8 MiB main-thread stack, so the whole batch runs on a worker thread with a generous stack.
     std::thread::Builder::new()
@@ -421,7 +429,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
@@ -1028,8 +1036,8 @@ fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
     dir.join(format!("{stem}-realize.toml"))
 }
 
-/// Version 3 retains version 2's work columns and shares its result-status classification with serve.
-pub(crate) const BATCH_TSV_VERSION: u32 = 3;
+/// Version 4 adds the optional `--cost-column`; version 3's layout is unchanged without it.
+pub(crate) const BATCH_TSV_VERSION: u32 = 4;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
@@ -1037,6 +1045,8 @@ struct BatchRowTail {
     guessed: Option<bool>,
     /// `Some((steps, work_steps))` only when `--work-columns` was passed.
     counts: Option<(usize, usize)>,
+    /// `Some(cost)` only when `--cost-column` was passed.
+    cost: Option<u64>,
 }
 
 impl BatchRowTail {
@@ -1046,6 +1056,12 @@ impl BatchRowTail {
             counts: flags
                 .work_columns
                 .then_some((outcome.steps, outcome.work_steps)),
+            cost: flags.cost_column.then(|| {
+                outcome
+                    .cost
+                    .expect("--cost-column turned cost measurement on before parsing")
+                    .cost()
+            }),
         }
     }
 }
@@ -1055,9 +1071,10 @@ impl BatchRowTail {
 struct BatchRowFlags {
     guess: bool,
     work_columns: bool,
+    cost_column: bool,
 }
 
-/// Writes one `idx word elapsed_ms status signature [guessed] [steps work_steps]` row; see `docs/formats/batch-tsv.md`.
+/// Writes one `idx word elapsed_ms status signature [guessed] [steps work_steps] [cost]` row; see `docs/formats/batch-tsv.md`.
 fn write_batch_row<W: Write>(
     w: &mut W,
     idx: usize,
@@ -1073,6 +1090,9 @@ fn write_batch_row<W: Write>(
     }
     if let Some((steps, work_steps)) = tail.counts {
         write!(w, "\t{steps}\t{work_steps}")?;
+    }
+    if let Some(cost) = tail.cost {
+        write!(w, "\t{cost}")?;
     }
     writeln!(w)
 }
@@ -1231,6 +1251,7 @@ fn run_batch_with_counter(
     let mut guess_arg: Option<bool> = None;
     // Default-off so the 5/6-column contract external adapters require stays byte-identical.
     let mut work_columns = false;
+    let mut cost_column = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
     // None defers to the project's own `<HC><MakePartialsFinal>` once the grammar is loaded.
@@ -1300,6 +1321,7 @@ fn run_batch_with_counter(
                 guess_arg = Some(parse_guess_flag(s)?)
             }
             "--work-columns" => work_columns = true,
+            "--cost-column" => cost_column = true,
             "--stats" => stats_requested = true,
             "--always-enforce-final-templates" => always_enforce_final_templates_arg = Some(true),
             s if s.starts_with("--always-enforce-final-templates=") => {
@@ -1339,7 +1361,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
                 .into(),
         );
     };
@@ -1354,6 +1376,15 @@ fn run_batch_with_counter(
     }
     if analyses_path_arg.is_some() && start_idx > 0 {
         return Err("--start cannot be combined with --analyses".into());
+    }
+    if cost_column {
+        if stats_requested {
+            return Err(
+                "--cost-column cannot be combined with --stats, whose collector would be counted as parse cost"
+                    .into(),
+            );
+        }
+        pg_cost::enable().map_err(|e| e.to_string())?;
     }
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
@@ -1497,6 +1528,7 @@ fn run_batch_with_counter(
     let row_flags = BatchRowFlags {
         guess: guess_arg == Some(true),
         work_columns,
+        cost_column,
     };
     let mut stats_words = Vec::new();
 

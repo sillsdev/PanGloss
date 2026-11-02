@@ -4,6 +4,7 @@
 resolver = "2"
 members = [
     "crates/pg-comment-hygiene",
+    "crates/pg-cost",
     "crates/pg-grammar-model",
     "crates/pg-grammar",
     "crates/pg-featstruct",
@@ -34,6 +35,7 @@ members = [
 # Keep the native runtime as the workspace's default build; compiler research crates remain explicit.
 default-members = [
     "crates/pg-comment-hygiene",
+    "crates/pg-cost",
     "crates/pg-grammar-model",
     "crates/pg-grammar",
     "crates/pg-featstruct",
@@ -137,6 +139,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # internal crates
 pg-grammar = { path = "crates/pg-grammar" }
 pg-grammar-model = { path = "crates/pg-grammar-model" }
+pg-cost = { path = "crates/pg-cost" }
 pg-featstruct = { path = "crates/pg-featstruct" }
 pg-shape = { path = "crates/pg-shape" }
 # The compiler's report vocabulary as plain data (health findings, backend compatibility-report

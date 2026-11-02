@@ -335,6 +335,7 @@ impl<'f> Transduce<'f> {
             return;
         }
         let next_ann = self.next_ann_pos(ann_index);
+        pg_cost::add_registers(registers.len());
         let mut match_registers = registers.to_vec();
         let fin = &self.fst.commands[meta.fin_lo as usize..meta.fin_hi as usize];
         Self::execute_commands(
@@ -359,6 +360,7 @@ impl<'f> Transduce<'f> {
                 if !crate::work::consume() {
                     return;
                 }
+                pg_cost::add_registers(match_registers.len());
                 cur_results.push(FstResult {
                     id: info.id.clone(),
                     registers: match_registers.clone(),
@@ -401,6 +403,9 @@ impl<'f> Transduce<'f> {
             }
 
             if !arc_cmds.is_empty() {
+                if Rc::strong_count(&inst.registers) > 1 {
+                    pg_cost::add_registers(inst.registers.len());
+                }
                 let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
                 Self::execute_commands(
                     regs,
@@ -424,6 +429,9 @@ impl<'f> Transduce<'f> {
         } else {
             let next_offset = self.end_pos();
             if !arc_cmds.is_empty() {
+                if Rc::strong_count(&inst.registers) > 1 {
+                    pg_cost::add_registers(inst.registers.len());
+                }
                 let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
                 Self::execute_commands(
                     regs,
@@ -456,6 +464,7 @@ impl<'f> Transduce<'f> {
         if self.start_anchor && self.seg(*ann_index).optional {
             let next_index = *ann_index + 1;
             if next_index != self.n() {
+                pg_cost::add_registers(registers.len());
                 let mut regs = registers.to_vec();
                 let mut ni = next_index;
                 insts.extend(self.initialize(&mut ni, &mut regs, cmds, init_anns));
@@ -471,6 +480,7 @@ impl<'f> Transduce<'f> {
 
         // linear: exactly one annotation starts at `offset`.
         if *ann_index < self.n() && !init_anns.contains(ann_index) {
+            pg_cost::add_registers(registers.len());
             insts.push(Inst {
                 state: self.fst.start() as usize,
                 ann_index: *ann_index,
@@ -595,6 +605,7 @@ impl<'f> Transduce<'f> {
             if !crate::work::consume() {
                 return Vec::new();
             }
+            pg_cost::add_registers(reg_slots);
             let mut init_registers = vec![Register::unset(); reg_slots];
             let offset = self.ann_start(ann_index);
             // initializers: dest==0 set directly; others -> cmds (Fst.cs:376-387).

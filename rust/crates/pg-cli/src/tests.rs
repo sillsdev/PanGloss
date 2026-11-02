@@ -359,6 +359,7 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
         timed_out: true,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let mut encoded = Vec::new();
     write_parse_analysis_row(&mut encoded, 0, "kat", 12, &outcome, &grammar)

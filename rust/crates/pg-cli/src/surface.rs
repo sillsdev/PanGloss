@@ -69,6 +69,17 @@ fn dispatch(
 fn dispatch_batch(args: &[String]) -> ExitCode {
     dispatch("batch", args, crate::run_batch)
 }
+fn dispatch_cost_compare(args: &[String]) -> ExitCode {
+    dispatch("cost-compare", args, crate::cost_compare::run_cost_compare)
+}
+#[cfg(feature = "cost-calibration")]
+fn dispatch_cost_calibrate(args: &[String]) -> ExitCode {
+    dispatch(
+        "cost-calibrate",
+        args,
+        crate::cost_calibrate::run_cost_calibrate,
+    )
+}
 fn dispatch_generate(args: &[String]) -> ExitCode {
     dispatch("generate", args, crate::run_generate)
 }
@@ -260,6 +271,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         name: "--work-columns",
         takes_value: false,
         summary: "append each word's steps and work_steps (deterministic parser work) to its TSV row",
+    },
+    FlagSpec {
+        name: "--cost-column",
+        takes_value: false,
+        summary: "append each word's fixed-weight parse cost, the last field; compare two runs with cost-compare",
     },
     FlagSpec {
         name: "--stats",
@@ -636,6 +652,26 @@ const RECIPE_OPTIMIZE_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+const COST_COMPARE_FLAGS: &[FlagSpec] = &[FlagSpec {
+    name: "--json",
+    takes_value: false,
+    summary: "print the comparison as one JSON object",
+}];
+
+#[cfg(feature = "cost-calibration")]
+const COST_CALIBRATE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--words",
+        takes_value: true,
+        summary: "how many evenly spaced words to measure (default 40)",
+    },
+    FlagSpec {
+        name: "--targets",
+        takes_value: true,
+        summary: "fit idx<TAB>instructions rows instead of wall time",
+    },
+];
+
 pub(crate) const COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "batch",
@@ -644,6 +680,23 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "words.txt", "out.tsv"],
         flags: BATCH_FLAGS,
         handler: dispatch_batch,
+    },
+    CommandSpec {
+        name: "cost-compare",
+        summary: "Compare two `batch --cost-column` runs of one word list: better, worse or no clear change, independent of machine load.",
+        hidden: false,
+        positionals: &["before.tsv", "after.tsv"],
+        flags: COST_COMPARE_FLAGS,
+        handler: dispatch_cost_compare,
+    },
+    #[cfg(feature = "cost-calibration")]
+    CommandSpec {
+        name: "cost-calibrate",
+        summary: "Suggest new fixed cost weights from per-word timing or instruction counts.",
+        hidden: true,
+        positionals: &["grammar", "words.txt"],
+        flags: COST_CALIBRATE_FLAGS,
+        handler: dispatch_cost_calibrate,
     },
     CommandSpec {
         name: "generate",

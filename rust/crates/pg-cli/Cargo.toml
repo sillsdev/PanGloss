@@ -26,6 +26,8 @@ developer-tools = ["foma-tools", "pg-foma/developer-tools", "pg-foma-backend/dev
 # Ground-truth allocator instrumentation for docs/research/word-memory-trace.md; default off, see
 # `src/alloc_trace.rs`.
 alloc-trace = []
+# Off in every released build: `pangloss cost-calibrate` suggests new fixed weights for the code.
+cost-calibration = []
 
 [[example]]
 name = "spellcheck_measure"
@@ -33,6 +35,7 @@ path = "examples/spellcheck_measure.rs"
 required-features = ["examples"]
 
 [dependencies]
+pg-cost.workspace = true
 pg-parse.workspace = true
 pg-grammar.workspace = true
 pg-realize.workspace = true

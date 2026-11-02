@@ -12,6 +12,7 @@ fn round_trips_empty_word() {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let bytes = encode_single(&outcome);
     let decoded = decode(&bytes).unwrap();
@@ -32,6 +33,7 @@ fn round_trips_invalid_shape() {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert!(decoded[0].invalid_shape);
@@ -78,6 +80,7 @@ fn round_trips_analyses_in_canonical_order() {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert!(decoded[0].capped);
@@ -160,6 +163,7 @@ fn plain_format_encoder_keeps_a_non_guessed_analysis() {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert_eq!(
@@ -184,6 +188,7 @@ fn plain_format_encoder_refuses_to_emit_a_guessed_analysis_even_when_constructed
         timed_out: false,
         guessed: true,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert_eq!(decoded.len(), 1);
@@ -209,6 +214,7 @@ fn plain_format_encoder_filters_only_the_guessed_row_out_of_a_mixed_outcome() {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert_eq!(decoded[0].analyses.len(), 1);
@@ -229,6 +235,7 @@ fn batch_plain_format_encoder_also_refuses_a_guessed_analysis() {
         timed_out: false,
         guessed: true,
         candidates_generated: 0,
+        cost: None,
     };
     let outcomes = vec![BatchWordOutcome {
         outcome,
@@ -266,6 +273,7 @@ fn guess_format_round_trips_a_guessed_analysis_and_carries_word_and_analysis_lev
         timed_out: false,
         guessed: true,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode_guess(&encode_single_guess(&outcome)).unwrap();
     assert_eq!(decoded.len(), 1);
@@ -303,6 +311,7 @@ fn guess_format_round_trips_a_non_guessed_analysis_as_false() {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode_guess(&encode_single_guess(&outcome)).unwrap();
     assert!(!decoded[0].guessed);
@@ -322,6 +331,7 @@ fn guess_format_and_plain_format_are_not_cross_decodable() {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     assert!(decode_guess(&encode_single(&outcome)).is_none());
     assert!(decode(&encode_single_guess(&outcome)).is_none());
@@ -361,6 +371,7 @@ fn guess_format_batch_preserves_original_request_order() {
         timed_out: false,
         guessed,
         candidates_generated: 0,
+        cost: None,
     };
     let outcomes = vec![
         BatchWordOutcome {
