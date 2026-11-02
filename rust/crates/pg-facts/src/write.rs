@@ -359,12 +359,15 @@ where
             compile_issues,
             decisions,
         )?;
+        // One pass over every decision here; the phonology and reference writers look owners up in it.
+        let owner_loads = crate::owner_loads::OwnerLoads::new(decisions);
         crate::phonology::insert_authored(
             &transaction,
             snapshot,
             &feature_structures,
             environment_resolutions,
             decisions,
+            &owner_loads,
             grammar,
         )?;
         crate::compiled::insert(
@@ -379,6 +382,7 @@ where
             &transaction,
             snapshot,
             decisions,
+            &owner_loads,
             environment_resolutions,
             allomorph_gates,
             crate::references::CompiledInputs {
