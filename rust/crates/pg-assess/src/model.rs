@@ -70,6 +70,23 @@ pub fn model_fingerprint(
     compiler_version: &str,
 ) -> Result<String, JcsError> {
     let canonical = canonical_source(kind, source)?;
+    fingerprint_of_canonical(kind, canonical, compiler_version)
+}
+
+/// `model_fingerprint(SourceKind::Snapshot, text, ..)` for a `text` that was already parsed into `value`.
+pub fn snapshot_value_fingerprint(
+    value: &Value,
+    compiler_version: &str,
+) -> Result<String, JcsError> {
+    let canonical = crate::jcs::canonicalize(value)?;
+    fingerprint_of_canonical(SourceKind::Snapshot, canonical, compiler_version)
+}
+
+fn fingerprint_of_canonical(
+    kind: SourceKind,
+    canonical: String,
+    compiler_version: &str,
+) -> Result<String, JcsError> {
     digest_projection(
         MODEL_PROJECTION,
         &json!({

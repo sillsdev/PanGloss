@@ -78,7 +78,11 @@ pub(crate) fn insert_authored(tx: &Transaction<'_>, snapshot: &Snapshot) -> Resu
     groups.sort_by(|left, right| left.guid.cmp(&right.guid));
     for group in &groups {
         let guid = checked_guid(&group.guid, "adhocGroup.guid")?;
-        tx.execute("INSERT INTO adhoc_group(group_guid) VALUES (?1)", [&guid])?;
+        crate::sql::execute(
+            tx,
+            "INSERT INTO adhoc_group(group_guid) VALUES (?1)",
+            [&guid],
+        )?;
     }
     for group in groups {
         let guid = checked_guid(&group.guid, "adhocGroup.guid")?;
@@ -90,7 +94,8 @@ pub(crate) fn insert_authored(tx: &Transaction<'_>, snapshot: &Snapshot) -> Resu
             .map(|member| checked_guid(member, "adhocGroup.member"))
             .collect::<Result<_, _>>()?;
         for member in members {
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO adhoc_group_member(group_guid, member_guid) VALUES (?1, ?2)",
                 params![guid, member],
             )?;
@@ -131,7 +136,8 @@ fn insert_prohibition(
     } else {
         "msa"
     };
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO adhoc_prohibition(prohibition_guid, kind, disabled, adjacency, primary_guid, target_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             guid,
@@ -144,7 +150,8 @@ fn insert_prohibition(
     )?;
     for (ordinal, target) in others.iter().enumerate() {
         let target = checked_guid(target, "adhocProhibition.others")?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO adhoc_other(prohibition_guid, ordinal, target_guid, target_kind) VALUES (?1, ?2, ?3, ?4)",
             params![guid, ordinal as i64, target, target_kind],
         )?;
@@ -161,7 +168,8 @@ fn insert_texts(
     let mut forms: Vec<&WsForm> = forms.iter().collect();
     forms.sort_by(|left, right| left.ws.cmp(&right.ws));
     for form in forms {
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO adhoc_group_text(group_guid, field, writing_system, text) VALUES (?1, ?2, ?3, ?4)",
             params![group_guid, field, form.ws, form.form],
         )?;

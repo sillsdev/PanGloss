@@ -1713,7 +1713,8 @@ pub(crate) fn insert_catalog(
                 CounterSupport::NotApplicable => "not_applicable",
                 CounterSupport::NotWired => "not_wired",
             };
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO stats_counter_support(engine, counter_semantics, object_kind, counter, direction, support) VALUES ('hc', ?1, ?2, ?3, 'both', ?4)",
                 params![counter_semantics, stats_kind_name(kind), counter, support],
             )?;
@@ -1724,7 +1725,8 @@ pub(crate) fn insert_catalog(
                 direction,
                 counter_semantics,
             );
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO stats_counter_support(engine, counter_semantics, object_kind, counter, direction, support) VALUES ('hc', ?1, ?2, 'self_time_ns', ?3, ?4)",
                 params![
                     counter_semantics,
@@ -1742,48 +1744,53 @@ pub(crate) fn insert(
     tx: &rusqlite::Transaction<'_>,
     projection: &StatsProjection,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO stats_cache_identity(singleton, cache_sha256, cache_bytes, schema_version, counter_semantics, engine, grammar_hash) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
         params![projection.cache_sha256, projection.cache_bytes, projection.schema_version, projection.counter_semantics, projection.run.engine, projection.run.grammar_hash],
     )?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO stats_run(run_id, engine, grammar_hash, options_hash, options_json, created_utc, step_cap, cache_word_count, requested_word_count, batch_options_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![projection.run.run_id, projection.run.engine, projection.run.grammar_hash, projection.run.options_hash, projection.run.options_json, projection.run.created_utc, projection.run.step_cap, projection.run.cache_word_count, projection.run.requested_word_count as i64, projection.run.batch_options_json],
     )?;
     for dim in &projection.morphemes {
-        tx.execute("INSERT INTO stats_morpheme(morpheme_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
+        crate::sql::execute(tx, "INSERT INTO stats_morpheme(morpheme_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
     }
     for dim in &projection.strata {
-        tx.execute("INSERT INTO stats_stratum(stratum_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
+        crate::sql::execute(tx, "INSERT INTO stats_stratum(stratum_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
     }
     for dim in &projection.allomorphs {
-        tx.execute("INSERT INTO stats_allomorph(allomorph_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
+        crate::sql::execute(tx, "INSERT INTO stats_allomorph(allomorph_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
     }
     for object in &projection.objects {
-        tx.execute("INSERT INTO stats_object(object_id, key, kind, label, identity_quality, morpheme_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![object.id, object.key, object.kind, object.label, object.identity_quality, object.morpheme_id])?;
+        crate::sql::execute(tx, "INSERT INTO stats_object(object_id, key, kind, label, identity_quality, morpheme_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![object.id, object.key, object.kind, object.label, object.identity_quality, object.morpheme_id])?;
     }
     for source in &projection.object_sources {
-        tx.execute("INSERT INTO stats_object_source(object_id, source_kind, source_guid, role) VALUES (?1, ?2, ?3, ?4)", params![source.object_id, source.source_kind, source.source_guid, source.role])?;
+        crate::sql::execute(tx, "INSERT INTO stats_object_source(object_id, source_kind, source_guid, role) VALUES (?1, ?2, ?3, ?4)", params![source.object_id, source.source_kind, source.source_guid, source.role])?;
     }
     for source in &projection.allomorph_sources {
-        tx.execute("INSERT INTO stats_allomorph_source(allomorph_id, source_ordinal, source_allomorph_guid, role, omitted) VALUES (?1, ?2, ?3, ?4, ?5)", params![source.allomorph_id, source.source_ordinal, source.source_allomorph_guid, source.role, i64::from(source.omitted)])?;
+        crate::sql::execute(tx, "INSERT INTO stats_allomorph_source(allomorph_id, source_ordinal, source_allomorph_guid, role, omitted) VALUES (?1, ?2, ?3, ?4, ?5)", params![source.allomorph_id, source.source_ordinal, source.source_allomorph_guid, source.role, i64::from(source.omitted)])?;
     }
     for word in &projection.words {
-        tx.execute("INSERT INTO stats_word(word_id, run_id, form, status, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", params![word.id, word.run_id, word.form, word.status, word.elapsed_ns, word.attempts, word.passes, word.capped.map(i64::from), word.timed_out.map(i64::from), word.invalid_shape.map(i64::from)])?;
+        crate::sql::execute(tx, "INSERT INTO stats_word(word_id, run_id, form, status, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", params![word.id, word.run_id, word.form, word.status, word.elapsed_ns, word.attempts, word.passes, word.capped.map(i64::from), word.timed_out.map(i64::from), word.invalid_shape.map(i64::from)])?;
     }
     for fact in &projection.facts {
-        tx.execute("INSERT INTO stats_fact(word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", params![fact.word_id, fact.object_id, fact.stratum_id, fact.allomorph_id, fact.direction, fact.attempts, fact.work, fact.outputs, fact.not_applied, fact.no_root, fact.surface_mismatch, fact.uses, fact.self_time_ns])?;
+        crate::sql::execute(tx, "INSERT INTO stats_fact(word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", params![fact.word_id, fact.object_id, fact.stratum_id, fact.allomorph_id, fact.direction, fact.attempts, fact.work, fact.outputs, fact.not_applied, fact.no_root, fact.surface_mismatch, fact.uses, fact.self_time_ns])?;
     }
     // Stats and compiled outputs share one key, so the join is by key; pseudo-objects match none.
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "UPDATE stats_object SET output_id = (SELECT output_id FROM compiled_output WHERE compiled_output.key = stats_object.key) WHERE kind IN ('morph_rule', 'phon_rule', 'lex_entry')",
         [],
     )?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "UPDATE stats_allomorph SET output_id = (SELECT output_id FROM compiled_output WHERE compiled_output.key = stats_allomorph.key)",
         [],
     )?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "UPDATE artifact_meta SET run_manifest_sha256=?1 WHERE singleton=1",
         params![projection.manifest_sha256],
     )?;

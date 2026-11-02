@@ -99,8 +99,11 @@ where
     let context = FactsContext::parse(context_bytes)?;
     let source = std::str::from_utf8(source_bytes)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
-    pg_assess::jcs::parse_strict_json(source)
+    let strict = pg_assess::jcs::parse_strict_json(source)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
+    // The strict parse is the only one the fingerprint needs; its error surfaces where it always did.
+    let fingerprint = pg_assess::snapshot_value_fingerprint(&strict, producer.compiler_version);
+    drop(strict);
     let snapshot = Snapshot::from_json(source).map_err(|error| match error {
         pg_snapshot::SnapshotError::UnsupportedVersion { found } => {
             FactsError::UnsupportedSnapshotVersion(found)
@@ -119,12 +122,8 @@ where
 
     let source_sha256 = pg_assess::source_sha256(source_bytes);
     let grammar_hash = snapshot.grammar_hash();
-    let model_fingerprint = pg_assess::model_fingerprint(
-        pg_assess::SourceKind::Snapshot,
-        source,
-        producer.compiler_version,
-    )
-    .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
+    let model_fingerprint =
+        fingerprint.map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
     if let Some(expected) = &context.expected_model_fingerprint {
         if expected != &model_fingerprint {
             return Err(FactsError::ModelMismatch {
@@ -328,7 +327,8 @@ where
             },
         )?;
         for section in &sections {
-            transaction.execute(
+            crate::sql::execute(
+                &transaction,
                 "INSERT INTO artifact_section(section, status, source_scope, reason_code) VALUES (?1, ?2, ?3, ?4)",
                 params![section.section, section.status, section.source_scope, section.reason_code],
             )?;
@@ -395,7 +395,11 @@ where
             crate::stats::insert(&transaction, stats)?;
         }
         crate::guid::canonicalize_stored_guids(&transaction)?;
-        transaction.execute("UPDATE artifact_meta SET complete=1 WHERE singleton=1", [])?;
+        crate::sql::execute(
+            &transaction,
+            "UPDATE artifact_meta SET complete=1 WHERE singleton=1",
+            [],
+        )?;
         transaction.commit()?;
         verify_database(&connection)?;
     }
@@ -450,6 +454,7 @@ fn configure_database(connection: &Connection) -> Result<(), FactsError> {
             "PRAGMA journal_mode=DELETE;\n",
             "PRAGMA synchronous=FULL;\n",
             "PRAGMA foreign_keys=ON;\n",
+            "PRAGMA ignore_check_constraints=ON;\n",
             "PRAGMA application_id={};\n",
             "PRAGMA user_version={};"
         ),
@@ -457,6 +462,7 @@ fn configure_database(connection: &Connection) -> Result<(), FactsError> {
         crate::FACT_SCHEMA_VERSION
     );
     connection.execute_batch(&pragmas)?;
+    connection.set_prepared_statement_cache_capacity(crate::sql::STATEMENT_CACHE_CAPACITY);
     Ok(())
 }
 
@@ -464,7 +470,8 @@ fn insert_metadata(
     tx: &rusqlite::Transaction<'_>,
     metadata: MetadataInput<'_>,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO artifact_meta(singleton, application_id, schema_version, format, writer_version, compiler_version, source_revision, build_identity, snapshot_format, snapshot_version, provenance_schema_version, source_inventory_status, source_sha256, grammar_hash, model_fingerprint, baseline_token_json, baseline_key, input_kind, dry_run_digest, compile_options_json, compile_options_sha256, compile_status, complete, run_manifest_sha256) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 0, ?22)",
         params![
             crate::APPLICATION_ID,
@@ -503,7 +510,9 @@ fn source_inventory_status(status: pg_snapshot::SourceInventoryStatus) -> &'stat
     }
 }
 
+/// Turns CHECK enforcement back on first: `integrity_check` skips CHECK constraints while it is off.
 fn verify_database(connection: &Connection) -> Result<(), FactsError> {
+    connection.execute_batch("PRAGMA ignore_check_constraints=OFF;")?;
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
         return Err(FactsError::Integrity(integrity));
@@ -543,13 +552,15 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    use super::write_facts_inner;
+    use rusqlite::Connection;
+
+    use super::{configure_database, verify_database, write_facts_inner};
     use crate::metadata::ProducerIdentity;
+    use crate::FactsError;
 
     const CONTEXT: &[u8] = br#"{"format":"pangloss-facts-context","version":1,"baselineToken":{"id":"commit-count"},"inputKind":"baseline","dryRunDigest":null}"#;
 
-    #[test]
-    fn facts_write_commits_schema_and_rows_once() {
+    fn fixture_source() -> Vec<u8> {
         let snapshot = Snapshot::new(
             Project {
                 name: "Commit-count fixture".into(),
@@ -582,7 +593,18 @@ mod tests {
             Morphology::default(),
             Lexicon::default(),
         );
-        let source = snapshot.to_json().into_bytes();
+        snapshot.to_json().into_bytes()
+    }
+
+    const PRODUCER: ProducerIdentity<'static> = ProducerIdentity {
+        compiler_version: "0.8.3",
+        source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    };
+
+    #[test]
+    fn facts_write_commits_schema_and_rows_once() {
+        let source = fixture_source();
         let temporary = tempdir().unwrap();
         let output = temporary.path().join("facts.sqlite");
         let commits = Arc::new(AtomicUsize::new(0));
@@ -592,11 +614,7 @@ mod tests {
             &source,
             CONTEXT,
             &output,
-            ProducerIdentity {
-                compiler_version: "0.8.3",
-                source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            },
+            PRODUCER,
             None,
             move |connection| {
                 connection.commit_hook(Some(move || {
@@ -612,5 +630,141 @@ mod tests {
             1,
             "schema and facts rows should share one write transaction"
         );
+    }
+
+    /// A facts file built with CHECKs ignored holds a bad row only if verify fails to find it.
+    #[test]
+    fn verify_reports_a_row_that_violates_a_check_planted_during_the_build() {
+        let temporary = tempdir().unwrap();
+        let connection = Connection::open(temporary.path().join("facts.sqlite")).unwrap();
+        configure_database(&connection).unwrap();
+        connection
+            .execute_batch(include_str!("schema.sql"))
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO artifact_section(section, status, source_scope) VALUES ('project', 'not-a-status', 'x')",
+                [],
+            )
+            .unwrap();
+        let during_build: String = connection
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            during_build, "ok",
+            "the planted row is invisible while CHECKs are ignored"
+        );
+
+        match verify_database(&connection) {
+            Err(FactsError::Integrity(message)) => assert!(
+                message.contains("CHECK constraint failed"),
+                "unexpected message: {message}"
+            ),
+            other => panic!("verify must report the CHECK violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_clean_database_passes_verify_with_checks_enforced_again() {
+        let temporary = tempdir().unwrap();
+        let connection = Connection::open(temporary.path().join("facts.sqlite")).unwrap();
+        configure_database(&connection).unwrap();
+        connection
+            .execute_batch(include_str!("schema.sql"))
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO artifact_section(section, status, source_scope) VALUES ('project', 'complete', 'x')",
+                [],
+            )
+            .unwrap();
+        verify_database(&connection).unwrap();
+        let ignoring: i64 = connection
+            .query_row("PRAGMA ignore_check_constraints", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(ignoring, 0);
+    }
+
+    fn names_in(directory: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_output_name_appears_only_after_the_file_is_built_and_verified() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let directory = temporary.path().to_path_buf();
+        let output = directory.join("facts.sqlite");
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let hook_seen = Arc::clone(&seen);
+        let hook_output = output.clone();
+        let hook_directory = directory.clone();
+
+        write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            PRODUCER,
+            None,
+            move |connection| {
+                connection.commit_hook(Some(move || {
+                    hook_seen
+                        .lock()
+                        .unwrap()
+                        .push((hook_output.exists(), names_in(&hook_directory)));
+                    false
+                }));
+            },
+        )
+        .unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        let (output_existed, names) = &seen[0];
+        assert!(
+            !output_existed,
+            "the final name must not exist while rows are written"
+        );
+        assert!(
+            !names.is_empty() && names.iter().all(|name| name.starts_with(".tmp")),
+            "only temporary files exist mid-write: {names:?}"
+        );
+        assert_eq!(names_in(&directory), ["facts.sqlite"]);
+    }
+
+    #[test]
+    fn an_aborted_write_leaves_neither_the_output_nor_a_temporary_file() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let output = temporary.path().join("facts.sqlite");
+
+        let result = write_facts_inner(&source, CONTEXT, &output, PRODUCER, None, |connection| {
+            connection.commit_hook(Some(|| true));
+        });
+
+        assert!(result.is_err());
+        assert_eq!(names_in(temporary.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_stored_model_fingerprint_is_that_of_the_source_text() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let output = temporary.path().join("facts.sqlite");
+
+        let result = write_facts_inner(&source, CONTEXT, &output, PRODUCER, None, |_| {}).unwrap();
+
+        let expected = pg_assess::model_fingerprint(
+            pg_assess::SourceKind::Snapshot,
+            std::str::from_utf8(&source).unwrap(),
+            PRODUCER.compiler_version,
+        )
+        .unwrap();
+        assert_eq!(result.model_fingerprint, expected);
     }
 }

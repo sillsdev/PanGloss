@@ -86,7 +86,8 @@ fn insert<S: Serialize, E: Serialize>(
         .transpose()
         .map_err(|error| FactsError::Serialization(error.to_string()))?
         .unwrap_or_else(|| "null".into());
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO parser_config(setting_key, source_value_json, effective_value_json, source_presence) VALUES (?1, ?2, ?3, ?4)",
         params![key, source_json, effective_json, source_presence],
     )?;
