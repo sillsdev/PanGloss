@@ -740,3 +740,316 @@ fn cached_words_are_reusable_only_under_their_options_and_counter_semantics() {
         "same options do not make counters reusable under a different counter contract"
     );
 }
+
+fn fact_for(
+    object_key: &str,
+    label: &str,
+    morpheme: Option<&str>,
+    stratum: &str,
+    allomorph: Option<&str>,
+) -> FactRecord {
+    FactRecord {
+        object_key: object_key.to_string(),
+        object_label: label.to_string(),
+        morpheme: morpheme.map(|m| StructuralLocator::new(m, format!("{m} label"))),
+        stratum: Some(StructuralLocator::new(stratum, format!("{stratum} label"))),
+        allomorph: allomorph.map(|a| StructuralLocator::new(a, format!("{a} label"))),
+        ..sample_word("unused").facts.remove(0)
+    }
+}
+
+/// Repeated keys with differing later labels and morphemes keep the first label, first-sight ids, and every morpheme named.
+#[test]
+fn a_flush_interns_each_key_once_in_first_sight_order_with_the_first_label() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let word = |form: &str, facts: Vec<FactRecord>| WordRecord {
+        facts,
+        ..sample_word(form)
+    };
+    let words = vec![
+        word(
+            "one",
+            vec![
+                fact_for("lex-a", "First", Some("m1"), "s1", Some("a1")),
+                fact_for("rule-b", "Rule B", None, "s2", None),
+            ],
+        ),
+        word(
+            "two",
+            vec![
+                fact_for("lex-a", "Second", Some("m2"), "s1", Some("a2")),
+                fact_for("lex-a", "Third", Some("m1"), "s2", Some("a1")),
+            ],
+        ),
+    ];
+    outcome.cache.flush(&sample_run(), &words).unwrap();
+    let conn = outcome.cache.connection();
+    let rows = |sql: &str| -> Vec<(i64, String, String)> {
+        let mut stmt = conn.prepare(sql).unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    let objects = rows("SELECT object_id, key, label FROM object ORDER BY object_id");
+    assert_eq!(
+        objects
+            .iter()
+            .map(|o| (o.1.as_str(), o.2.as_str()))
+            .collect::<Vec<_>>(),
+        [("lex-a", "First"), ("rule-b", "Rule B")]
+    );
+    assert_eq!(
+        rows("SELECT morpheme_id, key, label FROM morpheme WHERE key IS NOT NULL ORDER BY morpheme_id")
+            .iter()
+            .map(|o| (o.1.as_str(), o.2.as_str()))
+            .collect::<Vec<_>>(),
+        [("m1", "m1 label"), ("m2", "m2 label")]
+    );
+    assert_eq!(
+        rows(
+            "SELECT stratum_id, key, label FROM stratum WHERE key IS NOT NULL ORDER BY stratum_id"
+        )
+        .iter()
+        .map(|o| o.1.as_str())
+        .collect::<Vec<_>>(),
+        ["s1", "s2"]
+    );
+    assert_eq!(
+        rows("SELECT allomorph_id, key, label FROM allomorph WHERE key IS NOT NULL ORDER BY allomorph_id")
+            .iter()
+            .map(|o| o.1.as_str())
+            .collect::<Vec<_>>(),
+        ["a1", "a2"]
+    );
+    let lex_a_morpheme: String = conn
+        .query_row(
+            "SELECT m.key FROM object o JOIN morpheme m ON m.morpheme_id = o.morpheme_id WHERE o.key = 'lex-a'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(lex_a_morpheme, "m1");
+    let fact_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM fact", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(fact_rows, 4);
+}
+
+fn labeled_fact(
+    object: (&str, &str),
+    morpheme: (&str, &str),
+    stratum: (&str, &str),
+    allomorph: (&str, &str),
+) -> FactRecord {
+    FactRecord {
+        morpheme: Some(StructuralLocator::new(morpheme.0, morpheme.1)),
+        stratum: Some(StructuralLocator::new(stratum.0, stratum.1)),
+        allomorph: Some(StructuralLocator::new(allomorph.0, allomorph.1)),
+        ..fact_for(object.0, object.1, None, "unused", None)
+    }
+}
+
+fn single_fact_word(form: &str, fact: FactRecord) -> WordRecord {
+    WordRecord {
+        facts: vec![fact],
+        ..sample_word(form)
+    }
+}
+
+type Resolved = (String, [(String, String); 4]);
+
+/// Every fact's object, morpheme, stratum and allomorph ids resolved back to (key, label), by word form.
+fn resolved_facts(cache: &StatsCache) -> Vec<Resolved> {
+    let mut stmt = cache
+        .connection()
+        .prepare(
+            "SELECT w.form, o.key, o.label, m.key, m.label, s.key, s.label, a.key, a.label
+             FROM fact f
+             JOIN word w ON w.word_id = f.word_id
+             JOIN object o ON o.object_id = f.object_id
+             JOIN morpheme m ON m.morpheme_id = o.morpheme_id
+             JOIN stratum s ON s.stratum_id = f.stratum_id
+             JOIN allomorph a ON a.allomorph_id = f.allomorph_id
+             ORDER BY w.form",
+        )
+        .unwrap();
+    stmt.query_map([], |r| {
+        let pair =
+            |i: usize| -> rusqlite::Result<(String, String)> { Ok((r.get(i)?, r.get(i + 1)?)) };
+        Ok((r.get(0)?, [pair(1)?, pair(3)?, pair(5)?, pair(7)?]))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
+}
+
+fn expected(form: &str, pairs: [(&str, &str); 4]) -> Resolved {
+    (
+        form.to_string(),
+        pairs.map(|(key, label)| (key.to_string(), label.to_string())),
+    )
+}
+
+/// Second flush on one cache: shared keys keep their first labels, new keys are added, and a rolled-back flush leaves no id behind.
+#[test]
+fn a_later_flush_resolves_every_id_to_its_label_after_a_rollback() {
+    let mut opened = StatsCache::open_in_memory("hash-a").unwrap();
+    let first = single_fact_word(
+        "one",
+        labeled_fact(
+            ("obj-a", "Obj A"),
+            ("m-a", "Morph A"),
+            ("s-a", "Stratum A"),
+            ("al-a", "Allo A"),
+        ),
+    );
+    opened.cache.flush(&sample_run(), &[first]).unwrap();
+
+    let mut doomed = single_fact_word(
+        "doomed",
+        labeled_fact(
+            ("obj-b", "Doomed"),
+            ("m-b", "Doomed"),
+            ("s-b", "Doomed"),
+            ("al-b", "Doomed"),
+        ),
+    );
+    doomed.facts.push(FactRecord {
+        attempts: u64::MAX,
+        ..doomed.facts[0].clone()
+    });
+    assert!(opened.cache.flush(&sample_run(), &[doomed]).is_err());
+
+    let second = [
+        single_fact_word(
+            "two",
+            labeled_fact(
+                ("obj-a", "Renamed"),
+                ("m-a", "Renamed"),
+                ("s-a", "Renamed"),
+                ("al-a", "Renamed"),
+            ),
+        ),
+        single_fact_word(
+            "three",
+            labeled_fact(
+                ("obj-b", "Obj B"),
+                ("m-b", "Morph B"),
+                ("s-b", "Stratum B"),
+                ("al-b", "Allo B"),
+            ),
+        ),
+        single_fact_word(
+            "four",
+            labeled_fact(
+                ("obj-b", "Other"),
+                ("m-a", "Other"),
+                ("s-b", "Other"),
+                ("al-a", "Other"),
+            ),
+        ),
+    ];
+    opened.cache.flush(&sample_run(), &second).unwrap();
+
+    let a = [
+        ("obj-a", "Obj A"),
+        ("m-a", "Morph A"),
+        ("s-a", "Stratum A"),
+        ("al-a", "Allo A"),
+    ];
+    let b = [
+        ("obj-b", "Obj B"),
+        ("m-b", "Morph B"),
+        ("s-b", "Stratum B"),
+        ("al-b", "Allo B"),
+    ];
+    let four = [
+        ("obj-b", "Obj B"),
+        ("m-b", "Morph B"),
+        ("s-b", "Stratum B"),
+        ("al-a", "Allo A"),
+    ];
+    let mut want = vec![
+        expected("one", a),
+        expected("two", a),
+        expected("three", b),
+        expected("four", four),
+    ];
+    want.sort();
+    let mut got = resolved_facts(&opened.cache);
+    got.sort();
+    assert_eq!(got, want);
+}
+
+/// Re-opening a file cache and writing again resolves every id; a wipe on a new grammar restarts ids without reusing the old ones.
+#[test]
+fn a_reopened_cache_resolves_every_id_to_its_label() {
+    let dir = TempDir::new("pg-stats-reopen");
+    let path = dir.path().join("cache.sqlite3");
+    {
+        let mut opened = StatsCache::open(&path, "hash-a").unwrap();
+        let first = single_fact_word(
+            "one",
+            labeled_fact(
+                ("obj-a", "Obj A"),
+                ("m-a", "Morph A"),
+                ("s-a", "Stratum A"),
+                ("al-a", "Allo A"),
+            ),
+        );
+        opened.cache.flush(&sample_run(), &[first]).unwrap();
+        opened.cache.checkpoint_and_close().unwrap();
+    }
+    let a = [
+        ("obj-a", "Obj A"),
+        ("m-a", "Morph A"),
+        ("s-a", "Stratum A"),
+        ("al-a", "Allo A"),
+    ];
+    let b = [
+        ("obj-b", "Obj B"),
+        ("m-b", "Morph B"),
+        ("s-b", "Stratum B"),
+        ("al-b", "Allo B"),
+    ];
+    {
+        let mut reopened = StatsCache::open(&path, "hash-a").unwrap();
+        assert!(!reopened.wiped);
+        let more = [
+            single_fact_word(
+                "two",
+                labeled_fact(
+                    ("obj-a", "Renamed"),
+                    ("m-a", "Renamed"),
+                    ("s-a", "Renamed"),
+                    ("al-a", "Renamed"),
+                ),
+            ),
+            single_fact_word("three", labeled_fact(b[0], b[1], b[2], b[3])),
+        ];
+        reopened.cache.flush(&sample_run(), &more).unwrap();
+        let mut got = resolved_facts(&reopened.cache);
+        got.sort();
+        let mut want = vec![expected("one", a), expected("two", a), expected("three", b)];
+        want.sort();
+        assert_eq!(got, want);
+        reopened.cache.checkpoint_and_close().unwrap();
+    }
+    let mut wiped = StatsCache::open(&path, "hash-b").unwrap();
+    assert!(wiped.wiped);
+    let run = RunMetadata {
+        grammar_hash: "hash-b".to_string(),
+        ..sample_run()
+    };
+    let fresh = [
+        single_fact_word("four", labeled_fact(b[0], b[1], b[2], b[3])),
+        single_fact_word("five", labeled_fact(a[0], a[1], a[2], a[3])),
+    ];
+    wiped.cache.flush(&run, &fresh).unwrap();
+    let mut got = resolved_facts(&wiped.cache);
+    got.sort();
+    let mut want = vec![expected("four", b), expected("five", a)];
+    want.sort();
+    assert_eq!(got, want);
+}
