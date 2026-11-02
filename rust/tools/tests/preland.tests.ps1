@@ -181,6 +181,47 @@ Test-Case 'pin-matched driver rejects a canonical wrong-HEAD candidate and accep
     }
 }
 
+Test-Case 'pin-matched driver accepts the platform binary name and a miss names every name it searched' {
+    $temp = New-TestTempDir -Prefix 'pg-pin-driver-name-test'
+    $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS
+    try {
+        $checkout = Join-Path $temp 'machine'
+        New-Item -ItemType Directory -Force -Path (Join-Path $checkout 'src') | Out-Null
+        & git init --quiet $checkout
+        Assert-Equal 0 $LASTEXITCODE 'initialize the temporary Machine checkout'
+        & git -C $checkout config user.name 'PanGloss Test'
+        & git -C $checkout config user.email 'pangloss-test@example.invalid'
+        Set-Content -LiteralPath (Join-Path $checkout 'src\source.cs') -Value 'class Source { }'
+        & git -C $checkout add src/source.cs
+        & git -C $checkout commit --quiet -m 'pin commit'
+        Assert-Equal 0 $LASTEXITCODE 'commit the requested pin'
+        $pinCommit = (& git -C $checkout rev-parse HEAD).Trim()
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $checkout
+        $binDir = Join-Path $checkout 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0'
+
+        $missing = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+        Assert-False $missing.Ok 'no stub exists yet'
+        Assert-True ($missing.Detail -match [regex]::Escape('hc-conformance.exe')) 'the miss names the .exe it searched for'
+        Assert-True ($missing.Detail -match [regex]::Escape("git -C $checkout worktree add")) 'the build recipe names the whole single checkout, not its first character'
+        if ($IsLinux -or $IsMacOS) {
+            Assert-True ($missing.Detail -match 'hc-conformance or hc-conformance\.exe') 'the miss names the native name it searched for'
+            Assert-True ($missing.Detail -match [regex]::Escape((Join-Path $binDir 'hc-conformance'))) 'the miss lists the native-name path it probed'
+        }
+
+        New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+        $nativeName = if ($IsLinux -or $IsMacOS) { 'hc-conformance' } else { 'hc-conformance.exe' }
+        $stub = Join-Path $binDir $nativeName
+        Set-Content -LiteralPath $stub -Value 'platform-named driver'
+        [IO.File]::SetLastWriteTimeUtc($stub, [DateTime]::UtcNow.AddMinutes(1))
+        $found = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+        Assert-True $found.Ok "a driver named $nativeName at the pin must be found"
+        Assert-Equal ([IO.Path]::GetFullPath($stub)) $found.ExePath 'the platform-named stub is the one returned'
+    } finally {
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $previousCheckouts
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-Case 'slot queue time is summed from every slot line and nothing else' {
     $lines = @('[build-env] took build slot 1 after 12.5s', 'noise after 99s', '[build-env] took run slot 0 after 0.5s')
     Assert-Equal 13 (Get-SlotWaitSeconds -Lines $lines)
