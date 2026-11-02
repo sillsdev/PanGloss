@@ -176,6 +176,7 @@ fn assert_wire_matches_owner(
         timed_out: owner.timed_out,
         guessed: owner.guessed,
         candidates_generated: owner.candidates_generated,
+        cost: None,
     };
     let mut expected =
         decode_guess(&encode_single_guess(&expected_outcome)).expect("encode direct owner outcome");

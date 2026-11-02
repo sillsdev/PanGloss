@@ -26,6 +26,7 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
         timed_out: false,
         guessed: false,
         candidates_generated: 1,
+        cost: None,
     };
     let rows = vec![
         StatsRow {
@@ -176,6 +177,7 @@ fn v2_retains_analysis_when_projection_is_unavailable() {
         timed_out: false,
         guessed: false,
         candidates_generated: 1,
+        cost: None,
     };
     let value: serde_json::Value = serde_json::from_str(
         &render_envelope_v2(

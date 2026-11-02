@@ -66,7 +66,7 @@ is the most stable weight (1.8x across grammars); registers copied varies 3.6x.
 
 ### D4: Report-only before charged
 
-New counts first appear beside `work_steps`, in a separate `cost_units` value that no decision reads.
+New counts first appear beside `work_steps`, in a separate `ParseOutcome.cost` value that no decision reads.
 Only after the acceptance test passes do they move into the budget. Moving them changes which words
 hit `CAP`, so that step is output-affecting: it bumps `SEARCH_BUDGET_SEMANTICS`, recalibrates the
 default cap and updates divergence 052.
@@ -139,26 +139,40 @@ deadline, so the control can always act.
 
 ### D9: Host comparison rules
 
-The Motif number is the ratio of total work on the same word list and PanGloss version, under
-`--work-cap` with no deadline. Capped words make the result "at least". It sits beside parse changes
-and never compares two languages. Total, not geometric mean: total tracks time, and a mean lets many
-cheap words outvote one expensive word. The display band comes from D5's results: provisionally, a
-change of at least 5% reads as better or worse, 2-5% as probably, and under 2% as no clear change.
-That covers code changes on one grammar; grammar edits are not measured yet (task 7.1).
+The Motif number is the ratio of total cost on the same word list and PanGloss version, under
+`--work-cap` with no deadline. It sits beside parse changes and never compares two languages. Total,
+not geometric mean: total tracks time, and a mean lets many cheap words outvote one expensive word.
+The display band comes from D5's results: provisionally, a change of at least 5% reads as better or
+worse, 2-5% as probably, and under 2% as no clear change. That covers code changes on one grammar;
+grammar edits are not measured yet (task 7.1).
 
-### D10: Weights are stored with the project and read only while designing a grammar
+A capped cost is a lower bound for that side, so a word that newly caps would shrink the total and
+read as better. The verdict rules are:
 
-Cost = work × a + bytes allocated × b + registers copied × c. The built-in weights are 676, 2 and 268
-instructions per unit. Both sides of a comparison use one weight set, so the verdict is deterministic
-and load cannot touch it. Weights never reach a cap, deadline or parse decision (D1).
+- Total only words that are `ok` on both sides; report how many words were excluded, which includes
+  words capped on both sides.
+- If any word's status differs between the runs, the verdict is "inconclusive" whatever the percent.
+- A different signature on an `ok` word is reported beside the verdict, not folded into it.
+- A row whose status is not `ok`, `CAP`, `TIMEOUT` or `SKIPPED` is refused as an unexpected shape.
+### D10: Weights are constants of the code, and calibration is a developer feature
+
+Cost = work × a + bytes allocated × b + registers copied × c. The weights are fixed constants in
+`pg-cost`, currently 676, 2 and 268 instructions per work unit, byte and register copy. Costs depend on the code, not on the
+grammar: fitted on four grammars and scored on the fifth, the weights stayed close and predicted the
+held-out grammar's instruction rate, so a stored per-project weight earns nothing. Both sides of a
+comparison use one weight set, so the verdict is deterministic and load cannot touch it. Weights
+never reach a cap, deadline or parse decision (D1).
+
+Calibration is `pangloss cost-calibrate`, behind the off-by-default `cost-calibration` feature, and
+no released build has it. It prints suggested weights; changing the constants is a code change.
 
 Measured on the same words and build, raw wall time moved +5-10% with three copies running, +19-82%
 beside 20 spinning processes and +89-121% with 20 copies running. Counts did not move.
 
 | Where | Source of weights |
 |---|---|
-| Development machine, building a grammar | Instructions; load does not affect them |
-| Motif, designing a grammar | Wall time on a word subset, behind the load gate |
+| Development machine, calibrating | Instructions; load does not affect them |
+| Development machine without counters | Wall time on a word subset, behind the load gate |
 | WASM, deployed grammar | None; see D11 |
 
 Rules for a calibration run:
@@ -167,32 +181,25 @@ Rules for a calibration run:
 - One thread. Refuse to update if thread CPU time / wall time is under 0.95. Measured: idle
   0.983-0.994, 20 spinners 0.48-0.72, 20 copies 0.50-0.57. Three copies read 0.983-0.987 and pass;
   that case slows everything evenly and is harmless to relative weights.
-- Remove machine speed first, then bound each weight to ×0.75-1.5 of built-in. Across 30 random
+- Remove machine speed first, then bound each weight to ×0.75-1.5 of the current one. Across 30 random
   subsets, unbounded wall-time fits reached 13 points of error at p95 and bounded ones about 7.5,
   without loss of direction.
 - Per-word median load checks do not work. Beside spinners the median word was unchanged while the
   total rose up to 82%, because preemption lands on a few heavy words.
-
-Calibration does not yet beat the built-in weights. On those six results no calibrated set improved
-on mean error 1.9 by more than 0.1 point, whether from instructions or wall time, and the median of
-five conditions was no better. The built-in weights came from the same five grammars, so calibration
-is the protection for a grammar unlike them, and that case is unmeasured. Built-in weights ship first;
-the calibration command waits for a test on a held-out grammar.
 
 Size variables: one per-site class weight each, with or without input length, is not stable. Held
 out by word, classes with a size term beat work + bytes + registers on some grammars and lost badly
 on others, and fitted class weights fell to 0 on several grammars. Bytes and registers already carry
 most of what segment count and environment length would add. Affix count was not tested directly.
 
-### D11: Deployed grammars bypass work accounting
+### D11: Deployed grammars keep the default cap; removing limits is opt-in
 
-The WASM path uses the default cap today (`analyze_word_opts`) and reports `capped`. Deployed
-grammars bypass it: no counters, no category counts, no weights, no cap. This is host-visible: a word
-that caps today completes, or runs long, which matches C# having no cap. A host that sets a work cap
-or deadline turns the budget back on for that word, because `consume` is also where limits are
-checked. If bypass is compiled out instead, setting a limit refuses with an error. Allocation
-counting is never built into WASM.
-
+WASM keeps its default cap. `PanGlossGrammar.withoutWorkLimits` is an opt-in for a host that trusts
+its grammar; it is not the default. Full removal of accounting buys nothing: an uncapped real word has
+run over 10 minutes and counting costs under 1%, and removing the counters would disable the root
+search cache, which admits entries by the work counted. Where `usize` is 32 bits the "unlimited" cap
+is still 2^32-1 units, and an unlimited word can exhaust linear memory and trap. Allocation counting
+is never built into WASM, so WASM cannot report cost.
 ## Risks / Trade-offs
 
 - A grammar edit may change k, not just work → measure small grammar edits before Motif ships a band.
@@ -205,7 +212,7 @@ counting is never built into WASM.
 ## Migration Plan
 
 1. `--step-cap` and the `steps` column stay until task group 6, with a warning release first.
-2. `interfaces.batchTsv` moves to 4 and a host pinned to 3 refuses rather than misreads, matching the
+2. `interfaces.batchTsv` is at 4 with `--cost-column`; removing `steps` moves it to 5, and a host pinned to 4 refuses rather than misreads, matching the
    existing `--describe` contract. Stats schema moves up and is wiped, not migrated.
 3. Rollback before a release is a revert. After one, the old version remains usable through the
    interface version.

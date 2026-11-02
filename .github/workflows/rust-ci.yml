@@ -77,7 +77,7 @@ jobs:
         with:
           workspaces: rust
       - name: Clippy, as the Linux gate runs it
-        run: cargo clippy --all-targets --features pg-cli/examples --locked -- -D warnings
+        run: cargo clippy --all-targets --features pg-cli/examples,pg-cli/cost-calibration --locked -- -D warnings
       - name: Build the release binary
         run: cargo build --release -p pg-cli --locked
       - name: PowerShell tool tests

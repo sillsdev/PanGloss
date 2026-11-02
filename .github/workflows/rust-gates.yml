@@ -192,7 +192,7 @@ jobs:
           workspaces: rust
       # Examples are behind each crate's `examples` feature so test builds skip them; lint them anyway.
       - working-directory: rust
-        run: cargo clippy --all-targets --features pg-cli/examples --locked -- -D warnings
+        run: cargo clippy --all-targets --features pg-cli/examples,pg-cli/cost-calibration --locked -- -D warnings
 
   test:
     name: build + test

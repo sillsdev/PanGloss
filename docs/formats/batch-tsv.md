@@ -9,15 +9,17 @@ project that guesses roots by default (`<HC><GuessRoots>`, see below) still writ
 `--work-columns` is passed.
 
 A host can find out whether the flag exists. `pangloss --describe` reports
-`"interfaces": {"batchTsv": 3}` and lists `--work-columns` under `batch`. Version 3 keeps
-version 2's layout and shares the result-status decision with `serve`; version 2 already supports
-`--work-columns`. The describe `schema_version` stays 1 because the default output did not change.
-Pass `--work-columns` only when `interfaces.batchTsv` is at least 2. An older binary refuses the flag.
+`"interfaces": {"batchTsv": 4}` and lists `--work-columns` and `--cost-column` under `batch`. Version 4 adds
+`--cost-column` and changes nothing without it. Version 3 keeps version 2's layout and shares the
+result-status decision with `serve`; version 2 already supports `--work-columns`. The describe
+`schema_version` stays 1 because the default output did not change. Pass `--work-columns` only when
+`interfaces.batchTsv` is at least 2, and `--cost-column` only when it is at least 4. An older binary
+refuses the flag.
 
 ## Result rows
 
 ```
-idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]
+idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]  [cost]
 ```
 
 | column | meaning |
@@ -30,16 +32,17 @@ idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
 | `steps` | present only with `--work-columns`. Analysis attempts: the quantity `--step-cap` bounds |
 | `work_steps` | present only with `--work-columns`. Parser work: every work unit the word reserved, across analysis, the inner matchers and confirmation. This is the quantity `--work-cap` bounds |
+| `cost` | present only with `--cost-column`. The word's fixed-weight parse cost; see `docs/design/parse-cost.md`. Refused together with `--stats` |
 
-When present, the two count columns are always the last two fields, and every other column keeps
-its default index, including `guessed` at index 5. With `--work-columns` a row has 7 fields, or 8
-with `--guess`. Read `steps` and `work_steps` from the end of the row.
+When present, `cost` is always the last field, the two count columns come just before it, and every
+other column keeps its default index, including `guessed` at index 5. With `--work-columns` a row
+has 7 fields, or 8 with `--guess`, and `--cost-column` adds one. Read `cost` from the end of the row,
+then `steps` and `work_steps` from the end of what remains.
 
 ### Determinism
 
 `steps` and `work_steps` depend only on the grammar, the word, the cap settings and the PanGloss
-version. They do not depend on thread count, machine or load. Use `work_steps` to compare parse
-cost, for example "these words took 8% less work to parse"; `elapsed_ms` is a secondary figure.
+version. They do not depend on thread count, machine or load. `cost` repeats exactly for one word list only with `--threads 1`. Under more threads the first words on each thread carry one-time allocation, and a word's cost has been seen to differ by 0.07% across thread counts, so per-word equality is not promised. The run's total moved at most 0.0001% when measured, so compare totals: use `pangloss cost-compare before.tsv after.tsv`, which totals only words that are `ok` in both runs. `elapsed_ms` is a secondary figure.
 
 - A `CAP` row is deterministic: the same inputs stop at the same point with the same counts. On a
   work-cap stop, `work_steps` equals the work cap.
@@ -93,8 +96,8 @@ matching or confirmation outside such a scope. Summing `fact.work_steps` across 
 word, including that row, exactly equals `word.work`. The `facts` export's existing object-counter
 projection excludes the remainder because it is not a grammar object.
 
-The batch TSV remains interface version 3: its optional columns describe the whole word and do
-not contain object rows. Cache counter semantics version 8 attributes cascade reservations to the
+The batch TSV's optional columns stay at the word level: they describe the whole word and do not contain
+object rows. Cache counter semantics version 8 attributes cascade reservations to the
 attempted morphological rule, lookup reservations to the root index, lexical entry, or overlay,
 and validation to the rule or allomorph being checked. Synthetic `parser` objects named
 `parser:candidate_expansion`, `parser:stratum_transition`, and `parser:surface_match` account for

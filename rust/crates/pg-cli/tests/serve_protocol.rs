@@ -398,7 +398,7 @@ fn describe_publishes_the_serve_protocol_version() {
     let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(doc["interfaces"]["serveProtocol"], 1);
     assert_eq!(doc["schema_version"], 1);
-    assert_eq!(doc["interfaces"]["batchTsv"], 3);
+    assert_eq!(doc["interfaces"]["batchTsv"], 4);
     assert!(doc["commands"]
         .as_array()
         .unwrap()

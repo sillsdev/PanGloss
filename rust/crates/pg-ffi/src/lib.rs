@@ -1,6 +1,5 @@
-//! C ABI boundary for the .NET host (plan §4.2). This is the ONE crate permitted `unsafe` (the
-//! FFI itself, `#[no_mangle] pub unsafe extern "C" fn`s dereferencing caller-supplied raw
-//! pointers) — every other crate in this workspace is `#![forbid(unsafe_code)]`. `extern "C"`,
+//! C ABI boundary for the .NET host (plan §4.2). This crate holds the FFI `unsafe`
+//! (`#[no_mangle] pub unsafe extern "C" fn`s dereferencing caller-supplied raw pointers). `extern "C"`,
 //! UTF-8 in/out, `x86_64-pc-windows-msvc`.
 //!
 //! ## The entry points (plan §4.2; W7 adds the seventh; ABI v3 adds the guess-opt-in pair)

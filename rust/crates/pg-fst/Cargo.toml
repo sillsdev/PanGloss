@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+pg-cost.workspace = true
 pg-featstruct.workspace = true
 pg-shape.workspace = true
 rustc-hash.workspace = true

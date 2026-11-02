@@ -746,6 +746,7 @@ version = "0.12.3"
 dependencies = [
  "pg-assess",
  "pg-conformance-fixtures",
+ "pg-cost",
  "pg-facts",
  "pg-featstruct",
  "pg-foma",
@@ -789,6 +790,13 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+]
+
+[[package]]
+name = "pg-cost"
+version = "0.12.3"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -912,6 +920,7 @@ dependencies = [
 name = "pg-fst"
 version = "0.12.3"
 dependencies = [
+ "pg-cost",
  "pg-featstruct",
  "pg-shape",
  "rustc-hash",
@@ -1021,6 +1030,7 @@ version = "0.12.3"
 dependencies = [
  "bumpalo",
  "pg-conformance-fixtures",
+ "pg-cost",
  "pg-featstruct",
  "pg-fst",
  "pg-fwdata",

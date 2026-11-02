@@ -19,6 +19,17 @@ impl AnalysisPolicy {
     pub const fn native_abi_v1() -> Self {
         Self { step_cap: 500_000 }
     }
+
+    /// Effectively no attempt or work limit: a pathological word runs until it finishes. The work
+    /// cap follows the attempt cap and saturates, so the counters remain. Where `usize` is 32 bits
+    /// (wasm32), the limit is 2^32-1 units, about 4.29e9, so a word can still report capped there.
+    /// An unlimited word can run for many minutes and can exhaust linear memory and trap, not
+    /// merely run long.
+    pub const fn without_limits() -> Self {
+        Self {
+            step_cap: usize::MAX,
+        }
+    }
 }
 
 impl Default for AnalysisPolicy {

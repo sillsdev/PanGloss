@@ -21,23 +21,23 @@ Heavy measurement, policy and code are separate tasks. Real-language data is nev
 ## 3. Report-only size charges
 
 - [ ] 3.0 Speedup, separate from this signal work: about 27-54% of instructions are SipHash in one `HashMap` in `pg_fst::traverse`; prove no iteration-order dependence, then file or fix it
-- [ ] 3.1 Add `cost_units` for allocated bytes and registers copied, read by no cap, deadline or decision
+- [x] 3.1 Add `ParseOutcome.cost` for allocated bytes and registers copied, read by no cap, deadline or decision
 - [ ] 3.2 Gate: parses, `work_steps` and `CAP` byte-identical to the base build across conformance
-- [ ] 3.3 Measurement: fit against stored instructions, per grammar and held out by grammar
-- [ ] 3.4 Decide: which categories earn a charge, recorded in `design.md`
+- [x] 3.3 Measurement: fit against stored instructions, per grammar and held out by grammar
+- [x] 3.4 Decide: which categories earn a charge, recorded in `design.md`
 
-- [ ] 3.5 Report weighted cost from built-in weights beside `work_steps`, read by no decision
-- [ ] 3.6 Measure a grammar outside the five fitted: built-in weights against its own instructions
+- [x] 3.5 Report weighted cost from built-in weights beside `work_steps`, read by no decision
+- [x] 3.6 Measure a grammar outside the five fitted: built-in weights against its own instructions
 
 ## 3a. Project calibration (needs 3.6 to show built-in weights drift)
 
-- [ ] 3a.1 Add a calibration command: about 40 words, one thread, instructions or wall time
-- [ ] 3a.2 Refuse an update when thread CPU / wall is under 0.95, and bound weights per D10
-- [ ] 3a.3 Store weights with the project with their source, word count and PanGloss version
+- [x] 3a.1 Add a calibration command: about 40 words, one thread, instructions or wall time
+- [x] 3a.2 Refuse an update when thread CPU / wall is under 0.95, and bound weights per D10
+- [x] 3a.3 Dropped (D10): weights are code constants and calibration is the off-by-default `cost-calibration` feature
 
 ## 3b. Deployed bypass
 
-- [ ] 3b.1 Run WASM with no accounting unless the host sets a limit; refuse a limit it cannot honour
+- [x] 3b.1 Keep the WASM default cap; `withoutWorkLimits` is opt-in (D11)
 - [ ] 3b.2 Gate: parses identical to a run with an unreachable cap, across conformance
 - [ ] 3b.3 Measure the speed gain and the longest word on the deployed path
 
@@ -61,7 +61,7 @@ Heavy measurement, policy and code are separate tasks. Real-language data is nev
 - [ ] 6.2 Confirm the Motif transition with its maintainers
 - [ ] 6.3 Gate: the Maasai recall sample does not fall below its current count of words with analyses
 - [ ] 6.4 Remove the attempt cap, `--step-cap`, `ParseOutcome.steps` and oracle step ticks
-- [ ] 6.5 Move `interfaces.batchTsv` to 4, update serve, FFI, WASM and the stats schema
+- [ ] 6.5 Move `interfaces.batchTsv` to 5 (4 added `--cost-column`), update serve, FFI, WASM and the stats schema
 - [ ] 6.6 Remove `confirmation_steps` from `Score` and the reports
 
 ## 7. Host signal

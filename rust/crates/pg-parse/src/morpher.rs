@@ -183,6 +183,8 @@ pub struct ParseOutcome {
     /// validity/match gate, across both the normal loop and the guess branch. `structured.len()`
     /// is the accepted counterpart; 0 on both early returns, which synthesize nothing.
     pub candidates_generated: usize,
+    /// This parse's cost counts, or `None` when the host did not turn cost measurement on.
+    pub cost: Option<pg_cost::Counts>,
 }
 
 /// Forward surfaces produced for one stored analysis, with an explicit signal when tracing could
@@ -214,6 +216,7 @@ fn empty_outcome(invalid_shape: bool) -> ParseOutcome {
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     }
 }
 
@@ -785,8 +788,25 @@ impl<'g> Morpher<'g> {
         self.parse_word_core_selected(word, opts, trace, None, None, None)
     }
 
-    /// The actual shared implementation; `Self::parse_word_core` is a thin `(None, None, None)` wrapper over this.
+    /// `Self::parse_word_unmetered` plus this parse's cost counts; every entry point passes through here.
     fn parse_word_core_selected(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+        rule_filter: Option<pg_rules::stratum::RuleFilter>,
+        stats: Option<&pg_rules::stats::StatsCollector>,
+    ) -> ParseOutcome {
+        let meter = pg_cost::Meter::start();
+        let mut outcome =
+            self.parse_word_unmetered(word, opts, trace, lex_entry_filter, rule_filter, stats);
+        outcome.cost = meter.map(|meter| meter.finish(outcome.work_steps));
+        outcome
+    }
+
+    /// The shared implementation, run without the cost meter; `Self::parse_word_core_selected` wraps it with one.
+    fn parse_word_unmetered(
         &self,
         word: &str,
         opts: &ParseOptions,
@@ -1169,6 +1189,7 @@ impl<'g> Morpher<'g> {
             timed_out: budget.timed_out(),
             guessed,
             candidates_generated,
+            cost: None,
         }
     }
 
