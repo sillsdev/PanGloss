@@ -186,10 +186,10 @@ try {
         foreach ($g in 0..($Grammars.Count - 1)) {
             foreach ($s in 'before', 'after') {
                 $vals = [double[]]@($jobs | Where-Object { $_.Grammar -eq $g -and $_.Side -eq $s -and $_.Kind -eq 'full' } | ForEach-Object Instructions)
-                if (-not (Test-RepeatsIdentical $vals)) { throw "callgrind repeats of the $s side of grammar #$($g + 1) differ although hash keys are pinned; the pinning did not act" }
+                if (-not (Test-RepeatsIdentical $vals -RelativeTolerance 5e-5)) { throw "callgrind repeats of the $s side of grammar #$($g + 1) differ by more than 0.005% although hash keys are pinned; the pinning did not act" }
             }
         }
-        $backendNote = 'valgrind callgrind totals, std HashMap keys pinned by shim. UNVERIFIED: this backend has not been run end to end; treat its figures as unconfirmed until a PMC run agrees'
+        $backendNote = 'valgrind callgrind totals, std HashMap keys pinned by shim. run end to end on same-build pairs of real grammars, repeats within 0.005%; no PMC (perf stat) run has cross-checked its change figures on a real change yet'
     }
 
     Write-Host "instruction-compare: before=$([IO.Path]::GetFileName($Before)) after=$([IO.Path]::GetFileName($After)) repeats=$Repeats backend=$Backend"

@@ -213,6 +213,7 @@ to commit if rustfmt or another check leaves changes outside `rust/Cargo.toml` a
 `fix-a-grammar` — a slow, refused, oversized or incomplete grammar.
 `dead-end-census` — the standing first lever for "language X is too slow".
 `code-comments` — comment and doc-comment policy.
+`retune-parser-work` — after a parser change gets a GO from `instruction-compare`: do the parser-work weights still fit.
 
 **Design docs** (`docs/design/`), for changing the mechanism rather than obeying it:
 `build-resource-governance.md` — thread/memory budgets, direct process launches, slot pools, what is

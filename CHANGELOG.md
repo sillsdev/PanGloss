@@ -3,6 +3,12 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Interface changes
+
+- `rust/tools/retune-parser-work.ps1` and the `retune-parser-work` skill test whether the parser-work weights still fit after a parser change, and print ACCEPT, KEEP or REFUSED. The developer-only `cost-calibrate` command gains `--parse-only`, `--counts-out`, `--fit-counts` and `--weights` (a starting point for the fit), and now parses with the grammar's own template and root-guess settings, as `batch` does. The weights are unchanged. `instruction-compare.ps1` on Linux now reads real callgrind output (blank lines) and accepts pinned repeats that agree within 0.005%.
+
 ## 0.13.1
 
 ### Performance

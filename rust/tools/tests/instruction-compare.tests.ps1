@@ -109,6 +109,7 @@ Test-Case 'a trace that lost events, lacks counters, has gaps, or missed a pid i
 Test-Case 'callgrind totals line wins over the summary line; summary is the fallback; neither throws' {
     Assert-Equal 900 (Get-CallgrindTotal @('summary: 100', 'totals: 900'))
     Assert-Equal 100 (Get-CallgrindTotal @('events: Ir', 'summary: 100'))
+    Assert-Equal 100 (Get-CallgrindTotal @('part: 1', '', 'summary: 100', ''))
     $threw = $false
     try { Get-CallgrindTotal @('events: Ir') | Out-Null } catch { $threw = $true }
     Assert-True $threw
@@ -170,9 +171,11 @@ Test-Case 'a non-numeric index field is refused without echoing its text' {
     } finally { Remove-Item -LiteralPath $dir -Recurse -Force }
 }
 
-Test-Case 'pinned repeats must be identical to the instruction' {
+Test-Case 'pinned repeats must be identical, or within the given tolerance' {
     Assert-True (Test-RepeatsIdentical @(5, 5, 5))
     Assert-False (Test-RepeatsIdentical @(5, 6))
+    Assert-True (Test-RepeatsIdentical @(746640359, 746636048) -RelativeTolerance 5e-5)
+    Assert-False (Test-RepeatsIdentical @(745625497, 745390312) -RelativeTolerance 5e-5)
 }
 
 Test-Case 'exit code: all GO is 0, any NO-GO is 10, any refusal is 3 and wins' {
