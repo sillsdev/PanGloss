@@ -627,3 +627,33 @@ fn rich_generation_preserves_supplied_compound_non_heads_with_grammar_head() {
     assert_eq!(generated.analysis, analysis);
     assert!(generated.words.contains(&"milupanu".to_string()));
 }
+
+fn runtime_with(policy: pg_lexicon::AnalysisPolicy) -> SuppliedLexiconRuntime {
+    let grammar = Arc::new(pg_grammar::load(fixture::TOY_XML).unwrap());
+    SuppliedLexiconRuntime::with_policy(grammar, fixture::TOY_XML, policy).unwrap()
+}
+
+#[test]
+fn without_limits_gives_the_default_analyses_where_the_default_does_not_cap() {
+    let default = runtime_with(pg_lexicon::AnalysisPolicy::default());
+    let unlimited = runtime_with(pg_lexicon::AnalysisPolicy::without_limits());
+    for word in ["milu", "milusi", "kolota", "zzz"] {
+        let expected = default.analyze_word(word, None);
+        let actual = unlimited.analyze_word(word, None);
+        assert!(!expected.capped, "{word}");
+        assert!(!actual.capped, "{word}");
+        assert_eq!(actual.analyses, expected.analyses, "{word}");
+    }
+    assert!(!unlimited.analyze_word("milusi", None).analyses.is_empty());
+}
+
+#[test]
+fn without_limits_does_not_cap_where_a_small_step_cap_does() {
+    let small = runtime_with(pg_lexicon::AnalysisPolicy { step_cap: 1 });
+    let unlimited = runtime_with(pg_lexicon::AnalysisPolicy::without_limits());
+    let capped = small.analyze_word("milusi", None);
+    assert!(capped.capped);
+    let outcome = unlimited.analyze_word("milusi", None);
+    assert!(!outcome.capped);
+    assert!(!outcome.analyses.is_empty());
+}

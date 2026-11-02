@@ -186,3 +186,17 @@ fn build_realize_map_treats_blank_sidecar_the_same_as_none() {
     let with_blank = build_realize_map(&g, Some("   \n")).expect("builds with blank sidecar");
     assert_eq!(with_none, with_blank);
 }
+
+#[test]
+fn without_work_limits_removes_the_cap_that_new_keeps() {
+    let limited = PanGlossGrammar::new(TEST_XML, None).expect("loads");
+    let unlimited = PanGlossGrammar::without_work_limits(TEST_XML, None).expect("loads");
+    assert_eq!(
+        limited.runtime.analysis_policy(),
+        pg_lexicon::AnalysisPolicy::browser_default()
+    );
+    assert_eq!(
+        unlimited.runtime.analysis_policy(),
+        pg_lexicon::AnalysisPolicy::without_limits()
+    );
+}

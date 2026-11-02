@@ -9,6 +9,10 @@ mod authored_generate_request;
 mod build_context_provenance;
 #[path = "../compile_errors_contract.rs"]
 mod compile_errors_contract;
+#[path = "../cost_cli.rs"]
+mod cost_cli;
+#[path = "../cost_measurement.rs"]
+mod cost_measurement;
 #[path = "../developer_flags_contract.rs"]
 mod developer_flags_contract;
 #[path = "../divergence_catalogue_gate.rs"]
