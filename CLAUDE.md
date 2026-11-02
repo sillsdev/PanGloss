@@ -101,6 +101,9 @@ Nothing enforces these. They are here because they change what a careful agent d
 - **A long command that is NOT a managed build should be a background job**, so the harness notifies
   on completion. *Scar: a 7,121-word corpus batch run in the foreground truncated silently at ~1,663
   words and was read as "the corpus".*
+- **Every algorithm improvement gets a before/after instruction comparison**, per grammar, with a
+  no-change control as the noise floor: `pwsh -NoProfile -File rust/tools/instruction-compare.ps1`.
+  Wall time and `work_steps` do not decide it.
 - **Conformance grammars use synthetic data only** — invented lexemes, never real-language data, and
   no language named outside a comment.
 
