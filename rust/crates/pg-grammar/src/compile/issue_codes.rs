@@ -89,8 +89,6 @@ pub(crate) const NULL_AFFIX_SYN_FS_FAILED: ImportWarningCode =
 pub(crate) const NULL_AFFIX_SEGMENT_FAILED: ImportWarningCode =
     ImportWarningCode::NullAffixSegmentFailed;
 
-pub(crate) const RULE_METATHESIS_UNSUPPORTED: ImportWarningCode =
-    ImportWarningCode::RuleMetathesisUnsupported;
 pub(crate) const RULE_BUILD_FAILED: ImportWarningCode = ImportWarningCode::RuleBuildFailed;
 pub(crate) const FEATURE_CONSTRAINT_UNRESOLVED: ImportWarningCode =
     ImportWarningCode::FeatureConstraintUnresolved;

@@ -118,7 +118,7 @@ $crateSpecs = @(
         MinTargets = 3
         MaxTargets = 3
         ExpectedSourceNames = @(
-            'adhoc_affix_copies.rs', 'adhoc_allomorph_copies.rs', 'adhoc_fieldworks_witnesses.rs',
+            'adhoc_affix_copies.rs', 'fw_metathesis.rs', 'adhoc_allomorph_copies.rs', 'adhoc_fieldworks_witnesses.rs',
             'adhoc_morpheme_variant_copies.rs', 'copy_agreement_featureless.rs',
             'effective_analysis_target.rs', 'phonology_gate.rs', 'work_cap_gate.rs', 'trace_template_outcomes.rs',
             'edge_prefilter_gate.rs', 'lookup_replay_gate.rs',
@@ -189,7 +189,7 @@ $crateSpecs = @(
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-fwdata'
         MinTargets = 1
         MaxTargets = 1
-        ExpectedSourceNames = @('compile_real_projects_gate.rs', 'fixture_tests.rs', 'fwbackup_tests.rs', 'measured_import_parity.rs', 'real_projects.rs')
+        ExpectedSourceNames = @('compile_real_projects_gate.rs', 'fixture_tests.rs', 'fwbackup_tests.rs', 'measured_import_parity.rs', 'metathesis_import.rs', 'real_projects.rs')
     }
     @{
         Name = 'pg-grammar'

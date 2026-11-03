@@ -3,6 +3,12 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Fixes
+
+- FieldWorks metathesis rules now run. The importer read `StrucChange` from the wrong XML child, so every rule got both switches at index 0, and the compiler then dropped the rule. It now reads the five `StrucChange` indices as LibLCM does, and the compiler loads the rule as `HCLoader` does: the context at `RightSwitchIndex` is the engine's left switch, a word boundary at either end becomes an anchor, and a rule with either switch unset is skipped without a finding. A switch naming no context, or both switches naming one, is a fatal `grammar.rule.build-failed`. The findings `fwdata.metathesis-approximation` and `grammar.rule.metathesis-unsupported` are gone; a `StrucChange` that is not five indices is `fwdata.missing-required-field` and skips the rule. On a LibLCM-authored project with a left-environment rule, all 11 test words give the analysis counts hc.dll gives. A rule with a middle context still differs from hc.dll (#146).
+
 ## 0.14.0
 
 This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.

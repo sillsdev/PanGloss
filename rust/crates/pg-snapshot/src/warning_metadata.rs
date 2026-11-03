@@ -136,13 +136,6 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[],
             Some(PARSER_HELP),
         ),
-        FwdataMetathesisApproximation => advice(
-            "Metathesis rule approximation",
-            "The FieldWorks importer converts this rule to an approximation rather than preserving its exact metathesis behavior.",
-            "In Grammar > Phonological Rules, review the emitted rule description and compare affected words; report a valid rule whose behavior is not preserved.",
-            &[("PhonologicalRuleEdit", "")],
-            Some(MODELLING_HELP),
-        ),
         FwdataStaleAdhocProhibition => advice(
             "Stale ad hoc prohibition",
             "An ad hoc morpheme rule names an inflectional affix whose slot is outside every enabled template.",
@@ -563,13 +556,6 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[],
             Some(PARSER_HELP),
         ),
-        RuleMetathesisUnsupported => advice(
-            "Unsupported metathesis rule",
-            "The compiler skips this metathesis rule; it does not approximate or run it.",
-            "In Grammar > Phonological Rules, keep the valid rule and report it if words rely on its behavior; inspect affected words with a parse trace.",
-            &[("PhonologicalRuleEdit", "")],
-            Some(MODELLING_HELP),
-        ),
         RuleBuildFailed => advice(
             "Phonological rule could not be loaded",
             "The phonological rule could not be represented in the compiled grammar.",
@@ -792,7 +778,6 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::FwdataOnlyFirstUsed => DiagnosticLevel::Info,
         ImportWarningCode::FwdataEmptyRepresentation => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataUnrecognizedEnumValue => DiagnosticLevel::Warning,
-        ImportWarningCode::FwdataMetathesisApproximation => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataStaleAdhocProhibition => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataNoUsableAllomorphs => DiagnosticLevel::Error,
         ImportWarningCode::FwdataUnsupportedMorphType => DiagnosticLevel::Warning,
@@ -853,7 +838,6 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::NullAffixMprUnresolved => DiagnosticLevel::Warning,
         ImportWarningCode::NullAffixSynFsFailed => DiagnosticLevel::Warning,
         ImportWarningCode::NullAffixSegmentFailed => DiagnosticLevel::Warning,
-        ImportWarningCode::RuleMetathesisUnsupported => DiagnosticLevel::Warning,
         ImportWarningCode::RuleBuildFailed => DiagnosticLevel::Warning,
         ImportWarningCode::FeatureConstraintUnresolved => DiagnosticLevel::Error,
         ImportWarningCode::FeatureConstraintPhonFeatureUnresolved => DiagnosticLevel::Error,

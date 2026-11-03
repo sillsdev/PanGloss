@@ -35,6 +35,8 @@ mod exact_analysis_fs_recall;
 mod final_template_pruning_gate;
 #[path = "../free_fluctuation_gate.rs"]
 mod free_fluctuation_gate;
+#[path = "../fw_metathesis.rs"]
+mod fw_metathesis;
 #[path = "../guesser_gate.rs"]
 mod guesser_gate;
 #[path = "../lexical_pattern_trie_exclusion_gate.rs"]
