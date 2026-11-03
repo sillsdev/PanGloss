@@ -1175,6 +1175,11 @@ fn fixture() -> (Snapshot, Fixture) {
     (snapshot, f)
 }
 
+/// The shared fixture's snapshot alone, for limit tests that start from a valid project.
+pub(super) fn fixture_snapshot() -> Snapshot {
+    fixture().0
+}
+
 // --- 1. stem + inflectional affix + template ------------------------------------------------
 
 #[test]

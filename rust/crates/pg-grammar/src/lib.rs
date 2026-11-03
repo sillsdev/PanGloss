@@ -16,6 +16,7 @@
 pub mod compile;
 pub mod grammar_health;
 pub(crate) mod grammar_health_presentation;
+mod limits;
 pub mod lint;
 pub mod load;
 pub mod stats_identity;
@@ -46,6 +47,12 @@ pub enum GrammarError {
     Xml(String),
     #[error("unsupported grammar construct: {0}")]
     Unsupported(String),
+    /// A bitset capacity (parts of speech, feature values, MPR features) is exceeded; `code` is the `grammar.limit.*` diagnostic and `message` names the cap, the actual count and what to reduce.
+    #[error("{message}")]
+    Limit {
+        code: pg_snapshot::ImportWarningCode,
+        message: String,
+    },
     #[error("grammar semantic error: {0}")]
     Semantic(String),
     #[error(transparent)]
@@ -223,6 +230,7 @@ pub fn load_char_def_table_from_xml(xml: &str) -> Result<GrammarPhonology, Gramm
         }
     }
 
+    limits::check_phon_features(&raw_features)?;
     let feature_system = PhonFeatureSystem::from_raw(raw_features)?;
     let mut tables = Vec::with_capacity(raw_tables.len());
     for (id, name, defs) in raw_tables {

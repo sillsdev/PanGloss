@@ -93,10 +93,26 @@ impl PosTable {
     }
 }
 
+/// Every part of speech at every depth: FieldWorks subcategories (`SubPossibilitiesOS`) each take their own bit.
+fn count_parts_of_speech(items: &[PartOfSpeech]) -> usize {
+    items
+        .iter()
+        .map(|pos| 1 + count_parts_of_speech(&pos.children))
+        .sum()
+}
+
 fn build_pos_table(
     items: &[PartOfSpeech],
     recorder: &mut SelectionRecorder,
 ) -> Result<PosTable, GrammarError> {
+    let total = count_parts_of_speech(items);
+    if total > crate::limits::MAX_PARTS_OF_SPEECH {
+        return Err(crate::limits::parts_of_speech(
+            total,
+            "this project has",
+            " including subcategories",
+        ));
+    }
     let mut bit_of = HashMap::new();
     let mut children_of = HashMap::new();
     let mut parent_of = HashMap::new();
@@ -114,12 +130,6 @@ fn build_pos_table(
         for pos in items {
             let key = InventoryKey::object(InventoryKind::PartOfSpeech, pos.guid.clone());
             recorder.considered(key.clone());
-            if bit_of.len() >= 63 {
-                return Err(GrammarError::Unsupported(format!(
-                    "{} parts of speech; the symbol bitset supports at most 63",
-                    bit_of.len() + 1
-                )));
-            }
             let bit = bit_of.len() as u32;
             bit_of.insert(pos.guid.clone(), bit);
             default_infl_class_of.insert(pos.guid.clone(), pos.default_inflection_class.clone());
@@ -240,14 +250,12 @@ fn push_closed(
 ) -> Result<(), GrammarError> {
     let key = InventoryKey::object(InventoryKind::FeatureDefinition, cf.guid.clone());
     recorder.considered(key.clone());
-    if cf.values.len() >= 64 {
-        return Err(GrammarError::Unsupported(format!(
-            "morphosyntactic feature '{}' ({}) has {} values; the bitset supports at most 63",
-            cf.name,
-            cf.guid,
-            cf.values.len()
-        )));
-    }
+    crate::limits::check_feature_values(
+        "morphosyntactic feature",
+        &cf.name,
+        &cf.guid,
+        cf.values.len(),
+    )?;
     let symbols = cf
         .values
         .iter()
@@ -321,14 +329,12 @@ pub(crate) fn build_phon_features(
     for cf in &fs.closed_features {
         let key = InventoryKey::object(InventoryKind::FeatureDefinition, cf.guid.clone());
         recorder.considered(key.clone());
-        if cf.values.len() >= 64 {
-            return Err(GrammarError::Unsupported(format!(
-                "phonological feature '{}' ({}) has {} values; the bitset supports at most 63",
-                cf.name,
-                cf.guid,
-                cf.values.len()
-            )));
-        }
+        crate::limits::check_feature_values(
+            "phonological feature",
+            &cf.name,
+            &cf.guid,
+            cf.values.len(),
+        )?;
         raw.push(RawFeature {
             xml_id: cf.guid.clone(),
             name: cf.abbreviation.clone(),
