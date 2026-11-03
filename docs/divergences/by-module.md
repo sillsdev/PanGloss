@@ -8,6 +8,7 @@ See `README.md` for the full status table and the kind definitions.
 | C# file | Entry ids |
 |---|---|
 | (none — no C# equivalent) | 028, 089 |
+| FieldWorks `HCParser.cs` / `HCLoader.cs` / XAmple (never read `DoNotUseForParsing`) | 120 |
 | `AnalysisScope.cs` | 024, 045 |
 | `AnalysisStateKey.cs` | 024, 045 |
 | `FeatureValue.cs` / `SimpleFeatureValue.cs` (shared variable/negation machinery) | 026 |
@@ -26,6 +27,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
 | `pg-parse/src/guess.rs` | 027 |
+| `pg-fwdata/src/extract/lexicon.rs` (does not read `DoNotUseForParsing`) | 120 |
 | `pg-fwdata/src/parser_params.rs` (does not import `MaxAlternatives`); `pg-snapshot/src/morphology.rs` (`ParserParameters` has no field); `pg-parse/src/morpher.rs` (analysis/work caps, timeout, incomplete outcome) | 097 |
 | `pg-rules/src/analysis_state_key.rs` | 024, 045 |
 | `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |

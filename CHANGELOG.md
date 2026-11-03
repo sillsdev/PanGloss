@@ -5,6 +5,10 @@ file has no section for.
 
 ## Unreleased
 
+### FieldWorks import
+
+- Entries flagged `DoNotUseForParsing` are imported and parsed again. FieldWorks never reads the flag in ParserCore, HCLoader or XAmple, so the 0.11.0 exclusion made a PanGloss Trial lose words that FieldWorks still parses after Apply (#154). Re-import snapshots made by 0.11.0 to 0.14.0 to restore those entries; the `doNotUseForParsing` reason code remains readable but is no longer written, and a malformed flag value no longer refuses import.
+
 ### Grammar health
 
 - A grammar over a bitset cap now fails with its own error instead of `grammar.compile.failed`: `grammar.limit.parts-of-speech` (more than 63, every subcategory at every depth counted), `grammar.limit.feature-values` (more than 63 values in one morphosyntactic or phonological feature, naming the feature) and `grammar.limit.mpr-features` (more than 64 inflection classes including subclasses, exception features and entry inflection types, with the three counts). Each names the cap, the actual count and what to reduce. The caps themselves are unchanged; the decision on #150 is to widen them only if a real project nears one.

@@ -47,8 +47,6 @@ pub enum ImportError {
     Xml(String),
     #[error("not a .fwdata file: no <rt> records found")]
     NotFwdata,
-    #[error("LexEntry {guid} has an invalid DoNotUseForParsing value")]
-    InvalidDoNotUseForParsing { guid: String },
     #[error("not a .fwbackup: {0}")]
     Backup(String),
     #[error("{code}: {message}")]
