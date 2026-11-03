@@ -1230,6 +1230,8 @@ fn morph_type_role(morph_type: MorphType) -> &'static str {
         MorphType::PrefixingInterfix => "prefixing_interfix",
         MorphType::InfixingInterfix => "infixing_interfix",
         MorphType::SuffixingInterfix => "suffixing_interfix",
+        MorphType::Simulfix => "simulfix",
+        MorphType::Suprafix => "suprafix",
     }
 }
 

@@ -9,6 +9,11 @@ file has no section for.
 
 - A grammar over a bitset cap now fails with its own error instead of `grammar.compile.failed`: `grammar.limit.parts-of-speech` (more than 63, every subcategory at every depth counted), `grammar.limit.feature-values` (more than 63 values in one morphosyntactic or phonological feature, naming the feature) and `grammar.limit.mpr-features` (more than 64 inflection classes including subclasses, exception features and entry inflection types, with the three counts). Each names the cap, the actual count and what to reduce. The caps themselves are unchanged; the decision on #150 is to widen them only if a real project nears one.
 
+### Morph types
+
+- Simulfix and suprafix allomorphs written as affix processes now load, as in C# HermitCrab (`HCLoader.IsValidRuleForm` accepts any `MoAffixProcess` with more than one part, whatever its morph type). Before, the importer skipped them with `fwdata.unsupported-morph-type`; that code is gone. A simulfix or suprafix written as literal text is not loaded, as in C#, and now reports `grammar.allomorph.morph-type-unsupported` (#149).
+- Snapshot `MorphType` gains `simulfix` and `suprafix`; the facts `allomorph.morph_type` column accepts them, and `stats_allomorph_source.role` can read `simulfix` or `suprafix`. Format and schema versions are unchanged: a reader that rejects unknown enum values rejects a snapshot or facts file that contains one.
+
 ## 0.14.0
 
 This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.

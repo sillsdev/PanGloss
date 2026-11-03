@@ -41,7 +41,7 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [substrate.classification-ambiguous](diagnostics/substrate.classification-ambiguous.md) | Allomorph contains an unclassifiable character | In Lexicon > Lexicon Edit, check the named allomorph's spelling and remove any unintended control character. If a letter still cannot be segmented, check its representations in Grammar > Phonemes. |
 | [migration.inferred-segment-with-feature-rule](diagnostics/migration.inferred-segment-with-feature-rule.md) | Unlisted character matches a feature class | If the character is a language phoneme, define its In Orthography as and Phonological Features in Grammar > Phonemes. Otherwise correct the unintended allomorph spelling in Lexicon > Lexicon Edit. |
 
-## Warnings (56)
+## Warnings (55)
 
 | Code | Title | What to do |
 |---|---|---|
@@ -55,7 +55,6 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [fwdata.unrecognized-enum-value](diagnostics/fwdata.unrecognized-enum-value.md) | Unrecognized FieldWorks value | Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged. |
 | [fwdata.metathesis-approximation](diagnostics/fwdata.metathesis-approximation.md) | Metathesis rule approximation | In Grammar > Phonological Rules, review the emitted rule description and compare affected words; report a valid rule whose behavior is not preserved. |
 | [fwdata.stale-adhoc-prohibition](diagnostics/fwdata.stale-adhoc-prohibition.md) | Stale ad hoc prohibition | In Grammar > Ad hoc Rules, inspect Key Morpheme and Other Morpheme(s); in Grammar > Category Edit, inspect the affix's Affix Templates. Restore the intended assignment if the affix should be usable. |
-| [fwdata.unsupported-morph-type](diagnostics/fwdata.unsupported-morph-type.md) | Unsupported morph type | In Lexicon > Lexicon Edit, check the warning's named morph type; select a supported type only if it matches the intended analysis. |
 | [fwdata.unknown-morph-type-guid](diagnostics/fwdata.unknown-morph-type-guid.md) | Unknown morph type reference | In Lexicon > Lexicon Edit, inspect the named form's Morph Type. Select the intended type if the classification is wrong; if FieldWorks shows the correct type, report the reading failure to PanGloss. |
 | [fwdata.reference-not-in-scope](diagnostics/fwdata.reference-not-in-scope.md) | Reference outside item scope | In Lexicon > Lexicon Edit, inspect Allomorphs > Affix Process Rule. Correct a mapping to use an intended input part in that rule; if FieldWorks shows a valid rule, report the mapping and reference details. |
 | [fwdata.invalid-parser-parameter](diagnostics/fwdata.invalid-parser-parameter.md) | Invalid parser setting | In the Words area, open Parser > Edit Parser Parameters... and correct the named setting if it is malformed. If the saved setting is valid, report the reading failure to PanGloss. |

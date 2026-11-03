@@ -137,7 +137,7 @@ CREATE TABLE allomorph (
     guid TEXT PRIMARY KEY COLLATE BINARY,
     entry_guid TEXT NOT NULL COLLATE BINARY REFERENCES lex_entry(guid),
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
-    morph_type TEXT NOT NULL COLLATE BINARY CHECK (morph_type IN ('stem', 'boundStem', 'root', 'boundRoot', 'prefix', 'suffix', 'infix', 'circumfix', 'proclitic', 'enclitic', 'clitic', 'particle', 'phrase', 'discontigPhrase', 'prefixingInterfix', 'infixingInterfix', 'suffixingInterfix')),
+    morph_type TEXT NOT NULL COLLATE BINARY CHECK (morph_type IN ('stem', 'boundStem', 'root', 'boundRoot', 'prefix', 'suffix', 'infix', 'circumfix', 'proclitic', 'enclitic', 'clitic', 'particle', 'phrase', 'discontigPhrase', 'prefixingInterfix', 'infixingInterfix', 'suffixingInterfix', 'simulfix', 'suprafix')),
     form_class TEXT NOT NULL COLLATE BINARY CHECK (form_class IN ('stem', 'affix', 'process')),
     is_abstract INTEGER NOT NULL CHECK (is_abstract IN (0, 1)),
     stem_name_guid TEXT COLLATE BINARY,

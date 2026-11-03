@@ -148,7 +148,6 @@ import_warning_codes! {
     FwdataMetathesisApproximation => "fwdata.metathesis-approximation",
     FwdataStaleAdhocProhibition => "fwdata.stale-adhoc-prohibition",
     FwdataNoUsableAllomorphs => "fwdata.no-usable-allomorphs",
-    FwdataUnsupportedMorphType => "fwdata.unsupported-morph-type",
     FwdataUnknownMorphTypeGuid => "fwdata.unknown-morph-type-guid",
     FwdataReferenceNotInScope => "fwdata.reference-not-in-scope",
     FwdataInvalidParserParameter => "fwdata.invalid-parser-parameter",

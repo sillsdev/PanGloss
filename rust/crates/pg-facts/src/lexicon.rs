@@ -131,7 +131,9 @@ pub(crate) fn form_class(allomorph: &Allomorph) -> &'static str {
         | MorphType::Enclitic
         | MorphType::PrefixingInterfix
         | MorphType::InfixingInterfix
-        | MorphType::SuffixingInterfix => "affix",
+        | MorphType::SuffixingInterfix
+        | MorphType::Simulfix
+        | MorphType::Suprafix => "affix",
     }
 }
 

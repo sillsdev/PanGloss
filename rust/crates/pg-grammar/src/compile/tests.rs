@@ -1746,6 +1746,68 @@ fn unsupported_affix_process_arity_is_published_without_changing_compilation_war
     let _ = f;
 }
 
+/// HCLoader's `IsValidRuleForm` accepts any `MoAffixProcess` with more than one part whatever its morph type, so a simulfix or suprafix process loads as a rule exactly as a suffix process does (#149).
+#[test]
+fn simulfix_and_suprafix_process_forms_load_as_affix_process_rules() {
+    for morph_type in [MorphType::Simulfix, MorphType::Suprafix] {
+        let (mut snapshot, _f) = fixture();
+        let allomorph = &mut snapshot.lexicon.entries[1].allomorphs[0];
+        allomorph.morph_type = morph_type;
+        allomorph.process = Some(AffixProcess {
+            input: vec![PhonContext::Variable],
+            output: vec![
+                RuleMapping::CopyFromInput { part: 1 },
+                RuleMapping::InsertSegments { text: "a".into() },
+            ],
+        });
+        snapshot.lexicon.entries[1].lexeme_morph_type = morph_type;
+
+        let (grammar, warnings, _inventory, issues) = compile_recording_ok(&snapshot);
+        assert!(warnings.is_empty(), "{morph_type:?}: {warnings:?}");
+        assert!(issues.is_empty(), "{morph_type:?}: {issues:?}");
+        assert_eq!(
+            grammar
+                .mrules
+                .iter()
+                .filter(|rule| matches!(rule, MorphRuleDef::AffixProcess(_)))
+                .count(),
+            1,
+            "{morph_type:?} process form must load as one rule"
+        );
+    }
+}
+
+/// A simulfix or suprafix written as literal text is no rule form in HCLoader (`IsValidRuleForm` has no case for it, and `IsValidLexEntryForm` wants a stem type), so it is selected then rejected, never loaded (#149).
+#[test]
+fn simulfix_and_suprafix_literal_forms_are_selected_then_rejected() {
+    for morph_type in [MorphType::Simulfix, MorphType::Suprafix] {
+        let (mut snapshot, _f) = fixture();
+        snapshot.lexicon.entries[1].allomorphs[0].morph_type = morph_type;
+        snapshot.lexicon.entries[1].lexeme_morph_type = morph_type;
+
+        let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.code == "grammar.allomorph.morph-type-unsupported"),
+            "{warnings:?}"
+        );
+        assert!(
+            grammar
+                .mrules
+                .iter()
+                .all(|rule| !matches!(rule, MorphRuleDef::AffixProcess(_))),
+            "{morph_type:?} literal form must not load"
+        );
+        let key = InventoryKey::object(InventoryKind::Allomorph, "allo-suffix".to_string());
+        assert!(inventory.selected.contains(&key));
+        assert!(inventory.rejected.contains(&key));
+        assert!(issues
+            .iter()
+            .any(|i| i.code == super::issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED));
+    }
+}
+
 // --- 4. variant entry with gloss append -------------------------------------------------------
 
 #[test]
