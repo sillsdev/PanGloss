@@ -10,7 +10,7 @@ suite disagree.
 | Path | Repository | What reads it | Fetched by |
 |---|---|---|---|
 | `conformance/` | `sillsdev/fieldworks-parser-conformance`, a `git clone --filter=blob:none` at the commit `conformance.commit` names; gitignored, not a submodule | every fixture gate, `pg-conformance-fixtures`, `typology_speedup`, the xample projector, the C# driver's `--fixtures` | `pg.ps1` (before Cargo starts), `rust/tools/conformance.ps1`, the `conformance-suite` CI action |
-| `machine` | `sillsdev/machine`, a submodule pinned to `aab4c598` by tag `pangloss-oracle-pin-aab4c598` | `run-conformance.sh` builds the driver from its source; everything else uses a prebuilt pin-matched driver worktree (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) and a human; `pg.ps1` never touches it |
+| `machine` | `sillsdev/machine`, a submodule pinned to `4d9b454d` by tag `pangloss-oracle-pin-4d9b454d` | `run-conformance.sh` builds the driver from its source; everything else uses a prebuilt pin-matched driver worktree (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) and a human; `pg.ps1` never touches it |
 
 The suite used to live inside `machine` at `machine/conformance/`, which is why PanGloss's first
 submodule had to be initialized *sparsely*: a full `machine` checkout is 41MB of C# source that nothing
@@ -78,9 +78,12 @@ without a local commit, the dirty refusal, the unreachable remote, a missing pin
 
 ## The `machine` pin and its `.gitmodules` branch
 
-`machine` is pinned to `aab4c598`, which is **not** an ancestor of `integrate-conformance-framework`
-(the branch `.gitmodules` used to name). It is reachable from the tag `pangloss-oracle-pin-aab4c598`,
-which keeps it from being garbage collected on the remote. Nothing here reads the `machine` branch
+`machine` is pinned to `4d9b454d`, the head of sillsdev/machine PR #615 (branch
+`hermitcrab-conformance-runner`, stacked on #556 and #500), which is **not** an ancestor of
+`integrate-conformance-framework` (the branch `.gitmodules` used to name). It is reachable from the tag
+`pangloss-oracle-pin-4d9b454d`, which keeps it from being garbage collected on the remote. The pin moves
+to sillsdev/machine master once #615 lands. (The earlier pin was `aab4c598`, tag
+`pangloss-oracle-pin-aab4c598`.) Nothing here reads the `machine` branch
 field either: the old hand-rolled sparse clone passed it to `git clone --branch`, and that clone is
 gone. A plain `git submodule update --init machine` fetches the recorded commit by SHA. The branch
 line therefore only affects `submodule update --remote machine`, which would move the oracle pin
@@ -94,49 +97,24 @@ it (`languages/suffixing-extension-slot-ordering`, `languages/polysynthetic-stra
 `edge-cases/mpr-gated-exception`). The suite's `generated/hc-conformance-manifest.v2.json` also drops
 the `conformance/` path prefix the v1 manifest carried.
 
-The C# driver at the oracle pin (`aab4c598`) has a `WordsYamlLoader` that allows `claimed_cells` and
-no `claims`. Run against `--fixtures conformance` it stops on the first file:
-
-```
-words.yaml error: .../languages/metathesis-phase-isolation/words.yaml: word: unknown key 'claims'
-(allowed: blocked_by, claimed_cells, exercises, expect_fail, expect_skip, neutralizes, note, parses,
-provenance, word)
-```
-
-and exits 2, so every path that runs the driver over the real suite is blocked until the oracle
-moves to a driver that accepts `claims`: `run-conformance.sh`, the `conformance-ci` workflow,
-`preland.ps1`'s conformance check and `oracle-conformance.ps1 -Scope all`. PanGloss passes only
-`--fixtures` to the driver, never the manifest flags, so the v2 manifest is not a second break.
+The C# driver at the previous oracle pin (`aab4c598`) had a `WordsYamlLoader` that allowed `claimed_cells`
+and no `claims`, so every path that ran the driver over the real suite stopped on the first file. The
+current pin (`4d9b454d`) accepts `claims` (and requires a `note` per word and a `rules` list per parse), so
+`run-conformance.sh`, the `conformance-ci` workflow, `preland.ps1`'s conformance check and
+`oracle-conformance.ps1 -Scope all` run over the real suite. PanGloss passes only `--fixtures` to the
+driver, never the manifest flags, so the v2 manifest is not a second break.
 PanGloss's own Rust loader (`pg-conformance-fixtures`) reads `claims`.
 
-Renaming the key is not the whole gap. On a scratch copy of the suite with `claims` renamed back, the
-pin driver passes 137 of 142 runs against the Java-free C# oracle and fails five fixtures:
-`head-ambiguous-compounding`, `truncate-morphotactic` ("ga") and `truncate-morphotactic-copy-u`,
-`-identity` and `-subsumption`. The suite rows are the C# oracle at machine `hermitcrab-conformance-runner`
-b3da08f5, whose runner passes all 142 in self-check. Reverting single engine files to the pin's
-versions on that tree shows which machine change each row needs: `-subsumption` needs #500 (the
-`ApplyRhs` relocation, 157c031e), `-copy-u` and `-identity` need #500 and #556 (`BidirList` tie
-boundaries, d98d12a5), and `truncate-morphotactic` "ga" needs either. #548 changes none of them.
-
-Driven by `pangloss batch` instead, either driver gives 121 passed, 4 failed and 17 skipped of 142
-runs: `simultaneous-epenthesis-cascade` (a known divergence; the C# oracle crashes with
-`InfiniteLoopException`, PanGloss answers "no analysis", and no machine commit changed it) and the three
-`truncate-morphotactic-*` fixtures. There PanGloss does not miss parses: the parse counts and sets
-match, but the morph order inside the signatures of subsumed and zero-width truncation markers differs,
-and it agrees with neither the pin nor the post-#500/#556 oracle. So moving the pin alone does not turn
-`conformance_fixtures_gate::all_discovered_fixtures_match_oracle` green: the Rust gates compare HC-Rust
-to the suite rows, which are already the newer behaviour. It is an HC-Rust port of the #500/#556
-ordering (`pg-rules` `morph.rs` `attribute_morphs` and its final sort). The pin move only unblocks
-the C# replays. `templated_conformance_proposal_pins::truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens`
+The previous pin also lacked the #500/#556 behaviour the suite's `truncate-morphotactic*` rows record
+(`head-ambiguous-compounding`, `truncate-morphotactic` ("ga"), `-copy-u`, `-identity` and `-subsumption`
+failed on it); the current pin passes the whole suite in self-check. HC-Rust has not ported machine#500/#556
+(PanGloss #18): the morph order inside the signatures of subsumed and zero-width truncation markers
+differs, so the Rust gates still waive those words
+(`conformance_fixtures_gate::ORACLE_UNMERGED_WORDS`). The port is in `pg-rules` `morph.rs`
+`attribute_morphs` and its final sort.
+`templated_conformance_proposal_pins::truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens`
 is a separate, proposer-side gap: the suite's new word "a" has two rule-order identities and the templated
 route offers one.
 
-Do not paper over this in the suite or with a loader shim here. The two honest ways out are a later
-`machine` pin whose loader accepts `claims`, or (only if a bump must wait) an adapter on the PanGloss
-side that copies the suite to a scratch directory with the key renamed back. Move the pin with a
-new `pangloss-oracle-pin-*` tag, never by editing the old one.
-
-Staged fixtures are replayed by that same pin driver, so they keep the old key: `conformance-staging/**`
-words files say `claimed_cells`, and `pg-conformance-fixtures` reads either name (`#[serde(alias =
-"claimed_cells")]` on `claims`). When the oracle pin moves to a driver that accepts `claims`, rename the
-staged keys and drop the alias.
+Staged fixtures are replayed by the same pin driver and use `claims` too; `pg-conformance-fixtures` reads
+only that name. Move the pin with a new `pangloss-oracle-pin-*` tag, never by editing the old one.

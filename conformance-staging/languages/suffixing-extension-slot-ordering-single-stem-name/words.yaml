@@ -95,7 +95,7 @@ words:
     blocked_by: [prPhonoExcl]
     exercises:
       - "MPR features/groups"
-    claimed_cells:
+    claims:
       - cell: "MorphologicalPhonologicalRuleFeature::LexicalEntry.ruleFeatures->PhonologicalSubrule.excludedMPRFeatures::McDc:PresentGatedForm"
         severing: >-
           either PPE's own LexicalEntry.ruleFeatures="mprPhExcl" (the writer) or prPhonoExcl's own
@@ -142,7 +142,7 @@ words:
     blocked_by: [prPhonoReq]
     exercises:
       - "MPR features/groups"
-    claimed_cells:
+    claims:
       - cell: "MorphologicalPhonologicalRuleFeature::MorphologicalOutput.MPRFeatures->PhonologicalSubrule.requiredMPRFeatures::McDc:AbsentGatedForm"
         severing: >-
           either mrPhonoDestroy's own MorphologicalOutput.MPRFeatures="mprPhY" write (the writer) or

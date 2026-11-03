@@ -315,7 +315,7 @@ fn truncate_morphotactic_proposes_both_gas_analyses() {
     );
 }
 
-/// The cell is `CompilesButMisses` while word `a` waits on unmerged sillsdev/machine#500/#556 (PanGloss #18); restore `OracleExact` when they land.
+/// The cell is `CompilesButMisses` while word `a` waits on HC-Rust porting machine#500/#556 (PanGloss #18); restore `OracleExact` when it lands.
 #[test]
 fn truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens() {
     let (label, grammar, words) = open("edge-cases", "truncate-morphotactic");

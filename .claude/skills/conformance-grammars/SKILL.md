@@ -182,7 +182,7 @@ or a second `words.yaml` parser — extend that crate instead.
    **"When available" means the `machine` submodule's SOURCE is checked out, and a default worktree
    does not have it.** This is the step people miss, because ordinary conformance work never needs it.
    `Sync-ConformanceSuite` fetches `conformance` ONLY; `machine` (the oracle, pinned
-   at `aab4c598`) is left empty, and the oracle lives in
+   at `4d9b454d`) is left empty, and the oracle lives in
    `machine/src/SIL.Machine.Morphology.HermitCrab.Tool/`. A worktree can run the whole conformance
    suite green and still have no oracle in it. "Not available" is the DEFAULT state, not a sign
    anything is broken.
@@ -204,7 +204,7 @@ or a second `words.yaml` parser — extend that crate instead.
 
    **Run it through the upstream adapter, not a hand-rolled command.** (The adapter is `machine`-owned,
    not part of the suite, which is why its path still starts `machine/conformance/`: it is there at
-   the `aab4c598` pin.)
+   the `4d9b454d` pin.)
    `machine/conformance/adapters/hc-dotnet-wrapper.sh` already implements the 3-argument `batch`
    contract that `pangloss` implements (`conformance/PROTOCOL.md` § 1), resolves paths
    relative to itself rather than your cwd, and takes an optional 5th argument pointing at a

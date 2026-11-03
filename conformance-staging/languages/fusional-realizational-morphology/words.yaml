@@ -523,7 +523,7 @@ words:
     # DataflowClaimGate checks this against conformance/dataflow-obligations.tsv, never trusts it,
     # and recomputes severing/before/after by re-severing the writer and reader named in the ledger
     # row -- the inline values below are what it recomputed against, not what it trusts blindly.
-    claimed_cells:
+    claims:
       - cell: "MorphologicalPhonologicalRuleFeature::MorphologicalOutput.MPRFeatures->MorphologicalInput.requiredMPRFeatures::McDc:AbsentGatedForm"
         severing: >-
           MPRFeatures across every MorphologicalOutput (the one that matters here is mrThemeY's own

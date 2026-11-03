@@ -16,12 +16,11 @@
 # folded into "out of scope") in rust/docs/p13-simultaneous-design.md sections 6.2 and 7, item 2.
 edge-cases/simultaneous-epenthesis-cascade
 
-# edge-cases/truncate-morphotactic-copy-u, -identity, -subsumption -- the suite's expected output
-# comes from sillsdev/machine#500 and #556, which are not in the pinned C# oracle, so PanGloss (which
-# matches the pin) and the suite disagree on a few words (copy-u: gau, au; identity: ga;
-# subsumption: ag, gag). This shell runner can only waive per fixture; the Rust gate
-# (pg-parse conformance_fixtures_gate, ORACLE_UNMERGED_WORDS) waives per word. PanGloss #18 narrows
-# and removes both once machine#500/#556 land and the oracle pin moves.
+# edge-cases/truncate-morphotactic-copy-u, -identity, -subsumption -- HC-Rust has not ported
+# machine#500/#556 (PanGloss #18). The pinned C# oracle has them and passes these fixtures, but PanGloss
+# orders morphs differently on a few words (copy-u: gau, au; identity: ga; subsumption: ag, gag). This
+# shell runner can only waive per fixture; the Rust gate (pg-parse conformance_fixtures_gate,
+# ORACLE_UNMERGED_WORDS) waives per word. PanGloss #18 removes both once HC-Rust ports them.
 edge-cases/truncate-morphotactic-copy-u
 edge-cases/truncate-morphotactic-identity
 edge-cases/truncate-morphotactic-subsumption

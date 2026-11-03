@@ -692,8 +692,7 @@ struct WordEntryWire {
     expect_skip: Option<bool>,
     #[serde(default, deserialize_with = "deserialize_present")]
     exercises: Option<Vec<String>>,
-    // `claimed_cells` is the key the oracle pin's driver still requires, so staged words keep it.
-    #[serde(default, alias = "claimed_cells")]
+    #[serde(default)]
     claims: Vec<ClaimWire>,
     #[serde(default)]
     parses: Vec<ParseEntryWire>,

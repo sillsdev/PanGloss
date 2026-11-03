@@ -350,7 +350,7 @@ fn graduation_guard_no_duplicate_fixture_names() {
     );
 }
 
-/// Suite words that need unmerged sillsdev/machine#500/#556 (PanGloss #18); base-run analysis mismatches only.
+/// Suite words where HC-Rust has not ported machine#500/#556 (PanGloss #18); base-run analysis mismatches only.
 const ORACLE_UNMERGED_WORDS: &[(&str, &str)] = &[
     ("machine:edge-cases/truncate-morphotactic-copy-u", "gau"),
     ("machine:edge-cases/truncate-morphotactic-copy-u", "au"),
@@ -421,7 +421,7 @@ fn all_discovered_fixtures_match_oracle() {
                     run.name, mismatch.word, mismatch.what, mismatch.got, mismatch.expected
                 );
                 if waived_pending_oracle(&run.name, run.is_base, &mismatch.word, mismatch.what) {
-                    eprintln!("waived pending sillsdev/machine#500/#556: {detail}");
+                    eprintln!("waived, HC-Rust has not ported machine#500/#556: {detail}");
                     waived += 1;
                 } else {
                     mismatches.push(detail);
@@ -447,7 +447,7 @@ fn all_discovered_fixtures_match_oracle() {
         waived,
         ORACLE_UNMERGED_WORDS.len(),
         "every ORACLE_UNMERGED_WORDS entry must still mismatch exactly once; remove the entries \
-         that now pass (sillsdev/machine#500, #556; PanGloss #18)"
+         that now pass (HC-Rust ported machine#500, #556; PanGloss #18)"
     );
     // "fixtures covered" is not one FieldWorks-facing population; report the three separately.
     let census = producibility_census(&fixtures);
