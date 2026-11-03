@@ -38,7 +38,7 @@ pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRec
             };
             let form = super::format_form(form);
             super::environment::collect_text_uses(snapshot, &allo.environments, recorder);
-            if affixes::is_bracket_pattern_form(&form) {
+            if super::reduplication::is_bracket_form(&form) {
                 continue;
             }
             recorder.record_text_use(

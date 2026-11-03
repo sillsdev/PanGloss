@@ -1,16 +1,16 @@
-# grammar.allomorph.reduplication-unsupported
+# grammar.allomorph.reduplication-invalid
 
-Unsupported reduplication form
+Invalid reduplication form
 
 Level: **warning**
 
 ## Explanation
 
-The allomorph uses a reduplication pattern that this parser does not run.
+The allomorph's reduplication pattern is malformed, so it was skipped.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, keep the intended pattern and report it; do not replace it unless an equivalent supported analysis is known.
+In Lexicon > Lexicon Edit, correct the pattern in Allomorphs > Form so every bracketed class has an index that appears in the environment.
 
 ## FieldWorks places
 
@@ -52,7 +52,8 @@ Feature values and inflection classes are linked by references, not by matching 
 
 Some FieldWorks constructions do not have the same behavior in the parser:
 
-- Reduplication patterns such as `[C^1][V^1]-` are not loaded as affix rules.
+- Metathesis rules are skipped; they are not run as approximations. Words that rely on a rule may fail or differ.
+- Some imported metathesis rules are approximated during conversion. The snapshot compiler subsequently skips these rules too; it does not run the approximation. Read both findings to distinguish the conversion loss from the compiler omission.
 
 Model a construction when it is part of the analysis, then check affected words and report valid behavior the parser cannot preserve.
 

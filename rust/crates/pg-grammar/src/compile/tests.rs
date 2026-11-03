@@ -4178,13 +4178,13 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
 
     assert!(
         warnings.iter().any(|warning| {
-            warning.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED.wire()
+            warning.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM.wire()
                 && warning
                     .subjects
                     .iter()
                     .any(|subject| subject.guid.as_deref() == Some("allo-bracket-form"))
         }),
-        "expected a structured reduplication warning; got {warnings:?}"
+        "expected a not-a-rule-form warning for a bracket pattern with no valid environment; got {warnings:?}"
     );
 
     let infix_key = InventoryKey::object(InventoryKind::Allomorph, "allo-infix-nopos".to_string());
@@ -4204,9 +4204,9 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
         "the bracket-pattern allomorph must be selected before rejection"
     );
     assert!(inventory.rejected.contains(&bracket_key));
-    assert!(issues
+    assert!(!issues
         .iter()
-        .any(|i| i.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED));
+        .any(|i| i.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID));
 }
 
 /// A bare `Circumfix`/`DiscontigPhrase`-typed allomorph must be selected then rejected, not left dangling.
@@ -5949,9 +5949,9 @@ fn xample_authored_project_infers_a_missing_exemplar_segment_from_a_suffix_form(
     assert_eq!(affix_rules[0].allomorphs.len(), 1);
 }
 
-/// A bracket-pattern/reduplication affix form must compile exactly as it did without substrate completion, and now also publish `conversion.unsupported-construct`.
+/// A bracket-pattern/reduplication affix form is a pattern, so it publishes no literal text and substrate completion never treats its brackets as characters.
 #[test]
-fn bracket_pattern_affix_form_still_compiles_unaffected_and_publishes_unsupported_construct() {
+fn bracket_pattern_affix_form_publishes_no_literal_text() {
     let (mut snapshot, f) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "[X]")];
@@ -5959,17 +5959,10 @@ fn bracket_pattern_affix_form_still_compiles_unaffected_and_publishes_unsupporte
     let out =
         compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
-        out.issues
+        !out.issues
             .iter()
-            .any(|i| i.message.contains("reduplication/bracket-pattern") && !i.fatal),
-        "the legacy reduplication warning must survive unchanged: {:?}",
-        out.issues
-    );
-    assert!(
-        out.issues
-            .iter()
-            .any(|i| i.code == pg_snapshot::ImportWarningCode::UnsupportedConstruct && !i.fatal),
-        "expected a non-fatal conversion.unsupported-construct issue; got {:?}",
+            .any(|i| i.message.contains("reduplication/bracket-pattern")),
+        "the removed unsupported-reduplication issue must not return: {:?}",
         out.issues
     );
     assert!(out.substrate.inferred_segments.is_empty());
@@ -5988,9 +5981,7 @@ fn text_use_collection_covers_every_represented_allomorph() {
     let (snapshot, _f) = fixture();
     let mut recorder = pg_snapshot::SelectionRecorder::default();
     super::lexicon::collect_text_uses(&snapshot, &mut recorder);
-    let mut collection_issues = Vec::new();
-    super::affixes::collect_text_uses(&snapshot, &mut recorder, &mut collection_issues);
-    assert!(collection_issues.is_empty());
+    super::affixes::collect_text_uses(&snapshot, &mut recorder);
     let collected: std::collections::BTreeSet<String> = recorder
         .text_uses()
         .iter()
@@ -7572,5 +7563,170 @@ fn adhoc_allomorph_prohibition_naming_a_circumfix_half_in_others_warns_and_emits
             .iter()
             .any(|w| w.message.contains("allo-circ-prefix") && w.message.contains("circumfix half")),
         "the dropped prohibition is warned about: {warnings:?}"
+    );
+}
+
+/// A reduplication fixture: a suffix `[C^1][V^1]` whose environment `/ [C^1][V^1] _` names the stem-final CV to copy.
+fn reduplication_snapshot(form: &str, environment: Option<&str>) -> Snapshot {
+    let (mut snapshot, _f) = fixture();
+    for (guid, name, phonemes) in [
+        ("nc-c", "C", vec!["ph-k", "ph-t", "ph-m", "ph-s"]),
+        ("nc-v", "V", vec!["ph-a", "ph-i", "ph-u"]),
+    ] {
+        snapshot
+            .phonology
+            .natural_classes
+            .push(SnapNaturalClass::Segments {
+                guid: guid.to_string(),
+                name: name.to_string(),
+                display_name: None,
+                phonemes: phonemes.into_iter().map(String::from).collect(),
+            });
+    }
+    let allomorph = &mut snapshot.lexicon.entries[1].allomorphs[0];
+    allomorph.forms = vec![ws("sen", form)];
+    if let Some(representation) = environment {
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: "env-redup".to_string(),
+                name: String::new(),
+                representation: representation.to_string(),
+            });
+        snapshot.lexicon.entries[1].allomorphs[0]
+            .environments
+            .push("env-redup".to_string());
+    }
+    snapshot
+}
+
+fn only_affix_allomorphs(grammar: &crate::model::Grammar) -> Vec<&crate::model::AffixAllomorphDef> {
+    grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .flat_map(|d| d.allomorphs.iter())
+        .collect()
+}
+
+/// HCLoader.cs:1544-1553: a suffix pattern is stem, the environment's left-hand class patterns, suffixNull; the output copies the stem, the left-hand copies, suffixNull, a morpheme break, then the form's own copies.
+#[test]
+fn suffix_reduplication_pattern_loads_as_a_process_allomorph() {
+    let snapshot = reduplication_snapshot("[C^1][V^1]", Some("/ [C^1][V^1] _"));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    assert!(output.warnings.is_empty(), "{:?}", output.warnings);
+    let allomorphs = only_affix_allomorphs(&output.grammar);
+    assert_eq!(allomorphs.len(), 1);
+    let allomorph = allomorphs[0];
+    assert_eq!(allomorph.lhs.len(), 4, "stem, C^1, V^1, suffixNull");
+    let copies: Vec<_> = allomorph
+        .rhs
+        .iter()
+        .map(|action| match action {
+            crate::model::OutputAction::Copy(crate::model::PartRef::Input(part)) => Some(*part),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        copies,
+        vec![Some(0), Some(1), Some(2), Some(3), None, Some(1), Some(2)]
+    );
+    assert!(matches!(
+        allomorph.redup_hint,
+        crate::model::ReduplicationHint::Implicit
+    ));
+    assert!(allomorph.environments.is_empty());
+}
+
+/// HCLoader.cs:1555-1563: a prefix pattern is prefixNull, the environment's right-hand class patterns, stem; the output starts with the form's copies.
+#[test]
+fn prefix_reduplication_pattern_loads_as_a_process_allomorph() {
+    let mut snapshot = reduplication_snapshot("[C^1][V^1]", Some("/ _ [C^1][V^1]"));
+    snapshot.lexicon.entries[1].allomorphs[0].morph_type = MorphType::Prefix;
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let allomorphs = only_affix_allomorphs(&output.grammar);
+    assert_eq!(allomorphs.len(), 1);
+    let allomorph = allomorphs[0];
+    assert_eq!(allomorph.lhs.len(), 4, "prefixNull, C^1, V^1, stem");
+    let copies: Vec<_> = allomorph
+        .rhs
+        .iter()
+        .map(|action| match action {
+            crate::model::OutputAction::Copy(crate::model::PartRef::Input(part)) => Some(*part),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        copies,
+        vec![Some(1), Some(2), None, Some(0), Some(1), Some(2), Some(3)]
+    );
+}
+
+/// HCLoader.cs:1497-1516: `[...]` is not read as a class pattern; the stem is copied around the literal text and no environment is needed.
+#[test]
+fn stem_copy_form_loads_without_an_environment() {
+    let mut snapshot = reduplication_snapshot("ta[...]", None);
+    snapshot.lexicon.entries[1].allomorphs[0].morph_type = MorphType::Prefix;
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    assert!(output.warnings.is_empty(), "{:?}", output.warnings);
+    let allomorphs = only_affix_allomorphs(&output.grammar);
+    assert_eq!(allomorphs.len(), 1);
+    assert_eq!(allomorphs[0].lhs.len(), 1);
+    assert_eq!(allomorphs[0].rhs.len(), 3);
+    assert!(matches!(
+        allomorphs[0].redup_hint,
+        crate::model::ReduplicationHint::Prefix
+    ));
+}
+
+/// IsValidRuleForm (HCLoader.cs:571): a bracket pattern other than `[...]` with no valid environment is not a rule form.
+#[test]
+fn reduplication_pattern_without_a_valid_environment_is_not_a_rule_form() {
+    let snapshot = reduplication_snapshot("[C^1][V^1]", None);
+    let (_grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM.wire()));
+}
+
+/// A pattern that is not a valid environment (here an unknown class) is skipped with the reduplication warning, as C# logs `InvalidReduplicationFormException`.
+#[test]
+fn malformed_reduplication_pattern_is_skipped_with_a_warning() {
+    let snapshot = reduplication_snapshot("[X^1]", Some("/ [C^1] _"));
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID.wire()));
+    assert!(only_affix_allomorphs(&grammar).is_empty());
+}
+
+/// LoadReduplicationOutputActions (HCLoader.cs:1689-1706): an index with no matching pattern is warned about and its copy dropped; the allomorph still loads.
+#[test]
+fn unmatched_reduplication_index_drops_the_copy_and_warns() {
+    let snapshot = reduplication_snapshot("[C^1][V^2]", Some("/ [C^1] _"));
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID.wire()));
+    assert_eq!(only_affix_allomorphs(&grammar).len(), 1);
+}
+
+/// The recognizer accepts only digits after `^` (liblcm PhonEnvRecognizerTests): `[C^x]` is an invalid environment.
+#[test]
+fn class_index_must_be_digits() {
+    let snapshot = reduplication_snapshot("[C^1]", Some("/ [C^x] _"));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("compiles");
+    let resolution = output
+        .environment_resolutions
+        .iter()
+        .find(|r| r.environment_guid == "env-redup")
+        .unwrap();
+    assert_eq!(
+        resolution.status,
+        super::EnvironmentResolutionStatus::Invalid
     );
 }

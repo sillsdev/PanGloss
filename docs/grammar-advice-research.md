@@ -548,11 +548,11 @@ Verified inspection destinations: Lexicon > Lexicon Edit > Allomorphs > Form; Le
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:433`; LEX.
 
-### `grammar.allomorph.reduplication-unsupported`
+### `grammar.allomorph.reduplication-invalid`
 
-Cause: The allomorph uses a reduplication pattern that this parser does not run.
+Cause: The allomorph's reduplication pattern is malformed, so it was skipped.
 
-Location and action: In Lexicon > Lexicon Edit, keep the intended pattern and report it; do not replace it unless an equivalent supported analysis is known.
+Location and action: In Lexicon > Lexicon Edit, correct the pattern in Allomorphs > Form so every bracketed class has an index that appears in the environment.
 
 Verified inspection destinations: Lexicon > Lexicon Edit > Allomorphs > Form.
 
@@ -837,16 +837,6 @@ Location and action: If the character is a language phoneme, define its In Ortho
 Verified inspection destinations: Grammar > Phonemes > In Orthography as; Grammar > Phonemes > Phonological Features; Lexicon > Lexicon Edit > Allomorphs > Form.
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:643`; LEX, PHON.
-
-### `conversion.unsupported-construct`
-
-Cause: PanGloss cannot check this reduplication pattern against the phoneme inventory.
-
-Location and action: In Lexicon > Lexicon Edit, inspect the allomorph form. Keep an accurate pattern and report it; change it only if an equivalent supported representation is known.
-
-Verified inspection destinations: Lexicon > Lexicon Edit > Allomorphs > Form.
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:650`; LEX.
 
 ### `substrate.position-unmapped`
 

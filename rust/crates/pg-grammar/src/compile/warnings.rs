@@ -323,9 +323,9 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                         );
                     }
                 }
-                ImportWarningCode::AllomorphReduplicationUnsupported => {
+                ImportWarningCode::AllomorphReduplicationInvalid => {
                     warning.message = format!(
-                        "Allomorph '{name}' has a reduplication pattern that cannot be loaded as an affix rule."
+                        "Allomorph '{name}' has an invalid reduplication pattern and was skipped."
                     );
                 }
                 ImportWarningCode::AllomorphProcessBuildFailed => {
@@ -420,11 +420,6 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                 ImportWarningCode::SubstratePositionUnmapped => {
                     warning.message = format!(
                         "Allomorph '{name}' contains a character sequence that does not match a project phoneme or boundary marker."
-                    );
-                }
-                ImportWarningCode::UnsupportedConstruct => {
-                    warning.message = format!(
-                        "Allomorph '{name}' has a reduplication pattern that cannot be checked against the phoneme inventory."
                     );
                 }
                 ImportWarningCode::MigrationInferredSegmentWithFeatureRule => {

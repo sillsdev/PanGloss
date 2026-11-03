@@ -36,6 +36,12 @@ file has no section for.
 
 - In a grammar with no phonological features, a rewrite rule written with segment natural classes now changes the surface and is unapplied in analysis, as `hc.dll` does. Before, a rule such as `[k t] -> [s z] / V _ V` did nothing: it missed parses `hc.dll` finds (`asa`) and accepted surfaces the rule should change (`aka`). Rules written with literal segments, and grammars with features, are unchanged (#120).
 
+### Grammar import
+
+- An affix form written as a reduplication bracket pattern, such as `[C^1][V^1]` with environment `/ _ [C^1][V^1]`, now loads as a process allomorph, as C# HermitCrab loads it, instead of being skipped. A `[...]` form (`ta[...]`) loads as the stem copied around its literal text and needs no environment; any other bracket form needs a valid environment, or it is not a rule form. A malformed pattern is skipped with the new warning `grammar.allomorph.reduplication-invalid`, as C# logs `InvalidReduplicationFormException`. `grammar.allomorph.reduplication-unsupported` and `conversion.unsupported-construct`, which both reported this one limit, are gone (#148).
+- Rust API break: the public `ImportWarningCode` variants `AllomorphReduplicationUnsupported` and `UnsupportedConstruct` are removed and `AllomorphReduplicationInvalid` is added; crates that match on them must be updated. A stored snapshot that carries the old code strings reads back as an unregistered code.
+- An environment class may carry a reduplication index (`[C^1]`); the index must be digits, as in FieldWorks' environment recognizer.
+
 ## 0.14.0
 
 This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.
