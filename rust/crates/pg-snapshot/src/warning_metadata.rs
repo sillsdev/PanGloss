@@ -430,10 +430,10 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[("lexiconEdit", "Allomorphs > Form"), ("lexiconEdit", "Allomorphs > Infix Positions")],
             Some(ALLOMORPHS_HELP),
         ),
-        AllomorphReduplicationUnsupported => advice(
-            "Unsupported reduplication form",
-            "The allomorph uses a reduplication pattern that this parser does not run.",
-            "In Lexicon > Lexicon Edit, keep the intended pattern and report it; do not replace it unless an equivalent supported analysis is known.",
+        AllomorphReduplicationInvalid => advice(
+            "Invalid reduplication form",
+            "The allomorph's reduplication pattern is malformed, so it was skipped.",
+            "In Lexicon > Lexicon Edit, correct the pattern in Allomorphs > Form so every bracketed class has an index that appears in the environment.",
             &[("lexiconEdit", "Allomorphs > Form")],
             Some(MODELLING_HELP),
         ),
@@ -675,13 +675,6 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[("phonemeEdit", "In Orthography as"), ("phonemeEdit", "Phonological Features"), ("lexiconEdit", "Allomorphs > Form")],
             Some(MODELLING_HELP),
         ),
-        UnsupportedConstruct => advice(
-            "Reduplication inventory check is unsupported",
-            "PanGloss cannot check this reduplication pattern against the phoneme inventory.",
-            "In Lexicon > Lexicon Edit, inspect the allomorph form. Keep an accurate pattern and report it; change it only if an equivalent supported representation is known.",
-            &[("lexiconEdit", "Allomorphs > Form")],
-            Some(PARSER_HELP),
-        ),
         SubstratePositionUnmapped => advice(
             "Allomorph character position is unmapped",
             "PanGloss's character-position mapping failed for this allomorph.",
@@ -841,7 +834,7 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::AllomorphMorphTypeUnsupported => DiagnosticLevel::Warning,
         ImportWarningCode::AllomorphMorphTypeUnsupportedAsRuleForm => DiagnosticLevel::Info,
         ImportWarningCode::AllomorphNotRuleForm => DiagnosticLevel::Warning,
-        ImportWarningCode::AllomorphReduplicationUnsupported => DiagnosticLevel::Warning,
+        ImportWarningCode::AllomorphReduplicationInvalid => DiagnosticLevel::Warning,
         ImportWarningCode::AllomorphProcessBuildFailed => DiagnosticLevel::Warning,
         ImportWarningCode::AllomorphInflectionClassUnresolved => DiagnosticLevel::Error,
         ImportWarningCode::AllomorphFeatureBuildFailed => DiagnosticLevel::Warning,
@@ -878,7 +871,6 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
             DiagnosticLevel::Info
         }
         ImportWarningCode::MigrationInferredSegmentWithFeatureRule => DiagnosticLevel::Error,
-        ImportWarningCode::UnsupportedConstruct => DiagnosticLevel::Warning,
         ImportWarningCode::SubstratePositionUnmapped => DiagnosticLevel::Warning,
         Unregistered(_) => DiagnosticLevel::Warning,
     }

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>BracketPatternReduplicationAffix</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posX"><Name>x</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featCons"><Name>cons</Name><Symbols><Symbol id="fConsPlus">+</Symbol><Symbol id="fConsMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featPlace"><Name>place</Name><Symbols><Symbol id="fpK">pK</Symbol><Symbol id="fpT">pT</Symbol><Symbol id="fpM">pM</Symbol><Symbol id="fpS">pS</Symbol><Symbol id="fpA">pA</Symbol><Symbol id="fpI">pI</Symbol><Symbol id="fpU">pU</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations><FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featPlace" symbolValues="fpK" /></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations><FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featPlace" symbolValues="fpT" /></SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations><FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featPlace" symbolValues="fpM" /></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations><FeatureValue feature="featCons" symbolValues="fConsPlus" /><FeatureValue feature="featPlace" symbolValues="fpS" /></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featPlace" symbolValues="fpA" /></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featPlace" symbolValues="fpI" /></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featCons" symbolValues="fConsMinus" /><FeatureValue feature="featPlace" symbolValues="fpU" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncC"><Name>C</Name><FeatureValue feature="featCons" symbolValues="fConsPlus" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncV"><Name>V</Name><FeatureValue feature="featCons" symbolValues="fConsMinus" /></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" morphologicalRules="mrPfx mrSfx">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrPfx" requiredPartsOfSpeech="posX" outputPartOfSpeech="posX">
+            <Name>cvPrefix</Name>
+            <MorphologicalSubrules><MorphologicalSubrule id="subPfx">
+              <MorphologicalInput><PhoneticSequence id="pc"><SimpleContext naturalClass="ncC" /></PhoneticSequence><PhoneticSequence id="pv"><SimpleContext naturalClass="ncV" /></PhoneticSequence><PhoneticSequence id="pstem"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><CopyFromInput index="pc" /><CopyFromInput index="pv" /><CopyFromInput index="pc" /><CopyFromInput index="pv" /><CopyFromInput index="pstem" /></MorphologicalOutput>
+            </MorphologicalSubrule></MorphologicalSubrules>
+            <MorphemeId>PFX</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrSfx" requiredPartsOfSpeech="posX" outputPartOfSpeech="posX">
+            <Name>cvSuffix</Name>
+            <MorphologicalSubrules><MorphologicalSubrule id="subSfx">
+              <MorphologicalInput><PhoneticSequence id="sstem"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence><PhoneticSequence id="sc"><SimpleContext naturalClass="ncC" /></PhoneticSequence><PhoneticSequence id="sv"><SimpleContext naturalClass="ncV" /></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><CopyFromInput index="sstem" /><CopyFromInput index="sc" /><CopyFromInput index="sv" /><CopyFromInput index="sc" /><CopyFromInput index="sv" /></MorphologicalOutput>
+            </MorphologicalSubrule></MorphologicalSubrules>
+            <MorphemeId>SFX</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eKuma" partOfSpeech="posX"><Allomorphs><Allomorph id="aKuma"><PhoneticShape>kuma</PhoneticShape></Allomorph></Allomorphs><MorphemeId>KUMA</MorphemeId><Gloss>kuma</Gloss></LexicalEntry>
+          <LexicalEntry id="eTimas" partOfSpeech="posX"><Allomorphs><Allomorph id="aTimas"><PhoneticShape>timas</PhoneticShape></Allomorph></Allomorphs><MorphemeId>TIMAS</MorphemeId><Gloss>timas</Gloss></LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

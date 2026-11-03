@@ -44,6 +44,7 @@ mod msa_merge;
 mod natclass;
 pub mod options;
 mod reachability;
+mod reduplication;
 pub(crate) mod roles;
 mod rules;
 mod strata;
@@ -336,7 +337,7 @@ pub(crate) fn compile_project_recording(
     // --- text usage: owners publish literal text they already selected, for substrate inference -
     let mut substrate_issues: Vec<ConversionIssue> = Vec::new();
     lexicon::collect_text_uses(snapshot, &mut recorder);
-    affixes::collect_text_uses(snapshot, &mut recorder, &mut substrate_issues);
+    affixes::collect_text_uses(snapshot, &mut recorder);
 
     // Authored definitions take precedence over provisional definitions.
     let raw = chardef::build_raw(snapshot, &phon_features, &mut recorder)?;

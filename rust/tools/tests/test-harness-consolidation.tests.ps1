@@ -122,7 +122,7 @@ $crateSpecs = @(
             'adhoc_morpheme_variant_copies.rs', 'copy_agreement_featureless.rs', 'featureless_wide_class_rewrite.rs',
             'effective_analysis_target.rs', 'phonology_gate.rs', 'work_cap_gate.rs', 'trace_template_outcomes.rs',
             'edge_prefilter_gate.rs', 'lookup_replay_gate.rs',
-            'analysis_order_gate.rs', 'batch_determinism.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
+            'analysis_order_gate.rs', 'batch_determinism.rs', 'bracket_pattern_affix_form.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',
             'csharp_port_affix_template.rs', 'csharp_port_compounding.rs',
             'csharp_port_generation.rs', 'csharp_port_lex_entry.rs', 'csharp_port_metathesis.rs',

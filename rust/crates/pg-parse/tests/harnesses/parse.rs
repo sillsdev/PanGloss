@@ -13,6 +13,8 @@ mod adhoc_morpheme_variant_copies;
 mod analysis_order_gate;
 #[path = "../batch_determinism.rs"]
 mod batch_determinism;
+#[path = "../bracket_pattern_affix_form.rs"]
+mod bracket_pattern_affix_form;
 #[path = "../cd_set_gate.rs"]
 mod cd_set_gate;
 #[path = "../clitic_template_state_gate.rs"]

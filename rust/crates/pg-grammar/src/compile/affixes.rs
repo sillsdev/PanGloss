@@ -21,6 +21,7 @@ use super::gates::{
 };
 use super::inventory::LineageTarget;
 use super::issue_codes;
+use super::reduplication;
 use super::roles;
 use super::{Acc, Ctx};
 
@@ -808,17 +809,8 @@ fn raw_pattern_nodes(pattern: Option<&Pattern>) -> Vec<PatternNode> {
         .collect()
 }
 
-/// Whether `form` is a reduplication/bracket-pattern affix shape rather than literal text -- shared by `is_valid_rule_form`'s rejection and by `collect_text_uses`'s substrate-usage collection, so the two classify the same shape identically.
-pub(crate) fn is_bracket_pattern_form(form: &str) -> bool {
-    form.contains('[')
-}
-
-/// Publishes literal text from every affix-shaped allomorph (concatenative, circumfix half, or an `MoAffixProcess`'s `RuleMapping::InsertSegments`); a bracket-pattern form publishes `conversion.unsupported-construct` instead.
-pub(crate) fn collect_text_uses(
-    snapshot: &Snapshot,
-    recorder: &mut SelectionRecorder,
-    issues: &mut Vec<ConversionIssue>,
-) {
+/// Publishes literal text from every affix-shaped allomorph (concatenative, circumfix half, or an `MoAffixProcess`'s `RuleMapping::InsertSegments`); a bracket-pattern form is a pattern, not literal text, so it publishes none.
+pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRecorder) {
     let default_ws = snapshot
         .project
         .vernacular_writing_systems
@@ -857,18 +849,7 @@ pub(crate) fn collect_text_uses(
             if form.trim().is_empty() {
                 continue;
             }
-            if is_bracket_pattern_form(&form) {
-                issues.push(ConversionIssue {
-                    code: super::issues::UNSUPPORTED_CONSTRUCT,
-                    class: IssueClass::UnrepresentableForHc,
-                    source: Some(source),
-                    fatal: false,
-                    message: format!(
-                        "allomorph {:?}: reduplication/bracket-pattern affix form {form:?} is not \
-                         literal text; substrate completion cannot check or infer from it",
-                        allo.guid
-                    ),
-                });
+            if reduplication::is_bracket_form(&form) {
                 continue;
             }
             environment::collect_text_uses(
@@ -949,17 +930,23 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
         | MorphType::Proclitic
         | MorphType::Enclitic => {
             let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
-            if is_bracket_pattern_form(&form) {
+            // HCLoader.IsValidRuleForm (HCLoader.cs:571): a bracket pattern other than `[...]` needs a valid phonological environment.
+            if !form.trim().is_empty()
+                && reduplication::is_bracket_form(&form)
+                && !reduplication::is_stem_copy_form(&form)
+                && !allo.environments.iter().any(|guid| {
+                    ctx.env_by_guid.get(guid.as_str()).is_some_and(|env| {
+                        ctx.environment_resolution(env).status
+                            == environment::EnvironmentResolutionStatus::Valid
+                    })
+                })
+            {
                 ctx.selected(key.clone());
                 ctx.reject(
                     key,
-                    issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED,
+                    issue_codes::ALLOMORPH_NOT_RULE_FORM,
                     IssueClass::UnrepresentableForHc,
-                    format!(
-                        "unsupported: reduplication/bracket-pattern affix form {form:?} \
-                         (allomorph {:?}) not implemented; allomorph skipped",
-                        allo.guid
-                    ),
+                    format!("reduplication pattern {form:?} has no valid phonological environment"),
                 );
                 return false;
             }
@@ -1173,10 +1160,49 @@ fn build_affix_allomorphs_for(
         .map(String::as_str)
         .collect();
 
+    // C# reads the form as written (HCLoader.cs:1493), not through `FormatForm`.
+    let raw_form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref())
+        .unwrap_or("")
+        .trim();
+    let bracket_form = !matches!(shape, Shape::Infix) && reduplication::is_bracket_form(raw_form);
+
     let pending_start = ctx.pending_rule_refusals.borrow().len();
     let mut out = Vec::new();
     for pass in resolve_environments(&combined_env_guids, &allo.guid, mrule_id, ctx) {
-        match build_concatenative(&form, pass.as_ref(), shape, ctx) {
+        let built = if !bracket_form {
+            build_concatenative(&form, pass.as_ref(), shape, ctx)
+        } else if reduplication::is_stem_copy_form(raw_form) {
+            reduplication::build_stem_copy(raw_form, ctx)
+                .map(|(lhs, rhs, _)| (lhs, rhs, Vec::new()))
+        } else {
+            reduplication::validate_form(raw_form, ctx).and_then(|()| {
+                let side = |pick: fn(&environment::EnvironmentResolution) -> &Option<String>| {
+                    pass.as_ref()
+                        .and_then(|pass| pick(&pass.resolution).as_deref())
+                        .unwrap_or("")
+                };
+                let (lhs, rhs, notes) = reduplication::build(
+                    raw_form,
+                    shape,
+                    side(|r| &r.left_text),
+                    side(|r| &r.right_text),
+                    ctx,
+                )?;
+                for note in notes {
+                    ctx.note(
+                        issue_codes::ALLOMORPH_REDUPLICATION_INVALID,
+                        IssueClass::UnrepresentableForHc,
+                        SourceRef {
+                            kind: pg_snapshot::FwClass::MoForm,
+                            id: allo.guid.clone(),
+                        },
+                        format!("Allomorph '{raw_form}': {note}"),
+                    );
+                }
+                Ok((lhs, rhs, Vec::new()))
+            })
+        };
+        match built {
             Ok((lhs, rhs, environments)) => {
                 let required_syn_fs = match &allo.ms_env_features {
                     Some(fs) => match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
@@ -1225,9 +1251,18 @@ fn build_affix_allomorphs_for(
                     required_mpr: required_mpr.union(allo_infl_mpr),
                     excluded_mpr: crate::model::MprSet::EMPTY,
                     out_mpr,
+                    // The reduplication branch sets no hint; `[...]` and literal forms set it from the morph type.
                     redup_hint: match allo.morph_type {
-                        MorphType::Prefix => ReduplicationHint::Prefix,
-                        MorphType::Suffix => ReduplicationHint::Suffix,
+                        MorphType::Prefix
+                            if !bracket_form || reduplication::is_stem_copy_form(raw_form) =>
+                        {
+                            ReduplicationHint::Prefix
+                        }
+                        MorphType::Suffix
+                            if !bracket_form || reduplication::is_stem_copy_form(raw_form) =>
+                        {
+                            ReduplicationHint::Suffix
+                        }
                         _ => ReduplicationHint::Implicit,
                     },
                     lhs,
@@ -1235,6 +1270,15 @@ fn build_affix_allomorphs_for(
                     properties: Vec::new(),
                 });
             }
+            Err(error) if bracket_form => ctx.note(
+                issue_codes::ALLOMORPH_REDUPLICATION_INVALID,
+                IssueClass::UnrepresentableForHc,
+                SourceRef {
+                    kind: pg_snapshot::FwClass::MoForm,
+                    id: allo.guid.clone(),
+                },
+                format!("Allomorph '{raw_form}' has an invalid reduplication pattern ({error}); skipped."),
+            ),
             Err(_) => ctx.note(
                 issue_codes::ALLOMORPH_ENVIRONMENT_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -1391,7 +1435,7 @@ fn build_concatenative(
     }
 }
 
-fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
+pub(super) fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
     let shape = crate::segment::segment(ctx.table, text).map_err(|e| e.to_string())?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,

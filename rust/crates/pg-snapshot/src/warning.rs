@@ -187,7 +187,7 @@ import_warning_codes! {
     AllomorphMorphTypeUnsupported => "grammar.allomorph.morph-type-unsupported",
     AllomorphMorphTypeUnsupportedAsRuleForm => "grammar.allomorph.morph-type-unsupported-as-rule-form",
     AllomorphNotRuleForm => "grammar.allomorph.not-a-rule-form",
-    AllomorphReduplicationUnsupported => "grammar.allomorph.reduplication-unsupported",
+    AllomorphReduplicationInvalid => "grammar.allomorph.reduplication-invalid",
     AllomorphProcessBuildFailed => "grammar.allomorph.process-build-failed",
     AllomorphInflectionClassUnresolved => "grammar.allomorph.inflection-class-unresolved",
     AllomorphFeatureBuildFailed => "grammar.allomorph.feature-build-failed",
@@ -223,7 +223,6 @@ import_warning_codes! {
     ProvisionalLetter => "provisional.letter",
     ProvisionalBoundary => "provisional.boundary",
     MigrationInferredSegmentWithFeatureRule => "migration.inferred-segment-with-feature-rule",
-    UnsupportedConstruct => "conversion.unsupported-construct",
     SubstratePositionUnmapped => "substrate.position-unmapped",
 }
 

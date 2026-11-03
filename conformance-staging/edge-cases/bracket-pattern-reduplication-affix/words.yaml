@@ -1,0 +1,57 @@
+# oracle-provenance: founding-oracle machine-commit=74ee09bf8521a6e0765949ea8ba7c4ec74236602
+# hc.dll `parse` replay (2026-11-03) fixed the accept/reject set and the two parses of kukumama; signature strings and rules: lists come from HC-Rust, which agrees on all ten words. See STAGING.md.
+language: BracketPatternReduplicationAffix
+inspired_by: ["synthetic CV-copying prefix and suffix, written in FieldWorks as reduplication bracket patterns (not modeling any real language)"]
+sources: ["PanGloss issue 148", "FieldWorks HCLoader.cs LoadFormAffixProcessAllomorph, LoadReduplicationPatterns, LoadReduplicationOutputActions"]
+requires: [phonology]
+fieldworks_producible: true
+fieldworks_producible_notes: >-
+  FieldWorks writes this grammar for an affix allomorph whose Form is the reduplication bracket pattern
+  `[C^1][V^1]` with environment `/ _ [C^1][V^1]` (prefix, HCLoader.cs:1555-1563) or `/ [C^1][V^1] _` (suffix,
+  HCLoader.cs:1544-1553). The loader names the input parts by the pattern text and copies them by name; this XML
+  is the same input and output sequence with the parts named pc/pv/pstem and sstem/sc/sv.
+words:
+  - word: kuma
+    note: Bare stem control.
+    parses:
+      - signature: "KUMA|kuma"
+        rules: []
+  - word: kukuma
+    note: Prefix pattern [C^1][V^1] copies the stem-initial CV in front of the stem.
+    parses:
+      - signature: "PFX+KUMA|kukuma"
+        rules: [mrPfx]
+  - word: kumama
+    note: Suffix pattern [C^1][V^1] copies the stem-final CV after the stem.
+    parses:
+      - signature: "KUMA+SFX|kumama"
+        rules: [mrSfx]
+  - word: kukumama
+    note: Both patterns; the two rule orders give two identical-signature derivations in hc.dll.
+    parses:
+      - signature: "PFX+KUMA+SFX|kukumama"
+        rules: [mrPfx, mrSfx]
+      - signature: "PFX+KUMA+SFX|kukumama"
+        rules: [mrSfx, mrPfx]
+  - word: tikuma
+    note: The copied CV must be the stem's own initial CV.
+    expect_fail: true
+  - word: kumata
+    note: The copied CV must be the stem's own final CV.
+    expect_fail: true
+  - word: timas
+    note: Bare stem whose final segment is a consonant, so the suffix pattern cannot apply.
+    parses:
+      - signature: "TIMAS|timas"
+        rules: []
+  - word: titimas
+    note: Prefix pattern on a second stem.
+    parses:
+      - signature: "PFX+TIMAS|titimas"
+        rules: [mrPfx]
+  - word: timasas
+    note: The suffix pattern needs a stem ending in C then V; timas ends in V then C.
+    expect_fail: true
+  - word: kumaa
+    note: No affix is a bare vowel.
+    expect_fail: true

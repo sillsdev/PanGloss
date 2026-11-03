@@ -58,8 +58,8 @@ pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM: ImportWarningCod
     ImportWarningCode::AllomorphMorphTypeUnsupportedAsRuleForm;
 pub(crate) const ALLOMORPH_NOT_RULE_FORM: ImportWarningCode =
     ImportWarningCode::AllomorphNotRuleForm;
-pub(crate) const ALLOMORPH_REDUPLICATION_UNSUPPORTED: ImportWarningCode =
-    ImportWarningCode::AllomorphReduplicationUnsupported;
+pub(crate) const ALLOMORPH_REDUPLICATION_INVALID: ImportWarningCode =
+    ImportWarningCode::AllomorphReduplicationInvalid;
 pub(crate) const ALLOMORPH_PROCESS_BUILD_FAILED: ImportWarningCode =
     ImportWarningCode::AllomorphProcessBuildFailed;
 pub(crate) const ALLOMORPH_INFLECTION_CLASS_UNRESOLVED: ImportWarningCode =

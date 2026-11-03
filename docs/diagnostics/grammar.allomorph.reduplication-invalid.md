@@ -1,16 +1,16 @@
-# grammar.allomorph.reduplication-unsupported
+# grammar.allomorph.reduplication-invalid
 
-Unsupported reduplication form
+Invalid reduplication form
 
 Level: **warning**
 
 ## Explanation
 
-The allomorph uses a reduplication pattern that this parser does not run.
+The allomorph's reduplication pattern is malformed, so it was skipped.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, keep the intended pattern and report it; do not replace it unless an equivalent supported analysis is known.
+In Lexicon > Lexicon Edit, correct the pattern in Allomorphs > Form so every bracketed class has an index that appears in the environment.
 
 ## FieldWorks places
 
@@ -47,14 +47,6 @@ A stem without a grammatical category may not accept affixes that require one. A
 In Grammar > Category Edit, inspect the category's Affix Templates and Affix Slots; in Lexicon > Lexicon Edit, check the affix's Grammatical Info. and Slots. A partial affix can still be retained when it belongs to no slot.
 
 Feature values and inflection classes are linked by references, not by matching names. If a feature or class reference cannot be resolved, use the diagnostic to find the owner and field. Keep valid linguistic data when the parser lacks support for it, and report that limitation.
-
-## Constructions the parser skips or approximates
-
-Some FieldWorks constructions do not have the same behavior in the parser:
-
-- Reduplication patterns such as `[C^1][V^1]-` are not loaded as affix rules.
-
-Model a construction when it is part of the analysis, then check affected words and report valid behavior the parser cannot preserve.
 
 ## Measure one change
 

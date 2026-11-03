@@ -429,7 +429,19 @@ fn nodes_from_spanned(
         match chars.next() {
             Some('#') => {}
             Some('[') => {
-                let name = tok[1..tok.len() - 1].trim();
+                let token_name = tok[1..tok.len() - 1].trim();
+                // `[C^1]` names class `C` (reduplication index, HCLoader.cs:1262-1267); the recognizer accepts only digits after `^`.
+                let name = match token_name.split_once('^') {
+                    Some((class, index))
+                        if !index.is_empty() && index.chars().all(|c| c.is_ascii_digit()) =>
+                    {
+                        class.trim()
+                    }
+                    Some(_) => {
+                        return Err(format!("wedge used as part of a class name: {token_name}"))
+                    }
+                    None => token_name,
+                };
                 let nc = ctx.natclass_by_name.get(name).copied();
                 let natural_class_guid = nc
                     .and_then(|id| ctx.natural_class_defs.get(id.0 as usize))
