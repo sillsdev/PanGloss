@@ -3,12 +3,21 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.13.2
 
 ### Interface changes
 
 - `pangloss facts --light` writes a smaller facts file for readers that only need the Motif-read subset: it leaves out `conversion_item`, `conversion_stage`, `source_object`, `object_state`, `compiled_form_segment`, `sense_text` definitions, `statement_reference` rows that do not target an environment or natural class, unread `load_fact` rows and columns, and eight unused indexes, and computes none of them. It is still schema v8; `artifact_meta.light_omissions` lists what is missing, and the sections that cover the omissions (including `load_accounting`) are `partial` with reason `light`. Without the flag the file is byte-identical to before. On seven real grammars it takes 19-64% fewer instructions and writes a 61-81% smaller file (Cebuano 614 MB to 118 MB), one run each.
 - `rust/tools/retune-parser-work.ps1` and the `retune-parser-work` skill test whether the parser-work weights still fit after a parser change, and print ACCEPT, KEEP or REFUSED. The developer-only `cost-calibrate` command gains `--parse-only`, `--counts-out`, `--fit-counts` and `--weights` (a starting point for the fit), and now parses with the grammar's own template and root-guess settings, as `batch` does. The weights are unchanged. `instruction-compare.ps1` on Linux now reads real callgrind output (blank lines) and accepts pinned repeats that agree within 0.005%.
+- `pangloss stats --group object` reports each object's `work_steps` in jsonl rows and as a `--wide` column. It is the raw step count, not weighted parser work; no other group changes, and no interface version covers `stats` output, so a reader detects the field by its presence (#130).
+
+### Performance
+
+- `pangloss batch --stats` writes its cache with 9.5-55% fewer instructions across seven real grammars, with identical cache contents and schema 10. Cebuano gains least, because its remaining cost is a second grammar compile (#129).
+
+### Parse results
+
+- Parse results are unchanged. Grammar facts output without `--light` is byte-identical apart from the recorded build revision.
 
 ## 0.13.1
 
