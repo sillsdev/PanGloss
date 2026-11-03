@@ -71,6 +71,11 @@ impl MutNode {
         }
     }
 
+    /// Whether the node's spelling set meets `members`: C# unifies a node's StrRep with a class's, which succeeds exactly when they share a spelling.
+    fn admits_any_strrep(&self, members: &[CharDefId]) -> bool {
+        members.iter().any(|cd| self.contains_strrep(cd.0))
+    }
+
     fn add_strrep(&mut self, g: &Grammar, table: &CharDefTable, cd: u32) {
         if self.char_def != pg_shape::NO_CHAR_DEF {
             self.cd_set = CdSet::Members(CdBits::from_ids([self.char_def, cd]));
@@ -90,17 +95,41 @@ impl MutNode {
         strrep: bool,
     ) {
         if strrep {
-            if let PatternNode::CharDef(cd) = rhs {
-                self.char_def = cd.0;
-                self.cd_set = CdSet::Unrestricted;
-                self.lanes[pg_grammar_model::membership::width(&g.phon_features) - 1] =
-                    table.get(*cd).membership_bits();
+            // C# priority-unions the RHS feature structure, whose StrRep is the literal's spelling or the union of a segment class's members; a one-member class is its literal.
+            let spellings = match (rhs, segment_class_members(g, rhs)) {
+                (PatternNode::CharDef(cd), _) => std::slice::from_ref(cd),
+                (_, Some(members)) => members,
+                _ => return,
+            };
+            match spellings {
+                [cd] => {
+                    self.char_def = cd.0;
+                    self.cd_set = CdSet::Unrestricted;
+                }
+                _ => {
+                    self.char_def = pg_shape::NO_CHAR_DEF;
+                    self.cd_set = CdSet::Members(CdBits::from_ids(spellings.iter().map(|cd| cd.0)));
+                }
             }
+            self.lanes[pg_grammar_model::membership::width(&g.phon_features) - 1] = spellings
+                .iter()
+                .fold(0, |acc, cd| acc | table.get(*cd).membership_bits());
         } else {
             // Featured: the node's features changed, so what it was no longer says what it is.
             self.char_def = pg_shape::NO_CHAR_DEF;
             self.cd_set = CdSet::Unrestricted;
         }
+    }
+}
+
+/// The members of a segment-list class node, which on a featureless grammar is all the class says; `None` for any other node.
+fn segment_class_members<'a>(g: &'a Grammar, node: &PatternNode) -> Option<&'a [CharDefId]> {
+    let PatternNode::Context(sc) = node else {
+        return None;
+    };
+    match &g.natural_classes[sc.nat_class.0 as usize].kind {
+        NaturalClassKind::Segments(members) => Some(members),
+        NaturalClassKind::Feature(_) => None,
     }
 }
 
@@ -2615,6 +2644,12 @@ fn ana_feature_target(
             if let Some(strrep) = StrRepMatcher::new(g, table) {
                 if let PatternNode::CharDef(cd) = rhs_n {
                     strrep.constrain(&mut lanes, cd.0);
+                } else if let Some(members) = segment_class_members(g, rhs_n) {
+                    // A class inside one identity chunk constrains the FST exactly; a wider one is left to `ana_feature`'s `admits_any_strrep` check, since one lane row cannot express alternatives across chunks.
+                    let chunks = strrep.chunks_of(members.iter().map(|cd| cd.0));
+                    if let [(chunk, bits)] = chunks[..] {
+                        strrep.constrain_chunk(&mut lanes, chunk, bits);
+                    }
                 } else if let PatternNode::CharDef(cd) = lhs_n {
                     strrep.constrain(&mut lanes, cd.0);
                 }
@@ -2641,14 +2676,23 @@ fn ana_feature(
     let rhs_vars = pattern_var_occurrences(&sr.rhs);
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
 
-    let input_spellings: Vec<Option<u32>> = rule
+    // The spellings the LHS node stands for, which unapplying adds back to the surface node; only a featureless grammar carries them.
+    let input_spellings: Vec<Option<&[CharDefId]>> = rule
         .lhs
         .nodes
         .iter()
         .map(|node| match (ms.strrep, node) {
-            (Some(_), PatternNode::CharDef(cd)) => Some(cd.0),
-            _ => None,
+            (None, _) => None,
+            (Some(_), PatternNode::CharDef(cd)) => Some(std::slice::from_ref(cd)),
+            (Some(_), _) => segment_class_members(g, node),
         })
+        .collect();
+    // The spellings the RHS class gives the surface node: a segment class on the right says which surface nodes the rule could have produced.
+    let output_classes: Vec<Option<&[CharDefId]>> = sr
+        .rhs
+        .nodes
+        .iter()
+        .map(|node| ms.strrep.and(segment_class_members(g, node)))
         .collect();
 
     // Recomputed rather than threaded in: the same recompile-per-call tradeoff `analyze` makes.
@@ -2755,6 +2799,12 @@ fn ana_feature(
                 rejected.insert(s);
                 continue;
             }
+            if target_nodes.iter().enumerate().any(|(k, &node)| {
+                output_classes[k].is_some_and(|m| !ms.nodes[node].admits_any_strrep(m))
+            }) {
+                rejected.insert(s);
+                continue;
+            }
             // IsUnapplicationNonvacuous (C# `FeatureAnalysisRewriteRuleSpec.cs`): nonvacuous iff some changed feature's current value does not already superset the bits being OR'd in — i.e. the OR would actually add bits, not merely "isn't already fully unconstrained".
             let nonvacuous = target_nodes.iter().enumerate().any(|(k, &node)| {
                 changed[k]
@@ -2764,7 +2814,11 @@ fn ana_feature(
                         let mask = full_mask(g, occ.feature);
                         ms.nodes[node].lanes[occ.feature] & mask != mask
                     })
-                    || input_spellings[k].is_some_and(|cd| !ms.nodes[node].contains_strrep(cd))
+                    || input_spellings[k].is_some_and(|spellings| {
+                        spellings
+                            .iter()
+                            .any(|cd| !ms.nodes[node].contains_strrep(cd.0))
+                    })
             });
             if !nonvacuous {
                 rejected.insert(s);
@@ -2775,8 +2829,10 @@ fn ana_feature(
                     ms.nodes[node].lanes[f] |= neg;
                 }
                 ms.nodes[node].dirty = true;
-                if let Some(cd) = input_spellings[k] {
-                    ms.nodes[node].add_strrep(g, table, cd);
+                if let Some(spellings) = input_spellings[k] {
+                    for cd in spellings {
+                        ms.nodes[node].add_strrep(g, table, cd.0);
+                    }
                 } else if ms.strrep.is_none() {
                     ms.nodes[node].char_def = pg_shape::NO_CHAR_DEF;
                     ms.nodes[node].cd_set = CdSet::Unrestricted;

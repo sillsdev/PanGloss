@@ -31,6 +31,8 @@ mod edge_prefilter_gate;
 mod effective_analysis_target;
 #[path = "../exact_analysis_fs_recall.rs"]
 mod exact_analysis_fs_recall;
+#[path = "../featureless_wide_class_rewrite.rs"]
+mod featureless_wide_class_rewrite;
 #[path = "../final_template_pruning_gate.rs"]
 mod final_template_pruning_gate;
 #[path = "../free_fluctuation_gate.rs"]

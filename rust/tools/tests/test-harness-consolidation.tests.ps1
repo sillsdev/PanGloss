@@ -119,7 +119,7 @@ $crateSpecs = @(
         MaxTargets = 3
         ExpectedSourceNames = @(
             'adhoc_affix_copies.rs', 'adhoc_allomorph_copies.rs', 'adhoc_fieldworks_witnesses.rs',
-            'adhoc_morpheme_variant_copies.rs', 'copy_agreement_featureless.rs',
+            'adhoc_morpheme_variant_copies.rs', 'copy_agreement_featureless.rs', 'featureless_wide_class_rewrite.rs',
             'effective_analysis_target.rs', 'phonology_gate.rs', 'work_cap_gate.rs', 'trace_template_outcomes.rs',
             'edge_prefilter_gate.rs', 'lookup_replay_gate.rs',
             'batch_determinism.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
