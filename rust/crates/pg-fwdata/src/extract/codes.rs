@@ -39,10 +39,6 @@ pub(crate) const EMPTY_REPRESENTATION: ImportWarningCode =
 /// no variant for; a documented default is substituted so extraction can continue.
 pub(crate) const UNRECOGNIZED_ENUM_VALUE: ImportWarningCode =
     ImportWarningCode::FwdataUnrecognizedEnumValue;
-/// `PhMetathesisRule.StrucChange`'s two-element-swap approximation could not exactly represent the
-/// authored permutation (documented model gap — see `extract_metathesis_rule`'s doc).
-pub(crate) const METATHESIS_APPROXIMATION: ImportWarningCode =
-    ImportWarningCode::FwdataMetathesisApproximation;
 /// An enabled ad-hoc "morpheme" co-occurrence prohibition targets an inflectional affix whose
 /// slot(s) belong only to disabled affix templates — the stale/unreachable-rule shape that
 /// crashes FieldWorks' own HC exporter (`docs/fwdata-import-plan.md` §1's motivating example).

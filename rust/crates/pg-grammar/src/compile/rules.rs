@@ -4,8 +4,8 @@ use pg_snapshot::phonology::{PhonContext, PhonologicalRule, RewriteRhs, RewriteR
 use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
 
 use crate::model::{
-    AlphaVar, AnchorSide, Dir, PRuleId, Pattern, PatternNode, PhonRuleDef, RewriteMode,
-    RewriteRuleDef, RewriteSubruleDef, SimpleContext, VarTable,
+    AlphaVar, AnchorSide, Dir, MetathesisRuleDef, PRuleId, Pattern, PatternNode, PhonRuleDef,
+    RewriteMode, RewriteRuleDef, RewriteSubruleDef, SimpleContext, VarTable,
 };
 use crate::GrammarError;
 
@@ -56,17 +56,36 @@ pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, Grammar
             }
             PhonologicalRule::Metathesis(r) => {
                 let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
+                // `HCLoader` loads a metathesis rule only when both switch indices are set.
+                if r.left_switch_index == -1 || r.right_switch_index == -1 {
+                    ctx.not_considered(
+                        key,
+                        pg_snapshot::LoadReasonCode::ConversionIssue(
+                            "metathesisSwitchUnset".to_string(),
+                        ),
+                    );
+                    continue;
+                }
                 ctx.considered(key.clone());
                 ctx.selected(key.clone());
-                ctx.refuse(
-                    key,
-                    issue_codes::RULE_METATHESIS_UNSUPPORTED,
-                    IssueClass::UnrepresentableForHc,
-                    format!(
-                        "unsupported: metathesis rule {:?} not implemented; skipped",
-                        r.guid
+                match build_metathesis_rule(r, ctx) {
+                    Ok(def) => {
+                        let id = PRuleId(prules.len() as u32);
+                        prules.push(PhonRuleDef::Metathesis(def));
+                        if on_morphology {
+                            morphology_prules.push(id);
+                        } else {
+                            clitic_prules.push(id);
+                        }
+                        ctx.represented(key);
+                    }
+                    Err(e) => ctx.refuse(
+                        key,
+                        issue_codes::RULE_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("metathesis rule {:?}: {e}; skipped", r.guid),
                     ),
-                );
+                }
             }
         }
     }
@@ -160,6 +179,62 @@ fn build_rewrite_rule(
         vars,
         lhs,
         subrules,
+    })
+}
+
+/// `HCLoader.LoadMetathesisRule`: one pattern node per `StrucDesc` context (a word boundary only sets the anchor), with the context at `RightSwitchIndex` as the engine's `left_switch` (HC's "r" group) and the one at `LeftSwitchIndex` as `right_switch` (HC's "l" group).
+fn build_metathesis_rule(
+    r: &pg_snapshot::phonology::MetathesisRule,
+    ctx: &Ctx,
+) -> Result<MetathesisRuleDef, String> {
+    let vars = VarTable::default();
+    let mut nodes = Vec::new();
+    if r.structural_description
+        .first()
+        .is_some_and(left_is_word_boundary)
+    {
+        nodes.push(PatternNode::Anchor(AnchorSide::Left));
+    }
+    // `r.*_switch_index` are StrucDesc positions; `at[i]` is that context's pattern-node index.
+    let mut at = Vec::with_capacity(r.structural_description.len());
+    for c in &r.structural_description {
+        let mut built = phon_context_nodes(c, ctx, &vars)?;
+        if built.len() > 1 {
+            return Err("a structural-description context built more than one pattern node".into());
+        }
+        at.push(built.pop().map(|node| {
+            nodes.push(node);
+            (nodes.len() - 1) as u32
+        }));
+    }
+    if r.structural_description
+        .last()
+        .is_some_and(right_is_word_boundary)
+    {
+        nodes.push(PatternNode::Anchor(AnchorSide::Right));
+    }
+    let switch = |index: i32, which: &str| {
+        usize::try_from(index)
+            .ok()
+            .and_then(|i| at.get(i).copied().flatten())
+            .ok_or_else(|| format!("{which} switch index {index} names no pattern element"))
+    };
+    let left_switch = switch(r.right_switch_index, "right")?;
+    let right_switch = switch(r.left_switch_index, "left")?;
+    if left_switch == right_switch {
+        return Err("both switches name the same element".into());
+    }
+    let dir = match r.direction {
+        pg_snapshot::phonology::RuleDirection::RightToLeft => Dir::RightToLeft,
+        _ => Dir::LeftToRight,
+    };
+    Ok(MetathesisRuleDef {
+        xml_id: r.guid.clone(),
+        name: Some(r.name.clone()),
+        dir,
+        pattern: Pattern { nodes },
+        left_switch,
+        right_switch,
     })
 }
 

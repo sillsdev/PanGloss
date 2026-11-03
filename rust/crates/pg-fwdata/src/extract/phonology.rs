@@ -647,59 +647,43 @@ fn resolve_rule_features(ctx: &mut Ctx, rec: &Record, field: &str, label: &str) 
         .collect()
 }
 
-/// Model gap: the LCM schema has no switch-index integer fields, only a `StrucChange` string this parses into an approximate two-element swap.
+/// Metathesis rule: `StrucChange` is `[left env, right switch, middle, left switch, right env]`.
 /// See `docs/research/pg-fwdata-phonology-extract-notes.md`.
 fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule> {
     let label = "phonology.rules(metathesis)";
     let direction = rule_direction(rec, ctx, label);
-    let structural_description: Vec<_> = rec
-        .node
-        .objsur_list("StrucDesc")
-        .into_iter()
-        .filter_map(|g| resolve_phon_context(ctx, &g, label, rec, "StrucDesc"))
+    let context_guids = rec.node.objsur_list("StrucDesc");
+    let structural_description: Vec<_> = context_guids
+        .iter()
+        .filter_map(|g| resolve_phon_context(ctx, g, label, rec, "StrucDesc"))
         .collect();
 
-    let struc_change_text = rec
-        .node
-        .child("StrucChange")
-        .map(|c| c.text.clone())
-        .unwrap_or_default();
-    let permutation: Vec<usize> = struc_change_text
-        .split_whitespace()
-        .filter_map(|tok| tok.parse::<usize>().ok())
-        .collect();
-    if permutation.len() != structural_description.len() {
+    let struc_change_text = rec.node.str_text("StrucChange").unwrap_or_default();
+    let Some([_, right_switch_index, _, left_switch_index, _]) =
+        parse_struc_change_indices(&struc_change_text)
+    else {
         ctx.warn_with_subjects(
-            super::codes::METATHESIS_APPROXIMATION,
+            super::codes::MISSING_REQUIRED_FIELD,
             format!(
-                "{label}: rule {} StrucChange {:?} does not enumerate all {} structural-description \
-                 positions; switch indices may be wrong",
-                rec.guid,
-                struc_change_text,
-                structural_description.len()
-            ),
-            [ctx.subject_for_record(rec, Some("StrucChange"))],
-        );
-    }
-    let differing: Vec<usize> = permutation
-        .iter()
-        .enumerate()
-        .filter(|(i, &v)| v != i + 1)
-        .map(|(i, _)| i)
-        .collect();
-    if !differing.is_empty() && differing.len() != 2 {
-        ctx.warn_with_subjects(
-            super::codes::METATHESIS_APPROXIMATION,
-            format!(
-                "{label}: rule {} has a StrucChange permutation more complex than a simple two-part \
-                 swap ({:?}); left/right switch indices are an approximation",
+                "{label}: rule {} StrucChange {:?} is not five space-separated indices; rule skipped",
                 rec.guid, struc_change_text
             ),
             [ctx.subject_for_record(rec, Some("StrucChange"))],
         );
+        return None;
+    };
+    if structural_description.len() != context_guids.len() {
+        ctx.warn_with_subjects(
+            super::codes::MISSING_REQUIRED_FIELD,
+            format!(
+                "{label}: rule {} lost a StrucDesc context, so its StrucChange indices no longer \
+                 line up; rule skipped",
+                rec.guid
+            ),
+            [ctx.subject_for_record(rec, Some("StrucDesc"))],
+        );
+        return None;
     }
-    let left_switch_index = differing.first().copied().unwrap_or(0) as i32;
-    let right_switch_index = differing.last().copied().unwrap_or(0) as i32;
 
     Some(MetathesisRule {
         guid: rec.guid.clone(),
@@ -709,6 +693,22 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
         left_switch_index,
         right_switch_index,
     })
+}
+
+/// LCM `GetStrucChangeIndices`: split on single spaces, strip the middle's `:L`/`:R` suffix, parse five integers.
+fn parse_struc_change_indices(text: &str) -> Option<[i32; 5]> {
+    let mut fields = text.split(' ');
+    let mut out = [0i32; 5];
+    for (i, slot) in out.iter_mut().enumerate() {
+        let field = fields.next()?;
+        let field = if i == 2 {
+            field.split(':').next().unwrap_or(field)
+        } else {
+            field
+        };
+        *slot = field.parse().ok()?;
+    }
+    Some(out)
 }
 
 /// Resolve a `PhContextOrVar` guid into a `PhonContext` tree, shared by phonological rules and `extract::lexicon`.

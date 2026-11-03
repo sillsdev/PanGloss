@@ -41,23 +41,17 @@ occurrence wins (deduplicated).
 actually wants is each wrapper's `Item` (an `MoInflClass` or `CmPossibility`) —
 `HCLoader.LoadMprFeatures`, HCLoader.cs:2610-2623.
 
-## `extract_metathesis_rule`: the model gap
+## `extract_metathesis_rule`: StrucChange indices
 
-Undetected until real-project verification found neither fixture project exercises metathesis rules
-at all. `docs/snapshot-format.md` documents `MetathesisRule.left_switch_index`/`right_switch_index`
-as coming from `PhMetathesisRule.LeftSwitchIndex`/`RightSwitchIndex` integer fields. Those fields do
-not exist in the current LCM schema (`MasterLCModel.xml`, `PhMetathesisRule` class num 130): the
-only field `PhMetathesisRule` itself declares is `StrucChange`, a `String` — an ordered sequence of
-integers separated by a space, each a 1-based position into the (inherited from `PhSegmentRule`)
-`StrucDesc` sequence, giving the output order. `HCLoader.cs` doesn't read two switch-index integers
-either; it calls a compiled-only `GetStrucChangeIndices()` helper that parses this same string
-(HCLoader.cs:2119-2161, `PhMetathesisRuleTags.kidx*`).
-
-Since `pg-snapshot`'s model can only represent a simple two-element swap (not an arbitrary
-permutation), this parses `StrucChange` and takes the leftmost and rightmost 1-based positions that
-differ from the identity permutation as `left_switch_index`/`right_switch_index` (0-based) — exact
-for a plain A...B -> B...A swap (the common case), an approximation for anything fancier (warned).
-Unverified against real data: neither Sena 3 nor Amharic contains a single `PhMetathesisRule`.
+`PhMetathesisRule` declares one field of its own, `StrucChange`, a `String` holding five
+space-separated integers, each -1 when absent: `[left env, right switch, middle(:L|:R), left switch,
+right env]` (`PhMetathesisRuleTags.kidx*`, read by `GetStrucChangeIndices()`). `HCLoader.LoadMetathesisRule`
+(HCLoader.cs ~335, ~2152) names the node at `RightSwitchIndex` "r" and sets it as `LeftSwitchName`, and
+names the node at `LeftSwitchIndex` "l" and sets it as `RightSwitchName`; a rule with either switch
+unset is skipped. The snapshot carries `left_switch_index` = field 3 and `right_switch_index` =
+field 1, so the grammar compiler maps them the same way. `StrucChange` is a `<Str>` element in
+fwdata, so it is read with `str_text`. Verified against hc.dll on a LibLCM-authored project
+(`crates/pg-parse/tests/data/fw-metathesis`).
 
 ## `resolve_phon_context`
 

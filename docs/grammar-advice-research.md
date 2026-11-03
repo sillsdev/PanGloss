@@ -144,16 +144,6 @@ Location and action: Use the finding description to identify the affected item a
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:132`; INTEGRITY.
 
-### `fwdata.metathesis-approximation`
-
-Cause: The FieldWorks importer converts this rule to an approximation rather than preserving its exact metathesis behavior.
-
-Location and action: In Grammar > Phonological Rules, review the emitted rule description and compare affected words; report a valid rule whose behavior is not preserved.
-
-Verified inspection destinations: Grammar > Phonological Rules (tool verified; no specific editable field established).
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:139`; RULE.
-
 ### `fwdata.stale-adhoc-prohibition`
 
 Cause: An ad hoc morpheme rule names an inflectional affix whose slot is outside every enabled template.
@@ -717,16 +707,6 @@ Correction status: **no verified grammar correction for this kind**. The failing
 Location and action: Report the type and marker details to PanGloss. The failing marker is generated internally; no verified FieldWorks form correction is known.
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:545`; VARIANT, INTEGRITY.
-
-### `grammar.rule.metathesis-unsupported`
-
-Cause: The compiler skips this metathesis rule; it does not approximate or run it.
-
-Location and action: In Grammar > Phonological Rules, keep the valid rule and report it if words rely on its behavior; inspect affected words with a parse trace.
-
-Verified inspection destinations: Grammar > Phonological Rules (tool verified; no specific editable field established).
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:552`; RULE.
 
 ### `grammar.rule.build-failed`
 
