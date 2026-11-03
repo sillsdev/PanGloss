@@ -1,6 +1,4 @@
-//! Bitset capacities and the `grammar.limit.*` errors raised when a grammar exceeds them.
-//!
-//! Parts of speech share one symbol feature (bit 63 is the mask boundary), every symbolic feature has its own 63-value mask, and inflection classes, exception features and entry inflection types share one 64-bit MPR set. C# HermitCrab has no such caps (issue #150); the owner accepted them with explicit errors, to be widened if a real project nears one.
+//! Bitset caps and the `grammar.limit.*` errors raised past them (issue #150: caps kept, errors made explicit).
 
 use pg_snapshot::ImportWarningCode;
 
