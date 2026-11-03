@@ -1749,6 +1749,60 @@ fn unsupported_affix_process_arity_is_published_without_changing_compilation_war
     let _ = f;
 }
 
+/// HCLoader rejects a process whose input part is a bare word boundary (`LoadPatternNode` fails, HCLoader.cs:1405) but erases one inside a sequence (#164).
+#[test]
+fn word_boundary_affix_process_input_is_rejected_not_erased() {
+    let process = |input: PhonContext| AffixProcess {
+        input: vec![input],
+        output: vec![
+            RuleMapping::CopyFromInput { part: 1 },
+            RuleMapping::InsertSegments { text: "a".into() },
+        ],
+    };
+    let rule_count = |grammar: &crate::model::Grammar| {
+        grammar
+            .mrules
+            .iter()
+            .filter(|rule| matches!(rule, MorphRuleDef::AffixProcess(_)))
+            .count()
+    };
+    for (input, loads) in [
+        (PhonContext::WordBoundary, false),
+        (
+            PhonContext::Iteration {
+                min: 0,
+                max: -1,
+                member: Box::new(PhonContext::WordBoundary),
+            },
+            false,
+        ),
+        (
+            PhonContext::Sequence {
+                members: vec![PhonContext::WordBoundary],
+            },
+            false,
+        ),
+        (
+            PhonContext::Sequence {
+                members: vec![PhonContext::WordBoundary, PhonContext::Variable],
+            },
+            true,
+        ),
+    ] {
+        let (mut snapshot, _f) = fixture();
+        snapshot.lexicon.entries[1].allomorphs[0].process = Some(process(input.clone()));
+        let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+        assert_eq!(rule_count(&grammar), usize::from(loads), "{input:?}");
+        assert_eq!(
+            warnings
+                .iter()
+                .any(|w| w.code == super::issue_codes::ALLOMORPH_PROCESS_BUILD_FAILED.wire()),
+            !loads,
+            "{input:?}: {warnings:?}"
+        );
+    }
+}
+
 /// HCLoader's `IsValidRuleForm` accepts any `MoAffixProcess` with more than one part whatever its morph type, so a simulfix or suprafix process loads as a rule exactly as a suffix process does (#149).
 #[test]
 fn simulfix_and_suprafix_process_forms_load_as_affix_process_rules() {

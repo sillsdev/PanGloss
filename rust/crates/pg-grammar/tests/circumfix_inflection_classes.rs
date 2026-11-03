@@ -75,6 +75,20 @@ fn stem(guid: &str, form: &str, class: &str) -> LexEntry {
 
 /// A `ma-...-u` circumfix under an inflectional MSA; `prefix_class` and `suffix_class` restrict either half.
 fn snapshot(prefix_class: &[&str], suffix_class: &[&str]) -> Snapshot {
+    snapshot_typed(
+        MorphType::Prefix,
+        prefix_class,
+        MorphType::Suffix,
+        suffix_class,
+    )
+}
+
+fn snapshot_typed(
+    prefix_type: MorphType,
+    prefix_class: &[&str],
+    suffix_type: MorphType,
+    suffix_class: &[&str],
+) -> Snapshot {
     let noun = PartOfSpeech {
         guid: "pos-noun".to_string(),
         name: "Noun".to_string(),
@@ -104,8 +118,8 @@ fn snapshot(prefix_class: &[&str], suffix_class: &[&str]) -> Snapshot {
         citation_form: vec![ws("sen", "ma-...-u")],
         lexeme_morph_type: MorphType::Circumfix,
         allomorphs: vec![
-            allomorph("allo-prefix", MorphType::Prefix, "ma", prefix_class),
-            allomorph("allo-suffix", MorphType::Suffix, "u", suffix_class),
+            allomorph("allo-prefix", prefix_type, "ma", prefix_class),
+            allomorph("allo-suffix", suffix_type, "u", suffix_class),
         ],
         msas: vec![Msa::Inflectional {
             guid: "msa-circumfix".to_string(),
@@ -174,4 +188,29 @@ fn suffix_half_classes_are_ignored() {
         1,
         "class-B stem parses under the same circumfix"
     );
+}
+
+/// HCLoader pairs only exact prefix and suffix halves (HCLoader.cs:1102, 1107), so interfix and clitic halves are not paired.
+#[test]
+fn interfix_and_clitic_halves_are_not_paired() {
+    for (prefix_type, suffix_type) in [
+        (MorphType::PrefixingInterfix, MorphType::Suffix),
+        (MorphType::Proclitic, MorphType::Suffix),
+        (MorphType::Prefix, MorphType::SuffixingInterfix),
+        (MorphType::Prefix, MorphType::Enclitic),
+    ] {
+        let (grammar, warnings) =
+            pg_grammar::compile_project(&snapshot_typed(prefix_type, &[], suffix_type, &[]))
+                .expect("must compile");
+        let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+        assert_eq!(
+            morpher.parse_word("makatu").analyses.len(),
+            0,
+            "{prefix_type:?} + {suffix_type:?} must not form a circumfix"
+        );
+        assert!(
+            warnings.iter().any(|w| w.message.contains("missing its")),
+            "{prefix_type:?} + {suffix_type:?} must report the missing half"
+        );
+    }
 }
