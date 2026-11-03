@@ -4,7 +4,7 @@ Every registered `pangloss grammar-health` finding has a page generated from Pan
 
 Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/docs/diagnostics/<code>.md`. Each page's first heading is its code; GitHub also renders an anchor from that heading. The file path is stable even for dotted codes.
 
-## Errors (32)
+## Errors (33)
 
 | Code | Title | What to do |
 |---|---|---|
@@ -20,6 +20,7 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [grammar.boundary.nfd-collision](diagnostics/grammar.boundary.nfd-collision.md) | Boundary representation collision | Compare any named phoneme's In Orthography as values in Grammar > Phonemes. No editable FieldWorks boundary field has been verified; report an intentional collision to PanGloss or FieldWorks support. |
 | [grammar.natclass.feature-constraint-unresolved](diagnostics/grammar.natclass.feature-constraint-unresolved.md) | Unresolved natural class feature | In Grammar > Natural Classes, select the named class and open the Phonological Features chooser. Reselect the intended values, checking Grammar > Phonological Features if a feature or value is missing. Report the finding if the definition is already valid. |
 | [grammar.natclass.complex-feature-unsupported](diagnostics/grammar.natclass.complex-feature-unsupported.md) | Unsupported natural class feature | In Grammar > Natural Classes, keep valid feature data and report the unsupported value, or use an equivalent supported constraint if one exists. |
+| [grammar.feature.negated-value-unsupported](diagnostics/grammar.feature.negated-value-unsupported.md) | Negated feature value | Find the feature structure named in the finding and remove the negated value, or rewrite it as a positive value: in Grammar > Category Edit > Inflection Features, in Lexicon > Lexicon Edit under Grammatical Info, or in the rule's feature fields. |
 | [grammar.compound-rule.side-pos-unresolved](diagnostics/grammar.compound-rule.side-pos-unresolved.md) | Unresolved compound category | In Grammar > Compound Rules, inspect Category on the named input or output and select the intended existing category. |
 | [grammar.compound-rule.side-exception-feature-unresolved](diagnostics/grammar.compound-rule.side-exception-feature-unresolved.md) | Unresolved compound exception feature | In Grammar > Compound Rules, repair the named exception feature reference if it is stale. |
 | [grammar.msa.no-allomorphs](diagnostics/grammar.msa.no-allomorphs.md) | No usable entry allomorphs | In Lexicon > Lexicon Edit, inspect Lexeme Form, Allomorphs and Morph Type. Resolve the specific allomorph loading findings before adding a new form. |

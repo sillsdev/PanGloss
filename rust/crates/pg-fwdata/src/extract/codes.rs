@@ -17,6 +17,9 @@ pub(crate) const DANGLING_REFERENCE: ImportWarningCode = ImportWarningCode::Fwda
 /// position (includes the tag/discriminant classes like `PhContextOrVar`/`RuleMapping` variants,
 /// not just `super::Ctx::require`'s single-target-class case).
 pub(crate) const UNEXPECTED_CLASS: ImportWarningCode = ImportWarningCode::FwdataUnexpectedClass;
+/// A feature structure holds a negated (or other non-closed, non-complex) value; FieldWorks' `HCLoader` throws on it, so the import is fatal.
+pub(crate) const NEGATED_FEATURE_VALUE: ImportWarningCode =
+    ImportWarningCode::FeatureNegatedValueUnsupported;
 /// A record is missing a field this extractor needs to represent it at all (as opposed to that
 /// field being present but dangling) -- the record/sub-structure is skipped as a result.
 pub(crate) const MISSING_REQUIRED_FIELD: ImportWarningCode =

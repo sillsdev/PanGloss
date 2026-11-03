@@ -2,8 +2,8 @@
 
 use pg_snapshot::{
     ClosedFeature, ComplexFeature, ConversionIssue, FeatureStructure, FeatureSystem,
-    FeatureSystems, FeatureValue, FeatureValueKind, FeatureValueSymbol, InventoryKey,
-    InventoryKind, IssueClass, SourceRef,
+    FeatureSystems, FeatureValue, FeatureValueKind, FeatureValueSymbol, FwClass, InventoryKey,
+    InventoryKind, IssueClass, SourceRef, Warning,
 };
 
 use super::Ctx;
@@ -184,12 +184,20 @@ pub fn extract_feature_structure(
     let key = InventoryKey::object(InventoryKind::FeatureStructure, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
-    let structure = extract_feature_struct_node(ctx, rec, label);
-    ctx.represented(key);
+    let (structure, intact) = extract_feature_struct_node(ctx, rec, label);
+    if intact {
+        ctx.represented(key);
+    }
     Some(structure)
 }
 
-fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> FeatureStructure {
+/// The structure plus `false` when a spec was rejected: a negated value must fail the load, not vanish from the grammar.
+fn extract_feature_struct_node(
+    ctx: &mut Ctx,
+    rec: &Record,
+    label: &str,
+) -> (FeatureStructure, bool) {
+    let mut intact = true;
     let mut values = Vec::new();
     for spec_guid in rec.node.objsur_list("FeatureSpecs") {
         let Some(spec) = ctx.get(&spec_guid) else {
@@ -232,8 +240,13 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
                         );
                         ctx.considered(nested_key.clone());
                         ctx.selected(nested_key.clone());
-                        let nested = extract_feature_struct_node(ctx, nested_rec, label);
-                        ctx.represented(nested_key);
+                        let (nested, nested_intact) =
+                            extract_feature_struct_node(ctx, nested_rec, label);
+                        if nested_intact {
+                            ctx.represented(nested_key);
+                        } else {
+                            intact = false;
+                        }
                         FeatureValueKind::Complex { value: nested }
                     }
                     actual => {
@@ -264,19 +277,35 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
                 }
             },
             other => {
-                ctx.warn_with_subjects(
-                    super::codes::UNEXPECTED_CLASS,
-                    format!("{label}: feature spec {spec_guid} has unexpected class {other}"),
-                    [
-                        ctx.subject_for_record(rec, Some("FeatureSpecs")),
-                        ctx.unresolved_subject(&spec_guid, "FsFeatureSpec", Some("FeatureSpecs")),
-                        ctx.subject_for_record(spec, None),
-                    ],
+                let warning = Warning::new(
+                    super::codes::NEGATED_FEATURE_VALUE,
+                    format!(
+                        "{label}: feature spec {spec_guid} has class {other}, which HermitCrab \
+                         cannot load (HCLoader accepts only FsClosedValue and FsComplexValue)"
+                    ),
+                )
+                .with_subject(ctx.subject_for_record(rec, Some("FeatureSpecs")))
+                .with_subject(ctx.unresolved_subject(
+                    &spec_guid,
+                    "FsFeatureSpec",
+                    Some("FeatureSpecs"),
+                ))
+                .with_subject(ctx.subject_for_record(spec, None));
+                ctx.reject_with_warning(
+                    InventoryKey::object(InventoryKind::FeatureStructure, rec.guid.clone()),
+                    IssueClass::UnrepresentableForHc,
+                    true,
+                    Some(SourceRef {
+                        kind: FwClass::from_wire(&spec.class),
+                        id: spec_guid.clone(),
+                    }),
+                    warning,
                 );
+                intact = false;
                 continue;
             }
         };
         values.push(FeatureValue { feature, value });
     }
-    FeatureStructure { values }
+    (FeatureStructure { values }, intact)
 }
