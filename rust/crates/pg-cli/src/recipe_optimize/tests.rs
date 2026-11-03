@@ -89,7 +89,7 @@ fn progress_reader_keeps_complete_rows_and_discards_malformed_or_truncated_rows(
             "apply": 1,
             "proposals": 1,
             "confirmation": 1,
-            "confirmation_steps": 1,
+            "confirmation_work": 1,
             "raw_paths": 1
         },
         "production_blocks_publication": false,
@@ -131,7 +131,7 @@ fn progress_reader_keeps_a_row_written_by_the_real_writer() {
             "apply": 1,
             "proposals": 1,
             "confirmation": 1,
-            "confirmation_steps": 1,
+            "confirmation_work": 1,
             "raw_paths": 1
         },
         "production_blocks_publication": false,

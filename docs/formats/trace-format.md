@@ -25,7 +25,7 @@ pangloss parse <grammar> <word> --trace --trace-format=json --trace-details
 
 This flag is valid only for JSON tracing on `parse`. With `--trace` alone it writes the document to standard output; with `--trace=<path>` it writes the document to that file. `--gloss` and `--natural-gloss` cannot be combined with it because they produce text output.
 
-The `pangloss.trace-details.v4` object contains the v1 search and category fields plus parser provenance, writing systems, stable document-local analysis IDs, FieldWorks projection status, captured morph display data when a snapshot supplies it, typed source identities, attempted morph snapshots, branch outcomes, and owner-published failure context. The exact contract is in [trace-details-v2.md](trace-details-v2.md). The CLI-emitted [historical v2 example](examples/trace-details-v2-matinlu.json) documents the previous profile. `search` reports completion flags, parser steps, and parser `elapsedNs`; it does not contain per-node timers. `categories` includes work-step attribution with an explicit remainder. The ordinary `--trace` tree remains embedded under `trace`, with its source order and fields preserved.
+The `pangloss.trace-details.v5` object contains the v1 search and category fields plus parser provenance, writing systems, stable document-local analysis IDs, FieldWorks projection status, captured morph display data when a snapshot supplies it, typed source identities, attempted morph snapshots, branch outcomes, and owner-published failure context. The exact contract is in [trace-details-v2.md](trace-details-v2.md). The CLI-emitted [historical v2 example](examples/trace-details-v2-matinlu.json) documents the previous profile. `search` reports completion flags, `workSteps`, and parser `elapsedNs`; it does not contain per-node timers. `categories` includes work-step attribution with an explicit remainder. The ordinary `--trace` tree remains embedded under `trace`, with its source order and fields preserved.
 
 The detailed mode runs the same unmerged traced search described below. It adds no per-node timers or inferred failure details. Omitting `--trace-details` uses the ordinary trace tree without rich payload fields. Compound analysis attempts use their own `CompoundingRuleAnalysis` event type in both modes.
 
@@ -41,8 +41,7 @@ in the tree differs between the two — `text` and `json` are two renderings of 
 trace.
 
 Tracing exists only on `parse`, one word per invocation. `batch` — the many-words-at-once command
-— cannot trace. `parse --trace` has no configurable `--step-cap` flag; it uses PanGloss's finite
-default step cap and reports whether that cap fired in the details envelope.
+— cannot trace. `parse --trace` accepts `--work-cap` and `--word-timeout-ms`, and reports whether either limit fired in the details envelope.
 ## A traced parse is not the same search as an ordinary one
 
 **Read this before drawing any conclusion from step counts or timing in a trace.** An ordinary
@@ -57,7 +56,7 @@ other's rule attempts and failures would simply be missing from what you're look
 So a trace is not a recording of what an ordinary parse did. It is a second, larger parse, run
 deliberately unmerged so nothing that was tried gets hidden. A word that parses in a few hundred
 steps ordinarily can generate a much larger trace, and a word that would not have finished within
-an ordinary parse's step budget may not finish within a traced one either — tracing makes the
+an ordinary parse's work cap may not finish within a traced one either — tracing makes the
 search bigger, not smaller or faster.
 
 ## The shape of the tree

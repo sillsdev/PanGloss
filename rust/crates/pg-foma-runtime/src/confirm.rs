@@ -42,16 +42,15 @@ pub const RULE_UNION_SLACK: usize = 3;
 pub(crate) struct ConfirmBatchDiagnostics {
     pub confirmation_groups: usize,
     pub confirmation_calls: usize,
-    /// Total `pg_rules::stratum::StepBudget` ticks the full-HC oracle actually consumed across every
-    /// call in this batch (`pg_parse::ParseOutcome::steps`).
+    /// Total work steps the full-HC oracle actually consumed across every call in this batch
+    /// (`pg_parse::ParseOutcome::work_steps`).
     ///
     /// A finer unit than `confirmation_calls`, and the one worth ranking on: a call is not a constant
     /// amount of work, because a long word costs far more to adjudicate than a short one, so counting
     /// calls under-weights exactly the expensive words that dominate real cost. It is also the unit
-    /// HC work is already BOUNDED in (`backend_runtime::DEFAULT_ORACLE_STEP_CAP` caps these same
-    /// ticks), so measuring in it means the objective and the cap finally speak the same language.
-    /// Deterministic, like the counts beside it -- no wall-clock anywhere.
-    pub confirmation_steps: usize,
+    /// HC work is bounded in (`backend_runtime::DEFAULT_ORACLE_WORK_CAP` caps the same total), so the
+    /// objective and the cap speak the same language. Deterministic, like the counts beside it.
+    pub confirmation_work: usize,
 }
 
 /// What one fused confirmation chunk cost, and which candidates shared that cost.
@@ -62,15 +61,15 @@ pub(crate) struct ConfirmBatchDiagnostics {
 /// turned it away before any parse — and a candidate that is a chunk's only member owns that
 /// chunk's whole figure. Anything in between is shared and not divisible by this record.
 ///
-/// `steps` is `pg_parse::ParseOutcome::steps` and is deterministic; `elapsed` is an observation of
+/// `work_steps` is `pg_parse::ParseOutcome::work_steps` and is deterministic; `elapsed` is an observation of
 /// the same call and is not.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConfirmChunkCost {
     /// Indices into the candidate slice that was confirmed, ascending.
     pub members: Vec<usize>,
-    pub steps: usize,
+    pub work_steps: usize,
     pub elapsed: Duration,
-    /// Whether the word deadline fired during this chunk's reparse. When it did, `steps` is a
+    /// Whether the word deadline fired during this chunk's reparse. When it did, `work_steps` is a
     /// truncated figure and the chunk's empty buckets are not evidence that anything was rejected —
     /// a reader that ignores this flag will count abandoned work as removable work.
     pub timed_out: bool,
@@ -518,15 +517,16 @@ fn confirm_batch_impl(
         let elapsed = timer.elapsed();
         // Read BEFORE the loop below consumes `outcome`.
         if let Some(diagnostics) = diagnostics.as_deref_mut() {
-            diagnostics.confirmation_steps =
-                diagnostics.confirmation_steps.saturating_add(outcome.steps);
+            diagnostics.confirmation_work = diagnostics
+                .confirmation_work
+                .saturating_add(outcome.work_steps);
         }
         if let Some(costs) = costs.as_deref_mut() {
             let mut members = members.clone();
             members.sort_unstable();
             costs.push(ConfirmChunkCost {
                 members,
-                steps: outcome.steps,
+                work_steps: outcome.work_steps,
                 elapsed,
                 timed_out: outcome.timed_out,
             });

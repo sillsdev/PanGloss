@@ -1,10 +1,10 @@
-//! Pins deterministic corpus eligibility: only the step cap classifies; a clock or memory fault must abort the run rather than produce a silent per-word exclusion.
+//! Pins deterministic corpus eligibility: only the work cap classifies; a clock or memory fault must abort the run rather than produce a silent per-word exclusion.
 
 use pg_conformance_fixtures::require_fixture;
 use pg_foma_backend::backend_optimizer::Certification;
 use pg_foma_backend::backend_runtime::{
     OraclePreparationFault, RunEvaluationCache, RuntimeBudget, DEFAULT_ORACLE_LIVENESS_NET,
-    DEFAULT_ORACLE_MEMORY_CEILING_BYTES, DEFAULT_ORACLE_STEP_CAP,
+    DEFAULT_ORACLE_MEMORY_CEILING_BYTES, DEFAULT_ORACLE_WORK_CAP,
 };
 use std::time::Duration;
 
@@ -70,15 +70,15 @@ fn a_liveness_net_trip_aborts_the_run_and_can_never_be_an_exclusion() {
     );
 }
 
-/// The clock is armed too, but only the step cap may classify a word; the clock may only abort.
+/// The clock is armed too, but only the work cap may classify a word; the clock may only abort.
 #[test]
-fn a_step_capped_word_is_classified_by_the_step_cap_not_the_clock() {
+fn a_work_capped_word_is_classified_by_the_work_cap_not_the_clock() {
     let (grammar, words) = fixture();
     let cache = RunEvaluationCache::prepare(
         &grammar,
         &words,
         RuntimeBudget {
-            oracle_step_cap: Some(5),
+            oracle_work_cap: Some(500),
             ..RuntimeBudget::default()
         },
     )
@@ -167,7 +167,7 @@ fn the_evidence_binds_the_generating_configuration_and_distinguishes_two_caps() 
     };
 
     let defaults = evidence_at(RuntimeBudget::default());
-    assert_eq!(defaults.oracle_step_cap, DEFAULT_ORACLE_STEP_CAP as u64);
+    assert_eq!(defaults.oracle_work_cap, DEFAULT_ORACLE_WORK_CAP as u64);
     assert_eq!(
         defaults.oracle_memory_ceiling_bytes,
         DEFAULT_ORACLE_MEMORY_CEILING_BYTES
@@ -179,7 +179,7 @@ fn the_evidence_binds_the_generating_configuration_and_distinguishes_two_caps() 
 
     // Word hashes are equal (same strings); only the exclusion-ledger hash may carry the cap difference.
     let higher = evidence_at(RuntimeBudget {
-        oracle_step_cap: Some(DEFAULT_ORACLE_STEP_CAP * 2),
+        oracle_work_cap: Some(DEFAULT_ORACLE_WORK_CAP * 2),
         ..RuntimeBudget::default()
     });
     assert_eq!(higher.requested_hash, defaults.requested_hash);
@@ -188,10 +188,10 @@ fn the_evidence_binds_the_generating_configuration_and_distinguishes_two_caps() 
     assert_eq!(defaults.excluded, 0);
     assert_ne!(
         higher.excluded_hash, defaults.excluded_hash,
-        "two runs at different oracle step caps must not produce the same exclusion-ledger hash, \
+        "two runs at different oracle work caps must not produce the same exclusion-ledger hash, \
          or a certification cannot say which cap it was earned under"
     );
-    assert_ne!(higher.oracle_step_cap, defaults.oracle_step_cap);
+    assert_ne!(higher.oracle_work_cap, defaults.oracle_work_cap);
 }
 
 /// Zero exclusions still emits a ledger over the raw requested slice -- "no exclusions" and "nobody looked" must not be indistinguishable.
@@ -214,7 +214,7 @@ fn a_zero_exclusion_run_still_states_the_corpus_it_derived_that_zero_from() {
 fn exclusions_are_candidate_independent() {
     let (grammar, words) = fixture();
     let budget = RuntimeBudget {
-        oracle_step_cap: Some(5),
+        oracle_work_cap: Some(500),
         ..RuntimeBudget::default()
     };
     let mut cache =
@@ -239,7 +239,7 @@ fn exclusions_are_candidate_independent() {
         } = &evaluation.certification
         else {
             panic!(
-                "a step-capped corpus must refuse every candidate with its ledger attached: {:?}",
+                "a work-capped corpus must refuse every candidate with its ledger attached: {:?}",
                 evaluation.certification
             );
         };

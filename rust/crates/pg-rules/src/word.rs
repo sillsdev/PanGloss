@@ -218,7 +218,7 @@ pub struct Word {
     /// clause (Word.cs:237-244) does. A dedup-key component (Word.cs:523,543): two words with the
     /// same shape but different unapplication histories are **not** equal — which is also why the
     /// cascade self-loop guard (`key(in) != key(out)`) is always true here (every unapplication grows
-    /// this list), so termination rests on rules ceasing to apply or the step cap, never on key
+    /// this list), so termination rests on rules ceasing to apply or the work cap, never on key
     /// equality.
     pub mrule_apps: Vec<Option<MRuleId>>,
     /// Analysis-selected allomorph for each rule trail slot; `None` permits any allomorph.
@@ -731,7 +731,7 @@ impl WordByteBreakdown {
 /// subtree — will each count that shared subtree in full: a real double-count of one allocation
 /// across two totals, not merely a hypothetical one. It biases the byte budget conservative
 /// (evicts sooner than the true retained set requires) rather than under; it is not a live-memory
-/// bound (see the step-cap contract).
+/// bound (see the work-cap contract).
 pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
     let mut b = WordByteBreakdown {
         base: std::mem::size_of::<Word>(),

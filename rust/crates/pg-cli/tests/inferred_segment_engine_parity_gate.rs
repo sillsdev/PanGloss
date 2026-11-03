@@ -517,7 +517,7 @@ fn cli_plain_and_ordinary_trace_report_owner_completion_status() {
         ("kumata", vec![], usize::MAX, None, None),
         ("taku", vec![], usize::MAX, None, None),
         ("q?", vec![], usize::MAX, None, Some("invalid_shape")),
-        ("qtu", vec!["--step-cap", "1"], 1, None, Some("capped")),
+        ("qtu", vec!["--work-cap", "100"], 1, None, Some("capped")),
         (
             "qtu",
             vec!["--word-timeout-ms", "0"],

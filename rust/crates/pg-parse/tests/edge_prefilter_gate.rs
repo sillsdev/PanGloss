@@ -79,7 +79,6 @@ fn the_prefilter_keeps_every_analysis_and_trace_and_saves_matcher_work() {
             sorted(b.analyses.clone()),
             "{word}"
         );
-        assert!(a.steps <= b.steps, "analysis attempts for {word}");
         steps_on += a.work_steps;
         steps_off += b.work_steps;
 
@@ -108,7 +107,7 @@ fn the_index_skips_rules_and_uses_each_intermediate_form() {
     let plain_on = on.parse_word("sag");
     let plain_off = off.parse_word("sag");
     assert_eq!(sorted(plain_on.analyses), sorted(plain_off.analyses));
-    assert!(plain_on.steps < plain_off.steps);
+    assert!(plain_on.work_steps < plain_off.work_steps);
 
     let chained_on = on.parse_word("sagds");
     let chained_off = off.parse_word("sagds");
@@ -157,10 +156,8 @@ fn the_prefilter_keeps_reference_corpus_analyses_and_reports_work_steps() {
         let xml = std::fs::read_to_string(corpus::require(&format!("{name}-hc.xml"))).unwrap();
         let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("{name}: {e}"));
         let words = std::fs::read_to_string(corpus::words_for(name)).unwrap();
-        let on = Morpher::new(&g, usize::MAX).with_work_cap(cap);
-        let off = Morpher::new(&g, usize::MAX)
-            .with_work_cap(cap)
-            .with_edge_prefilter(false);
+        let on = Morpher::new(&g, cap);
+        let off = Morpher::new(&g, cap).with_edge_prefilter(false);
         let (mut steps_on, mut steps_off, mut compared) = (0, 0, 0);
         let (mut capped, mut invalid) = (0, 0);
         for word in words.lines().skip(skip).take(sample).map(str::trim) {
@@ -208,10 +205,8 @@ fn the_lookup_replay_keeps_reference_corpus_analyses_and_reports_work_steps() {
         let xml = std::fs::read_to_string(corpus::require(&format!("{name}-hc.xml"))).unwrap();
         let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("{name}: {e}"));
         let words = std::fs::read_to_string(corpus::words_for(name)).unwrap();
-        let on = Morpher::new(&g, usize::MAX).with_work_cap(cap);
-        let off = Morpher::new(&g, usize::MAX)
-            .with_work_cap(cap)
-            .with_lookup_replay(false);
+        let on = Morpher::new(&g, cap);
+        let off = Morpher::new(&g, cap).with_lookup_replay(false);
         let (mut steps_on, mut steps_off, mut compared) = (0, 0, 0);
         for word in words.lines().skip(skip).take(sample).map(str::trim) {
             let (a, b) = (on.parse_word(word), off.parse_word(word));

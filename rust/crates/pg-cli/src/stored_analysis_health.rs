@@ -7,7 +7,7 @@ use pg_parse::{AnalysisProvenance, Morpher, WordAnalysis};
 use pg_rules::trace::{TraceSource, TraceType, TreeTraceSink};
 use pg_snapshot::{FwClass, FwObjectRef};
 
-pub(crate) const ANALYSIS_STEP_CAP: usize = 100_000;
+pub(crate) const ANALYSIS_WORK_CAP: usize = 10_000_000;
 
 /// Parse work units the default comparison spends across all wordforms before it stops.
 pub(crate) const DEFAULT_WORK_BUDGET: usize = 32_000_000;
@@ -26,15 +26,15 @@ pub(crate) enum Coverage {
 /// The comparison's work limits; tests shrink them to reach each limit on a small fixture.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Limits {
-    /// Per-word analysis step cap; the per-word work cap derives from it.
-    pub(crate) step_cap: usize,
+    /// Per-word work cap.
+    pub(crate) work_cap: usize,
     /// Total parse work units `bounded` spends.
     pub(crate) work_budget: usize,
 }
 
 impl Limits {
     pub(crate) const DEFAULT: Self = Self {
-        step_cap: ANALYSIS_STEP_CAP,
+        work_cap: ANALYSIS_WORK_CAP,
         work_budget: DEFAULT_WORK_BUDGET,
     };
 }
@@ -84,7 +84,7 @@ struct ResolvedMorph {
 pub(crate) fn check(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
-    step_cap: usize,
+    work_cap: usize,
     coverage: Coverage,
 ) -> Vec<GrammarHealthDiagnostic> {
     if coverage == Coverage::Off {
@@ -93,8 +93,8 @@ pub(crate) fn check(
     check_with_options(
         grammar,
         stored_analyses,
-        step_cap,
-        pg_rules::stratum::default_work_cap(step_cap),
+        work_cap,
+        work_cap,
         default_threads(),
         coverage.work_budget(),
     )
@@ -122,7 +122,7 @@ fn default_threads() -> usize {
 pub(crate) fn check_with_options(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
-    step_cap: usize,
+    work_cap: usize,
     synthesis_work_cap: usize,
     threads: usize,
     work_budget: Option<usize>,
@@ -132,9 +132,8 @@ pub(crate) fn check_with_options(
     }
 
     let (parser, synthesizer) = std::thread::scope(|scope| {
-        let synthesizer =
-            scope.spawn(|| Morpher::new(grammar, step_cap).with_work_cap(synthesis_work_cap));
-        let parser = Morpher::new(grammar, step_cap);
+        let synthesizer = scope.spawn(|| Morpher::new(grammar, synthesis_work_cap));
+        let parser = Morpher::new(grammar, work_cap);
         let synthesizer = synthesizer
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
@@ -160,7 +159,7 @@ pub(crate) fn check_with_options(
 
     let budget = work_budget.unwrap_or(usize::MAX);
     let compared = compare_words_in_order(&words, threads, budget, |wordform, analyses| {
-        compare_word(grammar, &parser, &synthesizer, step_cap, wordform, analyses)
+        compare_word(grammar, &parser, &synthesizer, work_cap, wordform, analyses)
     })?;
     let cutoff = compared.cutoff;
     for (index, result) in compared.results.into_iter().take(cutoff).enumerate() {
@@ -290,7 +289,7 @@ fn compare_word(
     grammar: &Grammar,
     parser: &Morpher<'_>,
     synthesizer: &Morpher<'_>,
-    step_cap: usize,
+    work_cap: usize,
     wordform: &str,
     analyses: &[&pg_fwdata::StoredAnalysis],
 ) -> WordResult {
@@ -299,8 +298,7 @@ fn compare_word(
     if outcome.capped || outcome.timed_out {
         let limit = if outcome.capped {
             format!(
-                "PanGloss reached its per-word analysis cap ({step_cap} analysis steps or {} work units) after {work} work units",
-                pg_rules::stratum::default_work_cap(step_cap),
+                "PanGloss reached its per-word work cap ({work_cap} work steps) after {work} work steps",
             )
         } else {
             "PanGloss reached its per-word analysis time limit".to_string()

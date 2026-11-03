@@ -33,7 +33,7 @@ grammar data.
 
 Use `--threads 1` for a first run against an unfamiliar grammar. It limits concurrent memory demand
 and makes timing easier to interpret. A wall-clock timeout bounds pathological words, but it is
-machine- and load-dependent. Add `--step-cap N` when comparing runs and keep both caps identical
+machine- and load-dependent. Add `--work-cap N` when comparing runs and keep both caps identical
 across the comparison.
 
 ## 2. Start with three reports
@@ -132,7 +132,7 @@ kinds. For example, a morphological-rule attempt and a lexical-entry lookup are 
 but they are not interchangeable units.
 
 `--top N` limits displayed rows within each kind without changing totals or percentages. Use
-`--exclude-censored` to omit words stopped by a step cap or timeout. Without it, their counters are
+`--exclude-censored` to omit words stopped by a work cap or timeout. Without it, their counters are
 real work observed before the cutoff, but they are lower bounds rather than complete totals.
 
 Run `pangloss stats` without arguments for the complete current option list.
@@ -162,7 +162,7 @@ coerce them to zero. A single output file cannot contain the multi-orientation d
 - **Statistics do not establish correctness.** They identify where work occurred, not whether a
   grammar change preserves intended analyses.
 - **Wall-clock time is noisy.** Compare on the same machine under similar load, using the same word
-  list, thread count, timeout, and step cap. Prefer deterministic attempts when the timing difference
+  list, thread count, timeout, and work cap. Prefer deterministic attempts when the timing difference
   is small.
 
 ## 6. Optimize without losing correctness

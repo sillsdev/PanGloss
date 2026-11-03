@@ -146,7 +146,7 @@ fn amharic_unmapped_verb_word_falls_back_to_partial_citation_form() {
 }
 
 // --- (b) All-corpora robustness gate ---
-// See `docs/research/n2-realize-gate-conventions.md` for why the sweep is step-capped, wall-clock-bounded, and subsampled per corpus.
+// See `docs/research/n2-realize-gate-conventions.md` for why the sweep is work-capped, wall-clock-bounded, and subsampled per corpus.
 #[test]
 #[ignore = "needs local gitignored corpus data (samples/data/*-hc.xml, *-words.txt); run with --include-ignored"]
 fn realize_never_panics_on_a_subsampled_full_corpus_sweep() {
@@ -192,7 +192,7 @@ fn realize_never_panics_on_a_subsampled_full_corpus_sweep() {
         let map = corpus.toml.map(load_map).unwrap_or_else(RealizeMap::empty);
         let empty_map = RealizeMap::empty();
 
-        let m = Morpher::new(&g, 100_000).with_word_timeout(Some(Duration::from_millis(50)));
+        let m = Morpher::new(&g, 10_000_000).with_word_timeout(Some(Duration::from_millis(50)));
 
         let mut checked = 0usize;
         for word in words_text

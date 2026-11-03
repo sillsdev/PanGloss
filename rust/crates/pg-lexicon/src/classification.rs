@@ -252,7 +252,7 @@ pub fn classify(
 fn engine_truncation(budget: &SynthesisBudget) -> Option<TruncationReason> {
     if budget.timed_out() {
         Some(TruncationReason::TimeLimit)
-    } else if budget.step_capped() {
+    } else if budget.work_capped() {
         Some(TruncationReason::StepLimit)
     } else if budget.candidate_capped() {
         Some(TruncationReason::CandidateLimit)

@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
-use pg_stats::StepCap;
+use pg_stats::WorkCap;
 use serde_json::{json, Value};
 
 use crate::rich_trace;
 
 /// The serve protocol version; bump only for an incompatible wire change.
-pub(crate) const SERVE_PROTOCOL_VERSION: u32 = 1;
+pub(crate) const SERVE_PROTOCOL_VERSION: u32 = 2;
 
 /// Wall-clock milliseconds of the snapshot read (json) or fwdata import, recorded by the grammar loader for `--timing`.
 pub(crate) static IMPORT_MS: AtomicU64 = AtomicU64::new(0);
@@ -27,19 +27,17 @@ pub(crate) fn record_ms(slot: &AtomicU64, since: Instant) {
     slot.store(since.elapsed().as_millis() as u64, Ordering::Relaxed);
 }
 
-struct ServeArgs {
+pub(crate) struct ServeArgs {
     project: String,
-    step_cap: StepCap,
-    work_cap: Option<StepCap>,
+    work_cap: WorkCap,
     word_timeout: Option<Duration>,
     guess_arg: Option<bool>,
     timing: bool,
 }
 
-fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
+pub(crate) fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
     let mut project = None;
-    let mut step_cap = crate::DEFAULT_STEP_CAP;
-    let mut work_cap = None;
+    let mut work_cap = crate::DEFAULT_WORK_CAP;
     let mut word_timeout = None;
     let mut guess_arg = None;
     let mut timing = false;
@@ -59,21 +57,12 @@ fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
                 guess_arg = Some(crate::parse_guess_flag(s)?)
             }
             "--timing" => timing = true,
-            "--step-cap" => {
-                step_cap = it
-                    .next()
-                    .ok_or("--step-cap requires a value")?
-                    .parse::<StepCap>()?;
-            }
-            s if s.starts_with("--step-cap=") => {
-                step_cap = s["--step-cap=".len()..].parse::<StepCap>()?;
-            }
             "--work-cap" => {
                 let v = it.next().ok_or("--work-cap requires a value")?;
-                work_cap = Some(crate::parse_work_cap(v)?);
+                work_cap = crate::parse_work_cap(v)?;
             }
             s if s.starts_with("--work-cap=") => {
-                work_cap = Some(crate::parse_work_cap(&s["--work-cap=".len()..])?);
+                work_cap = crate::parse_work_cap(&s["--work-cap=".len()..])?;
             }
             "--word-timeout-ms" => {
                 word_timeout = Some(ms(it
@@ -91,7 +80,6 @@ fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
     }
     Ok(ServeArgs {
         project: project.ok_or("--project <path> is required")?,
-        step_cap,
         work_cap,
         word_timeout,
         guess_arg,
@@ -127,8 +115,7 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         };
     crate::print_grammar_warnings(&warnings);
     let morpher = crate::with_guess_override(
-        Morpher::new(&grammar, parsed.step_cap.as_morpher_cap())
-            .with_work_cap(crate::resolved_work_cap(parsed.step_cap, parsed.work_cap))
+        Morpher::new(&grammar, parsed.work_cap.as_morpher_cap())
             .with_word_timeout(parsed.word_timeout),
         parsed.guess_arg,
     );
@@ -322,7 +309,6 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
                         "type": "result",
                         "exitCode": served.exit_code,
                         "status": served.status,
-                        "steps": served.steps,
                         "workSteps": served.work_steps,
                         "guessed": served.guessed,
                         "result": served.result,
@@ -356,7 +342,6 @@ struct Served {
     status: &'static str,
     /// Whether the guesser found the analyses, whatever the `--guess` flag.
     guessed: bool,
-    steps: usize,
     work_steps: usize,
     parse_ms: u64,
     render_ms: u64,
@@ -390,7 +375,6 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
             exit_code: 0,
             status: crate::outcome_status(&outcome),
             guessed: outcome.guessed,
-            steps: outcome.steps,
             work_steps: outcome.work_steps,
             parse_ms,
             render_ms,
@@ -414,7 +398,6 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
         exit_code,
         status: crate::outcome_status(&outcome),
         guessed: outcome.guessed,
-        steps: outcome.steps,
         work_steps: outcome.work_steps,
         parse_ms,
         render_ms: render_started.elapsed().as_millis() as u64,

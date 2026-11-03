@@ -3,7 +3,7 @@
 use pg_grammar::load;
 use pg_grammar_model::model::{Grammar, StratumId};
 use pg_parse::Morpher;
-use pg_rules::stratum::{AnalyzerConfig, StepBudget};
+use pg_rules::stratum::{AnalyzerConfig, WordBudget};
 use pg_rules::Word;
 use pg_shape::{CdBits, CdSet, NodeFlags, NodeKind, Shape, ShapeBuilder};
 
@@ -96,7 +96,7 @@ fn analysis_outputs(g: &Grammar, shape: Shape, prune: bool) -> Vec<Word> {
         stratum,
         Word::new(shape, stratum),
         &config,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     )
     .words
     .into_iter()

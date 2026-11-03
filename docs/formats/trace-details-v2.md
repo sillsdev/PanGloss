@@ -1,8 +1,10 @@
-# Trace details v4 (including the v2 and v3 fields)
+# Trace details v5 (including the v2, v3 and v4 fields)
 
 `pangloss parse <grammar> <word> --trace --trace-format=json --trace-details` writes one
-`pangloss.trace-details.v4` JSON document. Use `--trace=<path>` when a file must contain only the
+`pangloss.trace-details.v5` JSON document. Use `--trace=<path>` when a file must contain only the
 JSON; stdout from the managed runner may include diagnostics.
+
+Version 5 removes `search.steps` (the analysis-attempt count); `search.workSteps` is the word's one cost figure. A reader written for version 4 must refuse a document whose `schemaVersion` is `pangloss.trace-details.v5`.
 
 The envelope keeps the existing unmerged trace tree and category counters. It adds evidence needed
 to inspect one parse offline without reopening the project:

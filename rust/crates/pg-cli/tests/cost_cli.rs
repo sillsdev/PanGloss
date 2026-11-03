@@ -72,15 +72,19 @@ fn cost_of(row: &[String]) -> u64 {
 }
 
 #[test]
-fn the_cost_column_is_the_last_numeric_field_and_leaves_the_rest_of_the_row_alone() {
+fn the_cost_column_follows_work_steps_and_leaves_the_rest_of_the_row_alone() {
     let (_, plain) = batch("plain", &[]);
     let (_, costed) = batch("costed", &["--cost-column"]);
     assert_eq!(plain.len(), 3);
     for (plain, costed) in plain.iter().zip(&costed) {
         assert_eq!(plain.len(), 5, "{plain:?}");
-        assert_eq!(costed.len(), 6, "{costed:?}");
+        assert_eq!(costed.len(), 7, "{costed:?}");
         assert_eq!(costed[..2], plain[..2]);
         assert_eq!(costed[3..5], plain[3..5]);
+        assert!(
+            costed[5].parse::<u64>().unwrap() > 0,
+            "work_steps {costed:?}"
+        );
         assert!(cost_of(costed) > 0, "{costed:?}");
     }
 }
@@ -91,12 +95,8 @@ fn work_columns_stay_right_before_the_cost() {
     let (_, both) = batch("work-cost", &["--work-columns", "--cost-column"]);
     for (work, both) in work.iter().zip(&both) {
         assert_eq!(both.len(), work.len() + 1, "{both:?}");
-        assert_eq!(
-            both[3..work.len()],
-            work[3..],
-            "steps and work_steps unchanged"
-        );
-        assert_eq!(both[both.len() - 3..both.len() - 1], work[work.len() - 2..]);
+        assert_eq!(both[3..work.len()], work[3..], "work_steps unchanged");
+        assert_eq!(both[both.len() - 2..both.len() - 1], work[work.len() - 1..]);
         assert!(cost_of(both) > 0);
     }
 }
@@ -244,7 +244,7 @@ fn a_default_build_has_no_cost_calibrate_and_describes_cost_compare() {
     assert!(!String::from_utf8_lossy(&output.stderr).contains("cost-calibrate"));
 
     let doc: Value = serde_json::from_slice(&pangloss(&["--describe"]).stdout).unwrap();
-    assert_eq!(doc["interfaces"]["batchTsv"], 4);
+    assert_eq!(doc["interfaces"]["batchTsv"], 5);
     let names: Vec<&str> = doc["commands"]
         .as_array()
         .unwrap()

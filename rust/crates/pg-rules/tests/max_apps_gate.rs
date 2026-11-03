@@ -10,7 +10,7 @@ use pg_grammar_model::model::{
     MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
     ReduplicationHint, SegmentedText, SimpleContext, StratumDef, StratumId, TableId, VarTable,
 };
-use pg_rules::stratum::{analyze_stratum, AnalyzerConfig, StepBudget};
+use pg_rules::stratum::{analyze_stratum, AnalyzerConfig, WordBudget};
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
@@ -152,14 +152,14 @@ fn max_apps_one_gates_a_self_matching_rule_to_a_single_unapplication() {
     let rid = push_mrule(&mut g, r);
     // Uncapped step budget: the gate itself must be what stops the walk, not the safety valve.
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
 
     for order in [MorphRuleOrder::Linear, MorphRuleOrder::Unordered] {
         let s = push_stratum(&mut g, order, vec![rid]);
         let out = analyze_stratum(&g, s, word(&g, "app", s), &cfg, &budget);
         assert!(
             !out.capped,
-            "{order:?}: gate must terminate without the step cap firing"
+            "{order:?}: gate must terminate without the work cap firing"
         );
 
         let got = candidate_shapes(&out.words);
@@ -192,13 +192,13 @@ fn max_apps_two_allows_exactly_two_unapplications_not_three() {
     let r = self_matching_suffix_rule(&g, 200, "p", 2);
     let rid = push_mrule(&mut g, r);
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
 
     let out = analyze_stratum(&g, s, word(&g, "appp", s), &cfg, &budget);
     assert!(
         !out.capped,
-        "gate must terminate without the step cap firing"
+        "gate must terminate without the work cap firing"
     );
 
     let got = candidate_shapes(&out.words);

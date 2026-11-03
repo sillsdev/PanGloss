@@ -23,7 +23,8 @@ enum {
     HC_ERR_INVALID_ARG = 5
 };
 
-int32_t hc_abi_version(void); /* 3: adds hc_parse_word_opts/hc_parse_batch_opts (guesser opt-in);
+int32_t hc_abi_version(void); /* 4: per-word cap is a work cap (cap semantics only; no signature or layout change).
+                                  3: adds hc_parse_word_opts/hc_parse_batch_opts (guesser opt-in);
                                   hc_parse_word/hc_parse_batch and their wire format unchanged. */
 int32_t hc_grammar_load(const uint8_t *xml_utf8, size_t len, HcGrammarHandle *out, HcError *error);
 void hc_grammar_free(HcGrammarHandle handle);

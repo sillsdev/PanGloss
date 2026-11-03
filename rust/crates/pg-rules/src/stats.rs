@@ -131,7 +131,7 @@ pub fn self_time_supported_in_direction_for_semantics(
 /// Counters for one `(object, stratum, allomorph)` row.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Counters {
-    /// Rule-level only: one unit per `StepBudget` tick, regardless of how many allomorphs were tried; every allomorph-dimension row (`allomorph != ALLOMORPH_NONE`) carries `attempts == 0`.
+    /// Rule-level only: one unit per `WordBudget` tick, regardless of how many allomorphs were tried; every allomorph-dimension row (`allomorph != ALLOMORPH_NONE`) carries `attempts == 0`.
     pub attempts: u64,
     pub work: u64,
     /// Successful reservations made in this object's scope, excluding nested object scopes.
@@ -458,7 +458,7 @@ impl Drop for ObjectTimeGuard<'_> {
     }
 }
 
-/// The per-word collector. Constructed once per `parse_word` call, alongside its `StepBudget`,
+/// The per-word collector. Constructed once per `parse_word` call, alongside its `WordBudget`,
 /// and threaded down by `Option<&StatsCollector>` so every instrumentation site is one branch.
 pub struct StatsCollector {
     morph: DenseTable,

@@ -8,30 +8,38 @@ use std::collections::BTreeMap;
 /// Construction-time policy for every authoritative overlay-aware `Morpher` owned by a runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnalysisPolicy {
-    pub step_cap: usize,
+    /// Per-word work cap for parsing; confirmation may spend up to one sixteenth more.
+    pub work_cap: usize,
+    /// Limit on one bounded generation run, in work steps and seed choices.
+    pub generation_cap: usize,
 }
 
 impl AnalysisPolicy {
     pub const fn browser_default() -> Self {
-        Self { step_cap: 100_000 }
+        Self {
+            work_cap: 10_000_000,
+            generation_cap: 100_000,
+        }
     }
 
     pub const fn native_abi_v1() -> Self {
-        Self { step_cap: 500_000 }
+        Self {
+            work_cap: 50_000_000,
+            generation_cap: 500_000,
+        }
     }
 
-    /// Effectively no attempt or work limit: a pathological word runs until it finishes. The work
-    /// cap follows the attempt cap and saturates, so the counters remain. Where `usize` is 32 bits
-    /// (wasm32), the limit is 2^32-1 units, about 4.29e9, so a word can still report capped there.
-    /// An unlimited word can run for many minutes and can exhaust linear memory and trap, not
-    /// merely run long.
+    /// No work limit: a pathological word runs until it finishes, and the counters remain. Where `usize`
+    /// is 32 bits (wasm32), `usize::MAX` is 4,294,967,295 work steps, so a word can still report capped
+    /// there, and the reserve above it saturates. An unlimited word can run for many minutes and can
+    /// exhaust linear memory and trap, not merely run long.
     pub const fn without_limits() -> Self {
         Self {
-            step_cap: usize::MAX,
+            work_cap: usize::MAX,
+            generation_cap: usize::MAX,
         }
     }
 }
-
 impl Default for AnalysisPolicy {
     fn default() -> Self {
         Self::browser_default()

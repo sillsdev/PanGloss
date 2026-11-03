@@ -19,7 +19,7 @@ paths, including a hard link to an existing input (compared by file identity, no
 spelling). The manifest flag requires both --stats and an explicit --cache. Without the manifest
 flag, batch keeps its existing cache reuse, TSV, analyses and multiplicity behavior.
 
-The manifest has format pangloss-batch-stats-manifest, version 1, and these sections:
+The manifest has format pangloss-batch-stats-manifest, version 2 (version 1 carried a separate step cap and a numeric work cap), and these sections:
 
 | Section | Recorded values |
 |---|---|
@@ -27,7 +27,7 @@ The manifest has format pangloss-batch-stats-manifest, version 1, and these sect
 | compiler | Package version and embedded build identity |
 | cache | SHA-256 and byte length of the closed SQLite file, stats schema version and counter-semantics version |
 | run | The sole cache run_id, actual engine, grammar hash, options hash and exact options JSON stored in the cache |
-| batch | Effective engine, threads, step/work caps, timeout, guess and final-template options, start index, and whether an analyses sidecar was requested |
+| batch | Effective engine, threads, work cap (`unbounded` or a positive count), timeout, guess and final-template options, start index, and whether an analyses sidecar was requested |
 | input | The ordered, trimmed, nonempty effective word list, its count and the SHA-256 of its compact JSON array encoding |
 | completion | A row for each input index with complete, incomplete, or invalid_shape status and the raw cap/timeout/shape flags; aggregate counts include missing |
 

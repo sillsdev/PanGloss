@@ -147,7 +147,6 @@ fn request(context: PhonologyContext, shape: &str) -> PhonologyRequest {
         underlying_shape: shape.to_string(),
         work_cap: 100_000,
         timeout: Duration::from_secs(30),
-        attempt_cap: usize::MAX,
         max_ordered_rule_ids: usize::MAX,
         max_rule_id_chars: usize::MAX,
     }
@@ -206,7 +205,6 @@ fn unchanged_control_and_ordered_rule_identities() {
     assert_eq!(m.ordered_rule_ids, ["p>b", "b>g"]);
     assert_eq!(m.resolved_context, Some(hc("eNx")));
     assert!(!m.capped && !m.timed_out && m.work_steps > 0);
-    assert!(m.steps > 0);
     assert_eq!(surface(&g, "eNx", "k"), "k");
 }
 
@@ -250,23 +248,13 @@ fn multi_stratum_fold_shares_budgets_and_reports_declared_visited_and_applied_or
             surface: "g".into()
         }
     );
-    assert_eq!(
-        complete.steps, 2,
-        "one shared step budget spans both strata"
+    assert!(
+        complete.work_steps > 0,
+        "one shared work budget spans both strata"
     );
     assert_eq!(complete.ordered_rule_ids, ["p>b", "b>g"]);
     assert_eq!(complete.visited_rule_ids, ["p>b", "b>g"]);
     assert_eq!(complete.applied_rule_ids, ["p>b", "b>g"]);
-
-    let mut step_limited = request(hc("eNx"), "p");
-    step_limited.attempt_cap = 1;
-    let stopped = measure(&g, &step_limited);
-    assert_eq!(stopped.completion(), PhonologyCompletion::Incomplete);
-    assert_eq!(stopped.steps, 1);
-    assert!(stopped.capped && !stopped.timed_out);
-    assert_eq!(stopped.ordered_rule_ids, ["p>b", "b>g"]);
-    assert_eq!(stopped.visited_rule_ids, ["p>b"]);
-    assert_eq!(stopped.applied_rule_ids, ["p>b"]);
 
     let first_only = measure(&grammar_with(&["p>b"], ENTRIES), &request(hc("eNx"), "p"));
     let mut work_limited = request(hc("eNx"), "p");
@@ -428,7 +416,6 @@ fn ordered_rule_result_limits_refuse_before_start_and_keep_the_resolved_context(
     assert_eq!(too_many.completion(), PhonologyCompletion::NotStarted);
     assert_eq!(too_many.resolved_context, Some(hc("eNx")));
     assert!(too_many.ordered_rule_ids.is_empty());
-    assert_eq!(too_many.steps, 0);
     assert_eq!(too_many.work_steps, 0);
 
     req.max_ordered_rule_ids = usize::MAX;
@@ -461,16 +448,6 @@ fn forced_stops_are_incomplete_never_a_completed_absence() {
         }
     );
     assert!(m.timed_out);
-
-    let mut req = request(hc("eNx"), "p");
-    req.attempt_cap = 0;
-    let m = measure(&g, &req);
-    assert_eq!(
-        m.result,
-        PhonologyResult::Incomplete {
-            reason: PhonologyStopReason::AttemptCap
-        }
-    );
 
     let mut stopped = 0;
     for work_cap in 0..200 {

@@ -111,7 +111,7 @@ fn missing_natural_class_reports_info_and_drops_the_entire_environment() {
         diagnostic.subjects[0].guid.as_deref(),
         Some("missing-class-environment")
     );
-    let outcome = pg_parse::Morpher::new(&compiled.grammar, 100_000).parse_word("kumata");
+    let outcome = pg_parse::Morpher::new(&compiled.grammar, 10_000_000).parse_word("kumata");
     assert!(!outcome.capped && !outcome.timed_out && !outcome.invalid_shape);
     assert!(
         !outcome.analyses.is_empty(),
@@ -124,7 +124,7 @@ fn missing_natural_class_reports_info_and_drops_the_entire_environment() {
         .iter()
         .any(|warning| warning.code == "grammar.environment.missing-natural-class"));
     assert!(
-        pg_parse::Morpher::new(&repaired.grammar, 100_000)
+        pg_parse::Morpher::new(&repaired.grammar, 10_000_000)
             .parse_word("kumata")
             .analyses
             .is_empty(),
@@ -1321,8 +1321,9 @@ fn sample_invalid_environments_compile_with_warnings_and_preserve_parses() {
                 warning_metadata(warning).level,
                 pg_snapshot::DiagnosticLevel::Warning
             );
-            let expected = pg_parse::Morpher::new(&baseline.grammar, 100_000).parse_word("kumata");
-            let actual = pg_parse::Morpher::new(&out.grammar, 100_000).parse_word("kumata");
+            let expected =
+                pg_parse::Morpher::new(&baseline.grammar, 10_000_000).parse_word("kumata");
+            let actual = pg_parse::Morpher::new(&out.grammar, 10_000_000).parse_word("kumata");
             assert!(
                 !actual.analyses.is_empty(),
                 "seeded allomorph must remain usable: {text}"
@@ -1330,7 +1331,7 @@ fn sample_invalid_environments_compile_with_warnings_and_preserve_parses() {
             assert!(!actual.capped && !actual.timed_out && !actual.invalid_shape);
             assert!(!expected.capped && !expected.timed_out && !expected.invalid_shape);
             assert_eq!(actual.signature(), expected.signature());
-            assert!(pg_parse::Morpher::new(&out.grammar, 100_000)
+            assert!(pg_parse::Morpher::new(&out.grammar, 10_000_000)
                 .parse_word("takuma")
                 .analyses
                 .is_empty());
@@ -1356,7 +1357,7 @@ fn invalid_environment_does_not_widen_valid_root_restrictions() {
         ]);
         snapshot.lexicon.entries[entry_index].allomorphs[0].environments = vec!["valid-env".into()];
         let valid = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-        assert!(pg_parse::Morpher::new(&valid.grammar, 100_000)
+        assert!(pg_parse::Morpher::new(&valid.grammar, 10_000_000)
             .parse_word("kumata")
             .analyses
             .is_empty());
@@ -1364,7 +1365,7 @@ fn invalid_environment_does_not_widen_valid_root_restrictions() {
             .environments
             .push("bad-env".into());
         let mixed = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-        let parses = pg_parse::Morpher::new(&mixed.grammar, 100_000).parse_word("kumata");
+        let parses = pg_parse::Morpher::new(&mixed.grammar, 10_000_000).parse_word("kumata");
         assert_eq!(
             parses.analyses.is_empty(),
             entry_index == 0,
@@ -1402,7 +1403,7 @@ fn invalid_infix_positions_skip_the_allomorph_without_refusing_the_grammar() {
             .warnings
             .iter()
             .any(|w| w.code == "grammar.environment.invalid"));
-        let morpher = pg_parse::Morpher::new(&out.grammar, 100_000);
+        let morpher = pg_parse::Morpher::new(&out.grammar, 10_000_000);
         assert!(!morpher.parse_word("kumata").analyses.is_empty());
         assert!(
             morpher.parse_word("kutama").analyses.is_empty(),
@@ -1410,7 +1411,7 @@ fn invalid_infix_positions_skip_the_allomorph_without_refusing_the_grammar() {
         );
         snapshot.phonology.environments[0].representation = "/ku_m".into();
         let repaired = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-        let repaired = pg_parse::Morpher::new(&repaired.grammar, 100_000).parse_word("kutama");
+        let repaired = pg_parse::Morpher::new(&repaired.grammar, 10_000_000).parse_word("kutama");
         assert!(
             !repaired.analyses.is_empty(),
             "a repaired infix must become usable"
@@ -5887,7 +5888,7 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
         "an exemplar character used only inside an environment must still be inferred"
     );
     assert_eq!(out.substrate.inferred_segments[0].representation, "q");
-    let constrained = pg_parse::Morpher::new(&out.grammar, 10_000).parse_word("kumata");
+    let constrained = pg_parse::Morpher::new(&out.grammar, 1_000_000).parse_word("kumata");
     assert!(
         constrained.analyses.is_empty(),
         "a suffix requiring q must not apply after a"
@@ -5897,7 +5898,7 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
         .environments
         .clear();
     let control = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-    let unconstrained = pg_parse::Morpher::new(&control.grammar, 10_000).parse_word("kumata");
+    let unconstrained = pg_parse::Morpher::new(&control.grammar, 1_000_000).parse_word("kumata");
     assert!(
         !unconstrained.analyses.is_empty(),
         "removing the restriction must change the parse effect"
@@ -6046,7 +6047,7 @@ fn discarded_affix_environment_does_not_refuse_a_surviving_sibling() {
         .allomorphs
         .iter()
         .all(|allomorph| allomorph.environments.is_empty()));
-    let parsed = pg_parse::Morpher::new(&out.grammar, 100_000).parse_word("kumata");
+    let parsed = pg_parse::Morpher::new(&out.grammar, 10_000_000).parse_word("kumata");
     assert!(
         !parsed.analyses.is_empty(),
         "valid sibling must remain executable"

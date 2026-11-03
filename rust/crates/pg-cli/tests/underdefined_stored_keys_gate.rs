@@ -1142,7 +1142,7 @@ fn every_measured_underdefined_case_preserves_xample_stored_keys() {
             report.warnings,
         )
         .expect("saved underdefined project must compile without a semantic-loss override");
-        let morpher = pg_parse::Morpher::new(&compiled.grammar, 1_000_000);
+        let morpher = pg_parse::Morpher::new(&compiled.grammar, 100_000_000);
         let mut observed_differences = Vec::new();
         let mut observed_losses = Vec::new();
         assert_eq!(case.words.len(), off_capture.words.len());

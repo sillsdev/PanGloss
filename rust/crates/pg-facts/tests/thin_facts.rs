@@ -21,8 +21,8 @@ use pg_snapshot::phonology::{
 use pg_snapshot::project::Project;
 use pg_snapshot::{Snapshot, WsForm};
 use pg_stats::{
-    FactRecord, IdentityQuality, ObjectKind, RunMetadata, StatsCache, StepCap, StructuralLocator,
-    WordRecord,
+    FactRecord, IdentityQuality, ObjectKind, RunMetadata, StatsCache, StructuralLocator,
+    WordRecord, WorkCap,
 };
 use rusqlite::Connection;
 
@@ -514,7 +514,7 @@ fn exports_authored_msa_references_flat_prohibitions_and_load_outcomes() {
     let result = build(&output, &source, context()).unwrap();
     assert_eq!(result.compile_status, "completed");
     assert_eq!(result.application_id, 1_346_848_321);
-    assert_eq!(result.schema_version, 8);
+    assert_eq!(result.schema_version, 9);
     assert!(result.output_bytes > 0);
     assert_eq!(result.output_sha256.len(), 71);
     assert_eq!(result.source_sha256, pg_assess::source_sha256(&source));
@@ -538,7 +538,7 @@ fn exports_authored_msa_references_flat_prohibitions_and_load_outcomes() {
         )
         .unwrap();
     assert_eq!(application_id, 1_346_848_321);
-    assert_eq!(user_version, 8);
+    assert_eq!(user_version, 9);
     assert_eq!(encoding, "UTF-8");
     assert_eq!(complete, 1);
 
@@ -2110,13 +2110,13 @@ fn exports_environment_resolution_feature_extensions_and_rewrite_patterns() {
     let output = temp.path().join("grammar-facts.sqlite");
     let result = build(&output, authored.to_json().as_bytes(), context()).unwrap();
     assert_eq!(result.compile_status, "completed");
-    assert_eq!(result.schema_version, 8);
+    assert_eq!(result.schema_version, 9);
     let db = Connection::open(output).unwrap();
 
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        8
+        9
     );
     assert_eq!(
         db.query_row(
@@ -2532,12 +2532,11 @@ fn write_exported_stats_run() -> ExportedStatsRun {
     let cache_path = temp.path().join("stats.sqlite");
     let manifest_path = temp.path().join("stats.json");
     let (grammar, _) = pg_grammar::compile_project(&snapshot).unwrap();
-    let step_cap = "200000".parse::<StepCap>().unwrap();
+    let work_cap = "20000000".parse::<WorkCap>().unwrap();
     let options = serde_json::json!({
         "engine": "hc",
-        "step_cap": step_cap,
-        "work_cap": 2_000_000,
-        "search_budget_semantics": 2,
+        "work_cap": work_cap,
+        "search_budget_semantics": 3,
         "word_timeout_ms": null,
         "guess": false,
         "always_enforce_final_templates": false,
@@ -2620,13 +2619,12 @@ fn write_exported_stats_run() -> ExportedStatsRun {
                 options_hash: options_hash.clone(),
                 options_json: options_json.clone(),
                 created_utc: "unix:1".into(),
-                step_cap: Some(step_cap),
+                work_cap: Some(work_cap),
             },
             &[
                 WordRecord {
                     form: "kuma".into(),
                     elapsed_ns: 23,
-                    attempts: 4,
                     work: 0,
                     passes: 1,
                     capped: false,
@@ -2761,7 +2759,6 @@ fn write_exported_stats_run() -> ExportedStatsRun {
                 WordRecord {
                     form: "capped-form".into(),
                     elapsed_ns: 30,
-                    attempts: 5,
                     work: 0,
                     passes: 2,
                     capped: true,
@@ -2772,7 +2769,6 @@ fn write_exported_stats_run() -> ExportedStatsRun {
                 WordRecord {
                     form: "timed-out-form".into(),
                     elapsed_ns: 40,
-                    attempts: 6,
                     work: 0,
                     passes: 3,
                     capped: false,
@@ -2783,7 +2779,6 @@ fn write_exported_stats_run() -> ExportedStatsRun {
                 WordRecord {
                     form: "invalid-shape-form".into(),
                     elapsed_ns: 10,
-                    attempts: 0,
                     work: 0,
                     passes: 0,
                     capped: false,
@@ -2815,7 +2810,7 @@ fn write_exported_stats_run() -> ExportedStatsRun {
     let word_bytes = serde_json::to_vec(&words).unwrap();
     let manifest = serde_json::json!({
         "format": "pangloss-batch-stats-manifest",
-        "version": 1,
+        "version": 2,
         "source": {
             "kind": "snapshot",
             "source_sha256": pg_assess::source_sha256(&source),
@@ -2843,9 +2838,8 @@ fn write_exported_stats_run() -> ExportedStatsRun {
         "batch": {
             "engine": "hc",
             "threads": 1,
-            "step_cap": "200000",
-            "work_cap": 2_000_000,
-            "search_budget_semantics": 2,
+            "work_cap": "20000000",
+            "search_budget_semantics": 3,
             "word_timeout_ms": null,
             "guess": false,
             "always_enforce_final_templates": false,
@@ -2915,7 +2909,7 @@ fn write_exported_stats_run() -> ExportedStatsRun {
         pg_facts::StatsInput::new(&cache_path, &manifest_path),
     )
     .unwrap();
-    assert_eq!(result.schema_version, 8);
+    assert_eq!(result.schema_version, 9);
     assert_eq!(
         result
             .sections
@@ -3080,15 +3074,15 @@ fn exports_one_validated_frozen_stats_run_with_support_and_source_bridges() {
         0,
         "no counter row should make an incomplete, invalid, or missing word look measured"
     );
-    let (missing_status, missing_elapsed, missing_attempts): (String, Option<i64>, Option<i64>) =
-        db.query_row(
-            "SELECT status, elapsed_ns, attempts FROM stats_word WHERE form='missing-form'",
+    let (missing_status, missing_elapsed, missing_passes): (String, Option<i64>, Option<i64>) = db
+        .query_row(
+            "SELECT status, elapsed_ns, passes FROM stats_word WHERE form='missing-form'",
             [],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
     assert_eq!(missing_status, "not_attempted");
-    assert_eq!((missing_elapsed, missing_attempts), (None, None));
+    assert_eq!((missing_elapsed, missing_passes), (None, None));
     let msa_roles: Vec<String> = db
         .prepare("SELECT role FROM stats_object_source WHERE source_kind='msa' AND source_guid=?1 ORDER BY role")
         .unwrap()
@@ -3269,12 +3263,12 @@ fn facts_schema_version_is_8() {
     let temp = tempfile::tempdir().unwrap();
     let output = temp.path().join("grammar-facts.sqlite");
     let result = build(&output, snapshot().to_json().as_bytes(), context()).unwrap();
-    assert_eq!(result.schema_version, 8);
+    assert_eq!(result.schema_version, 9);
     let db = Connection::open(output).unwrap();
     let user_version: i64 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(user_version, 8);
+    assert_eq!(user_version, 9);
     let meta_version: i64 = db
         .query_row(
             "SELECT schema_version FROM artifact_meta WHERE singleton=1",
@@ -3282,7 +3276,7 @@ fn facts_schema_version_is_8() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(meta_version, 8);
+    assert_eq!(meta_version, 9);
 }
 
 #[test]

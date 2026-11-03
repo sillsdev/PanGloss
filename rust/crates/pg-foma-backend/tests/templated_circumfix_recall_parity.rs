@@ -84,7 +84,8 @@ fn template_slot_circumfix_recall_parity_on_templated_backend() {
     let circ_mrule = mrule_id_of(&g, &circ_xml_id);
 
     let oracle_opts = OracleOpts {
-        step_cap: 20_000,
+        work_cap: 2_000_000,
+        generation_cap: 20_000,
         word_timeout: Some(Duration::from_millis(500)),
         max_rules_per_root: 8,
         max_total_words: 100,
@@ -97,7 +98,7 @@ fn template_slot_circumfix_recall_parity_on_templated_backend() {
     );
 
     let morpher =
-        Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
+        Morpher::new(&g, oracle_opts.work_cap).with_word_timeout(oracle_opts.word_timeout);
     let mut missed = Vec::new();
     for w in &words {
         let identities = oracle_identities(&morpher, &w.surface);
@@ -155,7 +156,7 @@ fn template_slot_later_circumfix_allomorph_keeps_its_suffix_half() {
     }
 
     let root = entry_id_of(&g, "eRoot");
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
     let words = morpher.generate_words(root, &[GenMorpheme::Rule(circ)], FeatureStruct::EMPTY);
     assert!(words.contains(&"talodien".to_string()));
     assert_templated_recall(&g, &morpher, "talodien");
@@ -232,7 +233,7 @@ fn circumfix_cross_product_recall_parity_on_templated_backend() {
     let g = load(CIRCUMFIX_CROSS_PRODUCT_XML);
     let root = entry_id_of(&g, "eRoot");
     let mid = mrule_id_of(&g, "mrCross");
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
 
     let words = morpher.generate_words(root, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
     assert_eq!(
@@ -311,7 +312,7 @@ fn circumfix_composes_with_a_later_ordinary_suffix_on_templated_backend() {
     let root = entry_id_of(&g, "eRoot");
     let circ_mid = mrule_id_of(&g, "mrCirc");
     let suf_mid = mrule_id_of(&g, "mrSuf");
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
 
     let bare = morpher.generate_words(root, &[GenMorpheme::Rule(circ_mid)], FeatureStruct::EMPTY);
     assert_eq!(bare, vec!["xqz".to_string()]);

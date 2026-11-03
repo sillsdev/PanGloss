@@ -190,7 +190,7 @@ fn deterministic_score(
         score.arcs,
         score.proposals,
         score.confirmation,
-        score.confirmation_steps,
+        score.confirmation_work,
         score.raw_paths,
     )
 }
@@ -373,7 +373,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
         &grammar,
         &capped_words,
         RuntimeBudget {
-            oracle_step_cap: Some(0),
+            oracle_work_cap: Some(0),
             ..RuntimeBudget::default()
         },
     )
@@ -383,7 +383,7 @@ fn observed_evidence_distinguishes_failed_evaluation_from_real_empty_observation
         std::slice::from_ref(&plan),
         &capped_words,
         RuntimeBudget {
-            oracle_step_cap: Some(0),
+            oracle_work_cap: Some(0),
             ..RuntimeBudget::default()
         },
         &mut capped_cache,

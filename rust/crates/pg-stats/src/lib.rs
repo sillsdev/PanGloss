@@ -17,10 +17,10 @@ pub mod model;
 pub mod path;
 pub mod report;
 mod schema;
-pub mod step_cap;
 #[cfg(test)]
 mod test_support;
 mod util;
+pub mod work_cap;
 
 pub use cache::{OpenOutcome, StatsCache};
 pub use error::StatsError;
@@ -37,4 +37,4 @@ pub use report::{
     PerObjectRow, PerWordRow, SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
 };
 pub use schema::{COUNTER_SEMANTICS_VERSION, SCHEMA_VERSION};
-pub use step_cap::StepCap;
+pub use work_cap::WorkCap;

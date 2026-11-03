@@ -1,4 +1,4 @@
-//! Pins that a step-capped ground-truth oracle reports an explicit non-certifying `Certification::Truncated`, never reaching `certify_corpus` as a known-partial `expected` — otherwise a partial oracle can manufacture a bogus mismatch against a real, untruncated FST result, or wrongly certify an equally-truncated incomplete candidate. `oracle_step_cap: Some(0)` forces the truncation deterministically (`StepBudget::over_budget()` reports `capped` on its first check), reproducing the hazard without a genuinely pathological fixture.
+//! Pins that a work-capped ground-truth oracle reports an explicit non-certifying `Certification::Truncated`, never reaching `certify_corpus` as a known-partial `expected` — otherwise a partial oracle can manufacture a bogus mismatch against a real, untruncated FST result, or wrongly certify an equally-truncated incomplete candidate. `oracle_work_cap: Some(0)` forces the truncation deterministically (`WordBudget::over_budget()` reports `capped` on its first check), reproducing the hazard without a genuinely pathological fixture.
 
 use pg_conformance_fixtures::require_fixture;
 use pg_foma::enumerate::enumerate_default;
@@ -65,7 +65,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
         &plans,
         &words,
         RuntimeBudget {
-            oracle_step_cap: Some(0),
+            oracle_work_cap: Some(0),
             ..RuntimeBudget::default()
         },
     )
@@ -99,7 +99,7 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
     let fixture = require_fixture("edge-cases", "backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
     let words = vec!["tulik".to_string(), "menulik".to_string()];
-    let cap = 5;
+    let cap = 500;
 
     let morpher =
         pg_parse::Morpher::new(&grammar, cap).with_word_timeout(Some(Duration::from_secs(2)));
@@ -107,17 +107,17 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
     let capped = morpher.parse_word(&words[1]);
     assert!(
         !complete.capped && !complete.timed_out,
-        "complete: capped={}, timed_out={}, steps={}",
+        "complete: capped={}, timed_out={}, work_steps={}",
         complete.capped,
         complete.timed_out,
-        complete.steps
+        complete.work_steps
     );
     assert!(
         capped.capped && !capped.timed_out,
-        "capped: capped={}, timed_out={}, steps={}",
+        "capped: capped={}, timed_out={}, work_steps={}",
         capped.capped,
         capped.timed_out,
-        capped.steps
+        capped.work_steps
     );
 
     let plans = materialize_plans(&grammar);
@@ -126,7 +126,7 @@ fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
         &plans,
         &words,
         RuntimeBudget {
-            oracle_step_cap: Some(cap),
+            oracle_work_cap: Some(cap),
             ..RuntimeBudget::default()
         },
     )

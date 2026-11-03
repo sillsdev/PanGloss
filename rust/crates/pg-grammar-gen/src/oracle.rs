@@ -14,12 +14,12 @@
 //! caller enables it.
 //!
 //! ## MANDATORY safety bounds (hangs are documented repo history, not folklore)
-//! 1. Never `Morpher::new(g, usize::MAX)` -- a bounded step cap (`OracleOpts::step_cap`,
-//!    default 20,000, the same default the P6/Aweti investigation settled on after `usize::MAX`
+//! 1. Never `Morpher::new(g, usize::MAX)` -- a bounded work cap (`OracleOpts::work_cap`,
+//!    default 2,000,000, the same default the P6/Aweti investigation settled on after `usize::MAX`
 //!    hung >10 minutes on a real corpus word).
 //! 2. `OracleOpts::word_timeout` as the ORTHOGONAL wall-clock bound (`Morpher::
-//!    with_word_timeout`) -- the step cap alone under-bounds a bulk sweep because synthesis-side
-//!    `StepBudget` is per-(stratum, candidate), not cumulative across the whole sweep.
+//!    with_word_timeout`) -- the work cap alone under-bounds a bulk sweep because synthesis-side
+//!    `WordBudget` is per-(stratum, candidate), not cumulative across the whole sweep.
 //! 3. The sweep itself is bounded: `OracleOpts::max_rules_per_root` caps how many single-rule
 //!    "other morphemes" combinations are tried per root (depth 1 -- bare root, plus each
 //!    individually-applicable rule once; a deeper combination would need this widened), and
@@ -38,8 +38,10 @@ use pg_parse::Morpher;
 /// Bounds for `sweep` (module doc's numbered list).
 #[derive(Debug, Clone, Copy)]
 pub struct OracleOpts {
-    /// Bound 1: `Morpher::new`'s own step cap.
-    pub step_cap: usize,
+    /// Bound 1: `Morpher::new`'s own work cap.
+    pub work_cap: usize,
+    /// Bound 1b: the limit on one `generate_words` call, in work steps and seed choices.
+    pub generation_cap: usize,
     /// Bound 2: `Morpher::with_word_timeout`'s wall-clock deadline.
     pub word_timeout: Option<Duration>,
     /// Bound 3a: how many single-rule combinations to try per root (depth 1 -- see module doc).
@@ -51,7 +53,8 @@ pub struct OracleOpts {
 impl Default for OracleOpts {
     fn default() -> Self {
         OracleOpts {
-            step_cap: 20_000,
+            work_cap: 2_000_000,
+            generation_cap: 20_000,
             word_timeout: Some(Duration::from_millis(500)),
             max_rules_per_root: 8,
             max_total_words: 1_000,
@@ -95,7 +98,9 @@ pub fn sweep(
     rules: &[MRuleId],
     opts: &OracleOpts,
 ) -> Vec<OracleWord> {
-    let morpher = Morpher::new(g, opts.step_cap).with_word_timeout(opts.word_timeout);
+    let morpher = Morpher::new(g, opts.work_cap)
+        .with_generation_cap(opts.generation_cap)
+        .with_word_timeout(opts.word_timeout);
 
     let mut out: Vec<OracleWord> = Vec::new();
     for &root in roots {

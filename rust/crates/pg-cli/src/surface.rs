@@ -233,19 +233,14 @@ pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
 
 const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
-        name: "--step-cap",
-        takes_value: true,
-        summary: "N or \"unbounded\"; bound morphological analysis attempts per word (default: 50000000)",
-    },
-    FlagSpec {
         name: "--work-cap",
         takes_value: true,
-        summary: "N|unbounded; bound inner search and confirmation work (default: 100 x step cap, saturating; unbounded derives unbounded)",
+        summary: "N or \"unbounded\"; the work steps one word may spend in analysis (default: 5000000000); confirmation may spend one sixteenth more",
     },
     FlagSpec {
         name: "--word-timeout-ms",
         takes_value: true,
-        summary: "wall-clock deadline per word, independent of --step-cap",
+        summary: "wall-clock deadline per word, independent of --work-cap",
     },
     FlagSpec {
         name: "--threads",
@@ -270,12 +265,12 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--work-columns",
         takes_value: false,
-        summary: "append each word's steps and work_steps (deterministic parser work) to its TSV row",
+        summary: "append each word's work_steps (its deterministic work) to its TSV row",
     },
     FlagSpec {
         name: "--cost-column",
         takes_value: false,
-        summary: "append each word's fixed-weight parse cost, the last field; compare two runs with cost-compare",
+        summary: "append each word's work_steps and then its fixed-weight parse cost, the last field; compare two runs with cost-compare",
     },
     FlagSpec {
         name: "--stats",
@@ -312,14 +307,9 @@ const SERVE_FLAGS: &[FlagSpec] = &[
         summary: "the .fwdata project or pg-snapshot .json to load and compile once (required)",
     },
     FlagSpec {
-        name: "--step-cap",
-        takes_value: true,
-        summary: "N|unbounded; bound HC analysis attempts per word (default 50000000)",
-    },
-    FlagSpec {
         name: "--work-cap",
         takes_value: true,
-        summary: "N|unbounded; bound inner search and confirmation work per word",
+        summary: "N|unbounded; the work steps one word may spend in analysis (default 5000000000); confirmation may spend one sixteenth more",
     },
     FlagSpec {
         name: "--word-timeout-ms",
@@ -341,14 +331,9 @@ const SERVE_FLAGS: &[FlagSpec] = &[
 
 const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
-        name: "--step-cap",
-        takes_value: true,
-        summary: "N|unbounded; bound HC analysis attempts (default 50000000)",
-    },
-    FlagSpec {
         name: "--work-cap",
         takes_value: true,
-        summary: "N|unbounded; bound inner search and confirmation work (default: 100 x step cap, saturating; unbounded derives unbounded)",
+        summary: "N|unbounded; the work steps one word may spend in analysis (default 5000000000); confirmation may spend one sixteenth more",
     },
     FlagSpec {
         name: "--word-timeout-ms",
@@ -632,9 +617,9 @@ const RECIPE_OPTIMIZE_FLAGS: &[FlagSpec] = &[
         summary: "Budget::reserve; must not exceed --elapsed-ns",
     },
     FlagSpec {
-        name: "--oracle-step-cap",
+        name: "--oracle-work-cap",
         takes_value: true,
-        summary: "RuntimeBudget::oracle_step_cap override (default: RuntimeBudget's own default)",
+        summary: "RuntimeBudget::oracle_work_cap override (default: RuntimeBudget's own default)",
     },
     FlagSpec {
         name: "--oracle-liveness-net-ms",

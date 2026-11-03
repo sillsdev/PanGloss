@@ -112,7 +112,7 @@ pub struct CorpusExclusion {
 ///
 /// # Why this is part of the evidence and not merely a run parameter
 /// Eligibility is a function of the corpus AND of the bounds the oracle was run under. Before this
-/// existed, two runs at different `--oracle-step-cap` values produced certifications that were
+/// existed, two runs at different `--oracle-work-cap` values produced certifications that were
 /// byte-indistinguishable in every field a reader could check, so "this corpus is fully eligible"
 /// was an unqualified claim that silently meant "…at whatever cap happened to be in force". All
 /// three bounds are recorded, including the two that can only ever ABORT a run
@@ -121,9 +121,9 @@ pub struct CorpusExclusion {
 /// because the second one had a whole class of words it would have refused to finish measuring.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OracleEligibilityConfig {
-    /// The step cap that IS the eligibility classifier: a word that exhausts it is excluded, and
+    /// The work cap that IS the eligibility classifier: a word that exhausts it is excluded, and
     /// nothing else can exclude a word for cost.
-    pub step_cap: u64,
+    pub work_cap: u64,
     /// The declared resident-memory ceiling for the oracle preparation pass. Never a classifier —
     /// exceeding it is a typed abort, because a memory reading is load-sensitive and a
     /// load-sensitive classifier is exactly the defect this whole mechanism exists to remove.
@@ -151,9 +151,9 @@ pub struct CorpusCompletenessEvidence {
     pub requested_hash: String,
     pub included_hash: String,
     pub excluded_hash: String,
-    /// See `OracleEligibilityConfig::step_cap`. Flattened rather than nested so a reader (and a
+    /// See `OracleEligibilityConfig::work_cap`. Flattened rather than nested so a reader (and a
     /// JSON assertion) reaches it with the same one-level lookup as every count beside it.
-    pub oracle_step_cap: u64,
+    pub oracle_work_cap: u64,
     /// See `OracleEligibilityConfig::memory_ceiling_bytes`.
     pub oracle_memory_ceiling_bytes: u64,
     /// See `OracleEligibilityConfig::liveness_net_ns`.
@@ -203,9 +203,9 @@ impl CorpusCompletenessEvidence {
             excluded: exclusions.len() as u64,
             requested_hash: hash_words(requested),
             included_hash: hash_words(included),
-            // Historical field name kept for wire compatibility; since v2 this also hashes the oracle config, so two runs at different caps can't collide.
+            // Historical field name kept for wire compatibility; this also hashes the oracle config (v3: its cap is a work cap), so two runs at different caps can't collide.
             excluded_hash: hash_exclusion_ledger(&exclusions, oracle),
-            oracle_step_cap: oracle.step_cap,
+            oracle_work_cap: oracle.work_cap,
             oracle_memory_ceiling_bytes: oracle.memory_ceiling_bytes,
             oracle_liveness_net_ns: oracle.liveness_net_ns,
             exclusions,
@@ -234,8 +234,8 @@ fn hash_exclusion_ledger(
     oracle: OracleEligibilityConfig,
 ) -> String {
     let mut hash = Sha256::new();
-    hash.update(b"corpus-exclusion-ledger-v2");
-    hash.update(oracle.step_cap.to_le_bytes());
+    hash.update(b"corpus-exclusion-ledger-v3");
+    hash.update(oracle.work_cap.to_le_bytes());
     hash.update(oracle.memory_ceiling_bytes.to_le_bytes());
     hash.update(oracle.liveness_net_ns.to_le_bytes());
     for exclusion in exclusions {
@@ -297,6 +297,9 @@ impl Certification {
     }
 }
 
+/// Work steps one raw proposer path costs in `Score::key`: measured instructions per raw path over instructions per confirmation work step, 3.2 to 5.5 on four conformance grammars (mean 4.6).
+pub const RAW_PATH_WORK_WEIGHT: u64 = 5;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Score {
     pub states: u64,
@@ -305,20 +308,20 @@ pub struct Score {
     pub apply: u64,
     pub proposals: u64,
     pub confirmation: u64,
-    /// Full-HC oracle step ticks consumed confirming this candidate's whole corpus.
+    /// Full-HC oracle work steps consumed confirming this candidate's whole corpus.
     ///
     /// The primary ranking component.
-    pub confirmation_steps: u64,
+    pub confirmation_work: u64,
     /// Raw proposer paths `apply_up` yielded across the whole corpus, before tag-decode/dedup --
     /// summed from `FomaWordDiagnostics::raw_paths` (see that field's doc). The propose-side
-    /// counterpart to `confirmation_steps`: together they are the leading term of `Self::key`.
+    /// counterpart to `confirmation_work`: together they are the leading term of `Self::key`.
     pub raw_paths: u64,
 }
 
 impl Score {
     pub fn pareto_vector(&self) -> [u64; 6] {
         [
-            self.confirmation_steps,
+            self.confirmation_work,
             self.raw_paths,
             self.confirmation,
             self.proposals,
@@ -359,39 +362,32 @@ impl Score {
     /// here are genuinely tied, and the `id` tiebreak makes that outcome deterministic rather than
     /// pretending to a preference.
     ///
-    /// # Why steps rank above calls
-    /// `confirmation_steps` leads because a confirmation CALL is not a constant amount of work: a long
+    /// # Why confirmation work ranks above calls
+    /// `confirmation_work` leads because a confirmation CALL is not a constant amount of work: a long
     /// word costs far more to adjudicate than a short one, so ranking by calls under-weights exactly
-    /// the expensive words that dominate real cost. Steps are also the unit HC work is already BOUNDED
-    /// in (`crate::backend_runtime::DEFAULT_ORACLE_STEP_CAP` caps these same ticks), so the objective
-    /// and the cap now measure the same quantity rather than two proxies for it. `confirmation`
-    /// (calls) stays as the next component: it separates candidates that happen to consume equal
-    /// steps across a different number of adjudications.
+    /// the expensive words that dominate real cost. Work is also the unit HC work is bounded in
+    /// (`crate::backend_runtime::DEFAULT_ORACLE_WORK_CAP` caps the same total), so the objective and
+    /// the cap measure the same quantity. `confirmation` (calls) stays as the next component: it
+    /// separates candidates that consume equal work across a different number of adjudications.
     ///
-    /// # Why `raw_paths` joins the leading term (and why steps alone were not enough)
-    /// `confirmation_steps` prices confirm-side work only. It does NOT price what it costs to
-    /// *produce* the candidates confirm then adjudicates -- and chunk fusion (`confirm.rs`'s batched
-    /// re-parse) means propose-side blowups do not reliably show up as more steps: fusion absorbs
-    /// excess proposals into shared oracle calls at near-zero marginal step cost, so a candidate that
-    /// does several-fold more propose-side traversal can still look step-tied with one that does far
-    /// less. Measured on Sena's four-corpus shape: the plan-composed path produced 575 proposals over
-    /// 42 confirmation calls and 1192 steps, while the hand-spun candidate produced 127 proposals over
-    /// 17 calls and 1252 steps. Steps-first picked the 575-proposal candidate on that 60-step margin
-    /// (1192 < 1252) -- a preference decided by a number that never priced the 4.5x proposal gap at
-    /// all, because steps and propose-side traversal are not coupled by anything the key enforces.
-    /// `raw_paths` (the count of raw paths `apply_up` yields before tag-decode/dedup, summed
-    /// across the corpus) restores that missing cost deterministically: it is exactly the same kind of
-    /// unit as a step -- one traversal action -- so the two are summed rather than chained as separate
-    /// lexicographic terms, and a candidate can no longer look cheap by pushing its cost from the
-    /// confirm side to the propose side. `proposals` (post-dedup candidate count) cannot substitute
-    /// for this: it undercounts exactly the traversal a proposer pays before dedup collapses paths
-    /// together, which is the whole quantity this term exists to price. Unit commensurability between
-    /// a step and a raw path is asserted 1:1, not derived; if a future corpus shows the sum
-    /// mis-ranking, the fallback is to keep steps-first and add `raw_paths` as its own
-    /// lexicographic term instead of summing it in.
+    /// # Why `raw_paths` joins the leading term, at a measured weight
+    /// `confirmation_work` prices confirm-side work only. It does not price what it costs to *produce*
+    /// the candidates confirm then adjudicates, and chunk fusion means propose-side blowups do not
+    /// reliably show up as more confirmation work. Measured on Sena's four-corpus shape, the
+    /// plan-composed path produced 575 proposals over 42 calls and the hand-spun candidate 127 over 17
+    /// calls with nearly equal confirmation cost, so a key that never priced the 4.5x proposal gap
+    /// picked the 575-proposal candidate. `raw_paths` (raw paths `apply_up` yields before
+    /// tag-decode/dedup, summed across the corpus) restores that cost deterministically.
+    ///
+    /// A work step is about 30 times finer than an analysis attempt was, so a raw path is weighted by
+    /// [`RAW_PATH_WORK_WEIGHT`] work steps rather than counted 1:1. The weight is the measured ratio
+    /// of retired instructions per raw path to retired instructions per confirmation work step (see
+    /// `docs/research/per-word-search-work-cap.md`). If a future corpus shows the sum mis-ranking, the
+    /// fallback is to keep work first and add `raw_paths` as its own lexicographic term.
     pub fn key(&self, id: &str) -> (u64, u64, u64, u64, String) {
         (
-            self.confirmation_steps.saturating_add(self.raw_paths),
+            self.confirmation_work
+                .saturating_add(self.raw_paths.saturating_mul(RAW_PATH_WORK_WEIGHT)),
             self.confirmation,
             self.proposals,
             self.states.saturating_add(self.arcs),

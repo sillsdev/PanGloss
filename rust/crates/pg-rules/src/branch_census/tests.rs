@@ -22,7 +22,7 @@ fn liveness_climbs_edges_and_reaches_aliases_of_live_canonicals() {
     alias(2, 5);
     edge(6, 5);
     for n in [1, 2, 4, 6] {
-        charge_analysis(n, 1, 10, 0);
+        charge_analysis(n, 10, 0);
     }
     lookup(3, true, 7);
     lookup(4, false, 5);
@@ -55,7 +55,7 @@ fn a_dead_internal_node_that_may_compound_is_bucketed_apart() {
     edge(3, 4);
     mark_may_compound(3);
     for n in [1, 2, 3, 4] {
-        charge_analysis(n, 1, 10, 0);
+        charge_analysis(n, 10, 0);
     }
     let s = snapshot();
     assert_eq!(s.dead_work, 40);

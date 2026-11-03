@@ -1,3 +1,5 @@
+> Historical design note. The analysis-attempt count it describes (StepBudget::steps, `--step-cap`) was removed; the per-word limit is now a work cap on `WordBudget`, described in docs/research/per-word-search-work-cap.md. The text below is kept as written.
+
 # Search-budget model (W8 step 1)
 
 ## The bug being fixed

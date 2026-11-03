@@ -11,7 +11,7 @@ const WORDS: [&str; 4] = ["milu", "milusi", "kolota", "zzz"];
 #[test]
 fn parses_and_work_steps_are_identical_with_measurement_on_and_off() {
     let grammar = pg_grammar::load(GRAMMAR).unwrap();
-    let morpher = Morpher::new(&grammar, 100_000);
+    let morpher = Morpher::new(&grammar, 10_000_000);
 
     let off: Vec<_> = WORDS.iter().map(|word| morpher.parse_word(word)).collect();
     assert!(off.iter().all(|outcome| outcome.cost.is_none()));
@@ -22,7 +22,6 @@ fn parses_and_work_steps_are_identical_with_measurement_on_and_off() {
     for ((word, off), on) in WORDS.iter().zip(&off).zip(&on) {
         assert_eq!(on.analyses, off.analyses, "{word}");
         assert_eq!(on.work_steps, off.work_steps, "{word}");
-        assert_eq!(on.steps, off.steps, "{word}");
         assert_eq!(on.capped, off.capped, "{word}");
         assert_eq!(on.invalid_shape, off.invalid_shape, "{word}");
         let counts = on.cost.expect("measurement is on");

@@ -27,13 +27,13 @@ use pg_parse::WordAnalysis;
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
 
-/// What the ground-truth oracle concluded about ONE corpus occurrence: deliberately no `TimedOut`/`MemoryCapped` variant, since a wall-clock outcome is unreproducible under load and can mask a real step-cap exhaustion, so both become whole-run `OraclePreparationFault`s instead of per-word exclusions.
+/// What the ground-truth oracle concluded about ONE corpus occurrence: deliberately no `TimedOut`/`MemoryCapped` variant, since a wall-clock outcome is unreproducible under load and can mask a real work-cap exhaustion, so both become whole-run `OraclePreparationFault`s instead of per-word exclusions.
 #[derive(Debug, Clone)]
 enum OracleOutcome {
-    /// The oracle finished this occurrence within its step cap. The analyses are the ground truth.
+    /// The oracle finished this occurrence within its work cap. The analyses are the ground truth.
     Complete(Vec<WordAnalysis>),
-    /// The oracle exhausted its step cap on this occurrence — the only eligibility classifier, deterministic per (grammar, word, cap).
-    StepCapped,
+    /// The oracle exhausted its work cap on this occurrence — the only eligibility classifier, deterministic per (grammar, word, cap).
+    WorkCapped,
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +49,7 @@ struct PreparedWord {
 /// `OracleOutcome` for why that is a type-level guarantee rather than a rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OraclePreparationFault {
-    /// The wall-clock liveness net tripped before the step cap could classify this word, so the honest report is "could not determine", never "excluded".
+    /// The wall-clock liveness net tripped before the work cap could classify this word, so the honest report is "could not determine", never "excluded".
     LivenessNetTripped {
         word: String,
         requested_ordinal: u64,
@@ -129,7 +129,7 @@ impl RssSampler {
     }
 }
 
-/// A run-scoped corpus prepared once from the oracle. The ground truth and the step-cap exclusion
+/// A run-scoped corpus prepared once from the oracle. The ground truth and the work-cap exclusion
 /// latches are shared by the pilot and every candidate evaluation in that run — which is what makes
 /// exclusions CANDIDATE-INDEPENDENT by construction: nothing a candidate does can reach this.
 #[derive(Debug)]
@@ -140,7 +140,7 @@ pub struct PreparedCorpus {
 }
 
 impl PreparedCorpus {
-    /// Runs the ground-truth oracle over `words` and classifies each occurrence by STEP CAP alone.
+    /// Runs the ground-truth oracle over `words` and classifies each occurrence by WORK CAP alone.
     ///
     /// Returns `Err` — aborting the whole run — if the wall-clock liveness net or the declared
     /// memory ceiling trips. Neither can produce a row.
@@ -150,7 +150,7 @@ impl PreparedCorpus {
         budget: RuntimeBudget,
     ) -> Result<Self, OraclePreparationFault> {
         let oracle = budget.oracle_eligibility_config();
-        let cap = budget.resolved_oracle_step_cap();
+        let cap = budget.resolved_oracle_work_cap();
         let net = budget.resolved_oracle_liveness_net();
         let ceiling = budget.resolved_oracle_memory_ceiling();
         let morpher = pg_parse::Morpher::new(grammar, cap).with_word_timeout(Some(net));
@@ -158,7 +158,7 @@ impl PreparedCorpus {
         let mut records = Vec::with_capacity(words.len());
         for (requested_ordinal, word) in words.iter().enumerate() {
             let outcome = morpher.parse_word(word);
-            // Checked first and unconditionally: `capped` can be true alongside `timed_out`, and treating that as an exclusion would mask a genuine timeout as a step-cap exclusion.
+            // Checked first and unconditionally: `capped` can be true alongside `timed_out`, and treating that as an exclusion would mask a genuine timeout as a work-cap exclusion.
             if outcome.timed_out {
                 return Err(OraclePreparationFault::LivenessNetTripped {
                     word: word.clone(),
@@ -187,7 +187,7 @@ impl PreparedCorpus {
             records.push(PreparedWord {
                 word: word.clone(),
                 outcome: if outcome.capped {
-                    OracleOutcome::StepCapped
+                    OracleOutcome::WorkCapped
                 } else {
                     OracleOutcome::Complete(outcome.structured)
                 },
@@ -230,7 +230,7 @@ impl PreparedCorpus {
                     comparable.push(word.clone());
                     expected.push((word.clone(), analyses.clone()));
                 }
-                OracleOutcome::StepCapped => {
+                OracleOutcome::WorkCapped => {
                     capped = true;
                     exclusions.push(CorpusExclusion {
                         requested_ordinal: requested_ordinal as u64,
@@ -279,8 +279,8 @@ pub struct NetDedupSavings {
     pub propose_calls_avoided: u64,
     /// Full-HC confirmation CALLS skipped, summed from each donor's own measured count.
     pub confirmation_calls_avoided: u64,
-    /// Full-HC confirmation STEPS skipped — the unit `Score::key` ranks on.
-    pub confirmation_steps_avoided: u64,
+    /// Full-HC confirmation work steps skipped — the unit `Score::key` ranks on.
+    pub confirmation_work_avoided: u64,
 }
 
 /// All prepared, reusable evaluation inputs for one optimizer run.
@@ -338,8 +338,8 @@ impl RunEvaluationCache {
         self.savings.confirmation_calls_avoided
     }
 
-    pub fn confirmation_steps_avoided(&self) -> u64 {
-        self.savings.confirmation_steps_avoided
+    pub fn confirmation_work_avoided(&self) -> u64 {
+        self.savings.confirmation_work_avoided
     }
 
     /// A previously measured candidate whose network, grammar, corpus, and evidence mode are all identical to `key`'s.
@@ -373,10 +373,10 @@ impl RunEvaluationCache {
             .savings
             .confirmation_calls_avoided
             .saturating_add(donor.confirmation);
-        self.savings.confirmation_steps_avoided = self
+        self.savings.confirmation_work_avoided = self
             .savings
-            .confirmation_steps_avoided
-            .saturating_add(donor.confirmation_steps);
+            .confirmation_work_avoided
+            .saturating_add(donor.confirmation_work);
     }
 
     pub fn oracle_calls(&self) -> usize {
@@ -401,8 +401,8 @@ impl RunEvaluationCache {
     /// The prepared oracle analyses for the first COMPLETE occurrence of `word`, or `None` if this
     /// corpus has no such row.
     ///
-    /// `None` deliberately covers two different facts — "not prepared" and "prepared but step-capped"
-    /// — because neither is a set of analyses, and a caller must not be able to treat a step-capped
+    /// `None` deliberately covers two different facts — "not prepared" and "prepared but work-capped"
+    /// — because neither is a set of analyses, and a caller must not be able to treat a work-capped
     /// row as an empty one. That distinction is what
     /// `CorpusCompletenessEvidence`/`Certification::Truncated` exist to carry; this accessor is
     /// for reading a ground truth that IS complete, not for classifying eligibility.
@@ -582,7 +582,7 @@ pub(crate) fn finished_net_digest(net: &foma::types::Fsm) -> String {
 /// - `grammar_identity` — see `grammar_identity`.
 /// - `corpus_hash` of the COMPARABLE words, which is the slice actually applied and the slice whose
 ///   hash a `Certification::FullHcConfirmed` carries. It also fixes `expected`: the prepared oracle
-///   result for a given word text is a pure function of (grammar, word, step cap), so equal
+///   result for a given word text is a pure function of (grammar, word, work cap), so equal
 ///   comparable slices imply equal ground truth.
 /// - `observed` — the observed evaluator retains per-word proposal evidence and the ordinary one does
 ///   not, so serving an ordinary result to an observed caller would silently drop evidence. That is a
@@ -608,18 +608,18 @@ pub fn net_reuse_key(
     format!("{:x}", hash.finalize())
 }
 
-/// Default oracle (ground-truth `pg_parse::Morpher`) step cap, used whenever
-/// `RuntimeBudget::oracle_step_cap` is left `None`.
+/// Default oracle (ground-truth `pg_parse::Morpher`) work cap, used whenever
+/// `RuntimeBudget::oracle_work_cap` is left `None`.
 ///
 /// Justified by measurement: on the
 /// deep-truncation-chain stress grammar, the pathological corpus word that the fully-unbounded
 /// `Morpher::new(g, usize::MAX)` call never returns for (>20s, previously observed >10 minutes)
-/// completes in 91.6ms with `cap = 20_000`, reporting `capped: true` and 2 analyses. That is also
+/// completes in 91.6ms at an attempt cap of 20_000 (a work cap of 2_000_000 here), reporting `capped: true` and 2 analyses. That is also
 /// the exact cap `examples/p6_templated_q3_oracle_bounds.rs` already uses for the same grammar/word,
 /// for the same reason. Large enough that no reference/staged grammar's real analyses come close to
-/// it (the step cap stays a no-op for every well-formed word); small enough that a pathological word
+/// it (the work cap stays a no-op for every well-formed word); small enough that a pathological word
 /// is stopped in well under a second instead of hanging the whole evaluator call.
-pub const DEFAULT_ORACLE_STEP_CAP: usize = 20_000;
+pub const DEFAULT_ORACLE_WORK_CAP: usize = 2_000_000;
 
 /// Default wall-clock LIVENESS NET, used whenever `RuntimeBudget::oracle_liveness_net` is `None`.
 ///
@@ -629,11 +629,11 @@ pub const DEFAULT_ORACLE_STEP_CAP: usize = 20_000;
 /// can never exclude a word. See `OracleOutcome` for the measured incidents behind that.
 ///
 /// # Why 300 seconds and not 2
-/// The old 2-second value was small enough to trip BEFORE a word reached its step cap, which both
+/// The old 2-second value was small enough to trip BEFORE a word reached its work cap, which both
 /// made exclusions load-sensitive and masked the deterministic axis. A net's only job is to be
 /// unreachable by anything except a genuine hang, so it is set far above any legitimate per-word
 /// cost: the pathological deep-truncation-chain word that motivated these bounds completes in
-/// 91.6ms at `cap = 20_000`. Raising it costs
+/// 91.6ms at an attempt cap of 20_000 (a work cap of 2_000_000 here). Raising it costs
 /// nothing on a healthy corpus and makes an abort mean what it says.
 pub const DEFAULT_ORACLE_LIVENESS_NET: Duration = Duration::from_secs(300);
 
@@ -641,7 +641,7 @@ pub const DEFAULT_ORACLE_LIVENESS_NET: Duration = Duration::from_secs(300);
 /// `RuntimeBudget::oracle_memory_ceiling` is `None`.
 ///
 /// # Why memory is a declared axis at all
-/// Measured: Aweti at a 200k step cap OOMed against a 16GB job-object ceiling, and a job-object
+/// Measured: Aweti at a 200k attempt cap OOMed against a 16GB job-object ceiling, and a job-object
 /// kill produces NO row — the run simply vanishes, and "I could not look" reads as an outcome.
 /// Declaring a ceiling below the job object's turns that into a typed, word-naming abort that a
 /// reader can act on.
@@ -1080,15 +1080,15 @@ pub struct RuntimeBudget {
     pub apply: Option<u64>,
     pub proposals: Option<u64>,
     pub confirmation: Option<u64>,
-    /// Ground-truth oracle step cap. UNLIKE every field above, `None` here does NOT mean
+    /// Ground-truth oracle work cap. UNLIKE every field above, `None` here does NOT mean
     /// "unbounded" — it means "caller did not override the default", because unbounded is exactly
     /// the defect this field exists to close (an unbounded oracle `Morpher` call is what hung the
     /// deep-truncation-chain grammar's pilot indefinitely). `evaluate_plans` resolves `None`
-    /// to `DEFAULT_ORACLE_STEP_CAP`. A caller that genuinely wants the old unbounded behavior must
+    /// to `DEFAULT_ORACLE_WORK_CAP`. A caller that genuinely wants the old unbounded behavior must
     /// say so explicitly with `Some(usize::MAX)`.
-    pub oracle_step_cap: Option<usize>,
+    pub oracle_work_cap: Option<usize>,
     /// Ground-truth oracle wall-clock LIVENESS NET — not a classifier. Same "`None` = use the
-    /// default, not unbounded" convention as `oracle_step_cap` immediately above; resolves to
+    /// default, not unbounded" convention as `oracle_work_cap` immediately above; resolves to
     /// `DEFAULT_ORACLE_LIVENESS_NET`. Tripping it aborts preparation with
     /// `OraclePreparationFault::LivenessNetTripped`.
     pub oracle_liveness_net: Option<Duration>,
@@ -1097,7 +1097,7 @@ pub struct RuntimeBudget {
     /// (and is recorded as such in the evidence, so "unbounded" is a stated choice, not a silence).
     pub oracle_memory_ceiling: Option<u64>,
     /// CANDIDATE-side per-word raw `apply_up` path ceiling. Same "`None` = caller did not override
-    /// the default, NOT unbounded" convention as `oracle_step_cap` above, and for the same reason in
+    /// the default, NOT unbounded" convention as `oracle_work_cap` above, and for the same reason in
     /// the mirror-image direction: the oracle field exists because an unbounded ORACLE hung the run,
     /// and this one exists because an unbounded CANDIDATE PROPOSE killed the process outright
     /// (see `crate::compose_budget::DEFAULT_EVALUATION_APPLY_PATH_BUDGET`
@@ -1136,8 +1136,8 @@ impl RuntimeBudget {
         )
     }
 
-    pub fn resolved_oracle_step_cap(&self) -> usize {
-        self.oracle_step_cap.unwrap_or(DEFAULT_ORACLE_STEP_CAP)
+    pub fn resolved_oracle_work_cap(&self) -> usize {
+        self.oracle_work_cap.unwrap_or(DEFAULT_ORACLE_WORK_CAP)
     }
 
     pub fn resolved_oracle_liveness_net(&self) -> Duration {
@@ -1153,7 +1153,7 @@ impl RuntimeBudget {
     /// The three bounds, resolved, exactly as they are bound into the eligibility evidence.
     pub fn oracle_eligibility_config(&self) -> OracleEligibilityConfig {
         OracleEligibilityConfig {
-            step_cap: self.resolved_oracle_step_cap() as u64,
+            work_cap: self.resolved_oracle_work_cap() as u64,
             memory_ceiling_bytes: self.resolved_oracle_memory_ceiling(),
             liveness_net_ns: u64::try_from(self.resolved_oracle_liveness_net().as_nanos())
                 .unwrap_or(u64::MAX),
@@ -1316,7 +1316,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     let mut apply: u64 = 0;
     let mut proposals: u64 = 0;
     let mut confirmation: u64 = 0;
-    let mut confirmation_steps: u64 = 0;
+    let mut confirmation_work: u64 = 0;
     let mut raw_paths: u64 = 0;
     // The per-word apply-path envelope, declared and never unbounded by default — see DEFAULT_EVALUATION_APPLY_PATH_BUDGET for the measurement behind the default.
     let apply_budget = budget.resolved_apply_budget();
@@ -1353,7 +1353,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
                             apply,
                             proposals,
                             confirmation,
-                            confirmation_steps,
+                            confirmation_work,
                             raw_paths: raw_paths.saturating_add(diagnostics.raw_paths as u64),
                         },
                         realized_strategy,
@@ -1367,8 +1367,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
         apply = apply.saturating_add(elapsed_ns(t).max(1));
         proposals = proposals.saturating_add(outcome.candidates_generated as u64);
         confirmation = confirmation.saturating_add(diagnostics.confirmation_calls as u64);
-        confirmation_steps =
-            confirmation_steps.saturating_add(diagnostics.confirmation_steps as u64);
+        confirmation_work = confirmation_work.saturating_add(diagnostics.confirmation_work as u64);
         raw_paths = raw_paths.saturating_add(diagnostics.raw_paths as u64);
         actual.push((w.clone(), outcome.structured));
         if let Some(proposals_for_word) = proposals_for_word {
@@ -1385,7 +1384,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
         apply,
         proposals,
         confirmation,
-        confirmation_steps,
+        confirmation_work,
         raw_paths,
     };
     let breach = budget_breach(&score, budget);
@@ -1469,7 +1468,7 @@ fn failed_evaluation(
             apply: 0,
             proposals: 0,
             confirmation: 0,
-            confirmation_steps: 0,
+            confirmation_work: 0,
             raw_paths: 0,
         },
         divergence,
@@ -1972,7 +1971,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let corpus_evidence =
         corpus_completeness_evidence(words, &comparable, &exclusions, cache.corpus.oracle);
     let words = &comparable[..];
-    // A step-capped oracle result must never reach certify_corpus: a genuinely incomplete candidate could look right against an equally truncated ground truth and wrongly certify, so this returns before build_candidate runs for any plan in the batch. Certification is all-or-nothing over the requested corpus — refusing the whole batch rather than silently certifying a subset under the full corpus's name and hash.
+    // A work-capped oracle result must never reach certify_corpus: a genuinely incomplete candidate could look right against an equally truncated ground truth and wrongly certify, so this returns before build_candidate runs for any plan in the batch. Certification is all-or-nothing over the requested corpus — refusing the whole batch rather than silently certifying a subset under the full corpus's name and hash.
     if !exclusions.is_empty() {
         let stage = if oracle_capped {
             "oracle-capped"
@@ -2061,12 +2060,12 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
 ///   same diagnostics field the certification path reads its `Score::confirmation` from, so the claim
 ///   is checkable rather than merely asserted.
 /// - **It computes no `Score` and moves no ranking.** Containment cannot price a compilation; the
-///   objective stays `confirmation_steps`-led and untouched.
+///   objective stays `confirmation_work`-led and untouched.
 /// - **It never truncates a proposal set and never caps per-candidate work.** Either would be
 ///   indistinguishable from the recall failure this exists to find.
 ///
 /// # Corpus eligibility is the certification path's, unchanged
-/// The same all-or-nothing rule applies: if ANY requested occurrence was excluded (a step-capped
+/// The same all-or-nothing rule applies: if ANY requested occurrence was excluded (a work-capped
 /// oracle result, an unprepared row), every candidate comes back
 /// `crate::backend_accuracy::AccuracyVerdict::NotDetermined` rather than assessed over a silently
 /// narrowed corpus. Assessing a subset under the requested corpus's name is the failure mode

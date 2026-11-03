@@ -32,7 +32,7 @@ fn load(xml: &str) -> Grammar {
 fn assert_full_containment(g: &Grammar, surface: &str) {
     let (proposer, _) = pg_foma::analyzer::compile_proposer_unproven_with_profile(g);
     let mut proposer = proposer.expect("development-only proposer must compile");
-    let morpher = Morpher::new(g, 20_000);
+    let morpher = Morpher::new(g, 2_000_000);
     let oracle = morpher.parse_word_opts(surface, &ParseOptions::default());
     assert!(
         !oracle.structured.is_empty(),

@@ -104,7 +104,7 @@ pub(crate) fn run_grammar_health_with_limits(
             diagnostics.extend(crate::stored_analysis_health::check(
                 &loaded.grammar,
                 &loaded.stored_analyses,
-                limits.step_cap,
+                limits.work_cap,
                 coverage,
             ));
             diagnostics.extend(

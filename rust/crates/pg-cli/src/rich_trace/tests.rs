@@ -21,7 +21,6 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
         structured: Vec::new(),
         capped: false,
         invalid_shape: false,
-        steps: 17,
         work_steps: 41,
         timed_out: false,
         guessed: false,
@@ -121,10 +120,9 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
         .expect("rich envelope serializes"),
     )
     .expect("rich envelope is JSON");
-    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v4");
+    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v5");
     assert_eq!(value["trace"], tree);
     assert_eq!(value["search"]["completed"], true);
-    assert_eq!(value["search"]["steps"], 17);
     assert_eq!(value["search"]["workSteps"], 41);
     assert_eq!(value["categories"]["morphRule"]["work_steps"], 12);
     assert_eq!(value["categories"]["unattributed"]["work_steps"], 29);
@@ -172,7 +170,6 @@ fn v2_retains_analysis_when_projection_is_unavailable() {
         structured: Vec::new(),
         capped: true,
         invalid_shape: false,
-        steps: 99,
         work_steps: 0,
         timed_out: false,
         guessed: false,
@@ -197,7 +194,7 @@ fn v2_retains_analysis_when_projection_is_unavailable() {
         .expect("v2 envelope serializes"),
     )
     .expect("v2 envelope is JSON");
-    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v4");
+    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v5");
     assert_eq!(value["provenance"]["grammar"]["name"], "Test");
     assert_eq!(
         value["provenance"]["grammar"]["grammarHashSemantics"],
@@ -239,7 +236,7 @@ fn rich_tree_preserves_nodes_beyond_default_json_parse_depth() {
     .unwrap();
     assert_eq!(rich.matches("\"type\":").count(), sink.len());
     assert_eq!(ordinary.matches("\"type\":").count(), sink.len());
-    assert!(rich.contains("\"schemaVersion\":\"pangloss.trace-details.v4\""));
+    assert!(rich.contains("\"schemaVersion\":\"pangloss.trace-details.v5\""));
 }
 
 #[test]

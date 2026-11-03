@@ -1,26 +1,22 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates[=true|false]]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates[=true|false]]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
 //! preserving partial projections when a cap or timeout fires.
-//! `--step-cap N` bounds the analysis cascade; omitted,
-//! it defaults to `DEFAULT_STEP_CAP` (50,000,000) so every batch terminates deterministically --
-//! `--step-cap unbounded` opts back into no bound at all. See
-//! `docs/research/step-cap-default-measurements.md` for the measurements behind that number.
-//!
-//! `--work-cap N|unbounded` bounds inner search and confirmation independently. Omitted,
-//! it is 100 times the configured step cap (saturating); unbounded derives unbounded.
+//! `--work-cap N` bounds the work of one word: the running total of work steps across analysis,
+//! lookup and confirmation. Omitted, it defaults to `DEFAULT_WORK_CAP` (5,000,000,000) so every
+//! batch terminates deterministically; `--work-cap unbounded` opts back into no bound at all.
 //! See `docs/research/per-word-search-work-cap.md` for its counting contract and evidence.
 //!
 //! ## `--word-timeout-ms`
-//! A second, independent bound: `--step-cap` bounds the *number* of analysis steps, but per-step
-//! cost is not uniform — some pathological words legitimately spend far longer per step than
-//! others (heavier narrowing/expansion analysis), so a step-count cap alone cannot bound wall-clock
+//! A second, independent bound: `--work-cap` bounds the *amount* of work, but work is not a
+//! time measure — some pathological words legitimately spend far longer per work step than
+//! others (heavier narrowing/expansion analysis), so a work cap alone cannot bound wall-clock
 //! time per word. `--word-timeout-ms N` arms a wall-clock deadline on the same shared
-//! `pg_rules::stratum::StepBudget` the step cap already uses; whichever bound fires first wins,
-//! and each is reported distinctly — a step-cap-exhausted word writes a `CAP` status row (its
+//! `pg_rules::stratum::WordBudget` the work cap already uses; whichever bound fires first wins,
+//! and each is reported distinctly — a work-cap-exhausted word writes a `CAP` status row (its
 //! signature column is the partial, unconfirmed signature reached before the cap fired, kept for
 //! inspection, never a result) alongside the same `CAP` marker on stderr, while a timed-out word
 //! writes a `TIMEOUT` row with signature `-`. Omitted (the default) is a complete no-op: no clock
@@ -105,7 +101,7 @@ use pg_parse::{
     parse_morph::{project_parse_analysis, ParseAnalysis, PARSE_ANALYSIS_PROFILE},
     GenMorpheme, Morpher, WordAnalysis,
 };
-use pg_stats::StepCap;
+use pg_stats::WorkCap;
 
 #[derive(Clone, Default)]
 struct BatchParseCounter {
@@ -362,15 +358,15 @@ const REPORT_DEVELOPER_HELP: &str = " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const REPORT_DEVELOPER_HELP: &str = "";
 
-/// Ten times the highest step count any measured legitimate word reached across every corpus sampled; a runaway guard, never a performance tuning knob.
-const DEFAULT_STEP_CAP: StepCap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
+/// A runaway guard, never a tuning knob: 5,000,000,000 work steps, the cap a 50,000,000-attempt limit implied at 100 work steps per attempt.
+const DEFAULT_WORK_CAP: WorkCap =
+    WorkCap::Finite(std::num::NonZeroU64::new(5_000_000_000).unwrap());
 
-fn parse_work_cap(value: &str) -> Result<StepCap, String> {
-    value.parse::<StepCap>().map_err(|err| {
-        err.replace("--step-cap", "--work-cap")
-            .replace("step cap", "work cap")
-            .replace("first step", "first work unit")
-    })
+/// The limit on one `generate` run, in work steps and seed choices alike.
+const DEFAULT_GENERATION_WORK_CAP: usize = 50_000_000;
+
+fn parse_work_cap(value: &str) -> Result<WorkCap, String> {
+    value.parse::<WorkCap>()
 }
 
 /// The value of a `--flag=true|false` override of a project parser setting.
@@ -380,13 +376,6 @@ fn parse_bool_flag(flag: &str, value: &str) -> Result<bool, String> {
         "false" => Ok(false),
         _ => Err(format!("invalid {flag}={value} (expected true or false)")),
     }
-}
-
-fn resolved_work_cap(step_cap: StepCap, work_cap: Option<StepCap>) -> usize {
-    work_cap.map_or_else(
-        || pg_rules::stratum::default_work_cap(step_cap.as_morpher_cap()),
-        StepCap::as_morpher_cap,
-    )
 }
 
 /// Allocator-level ground truth for `docs/research/word-memory-trace.md`; off unless built with `--features alloc-trace`.
@@ -429,11 +418,11 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
-         usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
+         usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
          usage: pangloss fst-health <grammar> [<out.json>]\n\
@@ -459,9 +448,9 @@ fn print_usage_and_fail() -> ExitCode {
          with --guess, `parse` prints a `guessed:` line and `batch` adds a `guessed` TSV column\n\
          after `signature`; without the flag the stdout layout is unchanged, `parse` notes a\n\
          guess on stderr, and `batch --analyses` reports each guessed morph's guessedString.\n\
-         --work-columns (`batch`) appends `steps` and `work_steps` to every result row\n\
+         --work-columns (`batch`) appends `work_steps` to every result row\n\
          (docs/formats/batch-tsv.md); off by default, the row layout is unchanged.\n\
-         --cost-column (`batch`) appends each word's fixed-weight parse cost as the last field; off by\n\
+         --cost-column (`batch`) appends `work_steps`, then each word's fixed-weight parse cost, as the last fields; off by\n\
          default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
          ok in both, reports the rest, and says inconclusive when a status changed. Use the total;\n\
          per-word costs repeat exactly only with --threads 1 (docs/design/parse-cost.md).\n\
@@ -755,8 +744,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut guess_arg: Option<bool> = None;
-    let mut step_cap = DEFAULT_STEP_CAP;
-    let mut work_cap = None;
+    let mut work_cap = DEFAULT_WORK_CAP;
     let mut word_timeout = None;
 
     let mut it = args.iter();
@@ -792,21 +780,12 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s == "--guess" || s.starts_with("--guess=") => {
                 guess_arg = Some(parse_guess_flag(s)?)
             }
-            "--step-cap" => {
-                step_cap = it
-                    .next()
-                    .ok_or("--step-cap requires a value")?
-                    .parse::<StepCap>()?;
-            }
-            value if value.starts_with("--step-cap=") => {
-                step_cap = value["--step-cap=".len()..].parse::<StepCap>()?;
-            }
             "--work-cap" => {
                 let value = it.next().ok_or("--work-cap requires a value")?;
-                work_cap = Some(parse_work_cap(value)?);
+                work_cap = parse_work_cap(value)?;
             }
             value if value.starts_with("--work-cap=") => {
-                work_cap = Some(parse_work_cap(&value["--work-cap=".len()..])?);
+                work_cap = parse_work_cap(&value["--work-cap=".len()..])?;
             }
             "--word-timeout-ms" => {
                 let value = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -848,7 +827,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--work-cap N|unbounded] [--word-timeout-ms N]".into());
     };
 
     let (grammar, warnings, trace_metadata) = if trace_details {
@@ -871,9 +850,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     };
 
     let morpher = with_guess_override(
-        Morpher::new(&grammar, step_cap.as_morpher_cap())
-            .with_work_cap(resolved_work_cap(step_cap, work_cap))
-            .with_word_timeout(word_timeout),
+        Morpher::new(&grammar, work_cap.as_morpher_cap()).with_word_timeout(word_timeout),
         guess_arg,
     );
     let opts = morpher.project_parse_options();
@@ -1041,15 +1018,15 @@ fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
     dir.join(format!("{stem}-realize.toml"))
 }
 
-/// Version 4 adds the optional `--cost-column`; version 3's layout is unchanged without it.
-pub(crate) const BATCH_TSV_VERSION: u32 = 4;
+/// Version 5 removes the `steps` column from `--work-columns`, which now writes only `work_steps`; `--cost-column` writes `work_steps` then `cost`, so the two layouts differ by field count.
+pub(crate) const BATCH_TSV_VERSION: u32 = 5;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
     /// `Some(guessed)` only when `--guess` or `--guess=true` was passed, never for a project's own `GuessRoots`.
     guessed: Option<bool>,
-    /// `Some((steps, work_steps))` only when `--work-columns` was passed.
-    counts: Option<(usize, usize)>,
+    /// `Some(work_steps)` only when `--work-columns` was passed.
+    work_steps: Option<usize>,
     /// `Some(cost)` only when `--cost-column` was passed.
     cost: Option<u64>,
 }
@@ -1058,9 +1035,7 @@ impl BatchRowTail {
     fn new(flags: BatchRowFlags, outcome: &pg_parse::ParseOutcome) -> Self {
         Self {
             guessed: flags.guess.then_some(outcome.guessed),
-            counts: flags
-                .work_columns
-                .then_some((outcome.steps, outcome.work_steps)),
+            work_steps: (flags.work_columns || flags.cost_column).then_some(outcome.work_steps),
             cost: flags.cost_column.then(|| {
                 outcome
                     .cost
@@ -1079,7 +1054,7 @@ struct BatchRowFlags {
     cost_column: bool,
 }
 
-/// Writes one `idx word elapsed_ms status signature [guessed] [steps work_steps] [cost]` row; see `docs/formats/batch-tsv.md`.
+/// Writes one `idx word elapsed_ms status signature [guessed] [work_steps] [cost]` row; see `docs/formats/batch-tsv.md`.
 fn write_batch_row<W: Write>(
     w: &mut W,
     idx: usize,
@@ -1093,8 +1068,8 @@ fn write_batch_row<W: Write>(
     if let Some(guessed) = tail.guessed {
         write!(w, "\t{guessed}")?;
     }
-    if let Some((steps, work_steps)) = tail.counts {
-        write!(w, "\t{steps}\t{work_steps}")?;
+    if let Some(work_steps) = tail.work_steps {
+        write!(w, "\t{work_steps}")?;
     }
     if let Some(cost) = tail.cost {
         write!(w, "\t{cost}")?;
@@ -1240,9 +1215,8 @@ fn run_batch_with_counter(
     parse_counter: &BatchParseCounter,
 ) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
-    let mut step_cap: StepCap = DEFAULT_STEP_CAP;
-    let mut work_cap = None;
-    // --word-timeout-ms: an optional wall-clock deadline per word, independent of --step-cap; None (omitted) is a complete no-op.
+    let mut work_cap: WorkCap = DEFAULT_WORK_CAP;
+    // --word-timeout-ms: an optional wall-clock deadline per word, independent of --work-cap; None (omitted) is a complete no-op.
     let mut word_timeout_ms: Option<u64> = None;
     // Default (unspecified --threads only) is logical CPUs capped at 8, since per-word memory on a pathological grammar multiplies by thread count and an uncapped default can exhaust machine memory.
     const DEFAULT_THREAD_CAP: usize = 8;
@@ -1266,24 +1240,12 @@ fn run_batch_with_counter(
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--step-cap" => {
-                let v = it.next().ok_or("--step-cap requires a value")?;
-                step_cap = v
-                    .parse::<StepCap>()
-                    .map_err(|e| format!("invalid --step-cap: {e}"))?;
-            }
-            s if s.starts_with("--step-cap=") => {
-                let v = &s["--step-cap=".len()..];
-                step_cap = v
-                    .parse::<StepCap>()
-                    .map_err(|e| format!("invalid --step-cap: {e}"))?;
-            }
             "--work-cap" => {
                 let value = it.next().ok_or("--work-cap requires a value")?;
-                work_cap = Some(parse_work_cap(value)?);
+                work_cap = parse_work_cap(value)?;
             }
             s if s.starts_with("--work-cap=") => {
-                work_cap = Some(parse_work_cap(&s["--work-cap=".len()..])?);
+                work_cap = parse_work_cap(&s["--work-cap=".len()..])?;
             }
             "--word-timeout-ms" => {
                 let v = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -1366,7 +1328,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
                 .into(),
         );
     };
@@ -1452,7 +1414,6 @@ fn run_batch_with_counter(
         .filter(|w| !w.is_empty())
         .collect();
 
-    let work_cap = resolved_work_cap(step_cap, work_cap);
     // A cache refusal must fire before the TSV below is truncated.
     let stats_cache = if let Some(manifest_path) = stats_manifest_path {
         let cache_path = stats_cache_path
@@ -1465,7 +1426,6 @@ fn run_batch_with_counter(
             stats_cmd::prepare_frozen_batch_stats_hc(
                 grammar_path,
                 &words,
-                step_cap,
                 work_cap,
                 word_timeout_ms,
                 guess,
@@ -1480,7 +1440,6 @@ fn run_batch_with_counter(
             stats_cmd::prepare_batch_stats_hc(
                 grammar_path,
                 &words,
-                step_cap,
                 work_cap,
                 word_timeout_ms,
                 guess,
@@ -1519,8 +1478,7 @@ fn run_batch_with_counter(
     let mut timed_out_words = 0u64;
 
     let t_morpher = Instant::now();
-    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
-        .with_work_cap(work_cap)
+    let morpher = Morpher::new(&grammar, work_cap.as_morpher_cap())
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates)
         .with_guess_roots(guess);
@@ -1635,9 +1593,8 @@ fn run_batch_with_counter(
                     outcome.signature()
                 }
             };
-            // Diagnostic only: raw StepBudget tick count for this word, regardless of whether the cap fired.
+            // Diagnostic only: raw work total for this word, regardless of whether the cap fired.
             if std::env::var("HC_STEP_STATS").is_ok() {
-                eprintln!("STEPS\t{i}\t{word}\t{}", outcome.steps);
                 eprintln!("WORK_STEPS\t{i}\t{word}\t{}", outcome.work_steps);
                 let shadow = pg_rules::required_slots::take_shadow();
                 eprintln!(
@@ -1920,7 +1877,6 @@ fn run_batch_with_counter(
             let batch_options = stats_manifest::BatchOptions {
                 engine: "hc",
                 threads,
-                step_cap,
                 work_cap,
                 search_budget_semantics: stats_cmd::SEARCH_BUDGET_SEMANTICS,
                 word_timeout_ms,
@@ -1978,7 +1934,8 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     // The shared Morpher generation allowance covers seed selection and synthesis.
-    let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap());
+    let morpher = Morpher::new(&grammar, DEFAULT_GENERATION_WORK_CAP)
+        .with_generation_cap(DEFAULT_GENERATION_WORK_CAP);
 
     let root = lex_entry_by_morpheme_id(&grammar, root_id)
         .ok_or_else(|| format!("no LexicalEntry with <MorphemeId>{root_id}</MorphemeId>"))?;

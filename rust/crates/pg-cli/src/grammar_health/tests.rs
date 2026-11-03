@@ -380,7 +380,7 @@ fn run_stored_analysis_health_with_synthesis_cap(
     let diagnostics = crate::stored_analysis_health::check_with_options(
         &loaded.grammar,
         &loaded.stored_analyses,
-        crate::stored_analysis_health::ANALYSIS_STEP_CAP,
+        crate::stored_analysis_health::ANALYSIS_WORK_CAP,
         work_cap,
         1,
         None,
@@ -395,7 +395,7 @@ fn compare_stored_analyses_at(
     project: &str,
     writing_system: &str,
     analyses: &[StoredAnalysisFixture],
-    step_cap: usize,
+    work_cap: usize,
     work_budget: Option<usize>,
     thread_counts: &[usize],
 ) -> Vec<Result<Vec<pg_grammar::grammar_health::GrammarHealthDiagnostic>, String>> {
@@ -421,8 +421,8 @@ fn compare_stored_analyses_at(
             crate::stored_analysis_health::check_with_options(
                 &loaded.grammar,
                 &loaded.stored_analyses,
-                step_cap,
-                pg_rules::stratum::default_work_cap(step_cap),
+                work_cap,
+                work_cap,
                 threads,
                 work_budget,
             )
@@ -457,7 +457,7 @@ fn stored_analysis_comparison_is_identical_at_every_thread_count() {
         &staged_underdefined_project("08-rule-context"),
         "en",
         &analyses,
-        crate::stored_analysis_health::ANALYSIS_STEP_CAP,
+        crate::stored_analysis_health::ANALYSIS_WORK_CAP,
         None,
         &[1, 2, 3, 8],
     );
@@ -525,7 +525,7 @@ fn stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_coun
 
 #[test]
 fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
-    const STEP_CAP: usize = 2;
+    const WORK_CAP: usize = 200;
     let compared = [
         StoredAnalysisFixture {
             wordform: "muma",
@@ -550,7 +550,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
     analyses.push(capped);
     let project = staged_underdefined_project("08-rule-context");
     let limits = crate::stored_analysis_health::Limits {
-        step_cap: STEP_CAP,
+        work_cap: WORK_CAP,
         ..crate::stored_analysis_health::Limits::DEFAULT
     };
     let report = run_stored_analysis_health_at("capped", &project, "en", &analyses, limits, &[]);
@@ -565,9 +565,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
     let description = incomplete[0]["description"].as_str().expect("description");
     assert!(description.contains("wordform \"xpupa\""), "{description}");
     assert!(
-        description.contains(&format!(
-            "per-word analysis cap ({STEP_CAP} analysis steps or"
-        )),
+        description.contains(&format!("per-word work cap ({WORK_CAP} work steps)")),
         "{description}"
     );
     assert_eq!(incomplete[0]["level"], "warning");
@@ -600,8 +598,8 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
 fn stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count() {
     let analyses = many_wordform_fixtures();
     let project = staged_underdefined_project("08-rule-context");
-    let step_cap = crate::stored_analysis_health::ANALYSIS_STEP_CAP;
-    let full = compare_stored_analyses_at(&project, "en", &analyses, step_cap, None, &[1])
+    let work_cap = crate::stored_analysis_health::ANALYSIS_WORK_CAP;
+    let full = compare_stored_analyses_at(&project, "en", &analyses, work_cap, None, &[1])
         .remove(0)
         .expect("full comparison succeeds");
     assert!(full
@@ -615,7 +613,7 @@ fn stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thre
             &project,
             "en",
             &analyses,
-            step_cap,
+            work_cap,
             Some(budget),
             &[1, 2, 8],
         );
@@ -990,8 +988,8 @@ fn stored_analysis_naming_a_merged_msa_matches_its_representatives_parse() {
         crate::stored_analysis_health::check_with_options(
             grammar,
             &loaded.stored_analyses,
-            crate::stored_analysis_health::ANALYSIS_STEP_CAP,
-            pg_rules::stratum::default_work_cap(crate::stored_analysis_health::ANALYSIS_STEP_CAP),
+            crate::stored_analysis_health::ANALYSIS_WORK_CAP,
+            crate::stored_analysis_health::ANALYSIS_WORK_CAP,
             1,
             None,
         )
@@ -1031,7 +1029,7 @@ fn grammar_health_reports_synthesis_budget_as_unattributed() {
     assert!(
         finding
             .message
-            .contains("unattributed: synthesis step budget reached"),
+            .contains("unattributed: synthesis work cap reached"),
         "{}",
         finding.message
     );

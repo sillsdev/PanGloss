@@ -49,20 +49,22 @@ Heavy measurement, policy and code are separate tasks. Real-language data is nev
 
 ## 5. Accurate `work_steps` (output-affecting)
 
-- [ ] 5.1 Charge accepted categories in `WorkBudget`; bump `SEARCH_BUDGET_SEMANTICS`
-- [ ] 5.2 Recalibrate the default work cap and its multiplier
-- [ ] 5.3 Gate: no word that completes today newly caps, on conformance and all local real grammars
-- [ ] 5.4 Update divergence 052 and `docs/research/per-word-search-work-cap.md`
-- [ ] 5.5 Add a measured raw-path weight, then move `Score::key` to work
+- [~] 5.1 Charge accepted categories in `WorkBudget`: not done here; `SEARCH_BUDGET_SEMANTICS` is 3 because the attempt cap was removed, not because new categories are charged
+- [x] 5.2 Default work cap is 100 times the old default (5,000,000,000), so it limits what it limited; no multiplier remains
+- [x] 5.3 Gate: no word that completes today newly caps or changes: 0 exceptions on five local grammars (conformance gate runs in `-Mode conformance-test`)
+- [x] 5.4 Update divergence 052 and `docs/research/per-word-search-work-cap.md`
+- [x] 5.5 Add a measured raw-path weight (5), then move `Score::key` to work; the optimizer picks the same recipe on 160 of 160 conformance fixtures
 
 ## 6. Retire `steps` (breaking)
 
-- [ ] 6.1 Warning release: `--step-cap` and the `steps` column report deprecation
-- [ ] 6.2 Confirm the Motif transition with its maintainers
-- [ ] 6.3 Gate: the Maasai recall sample does not fall below its current count of words with analyses
-- [ ] 6.4 Remove the attempt cap, `--step-cap`, `ParseOutcome.steps` and oracle step ticks
-- [ ] 6.5 Move `interfaces.batchTsv` to 5 (4 added `--cost-column`), update serve, FFI, WASM and the stats schema
-- [ ] 6.6 Remove `confirmation_steps` from `Score` and the reports
+The owner decided to remove `steps` completely and overrode the warning release (6.1) and the Motif sign-off (6.2): there is no deprecation period. Caps are on work.
+
+- [~] 6.1 Warning release: skipped by the owner's decision
+- [~] 6.2 Confirm the Motif transition with its maintainers: skipped by the owner's decision
+- [x] 6.3 Gate: no Maasai grammar or sample exists on this machine, so the gate ran on the Indonesian, Mbugwe, Amharic, Aweti and Sena samples (see `docs/research/per-word-search-work-cap.md`)
+- [x] 6.4 Remove the attempt cap, `--step-cap`, `ParseOutcome.steps` and oracle step ticks
+- [x] 6.5 `interfaces.batchTsv` is 5, serve protocol 2, trace details v5, phonology-examples wire 2, stats schema 11 with search-budget semantics 3, facts schema 9 with manifest 2, backend report schema 6, score schema 3, `corpus-exclusion-ledger-v3`; the FFI ABI is 4 because the per-word cap semantics changed although no signature or buffer did
+- [x] 6.6 Remove `confirmation_steps` from `Score` and the reports (`confirmation_work` replaces it)
 
 ## 7. Host signal
 

@@ -17,7 +17,7 @@ use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
     analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy,
     synthesize_phonological_stratum_traced, synthesize_stratum_traced, synthesize_template,
-    AnalyzerConfig, FinalTemplateAnalysisPolicy, PhonologyCascadeOutcome, StepBudget,
+    AnalyzerConfig, FinalTemplateAnalysisPolicy, PhonologyCascadeOutcome, WordBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle, TraceSink, TreeTraceSink};
 use pg_rules::{MorphRecord, Word};
@@ -298,12 +298,11 @@ fn expected_surface(g: &Grammar, text: &str) -> Vec<Vec<Vec<u64>>> {
 
 fn ordinary_phonology_shapes(g: &Grammar, stratum: StratumId, input: Word) -> Vec<Vec<Vec<u64>>> {
     let cache = RuleCache::build(g);
-    let budget = StepBudget::with_limits(usize::MAX, 10_000).with_synthesis_counting();
+    let budget = WordBudget::new(10_000);
     let words = synthesize_stratum_traced(
         g,
         stratum,
         input,
-        10_000,
         &cache,
         &budget,
         None,
@@ -366,7 +365,7 @@ fn direct_phonology(
     g: &Grammar,
     stratum: StratumId,
     input: Word,
-    budget: &StepBudget,
+    budget: &WordBudget,
 ) -> PhonologyCascadeOutcome {
     let cache = RuleCache::build(g);
     synthesize_phonological_stratum_traced(
@@ -382,7 +381,7 @@ fn direct_phonology(
 }
 
 fn direct_surface(g: &Grammar, stratum: StratumId, input: Word) -> Vec<Vec<u64>> {
-    let out = direct_phonology(g, stratum, input, &StepBudget::new(usize::MAX));
+    let out = direct_phonology(g, stratum, input, &WordBudget::new(usize::MAX));
     assert!(!out.capped && !out.timed_out);
     lane_surface(&out.output.expect("a finished fold has output").shape)
 }
@@ -430,19 +429,14 @@ fn direct_phonology_reports_incomplete_without_partial_output() {
     let (g, s) = ordered_phonology_fixture(true, false);
     let input = || word_with_context(&g, "p", s, true, 0);
     let full = direct_surface(&g, s, input());
-    let zero_work = direct_phonology(&g, s, input(), &StepBudget::with_limits(usize::MAX, 0));
+    let zero_work = direct_phonology(&g, s, input(), &WordBudget::new(0));
     assert!(zero_work.output.is_none() && zero_work.capped && !zero_work.timed_out);
-    let expired = StepBudget::new(usize::MAX).with_timeout(Some(Duration::ZERO));
+    let expired = WordBudget::new(usize::MAX).with_timeout(Some(Duration::ZERO));
     let timed = direct_phonology(&g, s, input(), &expired);
     assert!(timed.output.is_none() && timed.timed_out);
     let mut stopped_midway = 0;
     for work_cap in 0..200 {
-        let out = direct_phonology(
-            &g,
-            s,
-            input(),
-            &StepBudget::with_limits(usize::MAX, work_cap),
-        );
+        let out = direct_phonology(&g, s, input(), &WordBudget::new(work_cap));
         match out.output {
             Some(w) => assert_eq!(lane_surface(&w.shape), full, "work cap {work_cap}"),
             None => {
@@ -474,7 +468,7 @@ fn linear_stratum_unapplies_suffixes_in_reversed_order() {
         s,
         input,
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped, "tiny linear stratum must not hit the cap");
 
@@ -512,7 +506,7 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
         su,
         word(&gu, "akp", su),
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out_u.capped);
     let unordered = candidate_shapes(&out_u.words);
@@ -539,7 +533,7 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
         sl,
         word(&gl, "akp", sl),
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out_l.capped);
     let linear = candidate_shapes(&out_l.words);
@@ -607,7 +601,7 @@ fn optional_template_slot_yields_both_filled_and_skipped() {
         s,
         word(&g, "apk", s),
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     let got = candidate_shapes(&out.words);
@@ -640,7 +634,7 @@ fn all_optional_final_template_does_not_duplicate_the_unapplied_seed() {
         s,
         word(&g, "apk", s),
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     // Four fill/skip choices converge to three singular shapes after ordinary dedup.
@@ -668,7 +662,7 @@ fn mandatory_slot_suppresses_the_skipped_analysis() {
         s,
         word(&g, "apk", s),
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     let got = candidate_shapes(&out.words);
@@ -753,7 +747,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
             merge_equivalent: false,
             ..AnalyzerConfig::default()
         },
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     let baseline_histories: Vec<Vec<MRuleId>> = baseline
         .words
@@ -778,7 +772,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy::default(),
         Some(&disabled_stats),
         &NoopSink,
@@ -833,7 +827,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -863,7 +857,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -914,7 +908,7 @@ fn stratum_outputs_carry_the_final_template_state_out() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: false,
@@ -973,7 +967,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: false,
@@ -1006,7 +1000,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -1034,7 +1028,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -1100,7 +1094,7 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy::default(),
         None,
         &NoopSink,
@@ -1120,7 +1114,7 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
         None,
         None,
         None,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -1222,7 +1216,7 @@ fn sena_analysis_stratum_terminates_on_short_words() {
         sd.templates.len()
     );
 
-    // Short words only: unmemoized analysis can exhaust the step cap even on these, in which case the candidate set is partial.
+    // Short words only: unmemoized analysis can exhaust the work cap even on these, in which case the candidate set is partial.
     let cfg = AnalyzerConfig {
         merge_equivalent: true,
         max_unapplications: 0,
@@ -1237,7 +1231,7 @@ fn sena_analysis_stratum_terminates_on_short_words() {
         }
         // Build with per-node lanes so feature matching is real.
         let input = word(&g, text, stratum);
-        let out = analyze_stratum(&g, stratum, input, &cfg, &StepBudget::new(12_000));
+        let out = analyze_stratum(&g, stratum, input, &cfg, &WordBudget::new(1_200_000));
         assert!(
             !out.words.is_empty(),
             "{text}: candidate set always contains at least the seed"
@@ -1275,7 +1269,7 @@ fn merge_equivalent_analyses_keeps_distinct_rule_histories_as_siblings() {
     };
 
     let input0 = word(&g, "agn", s0);
-    let out0 = analyze_stratum(&g, s0, input0, &cfg, &StepBudget::new(10_000));
+    let out0 = analyze_stratum(&g, s0, input0, &cfg, &WordBudget::new(1_000_000));
     assert!(!out0.capped);
     let ag_shape = vec![cd(&g, "char_a"), cd(&g, "char_g")];
     let ag_candidates: Vec<&Word> = out0
@@ -1333,7 +1327,7 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
 
     // Stratum 0: "pagn" -- unapplying P then S ("agn" -> "ag") and S then P ("pag" -> "ag") both reach "ag".
     let input0 = word(&g, "pagn", s0);
-    let out0 = analyze_stratum(&g, s0, input0, &cfg, &StepBudget::new(10_000));
+    let out0 = analyze_stratum(&g, s0, input0, &cfg, &WordBudget::new(1_000_000));
     assert!(!out0.capped);
     let ag_shape = vec![cd(&g, "char_a"), cd(&g, "char_g")];
     let ag_candidates: Vec<&Word> = out0
@@ -1377,7 +1371,7 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
     );
 
     // Stratum 1: feed the single canonical word in; the alternative rides along without descending as its own candidate.
-    let out1 = analyze_stratum(&g, s1, canonical, &cfg, &StepBudget::new(10_000));
+    let out1 = analyze_stratum(&g, s1, canonical, &cfg, &WordBudget::new(1_000_000));
     assert!(!out1.capped);
     let a_shape = vec![cd(&g, "char_a")];
     let final_word = out1
@@ -1440,7 +1434,7 @@ fn cascade_diamond_never_holds_more_live_words_than_distinct_outputs_plus_depth(
         ..AnalyzerConfig::default()
     };
     let input = word(&g, "pkagn", s0);
-    let out = analyze_stratum(&g, s0, input, &cfg, &StepBudget::new(100_000));
+    let out = analyze_stratum(&g, s0, input, &cfg, &WordBudget::new(10_000_000));
     assert!(!out.capped);
     let root_shape = vec![cd(&g, "char_a")];
     assert!(
@@ -1479,7 +1473,7 @@ fn merge_generalizes_canonical_syntactic_fs_over_folded_alternative() {
         ..AnalyzerConfig::default()
     };
     let input = word(&g, "pagn", s0);
-    let out = analyze_stratum(&g, s0, input, &cfg, &StepBudget::new(10_000));
+    let out = analyze_stratum(&g, s0, input, &cfg, &WordBudget::new(1_000_000));
     assert!(!out.capped);
     let ag_shape = vec![cd(&g, "char_a"), cd(&g, "char_g")];
     let canonical = out
@@ -1526,15 +1520,13 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
     root.mrule_app_index = 1;
 
     let cache = RuleCache::build(&g);
-    const CAP: usize = 10_000;
 
     // Baseline: no deadline armed; establishes that this trail genuinely drives synthesis and records the uninterrupted output count N.
-    let full_budget = StepBudget::new(usize::MAX);
+    let full_budget = WordBudget::new(usize::MAX);
     let full = synthesize_stratum_traced(
         &g,
         s,
         root.clone(),
-        CAP,
         &cache,
         &full_budget,
         None,
@@ -1562,12 +1554,11 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
     );
 
     // Guard: an otherwise-identical call with an already-elapsed deadline; timed_out() == true proves synthesis itself consults the deadline.
-    let expired_budget = StepBudget::new(usize::MAX).with_timeout(Some(Duration::ZERO));
+    let expired_budget = WordBudget::new(usize::MAX).with_timeout(Some(Duration::ZERO));
     let capped = synthesize_stratum_traced(
         &g,
         s,
         root,
-        CAP,
         &cache,
         &expired_budget,
         None,
@@ -1579,11 +1570,11 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
         "a pre-expired --word-timeout-ms deadline must be caught by synthesis's own \
          `budget.deadline_expired()` checks (synth_apply_mrules/synth_apply_templates/\
          guided_template_apply/synth_slots_generic) -- pre-fix, `synthesize_stratum_traced` took no \
-         `&StepBudget` parameter at all and could not observe any deadline during synthesis"
+         `&WordBudget` parameter at all and could not observe any deadline during synthesis"
     );
     assert!(
         !expired_budget.capped(),
-        "the step cap (usize::MAX) must never fire -- this budget's `timed_out` must come from the \
+        "the work cap (usize::MAX) must never fire -- this budget's `timed_out` must come from the \
          deadline, not the step count"
     );
     if n > 1 {
@@ -1619,12 +1610,11 @@ fn synthesis_optional_stem_paths_share_the_per_word_allowance() {
     let mut stem = Word::new(builder.finish(), stratum);
     stem.morphological_rule_unapplied(false, Some(rid));
 
-    let budget = StepBudget::with_limits(usize::MAX, 64);
+    let budget = WordBudget::without_reserve(64);
     let output = synthesize_stratum_traced(
         &g,
         stratum,
         stem,
-        usize::MAX,
         &cache,
         &budget,
         None,
@@ -1640,10 +1630,5 @@ fn synthesis_optional_stem_paths_share_the_per_word_allowance() {
         "ordinary synthesis must honor the shared cap"
     );
     assert_eq!(budget.work_steps(), 64);
-    assert_eq!(
-        budget.steps(),
-        0,
-        "preserve the analysis-attempt diagnostic"
-    );
     assert!(!budget.timed_out(), "the bound is deterministic");
 }

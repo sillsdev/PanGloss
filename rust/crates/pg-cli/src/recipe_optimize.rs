@@ -37,8 +37,8 @@ pub struct RecipeOptimizeArgs {
     pub out_dir: String,
     pub seed: u64,
     pub budget: Budget,
-    /// `--oracle-step-cap`; `None` leaves `recipe_runtime`'s own default in force, never unbounded.
-    pub oracle_step_cap: Option<usize>,
+    /// `--oracle-work-cap`; `None` leaves `recipe_runtime`'s own default in force, never unbounded.
+    pub oracle_work_cap: Option<usize>,
     /// `--oracle-liveness-net-ms` (legacy alias `--oracle-word-timeout-ms`); tripping it aborts the run rather than excluding the word.
     pub oracle_liveness_net: Option<Duration>,
     /// `--oracle-memory-ceiling-bytes`; exceeding it aborts the run, never classifies a word.
@@ -147,7 +147,7 @@ impl std::error::Error for RecipeOptimizeError {}
 
 pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeError> {
     if args.len() < 3 {
-        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-liveness-net-ms N] [--oracle-memory-ceiling-bytes N] [--search-all-families]".into()));
+        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-work-cap N] [--oracle-liveness-net-ms N] [--oracle-memory-ceiling-bytes N] [--search-all-families]".into()));
     }
     let mut r = RecipeOptimizeArgs {
         grammar: args[0].clone(),
@@ -155,7 +155,7 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
         out_dir: args[2].clone(),
         seed: 0,
         budget: Budget::default(),
-        oracle_step_cap: None,
+        oracle_work_cap: None,
         oracle_liveness_net: None,
         oracle_memory_ceiling: None,
         search_all_families: false,
@@ -190,7 +190,7 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             "confirmation-work" => r.budget.confirmation = n,
             "reserve-ns" => r.budget.reserve = n,
             // `None` here means "use `RuntimeBudget`'s default", never "unbounded".
-            "oracle-step-cap" => r.oracle_step_cap = Some(n as usize),
+            "oracle-work-cap" => r.oracle_work_cap = Some(n as usize),
             // Legacy alias: this flag no longer excludes a word on timeout, only aborts the run.
             "oracle-liveness-net-ms" | "oracle-word-timeout-ms" => {
                 r.oracle_liveness_net = Some(Duration::from_millis(n))
@@ -220,7 +220,7 @@ struct Evaluator<'a> {
     /// What actually compiled each candidate, keyed by id; a marker-bearing PlanComposed candidate is rejected before measurement, never rerouted to the tuned emitter.
     realized: BTreeMap<String, &'static str>,
     capability: pg_foma::capability::PredicateRegistry,
-    oracle_step_cap: Option<usize>,
+    oracle_work_cap: Option<usize>,
     oracle_liveness_net: Option<Duration>,
     oracle_memory_ceiling: Option<u64>,
     cache: &'a mut RunEvaluationCache,
@@ -288,7 +288,7 @@ impl CandidateEvaluator for Evaluator<'_> {
             RuntimeBudget {
                 build: Some(remaining.build),
                 confirmation: Some(remaining.confirmation),
-                oracle_step_cap: self.oracle_step_cap,
+                oracle_work_cap: self.oracle_work_cap,
                 oracle_liveness_net: self.oracle_liveness_net,
                 oracle_memory_ceiling: self.oracle_memory_ceiling,
                 ..Default::default()
@@ -360,7 +360,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         &grammar,
         &words,
         RuntimeBudget {
-            oracle_step_cap: a.oracle_step_cap,
+            oracle_work_cap: a.oracle_work_cap,
             oracle_liveness_net: a.oracle_liveness_net,
             oracle_memory_ceiling: a.oracle_memory_ceiling,
             ..Default::default()
@@ -547,7 +547,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             RuntimeBudget {
                 build: Some(a.budget.build / 4),
                 confirmation: Some(a.budget.confirmation / 4),
-                oracle_step_cap: a.oracle_step_cap,
+                oracle_work_cap: a.oracle_work_cap,
                 oracle_liveness_net: a.oracle_liveness_net,
                 oracle_memory_ceiling: a.oracle_memory_ceiling,
                 ..Default::default()
@@ -611,7 +611,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         plans,
         realized: BTreeMap::new(),
         capability,
-        oracle_step_cap: a.oracle_step_cap,
+        oracle_work_cap: a.oracle_work_cap,
         oracle_liveness_net: a.oracle_liveness_net,
         oracle_memory_ceiling: a.oracle_memory_ceiling,
         cache: &mut run_cache,

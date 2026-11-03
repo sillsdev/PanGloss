@@ -16,7 +16,7 @@ use pg_rules::cache::RuleCache;
 use pg_rules::morph::synthesize_with_policy;
 use pg_rules::stratum::{
     synthesize_stratum, synthesize_stratum_traced, synthesize_stratum_traced_with_policy,
-    synthesize_template, FinalTemplateSynthesisPolicy, StepBudget,
+    synthesize_template, FinalTemplateSynthesisPolicy, WordBudget,
 };
 use pg_rules::trace::{
     FailureReason, NoopSink, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink,
@@ -171,11 +171,11 @@ fn build_fixture() -> (Grammar, StratumId, MRuleId, Word, RuleCache) {
 #[test]
 fn both_gates_reject_first_reported_reason_is_the_template_prohibition() {
     let (g, s, r, input, cache) = build_fixture();
-    let budget = StepBudget::new(10_000);
+    let budget = WordBudget::new(1_000_000);
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
 
-    synthesize_stratum_traced(&g, s, input, 10_000, &cache, &budget, None, &sink, root);
+    synthesize_stratum_traced(&g, s, input, &cache, &budget, None, &sink, root);
 
     // Finds every rule-level gate node (`subrule_index == Some(-1)`); see docs/research/pg-rules-synth-gate-order-design-notes.md.
     let mut rule_level_reasons = Vec::new();
@@ -265,9 +265,8 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
         &g,
         s,
         input,
-        10_000,
         &cache,
-        &StepBudget::new(10_000),
+        &WordBudget::new(1_000_000),
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },
@@ -298,9 +297,8 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
         &g,
         s,
         input,
-        10_000,
         &cache,
-        &StepBudget::new(10_000),
+        &WordBudget::new(1_000_000),
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },
@@ -385,9 +383,8 @@ fn ordinary_synthesis_uses_the_call_site_role_for_a_shared_affix_id() {
         &g,
         s,
         input,
-        10_000,
         &cache,
-        &StepBudget::new(10_000),
+        &WordBudget::new(1_000_000),
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },

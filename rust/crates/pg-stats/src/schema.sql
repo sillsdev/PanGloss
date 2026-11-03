@@ -23,10 +23,10 @@ CREATE TABLE IF NOT EXISTS run (
   created_utc         TEXT    NOT NULL,
   word_count          INTEGER NOT NULL,
   total_elapsed_ns    INTEGER NOT NULL,
-  -- `--step-cap`'s storage form: NULL when this run recorded no cap (an engine that has no such
+  -- `--work-cap`'s storage form: NULL when this run recorded no cap (an engine that has no such
   -- concept, e.g. `foma`); -1 is the `usize::MAX` ("unbounded") sentinel, since that value does
   -- not fit i64's positive range. Only non-NULL values are ever compared for a compatibility check.
-  step_cap            INTEGER
+  work_cap            INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS object (
@@ -72,10 +72,8 @@ CREATE TABLE IF NOT EXISTS word (
   run_id        INTEGER NOT NULL,
   form          TEXT    NOT NULL,
   elapsed_ns    INTEGER NOT NULL,
-  -- `attempts` is the word's analysis attempts (`steps`); `work` is its total work steps
-  -- (`work_steps`). `fact.work` is a different unit (shape segments examined per object), so a
-  -- word's `fact.work` values do not sum to `word.work`; its `fact.work_steps` values do.
-  attempts      INTEGER NOT NULL,
+  -- `work` is the word's total work steps (`work_steps`), the deterministic parse cost. `fact.work` is a different unit
+  -- (shape segments examined per object), so a word's `fact.work` values do not sum to `word.work`; its `fact.work_steps` values do.
   work          INTEGER NOT NULL,
   passes        INTEGER NOT NULL,
   capped        INTEGER NOT NULL,

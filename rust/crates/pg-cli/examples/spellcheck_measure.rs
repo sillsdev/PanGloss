@@ -62,21 +62,21 @@ fn main() {
     let mut threads: usize = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
-    let mut step_cap: usize = 200_000;
+    let mut work_cap: usize = 20_000_000;
     let mut word_timeout_ms: u64 = 10_000;
 
     let mut it = args[1..].iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--threads" => threads = it.next().unwrap().parse().unwrap(),
-            "--step-cap" => step_cap = it.next().unwrap().parse().unwrap(),
+            "--work-cap" => work_cap = it.next().unwrap().parse().unwrap(),
             "--word-timeout-ms" => word_timeout_ms = it.next().unwrap().parse().unwrap(),
             "--dump-pos-only" => {}
             s => positional.push(s),
         }
     }
     let [fwdata_path, words_path] = positional[..] else {
-        eprintln!("usage: spellcheck_measure <grammar (.fwdata|.json|.xml)> <wordforms.txt> [--threads N] [--step-cap N] [--word-timeout-ms N]");
+        eprintln!("usage: spellcheck_measure <grammar (.fwdata|.json|.xml)> <wordforms.txt> [--threads N] [--work-cap N] [--word-timeout-ms N]");
         std::process::exit(2);
     };
 
@@ -147,11 +147,11 @@ fn main() {
         .collect();
     eprintln!("\nloaded {} wordforms from {words_path}", words.len());
 
-    let morpher = Morpher::new(&grammar, step_cap)
+    let morpher = Morpher::new(&grammar, work_cap)
         .with_word_timeout(Some(Duration::from_millis(word_timeout_ms)));
 
     eprintln!(
-        "parsing {} words (threads={threads}, step_cap={step_cap}, word_timeout_ms={word_timeout_ms}) ...",
+        "parsing {} words (threads={threads}, work_cap={work_cap}, word_timeout_ms={word_timeout_ms}) ...",
         words.len()
     );
     let t1 = std::time::Instant::now();
@@ -363,7 +363,7 @@ fn main() {
     println!("grammar: {fwdata_path}");
     println!("wordforms input: {words_path} ({} words)", words.len());
     println!(
-        "pipeline: pg_parse::Morpher (Rust-HermitCrab-only, full-search) via hc_parse_batch, threads={threads}, step_cap={step_cap}, word_timeout_ms={word_timeout_ms}"
+        "pipeline: pg_parse::Morpher (Rust-HermitCrab-only, full-search) via hc_parse_batch, threads={threads}, work_cap={work_cap}, word_timeout_ms={word_timeout_ms}"
     );
     println!();
     println!("--- Coverage ---");
@@ -376,7 +376,7 @@ fn main() {
         "timed_out (word_timeout_ms exceeded): {timed_out} ({:.2}%)",
         pct(timed_out, words.len())
     );
-    println!("capped (step_cap hit, partial result kept): {capped}");
+    println!("capped (work_cap hit, partial result kept): {capped}");
     println!(
         "zero_analyses (valid shape, 0 confirmed analyses): {zero_analyses} ({:.2}%)",
         pct(zero_analyses, words.len())

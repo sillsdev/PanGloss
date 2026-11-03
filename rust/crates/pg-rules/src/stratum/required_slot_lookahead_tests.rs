@@ -116,7 +116,7 @@ pub(super) fn run(
 ) -> (Vec<WordKey>, usize) {
     let shape = pg_grammar_model::segment::segment(&g.char_tables[0], text).expect("word segments");
     let input = Word::new(shape, StratumId(0));
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let _scope = budget.enter();
     let a = StratumAnalyzer::new(
         g,
@@ -143,7 +143,7 @@ pub(super) fn run(
 fn run_shared(g: &Grammar, mode: RequiredSlotLookahead, text: &str) -> (Vec<Vec<WordKey>>, usize) {
     let shape = pg_grammar_model::segment::segment(&g.char_tables[0], text).expect("word segments");
     let input = Word::new(shape, StratumId(0));
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let _scope = budget.enter();
     let a = StratumAnalyzer::new(
         g,

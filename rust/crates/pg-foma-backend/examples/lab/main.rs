@@ -29,6 +29,7 @@ mod p6_templated_rules_probe;
 mod precision_bench;
 mod predicate_witness_census;
 mod prefilter_census;
+mod raw_path_weight;
 mod rep_variant_census;
 mod strategy_coverage_join_report;
 mod templated_confirm_probe;
@@ -83,6 +84,7 @@ const SUBCOMMANDS: &[Subcommand] = &[
     ("precision_bench", precision_bench::main),
     ("predicate_witness_census", predicate_witness_census::main),
     ("prefilter_census", prefilter_census::main),
+    ("raw_path_weight", raw_path_weight::main),
     ("rep_variant_census", rep_variant_census::main),
     (
         "strategy_coverage_join_report",

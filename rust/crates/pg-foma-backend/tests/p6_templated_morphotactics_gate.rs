@@ -35,7 +35,7 @@ const SAFE_WORD: &str = "parua";
 const SAFE_WORD_RAW_CAP: usize = 50_000;
 
 /// Every oracle `Morpher` call here uses this cap, never `usize::MAX`: one Aweti corpus word ran the engine uncapped for over 10 minutes.
-const ORACLE_STEP_CAP: usize = 20_000;
+const ORACLE_WORK_CAP: usize = 2_000_000;
 
 /// Post-detection baseline miss list: every corpus word with an oracle analysis the composed net
 /// does not recall; see `docs/research/pg-foma-p6-aweti-gate.md` for two entries' investigation.
@@ -280,7 +280,7 @@ fn run_full_corpus_recall() {
     );
     let composed = compiled.network;
 
-    let morpher = Morpher::new(&g, ORACLE_STEP_CAP);
+    let morpher = Morpher::new(&g, ORACLE_WORK_CAP);
     let popts = ParseOptions::default();
 
     let words_path = sample_path("aweti-words.txt");
@@ -404,7 +404,7 @@ fn run_spot_check() {
     let composed = compiled.network;
     let mut handle = apply_init(&composed);
 
-    let morpher = Morpher::new(&g, ORACLE_STEP_CAP);
+    let morpher = Morpher::new(&g, ORACLE_WORK_CAP);
     let popts = ParseOptions::default();
     let outcome = morpher.parse_word_opts(SAFE_WORD, &popts);
     let engine_seqs: Vec<(Vec<u32>, i32)> = outcome
@@ -848,12 +848,12 @@ fn run_residual_miss_diagnostic() {
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let width = tags::tag_width(g.morphemes.len());
-    let morpher = Morpher::new(&g, ORACLE_STEP_CAP)
+    let morpher = Morpher::new(&g, ORACLE_WORK_CAP)
         .with_word_timeout(Some(Duration::from_secs(DIAGNOSTIC_ORACLE_TIMEOUT_SECS)));
     let popts = ParseOptions::default();
     let pipeline = DiagnosticPipeline::compile(&g);
     if let Ok(pipeline) = &pipeline {
-        println!("diagnostic-bounds\toracle_steps={ORACLE_STEP_CAP}\toracle_timeout_s={DIAGNOSTIC_ORACLE_TIMEOUT_SECS}\toperation_s={DIAGNOSTIC_OPERATION_SECS}\tstate_cap={DIAGNOSTIC_STATE_CAP}\tarc_cap={DIAGNOSTIC_ARC_CAP}");
+        println!("diagnostic-bounds\toracle_steps={ORACLE_WORK_CAP}\toracle_timeout_s={DIAGNOSTIC_ORACLE_TIMEOUT_SECS}\toperation_s={DIAGNOSTIC_OPERATION_SECS}\tstate_cap={DIAGNOSTIC_STATE_CAP}\tarc_cap={DIAGNOSTIC_ARC_CAP}");
         for stage in &pipeline.stats {
             println!(
                 "diagnostic-stage\t{}\t{:?}\t{}\t{}",

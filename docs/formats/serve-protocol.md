@@ -1,16 +1,18 @@
-# `pangloss serve` protocol (version 1)
+# `pangloss serve` protocol (version 2)
 
 `pangloss serve` keeps one compiled project resident and answers parse requests over stdin and stdout, so a host pays the project load and grammar compile once instead of on every word. Measured on a 22,237-entry project: load and compile cost 7-9 s per process, the parse itself 70-90 ms.
 
 ```
-pangloss serve --project <path.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing]
+pangloss serve --project <path.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing]
 ```
 
-`--project` accepts whatever `pangloss parse` accepts as `<grammar>`. The cap, timeout and guess flags mean what they mean for `parse` and apply to every request. Unknown options are refused.
+`--project` accepts whatever `pangloss parse` accepts as `<grammar>`. The cap, timeout and guess flags mean what they mean for `parse` and apply to every request. Unknown options are refused, including the removed `--step-cap`.
+
+Version 2 removes the `steps` field from every `result` response and from the trace-details `search` object, and removes `--step-cap`. A client written for version 1 must refuse a server that reports 2, because it would read a missing `steps` as zero.
 
 Root guessing follows the project: a FieldWorks project guesses unless its `<HC><GuessRoots>` is false, and a HermitCrab XML grammar never guesses. `--guess` (or `--guess=true`) forces it on and `--guess=false` forces it off.
 
-A host can gate on this mode: `pangloss --describe` carries `"interfaces": {"serveProtocol": 1}` and lists a `serve` command.
+A host can gate on this mode: `pangloss --describe` carries `"interfaces": {"serveProtocol": 2}` and lists a `serve` command.
 
 ## Streams
 
@@ -23,7 +25,7 @@ A host can gate on this mode: `pangloss --describe` carries `"interfaces": {"ser
 After loading and compiling, one line:
 
 ```json
-{"type":"ready","protocol":1,"loadMs":8421}
+{"type":"ready","protocol":2,"loadMs":8421}
 ```
 
 `loadMs` is wall-clock load plus compile. With `--timing` the line also carries `"timing":{"importMs":N,"compileMs":N}` (`importMs` is the fwdata import, or the snapshot read for `.json`).
@@ -53,7 +55,7 @@ One JSON object per line. Blank lines are ignored.
 ## Responses
 
 ```json
-{"id":"1","type":"result","exitCode":0,"status":"ok","steps":28,"workSteps":901,"guessed":false,"result":{...}}
+{"id":"1","type":"result","exitCode":0,"status":"ok","workSteps":901,"guessed":false,"result":{...}}
 {"id":"1","type":"error","code":"bad_request","message":"..."}
 {"id":"2","type":"bye"}
 ```
@@ -71,13 +73,12 @@ For `traceDetails: true`, every field is identical to the cold document except t
 
 Every `result` response, in both modes, also carries the word's search counts beside `result`, outside the cold stdout:
 
-- `status`: `ok`, `CAP` when the attempt or work limit stopped the parse, `TIMEOUT` when the
+- `status`: `ok`, `CAP` when the work cap stopped the parse, `TIMEOUT` when the
   time limit stopped it, or `SKIPPED` for an invalid shape. This optional field is absent from
-  older servers. `CAP` does not distinguish the attempt limit from the work limit.
-- `steps`: analysis attempts, the quantity `--step-cap` bounds.
-- `workSteps`: parser work, meaning every work unit the parse reserved. This is the quantity `--work-cap` bounds.
+  older servers.
+- `workSteps`: the word's work, meaning the total of work steps the parse reserved. This is the quantity `--work-cap` bounds.
 
-These are the same counts as the `steps` and `work_steps` columns that `pangloss batch --work-columns` writes (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.steps` and `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat both fields as optional: older servers omit them.
+This is the same count as the `work_steps` column that `pangloss batch --work-columns` writes (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat the field as optional: older servers omit it.
 
 Every `result` response also carries `guessed`: `true` when the analyses were guessed from a lexical pattern rather than found in the lexicon, whatever the `--guess` flag. A project that guesses by default can return guessed analyses without the `guessed:` line, so read this field, not the string. Treat it as optional: older servers omit it.
 

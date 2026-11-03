@@ -38,7 +38,7 @@ fn assert_surface_recalled(grammar: &Grammar, surface: &str) {
     let net = fsm_lexc_parse_string(&FomaOptions::default(), None, &emitted.lexc_source)
         .expect("finite-closure lexc must compile");
 
-    let morpher = Morpher::new(grammar, 20_000);
+    let morpher = Morpher::new(grammar, 2_000_000);
     let oracle = morpher.parse_word_opts(surface, &ParseOptions::default());
     assert!(
         !oracle.structured.is_empty(),
@@ -74,7 +74,8 @@ fn assert_surface_recalled(grammar: &Grammar, surface: &str) {
 }
 
 fn assert_product_analysis_matches_oracle(grammar: &Grammar, surface: &str) {
-    let oracle = Morpher::new(grammar, 20_000).parse_word_opts(surface, &ParseOptions::default());
+    let oracle =
+        Morpher::new(grammar, 2_000_000).parse_word_opts(surface, &ParseOptions::default());
     assert!(
         !oracle.structured.is_empty(),
         "oracle must analyze {surface}"

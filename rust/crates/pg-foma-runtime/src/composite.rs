@@ -184,16 +184,16 @@ pub struct FomaWordDiagnostics {
     pub confirm_batch_calls: usize,
     pub confirmation_groups: usize,
     pub confirmation_calls: usize,
-    /// Full-HC oracle step ticks consumed confirming this word -- see
-    /// `confirm::ConfirmBatchDiagnostics::confirmation_steps` for why this, and not the call count,
+    /// Full-HC oracle work steps consumed confirming this word -- see
+    /// `confirm::ConfirmBatchDiagnostics::confirmation_work` for why this, and not the call count,
     /// is the unit worth ranking candidates on.
-    pub confirmation_steps: usize,
+    pub confirmation_work: usize,
     /// Raw proposer paths `apply_up` yielded for this word (direct proposal plus every proposal a
     /// reduplication peel requested), before tag-decode/dedup -- equal to `proposal.raw_paths`,
     /// duplicated at this level so a caller pricing propose-side work reads it next to
-    /// `confirmation_steps` instead of reaching through `proposal`. See
+    /// `confirmation_work` instead of reaching through `proposal`. See
     /// `crate::backend_optimizer::Score::key`'s doc for why propose-side work needs its own counted
-    /// unit alongside confirm-side steps.
+    /// unit alongside confirm-side work.
     pub raw_paths: usize,
     pub confirmed_analyses: usize,
     pub confirmation_elapsed: Duration,
@@ -903,7 +903,7 @@ impl<'g> FomaAnalyzer<'g> {
             confirm_batch_calls: 1,
             confirmation_groups: confirmation.confirmation_groups,
             confirmation_calls: confirmation.confirmation_calls,
-            confirmation_steps: confirmation.confirmation_steps,
+            confirmation_work: confirmation.confirmation_work,
             confirmed_analyses: outcome.confirmed,
             confirmation_elapsed,
             filter: run.filter,
@@ -1118,8 +1118,8 @@ impl<'g> FomaAnalyzer<'g> {
     /// path here reaches it as `&self.morpher` through `crate::confirm::confirm_batch`, `RuleCache`
     /// is documented read-only after `build` (and is already shared across every
     /// `pangloss batch --threads=N` worker as a single `&RuleCache`), and it carries no per-word
-    /// state — a `parse_word` call's mutable state lives in its own `StepBudget`/`AnalyzerConfig`,
-    /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`cap`,
+    /// state — a `parse_word` call's mutable state lives in its own `WordBudget`/`AnalyzerConfig`,
+    /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`work_cap`,
     /// `word_timeout`, `max_stem_count`) are construction-time knobs, so a supplied `Morpher` also
     /// lets a caller set them once for a whole batch of analyzers. Pair with
     /// `Self::into_parts_with_morpher` to hand it back for the next one.
