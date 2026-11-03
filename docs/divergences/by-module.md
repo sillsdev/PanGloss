@@ -19,6 +19,8 @@ See `README.md` for the full status table and the kind definitions.
 | `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
 | FieldWorks `HCLoader.cs` (`MoveMatchingItems`); `Stratum.cs` (collection-changed handlers) | 120 |
 | `HCLoader.cs` (`LoadReduplicationPatterns`, `LoadReduplicationOutputActions`) | 124 |
+| `HCLoader.cs` (`LoadExoCompoundingRule`, `LoadEndoCompoundingRule`) | 125 |
+| `HCLoader.cs` (`LoadPatternNode`, `LoadRewriteRule`) | 126 |
 
 ## By Rust module
 
@@ -26,6 +28,8 @@ See `README.md` for the full status table and the kind definitions.
 |---|---|
 | _(was `pg-memo/src/lib.rs`, deleted)_ | 045 |
 | `pg-grammar/src/compile/reduplication.rs` | 124 |
+| `pg-grammar/src/compile/compounding.rs` | 125 |
+| `pg-grammar/src/compile/affixes.rs`, `pg-grammar/src/compile/rules.rs` (pattern member refusal) | 126 |
 | `pg-cli/src/stored_analysis_health.rs`, `pg-cli/src/grammar_health.rs` | 086, 089 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
