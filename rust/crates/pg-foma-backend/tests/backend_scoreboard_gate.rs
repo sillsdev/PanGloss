@@ -45,11 +45,11 @@ impl Bucket {
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 // The two featureless segment-class rewrite fixtures (#120) add: TSP one exact and one miss, TUT two exact, PlanComposed two refused. TSP misses the multi-member one because its model rewrites a featureless node only by one literal spelling, not by a class of several.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Measured on the 168 fixtures of conformance.commit plus staging; divergence 116 moved 18 TSP and 17 TUT to refused.
+    // Measured on the 169 fixtures of conformance.commit plus staging; divergence 116 moved 18 TSP and 17 TUT to refused.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 137,
+            oracle_exact: 138,
             compiles_but_misses: 11,
             refused: 20,
             unmeasurable: 0,
@@ -58,7 +58,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 111,
+            oracle_exact: 112,
             compiles_but_misses: 12,
             refused: 45,
             unmeasurable: 0,
@@ -69,7 +69,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 65,
             compiles_but_misses: 3,
-            refused: 97,
+            refused: 98,
             unmeasurable: 3,
         },
     ),
@@ -99,7 +99,7 @@ const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
 
 // Tuned-surface misses two words here (a rewritten second copy and a second spelling of one vowel), each by one identity; see the reconciliation note's altered-copy gap. The other two strategies refuse the reduplication shape.
 const COPY_AGREEMENT_FEATURELESS_REDUP: &str =
-    "staging:edge-cases/copy-agreement-featureless-redup";
+    "machine:edge-cases/copy-agreement-featureless-redup";
 
 const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
     "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
