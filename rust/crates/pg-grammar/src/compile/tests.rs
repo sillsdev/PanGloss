@@ -818,7 +818,7 @@ fn subjects_without_a_tool_of_their_own_open_where_fieldworks_edits_them() {
         .closed_features
         .push(feature(inflection));
     let subject = |source: FwObjectRef| {
-        Warning::new(super::issue_codes::STRATA_CUSTOM_UNSUPPORTED, "m").with_subject(source)
+        Warning::new(super::issue_codes::STRATA_UNKNOWN_RULE, "m").with_subject(source)
     };
     let mut warnings = vec![
         subject(FwObjectRef::new(FwClass::PhBdryMarker).guid(marker)),
@@ -2333,22 +2333,110 @@ fn compounding_over_a_table_with_no_phonemes_or_boundary_refuses_instead_of_pani
     }
 }
 
+/// `HCLoader.CreateStrata` on the fixture: the stem entry named by its headword leaves Morphology for the first stratum; the predefined `Morphology` stratum takes the rest; the empty Clitics and Surface strata are dropped.
 #[test]
-fn custom_strata_parser_parameter_warns_and_falls_back_to_the_default_layout() {
+fn custom_strata_move_a_named_entry_and_fold_the_predefined_names() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.strata = Some("kuma , Morphology".to_string());
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let names: Vec<_> = grammar.strata.iter().map(|s| s.name.as_deref()).collect();
+    assert_eq!(names, [Some("kuma"), Some("Morphology")]);
+    assert_eq!(grammar.strata[0].entries.len(), 1);
+    assert!(grammar.strata[1].entries.is_empty());
+    assert!(
+        !grammar.strata[1].templates.is_empty(),
+        "the template stays with Morphology"
+    );
+    for (i, stratum) in grammar.strata.iter().enumerate() {
+        for entry in &stratum.entries {
+            let morpheme = grammar.entries[entry.0 as usize].morpheme;
+            assert_eq!(
+                grammar.morphemes[morpheme.0 as usize].stratum,
+                crate::model::StratumId(i as u8)
+            );
+        }
+    }
+    let _ = f;
+}
+
+/// Without a `Strata` string the default three strata remain, and with only `Morphology` and `Clitics` named the empty ones go.
+#[test]
+fn custom_strata_drop_empty_strata_and_default_layout_is_unchanged() {
+    let (snapshot, _f) = fixture();
+    let (default, _) = compile_project(&snapshot).expect("must compile");
+    assert_eq!(default.strata.len(), 3);
+
     let (mut snapshot, _f) = fixture();
     snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
-    assert!(
-        warnings.iter().any(|warning| {
-            warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire()
-        }),
-        "expected a warning about unsupported custom Strata reorganization; got {warnings:?}"
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(grammar.strata.len(), 1);
+    assert_eq!(grammar.strata[0].name.as_deref(), Some("Morphology"));
+}
+
+/// `Phonology` collects every phonological rule, whichever of Morphology or Clitics (`NotOnClitics`) held it; without it they follow the last declared stratum.
+#[test]
+fn custom_strata_place_phonological_rules_like_createstrata() {
+    let rule = || {
+        PhonologicalRule::Rewrite(pg_snapshot::phonology::RewriteRule {
+            guid: "prule-1".to_string(),
+            name: "raise-a".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: Vec::new(),
+            feature_constraint_variables: Vec::new(),
+            right_hand_sides: vec![pg_snapshot::phonology::RewriteRhs::default()],
+        })
+    };
+    for (strata, not_on_clitics, expected) in [
+        ("Morphology,(Phonology)", true, "Phonology"),
+        ("Morphology,(Phonology)", false, "Phonology"),
+        ("Phonology,Morphology", true, "Phonology"),
+        ("(Phonology),Morphology", true, "Phonology"),
+        ("Templates,Morphology", true, "Morphology"),
+        ("raise-a,Morphology", true, "raise-a"),
+    ] {
+        let (mut snapshot, _f) = fixture();
+        snapshot.morphology.parser_parameters.not_on_clitics = not_on_clitics;
+        snapshot.morphology.parser_parameters.strata = Some(strata.to_string());
+        snapshot.phonology.rules.push(rule());
+        let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+        assert!(warnings.is_empty(), "{strata}: {warnings:?}");
+        let holders: Vec<_> = grammar
+            .strata
+            .iter()
+            .filter(|s| !s.prules.is_empty())
+            .map(|s| s.name.as_deref())
+            .collect();
+        assert_eq!(
+            holders,
+            [Some(expected)],
+            "{strata} (notOnClitics {not_on_clitics})"
+        );
+    }
+}
+
+#[test]
+fn strata_string_groups_follow_parse_strata_string() {
+    use super::strata::parse;
+    let g = |v: &[&[&str]]| -> Vec<Vec<String>> {
+        v.iter()
+            .map(|x| x.iter().map(|s| s.to_string()).collect())
+            .collect()
+    };
+    assert_eq!(
+        parse("Morphology,(Clitics)"),
+        g(&[&["Morphology"], &["Clitics"]])
     );
     assert_eq!(
-        grammar.strata.len(),
-        3,
-        "default Morphology/Clitics/Surface layout still used"
+        parse(" (Phonology, Templates) ,CompoundRules,(Morphology) "),
+        g(&[
+            &["Phonology", "Templates"],
+            &["CompoundRules"],
+            &["Morphology"]
+        ])
     );
+    assert!(parse("  ").is_empty());
 }
 
 #[test]
@@ -3953,19 +4041,23 @@ fn null_affix_output_has_synthetic_order_and_optional_slots_omit_it() {
 }
 
 #[test]
-fn custom_strata_setting_is_recorded_rejected() {
+fn custom_strata_unknown_name_warns_and_a_valid_string_is_represented() {
     let (mut snapshot, _f) = fixture();
-    snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+    snapshot.morphology.parser_parameters.strata = Some("Morphology,(NoSuchRule)".to_string());
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(warnings
         .iter()
-        .any(|warning| { warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire() }));
+        .any(|warning| { warning.code == super::issue_codes::STRATA_UNKNOWN_RULE.wire() }));
     let key = InventoryKey::setting(InventoryKind::StrataConfiguration, "Strata");
     assert!(inventory.rejected.contains(&key));
+    let (mut valid, _f) = fixture();
+    valid.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+    let (_g, _w, inventory, _i) = compile_recording_ok(&valid);
+    assert!(inventory.represented.contains(&key) && !inventory.rejected.contains(&key));
     assert!(issues
         .iter()
-        .any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED && !i.fatal));
+        .any(|i| i.code == super::issue_codes::STRATA_UNKNOWN_RULE && !i.fatal));
 }
 
 /// C# `HCLoader.LoadUnclassifiedAffixProcessRule` (HCLoader.cs:1013) always sets `IsPartial = true`.
@@ -5291,12 +5383,12 @@ fn compile_project_with_default_options_matches_compile_project() {
 #[test]
 fn every_compile_stage_warning_becomes_a_non_fatal_conversion_issue() {
     let (mut snapshot, _f) = fixture();
-    snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+    snapshot.morphology.parser_parameters.strata = Some("Morphology,(NoSuchRule)".to_string());
     let (_grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(
-        warnings.iter().any(|warning| {
-            warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire()
-        }),
+        warnings
+            .iter()
+            .any(|warning| { warning.code == super::issue_codes::STRATA_UNKNOWN_RULE.wire() }),
         "fixture must still produce the legacy Strata warning; got {warnings:?}"
     );
 

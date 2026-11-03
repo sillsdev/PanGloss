@@ -19,8 +19,7 @@
 //! **Not implemented** (each occurrence produces a warning, never an error, mirroring the existing
 //! loader's managed-fallback lint philosophy): metathesis rules, reduplication
 //! (bracket-pattern affix forms), circumfix cross-products, clitic-as-affix-rule
-//! (`LoadCliticAffixProcessRule`) and clitic-as-stem stratum placement, user-defined `<Strata>`
-//! reorganization strings.
+//! (`LoadCliticAffixProcessRule`) and clitic-as-stem stratum placement.
 //!
 //! Never panics on real data: dangling snapshot references, malformed environment strings, and
 //! unsupported constructs all become warnings (an allomorph/entry/rule is dropped, not the whole
@@ -47,6 +46,7 @@ pub mod options;
 mod reachability;
 pub(crate) mod roles;
 mod rules;
+mod strata;
 mod substrate;
 mod templates;
 #[cfg(feature = "test-support")]
@@ -460,24 +460,18 @@ pub(crate) fn compile_project_recording(
         slot_rules: HashMap::new(),
     };
 
-    // Strata: Morphology (unordered), Clitics (unordered), Surface (linear). Custom `<Strata>` reorganization is not implemented; a snapshot that declares one gets a warning and the default 3-stratum layout regardless.
-    if snapshot
+    // Strata: Morphology (unordered), Clitics (unordered), Surface (linear), then reshaped by the `Strata` parser parameter when one is set (`strata::create`).
+    let strata_text = snapshot
         .morphology
         .parser_parameters
         .strata
         .as_deref()
-        .is_some_and(|s| !s.trim().is_empty())
-    {
-        let key = InventoryKey::setting(pg_snapshot::InventoryKind::StrataConfiguration, "Strata");
-        ctx.considered(key.clone());
-        ctx.selected(key.clone());
-        ctx.reject(
-            key,
-            issue_codes::STRATA_CUSTOM_UNSUPPORTED,
-            IssueClass::UnrepresentableForHc,
-            "unsupported: custom Strata parser-parameter reorganization not implemented; using \
-             the default Morphology/Clitics/Surface layout",
-        );
+        .filter(|s| !s.trim().is_empty());
+    let strata_key =
+        InventoryKey::setting(pg_snapshot::InventoryKind::StrataConfiguration, "Strata");
+    if strata_text.is_some() {
+        ctx.considered(strata_key.clone());
+        ctx.selected(strata_key.clone());
     }
     {
         let not_on_clitics_key =
@@ -511,10 +505,6 @@ pub(crate) fn compile_project_recording(
             ctx.represented(key);
         }
     }
-    let morphology_stratum = StratumId(0);
-    let clitic_stratum = StratumId(1);
-    let surface_stratum = StratumId(2);
-
     // --- compound rules (defaults if none authored) ----------------------------------------------
     let mut morphology_mrules: Vec<MRuleId> = Vec::new();
     compounding::build(snapshot, &ctx, &mut acc, &mut morphology_mrules)?;
@@ -550,19 +540,7 @@ pub(crate) fn compile_project_recording(
     }
     strata_assign_co_occurrence(snapshot, &ctx, &mut acc);
     environment::record_unattempted(snapshot, &ctx);
-    // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
-    let owner_warnings = ctx.owner_warnings.into_inner();
-    let environment_resolutions = ctx
-        .environment_resolutions
-        .into_inner()
-        .into_values()
-        .collect();
-    let mut recorder = ctx.recorder.into_inner();
-    let lineage = ctx.lineage.into_inner();
-    let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
-    let allomorph_gates = ctx.allomorph_gates.into_inner().into_outcomes();
-
-    let strata = vec![
+    let mut strata = vec![
         StratumDef {
             name: Some("Morphology".to_string()),
             table: table_id,
@@ -591,7 +569,40 @@ pub(crate) fn compile_project_recording(
             entries: Vec::new(),
         },
     ];
-    let _ = (clitic_stratum, surface_stratum, morphology_stratum);
+    if let Some(text) = strata_text {
+        let groups = strata::parse(text);
+        let named = strata::Named {
+            snapshot,
+            prules: &prules,
+            mrules: &acc.mrules,
+            templates: &acc.templates,
+            entries: &acc.entries,
+        };
+        let (rebuilt, unknown) = strata::create(strata, &groups, &named, &mut acc.morphemes);
+        strata = rebuilt;
+        if unknown.is_empty() {
+            ctx.represented(strata_key);
+        } else {
+            ctx.reject(
+                strata_key,
+                issue_codes::STRATA_UNKNOWN_RULE,
+                IssueClass::UnrepresentableForHc,
+                format!("Unknown rule in Strata: {}.", unknown.join(", ")),
+            );
+        }
+    }
+
+    // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
+    let owner_warnings = ctx.owner_warnings.into_inner();
+    let environment_resolutions = ctx
+        .environment_resolutions
+        .into_inner()
+        .into_values()
+        .collect();
+    let mut recorder = ctx.recorder.into_inner();
+    let lineage = ctx.lineage.into_inner();
+    let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
+    let allomorph_gates = ctx.allomorph_gates.into_inner().into_outcomes();
 
     // `IsTemplateRule` post-pass, exactly mirroring `crate::load::load`'s own post-pass.
     let mut is_template_rule = vec![false; acc.mrules.len()];

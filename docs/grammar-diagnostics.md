@@ -76,7 +76,7 @@ equally known bad.
 - **One alternative is lost, others survive.** For example, one allomorph is unsegmentable but its
   siblings load. That is a warning: the morpheme still parses. It becomes an error once no allomorph
   survives (class 3).
-- **Unsupported or approximated.** Metathesis rules are skipped by the snapshot compiler, even when the importer reported an approximation. Custom strata use the default layout, and a missing morpheme-boundary marker can fall back to a null boundary. Each code explains its particular outcome.
+- **Unsupported or approximated.** Metathesis rules are skipped by the snapshot compiler, even when the importer reported an approximation. A missing morpheme-boundary marker can fall back to a null boundary. Each code explains its particular outcome.
 - **Unused or compacted.** An affix that is never reachable, an ad hoc rule that is never used, or a
   natural class nothing refers to: info.
 - **Blocks compilation already.** Invalid source, duplicate or missing GUIDs, and an unresolved ad hoc

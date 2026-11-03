@@ -213,7 +213,7 @@ import_warning_codes! {
     FeatureConstraintUnresolved => "grammar.rule.feature-constraint-unresolved",
     FeatureConstraintPhonFeatureUnresolved => "grammar.rule.feature-constraint-phon-feature-unresolved",
     RuleFeatureUnresolved => "grammar.rule.rule-feature-unresolved",
-    StrataCustomUnsupported => "grammar.strata.custom-unsupported",
+    StrataUnknownRule => "grammar.strata.unknown-rule",
     AdhocProhibitionUnresolved => "grammar.adhoc-prohibition.unresolved",
     MruleUnreachableCompacted => "grammar.mrule.unreachable-compacted",
     CooccurrenceTargetUnreachable => "grammar.cooccurrence.target-unreachable",

@@ -768,15 +768,15 @@ Verified inspection destinations: Grammar > Phonological Rules (tool verified; n
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:580`; RULE.
 
-### `grammar.strata.custom-unsupported`
+### `grammar.strata.unknown-rule`
 
-Cause: Custom strata are replaced by the parser's default strata.
+Cause: The Strata parser parameter names a rule, entry or template the project does not have; the name is ignored and the rest of the strata are built.
 
-Correction status: **no verified grammar correction for this kind**. Custom strata are valid data that PanGloss replaces with defaults; no equivalent grammar correction is established. Existing support/recovery guidance may remain; no editable grammar field is proposed.
+Correction status: **no verified grammar correction for this kind**. The Strata field is free text with no object to reselect.
 
-Location and action: No grammar edit is required for valid custom strata; report the configuration if it is needed for the analysis.
+Location and action: In the parser parameters, correct or remove the unknown name in the Strata field. The predefined names are Phonology, CompoundRules, Templates, Morphology and Clitics; any other name must match a phonological rule, morphological rule, affix template or lexical entry name exactly.
 
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:587`; SETTINGS, INTEGRITY.
+Sources: HCLoader `CreateStrata` (`InvalidStrata`); SETTINGS.
 
 ### `grammar.adhoc-prohibition.unresolved`
 
@@ -882,6 +882,6 @@ Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:657`; LEX.
 
 Retain the existing advice mechanism and all 88 identifiers. Preserve guidance for support, recovery, intentionally unused data, and unsupported accurate data; those are next steps, not promises of a FieldWorks grammar fix. Strengthen the confirmed corrections above. Add a test covering the **runtime diagnostics** for all catalog kinds so a nonempty catalog string that fails to reach Motif is caught. Also require a verified tool/menu destination or an explicit per-kind reason when none is established. Unknown future producer codes remain outside the registered catalog and retain the existing raw-message fallback.
 
-The malformed-project and intermediate-snapshot kinds cannot be assigned a universal grammar correction. The no-correction reasons above are deliberate. `hc-partial-reason-unspecified` likewise has no specific correction. Metathesis, complex phonological values, reduplication, custom strata, and other valid unsupported constructs have known inspection locations or reporting steps; the sources do not prove a generally equivalent rewrite.
+The malformed-project and intermediate-snapshot kinds cannot be assigned a universal grammar correction. The no-correction reasons above are deliberate. `hc-partial-reason-unspecified` likewise has no specific correction. Metathesis, complex phonological values, reduplication, and other valid unsupported constructs have known inspection locations or reporting steps; the sources do not prove a generally equivalent rewrite.
 
 The first managed check command, `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode check -Package pg-grammar`, exited 21 before Cargo: no finite memory.max cap in visible current cgroup ancestry. Validation requires the configured host cgroup hierarchy; it must not be bypassed with bare Cargo. Herdr delegation is unavailable inside this lane (socket access denied), and the named agent-handoff skill was not present in the searched skill locations.

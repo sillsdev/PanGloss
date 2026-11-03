@@ -612,10 +612,10 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[("PhonologicalRuleEdit", "")],
             Some(PARSER_HELP),
         ),
-        StrataCustomUnsupported => advice(
-            "Unsupported custom strata",
-            "Custom strata are replaced by the parser's default strata.",
-            "No grammar edit is required for valid custom strata; report the configuration if it is needed for the analysis.",
+        StrataUnknownRule => advice(
+            "Unknown rule in strata",
+            "The Strata parser parameter names a rule, entry or template the project does not have; the name is ignored and the rest of the strata are built.",
+            "In the parser parameters, correct or remove the unknown name in the Strata field. The predefined names are Phonology, CompoundRules, Templates, Morphology and Clitics; any other name must match a phonological rule, morphological rule, affix template or lexical entry name exactly.",
             &[],
             Some(MODELLING_HELP),
         ),
@@ -874,7 +874,7 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::FeatureConstraintUnresolved => DiagnosticLevel::Error,
         ImportWarningCode::FeatureConstraintPhonFeatureUnresolved => DiagnosticLevel::Error,
         ImportWarningCode::RuleFeatureUnresolved => DiagnosticLevel::Error,
-        ImportWarningCode::StrataCustomUnsupported => DiagnosticLevel::Warning,
+        ImportWarningCode::StrataUnknownRule => DiagnosticLevel::Warning,
         ImportWarningCode::AdhocProhibitionUnresolved => DiagnosticLevel::Warning,
         ImportWarningCode::MruleUnreachableCompacted => DiagnosticLevel::Info,
         ImportWarningCode::CooccurrenceTargetUnreachable => DiagnosticLevel::Info,
