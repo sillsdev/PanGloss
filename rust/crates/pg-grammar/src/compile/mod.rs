@@ -12,14 +12,17 @@
 //!
 //! ## Coverage
 //! **Implemented**: feature systems, phonemes/char-def synthesis, stems, environments,
-//! inflectional/derivational/unclassified affixes (concatenative and `MoAffixProcess`-style),
-//! templates (+ null-affix synthesis for irregular slots), compounding (default + authored),
-//! rewrite rules, ad-hoc co-occurrence rules, strata, variants, parser parameters.
+//! inflectional/derivational/unclassified affixes (concatenative and `MoAffixProcess`-style,
+//! including reduplication bracket-pattern forms and circumfix cross-products), templates
+//! (+ null-affix synthesis for irregular slots), compounding (default + authored), rewrite and
+//! metathesis rules, clitics (both as stems and as affix-process rules, with their stratum
+//! placement), ad-hoc co-occurrence rules, strata, variants, parser parameters.
 //!
-//! **Not implemented** (each occurrence produces a warning, never an error, mirroring the existing
-//! loader's managed-fallback lint philosophy): metathesis rules, reduplication
-//! (bracket-pattern affix forms), circumfix cross-products, clitic-as-affix-rule
-//! (`LoadCliticAffixProcessRule`) and clitic-as-stem stratum placement.
+//! **Not implemented**: complex phonological features (warned as `PhonComplexFeatureUnsupported`)
+//! and variant forms of clitic-typed entries (variants are built for the Morphology bucket only,
+//! with no warning). A construct that cannot be converted (an unknown phoneme, natural class or
+//! boundary in a pattern, alpha variables in an affix process input) refuses its allomorph or rule
+//! with a warning instead of being dropped as `HCLoader` does; see divergence 126.
 //!
 //! Never panics on real data: dangling snapshot references, malformed environment strings, and
 //! unsupported constructs all become warnings (an allomorph/entry/rule is dropped, not the whole
