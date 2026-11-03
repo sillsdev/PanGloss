@@ -223,6 +223,10 @@ pub enum MorphType {
     PrefixingInterfix,
     InfixingInterfix,
     SuffixingInterfix,
+    /// Loaded only as an `MoAffixProcess`, as `HCLoader.IsValidRuleForm` does for every morph type.
+    Simulfix,
+    /// Loaded only as an `MoAffixProcess`, like `Simulfix`.
+    Suprafix,
 }
 
 /// The morphosyntactic-feature-and-inflection-class "shape" a compound rule requires of one of

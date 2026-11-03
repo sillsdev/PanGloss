@@ -987,6 +987,20 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
             );
             false
         }
+        // HCLoader loads a simulfix or suprafix only as an `MoAffixProcess` (handled at the top); `IsValidRuleForm` has no case for literal text of these types and `IsValidLexEntryForm` wants a stem type, so C# skips it silently. Here it is selected then rejected with a warning, since nothing else claims it.
+        MorphType::Simulfix | MorphType::Suprafix => {
+            ctx.selected(key.clone());
+            ctx.reject(
+                key,
+                issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED,
+                IssueClass::UnrepresentableForHc,
+                format!(
+                    "unsupported: {:?} allomorph {:?} is literal text; HermitCrab loads this morph type only as an affix process; skipped",
+                    allo.morph_type, allo.guid
+                ),
+            );
+            false
+        }
         // Bare Clitic/Particle/Stem/Root/BoundRoot/BoundStem/Phrase are never rule forms for this filter, and no `selected`/`reject` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's selected/represented/rejected identity instead.
         _ => false,
     }

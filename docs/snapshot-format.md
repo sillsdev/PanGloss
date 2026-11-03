@@ -339,7 +339,7 @@ side's `MoStemMsa`; HCLoader.cs:1848-1941 only ever reads these two properties o
 
 `stem | boundStem | root | boundRoot | prefix | suffix | infix | circumfix | proclitic | enclitic
 | clitic | particle | phrase | discontigPhrase | prefixingInterfix | infixingInterfix |
-suffixingInterfix`
+suffixingInterfix | simulfix | suprafix`
 
 ← FieldWorks' well-known `MoMorphType` possibilities. `pg-fwdata` (T2) owns the guid→variant
 mapping table (the `MoMorphTypeTags.kguidMorph*` constants referenced throughout `HCLoader.cs`,

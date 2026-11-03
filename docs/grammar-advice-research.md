@@ -174,16 +174,6 @@ Verified inspection destinations: Lexicon > Lexicon Edit > Lexeme Form; Lexicon 
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:153`; LEX.
 
-### `fwdata.unsupported-morph-type`
-
-Cause: The allomorph uses a morph type this importer cannot represent.
-
-Location and action: In Lexicon > Lexicon Edit, check the warning's named morph type; select a supported type only if it matches the intended analysis.
-
-Verified inspection destinations: Lexicon > Lexicon Edit > Morph Type.
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:160`; LEX.
-
 ### `fwdata.unknown-morph-type-guid`
 
 Cause: The allomorph has a morph-type GUID that is not recognized as a known FieldWorks morph type.

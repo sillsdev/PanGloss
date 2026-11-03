@@ -222,29 +222,6 @@ fn resolve_morph_type(
     };
     match morphtype::lookup(&mt_guid) {
         MorphTypeLookup::Known(mt) => Some(mt),
-        MorphTypeLookup::UnsupportedWellKnown(name) => {
-            let warning = pg_snapshot::Warning::new(
-                super::codes::UNSUPPORTED_MORPH_TYPE,
-                format!(
-                    "{label}: {} has morph type {name:?} ({mt_guid}), which this format's \
-                     MorphType enum has no variant for (model gap — see morphtype module docs); \
-                     skipping",
-                    rec.guid
-                ),
-            )
-            .with_subject(ctx.subject_for_record(rec, Some("MorphType")));
-            ctx.reject_with_warning(
-                key.clone(),
-                IssueClass::UnrepresentableForHc,
-                false,
-                Some(SourceRef {
-                    kind: pg_snapshot::FwClass::from_wire(&rec.class),
-                    id: rec.guid.clone(),
-                }),
-                warning,
-            );
-            None
-        }
         MorphTypeLookup::Unknown => {
             let name = ctx.best_vernacular(&rec.node.ws_forms("Form"));
             let resolution = ctx.resolve_reference(&mt_guid, "MoMorphType");

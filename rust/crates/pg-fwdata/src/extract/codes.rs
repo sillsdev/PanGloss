@@ -49,10 +49,6 @@ pub(crate) const STALE_ADHOC_PROHIBITION: ImportWarningCode =
 /// `lexemeMorphType` falls back to a default rather than being left unset.
 pub(crate) const NO_USABLE_ALLOMORPHS: ImportWarningCode =
     ImportWarningCode::FwdataNoUsableAllomorphs;
-/// An allomorph's morph-type guid is a recognized, well-known FieldWorks morph type, but one this
-/// format's `MorphType` enum has no variant for (a documented model gap, not a data error).
-pub(crate) const UNSUPPORTED_MORPH_TYPE: ImportWarningCode =
-    ImportWarningCode::FwdataUnsupportedMorphType;
 /// An allomorph's morph-type guid isn't recognized as any known FieldWorks morph type at all.
 pub(crate) const UNKNOWN_MORPH_TYPE_GUID: ImportWarningCode =
     ImportWarningCode::FwdataUnknownMorphTypeGuid;

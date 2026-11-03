@@ -324,6 +324,41 @@ fn unknown_morph_type_allomorph_is_skipped_with_a_warning() {
     }));
 }
 
+/// Simulfix and suprafix are known morph types: the allomorph imports with its type and no warning (#149).
+#[test]
+fn simulfix_and_suprafix_allomorphs_import_with_their_type() {
+    let dir = tempfile::tempdir().unwrap();
+    for (guid, expected) in [
+        ("d7f713dc", pg_snapshot::MorphType::Simulfix),
+        ("d7f713de", pg_snapshot::MorphType::Suprafix),
+    ] {
+        let path = fixture_variant(
+            dir.path(),
+            "guid=\"d7f713dd-e8cf",
+            &format!("guid=\"{guid}-e8cf"),
+        );
+        let (snap, report) = pg_fwdata::import_file(&path).unwrap();
+        let allomorph = snap
+            .lexicon
+            .entries
+            .iter()
+            .flat_map(|e| &e.allomorphs)
+            .find(|a| a.guid == "00000000-0000-0000-0000-000000000051")
+            .expect("the affix allomorph must be kept");
+        assert_eq!(allomorph.morph_type, expected);
+        assert!(
+            !report.warnings.iter().any(|w| {
+                w.code.contains("morph-type")
+                    && w.subjects.iter().any(|subject| {
+                        subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000051")
+                    })
+            }),
+            "{:?}",
+            report.warnings
+        );
+    }
+}
+
 /// The unrecognized-morph-type-guid warning carries a specific, stable code, so a future reword of the message is never itself a code change.
 #[test]
 fn unknown_morph_type_warning_carries_its_stable_code() {

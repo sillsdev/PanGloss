@@ -157,13 +157,6 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[("lexiconEdit", "Lexeme Form"), ("lexiconEdit", "Allomorphs")],
             Some(STEMS_HELP),
         ),
-        FwdataUnsupportedMorphType => advice(
-            "Unsupported morph type",
-            "The allomorph uses a morph type this importer cannot represent.",
-            "In Lexicon > Lexicon Edit, check the warning's named morph type; select a supported type only if it matches the intended analysis.",
-            &[("lexiconEdit", "Morph Type")],
-            Some(PARSER_HELP),
-        ),
         FwdataUnknownMorphTypeGuid => advice(
             "Unknown morph type reference",
             "The allomorph has a morph-type GUID that is not recognized as a known FieldWorks morph type.",
@@ -418,7 +411,7 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
         ),
         AllomorphMorphTypeUnsupported => advice(
             "Unsupported allomorph morph type",
-            "The allomorph's morph type is not supported for this compiler path.",
+            "The allomorph's morph type is not supported for this compiler path. For a simulfix or suprafix written as literal text, C# HermitCrab skips the form silently; this warning is PanGloss-only.",
             "In Lexicon > Lexicon Edit, check the named morph type and report the case if the source analysis is valid.",
             &[("lexiconEdit", "Morph Type")],
             Some(PARSER_HELP),
@@ -816,7 +809,6 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::FwdataMetathesisApproximation => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataStaleAdhocProhibition => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataNoUsableAllomorphs => DiagnosticLevel::Error,
-        ImportWarningCode::FwdataUnsupportedMorphType => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataUnknownMorphTypeGuid => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataReferenceNotInScope => DiagnosticLevel::Warning,
         ImportWarningCode::FwdataInvalidParserParameter => DiagnosticLevel::Warning,
