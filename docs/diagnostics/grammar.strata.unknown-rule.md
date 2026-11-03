@@ -1,16 +1,16 @@
-# grammar.strata.custom-unsupported
+# grammar.strata.unknown-rule
 
-Unsupported custom strata
+Unknown rule in strata
 
 Level: **warning**
 
 ## Explanation
 
-Custom strata are replaced by the parser's default strata.
+The Strata parser parameter names a rule, entry or template the project does not have; the name is ignored and the rest of the strata are built.
 
 ## What to do
 
-No grammar edit is required for valid custom strata; report the configuration if it is needed for the analysis.
+In the parser parameters, correct or remove the unknown name in the Strata field. The predefined names are Phonology, CompoundRules, Templates, Morphology and Clitics; any other name must match a phonological rule, morphological rule, affix template or lexical entry name exactly.
 
 ## Background
 
@@ -48,7 +48,6 @@ Some FieldWorks constructions do not have the same behavior in the parser:
 
 - Reduplication patterns such as `[C^1][V^1]-` are not loaded as affix rules.
 - Metathesis rules are skipped; they are not run as approximations. Words that rely on a rule may fail or differ.
-- Custom strata are replaced by the parser's default strata.
 - Some imported metathesis rules are approximated during conversion. The snapshot compiler subsequently skips these rules too; it does not run the approximation. Read both findings to distinguish the conversion loss from the compiler omission.
 
 Model a construction when it is part of the analysis, then check affected words and report valid behavior the parser cannot preserve.

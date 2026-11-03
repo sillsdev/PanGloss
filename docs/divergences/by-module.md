@@ -16,6 +16,7 @@ See `README.md` for the full status table and the kind definitions.
 | FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`, `MaxAlternatives`); `Morpher.cs` (`SynthesizeSequential`/`SynthesizeParallel`); `AnalysisStratumRule.cs`, `CombinationRuleCascade.cs`, `LinearRuleCascade.cs`, `MemoizedCombinationRuleCascade.cs` | 097 |
 | rule-spec constructors (LHS/RHS child type casts) | 020 |
 | `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
+| FieldWorks `HCLoader.cs` (`MoveMatchingItems`); `Stratum.cs` (collection-changed handlers) | 120 |
 
 ## By Rust module
 
@@ -69,3 +70,4 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | `FxtM3ParserToXAmpleADCtl.xsl`, `NatClassStringToHvo` (feature class exported as `[]`) | `pg-grammar/src/compile/environment.rs::load_environment_pattern` | [070](070-xample-feature-class-environment.md) |
 | XAMPLE ignores authored phonology; FieldWorks/HC discard unreadable literal environments | authored rewrite rules and provisional literal environment; `pg-cli/tests/underdefined_stored_keys_gate.rs` | [078](078-xample-minimum-authored-phonology.md) |
 | XAMPLE ignores authored phonology; FieldWorks stores analyses under `WfiWordform` | `pg-fwdata` stored-analysis extraction; `pg-parse` traced synthesis; `pg-cli` grammar health | [086](086-stored-analyses-lost-to-authored-phonology.md) |
+| `pg-grammar/src/compile/strata.rs` (`create`) | 120 |

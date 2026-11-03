@@ -154,7 +154,7 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
         && matches!(
             issue.code,
             ImportWarningCode::SourceProvenanceUnknown
-                | ImportWarningCode::StrataCustomUnsupported
+                | ImportWarningCode::StrataUnknownRule
                 | ImportWarningCode::BoundaryMorphMarkerUnresolved
                 | ImportWarningCode::FwdataInvalidParserParameter
         )
@@ -162,7 +162,7 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
         let mut subject = pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::Project)
             .name(snapshot.project.name.clone())
             .project_settings();
-        if issue.code == ImportWarningCode::StrataCustomUnsupported {
+        if issue.code == ImportWarningCode::StrataUnknownRule {
             subject = subject.field("Strata");
         }
         warning.subjects.push(subject);

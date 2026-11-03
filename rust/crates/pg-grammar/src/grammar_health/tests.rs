@@ -439,7 +439,7 @@ fn every_catalog_kind_delivers_advice_or_has_a_documented_correction_limit() {
         ("grammar.boundary.no-representation", "No editable FieldWorks boundary representation control was verified."),
         ("grammar.boundary.morph-marker-unresolved", "PanGloss selects the fixed morpheme marker internally."),
         ("grammar.null-affix.segment-failed", "The failing marker is generated internally, rather than supplied in a source form field."),
-        ("grammar.strata.custom-unsupported", "Valid custom strata expose a parser limitation; no equivalent correction is established."),
+        ("grammar.strata.unknown-rule", "The Strata parser parameter is a free-text field with no object to reselect."),
         ("conversion.source-provenance-unknown", "Conversion provenance is not an editable FieldWorks identity field."),
         ("grammar.compile.failed", "An early loader failure names no individual FieldWorks object; its description is the only locator."),
         ("hc-partial-reason-unspecified", "A partial morpheme without a recorded cause identifies no specific missing FieldWorks field."),

@@ -99,8 +99,7 @@ pub(crate) const FEATURE_CONSTRAINT_PHON_FEATURE_UNRESOLVED: ImportWarningCode =
 pub(crate) const RULE_FEATURE_UNRESOLVED: ImportWarningCode =
     ImportWarningCode::RuleFeatureUnresolved;
 
-pub(crate) const STRATA_CUSTOM_UNSUPPORTED: ImportWarningCode =
-    ImportWarningCode::StrataCustomUnsupported;
+pub(crate) const STRATA_UNKNOWN_RULE: ImportWarningCode = ImportWarningCode::StrataUnknownRule;
 
 pub(crate) const ADHOC_PROHIBITION_UNRESOLVED: ImportWarningCode =
     ImportWarningCode::AdhocProhibitionUnresolved;
