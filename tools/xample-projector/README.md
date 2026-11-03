@@ -724,6 +724,7 @@ integrity refusals return 10. Supported research operations are:
 - `clear-features`: `representation` whose authored phoneme feature structure is removed.
 - `rewrite`: phoneme representations `input`, `output`, and either `left` (literal phoneme)
   or `leftClass` (natural-class abbreviation), creating a regular left-to-right rewrite.
+- `metathesis`: `description` (phoneme representations, one `PhSimpleContextSeg` each) plus `leftSwitch`, `rightSwitch`, and optionally `leftEnv`, `middle`, `rightEnv` (indices into `description`, -1 when absent) and `direction`; creates a `PhMetathesisRule` named `probe-metathesis` and writes `StrucChange` through `SetStrucChangeIndices`.
 
 These deliberately bounded operations supplement `author`; they do not expand its supported XML
 subset. All project edits use factories and owned properties, never handwritten `.fwdata` XML.
