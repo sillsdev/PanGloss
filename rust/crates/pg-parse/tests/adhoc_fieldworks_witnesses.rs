@@ -85,3 +85,22 @@ fn fieldworks_witness_of_variant_main_first_enclitic_matches_the_oracle() {
 fn fieldworks_witness_of_allomorph_variant_control_matches_the_oracle() {
     assert_witness_agrees("adhoc-prohibition-allomorph-variant-control");
 }
+
+#[test]
+fn fieldworks_witness_of_do_not_use_for_parsing_matches_the_unflagged_oracle() {
+    // The project flags the `ta-` and `la` entries; grammar.xml is the unflagged oracle grammar (#154).
+    let project = std::fs::read_to_string(
+        require_fixture("edge-cases", "do-not-use-for-parsing-flag-ignored")
+            .dir
+            .join("fieldworks")
+            .join("project.fwdata"),
+    )
+    .unwrap();
+    assert_eq!(
+        project
+            .matches(r#"<DoNotUseForParsing val="True" />"#)
+            .count(),
+        2
+    );
+    assert_witness_agrees("do-not-use-for-parsing-flag-ignored");
+}

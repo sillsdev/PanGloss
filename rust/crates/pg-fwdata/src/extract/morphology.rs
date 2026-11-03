@@ -647,7 +647,6 @@ fn compound_outcome(
 pub(super) fn extract_adhoc_prohibitions(
     ctx: &mut Ctx,
     lang_project: Option<&Record>,
-    excluded: &super::lexicon::ExcludedLexicalObjects,
 ) -> Vec<AdhocProhibition> {
     let Some(morph_data) = lang_project
         .and_then(|lp| lp.node.objsur_one("MorphologicalData"))
@@ -679,37 +678,7 @@ pub(super) fn extract_adhoc_prohibitions(
     rules.sort_by(|left, right| left.guid.cmp(&right.guid));
     rules
         .into_iter()
-        .filter_map(|rule| {
-            let (targets, first, rest, kind) = match rule.class.as_str() {
-                "MoMorphAdhocProhib" => (
-                    &excluded.msas,
-                    "FirstMorpheme",
-                    "RestOfMorphs",
-                    InventoryKind::MorphemeCoOccurrence,
-                ),
-                "MoAlloAdhocProhib" => (
-                    &excluded.allomorphs,
-                    "FirstAllomorph",
-                    "RestOfAllos",
-                    InventoryKind::AllomorphCoOccurrence,
-                ),
-                _ => unreachable!("only concrete prohibitions were selected"),
-            };
-            if rule
-                .node
-                .objsur_one(first)
-                .into_iter()
-                .chain(rule.node.objsur_list(rest))
-                .any(|guid| targets.contains(&guid))
-            {
-                let key = InventoryKey::object(kind, rule.guid.clone());
-                ctx.considered(key.clone());
-                ctx.not_considered(key, pg_snapshot::LoadReasonCode::DoNotUseForParsing);
-                None
-            } else {
-                extract_adhoc_prohibition(ctx, &rule.guid, morph_data)
-            }
-        })
+        .filter_map(|rule| extract_adhoc_prohibition(ctx, &rule.guid, morph_data))
         .collect()
 }
 

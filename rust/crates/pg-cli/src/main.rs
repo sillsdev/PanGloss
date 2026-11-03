@@ -493,18 +493,6 @@ fn run_import(args: &[String]) -> Result<(), String> {
             .map_err(|error| format!("serialize import refusal: {error}"))?);
     }
 
-    let excluded_entries = report
-        .provenance
-        .import_load_decisions
-        .iter()
-        .filter(|decision| {
-            decision.subject.kind == pg_snapshot::InventoryKind::Entry
-                && decision.reason_code == pg_snapshot::LoadReasonCode::DoNotUseForParsing
-        })
-        .count();
-    if excluded_entries > 0 {
-        eprintln!("entries excluded by DoNotUseForParsing: {excluded_entries}");
-    }
     eprintln!("import warnings ({}):", report.warnings.len());
     for w in &report.warnings {
         eprintln!("  {w}");

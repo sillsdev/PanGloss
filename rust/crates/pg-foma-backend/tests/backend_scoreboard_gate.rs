@@ -44,11 +44,11 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Divergence 116 moves 18 TSP and 17 TUT oracle-exact fixtures to refused.
+    // Divergence 116 moves 18 TSP and 17 TUT fixtures to refused; the #154 witness adds one oracle-exact fixture per strategy.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 122,
+            oracle_exact: 123,
             compiles_but_misses: 9,
             refused: 20,
             unmeasurable: 0,
@@ -57,7 +57,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 103,
+            oracle_exact: 104,
             compiles_but_misses: 5,
             refused: 43,
             unmeasurable: 0,
@@ -66,7 +66,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 53,
+            oracle_exact: 54,
             compiles_but_misses: 2,
             refused: 93,
             unmeasurable: 3,

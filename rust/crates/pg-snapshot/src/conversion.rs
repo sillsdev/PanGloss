@@ -532,7 +532,7 @@ impl LoadDisposition {
 pub enum LoadReasonCode {
     Represented,
     Disabled,
-    /// FieldWorks excluded this entire lexical entry from parsing.
+    /// Written by 0.11.0 to 0.14.0 only; kept so those snapshots still deserialize (divergence 121).
     DoNotUseForParsing,
     Synthesized,
     MetadataOnly,

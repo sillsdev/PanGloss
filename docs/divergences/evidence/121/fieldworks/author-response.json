@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "mode": "author",
+  "fieldWorksVersion": "9.3.10.1452",
+  "grammarPath": "..\\do-not-use-for-parsing.grammar.xml",
+  "grammarSha256": "8d6c3c45feb07ff4ea455bee946b4e17dc62392f27ba728684e5ae290a92bf12",
+  "projectPath": "DoNotUseForParsing\\DoNotUseForParsing.fwdata",
+  "projectSha256": "c7cf6bc8a1254fef4639a81a35956e983df5704c50df30bf43925de96e530d58",
+  "authored": {
+    "PartOfSpeech": 1,
+    "PhPhoneme": 3,
+    "PhBdryMarker": 1,
+    "MoStemAllomorph": 1,
+    "LexEntry": 1
+  },
+  "unmapped": [
+    "Stratum@morphologicalRuleOrder=\"unordered\" (ignored; FieldWorks has no equivalent)"
+  ],
+  "guidMap": {
+    "aPat": "8528cc4a-74fc-4eae-9020-0e14e64da0ae",
+    "cA": "287f295c-483b-4dd2-8f2b-8807b390920c",
+    "cP": "a872734b-d4fc-415a-a77a-861bab376390",
+    "cT": "26cb4789-8a15-49aa-a041-380a7509d86d",
+    "ePat": "5a10b17a-1c66-4dc3-9e4d-11f5f6d5a1c9",
+    "posN": "e3f6f582-ad3b-444b-8b77-02537b75572f"
+  },
+  "diagnostics": []
+}

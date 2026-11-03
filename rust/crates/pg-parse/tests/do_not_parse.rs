@@ -1,4 +1,4 @@
-//! FieldWorks entry exclusion through import, grammar compilation, and parsing.
+//! FieldWorks ignores DoNotUseForParsing (#154): flagged entries import and parse like unflagged ones.
 
 use pg_parse::{Morpher, ParseOptions};
 
@@ -62,36 +62,6 @@ fn observe(flag: Option<bool>) -> (usize, usize, Vec<usize>) {
     let path = dir.path().join("project.fwdata");
     std::fs::write(&path, source).unwrap();
     let (snapshot, _, delta) = pg_fwdata::import_file_measured(&path).unwrap();
-    if flag == Some(true) {
-        for id in ["2", "3", "4"] {
-            let guid = format!("10000000-0000-0000-0000-{id:0>12}");
-            let entry = snapshot
-                .lexicon
-                .entries
-                .iter()
-                .find(|entry| entry.guid == guid)
-                .unwrap();
-            let components = match &entry.entry_refs[0] {
-                pg_snapshot::EntryRef::Variant {
-                    component_lexemes, ..
-                }
-                | pg_snapshot::EntryRef::ComplexForm {
-                    component_lexemes, ..
-                } => component_lexemes,
-            };
-            assert!(
-                components.is_empty(),
-                "all components of {guid} must be pruned"
-            );
-            assert!(
-                !snapshot
-                    .validate()
-                    .iter()
-                    .any(|warning| warning.message.contains(&guid)),
-                "empty reference on {guid} must validate"
-            );
-        }
-    }
     assert!(delta.silently_omitted.is_empty());
     let excluded = snapshot
         .conversion_provenance
@@ -117,21 +87,10 @@ fn observe(flag: Option<bool>) -> (usize, usize, Vec<usize>) {
 }
 
 #[test]
-fn do_not_parse_excludes_entry_and_variant_borrowing() {
+fn do_not_use_for_parsing_changes_nothing() {
     let absent = observe(None);
-    let disabled = observe(Some(false));
-    let enabled = observe(Some(true));
-    assert_eq!(absent, disabled);
+    assert_eq!(absent, observe(Some(false)));
+    assert_eq!(absent, observe(Some(true)));
     assert_eq!((absent.0, absent.1), (5, 0));
-    assert_eq!((enabled.0, enabled.1), (4, 1));
     assert!(absent.2.iter().all(|n| *n > 0), "baseline: {:?}", absent.2);
-    assert_eq!(enabled.2[0], 0, "excluded main entry");
-    assert_eq!(enabled.2[5], 0, "excluded alternate allomorph");
-    assert_eq!(enabled.2[2], 0, "variant of excluded entry");
-    assert_eq!(enabled.2[3], 0, "variant of excluded sense");
-    assert_eq!(enabled.2[1], absent.2[1], "unflagged neighbor");
-    assert_eq!(
-        enabled.2[4], absent.2[4],
-        "complex form with its own analysis"
-    );
 }
