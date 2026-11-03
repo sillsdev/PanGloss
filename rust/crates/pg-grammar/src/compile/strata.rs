@@ -1,6 +1,6 @@
 //! The `<HC><Strata>` parser parameter: `HCLoader.ParseStrataString` and `HCLoader.CreateStrata`.
 //!
-//! The default layout is Morphology, Clitics, Surface. A non-empty strata string inserts one stratum per group just before Clitics, moves the named rules into it, then folds the predefined names (`Phonology`, `CompoundRules`, `Templates`, `Clitics`, `Morphology`) and drops every empty stratum, which includes Surface, exactly as C# does.
+//! The default layout is Morphology, Clitics, Surface; see docs/divergences/120 for named moves.
 
 use crate::model::{
     AffixTemplateDef, LexEntryDef, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeInfo,
@@ -116,6 +116,15 @@ pub(crate) fn create(
     let (mut clitics, mut compound, mut morphology, mut phonology, mut templates) =
         (None, None, None, None, None);
 
+    fn pick<'f>(forms: &'f [pg_snapshot::WsForm], vernacular: &[String]) -> Option<&'f str> {
+        let wanted = |f: &&pg_snapshot::WsForm| !f.form.is_empty();
+        vernacular
+            .iter()
+            .find_map(|w| forms.iter().filter(wanted).find(|f| &f.ws == w))
+            .or_else(|| forms.iter().find(wanted))
+            .map(|f| f.form.as_str())
+    }
+    // `ILexEntry.ShortName`, the headword: citation form, else the lexeme form, in the first vernacular writing system that has one.
     let entry_name = |id: LexEntryId| {
         let guid = &named.entries[id.0 as usize].authored_id;
         let entry = named
@@ -124,7 +133,9 @@ pub(crate) fn create(
             .entries
             .iter()
             .find(|e| &e.guid == guid)?;
-        entry.citation_form.first().map(|f| f.form.as_str())
+        let lexeme = entry.allomorphs.last().map_or(&[][..], |a| &a.forms[..]);
+        let ws = &named.snapshot.project.vernacular_writing_systems;
+        pick(&entry.citation_form, ws).or_else(|| pick(lexeme, ws))
     };
     let prule_name = |id: PRuleId| match &named.prules[id.0 as usize] {
         PhonRuleDef::Rewrite(r) => r.name.as_deref(),
@@ -165,6 +176,7 @@ pub(crate) fn create(
                 "Morphology" => morphology = Some(role),
                 "Phonology" => phonology = Some(role),
                 "Templates" => templates = Some(role),
+                // Divergence 120: the moved item stays in the target; C# nulls its Stratum.
                 _ => {
                     let mut found = false;
                     for source in [MORPHOLOGY, CLITICS] {
