@@ -350,6 +350,45 @@ fn graduation_guard_no_duplicate_fixture_names() {
     );
 }
 
+/// Suite words that need unmerged sillsdev/machine#500/#556 (PanGloss #18); base-run analysis mismatches only.
+const ORACLE_UNMERGED_WORDS: &[(&str, &str)] = &[
+    ("machine:edge-cases/truncate-morphotactic-copy-u", "gau"),
+    ("machine:edge-cases/truncate-morphotactic-copy-u", "au"),
+    ("machine:edge-cases/truncate-morphotactic-identity", "ga"),
+    ("machine:edge-cases/truncate-morphotactic-subsumption", "ag"),
+    (
+        "machine:edge-cases/truncate-morphotactic-subsumption",
+        "gag",
+    ),
+];
+
+fn waived_pending_oracle(name: &str, is_base: bool, word: &str, what: &str) -> bool {
+    is_base
+        && what.starts_with("analysis multiset mismatch vs oracle")
+        && ORACLE_UNMERGED_WORDS.contains(&(name, word))
+}
+
+#[test]
+fn oracle_unmerged_waiver_is_per_word_and_base_run_analysis_only() {
+    let name = "machine:edge-cases/truncate-morphotactic-copy-u";
+    let analysis = "analysis multiset mismatch vs oracle (details)";
+    assert!(waived_pending_oracle(name, true, "gau", analysis));
+    assert!(!waived_pending_oracle(name, true, "unlisted", analysis));
+    assert!(!waived_pending_oracle(name, false, "gau", analysis));
+    assert!(!waived_pending_oracle(
+        name,
+        true,
+        "gau",
+        "incomplete parse"
+    ));
+    assert!(!waived_pending_oracle(
+        "machine:edge-cases/other",
+        true,
+        "gau",
+        analysis
+    ));
+}
+
 /// Every discovered fixture's `words.yaml` replayed against `pg_parse::Morpher`; pathological/crash-pinning fixtures are skipped since a crash fixture has no signature to diff against.
 #[test]
 fn all_discovered_fixtures_match_oracle() {
@@ -364,6 +403,7 @@ fn all_discovered_fixtures_match_oracle() {
     let mut total_skipped_fixtures = 0usize;
     let mut total_variant_runs = 0usize;
     let mut mismatches = Vec::new();
+    let mut waived = 0usize;
     for f in &fixtures {
         let words_yaml = f.load_words_yaml();
         if let Some(reason) = words_yaml.skip_in_generic_replay() {
@@ -376,10 +416,16 @@ fn all_discovered_fixtures_match_oracle() {
                 total_variant_runs += 1;
             }
             for mismatch in &run.replay.mismatches {
-                mismatches.push(format!(
+                let detail = format!(
                     "{}: word {:?} {}\n  left (HC-Rust): {}\n right (oracle): {}",
                     run.name, mismatch.word, mismatch.what, mismatch.got, mismatch.expected
-                ));
+                );
+                if waived_pending_oracle(&run.name, run.is_base, &mismatch.word, mismatch.what) {
+                    eprintln!("waived pending sillsdev/machine#500/#556: {detail}");
+                    waived += 1;
+                } else {
+                    mismatches.push(detail);
+                }
             }
             if run.is_base {
                 assert!(
@@ -395,6 +441,13 @@ fn all_discovered_fixtures_match_oracle() {
         "conformance_fixtures_gate: {total_checked} base words checked across {} fixtures ({} skipped); replayed {total_variant_runs} settings variants (not included in fixture coverage)",
         fixtures.len() - total_skipped_fixtures,
         total_skipped_fixtures
+    );
+    eprintln!("conformance_fixtures_gate: {waived} mismatches waived (ORACLE_UNMERGED_WORDS)");
+    assert_eq!(
+        waived,
+        ORACLE_UNMERGED_WORDS.len(),
+        "every ORACLE_UNMERGED_WORDS entry must still mismatch exactly once; remove the entries \
+         that now pass (sillsdev/machine#500, #556; PanGloss #18)"
     );
     // "fixtures covered" is not one FieldWorks-facing population; report the three separately.
     let census = producibility_census(&fixtures);
