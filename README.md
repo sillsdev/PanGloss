@@ -229,8 +229,10 @@ for pinning an external test double to the real CLI surface rather than to prose
   [divvun/foma-rs](https://github.com/divvun/foma-rs)) directly — the wasm32
   `SystemTime::now()` abort this repo used to work around with an in-tree vendored copy is
   fixed upstream as of 0.4.0.
-- `machine/` — the `sillsdev/machine` conformance oracle (submodule); the binding correctness
-  gate as HermitCrab evolves upstream.
+- `conformance/` — the pinned clone of `sillsdev/fieldworks-parser-conformance` (the conformance
+  suite), fetched at the commit in `conformance.commit` by `rust/tools/conformance.ps1`; gitignored.
+- `machine/` — the `sillsdev/machine` submodule, pinned for the C# `hc.dll` founding oracle that
+  replays the suite; it no longer holds the fixtures.
 - `samples/data/` — reference grammars (Amharic, Indonesian, Sena). **Local-only and
   gitignored** (real language data is never committed); the test suite skips corpus tests
   when they're absent.
