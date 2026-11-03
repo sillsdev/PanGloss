@@ -169,7 +169,8 @@ Test-Case 'an unreachable remote fails with the command to run and leaves no hal
     $r = Sync-ConformanceSuite -RepoRoot $root
     Assert-False $r.Ok
     Assert-Equal 'failed' $r.Mode
-    Assert-True ($r.RecoveryCommand -match 'rust/tools/conformance.ps1') $r.RecoveryCommand
+    # Join-Path yields backslashes on Windows, so accept either separator.
+    Assert-True ($r.RecoveryCommand -match 'rust[\\/]tools[\\/]conformance\.ps1') "recovery command does not name rust/tools/conformance.ps1: $($r.RecoveryCommand)"
     Assert-False (Test-Path (Join-Path $root 'conformance')) 'nothing at conformance/'
     Assert-Equal 0 @(Get-ChildItem -Path $root -Filter '.conformance-clone-*' -Force).Count 'no temp clone left behind'
 }
