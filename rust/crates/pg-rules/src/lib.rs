@@ -20,6 +20,7 @@ pub mod surface_probe;
 pub mod trace;
 pub mod validity;
 pub mod word;
+pub mod word_set;
 pub mod word_stats;
 
 pub use word::{FinalTemplateState, MorphRecord, Word, WordFlags, WordKey};

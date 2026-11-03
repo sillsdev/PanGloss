@@ -19,6 +19,9 @@ file has no section for.
 
 - Simulfix and suprafix allomorphs written as affix processes now load, as in C# HermitCrab (`HCLoader.IsValidRuleForm` accepts any `MoAffixProcess` with more than one part, whatever its morph type). Before, the importer skipped them with `fwdata.unsupported-morph-type`; that code is gone. A simulfix or suprafix written as literal text is not loaded, as in C#, and now reports `grammar.allomorph.morph-type-unsupported` (#149).
 - Snapshot `MorphType` gains `simulfix` and `suprafix`; the facts `allomorph.morph_type` column accepts them, and `stats_allomorph_source.role` can read `simulfix` or `suprafix`. Format and schema versions are unchanged: a reader that rejects unknown enum values rejects a snapshot or facts file that contains one.
+### Analysis order
+
+- Analyses for one word now come out in a fixed, documented order: the order each distinct analysis is first produced. This is C#'s order, since `Morpher.Synthesize` collects matches in a `HashSet<Word>` that enumerates in insertion order. Before, the final list and every intermediate set were iterated in hash-table order, so the order was undocumented and could differ with the table layout. Guessed analyses keep their stable descending-morph-count order. The set of analyses, their counts and `work_steps` are unchanged apart from where a cap or timeout falls inside a reordered scan (#64).
 
 ### Feature structures
 
