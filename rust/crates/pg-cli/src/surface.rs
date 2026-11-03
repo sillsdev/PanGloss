@@ -418,6 +418,12 @@ const FACTS_FLAGS: &[FlagSpec] = &[
         summary: "manifest for the exact frozen batch stats run (requires --stats)",
     },
     FlagSpec {
+        name: "--light",
+        takes_value: false,
+        summary:
+            "omit the tables and rows Motif does not read, and declare each omission in the file",
+    },
+    FlagSpec {
         name: "--json",
         takes_value: false,
         summary: "write one machine-readable result object to stdout",

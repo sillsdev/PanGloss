@@ -7,9 +7,10 @@ use rusqlite::{params, Connection, TransactionBehavior};
 use tempfile::NamedTempFile;
 
 use crate::context::FactsContext;
+use crate::light::Profile;
 use crate::metadata::{fixed_sections, ProducerIdentity, SectionStatus};
 use crate::stats::{StatsExpectation, StatsInput, StatsProjection};
-use crate::{FactsError, FactsResult};
+use crate::{FactsError, FactsOptions, FactsResult};
 
 struct Publication<'a> {
     output_path: &'a Path,
@@ -34,6 +35,7 @@ struct Publication<'a> {
     grammar: Option<&'a pg_grammar::model::Grammar>,
     stats: Option<StatsProjection>,
     sections: Vec<SectionStatus>,
+    profile: Profile,
 }
 
 struct MetadataInput<'a> {
@@ -49,6 +51,8 @@ struct MetadataInput<'a> {
     options_sha256: &'a str,
     compile_status: &'a str,
     run_manifest_sha256: Option<&'a str>,
+    /// JSON list of what a light file omits; `None` for a full file, which has no such column.
+    light_omissions: Option<&'a str>,
 }
 
 pub fn write_facts(
@@ -62,7 +66,7 @@ pub fn write_facts(
         context_bytes,
         output_path,
         producer,
-        None,
+        FactsOptions::default(),
         |_| {},
     )
 }
@@ -80,7 +84,28 @@ pub fn write_facts_with_stats(
         context_bytes,
         output_path,
         producer,
-        Some(stats_input),
+        FactsOptions {
+            stats: Some(stats_input),
+            ..FactsOptions::default()
+        },
+        |_| {},
+    )
+}
+
+/// Builds a facts file as `options` ask: light or full, with or without a frozen stats run.
+pub fn write_facts_with_options(
+    source_bytes: &[u8],
+    context_bytes: &[u8],
+    output_path: impl AsRef<Path>,
+    producer: ProducerIdentity<'_>,
+    options: FactsOptions<'_>,
+) -> Result<FactsResult, FactsError> {
+    write_facts_inner(
+        source_bytes,
+        context_bytes,
+        output_path,
+        producer,
+        options,
         |_| {},
     )
 }
@@ -90,12 +115,17 @@ fn write_facts_inner<F>(
     context_bytes: &[u8],
     output_path: impl AsRef<Path>,
     producer: ProducerIdentity<'_>,
-    stats_input: Option<StatsInput<'_>>,
+    facts_options: FactsOptions<'_>,
     before_schema: F,
 ) -> Result<FactsResult, FactsError>
 where
     F: FnOnce(&Connection),
 {
+    let FactsOptions {
+        light,
+        stats: stats_input,
+    } = facts_options;
+    let profile = Profile::new(light);
     let context = FactsContext::parse(context_bytes)?;
     let source = std::str::from_utf8(source_bytes)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
@@ -212,13 +242,14 @@ where
         &inventory,
         &decisions,
     );
-    let sections = fixed_sections(
+    let mut sections = fixed_sections(
         compile_status == "completed",
         source_inventory_complete,
         snapshot.morphology.adhoc_prohibition_groups.is_some(),
         load_accounting_complete,
         stats.is_some(),
     );
+    profile.declare(&mut sections);
     let result = publish(
         Publication {
             output_path: output_path.as_ref(),
@@ -243,6 +274,7 @@ where
             grammar: grammar.as_ref(),
             stats,
             sections,
+            profile,
         },
         before_schema,
     )?;
@@ -276,6 +308,7 @@ where
         grammar,
         stats,
         sections,
+        profile,
     } = publication;
     if output_path.exists() {
         return Err(FactsError::OutputExists);
@@ -305,6 +338,9 @@ where
         before_schema(&connection);
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch(include_str!("schema.sql"))?;
+        for index in profile.dropped_indexes() {
+            transaction.execute_batch(&format!("DROP INDEX \"{index}\";"))?;
+        }
         // Authored and compiled rows may spell one GUID in two cases until the canonical pass runs.
         transaction.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         insert_metadata(
@@ -324,6 +360,7 @@ where
                 run_manifest_sha256: stats
                     .as_ref()
                     .map(|projection| projection.manifest_sha256.as_str()),
+                light_omissions: profile.omissions_json()?.as_deref(),
             },
         )?;
         for section in &sections {
@@ -346,6 +383,7 @@ where
             snapshot,
             decisions,
             compile_status == "completed",
+            profile,
         )?;
         let feature_structures = crate::features::insert_authored(&transaction, snapshot)?;
         crate::morphology::insert_definitions(&transaction, snapshot, &feature_structures)?;
@@ -358,6 +396,7 @@ where
             inventory,
             compile_issues,
             decisions,
+            profile,
         )?;
         // One pass over every decision here; the phonology and reference writers look owners up in it.
         let owner_loads = crate::owner_loads::OwnerLoads::new(decisions);
@@ -376,6 +415,7 @@ where
             compiled_mappings,
             compiled_allomorph_order,
             &form_segments,
+            profile,
         )?;
         crate::settings::insert_parser_config(&transaction, snapshot, grammar)?;
         crate::references::insert(
@@ -389,12 +429,14 @@ where
                 grammar,
                 mappings: compiled_mappings,
                 form_segments: &form_segments,
+                profile,
             },
         )?;
         if let Some(stats) = &stats {
             crate::stats::insert(&transaction, stats)?;
         }
         crate::guid::canonicalize_stored_guids(&transaction)?;
+        // complete=1 says the write finished and verified; a light file's omissions are in its sections and light_omissions.
         crate::sql::execute(
             &transaction,
             "UPDATE artifact_meta SET complete=1 WHERE singleton=1",
@@ -498,6 +540,17 @@ fn insert_metadata(
             metadata.run_manifest_sha256,
         ],
     )?;
+    if let Some(omissions) = metadata.light_omissions {
+        // Only a light file carries the column, so a full file stays byte-identical to one built before it existed.
+        tx.execute_batch(
+            "ALTER TABLE artifact_meta ADD COLUMN light_omissions TEXT COLLATE BINARY;",
+        )?;
+        crate::sql::execute(
+            tx,
+            "UPDATE artifact_meta SET light_omissions=?1 WHERE singleton=1",
+            [omissions],
+        )?;
+    }
     Ok(())
 }
 
@@ -557,6 +610,7 @@ mod tests {
     use super::{configure_database, verify_database, write_facts_inner};
     use crate::metadata::ProducerIdentity;
     use crate::FactsError;
+    use crate::FactsOptions;
 
     const CONTEXT: &[u8] = br#"{"format":"pangloss-facts-context","version":1,"baselineToken":{"id":"commit-count"},"inputKind":"baseline","dryRunDigest":null}"#;
 
@@ -615,7 +669,7 @@ mod tests {
             CONTEXT,
             &output,
             PRODUCER,
-            None,
+            FactsOptions::default(),
             move |connection| {
                 connection.commit_hook(Some(move || {
                     hook_commits.fetch_add(1, Ordering::SeqCst);
@@ -710,7 +764,7 @@ mod tests {
             CONTEXT,
             &output,
             PRODUCER,
-            None,
+            FactsOptions::default(),
             move |connection| {
                 connection.commit_hook(Some(move || {
                     hook_seen
@@ -743,9 +797,16 @@ mod tests {
         let temporary = tempdir().unwrap();
         let output = temporary.path().join("facts.sqlite");
 
-        let result = write_facts_inner(&source, CONTEXT, &output, PRODUCER, None, |connection| {
-            connection.commit_hook(Some(|| true));
-        });
+        let result = write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            PRODUCER,
+            FactsOptions::default(),
+            |connection| {
+                connection.commit_hook(Some(|| true));
+            },
+        );
 
         assert!(result.is_err());
         assert_eq!(names_in(temporary.path()), Vec::<String>::new());
@@ -757,7 +818,15 @@ mod tests {
         let temporary = tempdir().unwrap();
         let output = temporary.path().join("facts.sqlite");
 
-        let result = write_facts_inner(&source, CONTEXT, &output, PRODUCER, None, |_| {}).unwrap();
+        let result = write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            PRODUCER,
+            FactsOptions::default(),
+            |_| {},
+        )
+        .unwrap();
 
         let expected = pg_assess::model_fingerprint(
             pg_assess::SourceKind::Snapshot,

@@ -16,6 +16,7 @@ use pg_snapshot::{canonical_guid, InventoryKey, InventoryKind, LoadDecision, Sna
 use rusqlite::{params, Transaction};
 
 use crate::lexicon::{form_class, reads_positions, GateEffects, MS_ENV_PART_OF_SPEECH_EFFECT};
+use crate::light::Profile;
 use crate::morphology::all_parts_of_speech;
 use crate::owner_loads::OwnerLoads;
 use crate::phonology::{
@@ -24,8 +25,9 @@ use crate::phonology::{
 };
 use crate::FactsError;
 
-/// What the compiler produced: the grammar, its output ids, and the source mappings of those outputs.
+/// What the compiler produced and how much of the references to write.
 pub(crate) struct CompiledInputs<'a> {
+    pub(crate) profile: Profile,
     pub(crate) grammar: Option<&'a pg_grammar::model::Grammar>,
     pub(crate) mappings: &'a [pg_grammar::compile::CompiledMapping],
     pub(crate) form_segments: &'a [(u32, Vec<crate::compiled::FormSegment>)],
@@ -57,13 +59,15 @@ pub(crate) fn insert(
     allomorph_gates: &[AllomorphGateOutcome],
     compiled: CompiledInputs<'_>,
 ) -> Result<(), FactsError> {
+    let profile = compiled.profile;
     let mut descendants = BTreeMap::new();
     for part in all_parts_of_speech(&snapshot.morphology.parts_of_speech) {
         index_descendants(&part.inflection_classes, &mut descendants);
     }
     let mut writer = Writer {
         tx,
-        known: Known::new(snapshot),
+        profile,
+        known: Known::new(snapshot, profile),
         decisions,
         owner_loads,
         descendants,
@@ -94,10 +98,13 @@ fn guid_text(value: &str) -> String {
 struct Known(BTreeSet<(&'static str, String)>);
 
 impl Known {
-    fn new(snapshot: &Snapshot) -> Self {
+    /// Holds only the targets the profile writes, since only those are ever asked about.
+    fn new(snapshot: &Snapshot, profile: Profile) -> Self {
         let mut known = BTreeSet::new();
         let mut add = |kind: &'static str, guid: &str| {
-            known.insert((kind, guid_text(guid)));
+            if keeps_target(profile, kind) {
+                known.insert((kind, guid_text(guid)));
+            }
         };
         for environment in &snapshot.phonology.environments {
             add("environment", &environment.guid);
@@ -174,6 +181,11 @@ fn add_classes(classes: &[InflectionClass], add: &mut impl FnMut(&'static str, &
     }
 }
 
+/// Whether a reference to a target of this kind is written.
+fn keeps_target(profile: Profile, target_kind: &str) -> bool {
+    profile.keeps_row("statement_reference", &[("target_kind", target_kind)])
+}
+
 /// One statement reference before its ordinal is assigned.
 struct Reference<'r> {
     target_kind: &'static str,
@@ -186,6 +198,7 @@ struct Reference<'r> {
 
 struct Writer<'a, 'c> {
     tx: &'a Transaction<'c>,
+    profile: Profile,
     known: Known,
     decisions: &'a [LoadDecision],
     owner_loads: &'a OwnerLoads<'a>,
@@ -196,8 +209,55 @@ struct Writer<'a, 'c> {
 }
 
 impl Writer<'_, '_> {
+    fn keeps(&self, target_kind: &str) -> bool {
+        keeps_target(self.profile, target_kind)
+    }
+
+    /// Whether every row with this target kind goes unwritten, so nothing about it need be computed.
+    fn skips_all(&self, target_kinds: &[&str]) -> bool {
+        target_kinds.iter().all(|kind| !self.keeps(kind))
+    }
+
+    /// Takes `count` ordinals of one referrer and role, as unwritten rows would have, so kept rows keep theirs.
+    fn skip_rows(
+        &mut self,
+        referrer_kind: &'static str,
+        referrer: &str,
+        role: &'static str,
+        count: usize,
+    ) {
+        if count > 0 {
+            *self
+                .next_ordinal
+                .entry((referrer_kind, guid_text(referrer), role))
+                .or_insert(0) += count as i64;
+        }
+    }
+
     /// Publishes a reference, and each descendant of a referenced class as `via_ancestor`.
     fn add(&mut self, reference: Reference<'_>) -> Result<(), FactsError> {
+        if !self.keeps(reference.target_kind) {
+            let descendant_count = if reference.target_kind == "inflectionClass" {
+                self.descendants
+                    .get(&guid_text(reference.target))
+                    .map_or(0, Vec::len)
+            } else {
+                0
+            };
+            self.skip_rows(
+                reference.referrer_kind,
+                reference.referrer,
+                reference.role,
+                1,
+            );
+            self.skip_rows(
+                reference.referrer_kind,
+                reference.referrer,
+                "via_ancestor",
+                descendant_count,
+            );
+            return Ok(());
+        }
         let descendants = if reference.target_kind == "inflectionClass" {
             self.descendants
                 .get(&guid_text(reference.target))
@@ -259,6 +319,10 @@ impl Writer<'_, '_> {
         target: &str,
         fixed: Option<&'static str>,
     ) -> &'static str {
+        if !self.keeps(target_kind) {
+            // `add` discards the effect of a reference it does not write.
+            return "not_attempted";
+        }
         fixed.unwrap_or_else(|| {
             owner_effect(self.owner_loads, owner, self.known.has(target_kind, target))
         })
@@ -489,7 +553,14 @@ impl Writer<'_, '_> {
         snapshot: &Snapshot,
         grammar: Option<&pg_grammar::model::Grammar>,
     ) -> Result<(), FactsError> {
-        for (class, phoneme) in feature_class_phonemes(snapshot, grammar)? {
+        // These two roles hold phoneme targets only, so no kept row takes an ordinal from them.
+        let phonemes_written = !self.skips_all(&["phoneme"]);
+        let effective_members = if phonemes_written {
+            feature_class_phonemes(snapshot, grammar)?
+        } else {
+            Vec::new()
+        };
+        for (class, phoneme) in effective_members {
             let owner = InventoryKey::object(InventoryKind::NaturalClass, class.as_str());
             self.owned(
                 &owner,
@@ -505,7 +576,7 @@ impl Writer<'_, '_> {
             let owner = InventoryKey::object(InventoryKind::NaturalClass, guid);
             match class {
                 NaturalClass::Segments { phonemes, .. } => {
-                    for phoneme in phonemes {
+                    for phoneme in phonemes.iter().filter(|_| phonemes_written) {
                         self.owned(
                             &owner,
                             "phoneme",
@@ -581,6 +652,10 @@ impl Writer<'_, '_> {
         structure: &FeatureStructure,
         fixed: Option<&'static str>,
     ) -> Result<(), FactsError> {
+        // Roles that name feature structures hold feature and value targets only.
+        if self.skips_all(&["feature", "featureValue"]) {
+            return Ok(());
+        }
         for value in &structure.values {
             let effect = self.effect(owner, "feature", &value.feature, fixed);
             self.add(Reference {
