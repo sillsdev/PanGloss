@@ -11,6 +11,7 @@ See `README.md` for the full status table and the kind definitions.
 | `AnalysisScope.cs` | 024, 045 |
 | `AnalysisStateKey.cs` | 024, 045 |
 | `FeatureValue.cs` / `SimpleFeatureValue.cs` (shared variable/negation machinery) | 026 |
+| FieldWorks `HCLoader.cs` (`Load`, entry loop 269-306); liblcm `M3ModelExportServices.cs` (`ExportEntries`, 355-358) | 120 |
 | `HermitCrabExtensions.cs` | 027 |
 | `Morpher.cs` (`MatchNodesWithPattern`, `LexicalGuess`) | 027 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`, `MaxAlternatives`); `Morpher.cs` (`SynthesizeSequential`/`SynthesizeParallel`); `AnalysisStratumRule.cs`, `CombinationRuleCascade.cs`, `LinearRuleCascade.cs`, `MemoizedCombinationRuleCascade.cs` | 097 |
@@ -26,6 +27,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
 | `pg-parse/src/guess.rs` | 027 |
+| `pg-fwdata/src/extract/lexicon.rs` (`extract_lexicon`, `DoNotUseForParsing` exclusion); `pg-fwdata/src/extract/morphology.rs` (`extract_adhoc_prohibitions`) | 120 |
 | `pg-fwdata/src/parser_params.rs` (does not import `MaxAlternatives`); `pg-snapshot/src/morphology.rs` (`ParserParameters` has no field); `pg-parse/src/morpher.rs` (analysis/work caps, timeout, incomplete outcome) | 097 |
 | `pg-rules/src/analysis_state_key.rs` | 024, 045 |
 | `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |
@@ -42,6 +44,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-cli/src/grammar_health/tests.rs` (`grammar_health_reports_a_capped_wordform_and_compares_the_rest`, `stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count`, `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count`, `grammar_health_stored_analyses_flag_selects_the_comparison`) | 089 |
 | `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/work_cap_gate.rs` | 052 |
 | `pg-grammar/src/compile/tests.rs` membership and unconstrained wildcard regressions; `machine/conformance/edge-cases/chained-output-feature-override-loss`; separate-lane `underdefined/07-featureless-phoneme`, `underdefined/12-featureless-rule-class` on `feat/xample-measure` | 076 |
+| `pg-parse/tests/do_not_parse.rs`, `pg-fwdata/tests/fixture_tests.rs` (PanGloss side only); FieldWorks side is the run in `evidence/120/` | 120 |
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 076 |
 | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` | 024 |

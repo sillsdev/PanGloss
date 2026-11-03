@@ -1,0 +1,9 @@
+$ pangloss import unflagged/project.fwdata unflagged/snapshot.json
+import warnings (0):
+validate warnings (0):
+import complete: 1 lex entries, 3 phonemes -> unflagged/snapshot.json
+$ pangloss parse unflagged/snapshot.json pat
+pat	|pat
+$ pangloss batch unflagged/snapshot.json words.txt unflagged/batch.tsv
+batch complete: 1 words parsed (0 skipped), 0 hit a search cap, 0 timed out [threads=8]
+0	pat	0	ok	|pat

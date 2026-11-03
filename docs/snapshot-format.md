@@ -419,9 +419,14 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 | `msaEquality` | `{msa: guid, equalTo: guid[]}[]`, optional | liblcm `EqualsMsa` between the MSAs of one entry, computed by `pg-fwdata` from the raw records (it compares feature-structure detail `FeatureStructure` does not carry: `FsFeatStruc.Type`, feature disjunctions, `RefNumber`/`ValueState`, negated/disjunctive/open/shared values). `equalTo` lists, in `msas` order, every other MSA of the same class `c` for which `c.EqualsMsa(msa)` holds; an MSA it does not list equals no other. Absent means the snapshot was written before this extraction: the compiler then refuses a project with `mergeMsas` on and an entry with two same-class MSAs, since which of them FieldWorks merges is unknown (re-import). |
 
 The `.fwdata` importer omits entries whose `DoNotUseForParsing` is true, including all
-of their forms, senses, and MSAs. Missing or false flags retain the entry; a malformed flag
-refuses import. References to excluded entries or their senses are removed from variant and
-complex-form components, while other components remain. A variant cannot borrow the excluded
+of their forms, senses, and MSAs. FieldWorks does not: its HermitCrab and XAMPLE parsers
+ignore this flag and load the entry, so PanGloss honours it by decision of the project
+owner (2026-10-28: a flagged entry is never a parse unit), as a declared divergence
+([120](divergences/120-fwdata-do-not-use-for-parsing.md)). A word that only a flagged entry
+parses has no analysis here, but one in FieldWorks once the grammar change is written to the
+project. Missing or false flags retain the entry; a malformed flag refuses import. References
+to excluded entries or their senses are removed from variant and complex-form components,
+while other components remain. A variant cannot borrow the excluded
 analysis; a complex form with its own analysis remains independently usable. The import load
 decisions record each exclusion as `doNotUseForParsing`, and `pangloss import` prints its count.
 Ad hoc prohibitions involving an excluded entry's MSA or allomorph are omitted as whole rules;

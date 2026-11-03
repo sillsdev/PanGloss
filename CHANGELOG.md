@@ -3,6 +3,12 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Divergences
+
+- Divergence 120 now declares that PanGloss honours `LexEntry.DoNotUseForParsing` while FieldWorks' HermitCrab and XAMPLE parsers ignore it, with a FieldWorks run as evidence; parse results are unchanged.
+
 ## 0.14.0
 
 This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.
