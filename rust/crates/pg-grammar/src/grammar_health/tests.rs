@@ -554,15 +554,7 @@ fn import_warning_guidance_uses_the_tool_that_edits_each_object() {
         ),
         (ImportWarningCode::FwdataOnlyFirstUsed, "Grammar > Phonemes"),
         (
-            ImportWarningCode::FwdataMetathesisApproximation,
-            "Grammar > Phonological Rules",
-        ),
-        (
             ImportWarningCode::SnapshotRuleFeatureUnresolved,
-            "Grammar > Phonological Rules",
-        ),
-        (
-            ImportWarningCode::RuleMetathesisUnsupported,
             "Grammar > Phonological Rules",
         ),
         (

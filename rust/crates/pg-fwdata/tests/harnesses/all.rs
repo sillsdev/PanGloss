@@ -9,5 +9,7 @@ mod fixture_tests;
 mod fwbackup_tests;
 #[path = "../measured_import_parity.rs"]
 mod measured_import_parity;
+#[path = "../metathesis_import.rs"]
+mod metathesis_import;
 #[path = "../real_projects.rs"]
 mod real_projects;

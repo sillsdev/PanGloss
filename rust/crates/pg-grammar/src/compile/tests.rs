@@ -24,7 +24,10 @@ use pg_snapshot::{
     Snapshot, SourceInventoryStatus, WsForm,
 };
 
-use crate::model::{MorphRuleDef, PartialMorphemeReason, TemplateSlotZone};
+use crate::model::{
+    AnchorSide, Dir, MorphRuleDef, PartialMorphemeReason, PatternNode, PhonRuleDef,
+    TemplateSlotZone,
+};
 use crate::GrammarError;
 
 use super::test_support::assert_grammars_equal;
@@ -2468,54 +2471,107 @@ fn not_on_clitics_false_places_rewrite_rules_on_the_clitic_stratum() {
     );
 }
 
-// --- 7. unsupported active phonological constructs refuse production ---------------------
+// --- 7. metathesis rules load as HCLoader loads them ---------------------------------------
 
+fn seg(phoneme: &str) -> PhonContext {
+    PhonContext::Segment {
+        phoneme: phoneme.to_string(),
+    }
+}
+
+fn metathesis_rule(
+    description: Vec<PhonContext>,
+    left_switch_index: i32,
+    right_switch_index: i32,
+) -> PhonologicalRule {
+    PhonologicalRule::Metathesis(MetathesisRule {
+        guid: "meta-1".to_string(),
+        name: "swap".to_string(),
+        direction: RuleDirection::LeftToRight,
+        structural_description: description,
+        left_switch_index,
+        right_switch_index,
+    })
+}
+
+/// `HCLoader` names the context at `RightSwitchIndex` "r" (the engine's `left_switch`) and the one at `LeftSwitchIndex` "l" (`right_switch`); a leading and trailing word boundary become anchors and take no pattern index. FieldWorks authors the physically-left switch as the left one, so `XmlLanguageWriter` writes `leftSwitch` on the later node.
 #[test]
-fn unsupported_active_metathesis_refuses_and_remains_measurable() {
+fn metathesis_rule_maps_switch_indices_onto_pattern_nodes() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.phonology.rules.push(metathesis_rule(
+        vec![
+            PhonContext::WordBoundary,
+            seg("ph-k"),
+            seg("ph-a"),
+            seg("ph-t"),
+            PhonContext::WordBoundary,
+        ],
+        1,
+        3,
+    ));
+    let (grammar, warnings) = compile_project(&snapshot).expect("metathesis must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let [PhonRuleDef::Metathesis(def)] = grammar.prules.as_slice() else {
+        panic!(
+            "expected exactly the metathesis rule: {:?}",
+            grammar.prules.len()
+        )
+    };
+    // Anchor, k, a, t, anchor.
+    assert_eq!(def.pattern.nodes.len(), 5);
+    assert!(matches!(
+        def.pattern.nodes[0],
+        PatternNode::Anchor(AnchorSide::Left)
+    ));
+    assert!(matches!(
+        def.pattern.nodes[4],
+        PatternNode::Anchor(AnchorSide::Right)
+    ));
+    assert_eq!((def.left_switch, def.right_switch), (3, 1));
+    assert_eq!(def.dir, Dir::LeftToRight);
+    assert_eq!(grammar.strata[0].prules.len(), 1);
+}
+
+/// `HCLoader` silently skips a metathesis rule with an unset switch; it is neither run nor an error.
+#[test]
+fn metathesis_rule_with_unset_switch_is_skipped_like_hcloader() {
     let (mut snapshot, _f) = fixture();
     snapshot
         .phonology
         .rules
-        .push(PhonologicalRule::Metathesis(MetathesisRule {
-            guid: "meta-1".to_string(),
-            name: "swap".to_string(),
-            direction: RuleDirection::LeftToRight,
-            structural_description: Vec::new(),
-            left_switch_index: 0,
-            right_switch_index: 1,
-        }));
+        .push(metathesis_rule(vec![seg("ph-k"), seg("ph-t")], -1, 0));
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert!(grammar.prules.is_empty());
+}
 
-    let production = compile_project_with(&snapshot, CompileOptions::default());
-    let Err(GrammarError::Conversion(refused)) = production else {
-        panic!("active restriction or rule must refuse if it cannot be preserved")
-    };
-    assert!(refused.issues.iter().any(|issue| issue.code
-        == super::issue_codes::RULE_METATHESIS_UNSUPPORTED
-        && issue.fatal
-        && issue.source.is_some()));
-    assert!(!refused.compiled_mappings.iter().any(|mapping| {
-        mapping.source_kind == "phonologicalRule"
-            && mapping.source_guid.as_deref() == Some("meta-1")
-    }));
-
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            semantic_loss: SemanticLossPolicy::MeasureOnly,
-        },
-    )
-    .expect("measure-only records unsupported metathesis");
-    assert!(
-        out.issues
+/// A switch naming no element (or both switches naming one) has no HC meaning; it refuses rather than guessing.
+#[test]
+fn malformed_metathesis_switches_refuse_and_remain_measurable() {
+    for (left, right) in [(5, 0), (1, 1)] {
+        let (mut snapshot, _f) = fixture();
+        snapshot
+            .phonology
+            .rules
+            .push(metathesis_rule(vec![seg("ph-k"), seg("ph-t")], left, right));
+        let Err(GrammarError::Conversion(refused)) =
+            compile_project_with(&snapshot, CompileOptions::default())
+        else {
+            panic!("metathesis switches {left}/{right} must refuse production")
+        };
+        assert!(refused
+            .issues
             .iter()
-            .any(|i| i.code == super::issue_codes::RULE_METATHESIS_UNSUPPORTED && i.fatal),
-        "expected a fatal RULE_METATHESIS_UNSUPPORTED issue; got {:?}",
-        out.issues
-    );
-    assert!(
-        out.grammar.prules.is_empty(),
-        "the metathesis rule itself must not appear in the grammar"
-    );
+            .any(|i| i.code == super::issue_codes::RULE_BUILD_FAILED && i.fatal));
+        let out = compile_project_with(
+            &snapshot,
+            CompileOptions {
+                semantic_loss: SemanticLossPolicy::MeasureOnly,
+            },
+        )
+        .expect("measure-only records the refusal");
+        assert!(out.grammar.prules.is_empty());
+    }
 }
 
 /// A circumfix entry with `prefix_env`/`suffix_env` attached to its two halves (empty = unconditioned).
@@ -3408,9 +3464,9 @@ fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
             guid: "meta-1".to_string(),
             name: "swap".to_string(),
             direction: RuleDirection::LeftToRight,
-            structural_description: Vec::new(),
-            left_switch_index: 0,
-            right_switch_index: 1,
+            structural_description: vec![seg("ph-k"), seg("ph-t")],
+            left_switch_index: 1,
+            right_switch_index: 0,
         }));
     compile_recording_ok(&metathesis_variant);
 
