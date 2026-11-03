@@ -1,6 +1,5 @@
-//! The `<HC><Strata>` parser parameter: `HCLoader.ParseStrataString` and `HCLoader.CreateStrata`.
-//!
-//! The default layout is Morphology, Clitics, Surface; see docs/divergences/120 for named moves.
+//! The `<HC><Strata>` parser parameter, ported from `HCLoader.ParseStrataString` and `CreateStrata`.
+//! Named moves differ from C# on purpose: docs/divergences/120-named-strata-move-keeps-the-item.md.
 
 use crate::model::{
     AffixTemplateDef, LexEntryDef, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeInfo,
