@@ -7731,7 +7731,7 @@ fn non_digit_class_index_is_invalid_for_a_literal_form_environment() {
     );
 }
 
-/// HCLoader.cs:1664-1710: a `[C]` token with no `^` index in the form has no reduplication index; C# throws or loads a dangling copy, here the allomorph is skipped with the warning (divergence 120).
+/// HCLoader.cs:1664-1710: a `[C]` token with no `^` index in the form has no reduplication index; C# throws or loads a dangling copy, here the allomorph is skipped with the warning (divergence 124).
 #[test]
 fn form_token_without_an_index_is_skipped_with_a_warning() {
     let snapshot = reduplication_snapshot("[C]", Some("/ [C^1] _"));

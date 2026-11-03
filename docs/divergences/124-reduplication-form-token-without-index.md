@@ -1,4 +1,4 @@
-# 120: A reduplication form token with no usable `^` index skips the allomorph in PanGloss, and crashes or dangles in C#
+# 124: A reduplication form token with no usable `^` index skips the allomorph in PanGloss, and crashes or dangles in C#
 
 Kind: behavioural (loader only; C# yields no usable allomorph either way).
 Status: permanent. Rust skips with a warning where C# fails or loads a broken allomorph.
