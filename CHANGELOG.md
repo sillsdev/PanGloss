@@ -24,6 +24,10 @@ file has no section for.
 
 - A `.fwdata` feature structure holding a negated value (`FsNegatedValue`) is now refused with the new error `grammar.feature.negated-value-unsupported` instead of the value being skipped with a `fwdata.unexpected-class` warning. It says to remove the negated value or rewrite it as a positive one; FieldWorks' own HermitCrab (`HCLoader`) fails to load such a project too (#82, divergence 026).
 
+### Parse results
+
+- In a grammar with no phonological features, a rewrite rule written with segment natural classes now changes the surface and is unapplied in analysis, as `hc.dll` does. Before, a rule such as `[k t] -> [s z] / V _ V` did nothing: it missed parses `hc.dll` finds (`asa`) and accepted surfaces the rule should change (`aka`). Rules written with literal segments, and grammars with features, are unchanged (#120).
+
 ## 0.14.0
 
 This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.

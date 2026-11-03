@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Synthetic. A rewrite rule written with SEGMENT NATURAL CLASSES, in a grammar with no
+     PhonologicalFeatureSystem:
+       prLen  [k t] -> [s z] / [a i] _ [a i]
+     Without features a segment's feature structure is its StrRep alone, and a segment class carries
+     the union of its members' StrReps, so the rule rewrites the StrRep of the matched node: k or t
+     between vowels surfaces as s or z. Roots aka and ita are the only lexical material. -->
+<HermitCrabInput>
+  <Language>
+    <Name>FeaturelessSegmentClassRewrite</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cZ"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="cA" /><Segment segment="cI" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncK"><Name>K</Name><Segment segment="cK" /><Segment segment="cT" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncS"><Name>S</Name><Segment segment="cS" /><Segment segment="cZ" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prLen">
+        <Name>intervocalicLenition</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncK" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncS" /></PhoneticSequence></PhoneticOutput>
+            <Environment>
+              <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+              <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered" phonologicalRules="prLen">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eAka" partOfSpeech="posV"><Allomorphs><Allomorph id="aAka"><PhoneticShape>aka</PhoneticShape></Allomorph></Allomorphs><MorphemeId>AKA</MorphemeId><Gloss>aka</Gloss></LexicalEntry>
+          <LexicalEntry id="eIta" partOfSpeech="posV"><Allomorphs><Allomorph id="aIta"><PhoneticShape>ita</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ITA</MorphemeId><Gloss>ita</Gloss></LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
