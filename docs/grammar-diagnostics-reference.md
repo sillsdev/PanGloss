@@ -42,7 +42,7 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [substrate.classification-ambiguous](diagnostics/substrate.classification-ambiguous.md) | Allomorph contains an unclassifiable character | In Lexicon > Lexicon Edit, check the named allomorph's spelling and remove any unintended control character. If a letter still cannot be segmented, check its representations in Grammar > Phonemes. |
 | [migration.inferred-segment-with-feature-rule](diagnostics/migration.inferred-segment-with-feature-rule.md) | Unlisted character matches a feature class | If the character is a language phoneme, define its In Orthography as and Phonological Features in Grammar > Phonemes. Otherwise correct the unintended allomorph spelling in Lexicon > Lexicon Edit. |
 
-## Warnings (55)
+## Warnings (53)
 
 | Code | Title | What to do |
 |---|---|---|
