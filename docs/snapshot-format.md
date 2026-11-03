@@ -418,7 +418,7 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 | `entries` | `LexEntry[]` | `LangProject.LexDbOA.Entries` |
 | `msaEquality` | `{msa: guid, equalTo: guid[]}[]`, optional | liblcm `EqualsMsa` between the MSAs of one entry, computed by `pg-fwdata` from the raw records (it compares feature-structure detail `FeatureStructure` does not carry: `FsFeatStruc.Type`, feature disjunctions, `RefNumber`/`ValueState`, negated/disjunctive/open/shared values). `equalTo` lists, in `msas` order, every other MSA of the same class `c` for which `c.EqualsMsa(msa)` holds; an MSA it does not list equals no other. Absent means the snapshot was written before this extraction: the compiler then refuses a project with `mergeMsas` on and an entry with two same-class MSAs, since which of them FieldWorks merges is unknown (re-import). |
 
-The `.fwdata` importer ignores `DoNotUseForParsing`, as FieldWorks' parsers do (divergence entry 120):
+The `.fwdata` importer ignores `DoNotUseForParsing`, as FieldWorks' parsers do (divergence entry 121):
 flagged entries keep all their forms, senses and MSAs. Snapshots written by 0.11.0 to 0.14.0 may carry
 `doNotUseForParsing` load decisions and lack the flagged entries; re-import them.
 

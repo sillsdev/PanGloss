@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse-hc",
+  "engineVersion": "3.8.2.0",
+  "sourceSha256": "c7cf6bc8a1254fef4639a81a35956e983df5704c50df30bf43925de96e530d58",
+  "hcXmlSha256": "b19243791ae6466e23710112ac6c2b89fa89c40aed53a2e084fdf4d3d470ccb2",
+  "diagnostics": [],
+  "characterDefinitions": [
+    {
+      "representations": [
+        "t"
+      ],
+      "features": "[StrRep:\"t\", Type:segment]"
+    },
+    {
+      "representations": [
+        "a"
+      ],
+      "features": "[StrRep:\"a\", Type:segment]"
+    },
+    {
+      "representations": [
+        "p"
+      ],
+      "features": "[StrRep:\"p\", Type:segment]"
+    },
+    {
+      "representations": [
+        "+"
+      ],
+      "features": "[StrRep:\"+\", Type:boundary]"
+    },
+    {
+      "representations": [
+        "^0",
+        "*0",
+        "&0",
+        "∅"
+      ],
+      "features": "[StrRep:{\"&0\", \"*0\", \"^0\", \"∅\"}, Type:boundary]"
+    },
+    {
+      "representations": [
+        "."
+      ],
+      "features": "[StrRep:\".\", Type:boundary]"
+    }
+  ],
+  "naturalClassCompatibility": [],
+  "words": [
+    {
+      "word": "pat",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "allomorphGuid": "8528cc4a-74fc-4eae-9020-0e14e64da0ae",
+              "msaGuid": "f3c5a310-b796-4eb8-8800-008ae7d02545",
+              "inflectionTypeGuid": null
+            }
+          ]
+        }
+      ],
+      "engineError": null,
+      "projectedEngineError": null,
+      "projectedAnalysisCount": 1,
+      "projectionAgrees": true,
+      "segmentCount": 3
+    }
+  ]
+}

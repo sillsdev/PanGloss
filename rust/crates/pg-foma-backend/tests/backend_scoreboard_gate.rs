@@ -44,8 +44,7 @@ impl Bucket {
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Divergence 116 moves 18 TSP and 17 TUT oracle-exact fixtures to refused.
-    // do-not-use-for-parsing-flag-ignored (#154) adds one oracle-exact fixture to each strategy.
+    // Divergence 116 moves 18 TSP and 17 TUT fixtures to refused; the #154 witness adds one oracle-exact fixture per strategy.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
