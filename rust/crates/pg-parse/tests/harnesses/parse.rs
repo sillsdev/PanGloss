@@ -9,6 +9,8 @@ mod adhoc_allomorph_copies;
 mod adhoc_fieldworks_witnesses;
 #[path = "../adhoc_morpheme_variant_copies.rs"]
 mod adhoc_morpheme_variant_copies;
+#[path = "../analysis_order_gate.rs"]
+mod analysis_order_gate;
 #[path = "../batch_determinism.rs"]
 mod batch_determinism;
 #[path = "../cd_set_gate.rs"]

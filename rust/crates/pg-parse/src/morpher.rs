@@ -22,8 +22,8 @@ use pg_rules::trace::{
     FailureReason, NoopSink, TraceHandle, TraceNode, TraceSink, TraceSource, TraceType,
     TreeTraceSink,
 };
-use pg_rules::word::{MorphRecord, ResolvedRoot, RuntimeRoot, Word, WordKey};
-use rustc_hash::FxHashMap as HashMap;
+use pg_rules::word::{MorphRecord, ResolvedRoot, RuntimeRoot, Word};
+use pg_rules::word_set::WordSet;
 
 use crate::alt_yield;
 use crate::guess;
@@ -877,9 +877,9 @@ impl<'g> Morpher<'g> {
                 pg_rules::branch_census::record_non_head_lookup(st, shape);
                 self.search_roots(st, shape, stats, &search_cache)
             };
-        let mut input_set: HashMap<WordKey, Word> = HashMap::default();
-        input_set.insert(input.dedup_key(), input);
-        let mut results: HashMap<WordKey, Word> = HashMap::default();
+        let mut input_set = WordSet::default();
+        input_set.insert(input);
+        let mut results: WordSet = WordSet::default();
         let census = pg_rules::branch_census::enabled();
         let census_t0 =
             census.then(|| (pg_rules::branch_census::Timer::start(), budget.work_steps()));
@@ -892,8 +892,8 @@ impl<'g> Morpher<'g> {
             if budget.analysis_exhausted() {
                 break;
             }
-            let mut output_set: HashMap<WordKey, Word> = HashMap::default();
-            for w in input_set.values() {
+            let mut output_set: WordSet = WordSet::default();
+            for w in input_set.iter() {
                 if budget.analysis_exhausted() {
                     break;
                 }
@@ -947,9 +947,9 @@ impl<'g> Morpher<'g> {
 
         // Per analysis candidate: lexical lookup → synthesis pipeline → filter (C# `Morpher.Synthesize`).
         let mut candidates_generated: usize = 0;
-        let mut matches: HashMap<WordKey, Word> = HashMap::default();
+        let mut matches: WordSet = WordSet::default();
         if !opts.guess_only {
-            for aw in results.values() {
+            for aw in results.iter() {
                 let dispatch_ok = {
                     let _owner = stats.map(|stats| {
                         stats.time_enter(
@@ -1085,7 +1085,7 @@ impl<'g> Morpher<'g> {
         let (ordered_matches, guessed): (Vec<Word>, bool) =
             if opts.guess_root && matches.is_empty() && !self.lexical_patterns.is_empty() {
                 let mut guess_matches: Vec<Word> = Vec::new();
-                for aw in results.values() {
+                for aw in results.iter() {
                     if !consume_parser_work(
                         stats,
                         ParserWork::CandidateExpansion,
@@ -1160,7 +1160,7 @@ impl<'g> Morpher<'g> {
                                     if pg_fst::work::stopped() {
                                         break;
                                     }
-                                    // No dedup here, unlike the normal path: a plain `Vec`, not a `WordKey`-deduped `HashMap`.
+                                    // No dedup here, unlike the normal path: a plain `Vec`, not a `WordKey`-deduped `WordSet`.
                                     guess_matches.push(vw);
                                 }
                             }
@@ -1172,10 +1172,10 @@ impl<'g> Morpher<'g> {
                 let guessed = !guess_matches.is_empty();
                 (guess_matches, guessed)
             } else {
-                (matches.into_values().collect(), false)
+                (matches.into_vec(), false)
             };
 
-        // Both `analyses` and `structured` are pushed in `ordered_matches` order, keeping their indices in correspondence.
+        // Both `analyses` and `structured` follow `ordered_matches`: deterministic first-seen order (C# `HashSet<Word>` semantics at MaxDegreeOfParallelism 1; its parallel path has no defined order), or descending morph count for guesses (#64).
         let mut analyses: Vec<(String, String)> = Vec::with_capacity(ordered_matches.len());
         let mut structured: Vec<WordAnalysis> = Vec::with_capacity(ordered_matches.len());
         for w in &ordered_matches {
@@ -1522,16 +1522,16 @@ impl<'g> Morpher<'g> {
         let _work_scope = budget.enter();
         let g = self.g;
         let n = g.strata.len();
-        let mut cur: HashMap<WordKey, Word> = HashMap::default();
-        cur.insert(syn_word.dedup_key(), syn_word);
+        let mut cur: WordSet = WordSet::default();
+        cur.insert(syn_word);
         for s in 0..n {
             if cur.is_empty() {
                 break; // PipelineRuleCascade stops once the working set empties (cs:20).
             }
             let stratum_ref = pg_rules::stratum::RuleRef::Stratum(StratumId(s as u8));
             let admitted = rule_filter.is_none_or(|f| f(stratum_ref));
-            let mut next: HashMap<WordKey, Word> = HashMap::default();
-            for w in cur.values() {
+            let mut next: WordSet = WordSet::default();
+            for w in cur.iter() {
                 if !consume_parser_work(
                     stats,
                     ParserWork::StratumTransition,
@@ -1542,7 +1542,7 @@ impl<'g> Morpher<'g> {
                 }
                 if !admitted {
                     // SynthesisStratumRule.cs:51: `return input.ToEnumerable();` — pass through.
-                    next.entry(w.dedup_key()).or_insert_with(|| w.clone());
+                    next.insert_with(w.dedup_key(), || w.clone());
                     continue;
                 }
                 let node_parent = w.trace.unwrap_or(parent);
@@ -1561,12 +1561,12 @@ impl<'g> Morpher<'g> {
                     if work_budget.is_some_and(|budget| !budget.admit_candidate()) {
                         return Vec::new();
                     }
-                    next.entry(o.dedup_key()).or_insert(o);
+                    next.insert(o);
                 }
             }
             cur = next;
         }
-        cur.into_values().collect()
+        cur.into_vec()
     }
 
     /// Mirrors C#'s `Morpher.IsWordValid`: every rule re-applied, every obligatory feature present, every allomorph passing its own gates.
@@ -2503,20 +2503,16 @@ impl<'g> Morpher<'g> {
     }
 }
 
-fn insert_candidate(candidates: &mut HashMap<WordKey, Word>, candidate: Word, collect_stats: bool) {
-    match candidates.entry(candidate.dedup_key()) {
-        std::collections::hash_map::Entry::Occupied(mut entry) => {
-            if collect_stats {
-                let applied = &mut entry.get_mut().applied_phonological_rules;
-                for rule in &candidate.applied_phonological_rules {
-                    if !applied.contains(rule) {
-                        applied.push(*rule);
-                    }
-                }
-            }
-        }
-        std::collections::hash_map::Entry::Vacant(entry) => {
-            entry.insert(candidate);
+fn insert_candidate(candidates: &mut WordSet, candidate: Word, collect_stats: bool) {
+    let key = candidate.dedup_key();
+    let Some(at) = candidates.position(&key).filter(|_| collect_stats) else {
+        candidates.insert_with(key, || candidate);
+        return;
+    };
+    let applied = &mut candidates.get_mut(at).applied_phonological_rules;
+    for rule in &candidate.applied_phonological_rules {
+        if !applied.contains(rule) {
+            applied.push(*rule);
         }
     }
 }

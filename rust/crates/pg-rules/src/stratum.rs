@@ -85,6 +85,7 @@ use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
 };
 use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
+use crate::word_set::WordSet;
 use crate::{metathesis, morph, rewrite};
 
 #[cfg(test)]
@@ -663,7 +664,7 @@ struct SlotTrieNode {
 struct TrieWalk {
     admitted: Vec<bool>,
     dead: Vec<bool>,
-    outs: Vec<HashMap<WordKey, Word>>,
+    outs: Vec<WordSet>,
 }
 
 impl TrieWalk {
@@ -1170,7 +1171,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if self.trace.is_tracing() {
             self.trace.begin_unapply_template(node_parent, tid, input);
         }
-        let mut out: HashMap<WordKey, Word> = HashMap::default();
+        let mut out = WordSet::default();
         let slot_outcomes =
             (self.trace.is_tracing() && self.trace.captures_details()).then(Vec::new);
         let last_slot = tmpl.slots.len() as isize - 1;
@@ -1181,7 +1182,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         // Descend from the last slot.
         self.template_unapply_slots(tid, input, last_slot, &mut out, slot_outcomes, fired);
-        out.into_values().collect()
+        out.into_vec()
     }
 
     /// The template's admission gates in `AnalysisAffixTemplateRule.Apply` order, recording their stats.
@@ -1229,16 +1230,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .collect();
         let mut walk = TrieWalk {
             dead: vec![false; admitted.len()],
-            outs: (0..admitted.len()).map(|_| HashMap::default()).collect(),
+            outs: (0..admitted.len()).map(|_| WordSet::default()).collect(),
             admitted,
         };
         if walk.admitted.iter().any(|&a| a) {
             self.walk_slot_trie(trie, SlotTrie::ROOT, input, &mut walk, &[], true);
         }
-        walk.outs
-            .into_iter()
-            .map(|out| out.into_values().collect())
-            .collect()
+        walk.outs.into_iter().map(|out| out.into_vec()).collect()
     }
 
     /// `template_unapply_slots` for every live template below `node`; `entered` is false on an optional skip. A template that fails the look-ahead on `w` is dead below this node while its siblings go on (divergence 110).
@@ -1260,9 +1258,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         for &pos in &here.terminal {
             if walk.admitted[pos] && !walk.dead[pos] {
                 self.shadow_completed(fired_of(fired, pos));
-                walk.outs[pos]
-                    .entry(w.dedup_key())
-                    .or_insert_with(|| w.clone());
+                walk.outs[pos].insert_with(w.dedup_key(), || w.clone());
             }
         }
         for &child in &here.children {
@@ -1337,7 +1333,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         tid: TemplateId,
         in_word: &Word,
         index: isize,
-        out: &mut HashMap<WordKey, Word>,
+        out: &mut WordSet,
         mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
         fired: Vec<usize>,
     ) {
@@ -1402,8 +1398,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         self.end_unapply_template(tid, in_word, true, slot_outcomes.as_deref());
         self.shadow_completed(&fired);
-        out.entry(in_word.dedup_key())
-            .or_insert_with(|| in_word.clone());
+        out.insert_with(in_word.dedup_key(), || in_word.clone());
     }
 
     /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
@@ -1716,7 +1711,7 @@ fn slot_optional(slot: &SlotDef) -> bool {
 /// analysis first. Independent of lexicon state, so usable standalone; `cap` is its work cap.
 pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usize) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
         morph::synthesize_with_policy_and_role(
             g,
@@ -1742,7 +1737,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         &budget,
         None,
     );
-    out.into_values().collect()
+    out.into_vec()
 }
 
 /// `synthesize_template`'s structure, but each rule goes through `guided_synth` and the caller's work budget is shared.
@@ -1760,7 +1755,7 @@ fn guided_template_apply(
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
         guided_synth(
             g,
@@ -1792,7 +1787,7 @@ fn guided_template_apply(
         budget,
         (trace.is_tracing() && trace.captures_details()).then(Vec::new),
     );
-    out.into_values().collect()
+    out.into_vec()
 }
 
 /// Fires `EndApplyTemplate` against `w`'s own resolved cursor, if tracing is on at all.
@@ -1821,7 +1816,7 @@ fn synth_slots_generic<F>(
     tmpl: &pg_grammar_model::model::AffixTemplateDef,
     input: &Word,
     index: usize,
-    out: &mut HashMap<WordKey, Word>,
+    out: &mut WordSet,
     apply: &F,
     trace: &dyn TraceSink,
     tid: TemplateId,
@@ -1904,8 +1899,7 @@ fn synth_slots_generic<F>(
         outcomes.sort_by_key(|outcome| outcome.slot_index);
     }
     end_apply_template(trace, tid, input, parent, true, slot_outcomes.as_deref());
-    out.entry(input.dedup_key())
-        .or_insert_with(|| input.clone());
+    out.insert_with(input.dedup_key(), || input.clone());
 }
 
 // Synthesis stratum rule.
@@ -2225,7 +2219,7 @@ pub fn synthesize_stratum_traced_with_policy(
     let blocking = g.is_blocking_stratum(stratum, |s| {
         rule_filter.is_none_or(|f| f(RuleRef::Stratum(s)))
     });
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
     for w in candidates {
         if !pg_fst::work::consume() {
             return Vec::new();
@@ -2236,7 +2230,7 @@ pub fn synthesize_stratum_traced_with_policy(
             if trace.is_tracing() {
                 trace.end_apply_stratum(w_parent, stratum, &w);
             }
-            out.entry(w.dedup_key()).or_insert(w);
+            out.insert(w);
             continue;
         }
         // Only a word whose last applied template was non-final is refused; `None` (no template) proceeds.
@@ -2279,12 +2273,12 @@ pub fn synthesize_stratum_traced_with_policy(
         if trace.is_tracing() {
             trace.end_apply_stratum(w_parent, stratum, &nw);
         }
-        out.entry(nw.dedup_key()).or_insert(nw);
+        out.insert(nw);
     }
     if trace.is_tracing() && out.is_empty() {
         trace.end_apply_stratum(node_parent, stratum, &input);
     }
-    out.into_values().collect()
+    out.into_vec()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2430,7 +2424,7 @@ fn synth_apply_templates(
     let input = choose_inflectional_stem(g, input);
     let input = &input;
     let in_key = input.dedup_key();
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
     // The root does not change across templates, so this check is hoisted out of the loop.
     let root_partial = root_is_partial(g, input);
     let mut applicable = false;
@@ -2450,7 +2444,7 @@ fn synth_apply_templates(
             let final_flag = w.flags.is_partial || tmpl.is_final;
             let mut w = w;
             w.flags.is_last_applied_rule_final = Some(final_flag);
-            out.entry(w.dedup_key()).or_insert(w);
+            out.insert(w);
         }
     }
     // No template output: pass the input through UNLESS it is non-partial AND some template was applicable, else a templateless stratum would skip the mrule recursion below entirely.
@@ -2461,7 +2455,7 @@ fn synth_apply_templates(
             if applicable {
                 w.flags.is_last_applied_rule_final = Some(true);
             }
-            out.insert(w.dedup_key(), w);
+            out.insert(w);
         } else if trace.is_tracing() {
             // Unlike the passthrough above, this branch drops the word, recording only a trace event.
             let node_parent = input.trace.unwrap_or(parent);
@@ -2473,7 +2467,7 @@ fn synth_apply_templates(
         MorphRuleOrder::Linear => {}
         MorphRuleOrder::Unordered => {
             // For each changed template output, including the passthrough above when present, also run the mrules on it.
-            let templated: Vec<Word> = out.values().cloned().collect();
+            let templated: Vec<Word> = out.iter().cloned().collect();
             for t in templated {
                 if !pg_fst::work::consume() {
                     return Vec::new();
@@ -2482,12 +2476,12 @@ fn synth_apply_templates(
                     for m in synth_apply_mrules(
                         g, stratum, sd, &t, cache, stats, trace, parent, budget, policy,
                     ) {
-                        out.entry(m.dedup_key()).or_insert(m);
+                        out.insert(m);
                     }
                 }
             }
         }
     }
 
-    out.into_values().collect()
+    out.into_vec()
 }
