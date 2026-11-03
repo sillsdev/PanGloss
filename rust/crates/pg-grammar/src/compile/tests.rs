@@ -7715,6 +7715,33 @@ fn unmatched_reduplication_index_drops_the_copy_and_warns() {
     assert_eq!(only_affix_allomorphs(&grammar).len(), 1);
 }
 
+/// The digits-only rule is in the shared environment resolver, so it holds for a literal (non-reduplication) form too.
+#[test]
+fn non_digit_class_index_is_invalid_for_a_literal_form_environment() {
+    let snapshot = reduplication_snapshot("ta", Some("/ [C^x] _"));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("compiles");
+    let resolution = output
+        .environment_resolutions
+        .iter()
+        .find(|r| r.environment_guid == "env-redup")
+        .unwrap();
+    assert_eq!(
+        resolution.status,
+        super::EnvironmentResolutionStatus::Invalid
+    );
+}
+
+/// HCLoader.cs:1664-1710: a `[C]` token with no `^` index in the form has no reduplication index; C# throws or loads a dangling copy, here the allomorph is skipped with the warning (divergence 120).
+#[test]
+fn form_token_without_an_index_is_skipped_with_a_warning() {
+    let snapshot = reduplication_snapshot("[C]", Some("/ [C^1] _"));
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID.wire()));
+    assert!(only_affix_allomorphs(&grammar).is_empty());
+}
+
 /// The recognizer accepts only digits after `^` (liblcm PhonEnvRecognizerTests): `[C^x]` is an invalid environment.
 #[test]
 fn class_index_must_be_digits() {

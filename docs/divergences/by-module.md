@@ -18,12 +18,14 @@ See `README.md` for the full status table and the kind definitions.
 | rule-spec constructors (LHS/RHS child type casts) | 020 |
 | `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
 | FieldWorks `HCLoader.cs` (`MoveMatchingItems`); `Stratum.cs` (collection-changed handlers) | 120 |
+| `HCLoader.cs` (`LoadReduplicationPatterns`, `LoadReduplicationOutputActions`) | 124 |
 
 ## By Rust module
 
 | Rust file | Entry ids |
 |---|---|
 | _(was `pg-memo/src/lib.rs`, deleted)_ | 045 |
+| `pg-grammar/src/compile/reduplication.rs` | 124 |
 | `pg-cli/src/stored_analysis_health.rs`, `pg-cli/src/grammar_health.rs` | 086, 089 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
@@ -73,3 +75,4 @@ XAMPLE/C# measurements and staged fixtures for these entries come from a separat
 | XAMPLE ignores authored phonology; FieldWorks/HC discard unreadable literal environments | authored rewrite rules and provisional literal environment; `pg-cli/tests/underdefined_stored_keys_gate.rs` | [078](078-xample-minimum-authored-phonology.md) |
 | XAMPLE ignores authored phonology; FieldWorks stores analyses under `WfiWordform` | `pg-fwdata` stored-analysis extraction; `pg-parse` traced synthesis; `pg-cli` grammar health | [086](086-stored-analyses-lost-to-authored-phonology.md) |
 | `pg-grammar/src/compile/strata.rs` (`create`) | 120 |
+| `HCLoader.cs` `LoadReduplicationPatterns`, `LoadReduplicationOutputActions` | `pg-grammar/src/compile/reduplication.rs`; `pg-grammar/src/compile/tests.rs` | [124](124-reduplication-form-token-without-index.md) |
