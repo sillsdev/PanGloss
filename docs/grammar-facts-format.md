@@ -265,7 +265,7 @@ The `artifact_meta` singleton records:
 | `model_fingerprint` | `pg_assess::model_fingerprint(SourceKind::Snapshot, source, compiler_version)`. It covers canonical source JSON, including conversion provenance, and compiler version. |
 | `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest` | The caller-supplied evidence context and its identity. |
 | `compile_options_json`, `compile_options_sha256` | The production default options with `SemanticLossPolicy::Refuse`. Provisional definitions are unconditional and have no option. |
-| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v8 schema, less what a [light file](#light-files) declares it omits, was written and verified. It does not mean every section is available. |
+| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v9 schema, less what a [light file](#light-files) declares it omits, was written and verified. It does not mean every section is available. |
 | `light_omissions` | Present only in a light file: JSON list of the omitted tables and rows. |
 | `run_manifest_sha256` | Nullable SHA-256 of the exact accepted stats manifest bytes. NULL when no stats run was requested. |
 
@@ -316,7 +316,7 @@ still means the write finished and verified; it does not say nothing was omitted
 stop at `complete=1`. `load_accounting` is `partial` with reason `light` because it covers the
 `load_fact` family and its rows are cut; its accounting figures are still computed from provenance
 and the compiler's decisions, not from the rows a light file leaves out, so the answer to "were all
-decisions recorded" does not change. A light file is schema v8 and shares `application_id` and
+decisions recorded" does not change. A light file is schema v9 and shares `application_id` and
 `user_version` with a full file.
 
 `statement_reference` in a light file reads as incomplete through its sources: `entries` and `load_accounting` are
@@ -327,7 +327,7 @@ the omitted subject kinds or stages needs a full file.
 
 ## Sections
 
-`artifact_section` has exactly one row for each v8 section. `status` is `complete`, `partial`,
+`artifact_section` has exactly one row for each v9 section. `status` is `complete`, `partial`,
 `unavailable`, or `not_requested`. Readers must check it before treating an absent table or empty
 query result as an empty grammar.
 
@@ -367,7 +367,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | Table | Key and columns |
 |---|---|
 | `artifact_meta` | `singleton`, `application_id`, `schema_version`, `format`, `writer_version`, `compiler_version`, `source_revision`, `build_identity`, `snapshot_format`, `snapshot_version`, `provenance_schema_version`, `source_inventory_status`, `source_sha256`, `grammar_hash`, `model_fingerprint`, `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest`, `compile_options_json`, `compile_options_sha256`, `compile_status`, `complete`, and `run_manifest_sha256`, plus `light_omissions` in a light file. One singleton row; each column is described under Identity and publication. |
-| `artifact_section` | `section`, `status`, `source_scope`, and nullable `reason_code`. One row per v8 section; see Sections. |
+| `artifact_section` | `section`, `status`, `source_scope`, and nullable `reason_code`. One row per v9 section; see Sections. |
 | `compiled_output` | `output_id`, `kind`, `key`, nullable `owner_output_id`, nullable `stratum_key`, `bucket`, nullable `compiled_order`, `identity_quality`, and the allomorph shape columns `realization_kind`, `has_phone_condition`, `has_morph_gate`, `gate_signature`, and `is_unconditioned`. Column meanings are under Compiled output keys. |
 | `object_state` | `subject_kind`, `subject_guid`, `final_stage`, nullable `loaded`, `dispositions`, and `primary_reason`, derived by the rule under Final object state. |
 | `category_ancestor` | `category_guid`, `ancestor_guid`, and `depth`; the ancestor closure described under Final object state. |
@@ -694,7 +694,7 @@ Reverse-lookup indexes serve drill-down views: `allomorph_environment(environmen
 `pattern_node(natural_class_guid)`, `pattern_node(phoneme_guid)`, `msa_slot(slot_guid)`,
 `msa_category(category_guid)`, `msa(entry_guid)`, `template_slot(slot_guid)`,
 `compiled_mapping(source_guid)`, `compiled_allomorph_order(source_allomorph_guid)`, `sense(msa_guid)`,
-and `adhoc_other(target_guid)`; the DDL names them. Every column in that list exists in v8, so none
+and `adhoc_other(target_guid)`; the DDL names them. Every column in that list exists in v9, so none
 was dropped. The closure tables add an index on `ancestor_guid` for the descendants lookup.
 
 ### Frozen parser stats
@@ -777,7 +777,7 @@ GROUP BY o.kind, o.key;
 ## Reader rules
 
 - Check `PRAGMA application_id`, `PRAGMA user_version`, the matching metadata values, and
-  `complete=1` before reading facts. Schema v8 has no migration or upgrade path; rebuild from the exact
+  `complete=1` before reading facts. Schema v9 has no migration or upgrade path; rebuild from the exact
   Snapshot and context when the schema or model fingerprint differs.
 - Check `artifact_section` for every prerequisite. An unavailable ad hoc group section does not
   mean the source had no groups. A NULL `template_slot.compiled_order` means no final order was
