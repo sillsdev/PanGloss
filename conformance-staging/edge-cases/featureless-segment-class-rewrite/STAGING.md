@@ -24,10 +24,13 @@ parsed (6 of 11 words wrong). After the fix it matches on all 11 words.
 
 ## FieldWorks-producible
 
-`HCLoader` emits a `SegmentNaturalClass` for any segment-list class and passes `fs = null` for a
-phoneme with no feature specs, so a project whose phonemes carry no features and whose rule uses
-natural classes made of segment lists produces this grammar. Whether the FLEx rule editor lets a
-user put a segment-list class in the Result box is not known; LCM stores it either way.
+Yes, by reading FieldWorks source at 936ae91fe (not by running the editor). The Result box of a regular
+rule is the `kflidStrucChange` cell of `RegRuleFormulaControl`; its "Natural class" insert option opens
+the `RuleNaturalClassFlatList` chooser, which lists every `PhNaturalClass` with no filter on kind
+(`areaConfiguration.xml`), and `InsertNC` puts the chosen class in that cell whatever its kind. A
+segment-list class is an `IPhNCSegments`, and `HCLoader.TryLoadSimpleContext` loads it as a
+`SegmentNaturalClass` (it passes `fs = null` for a phoneme with no feature specs), so a project whose
+phonemes carry no features and whose rule uses segment-list classes produces this grammar.
 
 ## Provenance
 
