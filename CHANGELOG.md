@@ -14,6 +14,10 @@ file has no section for.
 - Simulfix and suprafix allomorphs written as affix processes now load, as in C# HermitCrab (`HCLoader.IsValidRuleForm` accepts any `MoAffixProcess` with more than one part, whatever its morph type). Before, the importer skipped them with `fwdata.unsupported-morph-type`; that code is gone. A simulfix or suprafix written as literal text is not loaded, as in C#, and now reports `grammar.allomorph.morph-type-unsupported` (#149).
 - Snapshot `MorphType` gains `simulfix` and `suprafix`; the facts `allomorph.morph_type` column accepts them, and `stats_allomorph_source.role` can read `simulfix` or `suprafix`. Format and schema versions are unchanged: a reader that rejects unknown enum values rejects a snapshot or facts file that contains one.
 
+### Feature structures
+
+- A `.fwdata` feature structure holding a negated value (`FsNegatedValue`) is now refused with the new error `grammar.feature.negated-value-unsupported` instead of the value being skipped with a `fwdata.unexpected-class` warning. It says to remove the negated value or rewrite it as a positive one; FieldWorks' own HermitCrab (`HCLoader`) fails to load such a project too (#82, divergence 026).
+
 ## 0.14.0
 
 This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.

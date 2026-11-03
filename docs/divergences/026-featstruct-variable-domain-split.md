@@ -52,9 +52,13 @@ representations.
 ## Evidence
 The exactness argument is made directly in `pg-featstruct/src/ops.rs`'s module doc
 ("## What was skipped, and why it's exact (not an approximation)"), citing the specific C# branch
-conditions each omission corresponds to. **Unverified**: whether `pg-grammar`'s loader actually
-refuses (rather than silently drops) an attempt to author a negated symbolic value or a syntactic
-variable in a real grammar file — this was not traced during this research pass.
+conditions each omission corresponds to. **Verified (issue #82)**: the HC XML format (`XmlLanguageLoader.LoadFeatureStruct`) has no
+negation or variable syntax on `<FeatureValue>`, so nothing can be dropped there. The only route to a
+negated value is a `.fwdata` `FsNegatedValue` spec; FieldWorks' `HCLoader.LoadFeatureStruct` casts every
+non-closed spec to `IFsComplexValue` and throws `InvalidCastException`. `pg-fwdata` used to skip such a
+spec with a warning (a silent drop); it now rejects the feature structure with a fatal
+`UnrepresentableForHc` issue (`grammar.feature.negated-value-unsupported`, level error), so `compile_project` refuses. Test:
+`pg-fwdata/tests/fixture_tests.rs::negated_feature_value_is_refused_not_silently_dropped`.
 
 ## Upstream
 Not applicable — no divergence exists today to converge on.

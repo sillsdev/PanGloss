@@ -311,6 +311,13 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[("phonologicalFeaturesAdvancedEdit", "")],
             Some(PARSER_HELP),
         ),
+        FeatureNegatedValueUnsupported => advice(
+            "Negated feature value",
+            "A feature structure holds a negated value. The parser cannot represent it and FieldWorks' own HermitCrab parser fails to load the project too, so no parser is built.",
+            "Find the feature structure named in the finding and remove the negated value, or rewrite it as a positive value: in Grammar > Category Edit > Inflection Features, in Lexicon > Lexicon Edit under Grammatical Info, or in the rule's feature fields.",
+            &[("posEdit", "Inflection Features"), ("lexiconEdit", "Grammatical Info")],
+            Some(PARSER_HELP),
+        ),
         StemNameBuildFailed => advice(
             "Stem allomorph label could not be loaded",
             "The stem allomorph label could not be represented in the compiled grammar.",
@@ -831,6 +838,7 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::NatclassFeatureConstraintUnresolved => DiagnosticLevel::Error,
         ImportWarningCode::NatclassComplexFeatureUnsupported => DiagnosticLevel::Error,
         ImportWarningCode::PhonComplexFeatureUnsupported => DiagnosticLevel::Warning,
+        ImportWarningCode::FeatureNegatedValueUnsupported => DiagnosticLevel::Error,
         ImportWarningCode::StemNameBuildFailed => DiagnosticLevel::Warning,
         ImportWarningCode::StemNameEmptyRegions => DiagnosticLevel::Warning,
         ImportWarningCode::CompoundRuleBuildFailed => DiagnosticLevel::Warning,

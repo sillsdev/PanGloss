@@ -170,6 +170,7 @@ import_warning_codes! {
     NatclassFeatureConstraintUnresolved => "grammar.natclass.feature-constraint-unresolved",
     NatclassComplexFeatureUnsupported => "grammar.natclass.complex-feature-unsupported",
     PhonComplexFeatureUnsupported => "grammar.feature.phon-complex-unsupported",
+    FeatureNegatedValueUnsupported => "grammar.feature.negated-value-unsupported",
     StemNameBuildFailed => "grammar.stem-name.build-failed",
     StemNameEmptyRegions => "grammar.stem-name.empty-regions",
     CompoundRuleBuildFailed => "grammar.compound-rule.build-failed",
