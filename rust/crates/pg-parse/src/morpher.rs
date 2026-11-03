@@ -1175,7 +1175,7 @@ impl<'g> Morpher<'g> {
                 (matches.into_vec(), false)
             };
 
-        // Both `analyses` and `structured` follow `ordered_matches`: first-insertion order as C#'s `HashSet<Word>` enumerates, or descending morph count for guesses (#64).
+        // Both `analyses` and `structured` follow `ordered_matches`: deterministic first-seen order (C# `HashSet<Word>` semantics at MaxDegreeOfParallelism 1; its parallel path has no defined order), or descending morph count for guesses (#64).
         let mut analyses: Vec<(String, String)> = Vec::with_capacity(ordered_matches.len());
         let mut structured: Vec<WordAnalysis> = Vec::with_capacity(ordered_matches.len());
         for w in &ordered_matches {
