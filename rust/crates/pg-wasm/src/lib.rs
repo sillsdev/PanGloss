@@ -54,7 +54,7 @@ struct CachedWord {
     overlay_revision: pg_lexicon::Revision,
     /// Every surviving analysis, in `ParseOutcome.structured` order (first is what the view stacks under the word); empty for words with no surviving analysis at all.
     analyses: Vec<AnalysisOut>,
-    /// `ParseOutcome.capped`: the analysis cascade hit its step budget before exhausting search.
+    /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
@@ -73,7 +73,7 @@ struct TokenOut {
     text: String,
     /// Every surviving analysis, in `ParseOutcome.structured` order; empty for `"other"` tokens and for words with no surviving analysis at all.
     analyses: Vec<AnalysisOut>,
-    /// `ParseOutcome.capped`: the analysis cascade hit its step budget before exhausting search.
+    /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use pg_grammar_model::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef, StratumId};
 use pg_rules::shape_feat::segment_with_features;
-use pg_rules::stratum::{synthesize_phonological_stratum_traced, StepBudget};
+use pg_rules::stratum::{synthesize_phonological_stratum_traced, WordBudget};
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_snapshot::FwClass;
 
@@ -36,8 +36,6 @@ pub struct PhonologyRequest {
     pub work_cap: usize,
     /// Wall-clock allowance for the whole measurement.
     pub timeout: Duration,
-    /// Fold attempts allowed; `usize::MAX` leaves only the work cap and timeout.
-    pub attempt_cap: usize,
     /// Prevents a caller from retaining an unbounded ordered-rule result.
     pub max_ordered_rule_ids: usize,
     /// Prevents one grammar-authored rule identity from dominating the result.
@@ -61,7 +59,6 @@ pub enum PhonologyUnavailableReason {
 pub enum PhonologyStopReason {
     WorkCap,
     Timeout,
-    AttemptCap,
 }
 
 /// The typed result; only `Complete` carries a surface.
@@ -92,7 +89,6 @@ pub struct PhonologyMeasurement {
     pub visited_rule_ids: Vec<String>,
     /// Visited rules that produced a shape.
     pub applied_rule_ids: Vec<String>,
-    pub steps: usize,
     pub work_steps: usize,
     pub capped: bool,
     pub timed_out: bool,
@@ -117,7 +113,6 @@ impl PhonologyMeasurement {
             ordered_rule_ids: Vec::new(),
             visited_rule_ids: Vec::new(),
             applied_rule_ids: Vec::new(),
-            steps: 0,
             work_steps: 0,
             capped: false,
             timed_out: false,
@@ -131,9 +126,7 @@ pub fn measure_phonology(
     request: &PhonologyRequest,
 ) -> PhonologyMeasurement {
     let g = morpher.grammar();
-    let budget = StepBudget::with_limits(request.attempt_cap, request.work_cap)
-        .with_timeout(Some(request.timeout))
-        .with_synthesis_counting();
+    let budget = WordBudget::without_reserve(request.work_cap).with_timeout(Some(request.timeout));
     let entry = match resolve_entry(g, &request.context) {
         Ok(entry) => entry,
         Err(reason) => return PhonologyMeasurement::unavailable(reason, None),
@@ -216,15 +209,11 @@ pub fn measure_phonology(
                 .iter()
                 .map(|&pid| rule_xml_id(g, pid).to_string()),
         );
-        // A timeout outranks a cap; an attempt cap alone leaves a partial output, a work stop leaves none.
+        // A timeout outranks the work cap.
         let reason = if outcome.timed_out {
             Some(PhonologyStopReason::Timeout)
         } else if outcome.capped {
-            Some(if outcome.output.is_some() {
-                PhonologyStopReason::AttemptCap
-            } else {
-                PhonologyStopReason::WorkCap
-            })
+            Some(PhonologyStopReason::WorkCap)
         } else {
             None
         };
@@ -248,7 +237,6 @@ pub fn measure_phonology(
         ordered_rule_ids,
         visited_rule_ids,
         applied_rule_ids,
-        steps: budget.steps(),
         work_steps: budget.work_steps(),
         capped: budget.capped(),
         timed_out: budget.timed_out(),

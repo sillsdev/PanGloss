@@ -183,9 +183,10 @@ impl SuppliedLexiconRuntime {
     pub(crate) fn morpher<'a>(&'a self, snapshot: &'a LexiconSnapshot) -> Morpher<'a> {
         Morpher::new_with_overlay(
             &self.grammar,
-            self.analysis_policy.step_cap,
+            self.analysis_policy.work_cap,
             snapshot.overlay(),
         )
+        .with_generation_cap(self.analysis_policy.generation_cap)
     }
 
     pub fn snapshot(&self) -> Arc<LexiconSnapshot> {

@@ -59,7 +59,7 @@ fn main() {
     println!("corpus words: {}", words.len());
 
     // An uncapped `Morpher::new(&g, usize::MAX)` with no wall-clock timeout is not actually bounded for Aweti: word "tomoʼatu" ran unbounded for >10 minutes, so this uses a large-but-finite cap instead.
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
     let popts = ParseOptions::default();
 
     let mut max_total_affixes = 0usize; // longest morpheme_ids.len() - 1 (excluding root) over ANY analysis

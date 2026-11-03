@@ -18,7 +18,7 @@
 //! - `key: Fn(&T) -> K` where `K: Hash + Eq` — C# `IEqualityComparer<TData>` (`FreezableEquality`),
 //!   used both to dedup the output set and for the `input == result` self-loop guard.
 //!
-//! ## Step cap (M4b addition; not in C#)
+//! ## Invocation cap (M4b addition; not in C#)
 //! The multi-application cascades terminate only when rules stop producing *new* (non-input-equal)
 //! results. Unmemoized on real grammars that can be a 158k-expansion k!-walk (the exact cost M6
 //! memoizes). A `Cascade::cap` on total `apply_rule` invocations makes tests/gates terminate,
@@ -76,7 +76,7 @@ impl<T, K: Hash + Eq> Acc<T, K> {
     }
 }
 
-/// The result of a cascade run: the deduplicated reachable set and whether the step cap fired.
+/// The result of a cascade run: the deduplicated reachable set and whether the work cap fired.
 pub struct CascadeOutput<T> {
     pub words: Vec<T>,
     pub capped: bool,

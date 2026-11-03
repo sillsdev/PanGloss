@@ -125,20 +125,20 @@ route a word batch or a single parse through this path; see the Rust API below f
 Parse one word (the only engine `parse` runs is the default HermitCrab one):
 
 ```
-pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--step-cap N|unbounded] [--word-timeout-ms N]
+pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--work-cap N|unbounded] [--word-timeout-ms N]
 ```
 
 Plain parsing and ordinary tracing exit with failure when the HC engine reports `capped`,
 `timed_out`, or `invalid_shape`. The applicable flags appear on stderr; any printed signature is
 then diagnostic partial output. Complete hits and complete rejections keep the existing
-`word\tsignature` stdout format and successful exit. The default step cap remains 50,000,000;
+`word\tsignature` stdout format and successful exit. The default work cap is 5,000,000,000 work steps;
 `--word-timeout-ms 0` requests an immediate deadline.
 
 When snapshot or FieldWorks loading auto-creates phonology, stderr records each inferred segment
 or boundary and its compiler-owned evidence, plus unresolved or ambiguous source uses. This
 report is independent of warnings and leaves parse stdout unchanged.
 
-For one-word diagnostics as a single JSON document, including the trace, result, attempt counters,
+For one-word diagnostics as a single JSON document, including the trace, result, work total,
 and existing timing statistics:
 
 ```
@@ -151,13 +151,15 @@ This mode is explicit and remains one word per invocation. Its JSON search envel
 Batch a word list to TSV (the only engine `batch` runs is the default HermitCrab one):
 
 ```
-pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses analyses.jsonl]
+pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses analyses.jsonl]
 ```
 
-`--step-cap` defaults to 50,000,000 unmemoized analysis steps per word, a runaway guard (not a
-performance tuning knob) that makes every batch terminate deterministically; pass `--step-cap N` to
-tighten it or `--step-cap unbounded` to lift it entirely. A word that hits the cap writes a typed
-`CAP` row -- an incomplete outcome kept for inspection, never presented as a result.
+`--work-cap` defaults to 5,000,000,000 work steps per word, a runaway guard (not a performance
+tuning knob) that makes every batch terminate deterministically. A work step is one charged unit of
+search, and a word's work is the total of its work steps; pass `--work-cap N` to tighten the limit
+or `--work-cap unbounded` to lift it entirely. A word that hits the cap writes a typed `CAP` row --
+an incomplete outcome kept for inspection, never presented as a result. `--step-cap`, which counted
+analysis attempts, was removed and is refused like any unknown option.
 
 Generate a surface form from morpheme ids (default engine):
 

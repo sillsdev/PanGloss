@@ -24,7 +24,7 @@ The row schema is [fieldworks-parse-analysis-v1.schema.json](fieldworks-parse-an
 | --- | --- |
 | `index`, `word` | Zero-based batch case and exact input text. An index identifies a request occurrence, not a FieldWorks wordform. |
 | `elapsedMs` | Nonnegative elapsed parsing time for the case, identical to its TSV timing. |
-| `capped` | The per-word step budget interrupted the search. |
+| `capped` | The per-word work cap interrupted the search. |
 | `timedOut` | The per-word time budget interrupted the search. |
 | `invalidShape` | Input could not be segmented. Both limit flags are false and both result arrays are empty. |
 | `analyses` | Successfully projected readings, retaining multiplicity. Morph order is significant. |

@@ -1,6 +1,6 @@
 //! Prices what a PERFECT candidate filter could delete from confirmation, using no filter at all: a candidate whose confirmation bucket comes back empty is one such a filter could have removed.
 
-//! Headline is `removable_steps / (removable_steps + surviving_chunk_steps)` and never the share of candidates killed, because confirmation fuses candidates and only a wholly-doomed chunk disappears.
+//! Headline is `removable_work / (removable_work + surviving_chunk_work)` and never the share of candidates killed, because confirmation fuses candidates and only a wholly-doomed chunk disappears.
 
 //! A share is not a latency, so the run also reports per-word distributions of steps and confirmation time, before and after the removable chunks are deleted, and the tail is the figure to read: a grammar that is already fast gains nothing from a large share, and a slow one is judged at p99 rather than at its median.
 
@@ -259,7 +259,7 @@ fn run_confirm(
         .filter(|(_, bucket)| bucket.is_empty())
         .map(|(index, _)| index)
         .collect();
-    let steps = chunks.iter().map(|c| c.steps).sum();
+    let steps = chunks.iter().map(|c| c.work_steps).sum();
     let timed_out = chunks.iter().any(|c| c.timed_out);
     ConfirmRun {
         chunks,
@@ -528,9 +528,9 @@ struct ReachRow {
     removable_chunks_a: usize,
     removable_chunks_b: usize,
     removable_chunks_a_or_b: usize,
-    removable_steps_a: usize,
-    removable_steps_b: usize,
-    removable_steps_a_or_b: usize,
+    removable_work_a: usize,
+    removable_work_b: usize,
+    removable_work_a_or_b: usize,
 }
 
 impl ReachRow {
@@ -543,9 +543,9 @@ impl ReachRow {
         self.removable_chunks_a += other.removable_chunks_a;
         self.removable_chunks_b += other.removable_chunks_b;
         self.removable_chunks_a_or_b += other.removable_chunks_a_or_b;
-        self.removable_steps_a += other.removable_steps_a;
-        self.removable_steps_b += other.removable_steps_b;
-        self.removable_steps_a_or_b += other.removable_steps_a_or_b;
+        self.removable_work_a += other.removable_work_a;
+        self.removable_work_b += other.removable_work_b;
+        self.removable_work_a_or_b += other.removable_work_a_or_b;
     }
 }
 
@@ -615,15 +615,15 @@ fn compute_reach(
             |pick: fn(Detectability) -> bool| members.iter().all(|o| detect[*o].is_some_and(pick));
         if covers(|d| d.co_occurrence) {
             row.removable_chunks_a += 1;
-            row.removable_steps_a += chunk.steps;
+            row.removable_work_a += chunk.work_steps;
         }
         if covers(|d| d.surface_infeasible) {
             row.removable_chunks_b += 1;
-            row.removable_steps_b += chunk.steps;
+            row.removable_work_b += chunk.work_steps;
         }
         if covers(|d| d.co_occurrence || d.surface_infeasible) {
             row.removable_chunks_a_or_b += 1;
-            row.removable_steps_a_or_b += chunk.steps;
+            row.removable_work_a_or_b += chunk.work_steps;
         }
     }
     row
@@ -644,12 +644,12 @@ struct WordRow {
     empty_buckets: usize,
     chunks_total: usize,
     chunks_removable: usize,
-    removable_steps: usize,
-    surviving_chunk_steps: usize,
+    removable_work: usize,
+    surviving_chunk_work: usize,
     /// Member count of each removable chunk, and each chunk's own steps, split by fate.
     removable_members: Vec<usize>,
-    removable_chunk_steps: Vec<usize>,
-    surviving_chunk_steps_each: Vec<usize>,
+    removable_chunk_work: Vec<usize>,
+    surviving_chunk_work_each: Vec<usize>,
     removable_elapsed: Duration,
     surviving_elapsed: Duration,
     confirm_elapsed: Duration,
@@ -702,15 +702,15 @@ fn measure_word(
     let repeat_mismatch_steps = warm_repeat.steps != before.steps;
 
     let mut removable_members = Vec::new();
-    let mut removable_chunk_steps = Vec::new();
-    let mut surviving_chunk_steps_each = Vec::new();
+    let mut removable_chunk_work = Vec::new();
+    let mut surviving_chunk_work_each = Vec::new();
     let mut surviving_elapsed = Duration::ZERO;
     for chunk in &before.chunks {
         if shadow::chunk_is_removable(chunk, &before.doomed, &presented) {
             removable_members.push(chunk.members.len());
-            removable_chunk_steps.push(chunk.steps);
+            removable_chunk_work.push(chunk.work_steps);
         } else {
-            surviving_chunk_steps_each.push(chunk.steps);
+            surviving_chunk_work_each.push(chunk.work_steps);
             surviving_elapsed += chunk.elapsed;
         }
     }
@@ -721,11 +721,11 @@ fn measure_word(
         empty_buckets: before.doomed.len(),
         chunks_total: before.chunks.len(),
         chunks_removable: attribution.removable_chunks,
-        removable_steps: attribution.removable_steps,
-        surviving_chunk_steps: attribution.surviving_chunk_steps,
+        removable_work: attribution.removable_work,
+        surviving_chunk_work: attribution.surviving_chunk_work,
         removable_members,
-        removable_chunk_steps,
-        surviving_chunk_steps_each,
+        removable_chunk_work,
+        surviving_chunk_work_each,
         removable_elapsed: attribution.removable_elapsed,
         surviving_elapsed,
         confirm_elapsed: before.elapsed,
@@ -822,8 +822,8 @@ fn print_row(row: &WordRow, status: &str) {
         row.empty_buckets,
         row.chunks_total,
         row.chunks_removable,
-        row.removable_steps,
-        row.surviving_chunk_steps,
+        row.removable_work,
+        row.surviving_chunk_work,
         ms(row.confirm_elapsed),
         ms(row.pre.filter_elapsed),
         row.pruned_candidates,
@@ -908,11 +908,11 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     let mut total_empty = 0usize;
     let mut total_chunks = 0usize;
     let mut total_removable_chunks = 0usize;
-    let mut removable_steps = 0usize;
+    let mut removable_work = 0usize;
     let mut surviving_steps = 0usize;
     let mut removable_members: Vec<usize> = Vec::new();
-    let mut removable_chunk_steps: Vec<usize> = Vec::new();
-    let mut surviving_chunk_steps: Vec<usize> = Vec::new();
+    let mut removable_chunk_work: Vec<usize> = Vec::new();
+    let mut surviving_chunk_work: Vec<usize> = Vec::new();
     let mut confirm_elapsed = Duration::ZERO;
     let mut removable_elapsed = Duration::ZERO;
     let mut surviving_elapsed = Duration::ZERO;
@@ -962,17 +962,17 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
                 total_empty += row.empty_buckets;
                 total_chunks += row.chunks_total;
                 total_removable_chunks += row.chunks_removable;
-                removable_steps += row.removable_steps;
+                removable_work += row.removable_work;
                 reach_total.accumulate(&row.reach);
-                surviving_steps += row.surviving_chunk_steps;
+                surviving_steps += row.surviving_chunk_work;
                 removable_members.extend(&row.removable_members);
-                removable_chunk_steps.extend(&row.removable_chunk_steps);
-                surviving_chunk_steps.extend(&row.surviving_chunk_steps_each);
+                removable_chunk_work.extend(&row.removable_chunk_work);
+                surviving_chunk_work.extend(&row.surviving_chunk_work_each);
                 confirm_elapsed += row.confirm_elapsed;
                 removable_elapsed += row.removable_elapsed;
                 surviving_elapsed += row.surviving_elapsed;
-                steps_before.push((row.removable_steps + row.surviving_chunk_steps) as f64);
-                steps_after.push(row.surviving_chunk_steps as f64);
+                steps_before.push((row.removable_work + row.surviving_chunk_work) as f64);
+                steps_after.push(row.surviving_chunk_work as f64);
                 confirm_ms_before.push(ms(row.confirm_elapsed));
                 confirm_ms_after.push(ms(row
                     .confirm_elapsed
@@ -1002,7 +1002,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
         }
     }
 
-    let total_steps = removable_steps + surviving_steps;
+    let total_steps = removable_work + surviving_steps;
     println!();
     println!("## aggregate ({}), measured words only", corpus.label);
     println!(
@@ -1017,10 +1017,10 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
         "chunks={total_chunks} removable_chunks={total_removable_chunks} ({:.1}% of chunks)",
         percent(total_removable_chunks, total_chunks)
     );
-    println!("removable_steps={removable_steps} surviving_chunk_steps={surviving_steps}");
+    println!("removable_work={removable_work} surviving_chunk_work={surviving_steps}");
     println!(
-        "HEADLINE removable share of confirmation steps = {:.2}% ({removable_steps}/{total_steps})",
-        percent(removable_steps, total_steps)
+        "HEADLINE removable share of confirmation steps = {:.2}% ({removable_work}/{total_steps})",
+        percent(removable_work, total_steps)
     );
     let chunk_elapsed = removable_elapsed + surviving_elapsed;
     println!(
@@ -1076,18 +1076,18 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
         )
     );
     println!(
-        "HEADLINE 2: removable WORK (steps) reachable -- removable_steps={} (a)={} ({:.1}%) (b)={} ({:.1}%) (a or b)={} ({:.1}%) neither={} ({:.1}%)",
-        removable_steps,
-        reach_total.removable_steps_a,
-        percent(reach_total.removable_steps_a, removable_steps),
-        reach_total.removable_steps_b,
-        percent(reach_total.removable_steps_b, removable_steps),
-        reach_total.removable_steps_a_or_b,
-        percent(reach_total.removable_steps_a_or_b, removable_steps),
-        removable_steps.saturating_sub(reach_total.removable_steps_a_or_b),
+        "HEADLINE 2: removable WORK (steps) reachable -- removable_work={} (a)={} ({:.1}%) (b)={} ({:.1}%) (a or b)={} ({:.1}%) neither={} ({:.1}%)",
+        removable_work,
+        reach_total.removable_work_a,
+        percent(reach_total.removable_work_a, removable_work),
+        reach_total.removable_work_b,
+        percent(reach_total.removable_work_b, removable_work),
+        reach_total.removable_work_a_or_b,
+        percent(reach_total.removable_work_a_or_b, removable_work),
+        removable_work.saturating_sub(reach_total.removable_work_a_or_b),
         percent(
-            removable_steps.saturating_sub(reach_total.removable_steps_a_or_b),
-            removable_steps
+            removable_work.saturating_sub(reach_total.removable_work_a_or_b),
+            removable_work
         )
     );
     println!(
@@ -1296,8 +1296,8 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
 
     println!();
     println!("per-chunk steps:");
-    println!("  {}", describe("removable", &mut removable_chunk_steps));
-    println!("  {}", describe("surviving", &mut surviving_chunk_steps));
+    println!("  {}", describe("removable", &mut removable_chunk_work));
+    println!("  {}", describe("surviving", &mut surviving_chunk_work));
     println!();
     println!("removable-chunk member counts:");
     if removable_members.is_empty() {

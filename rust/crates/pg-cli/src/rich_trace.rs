@@ -1,4 +1,4 @@
-//! Renders opt-in rich trace-details v4 envelopes.
+//! Renders opt-in rich trace-details v5 envelopes.
 
 use std::time::Duration;
 
@@ -925,13 +925,13 @@ fn envelope_json(
         total.saturating_add(row.counters.self_time_ns)
     });
     serde_json::to_string(&json!({
-        "schemaVersion": "pangloss.trace-details.v4",
+        "schemaVersion": "pangloss.trace-details.v5",
         "word": word,
         "provenance": {
             "parser": {
                 "name": "pangloss",
                 "version": env!("CARGO_PKG_VERSION"),
-                "traceProfile": "pangloss.trace-details.v4"
+                "traceProfile": "pangloss.trace-details.v5"
             },
             "grammar": {
                 "name": metadata.grammar_name,
@@ -951,7 +951,6 @@ fn envelope_json(
             "capped": outcome.capped,
             "timedOut": outcome.timed_out,
             "invalidShape": outcome.invalid_shape,
-            "steps": outcome.steps,
             "workSteps": outcome.work_steps,
             "elapsedNs": elapsed_ns,
             "timedNs": timed_ns,

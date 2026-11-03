@@ -177,7 +177,7 @@ fn word(g: &Grammar, text: &str) -> Word {
 
 fn analyzer<'a>(
     g: &'a Grammar,
-    budget: &'a StepBudget,
+    budget: &'a WordBudget,
     stats: Option<&'a StatsCollector>,
 ) -> StratumAnalyzer<'a, 'a, 'a, 'a, 'a, 'a> {
     analyzer_with(g, budget, stats, RequiredSlotLookahead::default())
@@ -185,7 +185,7 @@ fn analyzer<'a>(
 
 fn analyzer_with<'a>(
     g: &'a Grammar,
-    budget: &'a StepBudget,
+    budget: &'a WordBudget,
     stats: Option<&'a StatsCollector>,
     look_ahead: RequiredSlotLookahead,
 ) -> StratumAnalyzer<'a, 'a, 'a, 'a, 'a, 'a> {
@@ -253,7 +253,7 @@ fn shared_walk_matches_every_templates_own_walk_in_order() {
         for syn_fs in [FeatureStruct::EMPTY, pos_n.clone()] {
             let mut input = word(&g, &text);
             input.syn_fs = syn_fs;
-            let budget = StepBudget::new(usize::MAX);
+            let budget = WordBudget::new(usize::MAX);
             let a = analyzer(&g, &budget, None);
             let own: Vec<Vec<Word>> = a
                 .stratum
@@ -278,7 +278,7 @@ fn untraced_battery_runs_a_shared_slot_batch_once() {
     let input = word(&g, "miedd");
 
     let own_stats = StatsCollector::new(&g);
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let a = analyzer_with(&g, &budget, Some(&own_stats), RequiredSlotLookahead::Off);
     for &tid in &a.stratum.templates {
         a.analyze_template(tid, &input);
@@ -286,7 +286,7 @@ fn untraced_battery_runs_a_shared_slot_batch_once() {
     let own = battery_counters(&own_stats);
 
     let shared_stats = StatsCollector::new(&g);
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     analyzer_with(&g, &budget, Some(&shared_stats), RequiredSlotLookahead::Off)
         .run_template_batch(&input);
     let shared = battery_counters(&shared_stats);

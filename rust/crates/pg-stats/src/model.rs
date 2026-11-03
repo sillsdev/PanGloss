@@ -170,11 +170,11 @@ pub struct RunMetadata {
     pub options_hash: String,
     pub options_json: String,
     pub created_utc: String,
-    /// `--step-cap` in force for this run, or `None` when this engine records no such concept
-    /// (e.g. `foma`). Compared across runs by `StatsCache::refuse_if_step_cap_differs` -- a cache
-    /// spanning two step caps could silently reuse a cached-word row produced under a cap the
+    /// `--work-cap` in force for this run, or `None` when this engine records no such concept
+    /// (e.g. `foma`). Compared across runs by `StatsCache::refuse_if_work_cap_differs` -- a cache
+    /// spanning two work caps could silently reuse a cached-word row produced under a cap the
     /// current run no longer applies.
-    pub step_cap: Option<crate::StepCap>,
+    pub work_cap: Option<crate::WorkCap>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,7 +188,7 @@ pub struct FrozenRunSnapshot {
     pub options_hash: String,
     pub options_json: String,
     pub word_count: u64,
-    pub step_cap: Option<crate::StepCap>,
+    pub work_cap: Option<crate::WorkCap>,
     pub words: Vec<FrozenWordSummary>,
 }
 
@@ -196,7 +196,6 @@ pub struct FrozenRunSnapshot {
 pub struct FrozenWordSummary {
     pub form: String,
     pub elapsed_ns: u64,
-    pub attempts: u64,
     pub passes: u64,
     pub capped: bool,
     pub timed_out: bool,
@@ -240,8 +239,6 @@ pub struct FactRecord {
 pub struct WordRecord {
     pub form: String,
     pub elapsed_ns: u64,
-    /// Analysis attempts: the parse outcome's `steps`.
-    pub attempts: u64,
     /// Total work-budget reservations: the parse outcome's `work_steps`. Not the sum of the
     /// facts' `work`, which counts shape segments examined.
     pub work: u64,

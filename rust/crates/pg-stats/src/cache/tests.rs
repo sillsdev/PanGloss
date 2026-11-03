@@ -8,7 +8,6 @@ fn sample_word(form: &str) -> WordRecord {
     WordRecord {
         form: form.to_string(),
         elapsed_ns: 1_000,
-        attempts: 10,
         work: 37,
         passes: 1,
         capped: false,
@@ -36,8 +35,8 @@ fn sample_word(form: &str) -> WordRecord {
     }
 }
 
-fn finite(n: u64) -> StepCap {
-    StepCap::Finite(std::num::NonZeroU64::new(n).unwrap())
+fn finite(n: u64) -> WorkCap {
+    WorkCap::Finite(std::num::NonZeroU64::new(n).unwrap())
 }
 
 fn sample_run() -> RunMetadata {
@@ -49,7 +48,7 @@ fn sample_run() -> RunMetadata {
         options_hash: "opts-a".to_string(),
         options_json: "{}".to_string(),
         created_utc: "2026-08-22T00:00:00Z".to_string(),
-        step_cap: None,
+        work_cap: None,
     }
 }
 
@@ -64,7 +63,6 @@ fn create_write_and_read_back_exactly() {
     let per_word = crate::report::per_word_report(outcome.cache.connection()).unwrap();
     assert_eq!(per_word.len(), 1);
     assert_eq!(per_word[0].form, "apu");
-    assert_eq!(per_word[0].attempts, 10);
     assert_eq!(per_word[0].work, 37);
     assert_eq!(per_word[0].passes, 1);
     assert!(!per_word[0].capped);
@@ -194,6 +192,42 @@ fn wipes_a_version_seven_cache_whose_stats_keys_predate_compiled_output() {
     assert_eq!(version, crate::schema::SCHEMA_VERSION);
 }
 
+/// Schema 10 is the last that stored `run.step_cap` and `word.attempts`; the literal versions are pinned so a bump is a decision.
+#[test]
+fn a_cache_written_by_schema_ten_is_wiped_not_read() {
+    assert_eq!(crate::schema::SCHEMA_VERSION, 11);
+    let path = TempDir::new("pg-stats-schema-ten");
+    let cache_path = path.path().join("cache.sqlite3");
+    let old = Connection::open(&cache_path).unwrap();
+    old.execute_batch(
+        "CREATE TABLE cache_identity (cache_id INTEGER PRIMARY KEY CHECK (cache_id = 1), schema_version INTEGER NOT NULL, grammar_hash TEXT NOT NULL, engine TEXT);
+         CREATE TABLE run (run_id INTEGER PRIMARY KEY, schema_version INTEGER NOT NULL, counter_semantics INTEGER NOT NULL, build_info TEXT NOT NULL, fwdata_path TEXT NOT NULL, grammar_hash TEXT NOT NULL, engine TEXT NOT NULL, options_hash TEXT NOT NULL, options_json TEXT NOT NULL, created_utc TEXT NOT NULL, word_count INTEGER NOT NULL, total_elapsed_ns INTEGER NOT NULL, step_cap INTEGER);
+         CREATE TABLE word (word_id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL, form TEXT NOT NULL, elapsed_ns INTEGER NOT NULL, attempts INTEGER NOT NULL, work INTEGER NOT NULL, passes INTEGER NOT NULL, capped INTEGER NOT NULL, timed_out INTEGER NOT NULL, invalid_shape INTEGER NOT NULL);
+         INSERT INTO cache_identity VALUES (1, 10, 'hash-a', 'hc');
+         INSERT INTO run VALUES (1, 10, 8, 'old', 'f.xml', 'hash-a', 'hc', 'o', '{}', 'unix:0', 1, 1, 200000);
+         INSERT INTO word VALUES (1, 1, 'apu', 1, 9, 37, 1, 0, 0, 0);",
+    )
+    .unwrap();
+    drop(old);
+
+    let outcome = StatsCache::open(&cache_path, "hash-a").unwrap();
+    assert!(outcome.wiped, "a schema-10 cache must be recreated");
+    let words: i64 = outcome
+        .cache
+        .connection()
+        .query_row("SELECT COUNT(*) FROM word", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(words, 0);
+    let attempts_column = outcome
+        .cache
+        .connection()
+        .prepare("SELECT attempts FROM word")
+        .is_ok();
+    assert!(
+        !attempts_column,
+        "the new word table has no attempts column"
+    );
+}
 #[test]
 fn wipes_an_empty_legacy_cache_before_claiming_current_identity() {
     let path = TempDir::new("pg-stats-empty-legacy");
@@ -518,21 +552,21 @@ fn concurrent_first_writers_cannot_mix_grammar_hashes() {
 }
 
 #[test]
-fn reopening_at_a_different_step_cap_is_refused_before_any_word_is_skipped() {
-    let dir = TempDir::new("pg-stats-step-cap-mismatch");
+fn reopening_at_a_different_work_cap_is_refused_before_any_word_is_skipped() {
+    let dir = TempDir::new("pg-stats-work-cap-mismatch");
     let cache_path = dir.path().join("cache.sqlite3");
 
     let mut first = StatsCache::open(&cache_path, "hash-a").unwrap();
     let mut run_a = sample_run();
-    run_a.step_cap = Some(finite(100));
+    run_a.work_cap = Some(finite(100));
     first.cache.flush(&run_a, &[sample_word("apu")]).unwrap();
     drop(first);
 
     let mut second = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
     let err = second
-        .refuse_if_step_cap_differs(finite(200))
-        .expect_err("a cache holding a run at step cap 100 must refuse a step cap 200 report");
-    assert!(matches!(err, StatsError::StepCapMismatch { .. }), "{err}");
+        .refuse_if_work_cap_differs(finite(200))
+        .expect_err("a cache holding a run at work cap 100 must refuse a work cap 200 report");
+    assert!(matches!(err, StatsError::WorkCapMismatch { .. }), "{err}");
     assert!(
         err.to_string().contains("100") && err.to_string().contains("200"),
         "{err}"
@@ -540,56 +574,56 @@ fn reopening_at_a_different_step_cap_is_refused_before_any_word_is_skipped() {
 
     // The same value must never be refused, or every ordinary re-run of `--stats` would break.
     second
-        .refuse_if_step_cap_differs(finite(100))
-        .expect("the same step cap must not be refused");
+        .refuse_if_work_cap_differs(finite(100))
+        .expect("the same work cap must not be refused");
 
     // flush() itself must also refuse, not only the early pg-cli-side check.
     let mut run_b = sample_run();
-    run_b.step_cap = Some(finite(200));
+    run_b.work_cap = Some(finite(200));
     let flush_err = second
         .flush(&run_b, &[sample_word("beta")])
-        .expect_err("flush() itself must also refuse a conflicting step cap");
+        .expect_err("flush() itself must also refuse a conflicting work cap");
     assert!(
-        matches!(flush_err, StatsError::StepCapMismatch { .. }),
+        matches!(flush_err, StatsError::WorkCapMismatch { .. }),
         "{flush_err}"
     );
 }
 
 #[test]
-fn a_run_that_records_no_step_cap_never_conflicts() {
+fn a_run_that_records_no_work_cap_never_conflicts() {
     let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
     let mut hc_run = sample_run();
-    hc_run.step_cap = Some(finite(100));
+    hc_run.work_cap = Some(finite(100));
     outcome.cache.flush(&hc_run, &[sample_word("apu")]).unwrap();
 
-    // A run recording no step cap (e.g. an engine with no such concept) is never a conflict.
+    // A run recording no work cap (e.g. an engine with no such concept) is never a conflict.
     let mut no_cap_run = sample_run();
-    no_cap_run.step_cap = None;
+    no_cap_run.work_cap = None;
     outcome
         .cache
         .flush(&no_cap_run, &[sample_word("beta")])
-        .expect("a run recording no step cap must never conflict with one that does");
+        .expect("a run recording no work cap must never conflict with one that does");
 
     outcome
         .cache
-        .refuse_if_step_cap_differs(finite(100))
+        .refuse_if_work_cap_differs(finite(100))
         .expect("a NULL-recording run must not poison the compatibility check");
 }
 
 #[test]
-fn unbounded_step_cap_round_trips_through_storage() {
+fn unbounded_work_cap_round_trips_through_storage() {
     let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
     let mut run = sample_run();
-    run.step_cap = Some(StepCap::Unbounded);
+    run.work_cap = Some(WorkCap::Unbounded);
     outcome.cache.flush(&run, &[sample_word("apu")]).unwrap();
 
     outcome
         .cache
-        .refuse_if_step_cap_differs(StepCap::Unbounded)
+        .refuse_if_work_cap_differs(WorkCap::Unbounded)
         .expect("the same unbounded cap must round-trip and not be refused");
     let err = outcome
         .cache
-        .refuse_if_step_cap_differs(finite(100))
+        .refuse_if_work_cap_differs(finite(100))
         .expect_err("unbounded must still be distinguishable from a finite cap");
     assert!(err.to_string().contains("unbounded"), "{err}");
 }

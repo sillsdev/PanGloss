@@ -255,7 +255,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
         &[],
         &step,
     );
-    assert!(step.step_capped());
+    assert!(step.work_capped());
     assert_eq!(step.work_steps(), 1);
 
     let candidates = pg_parse::SynthesisBudget::new(10_000, 1, Duration::from_secs(1));

@@ -3,6 +3,27 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.
+
+### Interface changes
+
+- Removed `--step-cap` from `batch`, `parse` and `serve`; it is refused like any unknown option. `--work-cap N|unbounded` is the one per-word cap, and its default is 5,000,000,000, the work cap the old 50,000,000 `--step-cap` default implied (100 work steps per attempt). Hosts passing `--step-cap N` should pass `--work-cap` with 100 times N for the same limit.
+- `interfaces.batchTsv` is 5: `--work-columns` writes only `work_steps` (it wrote `steps` and `work_steps`), and `--cost-column` now always writes `work_steps` before `cost` so `cost-compare` can tell the two apart by field count. The default 5- and 6-column layout is unchanged.
+- `serveProtocol` is 2: results and the trace-details `search` object no longer carry `steps`. Trace details are `pangloss.trace-details.v5`.
+- The phonology-examples request and result are version 2: `limits.stepCap`, the row `steps` and the `StepCap` reason are gone, and `stepAllocation` is `workAllocation`.
+- The stats cache schema is 11 (no `word.attempts`, `run.work_cap` replaces `run.step_cap`) and a cache of another version is wiped; search-budget semantics are 3 and an older cache is refused. The facts schema is 9 and the stats manifest is version 2 (`batch.work_cap` is a string, `batch.step_cap` is gone).
+- Rust: `AnalysisPolicy.step_cap` is `work_cap` (browser default 10,000,000, native ABI v1 50,000,000, `without_limits` unchanged) and the policy gains an explicit `generation_cap` (browser 100,000, native 500,000, `without_limits` unlimited); `Morpher::with_generation_cap` sets generation's own limit, which no longer follows the parse work cap, and `OracleOpts.generation_cap` defaults to 20,000. `Morpher::new` takes a work cap and `with_work_cap` is gone; `StepBudget` is `WordBudget`; `pg_stats::StepCap` is `WorkCap`; `Score.confirmation_steps` is `confirmation_work`; `oracle_step_cap` is `oracle_work_cap` (default 2,000,000); `SynthesisBudget::step_capped` is `work_capped`. `hc_abi_version` is 4: no signature or buffer layout changed, but a grammar handle's per-word cap is now a work cap (50,000,000 work steps) with confirmation allowed one sixteenth more, so a word can report `capped` where it did not and the reverse. A host that matched capped results against ABI 3 must be rebuilt against 4. Generation keeps its 500,000 limit.
+- The backend report schema is 6 and the deterministic score schema is 3 (`confirmation_steps` became `confirmation_work` and the ranking key changed). The `corpus-exclusion-ledger` hash prefix is `-v3` because the hash covers `oracle.work_cap`, whose unit and default changed.
+- `rust/tools/retune-parser-work.ps1` and the `retune-parser-work` skill test whether the parser-work weights still fit after a parser change, and print ACCEPT, KEEP or REFUSED. The developer-only `cost-calibrate` command gains `--parse-only`, `--counts-out`, `--fit-counts` and `--weights` (a starting point for the fit), and now parses with the grammar's own template and root-guess settings, as `batch` does. The weights are unchanged. `instruction-compare.ps1` on Linux now reads real callgrind output (blank lines) and accepts pinned repeats that agree within 0.005%.
+
+### Parse results
+
+- A word that completes under the old defaults gives the same analyses and the same `work_steps`. Words that used to stop at the analysis-attempt cap now run until the work cap, so many finish (`CAP` becomes `ok`) and some keep a different partial result. Analysis may spend the whole work cap; confirmation of what it found may spend up to one sixteenth more (no reserve under a cap of 16), so a word's `work_steps` is at most `cap + cap/16`. A word whose total work is at most the cap is never stopped. See divergence 052 for the measured counts.
+- Parsing the default-cap Mbugwe sample costs 2.3% more instructions than v0.13.0 (the other four sample grammars are within noise); the cause is not yet found. Results are unchanged.
+- The optimizer ranks candidates by confirmation work plus 5 work steps per raw proposer path (measured: 3.2 to 5.5 instructions ratio on four grammars) instead of attempts plus raw paths.
+
 ## 0.13.2
 
 ### Interface changes

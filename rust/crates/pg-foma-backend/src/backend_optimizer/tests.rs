@@ -142,7 +142,7 @@ fn evaluation_budget_exhaustion_downgrades_exact_search() {
                     apply: 1,
                     proposals: 1,
                     confirmation: 1,
-                    confirmation_steps: 1,
+                    confirmation_work: 1,
                     raw_paths: 0,
                 }),
                 usage: BudgetUsage {
@@ -205,7 +205,7 @@ fn measured_overrun_on_the_final_candidate_still_reports_budget_exhausted() {
                     apply: 1,
                     proposals: 1,
                     confirmation: 1,
-                    confirmation_steps: 1,
+                    confirmation_work: 1,
                     raw_paths: 0,
                 }),
                 usage: BudgetUsage {
@@ -281,7 +281,7 @@ fn reserve_stops_the_sweep_early_yet_never_strips_the_baseline() {
                     apply: 1,
                     proposals: 1,
                     confirmation: 1,
-                    confirmation_steps: 1,
+                    confirmation_work: 1,
                     raw_paths: 0,
                 }),
                 usage: BudgetUsage {
@@ -343,7 +343,7 @@ fn only_full_hc_confirmed_candidates_enter_frontier_or_win() {
         apply: 1,
         proposals: 1,
         confirmation: 1,
-        confirmation_steps: 1,
+        confirmation_work: 1,
         raw_paths: 0,
     };
     let failures = vec![
@@ -425,13 +425,13 @@ fn corpus_evidence_keeps_duplicate_occurrences_and_binds_reason_to_ledger_hash()
     );
     assert_ne!(evidence.excluded_hash, changed_reason.excluded_hash);
 
-    // The generating configuration is part of the ledger hash too: same words and exclusions but a different oracle step cap must not hash the same.
+    // The generating configuration is part of the ledger hash too: same words and exclusions but a different oracle work cap must not hash the same.
     let changed_cap = CorpusCompletenessEvidence::from_selection(
         &requested,
         &included,
         exclusions.clone(),
         OracleEligibilityConfig {
-            step_cap: 40_000,
+            work_cap: 4_000_000,
             ..test_oracle_config()
         },
     );
@@ -478,7 +478,7 @@ fn corpus_evidence_constructor_rejects_non_deterministic_exclusion_order() {
 /// The oracle configuration these constructor tests declare; any value works, what matters is that the constructor requires one.
 fn test_oracle_config() -> OracleEligibilityConfig {
     OracleEligibilityConfig {
-        step_cap: 20_000,
+        work_cap: 2_000_000,
         memory_ceiling_bytes: 12 * 1024 * 1024 * 1024,
         liveness_net_ns: 300_000_000_000,
     }
@@ -501,7 +501,7 @@ fn pareto_frontier_and_lexicographic_winner_are_deterministic() {
                 apply: 1,
                 proposals: 1,
                 confirmation: 1,
-                confirmation_steps: 1,
+                confirmation_work: 1,
                 raw_paths: 0,
             },
         ),
@@ -515,7 +515,7 @@ fn pareto_frontier_and_lexicographic_winner_are_deterministic() {
                 apply: 9,
                 proposals: 9,
                 confirmation: 9,
-                confirmation_steps: 9,
+                confirmation_work: 9,
                 raw_paths: 0,
             },
         ),
@@ -526,9 +526,9 @@ fn pareto_frontier_and_lexicographic_winner_are_deterministic() {
     assert_eq!(select_confirmed(&items), Some("large-fast".to_owned()));
 }
 
-/// The motivating Sena-shaped case: a plan-composed candidate proposes several-fold more (higher `raw_paths`) for a marginally lower confirm-step count, and the old steps-only key picked it on that alone; asserts the new key reverses that preference.
+/// The motivating Sena-shaped case: a plan-composed candidate proposes several-fold more (higher `raw_paths`) for a marginally lower confirmation work, and a work-only key picked it on that alone; asserts the weighted key reverses that preference, and that an unweighted 1:1 sum would not.
 #[test]
-fn sena_shaped_lower_total_work_wins_despite_higher_confirmation_steps() {
+fn sena_shaped_lower_total_work_wins_despite_higher_confirmation_work() {
     let confirmed = Certification::FullHcConfirmed {
         words: 20,
         corpus_hash: "sena-shape".to_owned(),
@@ -540,8 +540,8 @@ fn sena_shaped_lower_total_work_wins_despite_higher_confirmation_steps() {
         apply: 1,
         proposals: 575,
         confirmation: 42,
-        confirmation_steps: 1192,
-        // Several-fold more propose-side traversal than hand-spun below -- a cost chunk fusion hides from confirmation_steps alone.
+        confirmation_work: 40_528,
+        // Several-fold more propose-side traversal than hand-spun below -- a cost chunk fusion hides from confirmation_work alone.
         raw_paths: 2000,
     };
     let hand_spun = Score {
@@ -551,12 +551,17 @@ fn sena_shaped_lower_total_work_wins_despite_higher_confirmation_steps() {
         apply: 1,
         proposals: 127,
         confirmation: 17,
-        confirmation_steps: 1252,
+        confirmation_work: 42_568,
         raw_paths: 400,
     };
-    // Under the old key (confirmation_steps alone) plan_composed would win: 1192 < 1252.
-    assert!(plan_composed.confirmation_steps < hand_spun.confirmation_steps);
-    // Under the new combined key that reverses: 3192 for plan_composed vs 1652 for hand_spun -- lower total work wins.
+    // Work alone would pick plan_composed: 40_528 < 42_568.
+    assert!(plan_composed.confirmation_work < hand_spun.confirmation_work);
+    // A 1:1 sum still picks it (42_528 < 42_968): work steps are about 30 times finer than the attempts the 1:1 key was written for.
+    assert!(
+        plan_composed.confirmation_work + plan_composed.raw_paths
+            < hand_spun.confirmation_work + hand_spun.raw_paths
+    );
+    // At the measured weight the key reverses: 50_528 for plan_composed vs 44_568 for hand_spun -- lower total work wins.
     let items = vec![
         ("plan-composed".to_owned(), confirmed.clone(), plan_composed),
         ("hand-spun".to_owned(), confirmed, hand_spun),
@@ -578,7 +583,7 @@ fn dominant_on_every_metric_still_wins_with_raw_paths_in_the_key() {
         apply: 1,
         proposals: 200,
         confirmation: 10,
-        confirmation_steps: 300,
+        confirmation_work: 300,
         raw_paths: 500,
     };
     let dominated = Score {
@@ -588,7 +593,7 @@ fn dominant_on_every_metric_still_wins_with_raw_paths_in_the_key() {
         apply: 1,
         proposals: 250,
         confirmation: 12,
-        confirmation_steps: 350,
+        confirmation_work: 350,
         raw_paths: 600,
     };
     let items = vec![
@@ -601,7 +606,7 @@ fn dominant_on_every_metric_still_wins_with_raw_paths_in_the_key() {
 }
 
 #[test]
-fn pareto_dominance_counts_confirmation_steps() {
+fn pareto_dominance_counts_confirmation_work() {
     let confirmed = Certification::FullHcConfirmed {
         words: 1,
         corpus_hash: "d4-steps".to_owned(),
@@ -613,11 +618,11 @@ fn pareto_dominance_counts_confirmation_steps() {
         apply: 99,
         proposals: 10,
         confirmation: 10,
-        confirmation_steps: 10,
+        confirmation_work: 10,
         raw_paths: 10,
     };
     let higher_step_work = Score {
-        confirmation_steps: 11,
+        confirmation_work: 11,
         ..lower_step_work
     };
     let items = vec![
@@ -645,7 +650,7 @@ fn pareto_dominance_counts_raw_proposer_paths() {
         apply: 99,
         proposals: 10,
         confirmation: 10,
-        confirmation_steps: 10,
+        confirmation_work: 10,
         raw_paths: 10,
     };
     let more_raw_paths = Score {
@@ -677,14 +682,14 @@ fn pareto_dominance_uses_each_deterministic_coordinate_componentwise() {
         apply: 999,
         proposals: 10,
         confirmation: 10,
-        confirmation_steps: 10,
+        confirmation_work: 10,
         raw_paths: 10,
     };
     let cases = [
         (
             "confirmation-steps",
             Score {
-                confirmation_steps: 11,
+                confirmation_work: 11,
                 build: 1,
                 apply: 1,
                 ..lower
@@ -764,7 +769,7 @@ fn pareto_dominance_excludes_build_and_apply_timing() {
         apply: 999,
         proposals: 10,
         confirmation: 10,
-        confirmation_steps: 10,
+        confirmation_work: 10,
         raw_paths: 10,
     };
     let faster = Score {
@@ -774,7 +779,7 @@ fn pareto_dominance_excludes_build_and_apply_timing() {
         apply: 1,
         proposals: 10,
         confirmation: 10,
-        confirmation_steps: 10,
+        confirmation_work: 10,
         raw_paths: 10,
     };
     let items = vec![
@@ -801,7 +806,7 @@ fn uncertified_candidate_cannot_dominate_a_certified_frontier_member() {
         apply: 10,
         proposals: 10,
         confirmation: 10,
-        confirmation_steps: 10,
+        confirmation_work: 10,
         raw_paths: 10,
     };
     let cheaper_but_uncertified = Score {
@@ -811,7 +816,7 @@ fn uncertified_candidate_cannot_dominate_a_certified_frontier_member() {
         apply: 1,
         proposals: 1,
         confirmation: 1,
-        confirmation_steps: 1,
+        confirmation_work: 1,
         raw_paths: 1,
     };
     let items = vec![
@@ -844,7 +849,7 @@ fn a_production_blocked_candidate_cannot_win_or_reach_the_frontier() {
                 apply: 1,
                 proposals: 1,
                 confirmation: 1,
-                confirmation_steps: 1,
+                confirmation_work: 1,
                 raw_paths: 0,
             };
             ConfirmationEvidence {

@@ -3,10 +3,10 @@ use web_time::Instant;
 
 /// An uncapped (`usize::MAX`) budget with a short deadline armed must break out promptly, not run the huge iteration bound to completion.
 #[test]
-fn wall_clock_deadline_fires_independent_of_an_uncapped_step_cap() {
+fn wall_clock_deadline_fires_independent_of_an_uncapped_work_cap() {
     const N_HUGE: u64 = 200_000_000; // large enough to run far longer than the deadline below on any dev/CI machine
     let timeout = Duration::from_millis(30);
-    let budget = StepBudget::new(usize::MAX).with_timeout(Some(timeout));
+    let budget = WordBudget::new(usize::MAX).with_timeout(Some(timeout));
 
     let start = Instant::now();
     let mut i: u64 = 0;
@@ -25,7 +25,7 @@ fn wall_clock_deadline_fires_independent_of_an_uncapped_step_cap() {
     );
     assert!(
         !budget.capped(),
-        "the step cap (usize::MAX) must never fire — timeout and step-cap are independent bounds"
+        "the work cap (usize::MAX) must never fire — timeout and work-cap are independent bounds"
     );
     assert!(
         i < N_HUGE,
@@ -42,7 +42,7 @@ fn wall_clock_deadline_fires_independent_of_an_uncapped_step_cap() {
 /// A deadline already in the past at construction time must fire on the first `over_budget()` check.
 #[test]
 fn zero_deadline_fires_on_the_first_check() {
-    let budget = StepBudget::new(usize::MAX).with_timeout(Some(Duration::from_millis(0)));
+    let budget = WordBudget::new(usize::MAX).with_timeout(Some(Duration::from_millis(0)));
     // Give the already-past deadline a moment's daylight against timer granularity.
     std::thread::sleep(Duration::from_millis(1));
     assert!(
@@ -58,7 +58,7 @@ fn zero_deadline_fires_on_the_first_check() {
 fn wall_clock_deadline_fires_even_when_total_ticks_never_reach_the_old_check_interval() {
     const N: u64 = 200; // well under the old 1024-tick cadence interval
     let timeout = Duration::from_millis(50);
-    let budget = StepBudget::new(usize::MAX).with_timeout(Some(timeout));
+    let budget = WordBudget::new(usize::MAX).with_timeout(Some(timeout));
 
     let start = Instant::now();
     let mut fired = false;
@@ -82,7 +82,7 @@ fn wall_clock_deadline_fires_even_when_total_ticks_never_reach_the_old_check_int
     assert!(budget.timed_out());
     assert!(
         !budget.capped(),
-        "the step cap (usize::MAX) must never fire"
+        "the work cap (usize::MAX) must never fire"
     );
     assert!(
         i < N,
@@ -96,15 +96,18 @@ fn wall_clock_deadline_fires_even_when_total_ticks_never_reach_the_old_check_int
     );
 }
 
-/// `with_timeout(None)` must be a complete no-op, behaving exactly as a plain `StepBudget::new(cap)` would.
+/// `with_timeout(None)` must be a complete no-op, behaving exactly as a plain `WordBudget::new(cap)` would.
 #[test]
 fn no_timeout_never_times_out() {
-    let budget = StepBudget::new(5).with_timeout(None);
+    let budget = WordBudget::new(5).with_timeout(None);
     for _ in 0..5 {
         assert!(!budget.over_budget());
-        budget.tick();
+        assert!(budget.tick());
     }
-    assert!(budget.over_budget(), "step cap must still fire on its own");
+    assert!(
+        budget.over_budget(),
+        "the work cap must still fire on its own"
+    );
     assert!(budget.capped());
     assert!(
         !budget.timed_out(),
@@ -112,59 +115,99 @@ fn no_timeout_never_times_out() {
     );
 }
 
+/// An analysis tick and a synthesis check spend the one allowance, a unit each, and nothing else.
 #[test]
-fn ordinary_synthesis_consumes_the_cap_without_changing_analysis_attempts() {
-    let budget = StepBudget::with_limits(1, 3);
-    for _ in 0..3 {
-        assert!(!budget.synthesis_over_budget());
-    }
-    assert!(budget.synthesis_over_budget());
-    assert!(budget.capped());
-    assert_eq!(budget.work_steps(), 3);
-    assert_eq!(budget.steps(), 0);
-}
-
-#[test]
-fn analysis_attempts_and_confirmation_spend_independent_limits() {
-    let budget = StepBudget::with_limits(3, 7);
+fn analysis_and_synthesis_spend_one_work_allowance() {
+    let budget = WordBudget::new(7);
     for _ in 0..3 {
         assert!(budget.tick());
     }
-    assert!(budget.over_budget());
-    assert!(!budget.tick());
-    assert_eq!(budget.steps(), 3);
-    assert!(budget.capped());
-    assert!(!budget.work.capped());
+    assert_eq!(budget.work_steps(), 3);
     for _ in 0..4 {
         assert!(!budget.synthesis_over_budget());
     }
-    assert!(budget.synthesis_over_budget());
     assert_eq!(budget.work_steps(), 7);
-    assert_eq!(budget.steps(), 3);
+    assert!(budget.synthesis_over_budget());
+    assert!(!budget.tick());
+    assert!(budget.capped());
+    assert_eq!(
+        budget.work_steps(),
+        7,
+        "a refused check never spends a unit"
+    );
 }
 
 #[test]
-fn inner_work_can_stop_analysis_before_its_attempt_cap() {
-    let budget = StepBudget::with_limits(10, 2);
+fn a_word_capped_on_work_alone_stops_analysis_and_reports_capped() {
+    let budget = WordBudget::new(2);
     assert!(budget.tick());
     assert!(budget.tick());
     assert!(!budget.tick());
     assert!(budget.capped());
-    assert!(!budget.attempt_capped.get());
-    assert_eq!(budget.steps(), 2);
     assert_eq!(budget.work_steps(), 2);
 }
 
+/// Analysis may spend the whole cap, and a word within the cap never trips the analysis limit.
 #[test]
-fn default_work_allowance_scales_the_configured_cap_and_saturates() {
-    assert_eq!(default_work_cap(200_000), 20_000_000);
-    assert_eq!(default_work_cap(usize::MAX), usize::MAX);
-    assert_eq!(default_work_cap(usize::MAX / 100 + 1), usize::MAX);
-    let budget = StepBudget::new(1);
+fn analysis_spends_the_whole_cap_and_a_word_within_it_never_stops() {
+    let budget = WordBudget::new(160);
+    for _ in 0..160 {
+        assert!(budget.tick());
+    }
+    assert_eq!(budget.work_steps(), 160);
+    assert!(!budget.capped(), "a word of exactly the cap is complete");
+    assert!(!budget.tick(), "a 161st analysis unit is refused");
+    assert!(budget.capped());
+    assert_eq!(budget.work_steps(), 160);
+}
+
+/// The reserve sits on top of the cap: confirmation spends it after analysis stopped, and nothing spends past it.
+#[test]
+fn confirmation_spends_the_reserve_beyond_the_cap_and_no_further() {
+    let budget = WordBudget::new(160);
+    while budget.tick() {}
+    assert!(budget.capped(), "analysis reached the cap");
+    assert!(!budget.analysis_unit(), "analysis stays stopped");
+    for _ in 0..10 {
+        assert!(
+            !budget.synthesis_over_budget(),
+            "confirmation spends the reserve"
+        );
+    }
+    assert!(budget.synthesis_over_budget());
+    assert_eq!(budget.work_steps(), 170, "the bound is cap + cap / 16");
+}
+
+/// A word that finished analysis within the cap and needs more in confirmation uses the reserve without analysis having capped.
+#[test]
+fn confirmation_within_the_reserve_is_not_a_cap() {
+    let budget = WordBudget::new(160);
+    for _ in 0..100 {
+        assert!(budget.tick());
+    }
+    for _ in 0..70 {
+        assert!(!budget.synthesis_over_budget());
+    }
+    assert!(!budget.capped(), "170 of 170 units is not past the reserve");
+    assert!(budget.synthesis_over_budget());
+    assert!(budget.capped(), "the 171st unit is past cap + reserve");
+}
+
+#[test]
+fn a_cap_under_sixteen_has_no_reserve() {
+    let budget = WordBudget::new(15);
+    for _ in 0..15 {
+        assert!(!budget.synthesis_over_budget());
+    }
+    assert!(budget.synthesis_over_budget());
+    assert_eq!(budget.work_steps(), 15);
+}
+#[test]
+fn an_unbounded_allowance_counts_without_capping() {
+    let budget = WordBudget::new(usize::MAX);
     for _ in 0..64 {
         assert!(!budget.synthesis_over_budget());
     }
-    assert_eq!(budget.steps(), 0);
     assert_eq!(budget.work_steps(), 64);
     assert!(!budget.capped());
 }

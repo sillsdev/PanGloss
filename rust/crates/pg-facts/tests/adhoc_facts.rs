@@ -102,7 +102,7 @@ fn grouped_fwdata_rationale_reaches_the_facts_artifact() {
         },
     )
     .expect("facts export succeeds");
-    assert_eq!(facts.schema_version, 8);
+    assert_eq!(facts.schema_version, 9);
 
     let db = Connection::open(output_path).unwrap();
     let group_count: i64 = db

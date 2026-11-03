@@ -116,19 +116,25 @@ switch in one binary, with a repeat run as control.
   10.5%. Direction is right and size is still 2.7x high.
 - Control: weighted cost moved exactly 0, instructions at most 0.12% in one binary.
 
-### D6: The attempt cap goes last, behind a recall gate
+### D6: The attempt cap is removed with `steps` (owner decision, no warning release)
 
-Scar: the first shared-unit cap took a 400-word sample from 73 to 6 words with analyses, which is why
+Decision: the owner removed `steps` completely, so this decision's original order (a warning release, Motif sign-off, then removal behind a recall gate) was overridden. There is no deprecation period; `--step-cap`, `ParseOutcome.steps`, the `steps` column, `confirmation_steps` and the stats-cache step-cap fields are gone, and the caller-facing cap is a work cap. What was done instead of the warning release is the measurement below, run before and after the removal, and recorded in `docs/research/per-word-search-work-cap.md` and divergence 052.
+
+Result of the measurement: no word that completed under the old cap changed (0 exceptions in 7,426 / 7,100 / 6,268 full-list words at three caps). Capped words lost analyses once analysis could spend the whole cap, so confirmation now has a reserve of `cap/16` on top of the cap (none under a cap of 16): analysis may spend the whole cap and then stops, and lookup and confirmation may spend up to `cap + cap/16`. A word whose total work is at most the cap never reaches a refusal, so its result cannot change, by construction rather than by measurement; a stop at 15/16 of the cap was tried first and capped words in that last sixteenth that complete today. The bound is `work_steps <= cap + cap/16`. It recovers part of the loss and not all of it; the tables are in divergence 052. Generation has its own explicit cap per caller (FFI 500,000, browser 100,000, oracle 20,000, CLI 50,000,000), not the parse work cap.
+
+Original reasoning, kept for the evidence it records. Scar: the first shared-unit cap took a 400-word sample from 73 to 6 words with analyses, which is why
 `d23bfa613` restored attempts. Removing the attempt cap therefore requires showing that no word that
 completes today newly caps under the recalibrated default, on all local real grammars and on
 conformance. The default has only about 1.4% margin over the observed maximum at the 200,000-attempt
 setting, so recalibration precedes removal.
 
-### D7: Ranking moves with an explicit raw-path weight
+### D7: Ranking moves with an explicit raw-path weight (done; see `docs/research/per-word-search-work-cap.md`)
 
 `Score::key` sums attempts and `raw_paths` 1:1. Work units are about 30x finer than attempts, so a
 plain swap would shrink `raw_paths` to almost nothing and reopen the mis-ranking recorded in the
 `Score::key` docs (575 vs 127 proposals). The swap needs a measured cost of a raw path in work units.
+
+Done: the weight is 5 work steps per raw path (instructions per raw path over instructions per confirmation work step: 5.5, 3.2, 5.2 and 4.4 on four conformance grammars, mean 4.6). On 160 conformance fixtures the optimizer picks the same winner as v0.13.0 on all 160; a plain 1:1 swap would have changed it on 2. No local real grammar was measured (the Indonesian foma compile did not finish under load).
 
 ### D8: Clock reads leave the per-unit path
 
@@ -211,7 +217,7 @@ is never built into WASM, so WASM cannot report cost.
 
 ## Migration Plan
 
-1. `--step-cap` and the `steps` column stay until task group 6, with a warning release first.
+1. `--step-cap` and the `steps` column were removed in one breaking release; the owner overrode the warning release.
 2. `interfaces.batchTsv` is at 4 with `--cost-column`; removing `steps` moves it to 5, and a host pinned to 4 refuses rather than misreads, matching the
    existing `--describe` contract. Stats schema moves up and is wiped, not migrated.
 3. Rollback before a release is a revert. After one, the old version remains usable through the
@@ -220,4 +226,4 @@ is never built into WASM, so WASM cannot report cost.
 ## Open Questions
 
 - The final acceptance percentages, once the A/B set reports.
-- Whether Motif needs the attempt column for one transition release.
+- None: the owner decided Motif gets no transition release.

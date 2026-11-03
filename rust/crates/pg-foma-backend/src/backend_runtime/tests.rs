@@ -333,7 +333,7 @@ fn selectable_requires_both_accurate_certification_and_clean_production_health()
         apply: 1,
         proposals: 1,
         confirmation: 1,
-        confirmation_steps: 1,
+        confirmation_work: 1,
         raw_paths: 0,
     };
     let divergence = IdentityDivergence::not_compared(0);

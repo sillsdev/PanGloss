@@ -6,10 +6,13 @@ use pg_foma_backend::backend_optimizer::{
 
 /// Bumped 3 -> 4 when the always-zero `build_failures` and `unvisited` pruning buckets were
 /// removed from the artifact; bumped 4 -> 5 when `CandidateReport::production_blocks_publication`
-/// was added so `validate` could recompute the same frontier/winner the optimizer selected under.
+/// was added so `validate` could recompute the same frontier/winner the optimizer selected under;
+/// bumped 5 -> 6 when `Score::confirmation_steps` became `confirmation_work` and `oracle_step_cap` became
+/// `oracle_work_cap`, so a report of attempts is not read as work. The score schema, 2 -> 3, covers the
+/// same rename and the work-denominated ranking key.
 /// Reports from a prior schema are not comparable and must not silently deserialize as if current.
-pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 5;
-pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 2;
+pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 6;
+pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 3;
 use pg_foma_backend::backend_space::FeasibleCount;
 use pg_foma_backend::backend_space::PilotSummary;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -288,7 +291,7 @@ impl BackendOptimizationReport {
         let corpus = match &r.corpus {
             Some(c) => format!(
                 "- Requested: {}\n- Included: {}\n- Excluded: {}\n- Requested hash: {}\n- Included \
-                 hash: {}\n- Exclusion ledger hash: {}\n- Oracle step cap: {}\n- Oracle memory \
+                 hash: {}\n- Exclusion ledger hash: {}\n- Oracle work cap: {}\n- Oracle memory \
                  ceiling (bytes): {}\n- Oracle liveness net (ns): {}\n- Exclusions: {:?}",
                 c.requested,
                 c.included,
@@ -296,7 +299,7 @@ impl BackendOptimizationReport {
                 c.requested_hash,
                 c.included_hash,
                 c.excluded_hash,
-                c.oracle_step_cap,
+                c.oracle_work_cap,
                 c.oracle_memory_ceiling_bytes,
                 c.oracle_liveness_net_ns,
                 c.exclusions

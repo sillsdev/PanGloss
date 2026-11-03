@@ -13,7 +13,7 @@ fn run() -> RunMetadata {
         options_hash: "opts-a".to_string(),
         options_json: "{}".to_string(),
         created_utc: "2026-08-22T00:00:00Z".to_string(),
-        step_cap: None,
+        work_cap: None,
     }
 }
 
@@ -71,12 +71,10 @@ fn fact_with_self_time(
     }
 }
 
-/// `attempts` is a word-level placeholder here -- no test in this module reads it.
 fn word_record(form: &str, elapsed_ns: u64, facts: Vec<FactRecord>) -> WordRecord {
     WordRecord {
         form: form.to_string(),
         elapsed_ns,
-        attempts: 1,
         work: 0,
         passes: 1,
         capped: false,

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, PRuleId};
 use pg_grammar::stats_identity::StatsIdentityCatalog;
-use pg_stats::StepCap;
+use pg_stats::WorkCap;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -282,7 +282,7 @@ fn refuse_if_cache_engine_differs(
     Ok(())
 }
 
-pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 2;
+pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 3;
 
 fn prior_options(
     cache: &pg_stats::StatsCache,
@@ -342,10 +342,9 @@ fn refuse_if_final_template_policy_differs(
     Ok(())
 }
 
-fn refuse_if_work_cap_differs(
+fn refuse_if_search_budget_semantics_differ(
     cache: &pg_stats::StatsCache,
     cache_path: &std::path::Path,
-    requested: usize,
 ) -> Result<(), String> {
     for object in prior_options(cache, cache_path)? {
         if object
@@ -358,12 +357,6 @@ fn refuse_if_work_cap_differs(
                 cache_path.display()
             ));
         }
-        if object.get("work_cap").and_then(Value::as_u64) != Some(requested as u64) {
-            return Err(format!(
-                "stats: cache at {} records a different or missing work cap; requested {}; use a separate cache",
-                cache_path.display(), requested
-            ));
-        }
     }
     Ok(())
 }
@@ -371,8 +364,7 @@ fn refuse_if_work_cap_differs(
 #[derive(Serialize)]
 struct StatsOptionsRecord {
     engine: &'static str,
-    step_cap: Option<StepCap>,
-    work_cap: usize,
+    work_cap: WorkCap,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -428,7 +420,7 @@ fn finish_stats_flush(
         options_hash: identity.hash,
         options_json: identity.json,
         created_utc: now_utc_string(),
-        step_cap: options.step_cap,
+        work_cap: Some(options.work_cap),
     };
 
     let analyzed = records.len();
@@ -509,7 +501,6 @@ pub(crate) fn batch_stats_word(
         record: pg_stats::WordRecord {
             form: word.to_string(),
             elapsed_ns: outcome.elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
-            attempts: outcome.outcome.steps as u64,
             work: outcome.outcome.work_steps as u64,
             passes: outcome.outcome.analyses.len() as u64,
             capped: outcome.outcome.capped,
@@ -553,8 +544,7 @@ impl BatchStatsCache {
 pub(crate) fn prepare_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
-    step_cap: StepCap,
-    work_cap: usize,
+    work_cap: WorkCap,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -563,7 +553,6 @@ pub(crate) fn prepare_batch_stats_hc(
     prepare_batch_stats_hc_inner(
         grammar_path,
         words,
-        step_cap,
         work_cap,
         word_timeout_ms,
         guess,
@@ -578,8 +567,7 @@ pub(crate) fn prepare_batch_stats_hc(
 pub(crate) fn prepare_frozen_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
-    step_cap: StepCap,
-    work_cap: usize,
+    work_cap: WorkCap,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -589,7 +577,6 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
     prepare_batch_stats_hc_inner(
         grammar_path,
         words,
-        step_cap,
         work_cap,
         word_timeout_ms,
         guess,
@@ -604,8 +591,7 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
 fn prepare_batch_stats_hc_inner(
     grammar_path: &str,
     words: &[String],
-    step_cap: StepCap,
-    work_cap: usize,
+    work_cap: WorkCap,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -650,15 +636,14 @@ fn prepare_batch_stats_hc_inner(
         &cache_path,
         always_enforce_final_templates,
     )?;
-    refuse_if_work_cap_differs(&outcome.cache, &cache_path, work_cap)?;
+    refuse_if_search_budget_semantics_differ(&outcome.cache, &cache_path)?;
     outcome
         .cache
-        .refuse_if_step_cap_differs(step_cap)
+        .refuse_if_work_cap_differs(work_cap)
         .map_err(|e| e.to_string())?;
 
     let options = StatsOptionsRecord {
         engine: "hc",
-        step_cap: Some(step_cap),
         work_cap,
         search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
         word_timeout_ms,
@@ -982,7 +967,7 @@ pub(crate) fn run_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
     stats_words: Vec<BatchStatsWord>,
-    step_cap: StepCap,
+    work_cap: WorkCap,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -991,8 +976,7 @@ pub(crate) fn run_batch_stats_hc(
     let prepared = prepare_batch_stats_hc(
         grammar_path,
         words,
-        step_cap,
-        crate::resolved_work_cap(step_cap, None),
+        work_cap,
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
@@ -2070,17 +2054,16 @@ fn render_word(
         return empty_output(conn, "word", filters, reason, format);
     }
     let (grammar_hash, engine) = run_identity(conn)?;
-    let attempts_measured = engine != "foma";
+    let work_measured = engine != "foma";
     let total_elapsed: i64 = rows.iter().map(|r| r.elapsed_ns).sum();
-    let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
     let total_work: i64 = rows.iter().map(|r| r.work).sum();
     let shown_rows = filters.top_n.map_or(rows.len(), |n| n.min(rows.len()));
     let shown = rows.iter().take(shown_rows);
     match format {
         OutputFormat::Text => {
             let mut headers = vec!["form", "time_ms", "time%"];
-            if attempts_measured {
-                headers.extend(["attempts", "attempts%", "work", "work%"]);
+            if work_measured {
+                headers.extend(["work", "work%"]);
             }
             headers.extend(["passes", "capped", "timed_out", "invalid_shape"]);
             let table_rows: Vec<Vec<String>> = shown
@@ -2090,9 +2073,7 @@ fn render_word(
                         format!("{:.3}", r.elapsed_ns as f64 / 1e6),
                         fmt_pct(Some(r.elapsed_ns), Some(total_elapsed)),
                     ];
-                    if attempts_measured {
-                        row.push(r.attempts.to_string());
-                        row.push(fmt_pct(Some(r.attempts), Some(total_attempts)));
+                    if work_measured {
                         row.push(r.work.to_string());
                         row.push(fmt_pct(Some(r.work), Some(total_work)));
                     }
@@ -2106,8 +2087,8 @@ fn render_word(
                 })
                 .collect();
             let mut out = render_table(&headers, &table_rows);
-            if !attempts_measured {
-                out.insert_str(0, "note: engine=foma never records attempts or work; attempts, attempts%, work and work% are omitted (this is not \"zero\")\n");
+            if !work_measured {
+                out.insert_str(0, "note: engine=foma never records work; work and work% are omitted (this is not \"zero\")\n");
             }
             out.push_str(&format!(
                 "TOTAL  {} word(s){}   time {:.3}ms (100.0% of matched word elapsed){}\n",
@@ -2118,8 +2099,8 @@ fn render_word(
                     String::new()
                 },
                 total_elapsed as f64 / 1e6,
-                if attempts_measured {
-                    format!("   attempts {total_attempts}   work {total_work}")
+                if work_measured {
+                    format!("   work {total_work}")
                 } else {
                     String::new()
                 },
@@ -2133,16 +2114,15 @@ fn render_word(
                 "grammar_hash": grammar_hash,
                 "engine": engine,
                 "filters": filters_json(filters),
-                "totals": {"rows": rows.len(), "rows_shown": shown_rows, "time_ns": total_elapsed, "attempts": if attempts_measured { serde_json::json!(total_attempts) } else { serde_json::Value::Null }, "work": if attempts_measured { serde_json::json!(total_work) } else { serde_json::Value::Null }},
-                "unmeasured": if attempts_measured { serde_json::json!({}) } else { serde_json::json!({"attempts": "engine=foma never records it", "work": "engine=foma never records it"}) },
+                "totals": {"rows": rows.len(), "rows_shown": shown_rows, "time_ns": total_elapsed, "work": if work_measured { serde_json::json!(total_work) } else { serde_json::Value::Null }},
+                "unmeasured": if work_measured { serde_json::json!({}) } else { serde_json::json!({"work": "engine=foma never records it"}) },
             });
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in shown {
                 let v = serde_json::json!({
                     "form": r.form,
                     "elapsed_ns": r.elapsed_ns,
-                    "attempts": if attempts_measured { serde_json::json!(r.attempts) } else { serde_json::Value::Null },
-                    "work": if attempts_measured { serde_json::json!(r.work) } else { serde_json::Value::Null },
+                    "work": if work_measured { serde_json::json!(r.work) } else { serde_json::Value::Null },
                     "passes": r.passes,
                     "capped": r.capped,
                     "timed_out": r.timed_out,

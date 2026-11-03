@@ -85,7 +85,8 @@ fn partition_k_recall_parity_via_generator_and_oracle() {
 
     // Oracle (design doc §3): bare-root generation per entry -- module doc.
     let oracle_opts = OracleOpts {
-        step_cap: 20_000,
+        work_cap: 2_000_000,
+        generation_cap: 20_000,
         word_timeout: Some(Duration::from_millis(500)),
         max_rules_per_root: 0,
         max_total_words: 10,

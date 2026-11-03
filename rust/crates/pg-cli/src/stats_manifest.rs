@@ -11,7 +11,7 @@ use pg_snapshot::Snapshot;
 use serde::Serialize;
 
 pub(crate) const FORMAT: &str = "pangloss-batch-stats-manifest";
-pub(crate) const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct SourceIdentity {
@@ -106,8 +106,7 @@ pub(crate) struct RunIdentity {
 pub(crate) struct BatchOptions {
     pub(crate) engine: &'static str,
     pub(crate) threads: usize,
-    pub(crate) step_cap: pg_stats::StepCap,
-    pub(crate) work_cap: usize,
+    pub(crate) work_cap: pg_stats::WorkCap,
     pub(crate) search_budget_semantics: u32,
     pub(crate) word_timeout_ms: Option<u64>,
     pub(crate) guess: bool,

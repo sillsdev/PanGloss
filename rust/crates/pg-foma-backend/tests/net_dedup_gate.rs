@@ -51,7 +51,7 @@ fn deterministic(score: Score) -> DeterministicScore {
         score.arcs,
         score.proposals,
         score.confirmation,
-        score.confirmation_steps,
+        score.confirmation_work,
         score.raw_paths,
         score.pareto_vector(),
     )
@@ -154,12 +154,12 @@ fn dedup_fires_and_avoids_propose_and_confirm_work() {
     );
     eprintln!(
         "{FIRING_FIXTURE}: plan_composed={composed} distinct_nets={} nets_deduped={} \
-         propose_calls_avoided={} confirmation_calls_avoided={} confirmation_steps_avoided={}",
+         propose_calls_avoided={} confirmation_calls_avoided={} confirmation_work_avoided={}",
         on.distinct_nets(),
         on.nets_deduped(),
         on.propose_calls_avoided(),
         on.confirmation_calls_avoided(),
-        on.confirmation_steps_avoided(),
+        on.confirmation_work_avoided(),
     );
 }
 

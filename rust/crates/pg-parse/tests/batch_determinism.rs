@@ -1,4 +1,4 @@
-//! `hc_parse_batch` must produce byte-identical per-word signatures regardless of `max_threads`; runs uncapped (`usize::MAX`) so a step-cap-truncation flake can never be mistaken for scheduling nondeterminism. Self-skips (like `root_trie_gate.rs`) when the untracked Indonesian sample is absent, and stays `#[ignore]`d unconditionally.
+//! `hc_parse_batch` must produce byte-identical per-word signatures regardless of `max_threads`; runs uncapped (`usize::MAX`) so a work-cap-truncation flake can never be mistaken for scheduling nondeterminism. Self-skips (like `root_trie_gate.rs`) when the untracked Indonesian sample is absent, and stays `#[ignore]`d unconditionally.
 
 use std::path::{Path, PathBuf};
 

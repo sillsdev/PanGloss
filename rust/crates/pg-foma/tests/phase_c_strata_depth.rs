@@ -56,7 +56,8 @@ fn strata_depth_recall_parity_via_generator_and_oracle() {
 
     // Oracle: bounded Morpher-as-generator sweep; bare-root generation runs the full multi-stratum cascade, so this is ground truth for each root's fully-derived surface form.
     let oracle_opts = OracleOpts {
-        step_cap: 20_000,
+        work_cap: 2_000_000,
+        generation_cap: 20_000,
         word_timeout: Some(Duration::from_millis(500)),
         max_rules_per_root: 8,
         max_total_words: 20,
@@ -89,7 +90,7 @@ fn strata_depth_recall_parity_via_generator_and_oracle() {
 
     // Recall: re-parse each oracle word via an independent Morpher to recover its tag sequence, then check that sequence is reachable in `net`; 100% required, no known compiler gap for this construct.
     let morpher =
-        Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
+        Morpher::new(&g, oracle_opts.work_cap).with_word_timeout(oracle_opts.word_timeout);
     let popts = ParseOptions::default();
     let width = tags::tag_width(g.morphemes.len());
 

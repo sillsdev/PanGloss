@@ -358,7 +358,8 @@ pub(crate) fn generate_request_words(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let morpher = Morpher::new(grammar, crate::DEFAULT_STEP_CAP.as_morpher_cap());
+    let morpher = Morpher::new(grammar, crate::DEFAULT_GENERATION_WORK_CAP)
+        .with_generation_cap(crate::DEFAULT_GENERATION_WORK_CAP);
     let outcome =
         morpher.generate_words_bounded(root, &others, pg_featstruct::FeatureStruct::EMPTY);
     if let Some(reason) = outcome.stop_reason {

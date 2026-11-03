@@ -40,7 +40,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-conformance-fixtures/src/tests.rs` (`a_morpher_block_the_harness_cannot_apply_is_refused`, `incomplete_replay_cannot_pass_as_an_expected_zero_analysis`) | 097 |
 | `parity_divergence_census.rs` | 028 |
 | `pg-cli/src/grammar_health/tests.rs` (`grammar_health_reports_a_capped_wordform_and_compares_the_rest`, `stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count`, `stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_count`, `grammar_health_stored_analyses_flag_selects_the_comparison`) | 089 |
-| `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/step_cap_work_gate.rs` | 052 |
+| `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/work_cap_gate.rs` | 052 |
 | `pg-grammar/src/compile/tests.rs` membership and unconstrained wildcard regressions; `machine/conformance/edge-cases/chained-output-feature-override-loss`; separate-lane `underdefined/07-featureless-phoneme`, `underdefined/12-featureless-rule-class` on `feat/xample-measure` | 076 |
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 076 |

@@ -5,21 +5,24 @@
 By default a row has 5 columns, or 6 with `--guess`. External adapters, such as the conformance
 suite's driver, depend on exactly that layout. Only the command line decides it: a FieldWorks
 project that guesses roots by default (`<HC><GuessRoots>`, see below) still writes 5 columns unless
-`--guess` is passed. The two parser-work columns appear only when
-`--work-columns` is passed.
+`--guess` is passed. The parser-work column appears only when `--work-columns` is passed.
 
 A host can find out whether the flag exists. `pangloss --describe` reports
-`"interfaces": {"batchTsv": 4}` and lists `--work-columns` and `--cost-column` under `batch`. Version 4 adds
-`--cost-column` and changes nothing without it. Version 3 keeps version 2's layout and shares the
-result-status decision with `serve`; version 2 already supports `--work-columns`. The describe
-`schema_version` stays 1 because the default output did not change. Pass `--work-columns` only when
-`interfaces.batchTsv` is at least 2, and `--cost-column` only when it is at least 4. An older binary
-refuses the flag.
+`"interfaces": {"batchTsv": 5}` and lists `--work-columns` and `--cost-column` under `batch`. Version 5
+removes the `steps` column: `--work-columns` now writes only `work_steps`, `--cost-column` writes `work_steps` before `cost`, and `--step-cap` is refused
+like any unknown option (use `--work-cap`). The default 5- and 6-column layout is unchanged, so a
+reader that never passes `--work-columns` need not change. Version 4 added `--cost-column` and changed
+nothing without it. Version 3 keeps version 2's layout and shares the result-status decision with
+`serve`; version 2 already supports `--work-columns`. The describe `schema_version` stays 1 because the
+default output did not change. Pass `--work-columns` only when `interfaces.batchTsv` is at least 2,
+and read it as one column only when it is at least 5 (versions 2 to 4 wrote `steps` before
+`work_steps`). Pass `--cost-column` only when it is at least 4. A host pinned to an older version must
+refuse a binary that reports 5, and an older binary refuses a flag it does not have.
 
 ## Result rows
 
 ```
-idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]  [cost]
+idx  word  elapsed_ms  status  signature  [guessed]  [work_steps]  [cost]
 ```
 
 | column | meaning |
@@ -27,28 +30,28 @@ idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]  [cost]
 | `idx` | 0-based position of the word in `words.txt` (blank lines are skipped and not counted) |
 | `word` | the word, trimmed |
 | `elapsed_ms` | wall-clock milliseconds for this word: time on this computer, which varies with load and thread count |
-| `status` | `ok`, `CAP` (stopped at the analysis-attempt cap `--step-cap` or the work cap `--work-cap`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
+| `status` | `ok`, `CAP` (stopped at the work cap `--work-cap`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
-| `steps` | present only with `--work-columns`. Analysis attempts: the quantity `--step-cap` bounds |
-| `work_steps` | present only with `--work-columns`. Work steps: every work unit the word reserved, across analysis, the inner matchers and confirmation. This is the quantity `--work-cap` bounds |
-| `cost` | present only with `--cost-column`. The word's fixed-weight parse cost; see `docs/design/parse-cost.md`. Refused together with `--stats` |
+| `work_steps` | present only with `--work-columns`. The word's work: the total of work steps it reserved, across analysis, the inner matchers and confirmation. `--work-cap` bounds the analysis; confirmation may spend one sixteenth of the cap more (none under a cap of 16), so `work_steps` never exceeds the cap plus one sixteenth |
+| `cost` | present only with `--cost-column`, which also writes `work_steps` before it. The word's fixed-weight parse cost; see `docs/design/parse-cost.md`. Refused together with `--stats` |
 
-When present, `cost` is always the last field, the two count columns come just before it, and every
-other column keeps its default index, including `guessed` at index 5. With `--work-columns` a row
-has 7 fields, or 8 with `--guess`, and `--cost-column` adds one. Read `cost` from the end of the row,
-then `steps` and `work_steps` from the end of what remains.
+When present, `cost` is always the last field, `work_steps` comes just before it, and every
+other column keeps its default index, including `guessed` at index 5. With `--work-columns` alone a row
+has 6 fields, or 7 with `--guess`; with `--cost-column` (with or without `--work-columns`) it has 7, or 8
+with `--guess`. The extra field count therefore tells a cost run from a work-columns run. Read `cost` from
+the end of the row, then `work_steps` from the end of what remains.
 
 ### Determinism
 
-`steps` and `work_steps` depend only on the grammar, the word, the cap settings and the PanGloss
-version. They do not depend on thread count, machine or load. `cost` repeats exactly for one word list only with `--threads 1`. Under more threads the first words on each thread carry one-time allocation, and a word's cost has been seen to differ by 0.07% across thread counts, so per-word equality is not promised. The run's total moved at most 0.0001% when measured, so compare totals: use `pangloss cost-compare before.tsv after.tsv`, which totals only words that are `ok` in both runs. `elapsed_ms` is a secondary figure.
+`work_steps` depends only on the grammar, the word, the cap setting and the PanGloss
+version. It does not depend on thread count, machine or load. `cost` repeats exactly for one word list only with `--threads 1`. Under more threads the first words on each thread carry one-time allocation, and a word's cost has been seen to differ by 0.07% across thread counts, so per-word equality is not promised. The run's total moved at most 0.0001% when measured, so compare totals: use `pangloss cost-compare before.tsv after.tsv`, which totals only words that are `ok` in both runs. `elapsed_ms` is a secondary figure.
 
 - A `CAP` row is deterministic: the same inputs stop at the same point with the same counts. On a
-  work-cap stop, `work_steps` equals the work cap.
-- A `TIMEOUT` row is **not** deterministic: the deadline is wall-clock time, so its `steps`,
+  work-cap stop, `work_steps` is at least the work cap and at most the cap plus one sixteenth of it. A word whose `work_steps` is within the cap never stops.
+- A `TIMEOUT` row is **not** deterministic: the deadline is wall-clock time, so its
   `work_steps` and partial result depend on how fast this computer ran. Never compare a TIMEOUT
-  row's counts across runs.
+  row's count across runs.
 
 ## Root guessing
 
@@ -81,8 +84,8 @@ whatever the setting.
 
 ## Relation to `batch --stats`
 
-The statistics cache's `word` table records the same two counts whether or not `--work-columns` is passed: `word.attempts` is `steps` and
-`word.work` is `work_steps`. The cache schema version is 10 (`run.schema_version` and
+The statistics cache's `word` table records the same count whether or not `--work-columns` is passed: `word.work` is
+`work_steps`. The cache schema version is 11 (`run.schema_version` and
 `cache_identity.schema_version`); a cache with another version is wiped and recreated, never
 migrated.
 
@@ -125,20 +128,18 @@ count work reservations, so a word's fact rows do not generally add up to its `w
 bound each other. To get a word's total work, read `work_steps` (or `word.work`). Do not sum
 `fact.work`.
 
-What the two have in common: every analysis attempt reserves exactly one work unit, so
-`steps <= work_steps`. The `work_steps` remainder beyond `steps` includes reservations for matchers' inner steps,
-segmentation, and confirmation; it is not the sum of fact work. Measured on the conformance
-fixtures `languages/metathesis-phase-isolation` and `edge-cases/truncate-morphotactic`, with no
-cap:
+`work_steps` includes reservations for matchers' inner steps, segmentation, and confirmation; it is
+not the sum of fact work. Measured on the conformance fixtures `languages/metathesis-phase-isolation`
+and `edge-cases/truncate-morphotactic`, with no cap:
 
-| word | steps | work_steps | sum of `fact.work` |
-|---|---|---|---|
-| sumulat | 28 | 901 | 394 |
-| keadilan | 132 | 2567 | 1552 |
-| katibɯd | 28 | 1021 | 364 |
-| katibɯt | 19 | 779 | 273 |
-| pur | 19 | 411 | 163 |
-| gas | 14 | 692 | 109 |
+| word | work_steps | sum of `fact.work` |
+|---|---|---|
+| sumulat | 799 | 359 |
+| keadilan | 2475 | 1525 |
+| katibɯd | 922 | 336 |
+| katibɯt | 657 | 238 |
+| pur | 363 | 148 |
+| gas | 683 | 95 |
 
 The `fact_work_is_segments_examined_not_the_word_work_steps_total` test in
 `rust/crates/pg-parse/tests/stats_collector_gate.rs` pins these numbers.

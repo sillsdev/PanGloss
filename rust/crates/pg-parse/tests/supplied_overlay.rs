@@ -178,7 +178,7 @@ fn supplied_root_participates_in_ordinary_inflection() {
         "mrS",
         r#"<LexicalEntry id="compiled-pap" partOfSpeech="posV"><MorphemeId>ROOT</MorphemeId><Allomorphs><Allomorph id="compiled-pap-a"><PhoneticShape>pap</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>"#,
     );
-    let compiled_out = Morpher::new(&compiled, 100_000).parse_word("paps");
+    let compiled_out = Morpher::new(&compiled, 10_000_000).parse_word("paps");
     let compiled_analysis = &compiled_out.structured[0];
     assert_eq!(
         analysis.root_morpheme_index,
@@ -192,7 +192,7 @@ fn supplied_root_participates_in_ordinary_inflection() {
     assert_eq!(analysis.syn_fs, compiled_analysis.syn_fs);
     assert_eq!(analysis.mpr, compiled_analysis.mpr);
     assert_eq!(parsed.analyses[0].1, compiled_out.analyses[0].1);
-    assert!(Morpher::new(&compiled, 100_000)
+    assert!(Morpher::new(&compiled, 10_000_000)
         .generate_words_from_analysis(compiled_analysis)
         .contains(&"paps".to_string()));
 }
@@ -283,7 +283,7 @@ fn supplied_roots_participate_as_compound_heads_and_non_heads() {
         "mrC",
         r#"<LexicalEntry id="compiled-pap" partOfSpeech="posN"><MorphemeId>HEAD</MorphemeId><Allomorphs><Allomorph id="compiled-pap-a"><PhoneticShape>pap</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="compiled-das" partOfSpeech="posN"><MorphemeId>NONHEAD</MorphemeId><Allomorphs><Allomorph id="compiled-das-a"><PhoneticShape>das</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>"#,
     );
-    let compiled_m = Morpher::new(&compiled, 100_000);
+    let compiled_m = Morpher::new(&compiled, 10_000_000);
     let compiled_out = compiled_m.parse_word("papdas");
     let compiled_analysis = &compiled_out.structured[0];
     assert_eq!(
@@ -396,7 +396,7 @@ fn overlay_root_matches_the_same_root_compiled_into_the_grammar() {
 
     let compiled_xml = r#"<HermitCrabInput><Language><Name>T</Name><PartsOfSpeech><PartOfSpeech id="n"><Name>n</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="official-b" partOfSpeech="n"><Gloss>compiled-equivalent</Gloss><Allomorphs><Allomorph id="bo"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
     let compiled = pg_grammar::load(compiled_xml).unwrap();
-    let compiled_out = Morpher::new(&compiled, 10_000).parse_word("b");
+    let compiled_out = Morpher::new(&compiled, 1_000_000).parse_word("b");
     assert_eq!(
         overlay_out
             .analyses

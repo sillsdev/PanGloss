@@ -66,7 +66,8 @@ fn circumfix_recall_parity_via_generator_and_oracle() {
 
     // Oracle: bounded Morpher-as-generator sweep over every root, bare AND circumfixed, sized to stay cheap by construction (3 roots x <=2 forms each).
     let oracle_opts = OracleOpts {
-        step_cap: 20_000,
+        work_cap: 2_000_000,
+        generation_cap: 20_000,
         word_timeout: Some(Duration::from_millis(500)),
         max_rules_per_root: 8,
         max_total_words: 100,
@@ -107,7 +108,7 @@ fn circumfix_recall_parity_via_generator_and_oracle() {
 
     // Recall: re-parse each oracle word via an independent Morpher to recover its own tag sequence, then check that sequence is reachable in `net`. 100% required.
     let morpher =
-        Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
+        Morpher::new(&g, oracle_opts.work_cap).with_word_timeout(oracle_opts.word_timeout);
     let popts = ParseOptions::default();
     let width = tags::tag_width(g.morphemes.len());
 
@@ -258,7 +259,7 @@ fn ordered_multi_insert_no_first_insert_shortcut_recall_parity() {
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
 
     // --- Oracle: the REAL synthesis engine, not a hand re-derivation of "x + y + root". ---
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
     let words = morpher.generate_words(root, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
     assert_eq!(
         words,
@@ -338,7 +339,7 @@ fn null_role_structural_drop_recall_parity() {
     let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
 
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
     let words = morpher.generate_words(root, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
     assert_eq!(
         words,
@@ -438,7 +439,7 @@ fn process_role_drop_is_routed_through_the_structural_composite_path() {
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
 
     // --- Oracle: the REAL synthesis engine, not a hand re-derivation of the Modify semantics. ---
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
     let words = morpher.generate_words(root, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
     assert_eq!(
         words,
@@ -546,7 +547,7 @@ fn infix_with_drop_structural_recall_parity() {
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
 
     // --- Oracle: the REAL synthesis engine, not a hand re-derivation of "a + x + b". ---
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
     let words = morpher.generate_words(root, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
     assert_eq!(
         words,
@@ -668,7 +669,7 @@ fn redup_first_allomorph_then_dropping_prefix_allomorph_structural_recall_parity
     let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
 
-    let morpher = Morpher::new(&g, 20_000);
+    let morpher = Morpher::new(&g, 2_000_000);
     let root_redup = entry_id_of(&g, "eRootRedup");
     let root_prefix = entry_id_of(&g, "eRootPrefix");
 

@@ -1,6 +1,6 @@
 //! `pangloss cost-calibrate`, built only with the `cost-calibration` feature: suggests new fixed weights.
 
-use crate::{load_grammar, outcome_status, resolved_work_cap, DEFAULT_STEP_CAP};
+use crate::{load_grammar, outcome_status, DEFAULT_WORK_CAP};
 use pg_cost::calibrate::{current_weights, fit, fit_from, Fit, Sample};
 use pg_cost::Counts;
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
@@ -190,8 +190,7 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
         return Err(format!("{words_path}: no words"));
     }
     let targets = targets_path.map(|path| read_targets(path)).transpose()?;
-    let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap())
-        .with_work_cap(resolved_work_cap(DEFAULT_STEP_CAP, None))
+    let morpher = Morpher::new(&grammar, DEFAULT_WORK_CAP.as_morpher_cap())
         .with_always_enforce_final_templates(grammar.always_enforce_final_templates)
         .with_guess_roots(grammar.guess_roots);
     let opts = morpher.project_parse_options();

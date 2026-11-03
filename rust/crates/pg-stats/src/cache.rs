@@ -14,8 +14,8 @@ use crate::model::{
     StructuralLocator, WordRecord,
 };
 use crate::schema;
-use crate::step_cap::StepCap;
 use crate::util::to_i64;
+use crate::work_cap::WorkCap;
 
 /// An open stats cache: one SQLite connection, WAL mode, a caller-chosen busy timeout.
 pub struct StatsCache {
@@ -158,17 +158,17 @@ impl StatsCache {
         Ok(reusable)
     }
 
-    /// Errors when this cache already holds a run recorded under a step cap other than
-    /// `requested`. Unlike engine or grammar hash, an absent recorded step cap imposes no
+    /// Errors when this cache already holds a run recorded under a work cap other than
+    /// `requested`. Unlike engine or grammar hash, an absent recorded work cap imposes no
     /// constraint by itself (a run that recorded none, e.g. `foma`, cannot conflict with anything)
     /// -- only two differing recorded values conflict. Call this before deciding which words to
     /// skip (`existing_words`): a cache hit produced under a different cap is not interchangeable
     /// with one produced under `requested`, since a word that hit the old cap might complete under
     /// a larger one, or vice versa.
-    pub fn refuse_if_step_cap_differs(&self, requested: StepCap) -> Result<(), StatsError> {
+    pub fn refuse_if_work_cap_differs(&self, requested: WorkCap) -> Result<(), StatsError> {
         let requested_storage = requested.to_storage()?;
-        match conflicting_step_cap(&self.conn, requested_storage)? {
-            Some(existing_storage) => Err(step_cap_mismatch(existing_storage, requested)),
+        match conflicting_work_cap(&self.conn, requested_storage)? {
+            Some(existing_storage) => Err(work_cap_mismatch(existing_storage, requested)),
             None => Ok(()),
         }
     }
@@ -263,19 +263,19 @@ impl StatsCache {
             )?;
         }
 
-        let step_cap_storage = run.step_cap.map(StepCap::to_storage).transpose()?;
-        if let Some(requested_storage) = step_cap_storage {
-            if let Some(existing_storage) = conflicting_step_cap(&tx, requested_storage)? {
-                return Err(step_cap_mismatch(
+        let work_cap_storage = run.work_cap.map(WorkCap::to_storage).transpose()?;
+        if let Some(requested_storage) = work_cap_storage {
+            if let Some(existing_storage) = conflicting_work_cap(&tx, requested_storage)? {
+                return Err(work_cap_mismatch(
                     existing_storage,
-                    run.step_cap
-                        .expect("step_cap_storage is only Some when run.step_cap is Some"),
+                    run.work_cap
+                        .expect("work_cap_storage is only Some when run.work_cap is Some"),
                 ));
             }
         }
 
         tx.execute(
-            "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns, step_cap)
+            "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns, work_cap)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 schema::SCHEMA_VERSION,
@@ -289,7 +289,7 @@ impl StatsCache {
                 run.created_utc,
                 to_i64("word_count", words.len() as u64)?,
                 to_i64("total_elapsed_ns", total_elapsed_ns)?,
-                step_cap_storage,
+                work_cap_storage,
             ],
         )?;
         let run_id = tx.last_insert_rowid();
@@ -346,11 +346,11 @@ impl StatsCache {
             options_hash,
             options_json,
             word_count,
-            step_cap,
+            work_cap,
         ) = tx
             .query_row(
                 "SELECT run_id, schema_version, counter_semantics, build_info, grammar_hash, \
-                        engine, options_hash, options_json, word_count, step_cap \
+                        engine, options_hash, options_json, word_count, work_cap \
                  FROM run",
                 [],
                 |row| {
@@ -418,7 +418,7 @@ impl StatsCache {
         }
         let raw_words = {
             let mut statement = tx.prepare(
-                "SELECT form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape \
+                "SELECT form, elapsed_ns, passes, capped, timed_out, invalid_shape \
                  FROM word WHERE run_id = ?1 ORDER BY form",
             )?;
             let rows = statement.query_map(params![run_id], |row| {
@@ -426,10 +426,9 @@ impl StatsCache {
                     row.get::<_, String>(0)?,
                     row.get::<_, u64>(1)?,
                     row.get::<_, u64>(2)?,
-                    row.get::<_, u64>(3)?,
+                    row.get::<_, i64>(3)?,
                     row.get::<_, i64>(4)?,
                     row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
                 ))
             })?;
             rows.collect::<Result<Vec<_>, _>>()?
@@ -443,11 +442,10 @@ impl StatsCache {
         let words = raw_words
             .into_iter()
             .map(
-                |(form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape)| {
+                |(form, elapsed_ns, passes, capped, timed_out, invalid_shape)| {
                     Ok(FrozenWordSummary {
                         form,
                         elapsed_ns,
-                        attempts,
                         passes,
                         capped: read_frozen_bool("capped", capped)?,
                         timed_out: read_frozen_bool("timed_out", timed_out)?,
@@ -473,7 +471,7 @@ impl StatsCache {
             options_hash,
             options_json,
             word_count,
-            step_cap: step_cap.map(crate::StepCap::from_storage),
+            work_cap: work_cap.map(crate::WorkCap::from_storage),
             words,
         })
     }
@@ -490,12 +488,11 @@ fn read_frozen_bool(field: &'static str, value: i64) -> Result<bool, StatsError>
 fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, StatsError> {
     execute_cached(
         tx,
-        "INSERT INTO word (run_id, form, elapsed_ns, attempts, work, passes, capped, timed_out, invalid_shape)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "INSERT INTO word (run_id, form, elapsed_ns, work, passes, capped, timed_out, invalid_shape)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(form) DO UPDATE SET
            run_id = excluded.run_id,
            elapsed_ns = excluded.elapsed_ns,
-           attempts = excluded.attempts,
            work = excluded.work,
            passes = excluded.passes,
            capped = excluded.capped,
@@ -505,7 +502,6 @@ fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, 
             run_id,
             word.form,
             to_i64("elapsed_ns", word.elapsed_ns)?,
-            to_i64("attempts", word.attempts)?,
             to_i64("work", word.work)?,
             to_i64("passes", word.passes)?,
             i64::from(word.capped),
@@ -596,13 +592,13 @@ fn write_fact(
     Ok(())
 }
 
-/// The stored step cap of any run in `run` that differs from `requested_storage`, if any.
-fn conflicting_step_cap(
+/// The stored work cap of any run in `run` that differs from `requested_storage`, if any.
+fn conflicting_work_cap(
     conn: &Connection,
     requested_storage: i64,
 ) -> Result<Option<i64>, StatsError> {
     conn.query_row(
-        "SELECT step_cap FROM run WHERE step_cap IS NOT NULL AND step_cap <> ?1 LIMIT 1",
+        "SELECT work_cap FROM run WHERE work_cap IS NOT NULL AND work_cap <> ?1 LIMIT 1",
         params![requested_storage],
         |row| row.get(0),
     )
@@ -610,9 +606,9 @@ fn conflicting_step_cap(
     .map_err(Into::into)
 }
 
-fn step_cap_mismatch(existing_storage: i64, requested: StepCap) -> StatsError {
-    StatsError::StepCapMismatch {
-        existing: StepCap::from_storage(existing_storage).to_string(),
+fn work_cap_mismatch(existing_storage: i64, requested: WorkCap) -> StatsError {
+    StatsError::WorkCapMismatch {
+        existing: WorkCap::from_storage(existing_storage).to_string(),
         requested: requested.to_string(),
     }
 }

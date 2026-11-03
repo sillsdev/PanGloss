@@ -13,7 +13,7 @@ use pg_grammar_model::model::{
     StratumId, TableId, VarTable,
 };
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_filtered, AnalyzerConfig, NonHeadRootFilter, StepBudget,
+    analyze_stratum, analyze_stratum_filtered, AnalyzerConfig, NonHeadRootFilter, WordBudget,
 };
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
@@ -208,7 +208,7 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     assert!(
@@ -236,7 +236,7 @@ fn split_dropped_when_non_head_is_not_a_root() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     assert!(
@@ -278,7 +278,7 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(
         !has_apa_ka_split(&g, &out.words),
@@ -313,7 +313,7 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(
         !has_apa_ka_split(&g, &out.words),
@@ -339,7 +339,7 @@ fn unfiltered_backward_compat_ignores_the_gate_entirely() {
         s,
         word(&g, "apaka", s),
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     assert!(

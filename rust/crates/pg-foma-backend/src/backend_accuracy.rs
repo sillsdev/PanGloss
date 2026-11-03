@@ -4,7 +4,7 @@
 //!
 //! "Does this compilation work?" and "is this compilation as cheap as it could be?" are different
 //! questions, and one mechanism was being asked to answer both. `crate::backend_optimizer::Score`
-//! ranks candidates by DETERMINISTIC WORK, and its leading component is `confirmation_steps` — so
+//! ranks candidates by DETERMINISTIC WORK, and its leading component is `confirmation_work` — so
 //! any attempt to replace confirmation with a cheaper check does not speed the same answer up, it
 //! redefines what "best" means. That is why such attempts were rejected, and rightly.
 //!
@@ -22,7 +22,7 @@
 //! `crate::backend_runtime::PreparedCorpus` already runs the ground-truth `pg_parse::Morpher` ONCE
 //! per corpus occurrence and shares the result across every candidate in the run
 //! (`oracle_calls == words.len()`), and it is COMPLETE for every occurrence that passes eligibility
-//! — a step-capped occurrence refuses the whole corpus rather than contributing a partial
+//! — a work-capped occurrence refuses the whole corpus rather than contributing a partial
 //! expectation. So the ground truth for the whole vocabulary is already in hand before the first
 //! candidate is built. What remains per candidate is proposing, and then pure set membership.
 //!
@@ -177,8 +177,8 @@ pub struct AccuracyCounters {
     /// nothing incremented it, and the accuracy path has no `pg_parse::Morpher` in scope to
     /// increment it with (see `crate::composite::propose_union_peel_with_diagnostics`).
     pub confirmation_calls: u64,
-    /// Full-HC step ticks consumed. Structurally zero, same argument.
-    pub confirmation_steps: u64,
+    /// Full-HC work steps consumed. Structurally zero, same argument.
+    pub confirmation_work: u64,
 }
 
 impl AccuracyCounters {
@@ -207,9 +207,9 @@ impl AccuracyCounters {
         self.confirmation_calls = self
             .confirmation_calls
             .saturating_add(other.confirmation_calls);
-        self.confirmation_steps = self
-            .confirmation_steps
-            .saturating_add(other.confirmation_steps);
+        self.confirmation_work = self
+            .confirmation_work
+            .saturating_add(other.confirmation_work);
     }
 }
 

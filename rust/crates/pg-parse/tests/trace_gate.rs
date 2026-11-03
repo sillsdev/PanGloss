@@ -432,7 +432,7 @@ fn rich_failure_context_preserves_parse_results_and_exact_surface_inputs() {
     let after = m.parse_word_traced("bu", &ParseOptions::default(), &rich);
     assert!(!after.analyses.is_empty());
     assert_eq!(before.analyses, after.analyses);
-    assert_eq!(before.steps, after.steps);
+    assert_eq!(before.work_steps, after.work_steps);
     assert_eq!(plain.len(), rich.len());
     let mut failures = Vec::new();
     find_all_by_type(

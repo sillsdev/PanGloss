@@ -40,7 +40,7 @@ own doc flags as "a policy constant, not a derived fact"
    make cost-aware — the first deliverable is a choice point, not a cost model.
 2. **VERIFIED: the objective the user wants already exists, settled and documented — it just
    never reaches selection.** `Score::key` ranks candidates by deterministic work with
-   confirm-side + propose-side work first (`confirmation_steps + raw_paths`), then confirmation
+   confirm-side + propose-side work first (`confirmation_work + raw_paths`), then confirmation
    calls, then proposals, then `states + arcs` *last*
    (`rust/crates/pg-foma/src/backend_optimizer.rs:413-421`). That is precisely "constrain HC's
    searching first, size second." Its doc records why wall clock is inadmissible (zero-spread
@@ -52,7 +52,7 @@ own doc flags as "a policy constant, not a derived fact"
 
 - *Speed / "constrain HC's searching"* = proposer precision: `Score.proposals` (post-dedup
   candidates sent to confirm), `Score.raw_paths` (pre-dedup `apply_up` paths),
-  `Score.confirmation` / `Score.confirmation_steps` (HC pruner work)
+  `Score.confirmation` / `Score.confirmation_work` (HC pruner work)
   (`backend_optimizer.rs:314-337`). The pipeline is propose→confirm
   (`rust/crates/pg-foma/src/confirm.rs:197,209,239` — `parse_word_selected` calls), and the
   dead-end-census skill records the measured ground truth: 91-98% of junk-candidate time is HC
@@ -136,8 +136,8 @@ is evidence for building the split backend, not evidence that enumeration is goo
 | `check_proposal_ratio` (`backend_runtime.rs:749-765`) | Pure threshold check: proposals ≤ oracle-analyses × threshold. Takes an `EmissionStrategy`, returns a typed violation. | Yes (strategy is a parameter) | Only where called: the cross-compiler gate (below) and its own unit tests. Not wired into selection or CLI. |
 | `MAX_PROPOSAL_RATIO = 2` (`tests/cross_compiler_equivalence_gate.rs:19-25`) | The precision signal in ratio form — proposals per oracle analysis ≤ 2 — asserted for all three backends. | Yes, all three strategies | Yes, in `-Mode test` — but over exactly ONE fixture (`template-category-sharing`). A constant chosen for one synthetic fixture, not a calibrated band. |
 | `certify_corpus` / `certify_word_measured` (`backend_runtime.rs:894-968`, `:811-859`) | Correctness only: deduplicated identity-set parity vs the full-HC oracle. `Certification::selectable()` is true only for `FullHcConfirmed` (`backend_optimizer.rs:299-301`). | Yes (per candidate) | Yes, inside every `evaluate_plans*` run. This is the binary gate behind which cost ranking is safe — not itself a cost signal. |
-| `evaluate_plans*` + `Score` (`backend_runtime.rs:1484-1900`; `Score` at `backend_optimizer.rs:314-337`) | **The real measured per-backend cost record**: states, arcs, build ns, apply ns, proposals, confirmation calls, confirmation steps, raw paths — measured over a corpus against a shared prepared oracle, for plan-composed candidates AND both whole-grammar backends (`evaluate_via_tuned_emit_mode` `:1372`, `evaluate_via_templated_emit_mode` `:1421`), with `realized_strategy` recording which compiler actually produced the net (`:1087-1105`). | Yes | Only offline: `pangloss recipe-optimize` (`pg-cli/src/main.rs:212`, `recipe_optimize.rs`) and gates/tests. Requires a full build per candidate plus one oracle pass per corpus. Fail-closed bounds exist: oracle step cap 20k (`:649`), liveness net 300s (`:665`), memory ceiling 12GiB (`:683`). |
-| `Score::key` (`backend_optimizer.rs:413-421`) | The settled objective: `(confirmation_steps + raw_paths, confirmation, proposals, states+arcs, id)`. Wall clock deliberately excluded. | Yes | Yes, ranks candidates within a `recipe-optimize` run. Feeds nothing in `backend_selection`. |
+| `evaluate_plans*` + `Score` (`backend_runtime.rs:1484-1900`; `Score` at `backend_optimizer.rs:314-337`) | **The real measured per-backend cost record**: states, arcs, build ns, apply ns, proposals, confirmation calls, confirmation steps, raw paths — measured over a corpus against a shared prepared oracle, for plan-composed candidates AND both whole-grammar backends (`evaluate_via_tuned_emit_mode` `:1372`, `evaluate_via_templated_emit_mode` `:1421`), with `realized_strategy` recording which compiler actually produced the net (`:1087-1105`). | Yes | Only offline: `pangloss recipe-optimize` (`pg-cli/src/main.rs:212`, `recipe_optimize.rs`) and gates/tests. Requires a full build per candidate plus one oracle pass per corpus. Fail-closed bounds exist: oracle oracle work cap 2M (`:649`), liveness net 300s (`:665`), memory ceiling 12GiB (`:683`). |
+| `Score::key` (`backend_optimizer.rs:413-421`) | The settled objective: `(confirmation_work + raw_paths, confirmation, proposals, states+arcs, id)`. Wall clock deliberately excluded. | Yes | Yes, ranks candidates within a `recipe-optimize` run. Feeds nothing in `backend_selection`. |
 | `backend_optimizer.rs` (search) | Budgeted search (`Budget` `:12-25`: candidates/evaluations/elapsed/build/memory/confirmation), pilot sampling (`PilotCosts` p50/p95 `:673-676`, `choose_strategy_with_policy` `:721-729`), Pareto ranking, replay. | Yes | Via `recipe-optimize` only. |
 | `compose_budget.rs` | Kernel-style containment for the composition path: states 2M (`:73`), arcs 20M (`:79`), tuples 5k (`:88`), groups 64 (`:101`), lexc lines 1M (`:113`), compound pairs 4M (`:165`). A breach means "fall back to another engine", explicitly not a graded signal (`:97-100`). | Composition path only (PlanComposed/templated cascade) | Yes, default-on during those builds. |
 | `health.rs` | The size axis vocabulary: payload bands 100MB/200MB/1GB/5GB (`:136-143`), `severity_for_size_bytes` (`:154-166`) — and the three-way provenance vocabulary `ValueProvenance { Predicted, ProvenBound, Observed }` (`:233-240`). Health is *reported about* a compile, never consulted during one (`:4-7`). Bands are admitted-unmeasured: "no grammar was measured to pick them" (`:124-135`). | No — schema only | Yes as schema; populated by `pangloss fst-health` and the health evaluator. |
@@ -164,7 +164,7 @@ each labeled with its provenance, and a statement of *when* it becomes available
 
 | Signal | Observed | ProvenBound | Predicted (pre-compile) |
 |---|---|---|---|
-| Precision (proposals / raw_paths / confirmation_steps per confirmed analysis) | **Exists** — `Score` via `evaluate_plans*`, per backend, corpus-relative. Cost: one full build per backend + one oracle pass + one propose+confirm pass per corpus. Only produced by offline `recipe-optimize` runs and gates; **persisted nowhere** for reuse. | Does not exist. (The `MAX_PROPOSAL_RATIO=2` gate is a pinned assertion for one fixture, not a bound derived per grammar.) | **Does not exist at all.** `characterization.rs` predicts emitted work and ConfirmOnly expansion for the whole grammar under "some backend" semantics — nothing predicts candidates-per-analysis for a named backend without building it. |
+| Precision (proposals / raw_paths / confirmation_work per confirmed analysis) | **Exists** — `Score` via `evaluate_plans*`, per backend, corpus-relative. Cost: one full build per backend + one oracle pass + one propose+confirm pass per corpus. Only produced by offline `recipe-optimize` runs and gates; **persisted nowhere** for reuse. | Does not exist. (The `MAX_PROPOSAL_RATIO=2` gate is a pinned assertion for one fixture, not a bound derived per grammar.) | **Does not exist at all.** `characterization.rs` predicts emitted work and ConfirmOnly expansion for the whole grammar under "some backend" semantics — nothing predicts candidates-per-analysis for a named backend without building it. |
 | Size (payload bytes, states+arcs) | **Exists** — `Score.states/arcs` per backend (recipe-optimize); payload bytes + `severity_for_size_bytes` via `fst-health`/pack, tuned backend only. | Partial: a `compose_budget` breach is a real proven-bound event (`FindingCode::ResourceBudgetReached`/`ProvenBoundExceedsBudget`, `health.rs:283-285`), but only on the composition path, and it is containment, not a graded value. | Partial and not per-backend: characterization's quantifier/tuple/compound products are whole-grammar predictions. |
 
 The named gaps, bluntly:
@@ -371,7 +371,7 @@ the reassuring direction. If recall is sacred, (b) for `ConfirmOnly`-disposition
 concretely, what the *first* Mbugwe compile is allowed to cost.
 **Why it cannot be defaulted:** every Observed precision signal is corpus-relative, and both its
 cost and its trustworthiness scale differently at 21MB/fwdata than at fixture scale: the oracle
-pass is bounded but real (step cap 20k, ceiling 12GiB — `backend_runtime.rs:649,683`), and a
+pass is bounded but real (oracle work cap 2M, ceiling 12GiB — `backend_runtime.rs:649,683`), and a
 pilot over the corpus *front* provably misses the tail where worst words live
 (dead-end-census SKILL `:41-52` — Amharic's census inverted its ranking on a 40-word slice).
 **Options:** (a) *One decider*: full three-backend census for every grammar, fixtures and Mbugwe

@@ -29,21 +29,24 @@ fn homophonous_suffix_grammar(k: usize) -> pg_grammar_model::model::Grammar {
     build_grammar_custom_lexicon(&mrule_defs, &ids.join(" "), lexicon)
 }
 
-/// Control (no `--word-timeout-ms`): a small bounded `--step-cap` alone must fire, proving this fixture is genuinely heavy without ever running the full unbounded case in the test suite.
+/// The work an unbounded run of the fixture word takes, measured once with `--work-cap unbounded`.
+const UNBOUNDED_WORK_STEPS: usize = 3_032_258;
+
+/// Control (no `--word-timeout-ms`): a small bounded `--work-cap` alone must fire, proving this fixture is genuinely heavy without ever running the full unbounded case in the test suite.
 #[test]
-fn homophonous_suffix_fixture_is_genuinely_heavy_under_a_small_step_cap() {
+fn homophonous_suffix_fixture_is_genuinely_heavy_under_a_small_work_cap() {
     let g = homophonous_suffix_grammar(7);
     let word = format!("sag{}", "n".repeat(7));
-    let m = Morpher::new(&g, 500);
+    let m = Morpher::new(&g, 50_000);
     let outcome = m.parse_word(&word);
     assert!(
         outcome.capped,
-        "a step-cap of 500 (vs. the ~13699 steps an unbounded run takes) must fire"
+        "a work cap of 50000 (vs. the work an unbounded run takes) must fire"
     );
     assert!(!outcome.timed_out, "no --word-timeout-ms was configured");
 }
 
-/// The actual regression guard: `--step-cap` uncapped (must never fire, proving the timeout is independent of it), `--word-timeout-ms` armed at 50ms, on the real pathological `parse_word` call from the control test above.
+/// The actual regression guard: `--work-cap` uncapped (must never fire, proving the timeout is independent of it), `--word-timeout-ms` armed at 50ms, on the real pathological `parse_word` call from the control test above.
 #[test]
 fn fifty_ms_word_timeout_fires_promptly_on_a_genuinely_slow_parse() {
     let g = homophonous_suffix_grammar(7);
@@ -60,13 +63,13 @@ fn fifty_ms_word_timeout_fires_promptly_on_a_genuinely_slow_parse() {
     );
     assert!(
         !outcome.capped,
-        "--step-cap was usize::MAX -- the step cap itself must never fire"
+        "the work cap was usize::MAX -- it must never fire"
     );
-    // Machine-speed-independent proxy for "aborted early": the deadline fires well short of the full unbounded unwind's step count.
+    // Machine-speed-independent proxy for "aborted early": the deadline fires well short of the full unbounded unwind's work.
     assert!(
-        outcome.steps < 9_000,
-        "aborted at {} steps, which should be far short of the ~13699 an unbounded unwind takes",
-        outcome.steps
+        outcome.work_steps < UNBOUNDED_WORK_STEPS * 2 / 3,
+        "aborted at {} work steps, which should be far short of the {UNBOUNDED_WORK_STEPS} an unbounded unwind takes",
+        outcome.work_steps
     );
     // A generous upper bound, well under the unbounded run's time but tolerant of a slow CI machine.
     assert!(
@@ -74,4 +77,14 @@ fn fifty_ms_word_timeout_fires_promptly_on_a_genuinely_slow_parse() {
         "elapsed {elapsed:?} should stay a small fraction of the ~3.6s unbounded run, not balloon \
          toward it"
     );
+}
+
+/// Slow (about 4 s): the work an unbounded run of the fixture word takes, which UNBOUNDED_WORK_STEPS must equal. Run it by hand after changing the grammar or the charging.
+#[test]
+#[ignore = "slow: runs the pathological word to completion"]
+fn the_unbounded_work_constant_is_what_an_unbounded_run_takes() {
+    let g = homophonous_suffix_grammar(7);
+    let word = format!("sag{}", "n".repeat(7));
+    let outcome = Morpher::new(&g, usize::MAX).parse_word(&word);
+    assert_eq!(outcome.work_steps, UNBOUNDED_WORK_STEPS);
 }

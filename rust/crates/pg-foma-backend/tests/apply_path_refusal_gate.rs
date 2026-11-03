@@ -203,7 +203,7 @@ fn an_ordinary_fixture_passes_the_default_envelope_and_trips_a_tiny_one() {
     );
 }
 
-/// `None` resolves to the calibrated default, not unbounded -- the same inversion `oracle_step_cap` uses.
+/// `None` resolves to the calibrated default, not unbounded -- the same inversion `oracle_work_cap` uses.
 #[test]
 fn none_resolves_to_the_calibrated_default_and_only_usize_max_opts_out() {
     let default = RuntimeBudget::default().resolved_apply_budget();

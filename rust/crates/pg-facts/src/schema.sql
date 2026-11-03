@@ -462,7 +462,7 @@ CREATE TABLE stats_run (
     options_hash TEXT NOT NULL COLLATE BINARY,
     options_json TEXT NOT NULL COLLATE BINARY,
     created_utc TEXT NOT NULL COLLATE BINARY,
-    step_cap INTEGER CHECK (step_cap IS NULL OR step_cap = -1 OR step_cap > 0),
+    work_cap INTEGER CHECK (work_cap IS NULL OR work_cap = -1 OR work_cap > 0),
     cache_word_count INTEGER NOT NULL CHECK (cache_word_count >= 0),
     requested_word_count INTEGER NOT NULL CHECK (requested_word_count >= cache_word_count),
     batch_options_json TEXT NOT NULL COLLATE BINARY
@@ -530,13 +530,12 @@ CREATE TABLE stats_word (
     form TEXT NOT NULL COLLATE BINARY,
     status TEXT NOT NULL CHECK (status IN ('complete', 'incomplete', 'invalid_shape', 'not_attempted')),
     elapsed_ns INTEGER CHECK (elapsed_ns IS NULL OR elapsed_ns >= 0),
-    attempts INTEGER CHECK (attempts IS NULL OR attempts >= 0),
     passes INTEGER CHECK (passes IS NULL OR passes >= 0),
     capped INTEGER CHECK (capped IN (0, 1) OR capped IS NULL),
     timed_out INTEGER CHECK (timed_out IN (0, 1) OR timed_out IS NULL),
     invalid_shape INTEGER CHECK (invalid_shape IN (0, 1) OR invalid_shape IS NULL),
     UNIQUE (run_id, form),
-    CHECK ((status = 'not_attempted' AND elapsed_ns IS NULL AND attempts IS NULL AND passes IS NULL AND capped IS NULL AND timed_out IS NULL AND invalid_shape IS NULL) OR (status <> 'not_attempted' AND elapsed_ns IS NOT NULL AND attempts IS NOT NULL AND passes IS NOT NULL AND capped IS NOT NULL AND timed_out IS NOT NULL AND invalid_shape IS NOT NULL))
+    CHECK ((status = 'not_attempted' AND elapsed_ns IS NULL AND passes IS NULL AND capped IS NULL AND timed_out IS NULL AND invalid_shape IS NULL) OR (status <> 'not_attempted' AND elapsed_ns IS NOT NULL AND passes IS NOT NULL AND capped IS NOT NULL AND timed_out IS NOT NULL AND invalid_shape IS NOT NULL))
 );
 
 CREATE TABLE stats_fact (

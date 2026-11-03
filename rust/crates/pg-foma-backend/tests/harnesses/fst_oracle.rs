@@ -31,8 +31,8 @@ mod net_dedup_gate;
 mod net_dedup_sizing_census;
 #[path = "../net_shape_gate.rs"]
 mod net_shape_gate;
-#[path = "../oracle_step_determinism_gate.rs"]
-mod oracle_step_determinism_gate;
+#[path = "../oracle_work_determinism_gate.rs"]
+mod oracle_work_determinism_gate;
 #[path = "../permanent_variant_refusals.rs"]
 mod permanent_variant_refusals;
 #[path = "../pk2_eliminate_flag_oracle.rs"]

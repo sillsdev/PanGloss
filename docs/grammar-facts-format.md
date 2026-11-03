@@ -1,7 +1,7 @@
-# PanGloss grammar facts format (v8)
+# PanGloss grammar facts format (v9)
 
 **Format:** `pangloss-grammar-facts`. **SQLite application ID:** `1346848321` (`0x50474641`, `PGFA`).
-**Schema version:** `8`. The executable DDL is [schema.sql](../rust/crates/pg-facts/src/schema.sql).
+**Schema version:** `9`. The executable DDL is [schema.sql](../rust/crates/pg-facts/src/schema.sql).
 
 ## Changes from v4
 
@@ -94,6 +94,13 @@ table by table, using the lists below.
 - Compiled output and references: `compiled_output`, `object_state`, `statement_reference`.
 
 Each added table is described under Tables, with its key, columns and section.
+
+## Changes from v8
+
+Schema v9 increments `artifact_meta.schema_version` and `PRAGMA user_version` from 8 to 9. It removes
+`stats_word.attempts` (the analysis-attempt count), renames `stats_run.step_cap` to `stats_run.work_cap`,
+and accepts only stats manifest version 2. No v8 reader remains: a v8 consumer would read a missing
+`attempts` as zero.
 
 ## Compiled output keys
 
@@ -191,7 +198,7 @@ pangloss facts <snapshot.json> --out <facts.sqlite> --context <facts-context.jso
 
 To attach one frozen HermitCrab run, pass both `--stats <cache.sqlite>` and
 `--stats-manifest <manifest.json>`. They must be supplied together. The stats cache must be the
-closed cache named by the version 1 manifest produced by `pangloss batch --stats-manifest`; the
+closed cache named by the version 2 manifest produced by `pangloss batch --stats-manifest`; the
 reader validates it against the exact Snapshot bytes, model fingerprint, compiler build, resolved
 production compile options, cache digest, run metadata, options, ordered input list, and per-word
 completion census. It refuses an unsupported, stale, changed, or mixed identity. A validated run may
@@ -249,7 +256,7 @@ The `artifact_meta` singleton records:
 
 | Column | Meaning |
 |---|---|
-| `application_id`, `schema_version`, `format` | File identity: `1346848321`, `8`, and `pangloss-grammar-facts`. These mirror `PRAGMA application_id` and `PRAGMA user_version`. |
+| `application_id`, `schema_version`, `format` | File identity: `1346848321`, `9`, and `pangloss-grammar-facts`. These mirror `PRAGMA application_id` and `PRAGMA user_version`. |
 | `writer_version`, `compiler_version`, `source_revision`, `build_identity` | Producer build identity. |
 | `snapshot_format`, `snapshot_version` | The input envelope identity. |
 | `provenance_schema_version`, `source_inventory_status` | The Snapshot's importer provenance version and status. |
@@ -702,12 +709,12 @@ checked before using those words as completed parser evidence.
 | Table | Key and columns |
 |---|---|
 | `stats_cache_identity` | `(singleton INTEGER PRIMARY KEY CHECK(singleton=1), cache_sha256 TEXT NOT NULL, cache_bytes INTEGER NOT NULL CHECK(cache_bytes>=0), schema_version INTEGER NOT NULL CHECK(schema_version>0), counter_semantics INTEGER NOT NULL CHECK(counter_semantics>0), engine TEXT NOT NULL CHECK(engine='hc'), grammar_hash TEXT NOT NULL)`. One row records the closed cache bytes. |
-| `stats_run` | `run_id INTEGER PRIMARY KEY CHECK(run_id>0)`; `engine`, `grammar_hash`, `options_hash`, `options_json`, `created_utc`, nullable `step_cap`, `cache_word_count`, `requested_word_count`, and `batch_options_json`. Engine is `hc`; cap is NULL, `-1`, or positive; counts are nonnegative and requested count is at least cache count. One row records exact run metadata and manifest batch options. |
+| `stats_run` | `run_id INTEGER PRIMARY KEY CHECK(run_id>0)`; `engine`, `grammar_hash`, `options_hash`, `options_json`, `created_utc`, nullable `work_cap`, `cache_word_count`, `requested_word_count`, and `batch_options_json`. Engine is `hc`; cap is NULL, `-1`, or positive; counts are nonnegative and requested count is at least cache count. One row records exact run metadata and manifest batch options. |
 | `stats_morpheme`, `stats_stratum`, `stats_allomorph` | Each has a nonnegative integer primary key `morpheme_id`, `stratum_id`, or `allomorph_id`, nullable `key`, `label`, and `identity_quality` (checked against `authored`, `structural`, `synthetic`), and `allomorph_id` also has nullable `output_id`, referencing `compiled_output`. ID zero has NULL key and quality; positive IDs require key, label, and quality. ID zero is the not-applicable dimension sentinel. Guessed-root dimensions use synthetic identities; strata and compiled allomorphs use structural identities. |
 | `stats_object` | `object_id INTEGER PRIMARY KEY CHECK(object_id>0)`, nonnull `key`, `kind` checked against `morph_rule`, `phon_rule`, `lex_entry`, `root_index`, `guesser`, `overlay`, nonnull `label`, `identity_quality` checked against `authored`, `structural`, `synthetic`, `morpheme_id` referencing `stats_morpheme`, nullable `output_id` referencing `compiled_output`; `(kind,key)` is unique. |
 | `stats_object_source` | `(object_id, source_kind, source_guid, role)` primary key, `object_id` references `stats_object`; `source_kind` is `entry`, `msa`, `phonologicalRule`, or `compoundRule`. Roles are `owner_entry`, `morpheme_msa`, `msa_owner_entry`, `source_form_owner_entry`, `phonological_rule`, or `compound_rule`. GUIDs have no foreign key. It is `WITHOUT ROWID`, with index `stats_object_source_guid(source_kind,source_guid)`. |
 | `stats_allomorph_source` | `(allomorph_id, source_ordinal)` primary key; `role` takes the values below; `allomorph_id` references `stats_allomorph`; ordinal is nonnegative; `source_allomorph_guid` is nullable; `omitted` is 0/1 and can be 1 only with NULL GUID. Circumfix products retain both source halves in order. Omitted forms use role `null_affix`; unresolved compiler source forms use `unresolved_source_form`; other roles are `stem`, `bound_stem`, `root`, `bound_root`, `prefix`, `suffix`, `infix`, `circumfix`, `proclitic`, `enclitic`, `clitic`, `particle`, `phrase`, `discontig_phrase`, `prefixing_interfix`, `infixing_interfix`, or `suffixing_interfix`. `WITHOUT ROWID`, with index `stats_allomorph_source_guid(source_allomorph_guid)`. |
-| `stats_word` | Positive integer `word_id` primary key; `run_id` references `stats_run`; exact `form`; `status` checked against `complete`, `incomplete`, `invalid_shape`, `not_attempted`; nullable nonnegative `elapsed_ns`, `attempts`, `passes`; nullable 0/1 `capped`, `timed_out`, `invalid_shape`. `(run_id,form)` is unique. `not_attempted` rows have all measurements NULL; other statuses require all measurements and flags non-NULL. |
+| `stats_word` | Positive integer `word_id` primary key; `run_id` references `stats_run`; exact `form`; `status` checked against `complete`, `incomplete`, `invalid_shape`, `not_attempted`; nullable nonnegative `elapsed_ns`, `passes`; nullable 0/1 `capped`, `timed_out`, `invalid_shape`. `(run_id,form)` is unique. `not_attempted` rows have all measurements NULL; other statuses require all measurements and flags non-NULL. |
 | `stats_fact` | `(word_id, object_id, stratum_id, allomorph_id, direction)` primary key; all four IDs reference their dimension/object tables; direction is `analysis` or `synthesis`; `attempts`, `work`, `outputs`, `not_applied`, `no_root`, `surface_mismatch`, `uses`, and `self_time_ns` (nanoseconds) are nonnegative `INTEGER NOT NULL`. `WITHOUT ROWID`, with indexes `stats_fact_object(object_id,direction)`, `stats_fact_stratum(stratum_id,direction)`, and `stats_fact_allomorph(allomorph_id,direction)`. |
 | `stats_counter_support` | `(engine, counter_semantics, object_kind, counter, direction)` primary key; engine `hc`; object kinds as `stats_object.kind`; counter is attempts, work, outputs, not-applied, no-root, surface-mismatch, uses, or self-time; direction is `both`, `analysis`, or `synthesis`; `support` is `measured`, `not_applicable`, or `not_wired`. Logical counters use `both`; self-time rows require one concrete direction. `WITHOUT ROWID`. |
 

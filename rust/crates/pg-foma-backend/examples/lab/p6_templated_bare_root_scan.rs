@@ -22,7 +22,7 @@ use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
-const ORACLE_STEP_CAP: usize = 20_000;
+const ORACLE_WORK_CAP: usize = 2_000_000;
 const STACK_BYTES: usize = 512 * 1024 * 1024;
 
 fn sample_path(name: &str) -> PathBuf {
@@ -127,7 +127,7 @@ fn run() {
         composed.statecount, composed.arccount
     );
 
-    let morpher = Morpher::new(&g, ORACLE_STEP_CAP);
+    let morpher = Morpher::new(&g, ORACLE_WORK_CAP);
     let popts = ParseOptions::default();
 
     let words_path = sample_path("aweti-words.txt");

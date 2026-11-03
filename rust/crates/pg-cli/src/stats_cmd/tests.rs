@@ -197,7 +197,7 @@ fn seed_policy_cache(path: &std::path::Path, options_json: &str) -> pg_stats::St
         options_hash: "options".to_string(),
         options_json: options_json.to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome.cache.flush(&run, &[]).unwrap();
     outcome.cache
@@ -345,7 +345,7 @@ fn stable_cache_snapshot(path: &std::path::Path) -> (Vec<Vec<String>>, Vec<Vec<S
             .expect("read stats snapshot")
     };
     let words = query(
-        "SELECT form, attempts, work, passes, capped, timed_out, invalid_shape \
+        "SELECT form, work, passes, capped, timed_out, invalid_shape \
              FROM word ORDER BY form",
     );
     let facts = query(
@@ -592,7 +592,6 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
     let counted_tsv = fs::read_to_string(&counted_out).expect("read work-columns tsv");
     let row: Vec<&str> = counted_tsv.lines().last().unwrap().split('\t').collect();
     assert_eq!(words.len(), 1);
-    assert!(words[0].work > words[0].attempts, "{:?}", words[0]);
     let (word_work, fact_work, remainder_count, attributed): (i64, i64, i64, i64) = conn.query_row(
         "SELECT w.work, SUM(f.work_steps), SUM(CASE WHEN o.kind = 'unattributed' THEN 1 ELSE 0 END), SUM(CASE WHEN o.kind <> 'unattributed' THEN f.work_steps ELSE 0 END) FROM word w JOIN fact f ON f.word_id = w.word_id JOIN object o ON o.object_id = f.object_id GROUP BY w.word_id",
         [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
@@ -601,9 +600,9 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
     assert_eq!(remainder_count, 1);
     assert!(attributed > 0);
     assert_eq!(
-        [words[0].attempts.to_string(), words[0].work.to_string()],
-        row[row.len() - 2..],
-        "word.attempts and word.work must be the TSV row's steps and work_steps"
+        [words[0].work.to_string()],
+        row[row.len() - 1..],
+        "word.work must be the TSV row's work_steps"
     );
     let rows = pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
     assert!(
@@ -874,7 +873,7 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
     let (grammar_xml, word) = primary_fixture();
     let words_text = format!("{word}\n{word}x\n{word}y\n");
     let words = vec![word.clone(), format!("{word}x"), format!("{word}y")];
-    let step_cap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
+    let work_cap = WorkCap::Finite(std::num::NonZeroU64::new(5_000_000_000).unwrap());
     let timeout_ms = Some(10_000);
 
     let dir_legacy = scratch_dir("legacy-stats-snapshot");
@@ -888,8 +887,8 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
             "--start",
             "1",
             "--guess",
-            "--step-cap",
-            "50000000",
+            "--work-cap",
+            "5000000000",
             "--word-timeout-ms",
             "10000",
             "--always-enforce-final-templates",
@@ -900,7 +899,7 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
     let legacy_grammar_path = &legacy_args[0];
     let legacy_cache_path = dir_legacy.join("legacy.sqlite3");
     let (grammar, _warnings) = crate::load_grammar(legacy_grammar_path).expect("load grammar");
-    let morpher = pg_parse::Morpher::new(&grammar, step_cap.as_morpher_cap())
+    let morpher = pg_parse::Morpher::new(&grammar, work_cap.as_morpher_cap())
         .with_word_timeout(timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(true);
     let opts = pg_parse::ParseOptions::default().with_guess_root(true);
@@ -909,7 +908,7 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
         legacy_grammar_path,
         &words,
         expected_words,
-        step_cap,
+        work_cap,
         timeout_ms,
         true,
         true,
@@ -933,8 +932,8 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
                 "--start",
                 "1",
                 "--guess",
-                "--step-cap",
-                "50000000",
+                "--work-cap",
+                "5000000000",
                 "--word-timeout-ms",
                 "10000",
                 "--always-enforce-final-templates",
@@ -981,7 +980,7 @@ fn batch_stats_cache_refusal_leaves_the_previous_tsv_intact() {
         &dir,
         &grammar_xml,
         &format!("{word}\n"),
-        &["--stats", "--step-cap", "1000", "--cache", cache],
+        &["--stats", "--work-cap", "100000", "--cache", cache],
     );
     crate::run_batch(&first).expect("first stats batch run");
     let before = fs::read_to_string(&out_path).expect("read first tsv");
@@ -991,9 +990,9 @@ fn batch_stats_cache_refusal_leaves_the_previous_tsv_intact() {
         &dir,
         &grammar_xml,
         &format!("{word}\n"),
-        &["--stats", "--step-cap", "2000", "--cache", cache],
+        &["--stats", "--work-cap", "200000", "--cache", cache],
     );
-    crate::run_batch(&second).expect_err("a step-cap mismatch must refuse the cache");
+    crate::run_batch(&second).expect_err("a work-cap mismatch must refuse the cache");
     assert_eq!(
         fs::read_to_string(&out_path).expect("read tsv after refusal"),
         before,
@@ -1094,7 +1093,7 @@ fn run_batch_stats_hc_second_run_on_fully_cached_words_reports_zero_prune_counte
         &grammar_path_str,
         &words,
         first_stats,
-        StepCap::Unbounded,
+        WorkCap::Unbounded,
         None,
         false,
         false,
@@ -1113,7 +1112,7 @@ fn run_batch_stats_hc_second_run_on_fully_cached_words_reports_zero_prune_counte
         &grammar_path_str,
         &words,
         second_stats,
-        StepCap::Unbounded,
+        WorkCap::Unbounded,
         None,
         false,
         false,
@@ -1410,7 +1409,6 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
             pg_stats::WordRecord {
                 form: "ok".to_string(),
                 elapsed_ns: 1_000,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -1421,7 +1419,6 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
             pg_stats::WordRecord {
                 form: "capped".to_string(),
                 elapsed_ns: 3_000,
-                attempts: 1,
                 work: 0,
                 passes: 0,
                 capped: true,
@@ -1648,12 +1645,11 @@ fn empty_result_distinguishes_never_recorded_from_filtered_to_nothing() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     let word_record = pg_stats::WordRecord {
         form: "onlyword".to_string(),
         elapsed_ns: 1_000,
-        attempts: 1,
         work: 0,
         passes: 1,
         capped: false,
@@ -1739,7 +1735,7 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     let make_fact = |key: &str, morpheme_key: &str, attempts: u64| pg_stats::FactRecord {
         object_key: key.to_string(),
@@ -1763,7 +1759,6 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
     let word_record = pg_stats::WordRecord {
         form: "w".to_string(),
         elapsed_ns: 1_000,
-        attempts: 1,
         work: 0,
         passes: 1,
         capped: false,
@@ -1877,7 +1872,6 @@ fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_s
         vec![pg_stats::WordRecord {
             form: "w".to_string(),
             elapsed_ns: 1000,
-            attempts: 4,
             work: 0,
             passes: 1,
             capped: false,
@@ -1903,7 +1897,7 @@ fn synthetic_stats_cache_with_words(
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome.cache.flush(&run, &words).unwrap();
     outcome.cache
@@ -2006,10 +2000,7 @@ fn foma_word_report_does_not_claim_unmeasured_attempts() {
 
     let json = render_word(cache.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
     let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
-    assert_eq!(
-        meta["unmeasured"]["attempts"],
-        "engine=foma never records it"
-    );
+    assert_eq!(meta["unmeasured"]["work"], "engine=foma never records it");
     let row: serde_json::Value = serde_json::from_str(json.lines().nth(1).unwrap()).unwrap();
     assert!(row["attempts"].is_null(), "{row}");
 }
@@ -2021,7 +2012,6 @@ fn word_report_exports_invalid_shape_in_text_and_json() {
         vec![pg_stats::WordRecord {
             form: "bad-shape".to_string(),
             elapsed_ns: 500,
-            attempts: 4,
             work: 0,
             passes: 0,
             capped: false,
@@ -2049,7 +2039,6 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
             pg_stats::WordRecord {
                 form: "ok".to_string(),
                 elapsed_ns: 100,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -2060,7 +2049,6 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
             pg_stats::WordRecord {
                 form: "capped".to_string(),
                 elapsed_ns: 500,
-                attempts: 1,
                 work: 0,
                 passes: 0,
                 capped: true,
@@ -2071,7 +2059,6 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
             pg_stats::WordRecord {
                 form: "timed-out".to_string(),
                 elapsed_ns: 400,
-                attempts: 1,
                 work: 0,
                 passes: 0,
                 capped: false,
@@ -2348,7 +2335,7 @@ fn stats_read_rejects_a_cache_with_multiple_engines() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome
         .cache
@@ -2357,7 +2344,6 @@ fn stats_read_rejects_a_cache_with_multiple_engines() {
             &[pg_stats::WordRecord {
                 form: "hc-word".to_string(),
                 elapsed_ns: 1,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -2417,7 +2403,7 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome
         .cache
@@ -2426,7 +2412,6 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
             &[pg_stats::WordRecord {
                 form: "a".to_string(),
                 elapsed_ns: 1,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -2458,20 +2443,27 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
 }
 
 #[test]
-fn work_budget_cache_refuses_missing_semantics_and_changed_work_limits() {
-    for options in ["{}", r#"{"search_budget_semantics":1,"work_cap":100}"#] {
+fn a_cache_from_an_older_search_budget_is_refused() {
+    assert_eq!(
+        SEARCH_BUDGET_SEMANTICS, 3,
+        "the literal is pinned so a bump is a decision"
+    );
+    let previous = 2;
+    let older =
+        format!(r#"{{"search_budget_semantics":{previous},"step_cap":"200000","work_cap":100}}"#);
+    for options in ["{}".to_string(), older] {
         let dir = scratch_dir("old-work-budget");
         let path = dir.join("cache.sqlite3");
-        let cache = seed_policy_cache(&path, options);
-        let err = refuse_if_work_cap_differs(&cache, &path, 100).unwrap_err();
+        let cache = seed_policy_cache(&path, &options);
+        let err = refuse_if_search_budget_semantics_differ(&cache, &path).unwrap_err();
         assert!(err.contains("search-budget semantics"), "{err}");
     }
     let dir = scratch_dir("work-budget-policy");
     let path = dir.join("cache.sqlite3");
-    let cache = seed_policy_cache(&path, r#"{"search_budget_semantics":2,"work_cap":100}"#);
-    refuse_if_work_cap_differs(&cache, &path, 100).unwrap();
-    let err = refuse_if_work_cap_differs(&cache, &path, 200).unwrap_err();
-    assert!(err.contains("work cap"), "{err}");
+    let current =
+        format!(r#"{{"search_budget_semantics":{SEARCH_BUDGET_SEMANTICS},"work_cap":"100"}}"#);
+    let cache = seed_policy_cache(&path, &current);
+    refuse_if_search_budget_semantics_differ(&cache, &path).unwrap();
 }
 
 #[test]
@@ -2484,15 +2476,7 @@ fn work_budget_cache_reuses_equal_limits_and_refuses_before_truncating_tsv() {
         &dir,
         &grammar_xml,
         &format!("{word}\n"),
-        &[
-            "--stats",
-            "--step-cap",
-            "unbounded",
-            "--work-cap",
-            "10000000",
-            "--cache",
-            cache,
-        ],
+        &["--stats", "--work-cap", "10000000", "--cache", cache],
     );
     crate::run_batch(&args).unwrap();
     assert!(!fs::read_to_string(&out_path).unwrap().is_empty());
@@ -2535,7 +2519,7 @@ fn frozen_cache_refuses_to_relabel_stale_counter_semantics() {
         options_hash: "options".into(),
         options_json: "{}".into(),
         word_count: 0,
-        step_cap: None,
+        work_cap: None,
         words: Vec::new(),
     };
     let completion = crate::stats_manifest::CompletionCensus {
@@ -2578,7 +2562,7 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
             &manifest,
             "--threads",
             "1",
-            "--step-cap",
+            "--work-cap",
             "unbounded",
         ],
     );
@@ -2587,7 +2571,7 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     let value: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).expect("manifest JSON");
     assert_eq!(value["format"], "pangloss-batch-stats-manifest");
-    assert_eq!(value["version"], 1);
+    assert_eq!(value["version"], 2);
     assert_eq!(value["source"]["kind"], "hc-xml");
     assert!(value["source"]["compile_options_json"].is_null());
     assert_eq!(
@@ -2611,7 +2595,7 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     assert_eq!(value["run"]["engine"], "hc");
     assert!(value["run"]["id"].as_i64().unwrap() > 0);
     assert_eq!(value["batch"]["threads"], 1);
-    assert_eq!(value["batch"]["step_cap"], "unbounded");
+    assert_eq!(value["batch"]["work_cap"], "unbounded");
     assert_eq!(value["input"]["words"], serde_json::json!(words));
     assert_eq!(value["input"]["word_count"], 2);
     assert_eq!(
@@ -2895,8 +2879,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
     let prepared = prepare_frozen_batch_stats_hc(
         &cancelled_args[0],
         std::slice::from_ref(&word),
-        crate::DEFAULT_STEP_CAP,
-        crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+        crate::DEFAULT_WORK_CAP,
         None,
         false,
         false,
@@ -2920,8 +2903,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
     let prepared = prepare_frozen_batch_stats_hc(
         &missing_args[0],
         std::slice::from_ref(&word),
-        crate::DEFAULT_STEP_CAP,
-        crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+        crate::DEFAULT_WORK_CAP,
         None,
         false,
         false,
@@ -2940,8 +2922,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
         crate::stats_manifest::BatchOptions {
             engine: "hc",
             threads: 1,
-            step_cap: crate::DEFAULT_STEP_CAP,
-            work_cap: crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+            work_cap: crate::DEFAULT_WORK_CAP,
             search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
             word_timeout_ms: None,
             guess: false,

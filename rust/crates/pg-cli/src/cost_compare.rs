@@ -19,7 +19,7 @@ struct Row {
     cost: u64,
 }
 
-/// Whether `fields` is a complete result row with a cost; a `STARTED` sentinel is neither.
+/// A cost row is the five result fields, an optional `guessed`, then `work_steps` and `cost`: `--cost-column` always writes `work_steps` too, so a lone `--work-columns` run cannot be mistaken for it. A `STARTED` sentinel is not a row.
 fn parse_row(line: &str) -> Result<Option<(usize, Row)>, String> {
     let fields: Vec<&str> = line.split('\t').collect();
     if fields.len() < 5 {
@@ -29,7 +29,7 @@ fn parse_row(line: &str) -> Result<Option<(usize, Row)>, String> {
         return Err("a row has an unexpected shape".into());
     }
     let guessed = usize::from(matches!(fields.get(5), Some(&"true") | Some(&"false")));
-    if (fields.len() - 5 - guessed).is_multiple_of(2) {
+    if fields.len() - 5 - guessed != 2 {
         return Err("a row has no cost column; rerun `batch` with --cost-column".into());
     }
     let idx = fields[0]

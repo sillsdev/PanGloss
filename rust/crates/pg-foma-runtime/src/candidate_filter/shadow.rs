@@ -181,9 +181,9 @@ pub struct ShadowCostAttribution {
     /// Chunks every member of which would die. Only these disappear entirely under enforcement;
     /// a chunk that merely loses members still runs.
     pub removable_chunks: usize,
-    pub removable_steps: usize,
+    pub removable_work: usize,
     /// Steps belonging to chunks that would keep at least one member, and so would still be paid.
-    pub surviving_chunk_steps: usize,
+    pub surviving_chunk_work: usize,
     /// Observations, never assertions: a duration is not reproducible.
     pub exact_elapsed: Duration,
     pub removable_elapsed: Duration,
@@ -278,12 +278,13 @@ pub fn attribute(
         }
         if chunk_is_removable(chunk, doomed, presented) {
             attribution.removable_chunks += 1;
-            attribution.removable_steps = attribution.removable_steps.saturating_add(chunk.steps);
+            attribution.removable_work =
+                attribution.removable_work.saturating_add(chunk.work_steps);
             attribution.removable_elapsed += chunk.elapsed;
         } else {
-            attribution.surviving_chunk_steps = attribution
-                .surviving_chunk_steps
-                .saturating_add(chunk.steps);
+            attribution.surviving_chunk_work = attribution
+                .surviving_chunk_work
+                .saturating_add(chunk.work_steps);
         }
     }
 
@@ -300,7 +301,7 @@ pub fn attribute(
             }
             Some(&index) if chunks[index].members.len() == 1 => {
                 attribution.would_die_sole_member += 1;
-                exact.push(chunks[index].steps);
+                exact.push(chunks[index].work_steps);
                 attribution.exact_elapsed += chunks[index].elapsed;
             }
             Some(_) => attribution.would_die_shared_member += 1,

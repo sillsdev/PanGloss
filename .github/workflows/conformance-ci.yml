@@ -37,7 +37,7 @@ jobs:
     # Defensive upper bound only -- normal runs finish in well under a minute once built (see
     # rust/tools/run-conformance.sh's own local timings). A risky compiler refactor could in
     # principle introduce a genuine infinite loop in the default engine's search (neither
-    # --step-cap nor --word-timeout-ms is passed by run-conformance.sh today), so this caps the
+    # --work-cap nor --word-timeout-ms is passed by run-conformance.sh today), so this caps the
     # damage to a bounded, clearly-reported job timeout instead of an hours-long hang.
     timeout-minutes: 30
     steps:

@@ -22,12 +22,10 @@ use crate::error::{
 /// `Box<GrammarHandle>` leaked via `Box::into_raw`; reclaimed by `hc_grammar_free`.
 pub type HcGrammarHandle = *mut std::ffi::c_void;
 
-/// Matches the Indonesian parity-gate configuration already established by the M6/M7 work
-/// (`--step-cap 500000`; see MEMORY `rust-parity-facts`): a bounded budget by default
-/// so a native host cannot trigger the unbounded-memory runaway documented there (a prior session
-/// hit 55GB+ on an uncapped Indonesian word) merely by loading a grammar and parsing.
-/// Plan §4.2's ABI has no step-cap parameter yet in `hc_grammar_load` — a candidate addition
-/// for the #448 budgets port (M10) if a host ever needs a different budget.
+/// The native ABI's per-word work cap (50,000,000 work steps) and generation limit: bounded by default
+/// so a native host cannot trigger the unbounded-memory runaway (a prior session hit 55GB+ on an
+/// uncapped Indonesian word) merely by loading a grammar and parsing. `hc_grammar_load` takes no cap
+/// parameter, so a host that needs another budget needs a new ABI version.
 ///
 /// `pub` so tests can build a plain in-process `pg_parse::Morpher` with the identical
 /// configuration the FFI handle uses internally — the FFI-vs-in-process parity test needs both
@@ -35,10 +33,11 @@ pub type HcGrammarHandle = *mut std::ffi::c_void;
 /// masquerade as one.
 pub const DEFAULT_ANALYSIS_POLICY: pg_lexicon::AnalysisPolicy =
     pg_lexicon::AnalysisPolicy::native_abi_v1();
-pub const DEFAULT_STEP_CAP: usize = DEFAULT_ANALYSIS_POLICY.step_cap;
+pub const DEFAULT_WORK_CAP: usize = DEFAULT_ANALYSIS_POLICY.work_cap;
 
 fn native_v1_morpher(grammar: &'static Grammar) -> Morpher<'static> {
-    Morpher::new(grammar, DEFAULT_ANALYSIS_POLICY.step_cap)
+    Morpher::new(grammar, DEFAULT_ANALYSIS_POLICY.work_cap)
+        .with_generation_cap(DEFAULT_ANALYSIS_POLICY.generation_cap)
 }
 
 #[cfg(feature = "foma-tools")]

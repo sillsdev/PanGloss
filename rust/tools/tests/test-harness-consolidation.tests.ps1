@@ -92,7 +92,7 @@ $crateSpecs = @(
             'mentanukam_multiplicity_recovered_by_confirm.rs', 'morphology_relation_plan_gate.rs',
             'morphotactics_boundary_cleanup_slice.rs', 'multi_table_metathesis_shared_representation.rs',
             'net_dedup_gate.rs', 'net_dedup_sizing_census.rs', 'net_shape_gate.rs',
-            'oracle_step_determinism_gate.rs', 'orthogonal_basis_group_a.rs',
+            'oracle_work_determinism_gate.rs', 'orthogonal_basis_group_a.rs',
             'orthogonal_basis_group_b.rs', 'parity_divergence_census.rs',
             'partial_fst_production_admission_gate.rs', 'pattern_root_regex_route_gate.rs',
             'pattern_root_token_route_gate.rs', 'pk2_eliminate_flag_oracle.rs',
@@ -120,7 +120,7 @@ $crateSpecs = @(
         ExpectedSourceNames = @(
             'adhoc_affix_copies.rs', 'adhoc_allomorph_copies.rs', 'adhoc_fieldworks_witnesses.rs',
             'adhoc_morpheme_variant_copies.rs', 'copy_agreement_featureless.rs',
-            'effective_analysis_target.rs', 'phonology_gate.rs', 'step_cap_work_gate.rs', 'trace_template_outcomes.rs',
+            'effective_analysis_target.rs', 'phonology_gate.rs', 'work_cap_gate.rs', 'trace_template_outcomes.rs',
             'edge_prefilter_gate.rs', 'lookup_replay_gate.rs',
             'batch_determinism.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',

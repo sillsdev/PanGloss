@@ -49,7 +49,7 @@ fn deterministic_score(
         score.arcs,
         score.proposals,
         score.confirmation,
-        score.confirmation_steps,
+        score.confirmation_work,
         score.raw_paths,
         score.key("test").0,
     )
@@ -286,7 +286,7 @@ fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
         &grammar,
         &prepared,
         RuntimeBudget {
-            oracle_step_cap: Some(5),
+            oracle_work_cap: Some(500),
             ..RuntimeBudget::default()
         },
     )
@@ -297,7 +297,7 @@ fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
         &plans,
         &requested,
         RuntimeBudget {
-            oracle_step_cap: Some(5),
+            oracle_work_cap: Some(500),
             ..RuntimeBudget::default()
         },
         &mut cache,

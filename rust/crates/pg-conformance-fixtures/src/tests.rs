@@ -714,7 +714,7 @@ fn incomplete_replay_cannot_pass_as_an_expected_zero_analysis() {
     words.words[0].expect_fail = true;
     words.words[0].parses.clear();
     let grammar = fixture.load_grammar();
-    let morpher = pg_parse::Morpher::new(&grammar, 0).with_work_cap(0);
+    let morpher = pg_parse::Morpher::new(&grammar, 0);
     let outcome = morpher.parse_word(&words.words[0].word);
     assert!(
         outcome.capped,

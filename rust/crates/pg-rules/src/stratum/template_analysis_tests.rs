@@ -89,7 +89,7 @@ fn edge_index_falls_back_for_optional_and_unknown_intermediate_edges() {
     };
     assert!(rejects(&plain));
     assert!(!rejects(&matching));
-    let budget = StepBudget::new(100);
+    let budget = WordBudget::new(10_000);
     let _scope = budget.enter();
     let analyzer = StratumAnalyzer::new(
         &g,
@@ -162,7 +162,7 @@ fn syntactic_rejection_does_not_charge_the_edge_index() {
         panic!("fixture must contain an affix rule");
     };
     assert!(morph::ana_syn_fs(&g, rule.required_syn_fs, rule.out_syn_fs, &input).is_none());
-    let budget = StepBudget::new(100);
+    let budget = WordBudget::new(10_000);
     let _scope = budget.enter();
     let analyzer = StratumAnalyzer::new(
         &g,
@@ -183,7 +183,6 @@ fn syntactic_rejection_does_not_charge_the_edge_index() {
         .apply_one_mrule(id, &input, RuleInvocationRole::Ordinary, Some(&candidates))
         .is_empty());
     assert_eq!(budget.work_steps(), 1);
-    assert_eq!(budget.steps(), 1);
     assert!(
         candidates.charge_needed(),
         "syntactic rejection must not charge the index"
@@ -206,7 +205,7 @@ fn an_undecidable_allomorph_keeps_the_whole_rule() {
 }
 
 fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word> {
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     StratumAnalyzer::new(
         g,
         StratumId(0),

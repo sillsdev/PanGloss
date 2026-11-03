@@ -95,7 +95,8 @@ fn chain_recall_parity_via_generator_and_oracle() {
         .collect();
 
     let oracle_opts = OracleOpts {
-        step_cap: 20_000,
+        work_cap: 2_000_000,
+        generation_cap: 20_000,
         word_timeout: Some(Duration::from_millis(500)),
         max_rules_per_root: 8,
         max_total_words: 100,
@@ -123,7 +124,7 @@ fn chain_recall_parity_via_generator_and_oracle() {
     assert_net_size_within(&net, 500, 2_000);
 
     let morpher =
-        Morpher::new(&g, oracle_opts.step_cap).with_word_timeout(oracle_opts.word_timeout);
+        Morpher::new(&g, oracle_opts.work_cap).with_word_timeout(oracle_opts.word_timeout);
     let popts = ParseOptions::default();
     let width = pg_foma::tags::tag_width(g.morphemes.len());
     let tag_sequences_for = |surface: &str| -> Vec<Vec<String>> {

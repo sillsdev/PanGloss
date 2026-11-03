@@ -5,7 +5,7 @@
 //! then shape-merge dedup), `SynthesisStratumRule`, the affix-template rules, and `RuleBatch` (a
 //! union of rule outputs; disjunctive = early exit).
 //!
-//! A `StepBudget` owns one allowance across analysis, lookup and confirmation. Scoped
+//! A `WordBudget` owns one allowance across analysis, lookup and confirmation. Scoped
 //! matcher calls consume that same allowance inside traversal and candidate expansion.
 //! Exhaustion unwinds the descent and marks the result incomplete.
 
@@ -307,35 +307,41 @@ pub mod frontier_profile {
     }
 }
 
-/// Default inner-work allowance per configured analysis attempt, using saturating arithmetic.
-/// The multiplier's evidence and scope are in `docs/research/per-word-search-work-cap.md`.
-pub fn default_work_cap(attempt_cap: usize) -> usize {
-    attempt_cap.saturating_mul(100)
-}
-
-/// Independent analysis-attempt and search-work limits with one shared deadline.
-/// Ordinary confirmation consumes only work, so it can confirm earlier candidates
-/// after analysis reaches its attempt limit. `capped()` reports either exhausted limit.
-pub struct StepBudget {
-    steps: Cell<usize>,
-    attempt_cap: usize,
-    attempt_capped: Cell<bool>,
+/// One word's work allowance across analysis, lookup and confirmation, with one shared deadline.
+///
+/// Analysis may spend the whole work cap. Lookup and confirmation may spend up to the cap plus one sixteenth of it
+/// (the reserve; none under 16), so a word whose total work is within the cap never stops, and a word's total never
+/// exceeds `cap + cap / 16`. Once analysis reaches the cap it stops for good and `capped()` reports it.
+pub struct WordBudget {
     work: pg_fst::work::WorkBudget,
-    synthesis_counting: bool,
+    work_cap: usize,
+    analysis_capped: Cell<bool>,
 }
 
-impl StepBudget {
-    pub fn new(attempt_cap: usize) -> Self {
-        Self::with_limits(attempt_cap, default_work_cap(attempt_cap))
+/// The reserve is this fraction of the work cap; it sits on top of the cap, for confirming candidates analysis had already found.
+const CONFIRMATION_RESERVE_DIVISOR: usize = 16;
+
+impl WordBudget {
+    /// A parse allowance: the cap plus its confirmation reserve.
+    pub fn new(work_cap: usize) -> Self {
+        let reserve = if work_cap >= CONFIRMATION_RESERVE_DIVISOR {
+            work_cap / CONFIRMATION_RESERVE_DIVISOR
+        } else {
+            0
+        };
+        Self::with_reserve(work_cap, reserve)
     }
 
-    pub fn with_limits(attempt_cap: usize, work_cap: usize) -> Self {
+    /// An exact allowance for synthesis and generation, which have no analysis phase to protect a reserve for.
+    pub fn without_reserve(work_cap: usize) -> Self {
+        Self::with_reserve(work_cap, 0)
+    }
+
+    fn with_reserve(work_cap: usize, reserve: usize) -> Self {
         Self {
-            steps: Cell::new(0),
-            attempt_cap,
-            attempt_capped: Cell::new(false),
-            work: pg_fst::work::WorkBudget::new(work_cap),
-            synthesis_counting: false,
+            work: pg_fst::work::WorkBudget::new(work_cap.saturating_add(reserve)),
+            work_cap,
+            analysis_capped: Cell::new(false),
         }
     }
 
@@ -344,57 +350,56 @@ impl StepBudget {
         self
     }
 
-    /// Include synthesis orchestration in the attempt diagnostic and its limit.
-    pub fn with_synthesis_counting(mut self) -> Self {
-        self.synthesis_counting = true;
-        self
-    }
-
     pub fn enter(&self) -> pg_fst::work::WorkScope {
         self.work.enter()
     }
 
-    fn over_budget(&self) -> bool {
-        if self.steps.get() >= self.attempt_cap {
-            self.attempt_capped.set(true);
+    /// Whether analysis may not start another unit of work: it has spent the whole cap. Latches, and is checked only where a unit follows, so a word that needs no more than the cap never trips it.
+    pub fn analysis_exhausted(&self) -> bool {
+        if self.work.used() >= self.work_cap {
+            self.analysis_capped.set(true);
         }
-        self.attempt_capped.get() || self.work.stopped()
+        self.analysis_capped.get()
+    }
+
+    fn over_budget(&self) -> bool {
+        if self.work.used() > self.work_cap {
+            self.analysis_capped.set(true);
+        }
+        self.analysis_capped.get() || self.work.stopped()
     }
 
     fn synthesis_over_budget(&self) -> bool {
-        if self.synthesis_counting {
-            return !self.tick();
-        }
         !self.work.consume()
     }
 
+    /// One analysis unit: refused once analysis holds the whole cap.
+    pub fn analysis_unit(&self) -> bool {
+        !self.analysis_exhausted() && self.work.consume()
+    }
+
+    #[inline]
     fn tick(&self) -> bool {
-        if self.over_budget() || !self.work.consume() {
+        if self.work.used() >= self.work_cap {
+            self.analysis_capped.set(true);
             return false;
         }
-        self.steps.set(self.steps.get().saturating_add(1));
-        true
+        !(self.analysis_capped.get() || self.work.stopped()) && self.work.consume()
     }
 
     pub fn capped(&self) -> bool {
-        self.attempt_capped.get() || self.work.capped()
+        self.analysis_capped.get() || self.work.capped()
     }
 
     pub fn timed_out(&self) -> bool {
         self.work.timed_out()
     }
 
-    /// Morphological analysis attempts; synthesis attempts are included only when opted in.
-    pub fn steps(&self) -> usize {
-        self.steps.get()
-    }
-
-    /// Total inner search work reserved, never exceeding the configured work cap.
+    /// Total work reserved, never exceeding the cap plus its reserve.
     pub fn work_steps(&self) -> usize {
         self.work.used()
     }
 }
-
 mod required_slot_check;
 
 #[cfg(test)]
@@ -403,7 +408,7 @@ mod required_slot_lookahead_tests;
 mod required_slot_order_tests;
 
 #[cfg(test)]
-mod step_budget_timeout_tests;
+mod word_budget_tests;
 
 #[cfg(test)]
 mod final_template_policy_tests;
@@ -437,7 +442,7 @@ pub struct AnalyzerConfig {
     /// Mirrors C# `Morpher.MaxStemCount` (default `2`): refuse to unapply a compounding rule once
     /// `non_heads.len() + 1 >= max_stem_count`. Without it, a compounding subrule whose patterns
     /// are "1+ of any segment" matches every split of every substring at every depth — a
-    /// Catalan-scale blowup that burns the whole step budget.
+    /// Catalan-scale blowup that burns the whole work cap.
     pub max_stem_count: u32,
     /// When enabled, reject an allomorph analysis match if repeated copies of an input part
     /// disagree in segment count or feature unifiability. Indeterminate captures are retained.
@@ -463,7 +468,7 @@ pub struct StratumAnalysis {
     /// The deduplicated candidate set (the post-prule input word is always the first element — the
     /// "nothing unapplied" candidate that C# seeds `output` with).
     pub words: Vec<Word>,
-    /// Whether the step budget fired (partial results). See the module docs.
+    /// Whether the work cap fired (partial results). See the module docs.
     pub capped: bool,
 }
 
@@ -477,7 +482,7 @@ pub fn analyze_stratum(
     stratum: StratumId,
     input: Word,
     cfg: &AnalyzerConfig,
-    budget: &StepBudget,
+    budget: &WordBudget,
 ) -> StratumAnalysis {
     analyze_stratum_filtered(g, stratum, input, cfg, None, None, budget)
 }
@@ -496,7 +501,7 @@ pub fn analyze_stratum_filtered(
     cfg: &AnalyzerConfig,
     non_head_root_filter: Option<NonHeadRootFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
 ) -> StratumAnalysis {
     analyze_stratum_filtered_ruled(
         g,
@@ -521,7 +526,7 @@ pub fn analyze_stratum_filtered_ruled(
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
 ) -> StratumAnalysis {
     analyze_stratum_filtered_ruled_traced(
         g,
@@ -551,7 +556,7 @@ pub fn analyze_stratum_filtered_ruled_traced(
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -584,7 +589,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateAnalysisPolicy,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
@@ -607,7 +612,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     .analyze(input)
 }
 
-/// The stratum orchestrator. Borrows the caller's `StepBudget` rather than owning its own step counter.
+/// The stratum orchestrator. Borrows the caller's `WordBudget` rather than owning its own work counter.
 struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     g: &'g Grammar,
     stratum_id: StratumId,
@@ -616,7 +621,7 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     /// The stratum's morphological rules reversed; the cascade indexes this list, so the closure maps `i -> reversed[i]` to record the correct `MRuleId`.
     reversed_mrules: Vec<MRuleId>,
     cfg: AnalyzerConfig,
-    budget: &'b StepBudget,
+    budget: &'b WordBudget,
     /// The non-head lexicon filter, or `None` for unfiltered. See `NonHeadRootFilter`.
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
     /// The mrule/template selector, or `None` to admit every rule. See `RuleFilter`.
@@ -732,7 +737,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         non_head_root_filter: Option<NonHeadRootFilter<'f>>,
         rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
-        budget: &'b StepBudget,
+        budget: &'b WordBudget,
         policy: FinalTemplateAnalysisPolicy,
         stats: Option<&'b StatsCollector>,
         trace: &'t dyn TraceSink,
@@ -800,7 +805,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         )
     }
 
-    /// True once the shared budget is exhausted; delegates to the shared `StepBudget`.
+    /// True once the shared budget is exhausted; delegates to the shared `WordBudget`.
     fn over_budget(&self) -> bool {
         self.budget.over_budget()
     }
@@ -844,12 +849,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if may_compound {
             crate::branch_census::mark_may_compound(parent);
         }
-        let (steps0, work0) = (self.budget.steps(), self.budget.work_steps());
+        let work0 = self.budget.work_steps();
         let t0 = web_time::Instant::now();
         let outs = self.apply_one_mrule_uncounted(id, w, role, candidates);
         crate::branch_census::charge_analysis(
             parent,
-            (self.budget.steps() - steps0) as u64,
             (self.budget.work_steps() - work0) as u64,
             t0.elapsed().as_nanos() as u64,
         );
@@ -1466,7 +1470,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
         // A linear cascade over the prules reversed, applied in place with no per-prule cursor advance (a deliberately coarser trace depth).
         for &pid in self.stratum.prules.iter().rev() {
-            if self.budget.synthesis_over_budget() {
+            if !self.budget.analysis_unit() {
                 break;
             }
             let prule_stats = self.stats.map(|stats| PRuleStatsCtx {
@@ -1709,10 +1713,9 @@ fn slot_optional(slot: &SlotDef) -> bool {
 /// Mirrors C#'s `SynthesisAffixTemplateRule.Apply` + `ApplySlots`: slots applied bottom-up, a
 /// non-optional slot that produced nothing terminating the path. The **ungated** walk — every slot
 /// rule applies unconditionally, unlike production's `guided_template_apply`, which confirms the
-/// analysis first. Independent of lexicon state, so usable standalone; `cap` bounds total attempts.
+/// analysis first. Independent of lexicon state, so usable standalone; `cap` is its work cap.
 pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usize) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
-    let steps = Cell::new(0usize);
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
         morph::synthesize_with_policy_and_role(
@@ -1724,7 +1727,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         )
     };
     // Builds its own budget with none armed, so this entry point stays cap-only.
-    let budget = StepBudget::with_limits(usize::MAX, cap);
+    let budget = WordBudget::without_reserve(cap);
     let _work_scope = budget.enter();
     synth_slots_generic(
         g,
@@ -1732,8 +1735,6 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         input,
         0,
         &mut out,
-        cap,
-        &steps,
         &apply,
         &crate::trace::NoopSink,
         tid,
@@ -1744,20 +1745,18 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     out.into_values().collect()
 }
 
-/// `synthesize_template`'s structure, but each rule goes through `guided_synth` and the caller's step budget is shared.
+/// `synthesize_template`'s structure, but each rule goes through `guided_synth` and the caller's work budget is shared.
 #[allow(clippy::too_many_arguments)]
 fn guided_template_apply(
     g: &Grammar,
     stratum: StratumId,
     tid: TemplateId,
     input: &Word,
-    cap: usize,
-    steps: &Cell<usize>,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
@@ -1786,8 +1785,6 @@ fn guided_template_apply(
         input,
         0,
         &mut out,
-        cap,
-        steps,
         &apply,
         trace,
         tid,
@@ -1825,20 +1822,15 @@ fn synth_slots_generic<F>(
     input: &Word,
     index: usize,
     out: &mut HashMap<WordKey, Word>,
-    cap: usize,
-    steps: &Cell<usize>,
     apply: &F,
     trace: &dyn TraceSink,
     tid: TemplateId,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
 ) where
     F: Fn(&Grammar, MRuleId, &Word) -> Vec<Word>,
 {
-    if steps.get() >= cap {
-        return;
-    }
     if budget.synthesis_over_budget() {
         return;
     }
@@ -1851,13 +1843,9 @@ fn synth_slots_generic<F>(
         // The slot's non-disjunctive `RuleBatch`, in the synthesis direction.
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
         for &rid in &slot.rules {
-            if steps.get() >= cap {
-                return;
-            }
             if budget.synthesis_over_budget() {
                 return;
             }
-            steps.set(steps.get() + 1);
             for w in apply(g, rid, input) {
                 if seen.insert(w.dedup_key(), ()).is_none() {
                     let mut applied_outcomes = slot_outcomes.clone();
@@ -1874,8 +1862,6 @@ fn synth_slots_generic<F>(
                         &w,
                         i + 1,
                         out,
-                        cap,
-                        steps,
                         apply,
                         trace,
                         tid,
@@ -2044,12 +2030,11 @@ pub fn synthesize_stratum(
     cache: &RuleCache,
 ) -> Vec<Word> {
     // No production call site: `pg-parse` threads its own budget through `synthesize_stratum_traced` directly; this exists for test callers.
-    let budget = StepBudget::with_limits(usize::MAX, cap);
+    let budget = WordBudget::without_reserve(cap);
     synthesize_stratum_traced(
         g,
         stratum,
         input,
-        cap,
         cache,
         &budget,
         None,
@@ -2061,9 +2046,7 @@ pub fn synthesize_stratum(
 /// The result of applying one stratum's ordered phonological rules to a single word.
 ///
 /// A stopped fold has no output: its last shape is only an intermediate and must not be treated as
-/// a completed surface. `steps` and `work_steps` are the cumulative owner-budget measurements.
-/// An attempt cap alone keeps the partial `output`, as ordinary synthesis always has, so a caller that
-/// needs completion must also require `!capped && !timed_out`.
+/// a completed surface. `work_steps` is the cumulative owner-budget measurement.
 #[derive(Debug)]
 pub struct PhonologyCascadeOutcome {
     pub output: Option<Word>,
@@ -2073,7 +2056,6 @@ pub struct PhonologyCascadeOutcome {
     pub applied_prule_ids: Vec<PRuleId>,
     pub capped: bool,
     pub timed_out: bool,
-    pub steps: usize,
     pub work_steps: usize,
 }
 
@@ -2089,7 +2071,7 @@ pub fn synthesize_phonological_stratum_traced(
     stratum: StratumId,
     mut input: Word,
     cache: &RuleCache,
-    budget: &StepBudget,
+    budget: &WordBudget,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -2155,7 +2137,6 @@ pub fn synthesize_phonological_stratum_traced(
         applied_prule_ids,
         capped: budget.capped(),
         timed_out: budget.timed_out(),
-        steps: budget.steps(),
         work_steps: budget.work_steps(),
     }
 }
@@ -2166,9 +2147,8 @@ pub fn synthesize_stratum_traced(
     g: &Grammar,
     stratum: StratumId,
     input: Word,
-    cap: usize,
     cache: &RuleCache,
-    budget: &StepBudget,
+    budget: &WordBudget,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -2177,7 +2157,6 @@ pub fn synthesize_stratum_traced(
         g,
         stratum,
         input,
-        cap,
         cache,
         budget,
         FinalTemplateSynthesisPolicy::default(),
@@ -2197,9 +2176,8 @@ pub fn synthesize_stratum_traced_with_policy(
     g: &Grammar,
     stratum: StratumId,
     mut input: Word,
-    cap: usize,
     cache: &RuleCache,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
     rule_filter: Option<RuleFilter>,
     stats: Option<&StatsCollector>,
@@ -2214,8 +2192,6 @@ pub fn synthesize_stratum_traced_with_policy(
     }
 
     let sd = &g.strata[stratum.0 as usize];
-    let steps = Cell::new(0usize);
-
     let node_parent = input.trace.unwrap_or(parent);
     if trace.is_tracing() {
         trace.begin_apply_stratum(node_parent, stratum, &input);
@@ -2226,8 +2202,6 @@ pub fn synthesize_stratum_traced_with_policy(
         stratum,
         sd,
         &input,
-        cap,
-        &steps,
         cache,
         stats,
         trace,
@@ -2240,8 +2214,6 @@ pub fn synthesize_stratum_traced_with_policy(
         stratum,
         sd,
         &input,
-        cap,
-        &steps,
         cache,
         stats,
         trace,
@@ -2321,30 +2293,21 @@ fn synth_apply_mrules(
     stratum: StratumId,
     sd: &pg_grammar_model::model::StratumDef,
     input: &Word,
-    cap: usize,
-    steps: &Cell<usize>,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
-    if steps.get() >= cap {
-        return Vec::new();
-    }
     if budget.synthesis_over_budget() {
         return Vec::new();
     }
     let key = |w: &Word| w.dedup_key();
     let apply_rule = |i: usize, w: &Word| -> Vec<Word> {
-        if steps.get() >= cap {
-            return Vec::new();
-        }
         if budget.synthesis_over_budget() {
             return Vec::new();
         }
-        steps.set(steps.get() + 1);
         guided_synth(
             g,
             stratum,
@@ -2380,7 +2343,7 @@ fn synth_apply_mrules(
             result.push(w);
         } else {
             result.extend(synth_apply_templates(
-                g, stratum, sd, &w, cap, steps, cache, stats, trace, parent, budget, policy,
+                g, stratum, sd, &w, cache, stats, trace, parent, budget, policy,
             ));
         }
     }
@@ -2449,18 +2412,13 @@ fn synth_apply_templates(
     stratum: StratumId,
     sd: &pg_grammar_model::model::StratumDef,
     input: &Word,
-    cap: usize,
-    steps: &Cell<usize>,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
-    if steps.get() >= cap {
-        return Vec::new();
-    }
     if budget.synthesis_over_budget() {
         return Vec::new();
     }
@@ -2487,7 +2445,7 @@ fn synth_apply_templates(
         }
         applicable = true;
         for w in guided_template_apply(
-            g, stratum, tid, input, cap, steps, cache, stats, trace, parent, budget, policy,
+            g, stratum, tid, input, cache, stats, trace, parent, budget, policy,
         ) {
             let final_flag = w.flags.is_partial || tmpl.is_final;
             let mut w = w;
@@ -2522,7 +2480,7 @@ fn synth_apply_templates(
                 }
                 if t.dedup_key() != in_key {
                     for m in synth_apply_mrules(
-                        g, stratum, sd, &t, cap, steps, cache, stats, trace, parent, budget, policy,
+                        g, stratum, sd, &t, cache, stats, trace, parent, budget, policy,
                     ) {
                         out.entry(m.dedup_key()).or_insert(m);
                     }

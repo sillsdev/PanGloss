@@ -1,4 +1,4 @@
-//! `Morpher::parse_word_with_stats` invariants: attempts-vs-steps, stats-off parity, determinism.
+//! `Morpher::parse_word_with_stats` invariants: stats-off parity, determinism.
 
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
@@ -145,34 +145,6 @@ fn fixture_cases() -> Vec<(pg_grammar_model::model::Grammar, Vec<Case>)> {
             }],
         ),
     ]
-}
-
-/// `SUM(morph_rule attempts)` filtered to `direction = analysis` must equal the word's `steps` -- `StepBudget::tick()` fires solely on the analysis side, so summing both directions would overcount.
-#[test]
-fn sum_of_morph_rule_attempts_equals_steps() {
-    let mut checked = 0usize;
-    for (g, cases) in fixture_cases() {
-        let morpher = Morpher::new(&g, usize::MAX);
-        for case in &cases {
-            let (outcome, rows) =
-                morpher.parse_word_with_stats(case.word, &ParseOptions::default());
-            let sum_attempts: u64 = rows
-                .iter()
-                .filter(|r| r.kind == ObjectKind::MorphRule && r.direction == Direction::Analysis)
-                .map(|r| r.counters.attempts)
-                .sum();
-            assert_eq!(
-                sum_attempts, outcome.steps as u64,
-                "{}: SUM(morph_rule attempts) filtered to analysis must equal the word's steps",
-                case.label
-            );
-            checked += 1;
-        }
-    }
-    assert!(
-        checked >= 5,
-        "must have replayed several words across two fixtures"
-    );
 }
 
 /// The confirm pass must leave nonzero synthesis-direction rows across words that parse; checked in aggregate, not per-word, since a bare-root word legitimately involves no rule at all.
@@ -369,7 +341,6 @@ fn stats_collection_does_not_change_the_parse_outcome() {
                 "{}: invalid_shape must match",
                 case.label
             );
-            assert_eq!(off.steps, on.steps, "{}: steps must match", case.label);
             assert_eq!(
                 off.work_steps, on.work_steps,
                 "{}: work_steps must match",
@@ -491,7 +462,7 @@ fn traced_stats_run_matches_separate_trace_and_stats_runs() {
     assert_eq!(combined.structured, traced.structured);
     assert_eq!(combined.capped, traced.capped);
     assert_eq!(combined.invalid_shape, traced.invalid_shape);
-    assert_eq!(combined.steps, traced.steps);
+    assert_eq!(combined.work_steps, traced.work_steps);
     assert_eq!(combined.timed_out, traced.timed_out);
     assert_eq!(combined.guessed, traced.guessed);
     assert_eq!(combined.candidates_generated, traced.candidates_generated);
@@ -863,29 +834,24 @@ fn fact_work_is_segments_examined_not_the_word_work_steps_total() {
             let (outcome, rows) =
                 morpher.parse_word_with_stats(case.word, &ParseOptions::default());
             let fact_work: u64 = rows.iter().map(|r| r.counters.work).sum();
-            assert!(
-                outcome.steps <= outcome.work_steps,
-                "{}: every analysis attempt reserves one work unit",
-                case.label
-            );
             assert_ne!(
                 fact_work, outcome.work_steps as u64,
                 "{}: fact work and work_steps are different units",
                 case.label
             );
-            measured.push((case.label, outcome.steps, outcome.work_steps, fact_work));
+            measured.push((case.label, outcome.work_steps, fact_work));
         }
     }
     assert_eq!(
         measured,
         vec![
-            ("sumulat", 23, 799, 359),
-            ("keadilan", 129, 2475, 1525),
-            ("katibɯd", 24, 922, 336),
-            ("katibɯt", 14, 657, 238),
-            ("pur", 14, 363, 148),
-            ("gas", 14, 683, 95),
+            ("sumulat", 799, 359),
+            ("keadilan", 2475, 1525),
+            ("katibɯd", 922, 336),
+            ("katibɯt", 657, 238),
+            ("pur", 363, 148),
+            ("gas", 683, 95),
         ],
-        "(word, steps, work_steps, SUM(fact.work))"
+        "(word, work_steps, SUM(fact.work))"
     );
 }

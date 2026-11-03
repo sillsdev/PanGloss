@@ -109,8 +109,7 @@ Parsing a project's wordforms can take minutes, so `--stored-analyses` selects h
 
 The comparison never aborts the report and never drops a wordform silently:
 
-- A wordform whose analysis reaches the per-word cap (100,000 analysis steps or 10,000,000 work
-  units) gets one `grammar.stored-analysis.incomplete` warning per stored analysis, naming the
+- A wordform whose analysis reaches the per-word cap (10,000,000 work steps) gets one `grammar.stored-analysis.incomplete` warning per stored analysis, naming the
   wordform and the cap. The other wordforms are still compared.
 - When the `bounded` budget is spent, one `grammar.stored-analysis.budget-reached` info finding
   names the first wordform not compared and how many wordforms and stored analyses remain.

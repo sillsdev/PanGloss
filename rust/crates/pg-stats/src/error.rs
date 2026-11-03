@@ -28,10 +28,10 @@ pub enum StatsError {
     GrammarMismatch { existing: String, requested: String },
 
     #[error(
-        "stats cache already holds runs at step cap {existing}; a report cannot span two step \
-         caps -- point --cache at another path for a step cap {requested} run"
+        "stats cache already holds runs at work cap {existing}; a report cannot span two work \
+         caps -- point --cache at another path for a work cap {requested} run"
     )]
-    StepCapMismatch { existing: String, requested: String },
+    WorkCapMismatch { existing: String, requested: String },
 
     #[error("stats cache schema version {existing} is incompatible with {requested}")]
     SchemaMismatch { existing: i64, requested: i64 },

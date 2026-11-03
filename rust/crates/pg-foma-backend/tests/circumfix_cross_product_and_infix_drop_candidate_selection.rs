@@ -71,7 +71,7 @@ fn assert_full_containment(g: &Grammar, surface: &str) {
     let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
 
-    let morpher = Morpher::new(g, 20_000);
+    let morpher = Morpher::new(g, 2_000_000);
     let tag_sequences = tag_sequences_for(g, &morpher, surface);
     assert!(
         !tag_sequences.is_empty(),

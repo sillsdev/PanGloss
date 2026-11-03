@@ -122,7 +122,7 @@ fn root_verdicts(g: &Grammar, tid: u32, text: &str) -> Vec<bool> {
     let segs = crate::morph::segs_of(g, pg_grammar_model::model::TableId(0), &shape, false).0;
     let tid = TemplateId(tid);
     let material = required_slots::RequiredSlotMaterial::build(g, tid, None);
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let _scope = budget.enter();
     let mut walk = required_slots::SlotWalk::start();
     let mut verdicts = Vec::new();

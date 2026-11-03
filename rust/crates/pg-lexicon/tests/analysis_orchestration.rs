@@ -648,8 +648,11 @@ fn without_limits_gives_the_default_analyses_where_the_default_does_not_cap() {
 }
 
 #[test]
-fn without_limits_does_not_cap_where_a_small_step_cap_does() {
-    let small = runtime_with(pg_lexicon::AnalysisPolicy { step_cap: 1 });
+fn without_limits_does_not_cap_where_a_small_work_cap_does() {
+    let small = runtime_with(pg_lexicon::AnalysisPolicy {
+        work_cap: 1,
+        generation_cap: 1,
+    });
     let unlimited = runtime_with(pg_lexicon::AnalysisPolicy::without_limits());
     let capped = small.analyze_word("milusi", None);
     assert!(capped.capped);

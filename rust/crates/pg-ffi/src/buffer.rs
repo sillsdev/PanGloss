@@ -19,7 +19,7 @@
 //! word_count == 1 case of this same layout — one encoder, one decoder, both call arities:
 //!   u8  status          0 = ok, 1 = invalid_shape (surface word did not segment; C#
 //!                       `InvalidShapeException` → batch status SKIPPED)
-//!   u8  capped          0/1 — the analysis step budget fired for this word (plan §6.4);
+//!   u8  capped          0/1 — the per-word work cap fired for this word (plan §6.4);
 //!                       partial results are possible when set
 //!   u16 _reserved       always 0; pads the next field to 4-byte alignment
 //!   u32 analysis_count

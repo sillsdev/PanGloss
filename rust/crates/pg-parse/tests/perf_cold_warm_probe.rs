@@ -48,9 +48,9 @@ fn sena_cold_vs_warm() {
             let outcome = morpher.parse_word(word);
             let elapsed = start.elapsed();
             eprintln!(
-                "    call {i}: {:.2}ms (steps={}, capped={}, timed_out={}, n_analyses={})",
+                "    call {i}: {:.2}ms (work_steps={}, capped={}, timed_out={}, n_analyses={})",
                 elapsed.as_secs_f64() * 1000.0,
-                outcome.steps,
+                outcome.work_steps,
                 outcome.capped,
                 outcome.timed_out,
                 outcome.analyses.len()

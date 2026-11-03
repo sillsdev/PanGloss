@@ -144,10 +144,10 @@ fn assert_warm_equals_cold(
 }
 
 #[test]
-fn ready_line_announces_protocol_one_and_load_time() {
+fn ready_line_announces_protocol_two_and_load_time() {
     let (server, ready) = Server::start(&data("trace-family.xml"), &[]);
     assert_eq!(ready["type"], "ready");
-    assert_eq!(ready["protocol"], 1);
+    assert_eq!(ready["protocol"], 2);
     assert!(ready["loadMs"].is_u64(), "{ready}");
     assert!(ready.get("timing").is_none());
     assert!(server.finish().success());
@@ -207,19 +207,25 @@ fn warm_plain_mode_equals_cold_stdout_exactly() {
 #[test]
 fn an_incomplete_parse_is_a_result_with_the_cold_exit_code() {
     let project = data("trace-family.xml");
-    let (mut server, _) = Server::start(&project, &["--step-cap", "3"]);
-    assert_warm_equals_cold(&mut server, &project, "zodut", true, &["--step-cap", "3"]);
+    let (mut server, _) = Server::start(&project, &["--work-cap", "100"]);
+    assert_warm_equals_cold(&mut server, &project, "zodut", true, &["--work-cap", "100"]);
     let r = server.parse("p", "zodut", false);
     assert_eq!(r["type"], "result", "{r}");
     assert_eq!(r["exitCode"], 1);
-    assert_warm_equals_cold(&mut server, &project, "zodut", false, &["--step-cap", "3"]);
+    assert_warm_equals_cold(
+        &mut server,
+        &project,
+        "zodut",
+        false,
+        &["--work-cap", "100"],
+    );
     assert!(server.finish().success());
 }
 
-/// Both modes carry the word's `steps` and `workSteps` beside `result`, equal to the trace document's own search counts.
+/// Both modes carry the word's `workSteps` beside `result`, equal to the trace document's own search counts.
 #[test]
 fn results_carry_the_words_search_counts_in_both_modes() {
-    for extra in [&[][..], &["--step-cap", "3"][..]] {
+    for extra in [&[][..], &["--work-cap", "100"][..]] {
         let (mut server, _) = Server::start(&data("trace-family.xml"), extra);
         for word in ["zodut", "vem", "xqzzkt"] {
             let detailed = server.parse("d", word, true);
@@ -230,7 +236,8 @@ fn results_carry_the_words_search_counts_in_both_modes() {
                 "{word}: {search}"
             );
             for r in [&detailed, &plain] {
-                assert_eq!(r["steps"], search["steps"], "{word} {extra:?}: {r}");
+                assert!(r.get("steps").is_none(), "{word} {extra:?}: {r}");
+                assert!(search.get("steps").is_none(), "{word} {extra:?}: {search}");
                 assert_eq!(r["workSteps"], search["workSteps"], "{word} {extra:?}: {r}");
             }
         }
@@ -396,9 +403,9 @@ fn timing_flag_adds_phase_timings() {
 fn describe_publishes_the_serve_protocol_version() {
     let output = Command::new(BIN).arg("--describe").output().unwrap();
     let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(doc["interfaces"]["serveProtocol"], 1);
+    assert_eq!(doc["interfaces"]["serveProtocol"], 2);
     assert_eq!(doc["schema_version"], 1);
-    assert_eq!(doc["interfaces"]["batchTsv"], 4);
+    assert_eq!(doc["interfaces"]["batchTsv"], 5);
     assert!(doc["commands"]
         .as_array()
         .unwrap()
@@ -421,8 +428,8 @@ fn describe_publishes_the_serve_protocol_version() {
 fn result_status_distinguishes_work_limit_from_timeout_in_both_modes() {
     for (args, expected) in [
         (&[][..], "ok"),
-        (&["--step-cap", "unbounded", "--work-cap", "1"][..], "CAP"),
-        (&["--step-cap", "1"][..], "CAP"),
+        (&["--work-cap", "1"][..], "CAP"),
+        (&["--work-cap", "100"][..], "CAP"),
         (&["--word-timeout-ms", "0"][..], "TIMEOUT"),
     ] {
         let (mut server, _) = Server::start(&data("trace-family.xml"), args);
@@ -430,10 +437,17 @@ fn result_status_distinguishes_work_limit_from_timeout_in_both_modes() {
             let response = server.parse("word", "zodut", details);
             assert_eq!(response["type"], "result");
             assert_eq!(response["status"], expected, "{args:?}: {response}");
-            assert!(response["steps"].is_u64());
+            assert!(response.get("steps").is_none(), "{response}");
             assert!(response["workSteps"].is_u64());
-            if args.contains(&"--work-cap") {
-                assert_eq!(response["workSteps"], 1);
+            if let Some(cap) = args.iter().position(|a| *a == "--work-cap") {
+                let cap: u64 = args[cap + 1].parse().unwrap();
+                let work = response["workSteps"].as_u64().unwrap();
+                let reserve = if cap >= 16 { cap / 16 } else { 0 };
+                assert!(
+                    (cap..=cap + reserve).contains(&work),
+                    "work {work} outside {cap}..={}",
+                    cap + reserve
+                );
             }
         }
         assert!(server.finish().success());

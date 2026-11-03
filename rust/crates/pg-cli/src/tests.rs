@@ -1,5 +1,5 @@
 //! Tests the CLI parser and batch command integration.
-use super::{load_grammar, run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP};
+use super::{load_grammar, run_batch, write_parse_analysis_row, WorkCap, DEFAULT_WORK_CAP};
 use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -330,7 +330,7 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
         "analyses-cap-timeout",
         &grammar_xml,
         &format!("kad{}\n", "d".repeat(7)),
-        &["--step-cap", "500"],
+        &["--work-cap", "50000"],
     );
     assert_eq!(capped_rows.len(), 1);
     assert_eq!(capped_rows[0]["capped"], true);
@@ -354,7 +354,6 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
         structured: Vec::new(),
         capped: true,
         invalid_shape: false,
-        steps: 1,
         work_steps: 0,
         timed_out: true,
         guessed: false,
@@ -498,19 +497,18 @@ fn no_word_timeout_flag_keeps_ok_row_shape_both_thread_modes() {
     }
 }
 
-/// `--work-columns` appends the word's own `steps` and `work_steps`, identical in both writer paths and after `guessed`; without it the row is unchanged.
+/// `--work-columns` appends the word's own `work_steps`, identical in both writer paths and after `guessed`; without it the row is unchanged.
 #[test]
-fn work_columns_append_the_words_steps_and_work_steps() {
+fn work_columns_append_the_words_work_steps() {
     let grammar_xml = homophonous_suffix_grammar_xml(2);
     let dir = scratch_dir("row-counts-grammar");
     let grammar_path = dir.join("grammar.xml");
     fs::write(&grammar_path, &grammar_xml).unwrap();
     let (grammar, _) = load_grammar(&grammar_path.to_string_lossy()).unwrap();
-    let expected = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap())
-        .with_work_cap(super::resolved_work_cap(DEFAULT_STEP_CAP, None))
-        .parse_word("kadd");
-    assert!(expected.steps > 0 && expected.work_steps > expected.steps);
-    let counts = [expected.steps.to_string(), expected.work_steps.to_string()];
+    let expected =
+        pg_parse::Morpher::new(&grammar, DEFAULT_WORK_CAP.as_morpher_cap()).parse_word("kadd");
+    assert!(expected.work_steps > 0);
+    let counts = [expected.work_steps.to_string()];
     for (tag, args) in [
         ("row-counts-seq", vec!["--threads", "1"]),
         ("row-counts-par", vec!["--threads", "2"]),
@@ -525,10 +523,10 @@ fn work_columns_append_the_words_steps_and_work_steps() {
         let lines = run_batch_tsv_custom(tag, &grammar_xml, "kadd\n", &with_counts);
         let fields: Vec<&str> = lines.last().unwrap().split('\t').collect();
         assert_eq!(fields[3], "ok", "{tag}: {fields:?}");
-        assert_eq!(fields.len(), plain.len() + 2, "{tag}: {fields:?}");
+        assert_eq!(fields.len(), plain.len() + 1, "{tag}: {fields:?}");
         assert_eq!(fields[..2], plain[..2], "{tag}");
         assert_eq!(fields[3..plain.len()], plain[3..], "{tag}");
-        assert_eq!(fields[fields.len() - 2..], counts, "{tag}: {fields:?}");
+        assert_eq!(fields[fields.len() - 1..], counts, "{tag}: {fields:?}");
     }
 }
 
@@ -538,22 +536,14 @@ fn a_cap_row_reports_the_work_spent_up_to_the_cap() {
     for threads in ["1", "2"] {
         let rows = run_batch_tsv(
             "cap-row-counts",
-            &[
-                "--step-cap",
-                "unbounded",
-                "--work-cap",
-                "1",
-                "--threads",
-                threads,
-                "--work-columns",
-            ],
+            &["--work-cap", "1", "--threads", threads, "--work-columns"],
         );
         let fields: Vec<_> = rows.last().unwrap().split('\t').collect();
         assert_eq!(fields[3], "CAP", "{fields:?}");
-        assert_eq!(fields[5..], ["0", "1"], "{fields:?}");
+        assert_eq!(fields[5..], ["1"], "{fields:?}");
     }
 }
-/// `k` homophonous one-shot suffix rules unapplying "d", so the unwind is genuinely combinatorial; `MINI_GRAMMAR_XML`'s root-only lookup takes zero steps and cannot exercise a real `--step-cap` firing.
+/// `k` homophonous one-shot suffix rules unapplying "d", so the unwind is genuinely combinatorial; `MINI_GRAMMAR_XML`'s root-only lookup takes zero steps and cannot exercise a real `--work-cap` firing.
 fn homophonous_suffix_grammar_xml(k: usize) -> String {
     let mut mrule_defs = String::new();
     let mut ids = Vec::with_capacity(k);
@@ -574,7 +564,7 @@ fn homophonous_suffix_grammar_xml(k: usize) -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-    <Name>StepCapCliTest</Name>
+    <Name>WorkCapCliTest</Name>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>Verb</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
@@ -608,9 +598,9 @@ fn homophonous_suffix_grammar_xml(k: usize) -> String {
     )
 }
 
-/// A small `--step-cap` fires on a genuinely combinatorial unwind, in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
+/// A small `--work-cap` fires on a genuinely combinatorial unwind, in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
 #[test]
-fn step_cap_small_writes_cap_row_both_thread_modes() {
+fn work_cap_small_writes_cap_row_both_thread_modes() {
     let grammar_xml = homophonous_suffix_grammar_xml(7);
     let word = format!("kad{}\n", "d".repeat(7));
     for (tag, threads) in [("seq-cap", "1"), ("par-cap", "2")] {
@@ -618,7 +608,7 @@ fn step_cap_small_writes_cap_row_both_thread_modes() {
             tag,
             &grammar_xml,
             &word,
-            &["--step-cap", "500", "--threads", threads],
+            &["--work-cap", "50000", "--threads", threads],
         );
         let result_line = lines.last().expect("at least one line");
         let fields: Vec<&str> = result_line.split('\t').collect();
@@ -631,32 +621,51 @@ fn step_cap_small_writes_cap_row_both_thread_modes() {
     }
 }
 
+/// `--step-cap` counted analysis attempts and no longer exists: every subcommand that took it refuses it as an unknown option.
 #[test]
-fn default_step_cap_is_fifty_million() {
+fn the_removed_step_cap_flag_is_refused_like_any_unknown_option() {
+    let to_args = |args: &[&str]| -> Vec<String> { args.iter().map(|a| a.to_string()).collect() };
+    let refusals = [
+        run_batch(&to_args(&["g.xml", "w.txt", "o.tsv", "--step-cap", "5"])),
+        run_batch(&to_args(&["g.xml", "w.txt", "o.tsv", "--step-cap=5"])),
+        super::run_parse(&to_args(&["g.xml", "kat", "--step-cap", "5"])),
+        super::run_parse(&to_args(&["g.xml", "kat", "--step-cap=5"])),
+        super::stats_cmd::run_stats(&to_args(&["g.xml", "--step-cap", "5"])),
+        super::serve::parse_args(&to_args(&["--project", "p.fwdata", "--step-cap", "5"]))
+            .map(|_| ()),
+    ];
+    for refusal in refusals {
+        let err = refusal.expect_err("--step-cap must be refused");
+        assert!(err.contains("unknown option: --step-cap"), "{err}");
+    }
+}
+
+#[test]
+fn default_work_cap_is_five_billion() {
     assert_eq!(
-        DEFAULT_STEP_CAP,
-        StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap())
+        DEFAULT_WORK_CAP,
+        WorkCap::Finite(std::num::NonZeroU64::new(5_000_000_000).unwrap())
     );
 }
 
-/// `--step-cap 0` is rejected before any file is touched, with the same message `StepCap::from_str` gives.
+/// `--work-cap 0` is rejected before any file is touched, with the same message `WorkCap::from_str` gives.
 #[test]
-fn step_cap_zero_is_rejected_with_a_specific_message() {
+fn work_cap_zero_is_rejected_with_a_specific_message() {
     let err = run_batch(&[
         "unused.xml".to_string(),
         "unused.txt".to_string(),
         "unused.tsv".to_string(),
-        "--step-cap".to_string(),
+        "--work-cap".to_string(),
         "0".to_string(),
     ])
-    .expect_err("--step-cap 0 must be rejected");
-    assert!(err.contains("fires before the first step"), "{err}");
+    .expect_err("--work-cap 0 must be rejected");
+    assert!(err.contains("fires before the first work step"), "{err}");
 }
 
-/// `--step-cap unbounded` opts back into no bound at all; "kat" analyzes in far fewer than `DEFAULT_STEP_CAP` steps regardless, so this only proves the flag parses and the run still completes normally.
+/// `--work-cap unbounded` opts back into no bound at all; "kat" analyzes in far fewer than `DEFAULT_WORK_CAP` work steps regardless, so this only proves the flag parses and the run still completes normally.
 #[test]
-fn step_cap_unbounded_parses_and_batch_completes_ok() {
-    let lines = run_batch_tsv("unbounded-ok", &["--step-cap", "unbounded"]);
+fn work_cap_unbounded_parses_and_batch_completes_ok() {
+    let lines = run_batch_tsv("unbounded-ok", &["--work-cap", "unbounded"]);
     let result_line = lines.last().expect("at least one line");
     let fields: Vec<&str> = result_line.split('\t').collect();
     assert_eq!(fields[3], "ok", "{fields:?}");
@@ -1069,8 +1078,8 @@ fn plain_parse_reports_capped_search_and_preserves_complete_controls() {
     let args = [
         path.to_string_lossy().into_owned(),
         format!("kad{}", "d".repeat(7)),
-        "--step-cap".into(),
-        "500".into(),
+        "--work-cap".into(),
+        "50000".into(),
     ];
     let error = super::run_parse(&args).expect_err("capped search must return an explicit failure");
     assert!(error.contains("capped"), "{error}");
@@ -1080,10 +1089,10 @@ fn plain_parse_reports_capped_search_and_preserves_complete_controls() {
 }
 
 #[test]
-fn work_cap_is_independent_and_binds_both_batch_writer_paths() {
+fn work_cap_binds_both_batch_writer_paths() {
     for threads in ["1", "2"] {
         for flags in [vec!["--work-cap", "1"], vec!["--work-cap=1"]] {
-            let mut args = vec!["--step-cap", "unbounded", "--threads", threads];
+            let mut args = vec!["--threads", threads];
             args.extend(flags);
             let rows = run_batch_tsv("independent-work-cap", &args);
             let fields: Vec<_> = rows.last().unwrap().split('\t').collect();
@@ -1115,21 +1124,7 @@ fn work_cap_flag_binds_plain_parse_and_accepts_unbounded() {
 }
 
 #[test]
-fn work_cap_default_and_override_have_independent_units() {
-    let attempts = "200000".parse::<StepCap>().unwrap();
-    assert_eq!(super::resolved_work_cap(attempts, None), 20_000_000);
-    assert_eq!(
-        super::resolved_work_cap(StepCap::Unbounded, None),
-        usize::MAX
-    );
-    assert_eq!(
-        super::resolved_work_cap(attempts, Some(StepCap::Unbounded)),
-        usize::MAX
-    );
-    assert_eq!(
-        super::resolved_work_cap(StepCap::Unbounded, Some("64".parse().unwrap())),
-        64
-    );
+fn work_cap_flag_rejects_zero_before_file_access() {
     for flags in [vec!["--work-cap", "0"], vec!["--work-cap=0"]] {
         let mut args = vec![
             "unused.xml".into(),

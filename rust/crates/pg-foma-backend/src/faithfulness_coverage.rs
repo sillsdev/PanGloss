@@ -26,7 +26,7 @@
 //! # NOT ATTEMPTED is not a pass
 //! A pair reads `ContainmentOutcome::NotAttempted` whenever the comparison never ran at all: the
 //! selector refused the backend, oracle preparation faulted, or the evaluation never reached a
-//! comparable word (a resource breach, a step-capped oracle, an empty corpus). `FaithfulnessReport`
+//! comparable word (a resource breach, a work-capped oracle, an empty corpus). `FaithfulnessReport`
 //! keeps this class distinct from HELD for the same reason `crate::witnessed_coverage` keeps
 //! `BackendOutcome::RefusedBySelector` distinct from `Compiled`: silently reading "never checked" as
 //! "checked and fine" is the exact trap a faithfulness account exists to close.

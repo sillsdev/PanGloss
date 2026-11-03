@@ -253,8 +253,8 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
             "{fixture}: requested must equal included + excluded"
         );
         assert!(
-            corpus["oracle_step_cap"].as_u64().unwrap() > 0,
-            "{fixture}: the ledger must state the step cap it classified under"
+            corpus["oracle_work_cap"].as_u64().unwrap() > 0,
+            "{fixture}: the ledger must state the work cap it classified under"
         );
         assert!(corpus["oracle_memory_ceiling_bytes"].as_u64().is_some());
         assert!(corpus["oracle_liveness_net_ns"].as_u64().is_some());

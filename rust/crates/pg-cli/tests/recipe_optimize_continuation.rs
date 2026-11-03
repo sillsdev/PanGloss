@@ -284,7 +284,7 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
                 "arcs",
                 "proposals",
                 "confirmation",
-                "confirmation_steps",
+                "confirmation_work",
                 "raw_paths",
             ] {
                 assert_eq!(

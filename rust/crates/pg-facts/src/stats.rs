@@ -17,7 +17,7 @@ use serde::Deserialize;
 use crate::{FactsError, ProducerIdentity};
 
 const FORMAT: &str = "pangloss-batch-stats-manifest";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const LOGICAL_COUNTERS: [&str; 7] = [
     "attempts",
     "work",
@@ -127,8 +127,7 @@ struct ManifestRun {
 struct ManifestBatch {
     engine: String,
     threads: usize,
-    step_cap: String,
-    work_cap: usize,
+    work_cap: String,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -171,8 +170,7 @@ struct ManifestWordCompletion {
 #[serde(deny_unknown_fields)]
 struct RunOptions {
     engine: String,
-    step_cap: Option<String>,
-    work_cap: usize,
+    work_cap: Option<String>,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -225,7 +223,7 @@ struct ExportRun {
     options_hash: String,
     options_json: String,
     created_utc: String,
-    step_cap: Option<i64>,
+    work_cap: Option<i64>,
     cache_word_count: i64,
     requested_word_count: usize,
     batch_options_json: String,
@@ -236,7 +234,6 @@ struct ExportWord {
     form: String,
     status: String,
     elapsed_ns: Option<u64>,
-    attempts: Option<u64>,
     passes: Option<u64>,
     capped: Option<bool>,
     timed_out: Option<bool>,
@@ -302,7 +299,6 @@ struct RawWord {
     id: i64,
     form: String,
     elapsed_ns: u64,
-    attempts: u64,
     passes: u64,
     capped: bool,
     timed_out: bool,
@@ -418,15 +414,14 @@ fn validate_manifest_context(
             "frozen stats manifest has a non-positive thread count or resumed start index".into(),
         ));
     }
-    let step_cap = pg_stats::StepCap::from_str(&manifest.batch.step_cap).map_err(|error| {
-        FactsError::StatsRunUnavailable(format!("invalid stats manifest step cap: {error}"))
+    pg_stats::WorkCap::from_str(&manifest.batch.work_cap).map_err(|error| {
+        FactsError::StatsRunUnavailable(format!("invalid stats manifest work cap: {error}"))
     })?;
-    if manifest.batch.work_cap == 0 || manifest.batch.search_budget_semantics == 0 {
+    if manifest.batch.search_budget_semantics == 0 {
         return Err(FactsError::StatsRunUnavailable(
             "frozen stats manifest has invalid search budget options".into(),
         ));
     }
-    let _ = step_cap;
 
     let word_bytes = serde_json::to_vec(&manifest.input.words).map_err(|error| {
         FactsError::StatsRunUnavailable(format!("serialize frozen stats input words: {error}"))
@@ -500,11 +495,10 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
     let options: RunOptions = serde_json::from_str(&run.options_json).map_err(|error| {
         FactsError::StatsRunUnavailable(format!("invalid stats run options JSON: {error}"))
     })?;
-    let expected_step_cap = Some(manifest.batch.step_cap.as_str());
-    let option_step_cap = options.step_cap.as_deref();
+    let expected_work_cap = Some(manifest.batch.work_cap.as_str());
+    let option_work_cap = options.work_cap.as_deref();
     if options.engine != manifest.batch.engine
-        || option_step_cap != expected_step_cap
-        || options.work_cap != manifest.batch.work_cap
+        || option_work_cap != expected_work_cap
         || options.search_budget_semantics != manifest.batch.search_budget_semantics
         || options.word_timeout_ms != manifest.batch.word_timeout_ms
         || options.guess != manifest.batch.guess
@@ -515,8 +509,8 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
         || run.options_json != manifest.run.options_json
         || run.options_hash != sha256_hex(run.options_json.as_bytes())
         || run.run_id != manifest.run.id
-        || run.step_cap
-            != pg_stats::StepCap::from_str(&manifest.batch.step_cap)
+        || run.work_cap
+            != pg_stats::WorkCap::from_str(&manifest.batch.work_cap)
                 .ok()
                 .and_then(|cap| cap.to_storage().ok())
     {
@@ -566,11 +560,11 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         options_hash,
         options_json,
         word_count,
-        step_cap,
+        work_cap,
         created_utc,
     ) = tx
         .query_row(
-            "SELECT run_id, schema_version, counter_semantics, build_info, grammar_hash, engine, options_hash, options_json, word_count, step_cap, created_utc FROM run",
+            "SELECT run_id, schema_version, counter_semantics, build_info, grammar_hash, engine, options_hash, options_json, word_count, work_cap, created_utc FROM run",
             [],
             |row| Ok((
                 row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?,
@@ -614,13 +608,12 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         options_hash,
         options_json,
         created_utc,
-        step_cap,
+        work_cap,
         cache_word_count: word_count,
         requested_word_count: manifest.input.word_count,
         batch_options_json: serde_json::to_string(&serde_json::json!({
             "engine": manifest.batch.engine,
             "threads": manifest.batch.threads,
-            "step_cap": manifest.batch.step_cap,
             "work_cap": manifest.batch.work_cap,
             "search_budget_semantics": manifest.batch.search_budget_semantics,
             "word_timeout_ms": manifest.batch.word_timeout_ms,
@@ -659,7 +652,7 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
     };
     let words = {
         let mut statement = tx
-            .prepare("SELECT word_id, form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape FROM word WHERE run_id=?1")
+            .prepare("SELECT word_id, form, elapsed_ns, passes, capped, timed_out, invalid_shape FROM word WHERE run_id=?1")
             .map_err(stats_db_error)?;
         let rows = statement
             .query_map(params![run_id], |row| {
@@ -668,21 +661,19 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
                     row.get::<_, String>(1)?,
                     row.get::<_, u64>(2)?,
                     row.get::<_, u64>(3)?,
-                    row.get::<_, u64>(4)?,
+                    row.get::<_, i64>(4)?,
                     row.get::<_, i64>(5)?,
                     row.get::<_, i64>(6)?,
-                    row.get::<_, i64>(7)?,
                 ))
             })
             .map_err(stats_db_error)?
             .map(|row| {
-                let (id, form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape) =
+                let (id, form, elapsed_ns, passes, capped, timed_out, invalid_shape) =
                     row.map_err(stats_db_error)?;
                 Ok(RawWord {
                     id,
                     form,
                     elapsed_ns,
-                    attempts,
                     passes,
                     capped: cache_bool("capped", capped)?,
                     timed_out: cache_bool("timed_out", timed_out)?,
@@ -987,7 +978,6 @@ fn remap_cache(
                 form: form.clone(),
                 status: "not_attempted".into(),
                 elapsed_ns: None,
-                attempts: None,
                 passes: None,
                 capped: None,
                 timed_out: None,
@@ -1015,7 +1005,6 @@ fn remap_cache(
             form: form.clone(),
             status: completion.status.clone(),
             elapsed_ns: Some(word.elapsed_ns),
-            attempts: Some(word.attempts),
             passes: Some(word.passes),
             capped: Some(word.capped),
             timed_out: Some(word.timed_out),
@@ -1751,8 +1740,8 @@ pub(crate) fn insert(
     )?;
     crate::sql::execute(
         tx,
-        "INSERT INTO stats_run(run_id, engine, grammar_hash, options_hash, options_json, created_utc, step_cap, cache_word_count, requested_word_count, batch_options_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![projection.run.run_id, projection.run.engine, projection.run.grammar_hash, projection.run.options_hash, projection.run.options_json, projection.run.created_utc, projection.run.step_cap, projection.run.cache_word_count, projection.run.requested_word_count as i64, projection.run.batch_options_json],
+        "INSERT INTO stats_run(run_id, engine, grammar_hash, options_hash, options_json, created_utc, work_cap, cache_word_count, requested_word_count, batch_options_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![projection.run.run_id, projection.run.engine, projection.run.grammar_hash, projection.run.options_hash, projection.run.options_json, projection.run.created_utc, projection.run.work_cap, projection.run.cache_word_count, projection.run.requested_word_count as i64, projection.run.batch_options_json],
     )?;
     for dim in &projection.morphemes {
         crate::sql::execute(tx, "INSERT INTO stats_morpheme(morpheme_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
@@ -1773,7 +1762,7 @@ pub(crate) fn insert(
         crate::sql::execute(tx, "INSERT INTO stats_allomorph_source(allomorph_id, source_ordinal, source_allomorph_guid, role, omitted) VALUES (?1, ?2, ?3, ?4, ?5)", params![source.allomorph_id, source.source_ordinal, source.source_allomorph_guid, source.role, i64::from(source.omitted)])?;
     }
     for word in &projection.words {
-        crate::sql::execute(tx, "INSERT INTO stats_word(word_id, run_id, form, status, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", params![word.id, word.run_id, word.form, word.status, word.elapsed_ns, word.attempts, word.passes, word.capped.map(i64::from), word.timed_out.map(i64::from), word.invalid_shape.map(i64::from)])?;
+        crate::sql::execute(tx, "INSERT INTO stats_word(word_id, run_id, form, status, elapsed_ns, passes, capped, timed_out, invalid_shape) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", params![word.id, word.run_id, word.form, word.status, word.elapsed_ns, word.passes, word.capped.map(i64::from), word.timed_out.map(i64::from), word.invalid_shape.map(i64::from)])?;
     }
     for fact in &projection.facts {
         crate::sql::execute(tx, "INSERT INTO stats_fact(word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", params![fact.word_id, fact.object_id, fact.stratum_id, fact.allomorph_id, fact.direction, fact.attempts, fact.work, fact.outputs, fact.not_applied, fact.no_root, fact.surface_mismatch, fact.uses, fact.self_time_ns])?;
@@ -1922,9 +1911,8 @@ mod tests {
             "batch": {
                 "engine": "hc",
                 "threads": 1,
-                "step_cap": "200000",
-                "work_cap": 2000000,
-                "search_budget_semantics": 2,
+                "work_cap": "20000000",
+                "search_budget_semantics": 3,
                 "word_timeout_ms": null,
                 "guess": false,
                 "always_enforce_final_templates": false,
@@ -1990,12 +1978,11 @@ mod tests {
                     options_hash: manifest.run.options_hash.clone(),
                     options_json: manifest.run.options_json.clone(),
                     created_utc: "unix:1".into(),
-                    step_cap: Some("200000".parse().unwrap()),
+                    work_cap: Some("20000000".parse().unwrap()),
                 },
                 &[pg_stats::WordRecord {
                     form: "kuma".into(),
                     elapsed_ns: 1,
-                    attempts: 1,
                     work: 0,
                     passes: 1,
                     capped: false,

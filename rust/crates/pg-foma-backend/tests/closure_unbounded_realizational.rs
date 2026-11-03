@@ -48,7 +48,7 @@ fn tagged_self_loops(lexc_source: &str) -> Vec<String> {
 fn concatenative_realizational_rule_uses_a_regular_loop() {
     let grammar = pg_grammar::load(CONCATENATIVE_REALIZATIONAL_XML)
         .expect("concatenative realizational fixture must load");
-    let morpher = Morpher::new(&grammar, 20_000);
+    let morpher = Morpher::new(&grammar, 2_000_000);
     let once = morpher.parse_word_opts("af", &ParseOptions::default());
     assert!(
         !once.structured.is_empty(),
@@ -78,7 +78,7 @@ fn concatenative_realizational_prefix_uses_a_regular_loop() {
         "<InsertSegments><PhoneticShape>f</PhoneticShape></InsertSegments><CopyFromInput index=\"stem\" />",
     );
     let grammar = pg_grammar::load(&xml).expect("concatenative prefix fixture must load");
-    let morpher = Morpher::new(&grammar, 20_000);
+    let morpher = Morpher::new(&grammar, 2_000_000);
     let once = morpher.parse_word_opts("fa", &ParseOptions::default());
     assert!(
         !once.structured.is_empty(),

@@ -37,7 +37,7 @@ fn identity_multiset(outcome: &ParseOutcome) -> Vec<(String, String, String)> {
 }
 
 fn assert_search_completed(outcome: &ParseOutcome) {
-    assert!(!outcome.capped, "the parse must not hit its step cap");
+    assert!(!outcome.capped, "the parse must not hit its work cap");
     assert!(!outcome.timed_out, "the parse must not time out");
     assert!(!outcome.invalid_shape, "the input must have a valid shape");
 }

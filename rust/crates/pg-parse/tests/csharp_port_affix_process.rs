@@ -7,7 +7,7 @@ use pg_featstruct::{FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBit
 use pg_grammar_model::model::{Grammar, MorphRuleDef};
 use pg_parse::identity::AnalysisIdentity;
 use pg_parse::{GenMorpheme, Morpher, ParseOptions};
-use pg_rules::stratum::{AnalyzerConfig, StepBudget};
+use pg_rules::stratum::{AnalyzerConfig, WordBudget};
 use pg_rules::trace::{TraceHandle, TraceSource, TraceType, TreeTraceSink};
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
@@ -50,7 +50,7 @@ fn analyze_copy_shape(
         stratum,
         Word::new(shape, stratum),
         &config,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     )
     .words
     .into_iter()

@@ -58,7 +58,7 @@ pub use error::{
     HC_ERR_UTF8, HC_OK,
 };
 pub use generate::hc_generate_words;
-pub use grammar::{hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_STEP_CAP};
+pub use grammar::{hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_WORK_CAP};
 pub use json::*;
 pub use parse::{
     hc_buf_free, hc_parse_batch, hc_parse_batch_opts, hc_parse_word, hc_parse_word_opts, HcStr,
@@ -74,7 +74,11 @@ pub use parse::{
 ///   surface for the P11 lexical-pattern guesser) plus their own distinct wire format/magic
 ///   (`buffer::encode_single_guess`/`encode_batch_guess`, decoded by `buffer::decode_guess`)
 ///   carrying a `guessed` bit per word and per analysis.
-pub const HC_ABI_VERSION: i32 = 3;
+/// - `4`: no signature or layout changed. The per-word cap semantics did: a grammar handle's cap is
+///   now a work cap (50,000,000 work steps; the analysis-attempt cap of 500,000 is gone), and
+///   confirmation may spend one sixteenth more than the cap. A word can report `capped` where it
+///   did not, and the reverse. Generation keeps its own 500,000 limit, set explicitly.
+pub const HC_ABI_VERSION: i32 = 4;
 
 /// `hc_abi_version()` — the managed loader checks this before trusting the DLL.
 #[no_mangle]
