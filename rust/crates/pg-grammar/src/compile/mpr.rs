@@ -98,10 +98,36 @@ impl MprTables {
     }
 }
 
+fn count_infl_classes_in(items: &[PartOfSpeech]) -> usize {
+    fn count(ic: &InflectionClass) -> usize {
+        1 + ic.children.iter().map(count).sum::<usize>()
+    }
+    items
+        .iter()
+        .map(|pos| {
+            pos.inflection_classes.iter().map(count).sum::<usize>()
+                + count_infl_classes_in(&pos.children)
+        })
+        .sum()
+}
+
 pub(crate) fn build(
     snapshot: &Snapshot,
     recorder: &mut SelectionRecorder,
 ) -> Result<MprTables, GrammarError> {
+    let infl_classes = count_infl_classes_in(&snapshot.morphology.parts_of_speech);
+    let exceptions = snapshot.morphology.exception_features.len();
+    let entry_types = snapshot.morphology.lex_entry_infl_types.len();
+    let total = infl_classes + exceptions + entry_types;
+    if total > crate::limits::MAX_MPR_FEATURES {
+        return Err(crate::limits::mpr_features(
+            total,
+            "this project has",
+            &format!(
+                " ({infl_classes} inflection classes including subclasses, {exceptions} exception features, {entry_types} entry inflection types)"
+            ),
+        ));
+    }
     let mut mpr_names: Vec<String> = Vec::new();
     let mut mpr_features: Vec<MprFeatureDef> = Vec::new();
     let mut infl_class_bit: HashMap<String, MprId> = HashMap::new();
@@ -188,12 +214,10 @@ fn next_bit(
     xml_id: &str,
     name: &str,
 ) -> Result<MprId, GrammarError> {
-    if mpr_names.len() >= 64 {
-        return Err(GrammarError::Unsupported(format!(
-            "{} MPR features; the bitset representation supports at most 64",
-            mpr_names.len() + 1
-        )));
-    }
+    assert!(
+        mpr_names.len() < crate::limits::MAX_MPR_FEATURES,
+        "build() counts every MPR feature against the cap before allocating bits"
+    );
     let id = MprId(mpr_names.len() as u8);
     mpr_names.push(name.to_string());
     mpr_features.push(MprFeatureDef {

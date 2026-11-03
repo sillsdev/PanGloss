@@ -1028,7 +1028,13 @@ fn pos_symbol_cap_63_ok_64_rejected() {
     );
     let bad = load(&pos_grammar_with_n_symbols(64));
     assert!(
-        matches!(bad, Err(GrammarError::Unsupported(_))),
+        matches!(
+            bad,
+            Err(GrammarError::Limit {
+                code: pg_snapshot::ImportWarningCode::LimitPartsOfSpeech,
+                ..
+            })
+        ),
         "64 parts of speech must be rejected at the 64-symbol boundary, got {bad:?}"
     );
 }
@@ -1058,7 +1064,13 @@ fn phonological_symbolic_feature_cap_63_ok_64_rejected() {
     );
     let bad = load(&phon_feature_grammar_with_n_symbols(64));
     assert!(
-        matches!(bad, Err(GrammarError::Unsupported(_))),
+        matches!(
+            bad,
+            Err(GrammarError::Limit {
+                code: pg_snapshot::ImportWarningCode::LimitFeatureValues,
+                ..
+            })
+        ),
         "a 64-symbol phonological feature must be rejected at the 64-symbol boundary, got {bad:?}"
     );
 }

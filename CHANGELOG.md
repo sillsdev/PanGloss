@@ -3,6 +3,12 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Grammar health
+
+- A grammar over a bitset cap now fails with its own error instead of `grammar.compile.failed`: `grammar.limit.parts-of-speech` (more than 63, every subcategory at every depth counted), `grammar.limit.feature-values` (more than 63 values in one morphosyntactic or phonological feature, naming the feature) and `grammar.limit.mpr-features` (more than 64 inflection classes including subclasses, exception features and entry inflection types, with the three counts). Each names the cap, the actual count and what to reduce. The caps themselves are unchanged; the decision on #150 is to widen them only if a real project nears one.
+
 ## 0.14.0
 
 This release breaks consumers. `steps` is gone and every cap is on work: the running total of work steps a word spends.

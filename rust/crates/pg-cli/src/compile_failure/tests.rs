@@ -78,6 +78,27 @@ fn early_compiler_failures_form_valid_error_findings() {
 }
 
 #[test]
+fn limit_errors_keep_their_own_grammar_limit_code() {
+    let report = CompileFailure::new(
+        "sample.fwdata",
+        pg_grammar::GrammarError::Limit {
+            code: ImportWarningCode::LimitPartsOfSpeech,
+            message: "this project has 71 parts of speech including subcategories; PanGloss supports at most 63.".into(),
+        },
+        None,
+    );
+    let wire = serde_json::to_value(&report).unwrap();
+    assert_eq!(wire["issues"][0]["code"], "grammar.limit.parts-of-speech");
+    assert_eq!(wire["issues"][0]["kind"], "limit");
+    let health = pg_grammar::grammar_health::GrammarHealthReport::new(report.diagnostics).unwrap();
+    assert_eq!(health.diagnostics()[0].level, DiagnosticLevel::Error);
+    assert_eq!(
+        health.diagnostics()[0].code.wire(),
+        "grammar.limit.parts-of-speech"
+    );
+}
+
+#[test]
 fn fatal_import_provenance_serializes_as_compile_error() {
     let provenance = pg_snapshot::ConversionProvenance {
         schema_version: pg_snapshot::CONVERSION_PROVENANCE_SCHEMA_VERSION,

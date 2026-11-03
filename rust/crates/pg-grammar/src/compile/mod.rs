@@ -37,6 +37,8 @@ pub(crate) mod inventory;
 pub(crate) mod issue_codes;
 pub mod issues;
 mod lexicon;
+#[cfg(test)]
+mod limit_tests;
 mod lineage;
 mod mpr;
 mod msa_merge;

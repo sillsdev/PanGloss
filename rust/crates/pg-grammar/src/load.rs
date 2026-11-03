@@ -220,7 +220,7 @@ fn mk_part_ref(kind: PartKind, idx: u16) -> PartRef {
 
 /// A load error that should drop the current allomorph rather than abort the whole load; `Unsupported` is never a drop, since it must propagate to trigger managed fallback.
 fn is_droppable(e: &GrammarError) -> bool {
-    !matches!(e, GrammarError::Unsupported(_))
+    !matches!(e, GrammarError::Unsupported(_) | GrammarError::Limit { .. })
 }
 
 /// C# `XmlLanguageLoader.GetMorphCoOccurrenceAdjacency`: unknown/absent values default to `Anywhere` (also the DTD's own default).
@@ -308,10 +308,12 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             )
             .filter(|e| e.is_active())
             .count();
-        if count > 64 {
-            return Err(GrammarError::Unsupported(format!(
-                "{count} MPR features; the bitset representation supports at most 64"
-            )));
+        if count > crate::limits::MAX_MPR_FEATURES {
+            return Err(crate::limits::mpr_features(
+                count,
+                "this grammar file has",
+                " (inflection classes, exception features and entry inflection types share the cap)",
+            ));
         }
         for mf in lang
             .elems2(
@@ -616,11 +618,12 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
                 .into(),
         ));
     }
-    if pos_symbols.len() >= 64 {
-        return Err(GrammarError::Unsupported(format!(
-            "{} parts of speech; the symbol bitset supports at most 63",
-            pos_symbols.len()
-        )));
+    if pos_symbols.len() > crate::limits::MAX_PARTS_OF_SPEECH {
+        return Err(crate::limits::parts_of_speech(
+            pos_symbols.len(),
+            "this grammar file has",
+            "",
+        ));
     }
     features.push(SynFeature {
         xml_id: "__pos__".into(),
@@ -683,12 +686,7 @@ fn load_syn_feature(elem: &Node) -> Result<Option<SynFeature>, GrammarError> {
                 .elems2("Symbols", "Symbol")
                 .map(|s| (s.attr("id").unwrap_or("").to_string(), s.text.clone()))
                 .collect();
-            if symbols.len() >= 64 {
-                return Err(GrammarError::Unsupported(format!(
-                    "symbolic feature '{name}' ({xml_id}) has {} symbols; the bitset supports at most 63",
-                    symbols.len()
-                )));
-            }
+            crate::limits::check_feature_values("symbolic feature", &name, &xml_id, symbols.len())?;
             let default_symbol = elem
                 .attr_ne("defaultSymbol")
                 .and_then(|d| symbols.iter().position(|(id, _)| id == d).map(|i| i as u32));
