@@ -48,15 +48,6 @@ In Grammar > Category Edit, inspect the category's Affix Templates and Affix Slo
 
 Feature values and inflection classes are linked by references, not by matching names. If a feature or class reference cannot be resolved, use the diagnostic to find the owner and field. Keep valid linguistic data when the parser lacks support for it, and report that limitation.
 
-## Constructions the parser skips or approximates
-
-Some FieldWorks constructions do not have the same behavior in the parser:
-
-- Metathesis rules are skipped; they are not run as approximations. Words that rely on a rule may fail or differ.
-- Some imported metathesis rules are approximated during conversion. The snapshot compiler subsequently skips these rules too; it does not run the approximation. Read both findings to distinguish the conversion loss from the compiler omission.
-
-Model a construction when it is part of the analysis, then check affected words and report valid behavior the parser cannot preserve.
-
 ## Measure one change
 
 After a source change, import the project again and check the words expected to change along with a few that should remain the same. A parse trace can show which stem, allomorph, environment, and rule steps were used. Change one cause at a time so the next result is useful evidence.
