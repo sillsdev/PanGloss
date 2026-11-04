@@ -496,20 +496,14 @@ pub(crate) fn build_affix_rule(
     Some(mrule_id)
 }
 
-/// Whether `mt` is a circumfix's leading half.
+/// Whether `mt` is a circumfix's leading half: HCLoader pairs only the exact prefix type (HCLoader.cs:1102).
 pub(crate) fn is_circumfix_prefix_half(mt: MorphType) -> bool {
-    matches!(
-        mt,
-        MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic
-    )
+    mt == MorphType::Prefix
 }
 
-/// Whether `mt` is a circumfix's trailing half.
+/// Whether `mt` is a circumfix's trailing half: HCLoader pairs only the exact suffix type (HCLoader.cs:1107).
 pub(crate) fn is_circumfix_suffix_half(mt: MorphType) -> bool {
-    matches!(
-        mt,
-        MorphType::Suffix | MorphType::SuffixingInterfix | MorphType::Enclitic
-    )
+    mt == MorphType::Suffix
 }
 
 /// One allomorph per (prefix, prefix-env) x (suffix, suffix-env) combination, HCLoader's own cross product (HCLoader.cs:1060-1332); see retired divergence 039 (docs/divergences/README.md, Retired entries).
@@ -1568,6 +1562,10 @@ fn build_process_allomorph(
             PhonContext::Variable => environment::any_star(ctx),
             other => phon_context_nodes(other, ctx)?,
         };
+        // HCLoader erases a word boundary inside a sequence but rejects a part left with no nodes (HCLoader.cs:1407, 2397).
+        if nodes.is_empty() {
+            return Err("input part has no pattern nodes".to_string());
+        }
         lhs.push(Pattern { nodes });
     }
 
@@ -1591,7 +1589,12 @@ fn build_process_allomorph(
                 }
                 OutputAction::Copy(PartRef::Input((*part - 1) as u16))
             }
-            RuleMapping::InsertSegments { text } => insert_segments(text.trim(), ctx)?,
+            RuleMapping::InsertSegments { text } => {
+                if text.trim().is_empty() {
+                    return Err("insert-phones step has no representation".to_string());
+                }
+                insert_segments(text.trim(), ctx)?
+            }
             RuleMapping::ModifyFromInput {
                 part,
                 natural_class,
@@ -1653,6 +1656,10 @@ pub(crate) fn phon_context_nodes(
         }
         PhonContext::Iteration { min, max, member } => {
             let children = phon_context_nodes(member, ctx)?;
+            // A failed member drops out of a sequence in HCLoader; only the top-level check rejects.
+            if children.is_empty() {
+                return Ok(Vec::new());
+            }
             Ok(vec![PatternNode::Quantifier {
                 min: (*min).max(0) as u32,
                 max: if *max < 0 { None } else { Some(*max as u32) },

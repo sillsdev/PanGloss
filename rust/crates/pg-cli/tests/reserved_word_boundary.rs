@@ -323,3 +323,40 @@ fn reserved_word_boundary_record_is_accounted_so_load_accounting_is_complete() {
         .unwrap();
     assert_eq!(status, "complete");
 }
+
+/// HCLoader reads `VernacularDefaultWritingSystem.Text` of the first code and rejects the process when it is empty, with no fallback to another writing system (HCLoader.cs:1445-1451, #166).
+#[test]
+fn insert_phones_without_a_default_vernacular_form_is_rejected_not_borrowed() {
+    let dir = tempfile::tempdir().expect("create fixture directory");
+    let path = reserved_boundary_fixture(dir.path(), false);
+    let source = std::fs::read_to_string(&path).expect("read variant");
+    let code = "<rt class=\"PhCode\" guid=\"00000000-0000-0000-0000-000000000013\"";
+    let start = source.find(code).expect("code record");
+    let end = start + source[start..].find("</rt>").expect("code closes");
+    let mut changed = source.clone();
+    changed.replace_range(
+        start..end,
+        &source[start..end].replace("ws=\"fx\"", "ws=\"zz\""),
+    );
+    assert_ne!(changed, source);
+
+    let rules = |text: &str, name: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, text).expect("write variant");
+        let (snapshot, report) = pg_fwdata::import_file(&path).expect("imports");
+        let (grammar, _) = pg_grammar::compile_project(&snapshot).expect("compiles");
+        let n = grammar
+            .mrules
+            .iter()
+            .filter(|rule| matches!(rule, pg_grammar::model::MorphRuleDef::AffixProcess(_)))
+            .count();
+        (n, report.warnings.len())
+    };
+    let (kept, _) = rules(&source, "with-form.fwdata");
+    let (rejected, _) = rules(&changed, "without-form.fwdata");
+    assert_eq!(kept, 1, "control keeps the process");
+    assert_eq!(
+        rejected, 0,
+        "no default-ws form: HCLoader rejects the process"
+    );
+}

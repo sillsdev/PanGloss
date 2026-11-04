@@ -345,8 +345,13 @@ fn extract_rule_mapping(
             Some(RuleMapping::CopyFromInput { part })
         }
         "MoInsertPhones" => {
+            let terms = rec.node.objsur_list("Content");
+            // HCLoader adds no step for an empty Content list, and rejects the whole process when any unit has no representation (HCLoader.cs:1437-1452); an empty text here makes the compiler reject it.
+            if terms.is_empty() {
+                return None;
+            }
             let mut text = String::new();
-            for term_guid in rec.node.objsur_list("Content") {
+            for term_guid in terms {
                 match first_code_representation(ctx, &term_guid) {
                     Some(s) => text.push_str(&s),
                     None => {
@@ -381,7 +386,9 @@ fn extract_rule_mapping(
                                  unit {term_guid}"
                             ),
                             subjects,
-                        )
+                        );
+                        text.clear();
+                        break;
                     }
                 }
             }

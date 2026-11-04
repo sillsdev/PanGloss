@@ -265,12 +265,12 @@ pub(crate) fn first_code_representation(ctx: &mut Ctx, guid: &str) -> Option<Str
     let text = if rec.class == "PhBdryMarker" {
         ctx.best_vernacular(&forms)
     } else {
-        // "vernacular default" is simply the first (default) vernacular writing system.
+        // "vernacular default" is simply the first (default) vernacular writing system; HCLoader has no fallback (HCLoader.cs:1445-1449).
         ctx.vernacular_ws
             .first()
             .and_then(|ws| forms.iter().find(|f| &f.ws == ws))
             .map(|f| f.form.clone())
-            .unwrap_or_else(|| ctx.best_vernacular(&forms))
+            .unwrap_or_default()
     };
     let text = text.trim();
     if text.is_empty() {
