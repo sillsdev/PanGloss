@@ -8,3 +8,7 @@ RealizationalAffixProcessRule
 Clitic rules (isCliticRule / Clitics stratum) after a final template
 CharacterDefinitionTable: more than one table, one per stratum
 CharacterDefinitionTable: cross-table respelling (an inner-stratum root surfaces spelled by the final stratum's table)
+# The staged variant fixtures (variant-clitic-typed-form, variant-complex-form-ref-senseless-entry) tag the loader
+# collection they exercise by its element name; the suite has no row for either.
+LexicalEntry
+MorphologicalRule

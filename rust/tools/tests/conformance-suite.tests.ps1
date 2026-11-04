@@ -47,9 +47,23 @@ function New-PinnedRepoRoot {
 }
 
 function Get-TreeStamp {
-    # The newest write time under a directory: any git write (fetch, checkout, gc) moves it.
+    # Every path under a directory with its write time and size: any git write (fetch, checkout, gc, index refresh) changes it.
     param([string]$Path)
-    return (Get-ChildItem -LiteralPath $Path -Recurse -Force | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+    return @(Get-ChildItem -LiteralPath $Path -Recurse -Force | Sort-Object FullName |
+        ForEach-Object { "$($_.FullName)|$($_.LastWriteTimeUtc.Ticks)|$(if ($_.PSIsContainer) { 'dir' } else { $_.Length })" })
+}
+
+function Wait-TreeQuiet {
+    # The "before" stamp counts only once two stamps a second apart agree: a fresh clone can still be touched just after it returns.
+    param([string]$Path)
+    $previous = Get-TreeStamp -Path $Path
+    for ($i = 0; $i -lt 30; $i++) {
+        Start-Sleep -Milliseconds 1100
+        $current = Get-TreeStamp -Path $Path
+        if (-not (Compare-Object $previous $current)) { return $current }
+        $previous = $current
+    }
+    return $previous
 }
 
 # --- The pin file ---
@@ -100,13 +114,14 @@ Test-Case 'already at the pin needs no network and writes nothing' {
     $script:ConformanceSuiteUrl = $source
     Assert-True (Sync-ConformanceSuite -RepoRoot $root).Ok
     $suite = Join-Path $root 'conformance'
-    $before = Get-TreeStamp -Path $suite
+    $before = Wait-TreeQuiet -Path $suite
     $script:ConformanceSuiteUrl = Join-Path $source 'does-not-exist'
     Start-Sleep -Milliseconds 1100
     $r = Sync-ConformanceSuite -RepoRoot $root
     Assert-True $r.Ok $r.Detail
     Assert-Equal 'already-present' $r.Mode
-    Assert-Equal $before (Get-TreeStamp -Path $suite) 'no file under conformance/ was written'
+    $changed = @(Compare-Object $before (Get-TreeStamp -Path $suite) | ForEach-Object { $_.InputObject })
+    Assert-Equal 0 $changed.Count "no file under conformance/ was written; changed: $($changed -join '; ')"
 }
 
 Test-Case 'a pin change moves the suite, fetching the commit when it is not local' {
