@@ -3831,7 +3831,7 @@ fn per_strategy_derivation_is_identical_on_every_conformance_fixture() {
     assert!(
         machine > 0 && staging > 0,
         "no conformance corpus to check against (machine={machine} staging={staging}) -- \
-         `rust/tools/conformance.ps1` initializes the machine/conformance submodule"
+         `pwsh rust/tools/conformance.ps1` fetches the conformance suite"
     );
 
     let mut tally: HashMap<&'static str, usize> = HashMap::new();

@@ -2,7 +2,7 @@
 //! compile_and_compose_rules_with_budget`'s own match on `pg_grammar::model::PhonRuleDef` already
 //! routes EVERY `PhonRuleDef::Metathesis` straight to `skipped.push(format!("{} (metathesis,
 //! unhandled)", m.xml_id))`, with no compile attempt at all -- this builder only needs a LOADABLE
-//! `<MetathesisRule>`, following `machine/conformance/languages/metathesis-phase-isolation/grammar.xml`'s
+//! `<MetathesisRule>`, following `conformance/languages/metathesis-phase-isolation/grammar.xml`'s
 //! own `mrSimpleMeta` shape (the only real `<MetathesisRule>` fixture in this repo) exactly: two
 //! switch-tagged pattern nodes (`leftSwitch`/`rightSwitch` IDREFs into the rule's own
 //! `StructuralDescription/PhoneticTemplate/PhoneticSequence`), here plain `<Segment id=".."

@@ -2,7 +2,6 @@
 //! identity; confirm's D4 recovery restores both from one deduplicated proposal. See `docs/adr/0001-honest-capability-boundary.md`.
 
 use std::fs;
-use std::path::Path;
 
 use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::grammar_semantics::GrammarSemantics;
@@ -13,8 +12,8 @@ use pg_foma_backend::backend_runtime::{
 };
 
 fn load() -> pg_grammar::model::Grammar {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../machine/conformance/edge-cases/mpr-gated-exception/grammar.xml");
+    let path =
+        pg_conformance_fixtures::suite_root().join("edge-cases/mpr-gated-exception/grammar.xml");
     let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }

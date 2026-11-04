@@ -728,15 +728,16 @@ fn mirror_unreversed_hypothesis(opts: &FomaOptions) -> foma::types::Fsm {
 }
 
 fn anchor_fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../machine/conformance/edge-cases/right-to-left-anchor-environment/grammar.xml",
-    )
+    pg_conformance_fixtures::suite_root()
+        .join("edge-cases/right-to-left-anchor-environment/grammar.xml")
 }
 
 fn segments_environment_fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/right-to-left-segments-environment/grammar.xml",
+    pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "right-to-left-segments-environment-segments-node",
     )
+    .grammar_path()
 }
 fn cross_table_segments_environment_fixture_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(

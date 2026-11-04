@@ -12,7 +12,7 @@ findings from `docs/fst-plan/conformance-fst-measurement.md` section 7-8 against
 
 Ran via `pg.ps1 -Mode run -Bin pangloss -- coverage --json coverage-report.json` (walks both
 fixture roots: `discover_scoped(ConformanceScope::All)` internally, so this already covers
-`conformance-staging/**` and `machine/conformance/**`).
+`conformance-staging/**` and `conformance/**`).
 
 **Headline: 23/23 constructs Covered by a passing fixture, 0 Unmappable.** 6 Proven, 6 ConfirmOnly,
 11 ConfigPredicate.
@@ -20,7 +20,7 @@ fixture roots: `discover_scoped(ConformanceScope::All)` internally, so this alre
 There are now **23** `CharacteristicKind` variants (not 19 -- that count, and the "45 fixtures"
 figure, both come from `docs/fst-plan/conformance-fst-measurement.md`, which is now stale on both
 numbers; see section 3 below for why). Current fixture-root sizes: **25** fixtures under
-`conformance-staging/edge-cases/**` (local scope) and **33** under `machine/conformance/{edge-cases,
+`conformance-staging/edge-cases/**` (local scope) and **33** under `conformance/{edge-cases,
 languages}/**` (the upstream half of `-Scope all`), for 58 total -- up from the brief's cited 25+21=46.
 
 | `CharacteristicKind` | Disposition | Conformance status | Construct id(s) | Containment evidence |
@@ -147,7 +147,7 @@ had"), documented as "A `Modify`-only allomorph: the input is mutated in place r
 It is in `CharacteristicKind::ALL` (23 variants total now), has `default_disposition() ==
 ConfirmOnly`, is mapped in `conformance_coverage.rs` to construct id "MorphologicalOutputAction:
 ModifyFromInput/InsertSimpleContext", and `pangloss coverage` reports it `Covered`. There is also now
-a dedicated upstream fixture, `machine/conformance/edge-cases/process-morphology-in-place-mutation`.
+a dedicated upstream fixture, `conformance/edge-cases/process-morphology-in-place-mutation`.
 
 No predicate is registered for it (it carries no discharging predicate, same as
 `CoOccurrenceConstraint`/`StemName`/`FreeFluctuation` -- all `ConfirmOnly`-by-default with no admission
@@ -165,13 +165,13 @@ assignment) declare a `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule` ele
 **Current state:** grepped `<MorphemeCoOccurrenceRule` / `<AllomorphCoOccurrenceRule` (actual element
 tags, not just the string) across both fixture roots. Real, active declarations exist in:
 
-- `machine/conformance/languages/templatic-root-modification/grammar.xml` -- one `exclude`,
+- `conformance/languages/templatic-root-modification/grammar.xml` -- one `exclude`,
   `adjacency="anywhere"`.
-- `machine/conformance/languages/suffixing-evidential-adjacency-chain/grammar.xml` -- five
+- `conformance/languages/suffixing-evidential-adjacency-chain/grammar.xml` -- five
   `MorphemeCoOccurrenceRule`s (`exclude` x2 `anywhere`, `require` x3 across
   `somewhereToLeft`/`adjacentToLeft`/`somewhereToRight`/`adjacentToRight`) plus one
   `AllomorphCoOccurrenceRule` (`exclude`, `anywhere`).
-- `machine/conformance/edge-cases/morphotactic-attribute-breadth/grammar.xml` -- two
+- `conformance/edge-cases/morphotactic-attribute-breadth/grammar.xml` -- two
   `MorphemeCoOccurrenceRule`s (one `isActive="no"`) and six `AllomorphCoOccurrenceRule`s covering
   every adjacency mode, `anywhere` included.
 
@@ -218,6 +218,6 @@ consistent ledger) or in the capability/taxonomy code read during verification.
 
 - Path: `C:\Users\johnm\Documents\repos\PanGloss\.claude\worktrees\sweep-conformance-coverage`
 - Branch: `sweep-conformance-coverage`, based on local `main` at `59c19eebc4bb023eb34ed5a13630972e1bfc6cad`
-- No corpus-backed suites were run (not needed for this task); `machine/conformance` submodule
+- No corpus-backed suites were run (not needed for this task); `conformance` submodule
   auto-initialized (sparse, ~3.6MB) on first `pg.ps1` invocation as documented.
 

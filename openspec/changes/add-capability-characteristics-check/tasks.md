@@ -15,7 +15,7 @@
 - [x] 3.3 Wire the gate into the production compile path (the flip: block a real compile) — **HISTORICAL/REMOVED:** the former CLI `capability_gate`/`run_capability_gate` wiring is no longer present at the current HEAD. Retain this entry only as historical completion evidence; it is not a current production-path claim.
 
 ## 4. Conformance-coverage CI gate
-- [ ] 4.1 Cross-check capability registry against `machine/conformance/` coverage; break build on gap
+- [ ] 4.1 Cross-check capability registry against `conformance/` coverage; break build on gap
       (the cross-check itself is real and non-blocking: `pg-foma/src/conformance_coverage.rs`
       (`construct_ids_for` mapping + a pure gap function) plus
       `pg-foma/tests/conformance_coverage_gate.rs` (replays every discovered fixture against

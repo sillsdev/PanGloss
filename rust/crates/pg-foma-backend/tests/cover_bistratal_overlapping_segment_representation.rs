@@ -1,7 +1,6 @@
 //! Pins the current behavior for a two-table grammar whose tables share a literal representation ("s") denoting a different segment identity in each: the capability gate's `ConfirmOnly` verdict (a shared representation is a false-negative risk, not false-positive, so `Refuse` would be over-conservative), and the oracle's own unaffected analysis of every reachable word. This fixture has no rule threading material between the two tables — `tests/two_table_shared_representation_recall.rs` is the one that exercises cross-table aliasing firing.
 
 use std::fs;
-use std::path::Path;
 
 use pg_foma::capability::CompileDecision;
 use pg_foma_backend::backend_selection::best_case_for_grammar;
@@ -9,9 +8,11 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../machine/conformance/edge-cases/bistratal-overlapping-segment-representation/grammar.xml",
+    pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "bistratal-overlapping-segment-representation",
     )
+    .grammar_path()
 }
 
 fn load() -> Grammar {

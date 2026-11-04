@@ -598,7 +598,7 @@ function Get-AnalysisSignatures {
 	return $wordEntry.analyses | ForEach-Object { ($_.morphemes | ForEach-Object { $_.msaGuid }) -join '+' } | Sort-Object
 }
 
-# phonology-mutations.yaml (machine\conformance\PROTOCOL.md section 10) is a small, fixed-shape
+# phonology-mutations.yaml (conformance\PROTOCOL.md section 10) is a small, fixed-shape
 # manifest; a bespoke parser matches its exact shape rather than pulling in a general YAML reader
 # (the Rust side owns YAML later).
 function ConvertFrom-PhonologyMutationsYaml {
@@ -1046,7 +1046,7 @@ finally {
 
 # --- refusal-before-project-exists probes: GrammarParser.Parse runs before AuthorSession.Run ever
 #     creates a .fwdata, so these need FieldWorks (for the pin check in Program.Main) but NEITHER
-#     the machine submodule NOR Sena 3 -- both grammars are tiny inline fixtures. ---
+#     the conformance suite NOR Sena 3 -- both grammars are tiny inline fixtures. ---
 $parserRefusalTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-parser-refusal-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $parserRefusalTempRoot -Force | Out-Null
 try {
@@ -1242,7 +1242,7 @@ finally {
 #     HCLoader emits for ONE FieldWorks enclitic entry) is authored as one entry of the enclitic morph
 #     type, and a MorphemeCoOccurrenceRule naming it by either id becomes one MoMorphAdhocProhib that
 #     binds in the live HC engine. Refusals: a table of small mutations of the probe grammar (the pairing, the partner entry's
-#     shape and stratum, the clitic rule, the Clitics stratum), each of which must exit 7 naming its cause. Needs no machine submodule. ---
+#     shape and stratum, the clitic rule, the Clitics stratum), each of which must exit 7 naming its cause. Needs no conformance suite. ---
 $encliticGrammar = Join-Path $root 'testdata\enclitic-probe.grammar.xml'
 $encliticTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-enclitic-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $encliticTempRoot -Force | Out-Null
@@ -1365,17 +1365,17 @@ finally {
 	Remove-Item -Path $encliticTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- author / verify-parity live tests: the `machine` conformance submodule's own fixtures,
+# --- author / verify-parity live tests: the `conformance` suite's own fixtures,
 #     not Sena 3 -- independent of whether Sena3 is reachable above. ---
-$conformanceRoot = Join-Path $root '..\..\machine\conformance'
-if ($env:PANGLOSS_CONFORMANCE_DIR) { $conformanceRoot = $env:PANGLOSS_CONFORMANCE_DIR }
+$conformanceRoot = Join-Path $root '..\..\conformance'
+if ($env:HC_CONFORMANCE_SUITE) { $conformanceRoot = $env:HC_CONFORMANCE_SUITE }
 $pilotGrammar = Join-Path $conformanceRoot 'edge-cases\deep-optional-affix-nesting\grammar.xml'
 $mprRefusalGrammar = Join-Path $conformanceRoot 'languages\prefixal-discontinuous-slot-dependency\grammar.xml'
 $requireRefusalGrammar = Join-Path $conformanceRoot 'languages\suffixing-evidential-adjacency-chain\grammar.xml'
 
-# --- AllomorphCoOccurrenceRule authoring probe: runs above the machine-submodule gate below
-#     (this fixture is this tool's own testdata, not part of the machine submodule, so it needs no
-#     submodule at all) and pins the fix for the silent-drop defect (a type="exclude"
+# --- AllomorphCoOccurrenceRule authoring probe: runs above the conformance-suite gate below
+#     (this fixture is this tool's own testdata, not part of the conformance suite, so it needs no
+#     suite at all) and pins the fix for the silent-drop defect (a type="exclude"
 #     AllomorphCoOccurrenceRule used to author with no IMoAlloAdhocProhib created and no refusal at
 #     all -- see GrammarAuthor.CreateCoOccurrenceRules); it also proves the exclusion actually
 #     binds in the live HC engine, not just that an object was created. ---
@@ -1419,7 +1419,7 @@ try {
 	# allomorph "anywhere" in a word -- the ONLY way to produce "xk" (resp. "yl") at all is that
 	# exact combination, so a correct exclusion makes "xk" and "yl" unparseable (0 analyses) while
 	# the affixless "k"/"l" still parse (1 analysis each). This is the probe's own designed
-	# semantics, not an oracle-confirmed count (this fixture is not a `machine` conformance
+	# semantics, not an oracle-confirmed count (this fixture is not a conformance
 	# fixture) -- unlike the pilot fixture's counts below.
 	$alloCoOccurVerifyOutput = & $exePath verify-parity --grammar $alloCoOccurGrammar --hc-xml $alloCoOccurHcXml --guid-map $alloCoOccurResponsePath --expect k=1 --expect xk=0 --expect l=1 --expect yl=0
 	if ($LASTEXITCODE -ne 0) {
@@ -1463,7 +1463,7 @@ finally {
 }
 
 if (-not (Test-Path $pilotGrammar)) {
-	Write-Host "SKIPPED (author/verify-parity live tests): machine submodule fixture not found at $pilotGrammar"
+	Write-Host "SKIPPED (author/verify-parity live tests): conformance suite fixture not found at $pilotGrammar"
 	exit 0
 }
 
@@ -1618,13 +1618,11 @@ finally {
 
 # --- mutate/parse live proof: 'mutate' + 'parse' against a freshly authored pilot project.
 #     Skipped (with reason) only when FieldWorks itself is absent -- already checked at the top of
-#     this script, so reaching here means FieldWorks is present. The Machine grammar root defaults
-#     to a fixed path and is independently overridable via PANGLOSS_MACHINE_DIR, distinct from this
-#     repo's own `machine` submodule ($conformanceRoot above); the checked-in FieldWorks witness
-#     below swaps in a real project for this same fixture when present. ---
-$machineRootForMutateParse = $env:PANGLOSS_MACHINE_DIR
-if ([string]::IsNullOrEmpty($machineRootForMutateParse)) { $machineRootForMutateParse = 'C:\Users\johnm\Documents\repos\machine' }
-$mutateParseConformanceDir = Join-Path $machineRootForMutateParse 'conformance'
+#     this script, so reaching here means FieldWorks is present. It reads the same suite root as the
+#     author / verify-parity tests above ($conformanceRoot: this repo's `conformance` suite, or
+#     HC_CONFORMANCE_SUITE); the checked-in FieldWorks witness below swaps in a real project for
+#     this same fixture when present. ---
+$mutateParseConformanceDir = $conformanceRoot
 $mutateParseGrammar = Join-Path $mutateParseConformanceDir 'edge-cases\deep-optional-affix-nesting\grammar.xml'
 
 if (-not (Test-Path $mutateParseGrammar)) {
@@ -1632,10 +1630,10 @@ if (-not (Test-Path $mutateParseGrammar)) {
 	exit 0
 }
 
-# Prefer the checked-in FieldWorks witness (machine\conformance\PROTOCOL.md section 10) over
+# Prefer the checked-in FieldWorks witness (conformance\PROTOCOL.md section 10) over
 # authoring a fresh base project -- it IS a real, oracle-adjacent project rather than one this run
 # just invented, and using it here is what keeps it from silently drifting away from what 'author'
-# actually produces. Absence is not an error (an older or partial machine checkout) -- name the
+# actually produces. Absence is not an error (an older or partial suite checkout) -- name the
 # path and fall back, as today.
 $witnessDir = Join-Path $mutateParseConformanceDir 'edge-cases\deep-optional-affix-nesting\fieldworks'
 $witnessFwdata = Join-Path $witnessDir 'project.fwdata'
@@ -1666,7 +1664,7 @@ try {
 		}
 		Write-Host "mutate/parse live proof: using the checked-in FieldWorks witness at $witnessFwdata (sha256 $witnessActualSha256, verified against phonology-mutations.yaml)."
 
-		# Never touch the machine checkout's own copy: opening a project, even read-only, can leave
+		# Never touch the suite checkout's own copy: opening a project, even read-only, can leave
 		# session artifacts beside it (this same witness's own first 'inspect' left a SharedSettings
 		# directory that had to be deleted before it was committed) -- copy it out first.
 		$witnessCopyDir = Join-Path $mpTempRoot 'witness-base\project'

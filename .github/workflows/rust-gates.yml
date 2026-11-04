@@ -184,6 +184,8 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
           fetch-depth: 0
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -209,6 +211,8 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
           fetch-depth: 0
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -246,6 +250,8 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
           fetch-depth: 0
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

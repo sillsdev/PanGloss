@@ -13,18 +13,20 @@ fn breadth_alone_never_reads_as_dropped_spellings() {
     assert!(VariantLimit::BytesExhausted { bytes: 1 }.drops_spellings());
 }
 
+fn fixture_grammar_path(path: &str) -> std::path::PathBuf {
+    let (category, rest) = path.split_once('/').expect("category/name/grammar.xml");
+    let name = rest.trim_end_matches("/grammar.xml");
+    pg_conformance_fixtures::require_fixture(category, name).grammar_path()
+}
+
 fn load(path: &str) -> Grammar {
-    let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../machine/conformance")
-        .join(path);
+    let full = fixture_grammar_path(path);
     let xml = std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
     pg_grammar::load(&xml).unwrap()
 }
 
 fn load_without_realizational_rules(path: &str) -> Grammar {
-    let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../machine/conformance")
-        .join(path);
+    let full = fixture_grammar_path(path);
     let mut xml =
         std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
     for id in ["rrPast", "rrRRealTest"] {
@@ -154,8 +156,9 @@ fn probe_would_refuse_is_false_for_ordinary_rewrite_rules() {
 /// A bare root whose surface exists only via an obligatory phonological rule, no morphological rule involved, must become proposable via collect_roots' bare-root phonology enrichment.
 #[test]
 fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
-    let g =
-        load_without_realizational_rules("languages/suffixing-extension-slot-ordering/grammar.xml");
+    let g = load_without_realizational_rules(
+        "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
+    );
     // This checks a proposal path, not completeness of the broader fixture.
     let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(&g);
     let mut proposer = proposer.expect("development-only partial proposer compiles");
@@ -546,8 +549,9 @@ fn explicit_default_surface_strategy_matches_profiled_wrapper() {
 /// The profile must collect real per-stage data, not all-zero placeholders, including a stage only a real-phonology grammar exercises.
 #[test]
 fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
-    let g =
-        load_without_realizational_rules("languages/suffixing-extension-slot-ordering/grammar.xml");
+    let g = load_without_realizational_rules(
+        "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
+    );
     let mut builder = crate::profile::CompileProfileBuilder::production();
     let result = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
     assert!(
@@ -578,8 +582,9 @@ fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
 /// Profiling must never change the emitted artifact: byte-identical lexc_source and EmitCounts with profiling on vs. off.
 #[test]
 fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
-    let g =
-        load_without_realizational_rules("languages/suffixing-extension-slot-ordering/grammar.xml");
+    let g = load_without_realizational_rules(
+        "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
+    );
     let without_profile = emit_with_budget_profiled(&g, PrecisionConfig::Strip, None);
 
     let mut builder = crate::profile::CompileProfileBuilder::production();
@@ -665,8 +670,9 @@ fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
 /// Every group must report a nonzero line count, and the per-group counts must sum to no more than the total.
 #[test]
 fn fst_profile_group_line_counts_are_real_and_bounded_by_the_total() {
-    let g =
-        load_without_realizational_rules("languages/suffixing-extension-slot-ordering/grammar.xml");
+    let g = load_without_realizational_rules(
+        "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
+    );
     let mut builder = crate::profile::CompileProfileBuilder::production();
     let _ = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
     let profile = builder.finish(None, None);

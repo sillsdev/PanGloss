@@ -82,7 +82,7 @@ fn missing_and_failed_backends_are_typed_errors_carrying_no_grammar_advice() {
 
 #[test]
 fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
-    // mpr-gated-exception's empty material is never admitted, a stable witness; read at run time so a moved submodule pin fails this test rather than the build.
+    // mpr-gated-exception's empty material is never admitted, a stable witness; read at run time so a moved suite pin fails this test rather than the build.
     let grammar_xml = pg_conformance_fixtures::require_fixture("edge-cases", "mpr-gated-exception")
         .load_grammar_xml();
     let grammar = pg_grammar::load(&grammar_xml).expect("marker fixture must load");

@@ -3285,7 +3285,7 @@ fn standalone_rule_zones(g: &Grammar, mid: MRuleId) -> (bool, bool) {
 /// `allomorph_zone_outcome`), rather than reconstructing an equivalent condition from lower-level
 /// primitives — `allomorph_zone_outcome` itself now reports `OwnZoneElsewhere`, not `Uncovered`,
 /// for a plain allomorph whose own zone a circumfix sibling already widened this rule into (the
-/// shape `staging:edge-cases/circumfix-non-first-allomorph-selection` pins), so this predicate no
+/// shape `machine:edge-cases/circumfix-non-first-allomorph-selection` pins), so this predicate no
 /// longer fires on that case; it still fires when no sibling widening covers the mismatched zone.
 ///
 /// Deliberately excludes an `Infix`/`Reduplication`/`CircumfixPrefix` "other allomorph": those kinds

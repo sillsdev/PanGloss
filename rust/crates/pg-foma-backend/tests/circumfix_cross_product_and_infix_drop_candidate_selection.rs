@@ -3,8 +3,6 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use std::path::PathBuf;
-
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 
@@ -17,17 +15,9 @@ use common::gate_template::{mrule_id_of, recall_reachable};
 
 const FIXTURE: &str = "circumfix-cross-product-and-infix-drop";
 
-/// Repo root, from this crate's own `CARGO_MANIFEST_DIR` -- never a path relative to the process CWD.
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-}
-
-/// Loads the staged fixture's `grammar.xml` directly off disk -- the same grammar the oracle replays, never a drifting inline copy.
+/// Loads the fixture's `grammar.xml` directly off disk -- the same grammar the oracle replays, never a drifting inline copy.
 fn load_fixture() -> Grammar {
-    let path = repo_root()
-        .join("conformance-staging/edge-cases")
-        .join(FIXTURE)
-        .join("grammar.xml");
+    let path = pg_conformance_fixtures::require_fixture("edge-cases", FIXTURE).grammar_path();
     let xml =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml)

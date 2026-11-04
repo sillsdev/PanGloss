@@ -32,6 +32,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
       - name: Prove delegated cgroup containment
         run: bash tools/linux-containment-ci.sh
@@ -70,6 +72,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -101,9 +105,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # See the `test` job's checkout step: `cargo llvm-cov --workspace` below also runs the
-          # default (non-ignored) suite, which includes the machine/conformance-dependent unit
-          # tests that need this submodule present to pass. Non-recursive (see that step's comment).
+          # default (non-ignored) suite, which includes the conformance-dependent unit
+          # tests that need the suite in `conformance/` (fetched by the next step) to pass.
           submodules: true
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview

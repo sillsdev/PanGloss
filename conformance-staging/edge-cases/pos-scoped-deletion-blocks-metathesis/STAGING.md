@@ -9,5 +9,5 @@ parts of speech from being analysed by metathesis rules in deeper strata.
   until Machine #520 is fixed; hc-conformance self-check (Machine master c2454760) reports FAIL on exactly `nui` and `mu+i` (no parse); the other four words pass. The matching entry is in `rust/tools/oracle-conformance-known-divergences.json`.
 - Red on origin/main (`8f29d338`): `nui` and `mu+i` returned no analysis. Green with the
   `metathesis.rs` width-guard change.
-- Graduation: candidate `machine/conformance/edge-cases/pos-scoped-deletion-blocks-metathesis/`
+- Graduation: candidate `conformance/edge-cases/pos-scoped-deletion-blocks-metathesis/`
   once Machine #520 is fixed upstream.

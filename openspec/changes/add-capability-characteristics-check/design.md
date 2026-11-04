@@ -136,7 +136,7 @@ converts "proving a set of constructs orthogonal retires whole swaths of the com
 - **Default-deny characterizer** (task 2): exhaustive over `model.rs`, no catch-all; first act marks
   `Compounding`, `Unordered`, `MprGroup`, and every unproven config fail-closed.
 - **Conformance-coverage CI gate** (task 5): CI cross-checks the **capability registry** (the
-  source-controlled supported/unsupported contract) against `machine/conformance/` coverage
+  source-controlled supported/unsupported contract) against `conformance/` coverage
   (`constructs.txt` / per-word `exercises:` / `rules.csv`); marking anything supported without a
   covering, passing synthetic fixture breaks the build. (Ground truth is the committed `words.yaml`;
   `expected.tsv` is materialized at runtime by `FixtureMaterializer`.)

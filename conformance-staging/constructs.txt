@@ -1,0 +1,14 @@
+# Construct ids that only conformance-staging fixtures exercise.
+#
+# The suite's own constructs.txt dropped these rows with the fixtures that were not
+# FieldWorks-producible (conformance/docs/engine-only-fixture-retirement.md). PanGloss still runs
+# fixtures that tag them, so tests/exercises_tag_liveness.rs reads this file as well. Same format as
+# the suite's constructs.txt: one id per line, blank lines and "#" lines ignored.
+RealizationalAffixProcessRule
+Clitic rules (isCliticRule / Clitics stratum) after a final template
+CharacterDefinitionTable: more than one table, one per stratum
+CharacterDefinitionTable: cross-table respelling (an inner-stratum root surfaces spelled by the final stratum's table)
+# The staged variant fixtures (variant-clitic-typed-form, variant-complex-form-ref-senseless-entry) tag the loader
+# collection they exercise by its element name; the suite has no row for either.
+LexicalEntry
+MorphologicalRule

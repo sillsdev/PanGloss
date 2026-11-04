@@ -11,7 +11,7 @@ description: >-
 Keep HC-Rust aligned with Machine's C# founding oracle while making known oracle defects explicit.
 Read CLAUDE.md's oracle hierarchy, then `docs/divergences/README.md` for the authoritative ledger.
 For fixture authoring or graduation, also read `.claude/skills/conformance-grammars/SKILL.md` and
-the full `machine/conformance/PROTOCOL.md`.
+the full `conformance/PROTOCOL.md`.
 
 ## 1. Establish current evidence
 

@@ -8,7 +8,7 @@ use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use serde::Serialize;
 
-/// Local tag extensions for immutable upstream fixtures, equivalent to per-word variant tags.
+/// Local tag extensions for immutable suite fixtures, equivalent to per-word variant tags. The suite's neutral `exercises:` vocabulary has no PanGloss variant ids, so the graduated fixtures that used to carry them are credited here.
 /// Each extension still requires a passing original construct tag and the owning predicate's
 /// structural witness; it cannot credit a fixture merely because its name is listed.
 pub const UPSTREAM_VARIANT_TAG_EXTENSIONS: &[(&str, pg_foma::capability::ConstructVariant)] = &[
@@ -21,8 +21,60 @@ pub const UPSTREAM_VARIANT_TAG_EXTENSIONS: &[(&str, pg_foma::capability::Constru
         pg_foma::capability::ConstructVariant::SimultaneousDisjoint,
     ),
     (
-        "machine:edge-cases/mpr-group-overwrite-without-realizational",
+        "staging:edge-cases/mpr-group-overwrite-without-realizational",
         pg_foma::capability::ConstructVariant::MprOverwrite,
+    ),
+    (
+        "machine:edge-cases/compounding-non-recursive",
+        pg_foma::capability::ConstructVariant::CompoundingNonRecursive,
+    ),
+    (
+        "machine:edge-cases/recursive-endocentric-compounding",
+        pg_foma::capability::ConstructVariant::CompoundingRecursive,
+    ),
+    (
+        "machine:edge-cases/simultaneous-subrule-genuine-overlap",
+        pg_foma::capability::ConstructVariant::SimultaneousUnproven,
+    ),
+    (
+        "machine:edge-cases/right-to-left-bounded-quantifier-rewrite",
+        pg_foma::capability::ConstructVariant::RtlReversal,
+    ),
+    (
+        "machine:edge-cases/right-to-left-bounded-quantifier-rewrite",
+        pg_foma::capability::ConstructVariant::QuantifierBounded,
+    ),
+    (
+        "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
+        pg_foma::capability::ConstructVariant::RtlUnlowerable,
+    ),
+    (
+        "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
+        pg_foma::capability::ConstructVariant::QuantifierBoundedUnlowerable,
+    ),
+    (
+        "machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr",
+        pg_foma::capability::ConstructVariant::QuantifierUnboundedUnlowerable,
+    ),
+    (
+        "machine:edge-cases/unbounded-iterative-quantifier-expansion",
+        pg_foma::capability::ConstructVariant::QuantifierUnbounded,
+    ),
+    (
+        "machine:edge-cases/right-to-left-metathesis-reversal",
+        pg_foma::capability::ConstructVariant::MetathesisRtlSwap,
+    ),
+    (
+        "machine:edge-cases/circumfix-cross-product-and-infix-drop",
+        pg_foma::capability::ConstructVariant::CircumfixStructural,
+    ),
+    (
+        "machine:edge-cases/deletion-reduplication-exception-composite",
+        pg_foma::capability::ConstructVariant::ReduplicationPeel,
+    ),
+    (
+        "machine:edge-cases/circumfix-reduplication-precedence",
+        pg_foma::capability::ConstructVariant::ReduplicationStructural,
     ),
 ];
 

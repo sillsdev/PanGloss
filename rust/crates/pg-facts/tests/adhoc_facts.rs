@@ -7,8 +7,8 @@ const MORPH_DATA_GUID: &str = "5a540ed8-d95e-4a2b-805b-33b98c08c438";
 const GROUP_GUID: &str = "00000000-0000-0000-0000-000000000060";
 const RULE_GUID: &str = "00000000-0000-0000-0000-000000000061";
 const NESTED_GROUP_GUID: &str = "00000000-0000-0000-0000-000000000065";
-const PRIMARY_MSA_GUID: &str = "d71a9c35-5dd1-4659-997a-b3ad043e06f2";
-const OTHER_MSA_GUID: &str = "74f02ea2-b426-42b3-b564-4b82b48fb845";
+const PRIMARY_MSA_GUID: &str = "ac0efd5d-b9d3-4aa3-9916-4650082e7ea4";
+const OTHER_MSA_GUID: &str = "04a3dcc1-a7d7-43b5-9952-e572c2dec5ab";
 
 fn copy_writing_system_store(base_path: &Path, destination: &Path) {
     let source = base_path.parent().unwrap().join("WritingSystemStore");
@@ -25,11 +25,18 @@ fn copy_writing_system_store(base_path: &Path, destination: &Path) {
     assert!(copied > 0, "F1 fixture has WritingSystemStore LDML files");
 }
 
+/// The conformance suite: `HC_CONFORMANCE_SUITE` when set, else the `conformance/` clone `pwsh rust/tools/conformance.ps1` fetches.
+fn suite_root() -> std::path::PathBuf {
+    match std::env::var_os("HC_CONFORMANCE_SUITE") {
+        Some(path) if !path.is_empty() => path.into(),
+        _ => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../conformance"),
+    }
+}
+
 #[test]
 fn grouped_fwdata_rationale_reaches_the_facts_artifact() {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../machine/conformance/edge-cases/deep-optional-affix-nesting/fieldworks/project.fwdata",
-    );
+    let fixture =
+        suite_root().join("edge-cases/deep-optional-affix-nesting/fieldworks/project.fwdata");
     let mut source = std::fs::read_to_string(&fixture).expect("read the F1 grouped-rule base");
     let morph_data_start = source
         .find("<rt class=\"MoMorphData\"")

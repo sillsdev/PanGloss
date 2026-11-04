@@ -2,11 +2,11 @@
 name: conformance-grammars
 description: >-
   Use when writing, adding, updating, staging, or graduating a conformance grammar/fixture/test
-  for this repo's morphological-parser conformance suite (the `machine/conformance` submodule
+  for this repo's morphological-parser conformance suite (the `conformance/` suite clone
   plus this repo's own `conformance-staging/`). Covers the full fixture lifecycle: author a new
   `grammar.xml`+`words.yaml` pair, stage it in `conformance-staging/` so it runs in the default
   test suite immediately, update an existing staged or upstream fixture, and graduate a staged
-  fixture into a `sillsdev/machine` PR. Trigger on "write/add/update a conformance
+  fixture into a `sillsdev/fieldworks-parser-conformance` PR. Trigger on "write/add/update a conformance
   grammar/fixture/test", "pin this bug with a fixture", or "stage a pathology-mimic grammar".
 ---
 
@@ -37,28 +37,29 @@ XML document) and `words.yaml` (front matter + one entry per word, each carrying
 `parses`/`expect_fail`/`expect_skip`). Nothing else is checked in per fixture except an optional
 `STAGING.md` for fixtures living in this repo rather than upstream. The full protocol —
 grammar/word-list/output-format contract, the signature algorithm, capability profiles, per-engine
-grammar representations — is specified in `machine/conformance/PROTOCOL.md`; read it in full before
+grammar representations — is specified in `conformance/PROTOCOL.md`; read it in full before
 authoring anything non-trivial. This skill is the lifecycle wrapper around that protocol, not a
 replacement for it.
 
 Two roots exist, discovered identically by this repo's own tests:
 
-- `machine/conformance/{edge-cases,languages}/<name>/` — the `sillsdev/machine` submodule
-  (`integrate-conformance-framework` branch), the eventual PERMANENT home for every fixture.
+- `conformance/{edge-cases,languages}/<name>/` — the `sillsdev/fieldworks-parser-conformance`
+  suite, a gitignored clone at the commit `conformance.commit` pins (not a submodule), the eventual
+  PERMANENT home for every fixture. It also holds
+  `conformance/stress/` (stress grammars) and `conformance/PROTOCOL.md`.
 - `conformance-staging/{edge-cases,languages}/<name>/` — THIS repo, committed (never gitignored),
   for fixtures that need to land with a bug fix immediately, ahead of upstream review. See
   `docs/conformance-staging-plan.md` for the full design rationale.
 
-**If `machine/conformance/` looks empty or missing, don't run a raw `git submodule` command.**
-`pg.ps1 -Mode test`/`-Mode corpus-test`/`-Mode new-worktree` all auto-initialize the `machine`
-submodule (sparse, scoped to `conformance/` only — ~1MB, not the ~415MB full checkout) before doing
-anything else; a fresh worktree from `pg.ps1 -Mode new-worktree` is born with it already present.
-If you're outside all of those (e.g. probing a fixture with a standalone `cargo` invocation you're
-about to hand to `pg.ps1` anyway, or recovering after a network outage), run
-`rust\tools\conformance.ps1` directly — same auto-init, standalone, no Cargo involved. See
-CLAUDE.md's "`machine` conformance submodule auto-initializes" section and
-`Initialize-ConformanceSubmodule` in `rust/tools/_common.ps1` for the mechanism and the measurements
-behind the sparse scoping.
+**If `conformance/` looks empty or missing, don't run a raw `git clone` or `git submodule` command.**
+`pg.ps1 -Mode test`/`-Mode corpus-test`/`-Mode new-worktree` all fetch the suite at the commit
+`conformance.commit` names (a blob-filtered clone, a few MB) before doing anything else, so a fresh
+worktree from `pg.ps1 -Mode new-worktree` is born with it. If you're outside all of those (e.g.
+probing a fixture with a standalone `cargo` invocation you're about to hand to `pg.ps1` anyway, or
+recovering after a network outage), run `rust\tools\conformance.ps1` directly — same fetch,
+standalone, no Cargo involved. A suite with local edits is never moved. `HC_CONFORMANCE_SUITE=<path>`
+points everything at another copy and skips the pin check. See CLAUDE.md's `conformance/` paragraph,
+`docs/design/conformance-suite.md` and `Sync-ConformanceSuite` in `rust/tools/_common.ps1`.
 
 `rust/crates/pg-conformance-fixtures` is the ONE shared Rust helper both roots' discovery, parsing,
 and oracle-replay logic goes through (`discover()`, `WordsYaml`/`WordEntry`/`ParseEntry`,
@@ -178,12 +179,13 @@ or a second `words.yaml` parser — extend that crate instead.
    say no `dotnet`/C# toolchain was set up here. One is (see below), so "I couldn't run the oracle"
    needs a better reason than that.
 
-   **"When available" means the submodule's SOURCE is checked out, and a default worktree does not
-   have it.** This is the step people miss, because ordinary conformance work never needs it.
-   `Initialize-ConformanceSubmodule` deliberately materializes `machine/conformance` ONLY (~1MB);
-   the oracle lives in `machine/src/SIL.Machine.Morphology.HermitCrab.Tool/`, which that sparse
-   checkout omits. A worktree can run the whole conformance suite green and still have no oracle in
-   it. "Not available" is the DEFAULT state, not a sign anything is broken.
+   **"When available" means the `machine` submodule's SOURCE is checked out, and a default worktree
+   does not have it.** This is the step people miss, because ordinary conformance work never needs it.
+   `Sync-ConformanceSuite` fetches `conformance` ONLY; `machine` (the oracle, pinned
+   at `4d9b454d`) is left empty, and the oracle lives in
+   `machine/src/SIL.Machine.Morphology.HermitCrab.Tool/`. A worktree can run the whole conformance
+   suite green and still have no oracle in it. "Not available" is the DEFAULT state, not a sign
+   anything is broken.
 
    **Before any of the manual recipes below, try `rust/tools/oracle-conformance.ps1`.** It finds the
    oracle binary, replays every discovered fixture against it, and reports exit 25 when the oracle
@@ -191,36 +193,20 @@ or a second `words.yaml` parser — extend that crate instead.
    distinction this whole step exists to protect. Only fall through to the checkout surgery below
    when you need something that script does not do.
 
-   **Check which state you are in before doing anything — the fix is opposite in each:**
+   **To get the oracle's source, initialize `machine` explicitly:**
    ```
-   git -C machine sparse-checkout list
-   #   prints the checked-out paths        => sparse
-   #   "fatal: this worktree is not sparse" => full checkout
+   git submodule update --init machine
    ```
-   Do not pipe that command into anything when testing it — a pipe replaces its exit status with the
-   downstream command's, which silently turns the "not sparse" failure into a success with no output.
-   - **Sparse** (a worktree born from `pg.ps1 -Mode new-worktree`): widen by ADDING `src`, then
-     narrow back when done. Do not re-clone and do not disable sparse mode.
-     ```
-     git -C machine sparse-checkout set conformance src
-     ...                                    # author, run the oracle
-     git -C machine sparse-checkout set conformance
-     ```
-   - **Full checkout** (some older worktrees, including ones created before the sparse init landed):
-     `machine/src` is already present and there is nothing to widen. Do NOT run
-     `sparse-checkout set` here "to be consistent" — sparse mode is off, so that command ENABLES it
-     and NARROWS the checkout, which is the reverse of what you want.
+   That is a full checkout of `sillsdev/machine` at the pin (it is not the same thing as the
+   `conformance` auto-init, and `pg.ps1` never does it for you). It is large because it is the whole
+   C# repository, so do it only for a session that needs the oracle; most worktrees borrow a
+   prebuilt pin-matched driver instead (`Find-PinMatchedConformanceDriver`).
 
-   Widening is a deliberate, on-demand act for one authoring session, never a standing per-worktree
-   setup: `machine/src` alone is 350MB and this machine carries a couple dozen worktrees, which is
-   the entire reason the checkout is sparse (CLAUDE.md, "The `machine` conformance submodule
-   auto-initializes"). Narrowing back is not tidiness — a left-open `src` costs 350MB here and is
-   invisible afterwards, because `git status` does not report sparse-checkout changes as
-   modifications.
-
-   **Run it through the upstream adapter, not a hand-rolled command.**
+   **Run it through the upstream adapter, not a hand-rolled command.** (The adapter is `machine`-owned,
+   not part of the suite, which is why its path still starts `machine/conformance/`: it is there at
+   the `4d9b454d` pin.)
    `machine/conformance/adapters/hc-dotnet-wrapper.sh` already implements the 3-argument `batch`
-   contract that `pangloss` implements (`machine/conformance/PROTOCOL.md` § 1), resolves paths
+   contract that `pangloss` implements (`conformance/PROTOCOL.md` § 1), resolves paths
    relative to itself rather than your cwd, and takes an optional 5th argument pointing at a
    prebuilt `hc.dll` (otherwise it looks for the Debug then Release build):
    ```
@@ -272,7 +258,7 @@ or a second `words.yaml` parser — extend that crate instead.
 ## Stage: adding it to `conformance-staging/`
 
 1. Create `conformance-staging/<edge-cases|languages>/<name>/` with `grammar.xml` + `words.yaml`,
-   laid out EXACTLY like a `machine/conformance` fixture (same two files, same front-matter schema)
+   laid out EXACTLY like a `conformance` fixture (same two files, same front-matter schema)
    — staging must be a zero-reshaping copy away from graduation.
 2. Add `STAGING.md` in the same directory: why it exists, exactly what bug/pathology it pins, which
    oracle generated `words.yaml`'s signatures (§ "Oracle discipline" above), and an (initially empty)
@@ -291,29 +277,28 @@ or a second `words.yaml` parser — extend that crate instead.
 - **Staged fixtures** (`conformance-staging/`): edit `grammar.xml`/`words.yaml` in place, re-run
   `pangloss batch` if the grammar changed, update `STAGING.md` if the rationale changed. Straightforward
   — this repo owns the file.
-- **Upstream fixtures** (`machine/conformance/`, i.e. inside the submodule): NEVER hand-edit the
-  submodule checkout directly. Changes to an already-graduated fixture go through a
-  `sillsdev/machine` PR (`integrate-conformance-framework` branch) like any other upstream contribution, then
-  land here via a submodule bump.
+- **Upstream fixtures** (`conformance/`, i.e. inside the suite clone): NEVER hand-edit the
+  clone directly. Changes to an already-graduated fixture go through a
+  `sillsdev/fieldworks-parser-conformance` PR (against `main`) like any other upstream contribution,
+  then land here via a `conformance.commit` bump.
 
 ## Graduate: landing a staged fixture upstream
 
-1. Open a PR against `sillsdev/machine` (`integrate-conformance-framework` branch) that adds
-   `conformance/<edge-cases|languages>/<name>/{grammar.xml,words.yaml}` — a direct copy of the staged
+1. Open a PR against `sillsdev/fieldworks-parser-conformance` (`main`) that adds
+   `<edge-cases|languages>/<name>/{grammar.xml,words.yaml}` — a direct copy of the staged
    files (re-verify signatures against the C# founding oracle if the staged version was authored
    against `pangloss` only; note any divergence found as its own finding, don't silently paper over it).
 2. Record the PR link in the staged fixture's `STAGING.md`.
-3. On acceptance: bump the `machine` submodule pointer AND delete the staged copy
-   (`conformance-staging/<category>/<name>/`) in the **same commit**. After bumping the pointer,
-   run `rust\tools\conformance.ps1` (or `pg.ps1 -Mode test`) again in any worktree that already had
-   `machine/conformance` checked out — the auto-init's fast path only recognizes "present vs.
-   absent" via the `constructs.txt` sentinel, so it will NOT re-sync an already-checked-out
-   worktree onto the new pinned commit by itself; that's an ordinary `git -C machine fetch && git
-   -C machine checkout <new-sha>`, same as bumping any other submodule. This is not optional — the
+3. On acceptance: bump `conformance.commit` AND delete the staged copy
+   (`conformance-staging/<category>/<name>/`) in the **same commit**. The bump is
+   editing `conformance.commit` to the full SHA of the accepting commit on the suite's `main` (CI
+   fails a pin that is not an ancestor of the suite's `origin/main`). Any worktree moves its clone to
+   the new pin on its next `pg.ps1` or `conformance.ps1` run, unless the clone has local edits, in
+   which case the run stops and says so. This is not optional — the
    graduation guard (`graduation_guard_no_duplicate_fixture_names` in
    `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`) FAILS the default test suite the moment
    the same `(category, name)` exists under both roots, with the message "accepted upstream — delete
-   the staged copy". If you see that failure after a routine submodule bump, this is why: find the
+   the staged copy". If you see that failure after a routine pin bump, this is why: find the
    newly-dual-homed fixture name in the failure output and delete its `conformance-staging/` copy.
 
 ## Validated by

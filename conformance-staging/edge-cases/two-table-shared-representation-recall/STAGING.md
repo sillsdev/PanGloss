@@ -96,5 +96,5 @@ oracle, not the correctness fix it was believed to be at the time. Per this repo
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:
-`machine/conformance/edge-cases/two-table-shared-representation-recall/`. On acceptance, delete
+`conformance/edge-cases/two-table-shared-representation-recall/`. On acceptance, delete
 this staged copy in the same change (graduation guard enforces this mechanically).

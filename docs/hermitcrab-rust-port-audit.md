@@ -8,7 +8,7 @@ HermitCrab in `Machine` keeps evolving — bug fixes, new capabilities — this 
 
 **This is not the correctness gate.** Per project decision (2026-07-10): PanGloss's actual parity
 contract is passing the evolving conformance oracle that lives in `Machine` (see the FST plan docs
-including the pinned conformance submodule and staged fixtures) — not this document, not the corpora under
+including the pinned conformance suite and staged fixtures) — not this document, not the corpora under
 `samples/`, not unit tests. This doc exists purely as an **audit trail** — a way to reason about drift
 between the two engines over time, and a map of "where do I even look" when the oracle flags a new
 divergence. PanGloss's own algorithms are free to diverge from what's described here as the port
@@ -317,8 +317,8 @@ Full narrative detail for all of the above (and everything already closed) lives
 `rust/crates/pg-parse/tests/` and `rust/crates/pg-rules/tests/` read fixtures from
 `rust/conformance/`, which was deliberately excluded from this copy (§5). Every affected test
 function was marked `#[ignore]` with a reason citing this section, rather than left to fail. This
-describes the original copy and is not a current test inventory. The conformance submodule is now
-pinned and initialized by the conformance tooling; individual tests may still be ignored for their
+describes the original copy and is not a current test inventory. The conformance suite is now
+pinned (`conformance.commit`) and fetched by the conformance tooling; individual tests may still be ignored for their
 own stated reasons.
 
 ## 4. Measured parity, at copy time (2026-07-10)
@@ -336,8 +336,8 @@ conformance oracle instead (§5).
 
 ## 5. The conformance oracle
 
-The `machine` submodule is pinned to `aab4c59819adb7b366915e09df2fb28c62b8c03a`, and its
-`conformance/` fixtures are replayed alongside `conformance-staging/` through the managed
+The `machine` submodule is pinned to `4d9b454d42a0da35e058641a65596339a79d115b` (the oracle), and the
+pinned `conformance/` suite's fixtures (`sillsdev/fieldworks-parser-conformance`) are replayed alongside `conformance-staging/` through the managed
 `rust/tools/conformance.ps1` and `rust/tools/pg.ps1 -Mode conformance-test` workflows. Fixture
 presence, oracle provenance, and demonstrated regression coverage are distinct claims; consult the
 divergence ledger and fixture `STAGING.md` for each. The original copy omitted this suite, as
@@ -346,7 +346,7 @@ recorded above, but that historical limitation is no longer the current state.
 ## 6. Process for future audits
 
 When `Machine`'s HermitCrab gets a bug fix or new capability:
-1. Check whether it's covered by a fixture in the pinned conformance submodule —
+1. Check whether it's covered by a fixture in the pinned conformance suite —
    if the oracle catches it, that's the authoritative signal, use it first.
 2. If not yet fixture-covered, read the change directly against §2/§3 above: is it touching an
    already-ported construct (likely just needs picking up the fix) or a not-yet-ported one (needs

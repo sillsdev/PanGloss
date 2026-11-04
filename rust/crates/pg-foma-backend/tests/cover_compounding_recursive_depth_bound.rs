@@ -2,7 +2,6 @@
 //! `docs/research/pg-foma-cover-compounding-recursive-depth-bound-design-notes.md` for the argument.
 
 use std::fs;
-use std::path::Path;
 
 use pg_foma::capability::CompileDecision;
 use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
@@ -12,9 +11,8 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/recursive-endocentric-compounding/grammar.xml",
-    )
+    pg_conformance_fixtures::require_fixture("edge-cases", "recursive-endocentric-compounding")
+        .grammar_path()
 }
 
 fn load() -> Grammar {

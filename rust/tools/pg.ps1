@@ -6,7 +6,7 @@
 
   This is the ONE place that decides target-dir redirection, sccache wiring, the worktree
   base-commit check, disk/build-slot gates, the fail-closed corpus contract (corpus-test), and the
-  fail-closed `machine` conformance-submodule contract (test/corpus-test). rust/tools/build.ps1 and
+  fail-closed `conformance` suite contract (test/corpus-test). rust/tools/build.ps1 and
   rust/tools/test.ps1 are thin front ends that translate their existing parameters into a call
   here, so there is exactly one place that policy is decided rather than two copies that can drift.
 
@@ -40,14 +40,15 @@
     test          the fast suite, built with the pg-test-opt profile (release-derived, thin/no
                   LTO -- see rust/Cargo.toml's comment) instead of full release, unless
                   -DebugProfile. Prefers cargo-nextest when installed, like test.ps1 always has.
-                  Refuses BEFORE cargo starts (exit $script:ExitCodeConformanceSubmoduleMissing,
-                  18) if the `machine` conformance submodule can't be auto-initialized --
+                  Refuses BEFORE cargo starts (exit $script:ExitCodeConformanceSuiteMissing,
+                  18) if `conformance/` can't be brought to the commit named in `conformance.commit` --
                   conformance_fixtures_gate is part of this ordinary suite, not #[ignore]d, so a
                   fresh worktree that skipped this would fail minutes into a build with a
-                  confusing panic instead. See Initialize-ConformanceSubmodule in _common.ps1 (or
-                  run rust/tools/conformance.ps1 standalone) for what "auto-initialize" means: a
-                  sparse, path-scoped checkout of machine/conformance ONLY (~1MB), never the
-                  ~415MB full `machine` checkout, because that's the only subtree this suite reads.
+                  confusing panic instead. See Sync-ConformanceSuite in _common.ps1 (or
+                  run rust/tools/conformance.ps1 standalone) for what that means: a filtered
+                  clone of the suite at exactly that commit, moved when the pin moves.
+                  HC_CONFORMANCE_SUITE=<path> uses a local copy and skips the pin check. The `machine`
+                  submodule is not initialized: nothing the managed modes run reads its working tree.
     corpus-test   like test, but ALSO refuses BEFORE cargo starts if any required corpus-manifest
                   file is absent, sets PANGLOSS_CORPUS_REQUIRED=1 so pg_conformance_fixtures::corpus
                   panics rather than skips on a missing input, and fails afterward if cargo
@@ -55,13 +56,13 @@
     conformance-test
                   the same suite `test` runs, but it MUST be told which fixtures it covers:
                   -Scope local (conformance-staging/** only, this repo's own fixtures) or
-                  -Scope all (those plus machine/conformance/**). There is NO default -- an
+                  -Scope all (those plus conformance/**). There is NO default -- an
                   unclaimed run exits $script:ExitCodeConformanceScopeUnclaimed (20) before
                   taking a build slot or starting cargo, because "green" over the staged
                   fixtures alone and "green" over those plus every upstream fixture are
                   different claims and nothing here should guess which one you meant. The
                   claim reaches the fixture walker as PANGLOSS_CONFORMANCE_SCOPE and is
-                  printed. -Scope local needs no submodule, so it skips that init entirely.
+                  printed. -Scope local needs no suite, so it skips that fetch entirely.
                   `test` and `corpus-test` claim `all` explicitly and print it too.
     release       cargo build --release -- the actual fat-LTO deliverable profile, for optimized
                   binaries and production-equivalent perf measurements. On success it COPIES the
@@ -69,8 +70,8 @@
                   build produced nothing to copy: the target dir is a cache gc may reclaim, so a
                   deliverable left only there is not a deliverable.
     doctor        prints the preflight record and exits non-zero on an unsafe/incomplete
-                  environment -- including the `machine` conformance-submodule state (attempts the
-                  same auto-init test/corpus-test do, since it's cheap and idempotent once already
+                  environment -- including the `conformance` suite state (attempts the
+                  same fetch test/corpus-test do, since it's cheap and idempotent once already
                   present; folded into the unsafe/exit-code decision, unlike the exhaustion history
                   below, because it describes the environment RIGHT NOW rather than a past,
                   already-recovered-from event). Runs no cargo command at all. Also reports
@@ -252,11 +253,11 @@ if ($HygieneBootstrap -and ($Mode -ne 'build' -or $Package -ne 'pg-comment-hygie
     exit 2
 }
 
-# Refuse an unclaimed scope before ANY work -- no build slot, no cargo, no submodule fetch.
+# Refuse an unclaimed scope before ANY work -- no build slot, no cargo, no suite fetch.
 if ($Mode -eq 'conformance-test' -and [string]::IsNullOrWhiteSpace($Scope)) {
     Write-Host "[pg] conformance-test requires -Scope, and has no default." -ForegroundColor Red
     Write-Host "     -Scope local  conformance-staging/** only (this repo's own fixtures)"
-    Write-Host "     -Scope all    those plus machine/conformance/** (every upstream fixture)"
+    Write-Host "     -Scope all    those plus conformance/** (every upstream fixture)"
     Write-Host "     A green conformance run has to say what it covered, so this will not guess."
     exit $script:ExitCodeConformanceScopeUnclaimed
 }
@@ -328,16 +329,16 @@ if ($Mode -eq 'new-worktree') {
     Write-Host "[pg] requested '$($meta.requested_revision)' -> resolved $($meta.resolved_object_id)" -ForegroundColor DarkGray
     Write-Host '[pg] NOTE: private corpora under samples/data/ are gitignored and are NOT copied into a new worktree. Corpus-backed suites there will refuse under -Mode corpus-test until you populate it or set PANGLOSS_CORPUS_ROOT.' -ForegroundColor Yellow
 
-    # Born ready: initializes the machine conformance submodule now rather than leaving every fresh worktree to fail it later.
-    $conformanceResult = Initialize-ConformanceSubmodule -RepoRoot $newRoot
+    # Born ready: fetches the suite now rather than leaving every fresh worktree to fail it later.
+    $conformanceResult = Sync-ConformanceSuite -RepoRoot $newRoot
     if ($conformanceResult.Ok) {
-        Write-Host "[pg] conformance submodule ($($conformanceResult.Mode)): $($conformanceResult.Detail)" -ForegroundColor Green
+        Write-Host "[pg] conformance suite ($($conformanceResult.Mode)): $($conformanceResult.Detail)" -ForegroundColor Green
     } else {
-        Write-Host "[pg] conformance submodule initialization FAILED: $($conformanceResult.Detail)" -ForegroundColor Red
+        Write-Host "[pg] conformance suite fetch FAILED: $($conformanceResult.Detail)" -ForegroundColor Red
         if ($conformanceResult.RecoveryCommand) {
             Write-Host "[pg] the worktree was created; run this by hand once fixed: $($conformanceResult.RecoveryCommand)" -ForegroundColor Yellow
         }
-        exit $script:ExitCodeConformanceSubmoduleMissing
+        exit $script:ExitCodeConformanceSuiteMissing
     }
     exit 0
 }
@@ -515,8 +516,8 @@ if ($Mode -eq 'corpus-test') {
 # Not computed for build/release/gc/run: those modes never reach conformance_fixtures_gate, so even a fast-path Test-Path is an avoidable tax.
 $conformanceCheck = $null
 if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor' -or ($Mode -eq 'conformance-test' -and $Scope -ne 'local')) {
-    # -Scope local reads conformance-staging/** only, so it does not need the submodule at all.
-    $conformanceCheck = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
+    # -Scope local reads conformance-staging/** only, so it does not need the suite at all.
+    $conformanceCheck = Sync-ConformanceSuite -RepoRoot $repoRoot
 }
 
 function Invoke-CommentHygieneReport {
@@ -649,7 +650,7 @@ if (-not $diskCheck.Ok) {
         }
         if ($stale.Count -gt 8) { Write-Host "  ... and $($stale.Count - 8) more" -ForegroundColor Yellow }
         Write-Host '[pg] remove one with: pg.ps1 -Mode remove-worktree -Path <path> -- it also reclaims that worktree''s target dirs, which hold far more than the checkout does.' -ForegroundColor Yellow
-        Write-Host '[pg] NOT `git worktree remove`: it refuses outright on a worktree holding a submodule, and new-worktree initializes `machine` in every one it creates.' -ForegroundColor Yellow
+        Write-Host '[pg] plain `git worktree remove` would leave the managed target dirs behind, which hold far more than the checkout does.' -ForegroundColor Yellow
         Write-Host '[pg] the branch outlives the worktree either way, so committed work stays recoverable by checkout.' -ForegroundColor Yellow
         Write-Host '[pg] a worktree holding ANY uncommitted or untracked file is never listed above; decide those by hand.' -ForegroundColor Yellow
     }
@@ -699,11 +700,11 @@ if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
 
 # Same fail-closed shape as the corpus-missing gate above: conformance_fixtures_gate is part of the ordinary suite.
 if (($Mode -in @('test', 'corpus-test', 'conformance-test')) -and $conformanceCheck -and -not $conformanceCheck.Ok) {
-    Write-Host "[pg] conformance submodule unavailable BEFORE starting cargo: $($conformanceCheck.Detail)" -ForegroundColor Red
+    Write-Host "[pg] conformance suite unavailable BEFORE starting cargo: $($conformanceCheck.Detail)" -ForegroundColor Red
     if ($conformanceCheck.RecoveryCommand) {
         Write-Host "[pg] recovery: $($conformanceCheck.RecoveryCommand)  (or: pwsh -File rust\tools\conformance.ps1)" -ForegroundColor Yellow
     }
-    exit $script:ExitCodeConformanceSubmoduleMissing
+    exit $script:ExitCodeConformanceSuiteMissing
 }
 
 if ($Mode -eq 'doctor') {

@@ -43,14 +43,14 @@ impl Bucket {
 }
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
-// The two featureless segment-class rewrite fixtures (#120) add: TSP one exact and one miss, TUT two exact, PlanComposed two refused. TSP misses the multi-member one because its model rewrites a featureless node only by one literal spelling, not by a class of several.
+// Rebased on main with the bracket-pattern reduplication fixture (#158): PlanComposed and TSP exact, TUT refused. The two featureless segment-class rewrite fixtures (#120) add: TSP one exact and one miss, TUT two exact, PlanComposed two refused. TSP misses the multi-member one because its model rewrites a featureless node only by one literal spelling, not by a class of several.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Divergence 116 moves 18 TSP and 17 TUT fixtures to refused; the #154 witness adds one oracle-exact fixture per strategy; the two variant-source fixtures (#169, #170) add two more to each.
+    // Measured on the 169 fixtures of conformance.commit plus staging (the two variant fixtures of #174 are exact on all three strategies); divergence 116 moved 18 TSP and 17 TUT to refused.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 127,
-            compiles_but_misses: 10,
+            oracle_exact: 143,
+            compiles_but_misses: 12,
             refused: 20,
             unmeasurable: 0,
         },
@@ -58,18 +58,18 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 108,
-            compiles_but_misses: 5,
-            refused: 44,
+            oracle_exact: 117,
+            compiles_but_misses: 12,
+            refused: 46,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 57,
-            compiles_but_misses: 2,
-            refused: 95,
+            oracle_exact: 69,
+            compiles_but_misses: 3,
+            refused: 100,
             unmeasurable: 3,
         },
     ),
@@ -80,32 +80,32 @@ const EXPECTED_EXCLUDED: &[&str] = &["machine:edge-cases/simultaneous-epenthesis
 
 /// See docs/research/backend-scoreboard-extraction-reconciliation.md's own section on this fixture for why TSP now measures `OracleExact` here without contradicting `non_first_allomorph_circumfix_recall_parity`'s PRE-confirm containment proof.
 const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
-    "staging:edge-cases/circumfix-non-first-allomorph-selection";
+    "machine:edge-cases/circumfix-non-first-allomorph-selection";
 
 const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
 
 const AMBIGUOUS_DISAGREEMENT_FIXTURE: &str = "machine:edge-cases/alpha-variable-name-collision";
 
-const BOUNDARY_NARROWING_FIXTURE: &str = "staging:edge-cases/boundary-narrowing-probe";
+const BOUNDARY_NARROWING_FIXTURE: &str = "machine:edge-cases/boundary-narrowing-probe";
 
 const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-bounded-ltr-left",
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-bounded-ltr-left",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-unbounded-ltr-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
 
 // Tuned-surface misses two words here (a rewritten second copy and a second spelling of one vowel), each by one identity; see the reconciliation note's altered-copy gap. The other two strategies refuse the reduplication shape.
 const COPY_AGREEMENT_FEATURELESS_REDUP: &str =
-    "staging:edge-cases/copy-agreement-featureless-redup";
+    "machine:edge-cases/copy-agreement-featureless-redup";
 
 const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
-    "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
+    "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
 
 const FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE: &str =
-    "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
+    "machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
 
 // The tuned-surface epenthesis cells miss C#-accepted words; see the reconciliation note. The full-set fixture (GH#85) is measured and recorded as it stands: FST behaviour is deferred.
 const REWRITE_DEFAULT_EPENTHESIS: &str = "staging:edge-cases/rewrite-default-epenthesis";

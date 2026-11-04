@@ -39,7 +39,7 @@ use std::collections::BTreeMap;
 
 /// A caller-supplied locator for one word occurrence.
 ///
-/// This is deliberately the CALLER's identifier, not one minted here: `machine/conformance/
+/// This is deliberately the CALLER's identifier, not one minted here: `conformance/
 /// PROTOCOL.md` § 1 already defines `idx`, the 0-based line index into the batch word list, and
 /// emits it as an output column. A caller that thinks in FieldWorks occurrence GUIDs keeps its own
 /// mapping to line numbers; nothing in this crate needs to understand that object model.

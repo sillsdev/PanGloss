@@ -21,19 +21,19 @@ counterfactual to a CLONE of a project, never the source; `parse` drives the rea
 `Generate-PilotWitness.ps1` authors the `deep-optional-affix-nesting` grammar into a new
 FieldWorks project, verifies the live HC counts, and then writes the resulting project and
 writing systems under `conformance/edge-cases/deep-optional-affix-nesting/fieldworks` in the
-Machine checkout. It derives the `remove-k-only` GUID and `base_sha256` from that author run, so
+conformance suite checkout. It derives the `remove-k-only` GUID and `base_sha256` from that author run, so
 the mutation manifest never contains copied or hand-invented identity values.
 
-Build the helper first, then run the script with the Machine checkout that should receive the
-witness:
+Build the helper first, then run the script with the suite checkout that should receive the
+witness (a commit to `sillsdev/fieldworks-parser-conformance`, not to this repo):
 
 ```powershell
 & .\build.ps1 -Mode check
-& .\Generate-PilotWitness.ps1 -MachineDir $env:PANGLOSS_MACHINE_DIR
+& .\Generate-PilotWitness.ps1 -SuiteDir $env:HC_CONFORMANCE_SUITE
 ```
 
 The script refuses to overwrite an existing witness. Run it from this directory with
-`-MachineDir` omitted to use `PANGLOSS_MACHINE_DIR`, or the standard local Machine checkout.
+`-SuiteDir` omitted to use `HC_CONFORMANCE_SUITE`, or this repo's own `conformance` suite.
 
 ## Contract
 
@@ -410,7 +410,7 @@ the rows marked pilot below; the rest are exercised only by the smaller probes n
 | `RequiredEnvironments` / `FieldWorksEnvironmentSyntax` string building | implemented, no live fixture yet |
 | `MorphemeCoOccurrenceRule type="exclude"` | implemented, no live fixture yet |
 | Enclitic (`Clitics`-stratum rule + `--enclitic-of` stem entry copy) and a `MorphemeCoOccurrenceRule` over it | `testdata/enclitic-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe: authored counts, one object per clitic rule and stem copy, and the live HC engine gives `k=1 kx=0 ky=1`), plus the two enclitic ad hoc prohibition fixtures under `conformance-staging/edge-cases` |
-| `AllomorphCoOccurrenceRule type="exclude"` | `testdata/allomorph-cooccurrence-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe, not a `machine` conformance fixture; `verify-parity --expect k=1 --expect xk=0` additionally proves the exclusion binds in the live HC engine, not just that an `IMoAlloAdhocProhib` object exists -- these two counts follow from the probe's own designed semantics (one optional prefix slot, excluded "anywhere" from the sole lexical entry), not an oracle, since this fixture is not a `machine` conformance fixture) |
+| `AllomorphCoOccurrenceRule type="exclude"` | `testdata/allomorph-cooccurrence-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe, not a conformance-suite fixture; `verify-parity --expect k=1 --expect xk=0` additionally proves the exclusion binds in the live HC engine, not just that an `IMoAlloAdhocProhib` object exists -- these two counts follow from the probe's own designed semantics (one optional prefix slot, excluded "anywhere" from the sole lexical entry), not an oracle, since this fixture is not a conformance-suite fixture) |
 | `verify-parity --guid-map` binding (class, slot order, `SlotsRC`, allomorph order) | pilot fixture (positive case) + two deliberately-corrupted copies of its own `author-response.json` (negative cases, exit 8) |
 
 None of the "no live fixture yet" rows are refused -- `GrammarParser`/`GrammarAuthor` accept them --
@@ -488,11 +488,11 @@ from a live run rather than assuming it.
                                                     # refusal-before-project-exists probes (unknown
                                                     # co-occurrence id; duplicate id; duplicate
                                                     # slot name across two AffixTemplates -- needs
-                                                    # FieldWorks only, no submodule); the
+                                                    # FieldWorks only, no suite); the
                                                     # AllomorphCoOccurrenceRule authoring + engine
-                                                    # probe (also needs no submodule); PLUS a live
+                                                    # probe (also needs no suite); PLUS a live
                                                     # 'author' -> 'project' -> 'verify-parity' run
-                                                    # against the machine submodule's pilot fixture
+                                                    # against the conformance suite's pilot fixture
                                                     # (guid-map binding, two guid-map corruption
                                                     # probes, normalized-.fwdata author determinism,
                                                     # and both construct-refusal probes too); PLUS a
@@ -503,9 +503,8 @@ from a live run rather than assuming it.
                                                     # + 'parse' (real XAmple engine; adctl-untouched
                                                     # + adctlPatched true/false + msaGuid multiset
                                                     # checks for both mutate cases) run against a
-                                                    # freshly authored pilot project (a separate
-                                                    # 'C:\Users\johnm\...\machine' checkout, not the
-                                                    # submodule above -- see below)
+                                                    # freshly authored pilot project (same suite root;
+                                                    # HC_CONFORMANCE_SUITE overrides -- see below)
 ```
 `build.ps1` locates MSBuild via `vswhere.exe` (preferring the Visual Studio toolchain this project
 was built against) and falls back to `dotnet build` if MSBuild is unavailable.
@@ -513,20 +512,18 @@ was built against) and falls back to `dotnet build` if MSBuild is unavailable.
 FieldWorks install directory: `$env:PANGLOSS_FIELDWORKS_DIR`, default
 `C:\Program Files\SIL\FieldWorks 9`. Sample-project directory for the Sena 3 live test:
 `$env:PANGLOSS_FW_PROJECTS_DIR`, default `<FieldWorks source checkout>\DistFiles\Projects`. The
-pilot-fixture `author`/`verify-parity` live tests instead read the `machine` git submodule at this
-repo's own root (`machine\conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` and two
-fixtures under `machine\conformance\languages\` for the construct-refusal probes) and are skipped,
-independently of the Sena 3 tests, if that submodule isn't initialized. The three
+pilot-fixture `author`/`verify-parity` live tests instead read the `conformance` clone at this
+repo's own root (`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` and two
+fixtures under `conformance\languages\` for the construct-refusal probes) and are skipped,
+independently of the Sena 3 tests, if the suite isn't fetched. The three
 `GrammarParser`-refusal probes (unknown co-occurrence id; duplicate id; duplicate slot name across
 two `AffixTemplate`s) and `testdata\allomorph-cooccurrence-probe.grammar.xml` (this tool's own fixture, not part of the
-`machine` submodule) need no submodule at all, and run whenever FieldWorks itself is present --
+`conformance` suite) need no suite at all, and run whenever FieldWorks itself is present --
 independently of both the Sena 3 tests and the pilot-fixture tests.
 
-The `mutate`/`parse` live proof reads a THIRD, independent `machine` checkout --
-`$env:PANGLOSS_MACHINE_DIR`, default `C:\Users\johnm\Documents\repos\machine` -- rather than this
-repo's own submodule (another agent commits to that checkout concurrently; this tool only ever
-reads its working tree). Skipped (with reason) only when FieldWorks itself is absent, or when
-`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` isn't found at that path; it
+The `mutate`/`parse` live proof reads the same suite root (this repo's `conformance` suite, or
+`$env:HC_CONFORMANCE_SUITE`). Skipped (with reason) only when FieldWorks itself is absent, or when
+`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` isn't found there; it
 separately tries a short list of `conformance\edge-cases\*` fixtures with a `SegmentNaturalClass`
 (`disjunctive-recheck`, `free-fluctuating-allomorph-pair`, `strrep-identity`, `diacritic-segments`,
 `loader-pattern-shapes`, in that order) for its referenced-phoneme refusal probe, using the first
@@ -534,10 +531,10 @@ one that authors successfully and reporting which.
 
 **Base project: the checked-in FieldWorks witness, when present, else a fresh `author` run.**
 A real, oracle-adjacent FieldWorks project is committed alongside the pilot fixture itself --
-`machine\conformance\edge-cases\deep-optional-affix-nesting\fieldworks\project.fwdata` (+
+`conformance\edge-cases\deep-optional-affix-nesting\fieldworks\project.fwdata` (+
 `fieldworks\WritingSystemStore\*.ldml`) and `fieldworks\phonology-mutations.yaml`, a small versioned
 manifest of the same two phoneme-removal cases this proof runs (see
-`machine\conformance\PROTOCOL.md` section 10 for the manifest's own vocabulary and eligibility
+`conformance\PROTOCOL.md` section 10 for the manifest's own vocabulary and eligibility
 rules; `build.ps1`'s `ConvertFrom-PhonologyMutationsYaml` refuses any `version:` other than `1`,
 naming the version found and the version supported). When that file exists, `build.ps1`:
 1. Reads `phonology-mutations.yaml` (a bespoke, fixed-shape parser -- `ConvertFrom-
@@ -545,7 +542,7 @@ naming the version found and the version supported). When that file exists, `bui
    its `base_sha256` against the ACTUAL sha256 of `project.fwdata`. A mismatch fails the run loudly,
    naming both hashes, rather than silently trusting a manifest that no longer describes the project
    beside it.
-2. Copies `fieldworks\` (never the machine checkout's own copy -- opening a project can leave
+2. Copies `fieldworks\` (never the suite checkout's own copy -- opening a project can leave
    session artifacts beside it even read-only, as this same witness's own first `inspect` did) into
    a scratch directory and uses that copy as the base project for every later step, in place of a
    freshly authored one.
@@ -628,7 +625,7 @@ naming the version found and the version supported). When that file exists, `bui
    silently disagree between two projects that differ only in which random guids LCM happened to
    assign.
 
-When the witness file is absent (an older `machine` checkout, or a partial one), `build.ps1` prints
+When the witness file is absent (an older suite checkout, or a partial one), `build.ps1` prints
 `SKIPPED (checked-in FieldWorks witness): ...` naming the expected path and falls back to authoring
 `conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` fresh, as before.
 
@@ -778,7 +775,7 @@ claimed. Replay verifies complete stored-key multisets, errors, HC diagnostics, 
 The ordered-key schema is explicitly staged for a future PanGloss gate; it is not legacy fixture
 discovery, and an empty minimum does not require PanGloss rejection.
 
-`PANGLOSS_CONFORMANCE_DIR` lets `build.ps1` read a separately available conformance tree without
-initializing a worktree submodule; `PANGLOSS_FW_PROJECTS_DIR` can point to synthetic scratch to avoid
+`HC_CONFORMANCE_SUITE` lets `build.ps1` read a separately available conformance tree without
+fetching the suite into a worktree; `PANGLOSS_FW_PROJECTS_DIR` can point to synthetic scratch to avoid
 opening personal projects. FieldWorks source HEAD and the installed assembly versions are separate
 provenance: these measurements use the installed pinned engines, not a build from the source HEAD.

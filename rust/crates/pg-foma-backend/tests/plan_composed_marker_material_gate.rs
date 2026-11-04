@@ -16,7 +16,7 @@ const FIXTURES: &[(&str, &str, &str)] = &[
         "empty marker material (no morphology at all); admission would gain nothing so is never attempted",
     ),
     (
-        "machine:edge-cases/loader-default-symbol",
+        "staging:edge-cases/loader-default-symbol",
         "refused",
         "empty marker material; admitting would expose an unrelated, pre-existing gap (bat: SymbolicFeature@defaultSymbol/UseDefaults not honoured by the compiled rewrite-rule cascade)",
     ),
@@ -31,7 +31,7 @@ const FIXTURES: &[(&str, &str, &str)] = &[
         "non-empty structural-composite material (mrAblaut, Role::Process); the grammar has no other rule and no template, so marker_admission_is_complete holds",
     ),
     (
-        "staging:edge-cases/circumfix-in-template-slot",
+        "machine:edge-cases/circumfix-in-template-slot",
         "refused",
         "non-empty structural-composite material, but the grammar declares an AffixTemplate, so marker_admission_is_complete's conservative template check refuses it even though this specific slot's only other occupant is harmless",
     ),

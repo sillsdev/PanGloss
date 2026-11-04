@@ -265,7 +265,7 @@ by `(morpheme_ids sequence, root_morpheme_index)`:
 - Sena: sample-300 corpus — required 100%.
 - Amharic: corpus words file — required 100% (after P1d closes the capability gaps).
 
-**3b. Conformance suite (machine submodule).** Run the C# conformance driver in adapter
+**3b. Conformance suite (`conformance/` suite at `conformance.commit`, driver from the `machine` pin).** Run the C# conformance driver in adapter
 mode against `pangloss batch --engine=foma` (same path as `rust/tools/run-conformance.sh`,
 which builds `pg-cli` release and drives `machine/src/SIL.Machine.Morphology.HermitCrab.
 Conformance`). Required: the foma engine's pass/fail set is identical to the default

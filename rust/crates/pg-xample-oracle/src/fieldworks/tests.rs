@@ -3,11 +3,10 @@ use super::*;
 #[test]
 fn witness_dir_matches_the_verified_path() {
     // Composed, not spelled: a literal pinned this to one machine's drive letter and separators.
-    let base = Path::new("machine");
+    let base = Path::new("conformance");
     assert_eq!(
         witness_dir(base),
-        base.join("conformance")
-            .join("edge-cases")
+        base.join("edge-cases")
             .join("deep-optional-affix-nesting")
             .join("fieldworks")
     );

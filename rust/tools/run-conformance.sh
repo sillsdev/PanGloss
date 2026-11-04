@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Runs the engine-agnostic morphological-parser conformance suite (the `machine` submodule,
-# pinned to its `conformance-framework` branch — see docs/hermitcrab-rust-port-audit.md section 5
-# and machine/conformance/PROTOCOL.md) against this repo's own `pangloss` engine, via the suite's own
-# C# driver in "adapter" mode (no fixture-parsing/comparison logic duplicated here — that's exactly
+# Runs the engine-agnostic morphological-parser conformance suite (the `conformance` clone at the
+# commit conformance.commit names, or the directory HC_CONFORMANCE_SUITE points at,
+# sillsdev/fieldworks-parser-conformance — see docs/hermitcrab-rust-port-audit.md section 5
+# and conformance/PROTOCOL.md) against this repo's own `pangloss` engine, via the C# driver the
+# `machine` submodule builds (the oracle pin) in "adapter" mode (no fixture-parsing/comparison
+# logic duplicated here — that's exactly
 # what the driver already does, correctly, for every engine that implements the adapter contract).
 #
 # `pangloss batch <grammar> <words> <output>` already speaks that exact contract (5-column
@@ -24,6 +26,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+conformance_dir="${HC_CONFORMANCE_SUITE:-$repo_root/conformance}"
 machine_dir="$repo_root/machine"
 conformance_project="$machine_dir/src/SIL.Machine.Morphology.HermitCrab.Conformance"
 
@@ -54,8 +57,13 @@ if [ "$engine" = "foma" ]; then
   engine_flag="--engine=foma"
 fi
 
-if [ ! -f "$machine_dir/conformance/PROTOCOL.md" ]; then
-  echo "error: $machine_dir/conformance is empty -- run 'git submodule update --init machine' first" >&2
+if [ ! -f "$conformance_dir/PROTOCOL.md" ]; then
+  echo "error: $conformance_dir has no conformance suite -- run 'pwsh rust/tools/conformance.ps1' first (or point HC_CONFORMANCE_SUITE at a checkout)" >&2
+  exit 2
+fi
+# pg.ps1 does not initialize `machine`: the driver is built from its source, a full checkout.
+if [ ! -f "$conformance_project/SIL.Machine.Morphology.HermitCrab.Conformance.csproj" ]; then
+  echo "error: $conformance_project is missing -- run 'git submodule update --init machine' first (the driver is built from the oracle pin's source)" >&2
   exit 2
 fi
 
@@ -75,7 +83,7 @@ if [ ! -x "$pangloss_bin" ]; then
   exit 2
 fi
 
-# Capabilities pangloss declares: every `requires:` value used anywhere under machine/conformance/ is
+# Capabilities pangloss declares: every `requires:` value used anywhere under conformance/ is
 # "phonology" (or empty) as of the pinned commit (see docs/hermitcrab-rust-port-audit.md section 5)
 # -- phonological rewrite rules (both Iterative and Simultaneous) are fully ported, so declaring it
 # means no fixture is skipped for a capability PanGloss actually has.
@@ -84,7 +92,7 @@ trap 'rm -f "$out"' EXIT
 set +e
 echo "[run-conformance] engine=$engine" >&2
 dotnet run --no-build --project "$conformance_project" -- \
-  --fixtures "$machine_dir/conformance" \
+  --fixtures "$conformance_dir" \
   --adapter "$pangloss_bin batch {grammar} {words} {output} $engine_flag" \
   --capabilities phonology \
   $include_pathological | tee "$out"

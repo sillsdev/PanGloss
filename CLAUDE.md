@@ -52,10 +52,10 @@ This always happens, for every parse bug or suspected bug, whoever finds it:
 2. **Name the source of the bug** and record it: a misunderstanding (of the grammar, of HC
    semantics, or of the test), the HC algorithm itself (C# is wrong or limited — also file a
    `sillsdev/machine` issue), the Rust port (PanGloss differs from C#), or the fixture or data.
-3. **Add a conformance case** to `sillsdev/machine` PR #480, the conformance grammars (after #480
-   merges, to `machine/conformance`): a new grammar, or a word plus the smallest part of a grammar
+3. **Add a conformance case** to `sillsdev/fieldworks-parser-conformance`, the suite checked out at
+   `conformance/`: a new grammar, or a word plus the smallest part of a grammar
    that shows the behaviour. Do this whenever the C# behaviour is confirmed or the case is worth
-   pinning. Stage it in `conformance-staging/` first if it cannot go to #480 yet, and say where it
+   pinning. Stage it in `conformance-staging/` first if it cannot go to the suite yet, and say where it
    went.
 4. **Write the C# verdict, the source and the fixture's location** in the issue and in the PR that
    fixes it.
@@ -130,11 +130,11 @@ only thing enforcing `broken_intra_doc_links`), `doctor`, `gc`, `run`, `new-work
 **`-Mode preland` is required before landing on main.** It runs `check`, every
 `rust/tools/tests/*.tests.ps1` in parallel, and, gated on the diff from `origin/main`, the C#
 conformance driver over a fresh `pangloss` (`pg-cli`, `docs/formats/`, the `machine` pin) and the
-backend scoreboard ratchet (pg-foma-backend's crate closure, `conformance-staging/`, the pin). Each
+backend scoreboard ratchet (pg-foma-backend's crate closure, `conformance-staging/`, the suite pin). Each
 gated check prints SKIPPED with its reason; `-All` runs everything. Measured warm runs took 28.7s
 for a common change and 64.4s for `-All`; a prior load-affected `-All` run took 163s. These are
 observations, not a universal bound; wall time varies with slot queue and system load. Run it in the
-worktree being landed: it fails when `machine` is not at
+worktree being landed: it fails when `conformance` is not at
 the staged pin. Details: `rust/tools/preland.ps1`. *Scar: in one day CI caught three breaks every
 local managed run missed: a scoreboard ratchet moved by a fixture change, a test source missing
 from the reviewed inventory, and `pangloss batch` output the conformance driver could not read.*
@@ -147,8 +147,14 @@ tests from running, and a ledger recorded that run's failure count as fact — w
 touching a `developer-tools`-gated flag must be verified twice: rerun with
 `$env:PANGLOSS_EXTRA_ARGS = '--features developer-tools'` and read the printed cargo line back.
 
-Never run `git submodule update` by hand; `pg.ps1` initializes `machine/conformance` sparsely on its
-own.
+`conformance/` is the suite (`sillsdev/fieldworks-parser-conformance`), a gitignored filtered clone at the
+commit `conformance.commit` names; it is not a submodule. `pg.ps1` fetches it and moves it to the pin
+itself, so do not clone, fetch or check out in `conformance/` by hand, and do not edit files in it (one
+with local changes is never moved, and the run stops). `pwsh rust/tools/conformance.ps1` does the same
+fetch on its own. `HC_CONFORMANCE_SUITE=<path>` points every consumer at a local copy and skips the pin
+check. `pg.ps1` never initializes `machine`; only `rust/tools/run-conformance.sh` needs it (CI checks it
+out). Move the suite pin by editing `conformance.commit` to a full SHA that is on the suite's `main`,
+then running `pwsh rust/tools/conformance.ps1`.
 
 ## Releases start with a pushed version tag
 
@@ -174,8 +180,8 @@ run `pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.7.0` on `main`, the
 `git push --atomic origin main v0.7.0` command it prints. The tag workflow waits for Rust CI before building
 and publishing. See `docs/development/releasing.md` for the complete procedure and rehearsal path.
 
-**The contract gate is `machine/conformance`** -- engine-agnostic, all-synthetic, diffed against
-committed ground truth, and available to CI through the submodule. The real-language corpora (Sena,
+**The contract gate is `conformance`** -- engine-agnostic, all-synthetic, diffed against
+committed ground truth, and available to CI through the `conformance` clone at the pinned commit. The real-language corpora (Sena,
 Amharic, Aweti, Indonesian) are gitignored local files: they exist for speed work and for harvesting
 issues that then become conformance fixtures. They are the sampling tool, not the contract, and
 their absence from a release gate is deliberate rather than a gap.
@@ -218,7 +224,7 @@ to commit if rustfmt or another check leaves changes outside `rust/Cargo.toml` a
 **Design docs** (`docs/design/`), for changing the mechanism rather than obeying it:
 `build-resource-governance.md` — thread/memory budgets, direct process launches, slot pools, what is
 scoped per-machine versus per-worktree.
-`conformance-submodule.md` — why the submodule auto-initializes sparsely, and the exact git recipe.
+`conformance-suite.md` — how `conformance/` (a pinned clone) and `machine` (a submodule) arrive, what `pg.ps1` does with them, and the oracle pin's field-name hazard.
 `controls-that-cannot-act.md` — four incidents behind the one rule below.
 `agent-doc-gates.md` — what the three gates on this file and the skills check, and why they skip
 what they skip.

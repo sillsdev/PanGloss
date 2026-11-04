@@ -46,7 +46,7 @@
 //! residual is unconditional (this module cannot know in advance whether a residual has any further
 //! reduplication structure without scanning it), gating function ENTRY would make even a single
 //! ordinary, non-nested reduplication (whose residual has no further structure at all, e.g. this
-//! suite's own `machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup`) trip a
+//! suite's own `conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup`) trip a
 //! small configured cap merely because a second, ultimately-empty, cheap attempt was made — a false
 //! refusal of a construct this crate already faithfully supports. Checking instead at the point
 //! `ReduplicationPeeler::propose_for_residual` is about to USE a layer (i.e. is only ever reached
@@ -69,7 +69,7 @@
 //! ## The recall proof — precisely what is proven vs. left open
 //! Status, stated precisely rather than rounded up:
 //! - **Proven**: for the one real, previously-zero-coverage in-repo construct available to check
-//!   (`machine/conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup`,
+//!   (`conformance/languages/suffixing-extension-slot-ordering`'s `mrRedup`,
 //!   "kimbiakimbia"), the depth-1 peeler proposes every analysis accepted by `pg_parse::Morpher`.
 //!   The peeler may safely over-propose because the confirm pass rejects spurious candidates
 //!   (`tests/f6_reduplication_peel_chain_depth.rs::kimbiakimbia_reduplication_is_recovered_with_oracle_containment`).

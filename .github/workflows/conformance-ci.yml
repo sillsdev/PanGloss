@@ -1,12 +1,12 @@
 name: Conformance CI
 
-# Runs the engine-agnostic morphological-parser conformance suite (`machine/conformance`, an
-# all-synthetic-language fixture set -- see machine/conformance/README.md and PROTOCOL.md) as a
+# Runs the engine-agnostic morphological-parser conformance suite (`conformance`, an
+# all-synthetic-language fixture set -- see conformance/README.md and PROTOCOL.md) as a
 # regression gate: builds pangloss (release) and the suite's own C# adapter driver, then diffs
 # pangloss's parse output against the suite's checked-in ground truth (each fixture's
 # `words.yaml`, materialized by the driver into `words.txt`/`expected.tsv`) via
-# `rust/tools/run-conformance.sh`. This is self-contained given the `machine` submodule checked
-# out below -- the driver derives its expected output straight from committed `words.yaml` text,
+# `rust/tools/run-conformance.sh`. This is self-contained given the `conformance` (suite, cloned at `conformance.commit`) and
+# `machine` (oracle driver source, a submodule) checked out below -- the driver derives its expected output straight from committed `words.yaml` text,
 # it does NOT shell out to a live C# HermitCrab oracle at run time (self-check mode is the only
 # mode that does that, and this workflow doesn't use self-check mode).
 #
@@ -14,10 +14,10 @@ name: Conformance CI
 #   0 = every attempted fixture passed, or every failure is a documented, accepted divergence
 #       (rust/tools/known-conformance-divergences.txt) -- gate passes.
 #   1 = at least one UNEXPECTED failure (a real conformance regression) -- gate fails.
-#   2 = a harness-level error (missing `machine` submodule, missing pangloss binary, malformed
+#   2 = a harness-level error (missing `conformance` suite or `machine` submodule, missing pangloss binary, malformed
 #       fixture metadata) -- NOT a conformance verdict either way. Treated as a gate failure
 #       here too (see the "Run conformance suite" step below) rather than a silent skip: this
-#       workflow always checks out the submodule itself (see below), so exit 2 in practice means
+#       workflow always fetches the suite and the submodule itself (see below), so exit 2 in practice means
 #       something is wrong with the CI environment, not with the fixtures or pangloss, and that is
 #       worth surfacing loudly during a refactor rather than quietly waving through.
 
@@ -43,11 +43,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # machine/conformance/ (languages/, edge-cases/, each fixture's words.yaml ground
-          # truth) lives in the `machine` submodule (sillsdev/machine, `conformance-framework`
-          # branch). Non-recursive, matching rust-ci.yml's own checkout of this same submodule:
-          # `machine` carries no nested submodules of its own.
+          # `machine` (sillsdev/machine, the oracle pin) supplies the driver's source, checked out
+          # non-recursive as in rust-ci.yml: the pinned `machine` has no nested submodules. The suite
+          # (conformance/: languages/, edge-cases/, each fixture's words.yaml ground truth) is not a
+          # submodule; the next step clones it at the commit conformance.commit names.
           submodules: true
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -72,6 +74,6 @@ jobs:
           exit_code=$?
           set -e
           if [ "$exit_code" = 2 ]; then
-            echo "::error::run-conformance.sh exited 2 -- a harness-level error (missing machine submodule, missing pangloss binary, or malformed fixture metadata), NOT a conformance regression. See the job log above for which one. Treated as a gate failure (not a silent skip): this workflow checks out the submodule and builds pangloss itself, so this should never happen here -- fix the CI environment rather than re-running."
+            echo "::error::run-conformance.sh exited 2 -- a harness-level error (missing conformance suite or machine submodule, missing pangloss binary, or malformed fixture metadata), NOT a conformance regression. See the job log above for which one. Treated as a gate failure (not a silent skip): this workflow checks out the submodule and builds pangloss itself, so this should never happen here -- fix the CI environment rather than re-running."
           fi
           exit "$exit_code"

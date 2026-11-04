@@ -52,7 +52,7 @@ fn is_whole_grammar_candidate(candidate: &Value) -> bool {
 
 fn word_file(fixture: &str, root: &Path) -> PathBuf {
     word_file_from(
-        &format!("machine/conformance/{fixture}/words.yaml"),
+        &format!("conformance/{fixture}/words.yaml"),
         fixture,
         root,
         |words| words,
@@ -81,7 +81,7 @@ fn word_file_from(
 fn run_fixture(fixture: &str, root: &Path) -> Value {
     let out = root.join(fixture.replace('/', "-"));
     let words = word_file(fixture, root);
-    let grammar = repo_file(&format!("machine/conformance/{fixture}/grammar.xml"));
+    let grammar = repo_file(&format!("conformance/{fixture}/grammar.xml"));
     let status = Command::new(env!("CARGO_BIN_EXE_pangloss"))
         .args([
             "recipe-optimize",
@@ -351,7 +351,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let deep_fixture = "edge-cases/deep-optional-affix-nesting";
     let deep_out = root.join("deep-timeout");
     let deep_words = word_file(deep_fixture, &root);
-    let deep_grammar = repo_file(&format!("machine/conformance/{deep_fixture}/grammar.xml"));
+    let deep_grammar = repo_file(&format!("conformance/{deep_fixture}/grammar.xml"));
     let status = Command::new(env!("CARGO_BIN_EXE_pangloss"))
         .args([
             "recipe-optimize",

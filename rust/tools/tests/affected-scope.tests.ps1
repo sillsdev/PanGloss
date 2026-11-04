@@ -32,7 +32,7 @@ Test-Case 'docs, CI and tooling changes map to no crate' {
 
 Test-Case 'shared paths fall back to the full suite' {
     foreach ($path in @('rust/Cargo.toml', 'rust/Cargo.lock', 'rust/.config/nextest.toml', 'rust/rust-toolchain.toml',
-            'conformance-staging/a/words.yaml', 'machine/conformance/x', 'rust/stray.rs')) {
+            'conformance-staging/a/words.yaml', 'conformance.commit', 'rust/stray.rs')) {
         $s = Get-AffectedScope -ChangedPaths @('rust/crates/leaf/src/lib.rs', $path) -Packages $pkgs
         Assert-True $s.Global "$path must be global"
     }

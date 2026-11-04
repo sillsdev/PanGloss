@@ -155,7 +155,7 @@ pub fn unbuildable_markers(plan: &Plan) -> Vec<FragmentSpec> {
 /// `marker_admission_is_complete` (zero records, zero standalone rules, zero templates) while one
 /// has an entirely unrelated, pre-existing PlanComposed defect neither fact can see -- measured
 /// directly: `machine:edge-cases/right-to-left-anchor-environment` (empty material, no other
-/// defect, safe to admit) and `machine:edge-cases/loader-default-symbol` /
+/// defect, safe to admit) and `staging:edge-cases/loader-default-symbol` /
 /// `machine:edge-cases/mpr-gated-exception` (also empty material, but each exposes a real,
 /// unrelated rewrite-cascade/MPR-gating gap once no longer blanket-refused) are indistinguishable
 /// by any fact this module can compute from the marker alone. Since admitting an EMPTY result never

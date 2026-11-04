@@ -9,13 +9,19 @@ requires: [phonology]
 fieldworks_producible: true
 words:
   - word: ii
+    note: "Positive control: expand u to ii survives the interposed Optional x, so the analysis is U|ii."
     parses:
       - signature: "U|ii"
+        rules: [expand]
   - word: u
+    note: "Negative control: the lone u is not a surface of the expansion."
     expect_fail: true
   - word: i
+    note: "Negative control: a single i has no expansion to ii."
     expect_fail: true
   - word: iii
+    note: "Negative control: three i have no analysis under expand u to ii."
     expect_fail: true
   - word: ixi
+    note: "Negative control: a real x is not deletable by analysis, which only re-inserts Optional ones."
     expect_fail: true

@@ -72,7 +72,7 @@ overclaim."
   from meaning "refuse everything forever."
 - **"Supported" is mechanically gated on passing conformance coverage.** A construct or
   configuration cannot flip from fail-closed to supported unless the in-repo conformance
-  suite (`machine/conformance/`) actually exercises it and passes: CI cross-checks the
+  suite (`conformance/`) actually exercises it and passes: CI cross-checks the
   **capability registry** (the source-controlled, per-construct supported/unsupported contract —
   distinct from a per-`.pgpack` **pack manifest**; bare unqualified "manifest" is banned) against
   conformance coverage (`constructs.txt` / per-word `exercises:` / `rules.csv`), and marking

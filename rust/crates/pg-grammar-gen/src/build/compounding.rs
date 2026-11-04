@@ -1,4 +1,4 @@
-//! Compounding-rule scale builder -- the first emit-scale exerciser. Mirrors `machine/conformance/languages/
+//! Compounding-rule scale builder -- the first emit-scale exerciser. Mirrors `conformance/languages/
 //! fusional-realizational-morphology/grammar.xml`'s own `mrCompoundHN` shape (the only real `<CompoundingRule>` fixture
 //! in this repo): a head root + a non-head root, concatenated with a literal `+` compound-seam
 //! marker in between (`CopyFromInput(head) + InsertSegments("+") + CopyFromInput(nonhead)`). That

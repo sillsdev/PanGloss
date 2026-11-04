@@ -4,9 +4,11 @@ use pg_foma::replace::is_fully_supported_shape;
 use pg_grammar::model::PhonRuleDef;
 
 fn fixture_xml() -> String {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/simultaneous-subrule-genuine-overlap/grammar.xml",
-    );
+    let path = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "simultaneous-subrule-genuine-overlap",
+    )
+    .grammar_path();
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 

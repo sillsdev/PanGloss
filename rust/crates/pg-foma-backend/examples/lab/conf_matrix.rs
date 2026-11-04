@@ -33,9 +33,7 @@ pub fn main(_args: &[String]) {
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "<git rev-parse HEAD failed -- read it separately>".to_string());
     println!("commit under measurement: {commit}");
-    println!(
-        "scope: PANGLOSS_CONFORMANCE_SCOPE=all (conformance-staging/** + machine/conformance/**)"
-    );
+    println!("scope: PANGLOSS_CONFORMANCE_SCOPE=all (conformance-staging/** + conformance/**)");
     println!(
         "strategies measured: {:?} -- capability selector BYPASSED (LoweredCandidate constructed \
          directly, evaluate_plans_observed_with_cache never calls select_backends), so a backend \
