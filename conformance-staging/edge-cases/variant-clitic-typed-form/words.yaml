@@ -1,0 +1,44 @@
+# oracle-provenance: founding-oracle machine-commit=aab4c59819adb7b366915e09df2fb28c62b8c03a verified-date=2026-11-03
+# Replayed on hc.dll at Machine aab4c598 (see STAGING.md): the rows below are the oracle's own output.
+# Synthetic; no real language. =ke is a sense-less entry of the enclitic morph type with a variant ref to ta; HCLoader runs
+# LoadLexEntries and LoadMorphologicalRules for the clitic forms too (HCLoader.cs:299-305), so =ke is a Clitics-stratum stem
+# copy and a clitic rule under ta's Noun MSA (the per-copy grammar form, see adhoc-prohibition-variant-enclitic-first).
+language: VariantCliticTypedForm
+inspired_by: ["a variant entry whose forms are clitic-typed is loaded in the Clitics stratum, as a stem copy and as a clitic rule"]
+sources: ["HCLoader.cs:299-305 (per-stratum form buckets)", "HCLoader.cs:782-856 (LoadLexEntryOfVariant)", "HCLoader.cs:896-924 (LoadMorphologicalRules)"]
+requires: []
+fieldworks_producible: true
+words:
+  - word: ta
+    note: >-
+      Control: the main stem.
+    parses:
+      - signature: "TA|ta"
+        rules: []
+        exercises: ["LexicalEntry"]
+  - word: ke
+    note: >-
+      The variant's clitic-stratum stem copy parses on its own as ta's Noun MSA.
+    parses:
+      - signature: "TA|ke"
+        rules: []
+        exercises: ["LexicalEntry"]
+  - word: take
+    note: >-
+      The variant's clitic rule attaches to the stem ta.
+    parses:
+      - signature: "TA+TA|take"
+        rules: [mrKe]
+        exercises: ["MorphologicalRule"]
+  - word: keke
+    note: >-
+      The clitic rule attaches to the variant's own stem copy.
+    parses:
+      - signature: "TA+TA|keke"
+        rules: [mrKe]
+        exercises: ["MorphologicalRule"]
+  - word: tu
+    note: >-
+      Control: no complex-form variant in this grammar.
+    expect_fail: true
+    exercises: ["LexicalEntry"]

@@ -209,35 +209,34 @@ pub(crate) fn build<'a>(
             }
         }
 
-        // --- variants: entries with no senses of their own, linked via `EntryRef::Variant` ------
+        // --- variants: entries with no senses of their own; HCLoader treats every entry ref (variant or complex form) as a variant source ------
         if entry_yields_variant_refs(entry) {
             for er in &entry.entry_refs {
-                if let EntryRef::Variant {
-                    guid: er_guid,
-                    component_lexemes,
-                    variant_entry_types,
-                } = er
-                {
-                    build_variant(
-                        entry,
-                        er_guid,
-                        component_lexemes,
-                        variant_entry_types,
-                        &entry_by_guid,
-                        &sense_owner,
-                        &infl_type_by_guid,
-                        &affix_allos,
-                        &morphology_forms,
-                        VariantSites {
-                            stems: has_stem_form || has_clitic_stem_form,
-                            rules: rule_site_runs,
-                        },
-                        ctx,
-                        acc,
-                        morphology_entries,
-                        &mut *morphology_mrules,
-                    );
-                }
+                build_variant(
+                    entry,
+                    er,
+                    &entry_by_guid,
+                    &sense_owner,
+                    &infl_type_by_guid,
+                    VariantBuckets {
+                        morphology_allos: &affix_allos,
+                        clitic_allos: &clitic_affix_allos,
+                        morphology_forms: stem_form_eligibility,
+                        clitic_forms: clitic_form_eligibility,
+                    },
+                    VariantSites {
+                        stems: has_stem_form || has_clitic_stem_form,
+                        rules: rule_site_runs,
+                    },
+                    ctx,
+                    acc,
+                    VariantOutputs {
+                        morphology_entries: &mut *morphology_entries,
+                        clitic_entries: &mut *clitic_entries,
+                        morphology_mrules: &mut *morphology_mrules,
+                        clitic_mrules: &mut *clitic_mrules,
+                    },
+                );
             }
         }
 
@@ -286,6 +285,21 @@ struct VariantSites {
     stems: bool,
     /// `LoadMorphologicalRules` past its `HasValidRuleForm` check.
     rules: bool,
+}
+
+/// The variant entry's own forms, split into HCLoader's two strata (`LoadLexEntries`/`LoadMorphologicalRules` run once per stratum with that stratum's forms).
+struct VariantBuckets<'b> {
+    morphology_allos: &'b [&'b Allomorph],
+    clitic_allos: &'b [&'b Allomorph],
+    morphology_forms: &'b [bool],
+    clitic_forms: &'b [bool],
+}
+
+struct VariantOutputs<'o> {
+    morphology_entries: &'o mut Vec<LexEntryId>,
+    clitic_entries: &'o mut Vec<LexEntryId>,
+    morphology_mrules: &'o mut Vec<MRuleId>,
+    clitic_mrules: &'o mut Vec<MRuleId>,
 }
 
 /// HCLoader's `HasValidRuleForm` gate (HCLoader.cs:530-547) minus `IsValidRuleForm`'s environment conditions; it decides only which MSA lookups `Grammar::representative_msas` records.
@@ -675,21 +689,20 @@ fn natural_class_defs<'a>(ctx: &Ctx<'a>) -> &'a [crate::model::NaturalClass] {
 #[allow(clippy::too_many_arguments)]
 fn build_variant<'a>(
     variant_entry: &LexEntry,
-    er_guid: &str,
-    component_lexemes: &[String],
-    variant_entry_types: &[String],
+    entry_ref: &EntryRef,
     entry_by_guid: &HashMap<&str, &'a LexEntry>,
     sense_owner: &HashMap<&str, (&'a LexEntry, &'a Sense)>,
     infl_type_by_guid: &HashMap<&str, &LexEntryInflType>,
-    variant_affix_allos: &[&Allomorph],
-    morphology_forms: &HashMap<&str, Vec<bool>>,
+    buckets: VariantBuckets,
     sites: VariantSites,
     ctx: &Ctx<'a>,
     acc: &mut Acc,
-    morphology_entries: &mut Vec<LexEntryId>,
-    morphology_mrules: &mut Vec<MRuleId>,
+    out: VariantOutputs,
 ) {
-    // The `EntryRef::Variant` itself, distinct from the entries/allomorphs/MSAs it draws from below.
+    let er_guid = entry_ref.guid();
+    let component_lexemes = entry_ref.component_lexemes();
+    let variant_entry_types = entry_ref.variant_entry_types();
+    // The entry ref itself, distinct from the entries/allomorphs/MSAs it draws from below.
     let er_key = InventoryKey::object(InventoryKind::EntryReference, er_guid.to_string());
     ctx.considered(er_key.clone());
     ctx.selected(er_key.clone());
@@ -713,11 +726,7 @@ fn build_variant<'a>(
                 let rules = merged(sites.rules, e.msas.iter().collect());
                 (
                     stems.into_iter().map(|m| (e, m)).collect(),
-                    rules
-                        .into_iter()
-                        .filter(|m| !is_stem(m))
-                        .map(|m| (e, m))
-                        .collect(),
+                    rules.into_iter().map(|m| (e, m)).collect(),
                 )
             } else if let Some(&(e, sense)) = sense_owner.get(component.as_str()) {
                 let sense_msa: Vec<&'a Msa> = e
@@ -732,11 +741,7 @@ fn build_variant<'a>(
                 let rules = merged(sites.rules, sense_msa);
                 (
                     stems.into_iter().map(|m| (e, m)).collect(),
-                    rules
-                        .into_iter()
-                        .filter(|m| !is_stem(m))
-                        .map(|m| (e, m))
-                        .collect(),
+                    rules.into_iter().map(|m| (e, m)).collect(),
                 )
             } else {
                 let attachment = InventoryKey::attachment(
@@ -758,40 +763,63 @@ fn build_variant<'a>(
                 (Vec::new(), Vec::new())
             };
 
-        // Stem MSAs: one variant LexEntryDef per (infl_type, msa) pair, infl_type-sensitive.
-        for &infl_type in &infl_types {
-            for &(main_entry, msa) in &stem_msas {
-                let eligible_allomorphs = morphology_forms
-                    .get(variant_entry.guid.as_str())
-                    .expect("every variant entry has morphology-form decisions");
-                if let Some(id) = build_variant_stem_entry(
-                    variant_entry,
-                    main_entry,
-                    msa,
-                    infl_type,
-                    eligible_allomorphs,
-                    ctx,
-                    acc,
-                ) {
-                    morphology_entries.push(id);
+        // Stem MSAs: one variant LexEntryDef per (stratum, infl_type, msa), for each stratum that has a stem form of the variant entry.
+        for (stratum, eligible_allomorphs, entries) in [
+            (
+                StratumId(0),
+                buckets.morphology_forms,
+                &mut *out.morphology_entries,
+            ),
+            (StratumId(1), buckets.clitic_forms, &mut *out.clitic_entries),
+        ] {
+            if !eligible_allomorphs.iter().any(|eligible| *eligible) {
+                continue;
+            }
+            for &infl_type in &infl_types {
+                for &(main_entry, msa) in &stem_msas {
+                    if let Some(id) = build_variant_stem_entry(
+                        variant_entry,
+                        main_entry,
+                        msa,
+                        infl_type,
+                        stratum,
+                        eligible_allomorphs,
+                        ctx,
+                        acc,
+                    ) {
+                        entries.push(id);
+                    }
                 }
             }
         }
 
-        // Non-stem MSAs: a second affix-process rule using the variant's own forms (see this fn's doc), not infl_type-sensitive, so this runs once per (main_entry, msa), independent of the infl_type loop above.
-        for &(main_entry, msa) in &rule_msas {
-            if let Some(id) = build_variant_affix_rule(
-                variant_entry,
-                main_entry,
-                msa,
-                variant_affix_allos,
-                ctx,
-                acc,
-            ) {
-                let template_only =
-                    matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
-                if !template_only {
-                    morphology_mrules.push(id);
+        // Non-stem MSAs: a second affix-process rule per stratum using the variant's own forms (see this fn's doc), not infl_type-sensitive, so this runs once per (main_entry, msa), independent of the infl_type loop above.
+        for (stratum, allos, mrules) in [
+            (
+                StratumId(0),
+                buckets.morphology_allos,
+                &mut *out.morphology_mrules,
+            ),
+            (StratumId(1), buckets.clitic_allos, &mut *out.clitic_mrules),
+        ] {
+            if allos.is_empty() {
+                continue;
+            }
+            for &(main_entry, msa) in &rule_msas {
+                if let Some(id) = build_variant_affix_rule(
+                    variant_entry,
+                    main_entry,
+                    msa,
+                    allos,
+                    stratum,
+                    ctx,
+                    acc,
+                ) {
+                    let template_only =
+                        matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
+                    if !template_only {
+                        mrules.push(id);
+                    }
                 }
             }
         }
@@ -804,6 +832,7 @@ fn build_variant_affix_rule(
     main_entry: &LexEntry,
     msa: &Msa,
     variant_affix_allos: &[&Allomorph],
+    stratum: StratumId,
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Option<MRuleId> {
@@ -813,7 +842,7 @@ fn build_variant_affix_rule(
         variant_affix_allos,
         msa,
         gloss,
-        StratumId(0),
+        stratum,
         ctx,
         acc,
     )
@@ -843,11 +872,13 @@ fn get_infl_types<'a>(
 }
 
 /// The variant-entry counterpart of `build_stem_entry`: allomorphs come from `variant_entry`, everything else from `main_entry`'s MSA plus the `infl_type`'s gloss and inflection-feature merge.
+#[allow(clippy::too_many_arguments)]
 fn build_variant_stem_entry(
     variant_entry: &LexEntry,
     main_entry: &LexEntry,
     msa: &Msa,
     infl_type: Option<&LexEntryInflType>,
+    stratum: StratumId,
     eligible_allomorphs: &[bool],
     ctx: &Ctx,
     acc: &mut Acc,
@@ -926,7 +957,6 @@ fn build_variant_stem_entry(
 
     let lex_id = LexEntryId(acc.entries.len() as u32);
     let mut allomorphs = Vec::new();
-    // Variants are built for the Morphology bucket only; clitic-typed variant forms are a known gap that no reference corpus exercises.
     for (allo, eligible) in variant_entry.allomorphs.iter().zip(eligible_allomorphs) {
         if !eligible {
             continue;
@@ -1016,7 +1046,7 @@ fn build_variant_stem_entry(
         }),
         morph_id: None,
         gloss: (!gloss.is_empty()).then_some(gloss),
-        stratum: StratumId(0),
+        stratum,
         properties: Vec::new(),
         co_occurrence: Vec::new(),
     });

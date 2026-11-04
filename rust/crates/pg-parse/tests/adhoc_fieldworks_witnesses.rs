@@ -104,3 +104,13 @@ fn fieldworks_witness_of_do_not_use_for_parsing_matches_the_unflagged_oracle() {
     );
     assert_witness_agrees("do-not-use-for-parsing-flag-ignored");
 }
+
+#[test]
+fn fieldworks_witness_of_complex_form_ref_variant_matches_the_oracle() {
+    assert_witness_agrees("variant-complex-form-ref-senseless-entry");
+}
+
+#[test]
+fn fieldworks_witness_of_clitic_typed_variant_matches_the_oracle() {
+    assert_witness_agrees("variant-clitic-typed-form");
+}

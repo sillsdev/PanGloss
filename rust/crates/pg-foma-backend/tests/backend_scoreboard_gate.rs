@@ -45,11 +45,11 @@ impl Bucket {
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
 // The two featureless segment-class rewrite fixtures (#120) add: TSP one exact and one miss, TUT two exact, PlanComposed two refused. TSP misses the multi-member one because its model rewrites a featureless node only by one literal spelling, not by a class of several.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Divergence 116 moves 18 TSP and 17 TUT fixtures to refused; the #154 witness adds one oracle-exact fixture per strategy.
+    // Divergence 116 moves 18 TSP and 17 TUT fixtures to refused; the #154 witness adds one oracle-exact fixture per strategy; the two variant-source fixtures (#169, #170) add two more to each.
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 125,
+            oracle_exact: 127,
             compiles_but_misses: 10,
             refused: 20,
             unmeasurable: 0,
@@ -58,7 +58,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 106,
+            oracle_exact: 108,
             compiles_but_misses: 5,
             refused: 44,
             unmeasurable: 0,
@@ -67,7 +67,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 55,
+            oracle_exact: 57,
             compiles_but_misses: 2,
             refused: 95,
             unmeasurable: 3,

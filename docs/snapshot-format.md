@@ -500,7 +500,7 @@ treatment of the two as mutually exclusive in practice).
 | Variant | Fields | LCM origin |
 |---|---|---|
 | `variant` | `guid`, `componentLexemes: guid[]`, `variantEntryTypes: guid[]` | `LexEntryRef` with `VariantEntryTypesRS` populated. `componentLexemes` ← `ComponentLexemesRS` (the main entry/sense this is a variant of — each guid may be a `LexEntry` **or** a `LexSense`, LCM's `CmObject` union; resolvers must check both `lexicon.entries` and each entry's `senses`). `variantEntryTypes` ← `VariantEntryTypesRS` — each guid may be a plain `LexEntryType` or a `morphology.lexEntryInflTypes` guid (`HCLoader.GetInflTypes`'s `as ILexEntryInflType` downcast, HCLoader.cs:657-679); `HCLoader.LoadLexEntries`/`LoadMorphologicalRules` walk exactly this shape when `entry.SensesOS.Count == 0` (HCLoader.cs:628-651, 852-871) to attach the variant's allomorphs to the *main* entry's MSAs. |
-| `complexForm` | `guid`, `componentLexemes: guid[]`, `complexEntryTypes: guid[]` | `LexEntryRef` with `ComplexEntryTypesRS` populated. Not walked by `HCLoader` today; carried for completeness/forward-compatibility. |
+| `complexForm` | `guid`, `componentLexemes: guid[]`, `complexEntryTypes: guid[]` | `LexEntryRef` with `ComplexEntryTypesRS` populated and `VariantEntryTypesRS` empty. `HCLoader` walks every entry ref of a sense-less entry as a variant source (HCLoader.cs:639-668), so the compiler builds a variant from it exactly as from a `variant` ref with no types. |
 
 ## 7. `conversionProvenance`
 

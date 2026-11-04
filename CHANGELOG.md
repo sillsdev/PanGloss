@@ -9,6 +9,8 @@ file has no section for.
 - An affix process whose input part is a bare word boundary (or an iteration of one) is now skipped with `grammar.allomorph.process-build-failed`, as `HCLoader` rejects it, instead of being imported with an empty pattern (#164). A boundary inside a sequence is still ignored, as in `HCLoader`.
 - A circumfix pairs only prefix and suffix halves, as `HCLoader` does; interfix and clitic halves are no longer paired, and an entry left without a valid half reports `grammar.circumfix.missing-half` (#165).
 - A `MoInsertPhones` phoneme whose first code has no form in the default vernacular writing system no longer borrows another writing system's form; the process is rejected as in `HCLoader` (#166).
+- A sense-less entry whose only entry ref is a complex-form ref is now built as a variant of its component, as `HCLoader` does (it walks every entry ref of a sense-less entry). Before, a word FieldWorks parses through that entry had no analysis (#169).
+- A variant entry with clitic-typed forms now gets its stem copy and clitic rule in the Clitics stratum, and a variant's rule loop includes stem MSAs (a clitic rule), as `HCLoader` loads each stratum's forms against the main entry's MSAs. Before, only the Morphology stratum was built (#170).
 
 ## 0.15.0
 

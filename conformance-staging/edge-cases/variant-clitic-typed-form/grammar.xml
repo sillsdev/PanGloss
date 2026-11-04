@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>VariantClitic</Name>
+    <!--
+      A variant entry whose form is of the enclitic morph type is loaded in the Clitics stratum.
+      In FieldWorks the stem ta is an entry with one Noun MoStemMsa. =ke is an entry with no senses and no MSAs, of the enclitic
+      morph type, whose one variant LexEntryRef has component ta. HCLoader runs LoadLexEntries and LoadMorphologicalRules once per
+      stratum with that stratum's forms (HCLoader.cs:299-305), so =ke is loaded like any enclitic: a stem entry copy and a clitic
+      MorphologicalRule in the stratum named Clitics, both under ta's MSA (LoadLexEntryOfVariant, HCLoader.cs:782-856;
+      LoadMorphologicalRules, HCLoader.cs:896-924). This grammar is that per-copy form (see adhoc-prohibition-variant-enclitic-first).
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eTa" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aTa"><PhoneticShape>ta</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TA</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrKe">
+        <Name>Clitics</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrKe">
+            <Name>mrKe</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subKe">
+                <MorphologicalInput><PhoneticSequence id="stem_subKe"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stem_subKe" /><InsertSegments><PhoneticShape>ke</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>TA</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eKe" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aKe"><PhoneticShape>ke</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TA</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
