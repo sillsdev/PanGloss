@@ -4762,7 +4762,10 @@ fn complex_form_links_are_published_only_for_sense_less_entries() {
         sense_less.entry_refs = vec![complex(VARIANT_REF)];
     }
     let with_senses = entry_mut(&mut source, ENTRY_ROOT);
-    assert!(!with_senses.senses.is_empty(), "the control entry keeps its senses");
+    assert!(
+        !with_senses.senses.is_empty(),
+        "the control entry keeps its senses"
+    );
     with_senses.entry_refs = vec![complex(UNRESOLVED_COMPONENT)];
     let db = publish_gates(&source, "complex-form-variants.sqlite");
     let links: Vec<(String, String, String, String)> = db
@@ -4782,7 +4785,9 @@ fn complex_form_links_are_published_only_for_sense_less_entries() {
         )]
     );
     let type_rows: i64 = db
-        .query_row("SELECT COUNT(*) FROM entry_variant_type", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM entry_variant_type", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(type_rows, 0, "a complex-form link has no variant types");
     let referenced: i64 = db
