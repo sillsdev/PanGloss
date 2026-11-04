@@ -443,9 +443,9 @@ fn enumerate_default_is_deterministic_across_independent_calls() {
 
 // enumerate_candidates
 
-/// A grammar with ≥2 gate groups must yield 2 candidates, `"default"` and `"gate-group-permuted"`, with genuinely different root NodeIds.
+/// A grammar with ≥2 gate groups yields only the `"default"` candidate: the `"gate-group-permuted"` candidate belonged to the deleted Plan composed backend.
 #[test]
-fn enumerate_candidates_yields_two_distinct_candidates_for_a_multi_group_gated_fixture() {
+fn enumerate_candidates_yields_one_candidate_for_a_multi_group_gated_fixture() {
     let g = load(&gated_two_group_fixture());
     let ro = prules_in_order(&g);
     let phon = PhonologyProbe::new(&g);
@@ -453,16 +453,10 @@ fn enumerate_candidates_yields_two_distinct_candidates_for_a_multi_group_gated_f
     let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
     assert_eq!(
         candidates.len(),
-        2,
-        "a ≥2-group gated grammar must yield exactly 2 candidates"
+        1,
+        "a ≥2-group gated grammar must yield exactly 1 candidate"
     );
     assert_eq!(candidates[0].label, "default");
-    assert_eq!(candidates[1].label, "gate-group-permuted");
-    assert_ne!(
-        candidates[0].plan.root(),
-        candidates[1].plan.root(),
-        "the two candidates must be genuinely distinct topologies (different root NodeIds)"
-    );
 }
 
 /// An ungated (single-group) grammar must yield exactly 1 candidate: permuting a single-element group list is a no-op, so `enumerate_candidates` must not append a relabeled copy.

@@ -72,18 +72,6 @@ fn report_faithfulness_coverage() {
             report.scope, violations
         );
     }
-
-    // Pins that the non-default backends are among the exercised ones, not just the shipping one.
-    for strategy in [
-        EmissionStrategy::PlanComposed,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-    ] {
-        assert!(
-            report.backends_exercised.contains(&strategy),
-            "{strategy:?} had no containment comparison attempted on any discovered fixture, so \
-             every one of its rows would be not-attempted by construction rather than by measurement"
-        );
-    }
 }
 
 /// Every real containment FAILURE this run finds is printed loudly, never smoothed into the totals.
@@ -119,11 +107,7 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
     };
 
     const FIXTURE: &str = "template-category-sharing";
-    const STRATEGIES: [EmissionStrategy; 3] = [
-        EmissionStrategy::PlanComposed,
-        EmissionStrategy::TunedSurfaceProbed,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-    ];
+    const STRATEGIES: [EmissionStrategy; 1] = [EmissionStrategy::TunedSurfaceProbed];
 
     // By name, not by root: graduation deletes the staged copy, so keying on `Staging` breaks then.
     let fixture = pg_conformance_fixtures::require_fixture("edge-cases", FIXTURE);
@@ -157,11 +141,7 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
             label: "faithfulness-falsification",
             plan: baseline_plan.clone(),
             adapter: strategy,
-            role: if strategy == EmissionStrategy::PlanComposed {
-                CandidateRole::Baseline
-            } else {
-                CandidateRole::Alternative
-            },
+            role: CandidateRole::Baseline,
         })
         .collect();
 

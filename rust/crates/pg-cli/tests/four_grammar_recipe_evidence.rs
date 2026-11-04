@@ -40,8 +40,8 @@ fn accounted_pruning(report: &Value, label: &str) -> Value {
     pruning.clone()
 }
 
-/// `topology=` values naming a whole-grammar `EmissionStrategy`: these build their own composite/structural material, so they have no marker gap and the plan-composed attribution rule does not apply.
-const WHOLE_GRAMMAR_TOPOLOGIES: [&str; 2] = ["templated-underlying-tokens", "tuned-surface-probed"];
+/// `topology=` values naming a whole-grammar `EmissionStrategy`: these build their own composite/structural material, so they have no marker gap and the unsupported-attribution rule does not apply.
+const WHOLE_GRAMMAR_TOPOLOGIES: [&str; 1] = ["tuned-surface-probed"];
 
 fn is_whole_grammar_candidate(candidate: &Value) -> bool {
     let backend_id = candidate["backend_id"].as_str().unwrap_or_default();
@@ -156,35 +156,19 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let mpr = run_fixture("edge-cases/mpr-gated-exception", &root);
     assert_eq!(mpr["termination"], "complete");
     assert_eq!(mpr["counts"]["feasible"]["kind"], "exact");
-    // 2 of the 7 evaluated (7 since upstream moved `mrSuf`/`mrSufAlt` into an AffixTemplate slot, adding a plan candidate): the marker-bearing plan-composed candidates are refused by `unbuildable_marker_reason` rather than under-generating, leaving the two whole-grammar compilers.
-    assert_eq!(mpr["counts"]["feasible"]["value"], 2);
-    assert_eq!(mpr["pruning"]["confirmed"], 2);
+    // One candidate survives: the baseline. The rewrite families that made more are inapplicable here and the one whole-grammar compiler is the baseline's own, so its duplicate is dropped.
+    assert_eq!(mpr["counts"]["feasible"]["value"], 1);
+    assert_eq!(mpr["pruning"]["confirmed"], 1);
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
     assert_eq!(mpr["replay_parameters"]["beam_width"], "16");
     assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
     assert_eq!(mpr["replay_parameters"]["search_all_families"], "false");
     accounted_pruning(&mpr, "mpr-gated-exception");
-    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 7);
-    // Pinned by id, not just count, so a swap to another plan permutation cannot pass vacuously.
-    assert!(
-        mpr["candidates"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|candidate| {
-                candidate["backend_id"]
-                    == "token-cascade-morphology|topology=templated-underlying-tokens"
-            }),
-        "the compiler-varying candidate must appear in the evidence: {:?}",
-        mpr["candidates"]
+    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        mpr["candidates"][0]["backend_id"], "surface-probe-morphology|topology=baseline",
+        "the baseline must be the one evaluated candidate"
     );
-    assert!(mpr["candidates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|candidate| {
-            candidate["backend_id"] == "class-exception-cascade|topology=gate-permutation"
-        }));
     let mpr_out = root.join("edge-cases-mpr-gated-exception");
     for artifact in [
         "report.json",
@@ -203,31 +187,37 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         serde_json::from_str(&fs::read_to_string(mpr_out.join("winner.plan.json")).unwrap())
             .unwrap();
     assert_eq!(mpr["baseline"], baseline_plan["root"]);
-    // A whole-grammar winner shares the baseline's plan (its compiler never interprets it), so its id is suffixed to stay distinct; `winner.plan.*` renders a plan it did not itself compile, hence `winner_strategy`.
-    assert_eq!(mpr["winner_strategy"], "templated-underlying-tokens");
+    // The only strategy is the baseline's own, so the winner is the baseline and its id carries no strategy suffix.
+    assert_eq!(mpr["winner_strategy"], "tuned-surface-probed");
     let winner_id = mpr["winner"].as_str().expect("a winner id");
-    let winner_root = winner_plan["root"].as_str().expect("a plan root");
     assert_eq!(
-        winner_id,
-        format!("{winner_root}@templated-underlying-tokens"),
-        "a whole-grammar winner's id must be its plan root plus its strategy, so it stays distinct          from the baseline candidate that shares that very plan"
+        winner_plan["root"], baseline_plan["root"],
+        "the winner must carry the baseline plan verbatim"
     );
-    assert_eq!(
-        winner_root,
-        baseline_plan["root"].as_str().expect("a baseline root"),
-        "this winner is expected to carry the baseline plan verbatim; if it stops doing so, the          reasoning above about the diagram no longer applies and this block needs revisiting"
-    );
+    assert_eq!(mpr["winner"], mpr["baseline"]);
     assert!(mpr["candidates"]
         .as_array()
         .unwrap()
         .iter()
         .any(|candidate| candidate["id"] == winner_id));
 
-    // These two fixtures now confirm (previously `multiplicity-mismatch`); the flip is real and reproducible but its cause is unexplained, so assertions below require real proposals and a real hash, never an all-empty vacuous pass.
-    for (fixture, words_expected) in [
-        ("languages/metathesis-phase-isolation", 20usize),
-        ("languages/polysynthetic-stratal-derivation-chain", 0usize),
-    ] {
+    // A recorded loss, not a dropped assertion: only the deleted Templated underlying tokens backend confirmed this fixture. Tuned surface probed misses the word `hasaasa`. If a Tuned fix makes it confirm, move it into the loop below.
+    let metathesis = run_fixture("languages/metathesis-phase-isolation", &root);
+    let metathesis_statuses: Vec<&str> = metathesis["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|candidate| candidate["certification"]["status"].as_str().unwrap_or(""))
+        .collect();
+    assert!(
+        !metathesis_statuses.is_empty() && !metathesis_statuses.contains(&"full-hc-confirmed"),
+        "metathesis-phase-isolation no longer confirms on the one remaining backend: {metathesis_statuses:?}"
+    );
+    assert_eq!(metathesis_statuses, ["identity-mismatch"]);
+
+    // This fixture confirms on the baseline; assertions below require real proposals and a real hash, never an all-empty vacuous pass.
+    for (fixture, words_expected) in [("languages/polysynthetic-stratal-derivation-chain", 0usize)]
+    {
         let report = run_fixture(fixture, &root);
         let candidates = report["candidates"].as_array().unwrap();
         assert!(!candidates.is_empty(), "{fixture}: no candidates evaluated");
@@ -282,7 +272,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
                     );
                     continue;
                 }
-                // A non-confirming plan-composed candidate is legitimate but must be attributed to the builder limitation, not reported as a bare word-level fault.
+                // A non-confirming plan-rewrite candidate is legitimate but must be attributed to the builder limitation, not reported as a bare word-level fault.
                 assert_eq!(
                     status, "unsupported",
                     "{fixture}: a non-confirming candidate must be attributed, got {:?}",
@@ -316,28 +306,19 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let template = run_template_characterization(&root, false);
     assert_eq!(template["termination"], "complete");
     assert_eq!(template["quality"], "exact");
-    // 9 seeded families: seven plan-rewrite plus two whole-grammar compilers, counted independent of which apply to this grammar.
-    assert_eq!(template["counts"]["syntactic"], 9);
-    assert_eq!(template["counts"]["attested"], 9);
-    // 3, not 2: widening to HasPhonologyOrTemplates makes this template-bearing, phonology-free grammar qualify for token-cascade-morphology too; all three confirm and tie on work, so the smaller plan-composed network still wins.
-    assert_eq!(template["counts"]["static_count"], 3);
+    // One candidate: every other seeded family is inapplicable to a one-entry grammar or duplicates the baseline.
+    assert_eq!(template["counts"]["syntactic"], 1);
+    assert_eq!(template["counts"]["attested"], 1);
+    assert_eq!(template["counts"]["static_count"], 1);
     assert_eq!(template["counts"]["feasible"]["kind"], "exact");
-    assert_eq!(template["counts"]["feasible"]["value"], 3);
-    assert_eq!(template["pilot"]["sample_size"], 3);
-    assert_eq!(template["winner_strategy"], "plan-composed");
-    // One syntactic duplicate remains; the single-entry applicability predicate still separately declares `specialized-branch` inapplicable.
+    assert_eq!(template["counts"]["feasible"]["value"], 1);
+    assert_eq!(template["pilot"]["sample_size"], 1);
+    assert_eq!(template["winner_strategy"], "tuned-surface-probed");
     let template_pruning = accounted_pruning(&template, "backend-template-generic");
     assert_eq!(template_pruning["duplicates"], 1);
-    assert_eq!(template_pruning["declared_not_searched"], 1);
-    assert!(
-        template_pruning["inapplicable"].as_u64().unwrap() >= 4,
-        "a one-entry, single-stratum, metathesis-free grammar admits only a minority of the seven \
-         families; an `inapplicable` bucket this small means the report is counting applicability \
-         rejections as something else: {template_pruning:?}"
-    );
-    // 3, not 2, mirroring static_count/feasible: token-cascade-morphology is now a third surviving, confirming candidate.
-    assert_eq!(template["pruning"]["evaluated"], 3);
-    assert_eq!(template["pruning"]["confirmed"], 3);
+    assert_eq!(template_pruning["declared_not_searched"], 0);
+    assert_eq!(template["pruning"]["evaluated"], 1);
+    assert_eq!(template["pruning"]["confirmed"], 1);
     assert_eq!(template["strategy"], "exhaustive");
     let template_opt_in = run_template_characterization(&root, true);
     assert_eq!(
@@ -345,8 +326,8 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         "true"
     );
     assert_eq!(template_opt_in["pruning"]["declared_not_searched"], 0);
-    assert_eq!(template_opt_in["pruning"]["duplicates"], 2);
-    assert_eq!(template_opt_in["pruning"]["evaluated"], 3);
+    assert_eq!(template_opt_in["pruning"]["duplicates"], 1);
+    assert_eq!(template_opt_in["pruning"]["evaluated"], 1);
 
     let deep_fixture = "edge-cases/deep-optional-affix-nesting";
     let deep_out = root.join("deep-timeout");

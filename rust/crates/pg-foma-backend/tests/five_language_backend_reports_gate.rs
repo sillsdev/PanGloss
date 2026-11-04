@@ -96,7 +96,7 @@ fn assert_backend(
     );
 }
 
-/// The verdict every reference grammar but Sena measures to: the surface-probed backend is the only path.
+/// The verdict every reference grammar measures to: the surface-probed backend is the only path.
 fn assert_only_tuned_surface_accepts(name: &str, selection: &BackendSelection) {
     assert_every_backend_reported(name, selection);
     assert_backend(
@@ -108,59 +108,13 @@ fn assert_only_tuned_surface_accepts(name: &str, selection: &BackendSelection) {
         None,
         None,
     );
-    assert_backend(
-        name,
-        selection,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("nonregular-process-morphology"),
-    );
-    assert_backend(
-        name,
-        selection,
-        EmissionStrategy::PlanComposed,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("plan-composed-missing-subtrees"),
-    );
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn sena_backend_reports_are_complete() {
     let selection = characterize("sena", &load("sena"));
-    assert_every_backend_reported("sena", &selection);
-    assert_backend(
-        "sena",
-        &selection,
-        EmissionStrategy::TunedSurfaceProbed,
-        BackendStatus::Accepted,
-        Severity::WithinLimits,
-        None,
-        None,
-    );
-    assert_backend(
-        "sena",
-        &selection,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("nonregular-process-morphology"),
-    );
-    // Sena is the one reference grammar whose plan `build_controllable` can build outright, so PlanComposed is admitted rather than refused for a missing subtree.
-    assert_backend(
-        "sena",
-        &selection,
-        EmissionStrategy::PlanComposed,
-        BackendStatus::Accepted,
-        Severity::WithinLimits,
-        None,
-        None,
-    );
+    assert_only_tuned_surface_accepts("sena", &selection);
 }
 
 #[test]

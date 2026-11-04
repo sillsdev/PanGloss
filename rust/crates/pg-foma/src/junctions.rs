@@ -214,7 +214,7 @@ impl<'g> PhonologyProbe<'g> {
     }
 
     /// Conservative subset for composite redundancy: retain composites when a spelling was
-    /// discovered only in a length-changing window. PlanComposed relies on those composites.
+    /// discovered only in a length-changing window.
     pub(crate) fn variants_for_composite_redundancy(&self, underlying: &str) -> Vec<String> {
         self.cached_variants(underlying).positional
     }

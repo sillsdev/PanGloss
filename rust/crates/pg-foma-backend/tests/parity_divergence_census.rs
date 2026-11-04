@@ -31,7 +31,7 @@ fn baseline_only(grammar: &Grammar) -> Vec<LoweredCandidate> {
     vec![LoweredCandidate {
         label: "divergence-census-baseline",
         plan: baseline_plan(grammar),
-        adapter: EmissionStrategy::PlanComposed,
+        adapter: EmissionStrategy::TunedSurfaceProbed,
         role: CandidateRole::Baseline,
     }]
 }

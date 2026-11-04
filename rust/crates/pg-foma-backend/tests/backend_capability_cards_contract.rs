@@ -20,7 +20,7 @@ fn catalog_covers_exactly_the_executable_backends_with_complete_static_envelopes
         .collect::<BTreeSet<_>>();
 
     assert_eq!(CARD_SCHEMA_VERSION, 1);
-    assert_eq!(cards.len(), 3);
+    assert_eq!(cards.len(), 1);
     assert_eq!(actual, expected);
 
     let advice = builtin_catalog().expect("embedded advice catalog must remain valid");

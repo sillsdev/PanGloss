@@ -3,7 +3,6 @@
 //! below was formerly its own `examples/<name>.rs` target. Invoke as:
 //! `pg.ps1 -Mode run -Example lab -- <name> [args...]`.
 
-mod adjudicate_templated_backend;
 mod backend_candidate_census;
 mod backend_envelope_report;
 mod boundary_marker_precision_measure;
@@ -17,15 +16,7 @@ mod e2_mainline_check;
 mod e2_template_census;
 mod filter_ceiling_census;
 mod p6_bisect;
-mod p6_deep_truncation_chain_perf_trace;
-mod p6_gate_explore_mpr;
-mod p6_gate_explore_pos;
 mod p6_interdigitation_probe;
-mod p6_replace_prototype;
-mod p6_templated_bare_root_scan;
-mod p6_templated_q1_cycle_check;
-mod p6_templated_replace_prototype;
-mod p6_templated_rules_probe;
 mod precision_bench;
 mod predicate_witness_census;
 mod prefilter_census;
@@ -40,10 +31,6 @@ mod worst_words;
 type Subcommand = (&'static str, fn(&[String]));
 
 const SUBCOMMANDS: &[Subcommand] = &[
-    (
-        "adjudicate_templated_backend",
-        adjudicate_templated_backend::main,
-    ),
     ("backend_candidate_census", backend_candidate_census::main),
     ("backend_envelope_report", backend_envelope_report::main),
     (
@@ -60,27 +47,7 @@ const SUBCOMMANDS: &[Subcommand] = &[
     ("e2_template_census", e2_template_census::main),
     ("filter_ceiling_census", filter_ceiling_census::main),
     ("p6_bisect", p6_bisect::main),
-    (
-        "p6_deep_truncation_chain_perf_trace",
-        p6_deep_truncation_chain_perf_trace::main,
-    ),
-    ("p6_gate_explore_mpr", p6_gate_explore_mpr::main),
-    ("p6_gate_explore_pos", p6_gate_explore_pos::main),
     ("p6_interdigitation_probe", p6_interdigitation_probe::main),
-    ("p6_replace_prototype", p6_replace_prototype::main),
-    (
-        "p6_templated_bare_root_scan",
-        p6_templated_bare_root_scan::main,
-    ),
-    (
-        "p6_templated_q1_cycle_check",
-        p6_templated_q1_cycle_check::main,
-    ),
-    (
-        "p6_templated_replace_prototype",
-        p6_templated_replace_prototype::main,
-    ),
-    ("p6_templated_rules_probe", p6_templated_rules_probe::main),
     ("precision_bench", precision_bench::main),
     ("predicate_witness_census", predicate_witness_census::main),
     ("prefilter_census", prefilter_census::main),

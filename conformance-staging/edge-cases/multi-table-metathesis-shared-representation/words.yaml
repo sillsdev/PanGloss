@@ -35,7 +35,6 @@ words:
         rules: [mrCrossTableSwap]
         exercises:
           - "MetathesisRule"
-          - "metathesis.left-to-right-swap"
           - "CharacterDefinitionTable: more than one table, one per stratum"
 
   - word: wx
@@ -47,7 +46,6 @@ words:
     expect_fail: true
     exercises:
       - "MetathesisRule"
-      - "metathesis.left-to-right-swap"
 
   - word: xm
     note: >-
@@ -73,7 +71,6 @@ words:
         rules: [mrCrossTableSwap]
         exercises:
           - "MetathesisRule"
-          - "metathesis.left-to-right-swap"
           - "CharacterDefinitionTable: more than one table, one per stratum"
 
   - word: mx
@@ -84,7 +81,6 @@ words:
     expect_fail: true
     exercises:
       - "MetathesisRule"
-      - "metathesis.left-to-right-swap"
 
   - word: z
     note: >-

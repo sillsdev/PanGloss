@@ -11,11 +11,7 @@
 //! Recall-parity uses the PRODUCTION `pg_foma::emit::emit` path (same as GATE 2/circumfix) --
 //! `emit.rs`'s own classification loop sets `has_compounding_rules = true` whenever any stratum
 //! declares a `MorphRuleDef::Compounding` rule, routing compound words through its template-less/
-//! structural-composite machinery. The `_overbudget` variant instead drives `pg_foma::uflexc::
-//! emit_underlying_filtered`'s own root-entry line count -- `uflexc.rs`'s own module doc
-//! records that it does not even SEE compounding rules ("no `CompoundingRuleDef` allomorph is even
-//! visible through `emit::allomorphs_of`, so there is nothing to enumerate wrongly, only something
-//! absent"), so this is a scale check on plain root-entry COUNT (the `entries_per_stratum` scale
+//! structural-composite machinery. The `_overbudget` variant is a scale check on plain root-entry COUNT (the `entries_per_stratum` scale
 //! knob) in a grammar that happens to also declare a compounding rule, not a compounding-specific
 //! code path -- an honest, deliberate choice recorded here rather than hidden: it is the
 //! grammar-wide entry-count vector that trips first, and

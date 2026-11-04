@@ -19,7 +19,6 @@ pub mod test_support;
 pub mod advice_catalog;
 pub mod analyzer;
 pub mod backend_selection;
-pub mod build;
 /// Shared compiler classification predicates.
 pub mod capability;
 pub mod capability_gate;
@@ -40,7 +39,6 @@ pub use pg_health::health;
 workbench_module! {
     pub mod lower;
 }
-pub mod oracle;
 pub use pg_foma_runtime::peel;
 pub mod plan;
 workbench_module! {
@@ -57,7 +55,6 @@ pub mod structural_allomorph;
 pub use pg_foma_runtime::tags;
 #[cfg(not(feature = "test-support"))]
 pub(crate) use pg_foma_runtime::tags;
-pub mod uflexc;
 pub(crate) mod unordered;
 pub(crate) use pg_foma_runtime::morphotactics;
 

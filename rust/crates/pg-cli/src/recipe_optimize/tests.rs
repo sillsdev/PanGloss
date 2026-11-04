@@ -93,7 +93,7 @@ fn progress_reader_keeps_complete_rows_and_discards_malformed_or_truncated_rows(
             "raw_paths": 1
         },
         "production_blocks_publication": false,
-        "realized_strategy": "plan-composed"
+        "realized_strategy": "tuned-surface-probed"
     });
     fs::write(
         &path,
@@ -105,7 +105,7 @@ fn progress_reader_keeps_complete_rows_and_discards_malformed_or_truncated_rows(
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].report.id, "candidate-1");
-    assert_eq!(rows[0].realized_strategy.as_str(), "plan-composed");
+    assert_eq!(rows[0].realized_strategy.as_str(), "tuned-surface-probed");
     let _ = fs::remove_file(path);
 }
 
@@ -135,7 +135,7 @@ fn progress_reader_keeps_a_row_written_by_the_real_writer() {
             "raw_paths": 1
         },
         "production_blocks_publication": false,
-        "realized_strategy": "plan-composed"
+        "realized_strategy": "tuned-surface-probed"
     }))
     .expect("realistic writer row must deserialize");
     let mut writer = ProgressWriter::create(&path).unwrap();
@@ -147,6 +147,6 @@ fn progress_reader_keeps_a_row_written_by_the_real_writer() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].report.id, "writer-candidate");
     assert!(!rows[0].report.production_blocks_publication);
-    assert_eq!(rows[0].realized_strategy.as_str(), "plan-composed");
+    assert_eq!(rows[0].realized_strategy.as_str(), "tuned-surface-probed");
     let _ = fs::remove_file(path);
 }

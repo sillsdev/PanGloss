@@ -119,23 +119,6 @@ contraindications = ["the templates intentionally share optional paths"]
 equivalence_caveat = "Template separation requires checking the complete analysis set."
 
 [[entry]]
-shape_key = "plan-composed-missing-subtrees"
-backend_id = "plan-composed"
-route = "plan-composed-materialization"
-failed_predicate = "the PlanComposed materializer does not build a required plan subtree"
-evidence_refs = ["backend:plan-composed", "route:plan-composed-materialization", "predicate:required-subtree-built", "witness:required-subtree-marker"]
-equivalence_caveat = "Don't make any change that would make your language invalid!"
-
-[[entry.remedy]]
-rank = 20
-remedy_key = "implement-required-plan-subtrees"
-description = "Implementing every named required subtree in PlanComposed would make this backend work for your language once full-grammar equivalence is proven."
-effort = "hard"
-prerequisites = ["the missing subtree semantics are specified and implementable"]
-contraindications = ["the backend architecture cannot express the required relation"]
-equivalence_caveat = "A partial subtree implementation is not a valid fallback."
-
-[[entry]]
 shape_key = "repeated-application"
 backend_id = "foma"
 route = "rule-application-counter"

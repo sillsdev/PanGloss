@@ -31,7 +31,7 @@
 #
 # The harness test itself is `#[ignore]`d (it compiles a foma network for every non-refused
 # fixture and times every word repeatedly in both engines -- categorically slower than a unit test,
-# same precedent as tests/f3_parity.rs and tests/p6_gate_parity.rs), so this script passes
+# same precedent as tests/f3_parity.rs), so this script passes
 # `--ignored` through to `cargo test`.
 set -euo pipefail
 

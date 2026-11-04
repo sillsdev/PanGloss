@@ -169,60 +169,21 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         ),
         IterativeRewrite => ev(
             GeneralPervasive,
-            "pg-foma/tests/f1_large_lexicon_gate.rs, pg-foma/tests/f2_junction_gate.rs, pg-foma/tests/phase_c_right_to_left.rs \
-             (iterative baseline contrast)",
-            &[EmissionStrategy::PlanComposed, EmissionStrategy::TunedSurfaceProbed],
+            "pg-foma/tests/f1_large_lexicon_gate.rs, pg-foma/tests/f2_junction_gate.rs",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "The default RewriteMode every general gate's phonological rules use; Proven, no \
              dedicated fixture required.",
         ),
-        SimultaneousRewrite => ev(
-            Dedicated,
-            "pg-foma/tests/phase_c_simultaneous.rs::sim_nonoverlap_env_now_compiles_and_matches_oracle_\
-             exactly (+ sim_overlap_env_stays_honest_unsupported for the Refuse split)",
-            &[EmissionStrategy::PlanComposed],
-            "Containment for the pairwise-non-overlapping case the simultaneous.subrule-overlap \
-             predicate Admits; the genuinely-overlapping case stays honestly unsupported.",
-        ),
+        SimultaneousRewrite => return None,
         LeftToRightRewrite => ev(
             GeneralPervasive,
-            "pg-foma/tests/f2_junction_gate.rs, pg-foma/tests/phase_c_right_to_left.rs (LTR is the implicit \
-             contrast baseline for every rtl_* case)",
-            &[EmissionStrategy::PlanComposed, EmissionStrategy::TunedSurfaceProbed],
+            "pg-foma/tests/f2_junction_gate.rs",
+            &[EmissionStrategy::TunedSurfaceProbed],
             "The default Dir every general gate's phonological rules use; Proven, no dedicated \
              fixture required.",
         ),
-        RightToLeftRewrite => ev(
-            Dedicated,
-            "pg-foma/tests/phase_c_right_to_left.rs::rtl_plain_rule_now_compiles_and_matches_oracle (+ \
-             rtl_feature_environment_swap_matches_oracle, rtl_deletion_matches_oracle, \
-             rtl_cross_table_segments_environment_matches_oracle; \
-             pg-foma-backend/tests/repeated_alpha_containment.rs::\
-             repeated_alpha_propose_confirm_matches_recorded_oracle (+ \
-             templated_repeated_alpha_refuses_each_environment); \
-             pg-foma-backend/tests/ambiguous_alpha_containment.rs::\
-             ambiguous_disagreement_propose_confirm_matches_recorded_oracle (+ \
-             templated_ambiguous_disagreement_matches_recorded_oracle, mixed_agreeing_class_matches_recorded_oracle_after_confirmation, \
-               repeated_minus_with_partial_focus_matches_recorded_oracle_after_confirmation, \
-               overwritten_alpha_matches_recorded_oracle_after_confirmation))",
-            &[EmissionStrategy::PlanComposed, EmissionStrategy::TemplatedUnderlyingTokens],
-            "Reversal-plus-safety-net-union containment against the real oracle, including a \
-             table-qualified cross-table Segments constraint, repeated alpha environments and ambiguous disagreement.",
-        ),
-        Metathesis => ev(
-            Dedicated,
-            "pg-foma/tests/phase_c_metathesis.rs::metathesis_adjacent_singleton_swap_matches_oracle_\
-             exactly (+ metathesis_right_to_left_reversal_matches_oracle_exactly for the \
-             Dir::RightToLeft mirror construction, and \
-             metathesis_right_to_left_differs_from_compiling_as_left_to_right for the \
-             direction-blindness guard)",
-            &[EmissionStrategy::PlanComposed],
-            "Dedicated swap-relation containment against the real oracle in BOTH directions -- \
-             Dir::RightToLeft is no longer a scope boundary: it compiles via the same \
-             mirror-and-reverse construction \
-             compile_rtl_branch_net uses, so the union is a superset the oracle prunes. The \
-             remaining refusals are pattern-shape ones (Anchor, and any Slot::Repeat -- \
-             slot_candidates enumerates concrete alternatives), never the direction itself.",
-        ),
+        RightToLeftRewrite => return None,
+        Metathesis => return None,
         Epenthesis => ev(
             Dedicated,
             "pg-foma-backend/tests/epenthesis_structural_route_containment.rs::\
@@ -231,21 +192,12 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             "End-to-end propose(over-generate)-then-confirm(prune) containment for an \
              obligatory-epenthesis grammar, matching the oracle's analysis set exactly.",
         ),
-        SubruleGating => ev(
-            Dedicated,
-            "pg-foma/tests/p6_gate_parity.rs::synthetic_pos_gate_matches_oracle (+ \
-             ungated_cascade_would_have_missed_the_noun_entry); scale: pg-foma/tests/phase_c_partition_k.rs::partition_k_recall_parity_via_generator_and_oracle",
-            &[EmissionStrategy::PlanComposed],
-            "Static MPR/POS subrule-gating containment against the real oracle, plus a \
-             2^k-group scale gate.",
-        ),
+        SubruleGating => return None,
         CircumfixOutputAction => ev(
             Dedicated,
-            "pg-foma/tests/phase_c_circumfix.rs::circumfix_recall_parity_via_generator_and_oracle (+ \
-             ordered_multi_insert_no_first_insert_shortcut_recall_parity, \
-             null_role_structural_drop_recall_parity, \
-             infix_with_drop_structural_recall_parity, \
-             redup_first_allomorph_then_dropping_prefix_allomorph_structural_recall_parity)",
+            "pg-foma-backend/tests/circumfix_cross_product_and_infix_drop_candidate_selection.rs::\
+             mr_cross_all_four_subrule_words_reachable (+ \
+             mr_infix_drop_word_reachable_via_build_structural_composites_now)",
             &[EmissionStrategy::TunedSurfaceProbed],
             "Structural-composite containment for circumfix-shaped (discontinuous/dropped-\
              material) allomorphs against the real oracle, including a genuinely Infix-classified \
@@ -270,39 +222,16 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             "Proposer-to-confirm containment for MorphemeCoOccurrenceRule adjacency exclusion.",
         ),
         NaturalClassDefinition => return None,
-        MultiTable => ev(
-            Dedicated,
-            "pg-foma/tests/phase_c_multi_table.rs::\
-             multi_table_rewrite_compiles_correctly_against_its_owning_table; stronger claim: \
-             pg-foma-backend/tests/two_table_symbol_divergence.rs::\
-             stratum_1_devoice_rewrite_proposer_confirm_matches_oracle",
-            &[EmissionStrategy::PlanComposed],
-            "Faithful per-stratum table threading, proven for one stratum's own rule and, more \
-             strongly, for two strata whose tables disagree about the same symbol index.",
-        ),
+        MultiTable => return None,
         CrossTableRespelling => ev(
             Dedicated,
             "pg-foma-backend/tests/cross_table_root_respelling_gate.rs::\
-             every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere",
+             every_respelling_fixture_is_oracle_exact_on_tsp",
             &[EmissionStrategy::TunedSurfaceProbed],
             "Propose-then-confirm containment for a root entered on an inner stratum and spelled \
-             by the final stratum's table, over every conformance fixture that exhibits it; the \
-             plan-composed backend is exact where it builds at all and the templated one refuses \
-             typed rather than misses.",
+             by the final stratum's table, over every conformance fixture that exhibits it.",
         ),
-        QuantifierPattern => ev(
-            Dedicated,
-            "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_\
-             oracle (+ quantifier_unbounded_environment_compiles_and_matches_oracle for the \
-             genuinely-unbounded case); \
-             pg-foma-backend/tests/repeated_alpha_containment.rs::\
-             repeated_alpha_propose_confirm_matches_recorded_oracle (+ \
-             templated_repeated_alpha_refuses_each_environment)",
-            &[EmissionStrategy::PlanComposed, EmissionStrategy::TemplatedUnderlyingTokens],
-            "Bounded- AND unbounded-quantifier containment against the real oracle, both at \
-             min-boundary and zero counts, including repeated alpha agreement on both environment \
-             sides and in both directions. Exact target lowering keeps its separate scope.",
-        ),
+        QuantifierPattern => return None,
         // `RootAllomorphDef::stem_name`, not `MorphRuleDef::required_stem_name` (folded into Affixation/RealizationalMorphology to avoid double-counting the same ModelLocation::MorphRule occurrence).
         StemName => ev(
             Dedicated,
@@ -544,65 +473,21 @@ pub fn obligation_met(row: &LedgerRow) -> bool {
 pub fn containment_evidence_for_variant(variant: ConstructVariant) -> Option<ContainmentEvidence> {
     use ConstructVariant::*;
     use ContainmentEvidenceKind::Dedicated;
-    use EmissionStrategy::{PlanComposed, TemplatedUnderlyingTokens, TunedSurfaceProbed};
+    use EmissionStrategy::TunedSurfaceProbed;
     let specific = match variant {
-        CompoundingRecursive => Some((
+        CompoundingRecursive => Some(
             "pg-foma-backend/tests/cover_compounding_recursive_depth_bound.rs::depth_budgeted_compound_loop_contains_the_raised_cap_oracle_analysis",
-            TunedSurfaceProbed,
-        )),
-        MprOverwrite => Some((
-            "pg-foma-backend/tests/templated_conformance_proposal_pins.rs::mpr_overwrite_order_dependence_proposes_both_relative_orders",
-            TemplatedUnderlyingTokens,
-        )),
-        MetathesisLtrSwap => Some((
-            "pg-foma/tests/phase_c_metathesis.rs::metathesis_adjacent_singleton_swap_matches_oracle_exactly",
-            PlanComposed,
-        )),
-        MetathesisRtlSwap => Some((
-            "pg-foma/tests/phase_c_metathesis.rs::metathesis_right_to_left_reversal_matches_oracle_exactly",
-            PlanComposed,
-        )),
-        QuantifierBounded => Some((
-            "pg-foma/tests/phase_c_quantifier.rs::quantifier_bounded_environment_compiles_and_matches_oracle; \
-             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_refuses_each_environment); \
-             pg-foma-backend/tests/ambiguous_alpha_containment.rs::ambiguous_disagreement_propose_confirm_matches_recorded_oracle (+ templated_ambiguous_disagreement_matches_recorded_oracle, mixed_agreeing_class_matches_recorded_oracle_after_confirmation, \
-               repeated_minus_with_partial_focus_matches_recorded_oracle_after_confirmation, \
-               overwritten_alpha_matches_recorded_oracle_after_confirmation)",
-            PlanComposed,
-        )),
-        QuantifierUnbounded => Some((
-            "pg-foma/tests/phase_c_quantifier.rs::quantifier_unbounded_environment_compiles_and_matches_oracle; \
-             pg-foma-backend/tests/repeated_alpha_containment.rs::repeated_alpha_propose_confirm_matches_recorded_oracle (+ templated_repeated_alpha_refuses_each_environment); \
-             pg-foma-backend/tests/ambiguous_alpha_containment.rs::ambiguous_disagreement_propose_confirm_matches_recorded_oracle (+ templated_ambiguous_disagreement_matches_recorded_oracle, mixed_agreeing_class_matches_recorded_oracle_after_confirmation, \
-               repeated_minus_with_partial_focus_matches_recorded_oracle_after_confirmation, \
-               overwritten_alpha_matches_recorded_oracle_after_confirmation)",
-            PlanComposed,
-        )),
-        ReduplicationStructural => Some((
+        ),
+        ReduplicationStructural => Some(
             "pg-foma-backend/tests/circumfix_candidate_selection.rs::circumfix_reduplication_recall_parity",
-            TunedSurfaceProbed,
-        )),
-        MultiTableShared => Some((
-            "pg-foma-backend/tests/two_table_shared_representation_recall.rs::fst_propose_confirm_matches_oracle_across_the_table_boundary",
-            PlanComposed,
-        )),
-        SimultaneousUnproven | RtlUnlowerable | MetathesisLtrUnlowerable
-        | MetathesisRtlUnlowerable | CircumfixUnrouted | ReduplicationUnrouted
-        | QuantifierBoundedUnlowerable | QuantifierUnboundedUnlowerable => return None,
-        CompoundingNonRecursive | UnorderedOrderUnion | SimultaneousDisjoint
-        | RtlReversal | EpenthesisStructural | CircumfixStructural | ReduplicationPeel
-        | MultiTableDisjoint => None,
+        ),
+        CircumfixUnrouted | ReduplicationUnrouted => return None,
+        MultiTableShared => return None,
+        CompoundingNonRecursive | UnorderedOrderUnion | MprOverwrite | EpenthesisStructural
+        | CircumfixStructural | ReduplicationPeel | MultiTableDisjoint => None,
     };
     match specific {
-        Some((citation, strategy)) => {
-            let strategies = match variant {
-                QuantifierBounded | QuantifierUnbounded => {
-                    vec![strategy, TemplatedUnderlyingTokens]
-                }
-                _ => vec![strategy],
-            };
-            Some(ev(Dedicated, citation, &strategies, variant.id()))
-        }
+        Some(citation) => Some(ev(Dedicated, citation, &[TunedSurfaceProbed], variant.id())),
         None => containment_evidence_for(variant.kind()),
     }
 }

@@ -6,7 +6,7 @@
 //! therefore find exactly `2^k` distinct groups, one per entry.
 //!
 //! ## Why each gated rule targets its OWN dedicated marker segment, not a shared one
-//! This builder's own gate (`pg-foma/tests/phase_c_partition_k.rs`) needs the COMPILED net's
+//! This builder's own gate needs the COMPILED net's
 //! actual per-entry OUTPUT to be independently verifiable. Giving each gated rule `j` its own private
 //! "off_j -> on_j" segment
 //! pair (never reused by any other rule, never reused by any other entry's non-marker material)

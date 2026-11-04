@@ -6,27 +6,10 @@
 //! whatever the emitter happened to report afterwards, which arrives as a compile artifact rather
 //! than as a capability refusal a selector can read.
 //!
-//! # Why this is safe for the surface probe and the templated route
-//! Measured by `tests/envelope_agrees_with_compiler_gate.rs` over every discovered fixture x every
-//! backend: 183 observations, of which 3 are backends the envelope refuses while their build
-//! nonetheless succeeds -- all three `TemplatedUnderlyingTokens`, none `TunedSurfaceProbed` -- so
-//! making the envelope authoritative for the surface probe (`analyzer::FomaProposer::new`) and the
-//! templated route (`completed_build::compile_completed_backend`) cannot lose a capability either
-//! tree has. The inventory is named row-by-row in
-//! `docs/research/envelope-inventory-snapshot.md`.
-//!
-//! `PlanComposed` is the different case, and this gate deliberately does not refuse it: artifact
-//! production and representability are separate axes (`CONTEXT.md`, "Three axes that must never
-//! merge"). Pinned by `plan_composed_has_no_production_compile_arm`.
-//! No production caller could ever select `PlanComposed` regardless of what this gate says, unlike
-//! the templated route before this file wired it in. `crate::build::unbuildable_markers`'s own doc
-//! independently records a marker-bearing `PlanComposed` plan building a network that "proposed
-//! nothing for 19 of 20 corpus words": the build succeeds and the result under-generates, so a
-//! `PlanComposed` refusal is right even judged by build success alone, before this check's
-//! unconditional reason is counted at all. The remaining 3 `TemplatedUnderlyingTokens` rows are
-//! real, open compiler defects.
+//! Artifact production and representability are separate axes (`CONTEXT.md`, "Three axes that must
+//! never merge"); this gate answers only representability.
 
-use pg_grammar::model::{Grammar, PhonRuleDef};
+use pg_grammar::model::Grammar;
 
 use crate::backend_selection::{select_backends, BackendSelection};
 use crate::capability::{CapabilityDiagnostic, CompileDecision};
@@ -76,34 +59,4 @@ pub fn render_refusal(diagnostics: &[CapabilityDiagnostic]) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
-}
-
-/// The authoritative preflight refusal for an entirely unlowerable phonological rule cascade.
-pub fn rule_cascade_uncompilable_refusal(g: &Grammar) -> Option<CompileDecision> {
-    let rules_in_order: Vec<&PhonRuleDef> = g
-        .strata
-        .iter()
-        .flat_map(|stratum| stratum.prules.iter().map(|id| &g.prules[id.0 as usize]))
-        .collect();
-    if rules_in_order.is_empty() {
-        return None;
-    }
-    let all_confirmed_unlowerable = rules_in_order.iter().all(|pr| match pr {
-        PhonRuleDef::Rewrite(rule) => !crate::replace::rewrite_rule_is_lowerable(g, rule),
-        PhonRuleDef::Metathesis(_) => false,
-    });
-    if !all_confirmed_unlowerable {
-        return None;
-    }
-    Some(CompileDecision::Refuse(vec![CapabilityDiagnostic {
-        predicate: "templated-route.rule-cascade-uncompilable",
-        construct: "grammar (phonological rule cascade)".to_string(),
-        witness: format!(
-            "every one of this grammar's {} phonological rewrite rule(s) fails the same shape \
-             checks compile_rewrite_rule_subset runs before building an Fsm, so \
-             compile_and_compose_rules_recall_safe returns no compiled rule and \
-             compile_templated_morphotactics fails with NoCompiledRules",
-            rules_in_order.len()
-        ),
-    }]))
 }

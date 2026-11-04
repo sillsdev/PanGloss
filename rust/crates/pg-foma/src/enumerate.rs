@@ -9,8 +9,7 @@
 //! structural_candidate_rules`]'s own doc comments for that rationale; [`crate::preexpand::
 //! should_run`] and `crate::gate::partition_entries`/`crate::gate::find_gated_subrules` were
 //! already `pub(crate)`/`pub`). Building/executing a `Plan` into real FSTs stays out of scope
-//! here (`crate::plan`'s own module doc; `crate::build`'s `build_controllable` is the one
-//! interpreter, over the CONTROLLABLE Gate/Replace/Compose subtree only). `crate::emit::
+//! here (`crate::plan`'s own module doc; no interpreter exists today). `crate::emit::
 //! plan_topology_decisions` calls `enumerate_default` and reads the built `Plan`'s composite-
 //! emission/structural-composite marker presence to decide `emit_with_budget_profiled`'s own
 //! topology, replacing that function's independent `preexpand::should_run`/`structural_candidate_
@@ -63,7 +62,7 @@
 //!   every group, on the reasoning that `ReplaceCascadeSpec` is rule-level (`Vec<PRuleId>`) and
 //!   the per-group subrule-inclusion distinction lives on `GatePartitionSpec::gated_subrules` +
 //!   each group's own `key`, so duplicating it into `Replace` would be "redundant, not more
-//!   faithful." That turned out to be UNSOUND: `crate::build`'s `build_controllable` needs a
+//!   faithful." That turned out to be UNSOUND: the removed `build_controllable` interpreter needed a
 //!   DIFFERENT `subrule_ok` per group, so a single shared `Replace` `NodeId` violates node purity
 //!   (a `NodeId`-memoizing interpreter would build the cascade once and silently reuse the WRONG
 //!   network for every other group). The fix: `ReplaceCascadeSpec` now carries `gated_subrules` +
@@ -99,7 +98,6 @@ use pg_grammar::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef};
 
 use crate::gate::{find_gated_subrules, partition_entries};
 use crate::junctions::PhonologyProbe;
-use crate::oracle::permute_gate_groups;
 use crate::plan::{
     ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, GatedSubruleRef, NodeId, Plan,
     PlanNodeKind, Provenance, ReplaceCascadeSpec,
@@ -260,8 +258,7 @@ pub fn enumerate_default(
 /// filtering, or evaluating a single candidate cannot separate them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CandidateRole {
-    /// This grammar's default compilation; a baseline needing marker subtrees that
-    /// `build_controllable` cannot build is rejected rather than rerouted to another adapter.
+    /// This grammar's default compilation.
     Baseline,
     /// Any other candidate; never realized by a whole-grammar adapter it did not ask for, since that adapter derives its own topology and would measure the baseline network instead.
     Alternative,
@@ -293,8 +290,7 @@ pub struct LoweredCandidate {
     pub label: &'static str,
     pub plan: Plan,
     /// WHICH compiler realizes this candidate. A different axis from `plan`, which describes
-    /// assembly SHAPE within the one strategy that reads a plan at all
-    /// (`crate::backend::Backend::interprets_plan`).
+    /// assembly SHAPE for a backend that reads a plan; no registered backend does today.
     pub adapter: EmissionStrategy,
     /// Whether this candidate is the grammar's default compilation.
     pub role: CandidateRole,
@@ -315,107 +311,35 @@ impl LoweredCandidate {
 ///
 /// # Why this is a separate axis from the `Plan`
 /// A `Plan` describes how already-emitted fragments are ASSEMBLED (`Gate`/`Union`/`Compose` shape).
-/// Measured on eight marker-free synthetic fixtures, varying only that shape leaves `states`, `arcs`,
-/// `proposals`, and `confirmation` bit-identical across candidates — the assembly ends in a
-/// minimization step that canonicalizes the difference away. Only `build` time moved, and only
-/// upward (partition refinement: 2.1x-5.2x the baseline, non-overlapping over ten runs). So plan
-/// shape alone cannot express a better compilation, and a registry that varies only plan shape is
-/// searching a space whose interesting dimension is fixed.
+/// The axis that matters for a compilation is which lexc a grammar is compiled to in the first
+/// place, because that changes what gets composed rather than the order of composing it. Only
+/// `Self::TunedSurfaceProbed` ships: it bakes phonology into the lexc via `emit`'s surface probe,
+/// then patches the resulting expressive gaps with synthesized composite entries
+/// (`preexpand::build_composites`, `emit::build_structural_composites`) -- the material the `Plan`
+/// can only NAME, via its `CompositeEmissionMarker`/`StructuralCompositeMarker` leaves.
 ///
-/// The axis that is NOT erased by minimization is which lexc a grammar is compiled to in the first
-/// place, because that changes what gets composed rather than the order of composing it:
-///
-/// * `Self::TunedSurfaceProbed` bakes phonology into the lexc via `emit`'s surface probe, then
-///   patches the resulting expressive gaps with synthesized composite entries
-///   (`preexpand::build_composites`, `emit::build_structural_composites`) — the material the `Plan`
-///   can only NAME, via its `CompositeEmissionMarker`/`StructuralCompositeMarker` leaves.
-/// * `Self::TemplatedUnderlyingTokens` emits plain char-def tokens and lets a real compiled
-///   rewrite cascade do the phonological work. Verified: `emit::emit_underlying_templated` contains
-///   no composite/pre-expansion machinery at all, so this strategy needs none of that material.
-///
-/// Those are two complete, semantically-valid compilations of the SAME grammar that reach the same
-/// upper tape (both emit `tags::root_tag_lexc`/`morph_tag_lexc`), which is what makes them
-/// comparable by `oracle::differential_oracle` and certifiable against the same full-HC corpus —
-/// and, before this type existed, they had never been compared, because only one of them was ever
-/// offered as a candidate.
+/// Two further backends (plan-composed and templated underlying tokens) were removed.
 ///
 /// Plain data the pack format and the Runtime also read (a compiled pack names the backend it
 /// came from), so the type itself lives in `pg-health`; re-exported here at its historical path.
 pub use pg_health::strategy::EmissionStrategy;
 
-/// The candidate
-/// ENUMERATOR — every legal, **buildable** topology this crate can emit for `g` today, as
-/// content-addressed `Plan`s a caller (typically `crate::selection::select_plan`) can filter by
-/// capability and rank by cost. Always emits `enumerate_default`'s own plan first (candidate
-/// `"default"`); the selection story only becomes meaningful once there is a second, genuinely
-/// distinct candidate to choose between.
-///
-/// # Which axes are emitted, and why
-///
-/// **Emitted: gate-group order** (candidate `"gate-group-permuted"`, via `permute_gate_groups`).
-/// `crate::oracle`'s own module doc proves this is sound and non-vacuous:
-/// `crate::build::build_controllable` folds every `Gate` group's compiled network together with
-/// `foma::constructions::fsm_union` (commutative) and always finishes with
-/// `foma::minimize::fsm_minimize`, so a `Gate` node's group ORDER cannot affect the
-/// final relation — only membership does. Reordering the groups changes the `Gate` node's content
-/// address (`NodeId = hash(kind, children, config)`, and both `partition.groups` and `children`
-/// are part of that content) without changing what the built network recognizes: a real, distinct,
-/// SAME-relation candidate topology, not a relabeling of the identical `Plan`. **Only added when it
-/// is actually a different plan**: a grammar with 0 or 1 partition groups reverses to the identical
-/// `Vec`, so `permute_gate_groups` would return a `Plan` with the SAME root `NodeId` — appending it
-/// would just be the `"default"` candidate wearing a second label, which is not a genuine
-/// alternative for `crate::selection::select_plan` to weigh. This function checks the roots differ
-/// before appending, so the returned `Vec` has length 1 for an ungated/single-group grammar and
-/// length 2 once there are ≥2 groups to reorder.
-///
-/// # Which axes are deliberately NOT emitted yet, and why
-///
-/// - **Reordering the root `Union`'s composite-emission/structural-composite marker children.**
-///   `enumerate_default`'s own module doc already notes `Union`'s commutativity makes child order
-///   semantically inert; the reason this is still not a candidate axis is that neither marker leaf
-///   is interpreted by `crate::build::build_controllable` at all (that module's own scope note: markers
-///   are a separate, black-box lexc-`String` artifact, "out of scope for this step"). Permuting
-///   `Union` children would therefore change a content address without changing anything
-///   `crate::build::build_controllable` can measure or build differently — no genuine topology choice,
-///   just churn.
-/// - **An alternative partition function for the `Gate` node** (grouping entries differently than
-///   `crate::gate::partition_entries` does). No second partition-computing seam exists anywhere in
-///   this crate; inventing one here would mean re-deriving `gate.rs`'s own gating semantics a second,
-///   independent way — squarely the kind of change this module's own scope excludes: this file does
-///   not reach into `gate.rs` to manufacture a second partition strategy it was never asked to build.
-/// - **Reordering a `Replace` cascade's rule sequence.** Unlike gate-group order, rewrite-rule order
-///   is NOT proven irrelevant — `replace.rs`'s cascade is explicitly order-sensitive (each rule's
-///   output feeds the next), so two different rule orders are not, in general, the SAME relation at
-///   all. Emitting a reordered-cascade candidate here would risk exactly the failure this design
-///   rules out by construction ("selection can never pick a fast-but-wrong plan"): a candidate that LOOKS like an
-///   alternative topology for the same logical request but actually computes a different relation.
-///   Absent a proof of order-irrelevance (which no seam in this crate currently supplies), this axis
-///   is left unexplored rather than emitted unsoundly.
+/// The candidates a caller can weigh for `g`: today only `enumerate_default`'s own plan, labeled
+/// `"default"` and realized by the one shipping backend. A second backend (or a second plan shape
+/// a backend reads) is added here as another `LoweredCandidate` with its own `adapter`.
 pub fn enumerate_candidates(
     g: &Grammar,
     prules_in_order: &[&PhonRuleDef],
     phon: Option<&PhonologyProbe<'_>>,
 ) -> Vec<LoweredCandidate> {
     let default_plan = enumerate_default(g, prules_in_order, phon);
-    let mut candidates = vec![LoweredCandidate {
+    vec![LoweredCandidate {
         label: "default",
         plan: default_plan,
-        adapter: EmissionStrategy::PlanComposed,
+        adapter: EmissionStrategy::TunedSurfaceProbed,
         // Stated here rather than inferred from position, which is the whole point of `CandidateRole`.
         role: CandidateRole::Baseline,
-    }];
-
-    let permuted = permute_gate_groups(&candidates[0].plan);
-    if permuted.root() != candidates[0].plan.root() {
-        candidates.push(LoweredCandidate {
-            label: "gate-group-permuted",
-            plan: permuted,
-            adapter: EmissionStrategy::PlanComposed,
-            role: CandidateRole::Alternative,
-        });
-    }
-
-    candidates
+    }]
 }
 
 /// Recovers `pr`'s `PRuleId` (its index into `Grammar::prules`) from a `prules_in_order` entry,
@@ -430,11 +354,6 @@ pub fn enumerate_candidates(
 /// cannot silently paper over (silently returning a wrong `PRuleId` would corrupt every downstream
 /// consumer of that id, e.g. capability-evidence-provenance tagging).
 ///
-/// Widened from private to `pub(crate)` for `crate::build`: that module's own
-/// `validate_replace_cascade` needs the identical pointer-identity `PRuleId` recovery to
-/// cross-check a `Plan`'s `Replace` cascade against a caller-supplied `prules_in_order` slice, and
-/// re-deriving the same safety-relevant logic a second time would risk the two copies silently
-/// drifting apart.
 pub(crate) fn rule_id_of(g: &Grammar, pr: &PhonRuleDef) -> PRuleId {
     let idx = g
         .prules

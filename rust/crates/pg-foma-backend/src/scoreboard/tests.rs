@@ -28,7 +28,7 @@ fn compile_reason_names_every_refusal_variant() {
 
 fn cell(outcome: CellOutcome) -> CellMeasurement {
     CellMeasurement {
-        strategy: EmissionStrategy::PlanComposed,
+        strategy: EmissionStrategy::TunedSurfaceProbed,
         outcome,
         certification_debug: "n/a".to_string(),
         divergence: None,

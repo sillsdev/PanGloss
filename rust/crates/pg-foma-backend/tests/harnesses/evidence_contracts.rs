@@ -31,8 +31,6 @@ mod orthogonal_basis_group_a;
 mod orthogonal_basis_group_b;
 #[path = "../parity_divergence_census.rs"]
 mod parity_divergence_census;
-#[path = "../plan_composed_marker_material_gate.rs"]
-mod plan_composed_marker_material_gate;
 #[path = "../plan_interaction_coverage_gate.rs"]
 mod plan_interaction_coverage_gate;
 #[path = "../predicate_negative_witness_gate.rs"]

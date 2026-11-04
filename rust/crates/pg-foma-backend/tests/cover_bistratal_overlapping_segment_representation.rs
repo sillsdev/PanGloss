@@ -72,3 +72,30 @@ fn inner_stratum_roots_are_unreachable_at_the_surface() {
         );
     }
 }
+
+/// Regression pin, tuned-surface-probed's production entry point: on the two-table recall fixture it must propose ROOT1 for "y", the root the outer table devoices.
+#[test]
+fn tuned_surface_probed_proposes_the_devoiced_root_via_the_production_entry_point() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../conformance-staging/edge-cases/two-table-shared-representation-recall/grammar.xml",
+    );
+    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+    let morpheme_root1 = g
+        .entries
+        .iter()
+        .find(|e| g.morphemes[e.morpheme.0 as usize].xml_key == "eRoot1")
+        .expect("no entry with xml id \"eRoot1\"")
+        .morpheme
+        .0;
+
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g)
+        .expect("tuned-surface-probed compile must not fail");
+    let candidates = proposer.propose("y");
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.morphemes.iter().any(|m| m.0 == morpheme_root1)),
+        "tuned-surface-probed must propose ROOT1 for \"y\": {candidates:?}"
+    );
+}

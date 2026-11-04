@@ -1,11 +1,11 @@
-//! THE `strategy_coverage` measurement join gate: build-breaking only on the sound direction (see `pg_foma::strategy_coverage_join`'s own doc), scoped to today's `CannotRepresent` rows only.
+//! THE `strategy_coverage` measurement join gate: build-breaking only on the sound direction (see `pg_foma::strategy_coverage_join`'s own doc), scoped to the can-fire proof for a `CannotRepresent` claim; the table holds no such row today, so the per-row gate was deleted with the last one.
 
 use std::collections::HashSet;
 
 use pg_conformance_fixtures::{discover, FixtureRef, WordsYaml};
 use pg_foma::capability::CharacteristicKind;
 use pg_foma::enumerate::EmissionStrategy;
-use pg_foma::strategy_coverage::{representation_of, StrategyRepresentation, ALL_STRATEGIES};
+use pg_foma::strategy_coverage::{representation_of, StrategyRepresentation};
 use pg_foma_backend::strategy_coverage_join::{
     classify_with_witnesses, kinds_exercised_by, measure_fixture_exact, FixtureExactness,
     JoinVerdict,
@@ -56,77 +56,6 @@ fn measure_all(fixtures: &[FixtureRef], strategy: EmissionStrategy) -> Vec<Fixtu
         });
     }
     out
-}
-
-/// Every `(strategy, kind)` row the table marks `CannotRepresent` today -- a view, not a copy.
-fn cannot_represent_rows() -> Vec<(EmissionStrategy, CharacteristicKind)> {
-    let mut rows = Vec::new();
-    for &strategy in ALL_STRATEGIES {
-        for &kind in CharacteristicKind::ALL {
-            if representation_of(strategy, kind).representation
-                == StrategyRepresentation::CannotRepresent
-            {
-                rows.push((strategy, kind));
-            }
-        }
-    }
-    rows
-}
-
-/// Today's ratcheted contradiction count -- see `docs/research/strategy-coverage-join-report.md`.
-/// 0 -> 1: the structural-composite union now covers process-morphology-in-place-mutation's Process-role construct even though strategy_coverage.rs's own grammar-independent ProcessMorphology row still says PlanComposed cannot; making that row grammar-aware is out of scope here.
-const CONTRADICTION_RATCHET: usize = 1;
-
-#[test]
-fn cannot_represent_rows_are_not_contradicted_by_measurement() {
-    let rows = cannot_represent_rows();
-    assert!(
-        !rows.is_empty(),
-        "the table has no CannotRepresent row at all -- this gate would be vacuous; if every \
-         strategy now represents every kind, delete this gate rather than leaving it passing on \
-         nothing"
-    );
-
-    let mut contradictions: Vec<String> = Vec::new();
-    let mut agreed = 0usize;
-    let mut no_evidence = 0usize;
-
-    for (strategy, kind) in rows {
-        let fixtures = exhibiting_fixtures(kind);
-        let measured = measure_all(&fixtures, strategy);
-        let (verdict, witnesses) =
-            classify_with_witnesses(StrategyRepresentation::CannotRepresent, &measured);
-        match verdict {
-            JoinVerdict::Contradicted => contradictions.push(format!(
-                "{strategy:?} x {kind:?}: table says CannotRepresent, but {witnesses:?} \
-                 measured oracle-exact"
-            )),
-            JoinVerdict::Agreed => agreed += 1,
-            JoinVerdict::NoEvidence => no_evidence += 1,
-            JoinVerdict::Unsupported => unreachable!(
-                "classify never returns Unsupported for a CannotRepresent representation"
-            ),
-        }
-    }
-
-    eprintln!(
-        "=== strategy_coverage x measurement join (CannotRepresent rows only) ===\n\
-         agreed={agreed} no_evidence={no_evidence} contradicted={}",
-        contradictions.len()
-    );
-    for c in &contradictions {
-        eprintln!("  CONTRADICTED: {c}");
-    }
-
-    assert!(
-        contradictions.len() <= CONTRADICTION_RATCHET,
-        "NEW CannotRepresent contradiction(s) beyond the {CONTRADICTION_RATCHET} ratcheted today: \
-         {contradictions:#?}\n\
-         Either the table is now wrong about a construct that measurably compiles (fix \
-         `strategy_coverage.rs`'s row, citing the fixture below), or this ratchet needs raising \
-         with the same citation. Never lower CONTRADICTION_RATCHET without also naming which \
-         contradiction it now permits."
-    );
 }
 
 /// Can-fire proof: a synthetic wrong `CannotRepresent` claim over a real exact fixture must be caught and named.

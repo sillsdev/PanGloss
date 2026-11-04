@@ -9,8 +9,10 @@ Settled 2026-08-07. Terminology first, because it decides how the thing gets bui
 **Compiler.** PanGloss itself — the whole process that turns a HermitCrab grammar into an FST-backed
 analyzer. Singular. There is one compiler.
 
-**Backend.** One of three ways the compiler can emit. They are not variations on a theme: they
-combine features in genuinely different ways, so they grow and fail differently on the same grammar.
+**Backend.** One way the compiler can emit. Backends are not variations on a theme: they combine
+features in genuinely different ways, so they grow and fail differently on the same grammar. Exactly
+one exists today, Tuned surface probed; the Templated underlying tokens and Plan composed backends
+were deleted on 2026-11-03 (`docs/fst-plan/removed-backends.md`), and the seam stays open for another.
 
 Called backends rather than *recipes*, and deliberately no analogy at all. Every metaphor tested broke
 somewhere — a recipe implies the same dish each time and is overloaded in build tooling (it had

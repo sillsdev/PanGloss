@@ -185,82 +185,6 @@ fn multi_stratum_refused_fixture() -> String {
     .to_string()
 }
 
-/// One `Simultaneous` rule with genuinely-overlapping subrules plus an ordinary sibling rule in the same stratum, demonstrating a node-local refusal, contrasting `multi_stratum_refused_fixture`'s grammar-wide one.
-fn mixed_node_local_refusal_fixture() -> String {
-    r#"<?xml version="1.0" encoding="utf-8"?>
-<HermitCrabInput>
-  <Language>
-    <Name>PlanDiagramMixedNodeLocalFixture</Name>
-    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-    <PhonologicalFeatureSystem>
-      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols>
-        <Symbol id="symVless">vless</Symbol><Symbol id="symVd1">vd1</Symbol><Symbol id="symVd2">vd2</Symbol><Symbol id="symVoc">voc</Symbol>
-      </Symbols></SymbolicFeature>
-      <SymbolicFeature id="featPlace"><Name>place</Name><Symbols>
-        <Symbol id="symFront">front</Symbol><Symbol id="symMid">mid</Symbol><Symbol id="symBack">back</Symbol><Symbol id="symNeutral">neutral</Symbol>
-      </Symbols></SymbolicFeature>
-    </PhonologicalFeatureSystem>
-    <CharacterDefinitionTable id="t1">
-      <Name>Main</Name>
-      <SegmentDefinitions>
-        <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd1" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-        <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd2" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symFront" /></SegmentDefinition>
-        <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symMid" /></SegmentDefinition>
-        <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symBack" /></SegmentDefinition>
-        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-      </SegmentDefinitions>
-    </CharacterDefinitionTable>
-    <NaturalClasses>
-      <FeatureNaturalClass id="ncStop"><Name>Stop</Name><FeatureValue feature="featVoice" symbolValues="symVless" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncBackOrMid"><Name>BackOrMid</Name><FeatureValue feature="featPlace" symbolValues="symBack symMid" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncMidOrFront"><Name>MidOrFront</Name><FeatureValue feature="featPlace" symbolValues="symMid symFront" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncB"><Name>B</Name><FeatureValue feature="featVoice" symbolValues="symVd1" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncD"><Name>D</Name><FeatureValue feature="featVoice" symbolValues="symVd2" /></FeatureNaturalClass>
-    </NaturalClasses>
-    <PhonologicalRuleDefinitions>
-      <PhonologicalRule id="prOverlap" multipleApplicationOrder="simultaneous">
-        <Name>simOverlap</Name>
-        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-        <PhonologicalSubrules>
-          <PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncB" /></PhoneticSequence></PhoneticOutput>
-            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBackOrMid" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-          </PhonologicalSubrule>
-          <PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
-            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncMidOrFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-          </PhonologicalSubrule>
-        </PhonologicalSubrules>
-      </PhonologicalRule>
-      <PhonologicalRule id="prOrdinary">
-        <Name>ordinaryRule</Name>
-        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-        <PhonologicalSubrules>
-          <PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><Segment segment="ct" /></PhoneticSequence></PhoneticOutput>
-          </PhonologicalSubrule>
-        </PhonologicalSubrules>
-      </PhonologicalRule>
-    </PhonologicalRuleDefinitions>
-    <Strata>
-      <Stratum characterDefinitionTable="t1" phonologicalRules="prOverlap prOrdinary">
-        <Name>S</Name>
-        <LexicalEntries>
-          <LexicalEntry id="entryPU" partOfSpeech="posV">
-            <Allomorphs><Allomorph id="alloPU"><PhoneticShape>pu</PhoneticShape></Allomorph></Allomorphs>
-            <Gloss>PU</Gloss>
-          </LexicalEntry>
-        </LexicalEntries>
-      </Stratum>
-    </Strata>
-  </Language>
-</HermitCrabInput>
-"#
-    .to_string()
-}
-
 /// Three sibling, ungated, mutually-independent rules in one stratum with no shared leaves, so collapsing this one parent's leaf group unambiguously reduces the emitted node count.
 fn three_rule_ungated_fixture() -> String {
     r#"<?xml version="1.0" encoding="utf-8"?>
@@ -434,9 +358,8 @@ fn plan_diagram_root_verdict_matches_the_fully_constrained_strategys_envelope() 
         ordinary_fixture(),
         gated_plus_independent_stratum_fixture(false),
         multi_stratum_refused_fixture(),
-        mixed_node_local_refusal_fixture(),
     ] {
-        let strategy = crate::enumerate::EmissionStrategy::TemplatedUnderlyingTokens;
+        let strategy = crate::enumerate::EmissionStrategy::TunedSurfaceProbed;
         let g = load(&xml);
         let semantics = GrammarSemantics::derive(&g);
         let registry = default_registry();
@@ -447,7 +370,7 @@ fn plan_diagram_root_verdict_matches_the_fully_constrained_strategys_envelope() 
                 .filter(|p| p.constrains_strategies().contains(&strategy))
                 .count(),
             registry.predicates().len(),
-            "this test's comparand is only valid while TemplatedUnderlyingTokens is constrained \
+            "this test's comparand is only valid while TunedSurfaceProbed is constrained \
              by every registered predicate"
         );
 
@@ -481,47 +404,6 @@ fn plan_diagram_grammar_wide_confirm_only_marks_every_node_confirm_only() {
          observed (mpr-group.overwrite-output has no distinct PlanNodeKind to localize to)"
     );
 }
-
-/// Node-local refusal: only the overlapping rule's leaf refuses; the ordinary sibling leaf stays Admit, proving verdicts are never inferred from a node merely existing.
-#[test]
-fn plan_diagram_node_local_refusal_leaves_unrelated_sibling_rule_admitted() {
-    let g = load(&mixed_node_local_refusal_fixture());
-    let doc = build_plan_document(&g);
-    let root_id = doc.root.clone().expect("root must be set");
-    assert!(
-        doc.node(&root_id).unwrap().verdict.is_refused(),
-        "the overlapping rule must refuse the whole plan's node-local walk"
-    );
-    assert!(
-        !doc.overall_verdict.is_refused(),
-        "the whole-grammar JOIN must NOT refuse: the mainline compiler composes no cascade, so \
-         this rule's overlap is not its limit"
-    );
-
-    let overlap_leaf = doc
-        .nodes
-        .iter()
-        .find(|n| n.label.contains("'simOverlap'"))
-        .expect("must find the overlapping rule's own leaf");
-    let ordinary_leaf = doc
-        .nodes
-        .iter()
-        .find(|n| n.label.contains("'ordinaryRule'"))
-        .expect("must find the ordinary rule's own leaf");
-
-    assert!(
-        overlap_leaf.verdict.is_refused(),
-        "the overlapping rule's own leaf must refuse"
-    );
-    assert_eq!(
-        ordinary_leaf.verdict,
-        NodeVerdict::Admit,
-        "the unrelated, ordinary sibling rule's own leaf must stay Admit -- never inferred from \
-         merely being a RewriteRule leaf in a plan that has SOME refusal somewhere"
-    );
-}
-
-// 4. Linguistic labelling.
 
 #[test]
 fn plan_diagram_labels_name_stratum_and_rule_not_only_node_kind() {

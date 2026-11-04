@@ -188,21 +188,18 @@ use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::time::Instant;
 
-use foma::lexcread::fsm_lexc_parse_string;
-use foma::options::FomaOptions;
 use foma::utf8::is_combining;
 use pg_featstruct::{is_unifiable, priority_union, unify, FeatureStruct, FsId};
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef,
-    MorphRuleOrder, MorphemeId, OutputAction, PartRef, PhonRuleDef, SlotDef, TableId,
+    MorphemeId, OutputAction, PartRef, PhonRuleDef, SlotDef,
 };
 use pg_parse::{GenMorpheme, Morpher};
 use pg_rules::cache::RuleCache;
 use pg_rules::word::{MorphRecord, Word};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape};
 
-use crate::capability::{CapabilityDiagnostic, CompileDecision};
 use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::enumerate::enumerate_default;
 use crate::junctions::PhonologyProbe;
@@ -211,7 +208,6 @@ use crate::plan::{FragmentSpec, Plan, PlanNodeKind};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::profile::{CompileProfileBuilder, CompileStage};
 use crate::replace::SegAlphabet;
-use crate::structural_allomorph::MarkerZone;
 use crate::tags;
 pub use pg_foma_runtime::emission_support::*;
 pub use pg_foma_runtime::emit_report::{
@@ -226,38 +222,11 @@ fn trace_emit_stage(stage: CompileStage, elapsed: std::time::Duration, allow_env
     }
 }
 
-/// Mode switch for every LEAF text-producing site this module threads it through
-/// (`collect_roots`, `insert_action_texts`/`emit_rule_allomorphs`) and the purely-structural
-/// functions that call them (`build_deriv_chain`, `build_slot_chain`) — the templated-
-/// morphotactics emitter.
-///
-/// `SurfaceProbed` MUST stay byte-identical to this module's pre-existing behavior —
-/// every structural function's own logic is UNCHANGED by this parameter's existence, only the
-/// leaf text sites branch on it, and only the leaf sites are touched by `UnderlyingTokens` at
-/// all. Every recall gate this crate already has (`f1_sena_gate`, `f2_indonesian_gate`,
-/// `f3_amharic_gate`, `f4_composite_gate`, `p6_gate_parity`) depends on this.
-///
-/// `UnderlyingTokens` is `emit_underlying_templated`'s mode: every leaf site emits plain
-/// UNDERLYING text in `SegAlphabet` token space (one string per allomorph — no surface-probed
-/// junction-variant union, no representation cartesian product; char-def identity already
-/// collapses that, `SegAlphabet`'s own module doc) instead of literal, surface-spelled text.
-#[derive(Clone, Copy)]
-pub(crate) enum TextMode<'a> {
-    SurfaceProbed,
-    UnderlyingTokens(&'a SegAlphabet<'a>),
-}
-
 /// Floor for a derivation layer chain's depth (the actual depth is the rule count routed to that
 /// side, but never less than trie's `deriv_depth = 2` — staying >= trie's language is the
 /// baseline recall guarantee; see the module doc's derivation-layer section for why rule count,
 /// not 2, is the engine-faithful bound).
 pub const DERIV_DEPTH_MIN: usize = 2;
-
-/// Cap on consecutive dedicated levels one rule gets; keeps an uncapped `Realizational` rule (which reports `max_apps() == u16::MAX`) from inflating a chain's depth unboundedly.
-const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
-
-/// Cap on `unordered_reorderable_rule_set`'s lattice-expanded rule count (`2^N` states): 6 covers the largest observed zone (`mpr-overwrite-order-dependence`, 64 states) without an unbounded blowup.
-const MAX_UNORDERED_POWERSET_RULES: usize = 6;
 
 /// Caps compound-loop unrolling to keep generated lexicon size bounded.
 const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
@@ -287,26 +256,21 @@ enum InsertText<'a> {
     /// A pure zero/null morph: no `InsertSegments` action at all, whether or not the RHS also `Copy`s an input part.
     None,
     /// One `InsertSegments` action's literal text and already-segmented `Shape` per occurrence, in RHS document order — safe to concatenate since only `Role::None`/`Prefix`/`Suffix` ever reach this variant, so no occurrence interleaves with a `Copy`.
-    Text {
-        texts: Vec<&'a str>,
-        shapes: Vec<&'a Shape>,
-    },
+    Text { texts: Vec<&'a str> },
 }
 
 /// Every `InsertSegments` action's underlying text/shape in `rhs`, in document order — not just the first; see `InsertText::Text` for why concatenation order is always sound here.
 fn insert_action_texts(rhs: &[OutputAction]) -> InsertText<'_> {
     let mut texts = Vec::new();
-    let mut shapes = Vec::new();
     for a in rhs {
         if let OutputAction::InsertSegments { shape, .. } = a {
             texts.push(shape.text.as_str());
-            shapes.push(&shape.shape);
         }
     }
     if texts.is_empty() {
         InsertText::None
     } else {
-        InsertText::Text { texts, shapes }
+        InsertText::Text { texts }
     }
 }
 
@@ -405,50 +369,6 @@ pub(crate) fn underlying_shape_variants(
         variants = next;
     }
     variants
-}
-
-fn underlying_shape_concat_variants(
-    alphabet: &SegAlphabet<'_>,
-    origin_table: &CharDefTable,
-    shapes: &[&Shape],
-) -> Vec<String> {
-    let mut variants = vec![String::new()];
-    for shape in shapes {
-        let piece_variants = underlying_shape_variants(alphabet, origin_table, shape);
-        if piece_variants.is_empty() {
-            return Vec::new();
-        }
-        let mut next = Vec::with_capacity(variants.len() * piece_variants.len());
-        for prefix in &variants {
-            for piece in &piece_variants {
-                let mut encoded = prefix.clone();
-                encoded.push_str(piece);
-                next.push(encoded);
-            }
-        }
-        variants = next;
-    }
-    variants
-}
-
-fn origin_table_for_mrule<'a>(
-    g: &'a Grammar,
-    mid: MRuleId,
-    fallback: &'a CharDefTable,
-) -> &'a CharDefTable {
-    for stratum in &g.strata {
-        let owns_rule = stratum.mrules.contains(&mid);
-        let owns_template_rule = stratum.templates.iter().any(|&template_id| {
-            g.templates[template_id.0 as usize]
-                .slots
-                .iter()
-                .any(|slot| slot.rules.contains(&mid))
-        });
-        if owns_rule || owns_template_rule {
-            return &g.char_tables[stratum.table.0 as usize];
-        }
-    }
-    fallback
 }
 
 /// Surface spellings for one literal-only action slice, preserving each action's source table.
@@ -790,194 +710,6 @@ fn pattern_shape_regex_body(table: &CharDefTable, shape: &Shape) -> String {
     }
 }
 
-/// `node_base_alternatives`'s member-id twin: which final-table `CharDefId`s one interior node names, before either flag applies.
-fn node_base_member_ids(
-    table: &CharDefTable,
-    shape: &Shape,
-    i: usize,
-    char_def: u32,
-) -> Vec<CharDefId> {
-    if char_def != pg_shape::NO_CHAR_DEF {
-        return vec![CharDefId(char_def)];
-    }
-    let cd_set = shape.node_cd_set(i);
-    let mut out = Vec::new();
-    for (id, cd) in table.iter() {
-        if cd.kind() != CharDefKind::Segment {
-            continue;
-        }
-        let member = match cd_set {
-            EffectiveCdSet::Singleton(s) => s == id.0,
-            EffectiveCdSet::Unrestricted => true,
-            EffectiveCdSet::Members(b) => b.contains(id.0),
-        };
-        if member {
-            out.push(id);
-        }
-    }
-    out
-}
-
-/// `node_alternatives`'s underlying-token twin: same shape, tokens from `alphabet.table()` instead of representations.
-fn node_token_alternatives(
-    alphabet: &SegAlphabet<'_>,
-    shape: &Shape,
-    i: usize,
-    char_def: u32,
-    flags: pg_shape::NodeFlags,
-) -> Vec<String> {
-    let mut reps: Vec<String> = node_base_member_ids(alphabet.table(), shape, i, char_def)
-        .iter()
-        .map(|id| alphabet.token(*id).to_string())
-        .collect();
-    if reps.is_empty() {
-        reps.push(String::new());
-    }
-    if flags.is_iterative() {
-        let base = reps.clone();
-        let mut repeated = base.clone();
-        for _ in 0..PATTERN_ITER_CAP {
-            let mut next = Vec::with_capacity(repeated.len() * base.len());
-            for prev in &repeated {
-                for r in &base {
-                    next.push(format!("{prev}{r}"));
-                }
-            }
-            reps.extend(next.iter().cloned());
-            repeated = next;
-        }
-    }
-    if flags.is_optional() {
-        reps.push(String::new());
-    }
-    reps.sort_unstable();
-    reps.dedup();
-    reps
-}
-
-/// `pattern_variants`'s underlying-token twin, in `alphabet`'s own token space.
-fn token_pattern_variants(
-    alphabet: &SegAlphabet<'_>,
-    shape: &Shape,
-) -> (Vec<String>, VariantLimit) {
-    let mut variants: Vec<String> = vec![String::new()];
-    let mut exhausted = None;
-    let mut unbounded = false;
-    for (i, kind, char_def, flags) in shape.interior() {
-        if exhausted.is_some() {
-            break;
-        }
-        if kind == NodeKind::Boundary {
-            continue;
-        }
-        unbounded |= flags.is_iterative();
-        let reps = node_token_alternatives(alphabet, shape, i, char_def, flags);
-
-        let mut next = Vec::with_capacity(variants.len().saturating_mul(reps.len().max(1)));
-        let mut grown = 0usize;
-        'grow: for v in &variants {
-            for r in &reps {
-                let joined = format!("{v}{r}");
-                grown = grown.saturating_add(joined.len());
-                if grown > REP_VARIANT_BYTE_BUDGET {
-                    exhausted = Some(grown);
-                    break 'grow;
-                }
-                next.push(joined);
-            }
-        }
-        variants = next;
-    }
-    variants.sort_unstable();
-    variants.dedup();
-    let limit = if unbounded {
-        VariantLimit::Unbounded
-    } else if let Some(bytes) = exhausted {
-        VariantLimit::BytesExhausted { bytes }
-    } else {
-        VariantLimit::Complete {
-            warn: variants.len() > REP_VARIANT_WARN_THRESHOLD,
-        }
-    };
-    (variants, limit)
-}
-
-/// `node_regex_fragment`'s underlying-token twin: tokens need no XRE escaping, unioned via `" | "`.
-fn token_node_regex_fragment(
-    alphabet: &SegAlphabet<'_>,
-    shape: &Shape,
-    i: usize,
-    char_def: u32,
-    flags: pg_shape::NodeFlags,
-) -> String {
-    let ids = node_base_member_ids(alphabet.table(), shape, i, char_def);
-    let tokens: Vec<String> = if ids.is_empty() {
-        vec!["0".to_string()]
-    } else {
-        ids.iter()
-            .map(|id| alphabet.token(*id).to_string())
-            .collect()
-    };
-    let union = if tokens.len() == 1 {
-        tokens.into_iter().next().expect("checked len == 1")
-    } else {
-        format!("[{}]", tokens.join(" | "))
-    };
-    if flags.is_iterative() {
-        format!("{union}*")
-    } else if flags.is_optional() {
-        format!("({union})")
-    } else {
-        union
-    }
-}
-
-/// `pattern_shape_regex_body`'s underlying-token twin, feeding the same `write_pattern_root_entry`.
-fn token_pattern_shape_regex_body(alphabet: &SegAlphabet<'_>, shape: &Shape) -> String {
-    let mut nodes = Vec::new();
-    for (i, kind, char_def, flags) in shape.interior() {
-        if kind == NodeKind::Boundary {
-            continue;
-        }
-        nodes.push(token_node_regex_fragment(
-            alphabet, shape, i, char_def, flags,
-        ));
-    }
-    if nodes.is_empty() {
-        "[0]".to_string()
-    } else {
-        format!("[{}]", nodes.join(" "))
-    }
-}
-
-/// The one `collect_roots` grants an otherwise-untokenizable pattern root's shape.
-pub(crate) enum PatternRootTokenRoute {
-    Regex(String),
-    Enumerated(Vec<String>),
-}
-
-/// Whether the token-space pattern route admits an otherwise-untokenizable root shape: `collect_roots`'s own decision, published for `crate::replace::grammar_has_untokenizable_root_shape` to call rather than re-derive.
-pub(crate) fn pattern_root_token_route(
-    alphabet: &SegAlphabet<'_>,
-    stratum_table: &CharDefTable,
-    shape: &Shape,
-    environments_empty: bool,
-) -> Option<PatternRootTokenRoute> {
-    if !std::ptr::eq(stratum_table, alphabet.table()) {
-        return None;
-    }
-    let (variants, limit) = token_pattern_variants(alphabet, shape);
-    match limit {
-        VariantLimit::Unbounded if environments_empty => Some(PatternRootTokenRoute::Regex(
-            token_pattern_shape_regex_body(alphabet, shape),
-        )),
-        _ if !limit.drops_spellings() && !variants.is_empty() => {
-            Some(PatternRootTokenRoute::Enumerated(variants))
-        }
-        _ => None,
-    }
-}
-
 /// Writes one pattern root's regex-routed entry (`TAG:0 0:body`, lexc's `< regex >` syntax) -- one physical line for the shape's whole language, replacing one `write_tag_entry` line per spelling; `body` must already be bracketed (foma XRE's `:` binds tighter than concatenation).
 fn write_pattern_root_entry(
     out: &mut String,
@@ -1232,12 +964,6 @@ fn write_untagged_entry(out: &mut String, text: &str, continuation: &str, counts
     counts.lexc_lines += 1;
 }
 
-#[derive(Clone)]
-struct AtomicCarrier {
-    template_index: usize,
-    choices: Vec<AtomicCarrierChoice>,
-}
-
 /// FST emission cannot preserve alpha bindings across environment traversal.
 pub const ALPHA_ENVIRONMENT_REFUSAL: &str = "alpha-variable environments are not represented by FST backends; use the full morphological parser";
 
@@ -1288,507 +1014,6 @@ fn alpha_environment_emit_refusal(g: &Grammar) -> EmitResult {
     }
 }
 
-#[derive(Clone)]
-struct AtomicCarrierChoice {
-    alternative: Option<crate::structural_allomorph::SlotProjectionAlternative>,
-    prefix_variants: Vec<String>,
-    suffix_variants: Vec<String>,
-    prefix_name: String,
-    roots_name: String,
-    post_name: String,
-    root_post_name: String,
-}
-
-fn atomic_carrier_refusal(
-    uncovered: Vec<UncoveredItem>,
-    counts: EmitCounts,
-    reason: &str,
-) -> EmitResult {
-    EmitResult {
-        lexc_source: String::new(),
-        report: EmitReport {
-            uncovered,
-            counts,
-            tier: FomaTier::Unsupported {
-                reason: reason.to_owned(),
-            },
-            enum_budget_exceeded: None,
-            closure_refusal: None,
-            closure_evidence: None,
-        },
-    }
-}
-
-// result_large_err: the `Err` IS the full `EmitResult` refusal the caller returns verbatim.
-#[allow(clippy::result_large_err)]
-fn atomic_template_carriers(
-    g: &Grammar,
-    alphabet: &SegAlphabet<'_>,
-    counts: EmitCounts,
-    uncovered: Vec<UncoveredItem>,
-) -> Result<HashMap<(usize, usize), AtomicCarrier>, EmitResult> {
-    let candidate = g.templates.iter().any(|template| {
-        template.slots.iter().any(|slot| {
-            let mut has_prefix = false;
-            let mut has_suffix = false;
-            let mut has_coupled = false;
-            for &rule in &slot.rules {
-                for allomorph in allomorphs_of(g, rule) {
-                    match classify_affix(&allomorph.rhs) {
-                        Role::Prefix => has_prefix = true,
-                        Role::CircumfixPrefix => has_coupled = true,
-                        Role::Suffix => has_suffix = true,
-                        _ => {}
-                    }
-                }
-            }
-            has_coupled || (has_prefix && has_suffix)
-        })
-    });
-    if !candidate {
-        return Ok(HashMap::new());
-    }
-    let Some(table_index) = g
-        .char_tables
-        .iter()
-        .position(|table| std::ptr::eq(table, alphabet.table()))
-    else {
-        return Err(atomic_carrier_refusal(
-            uncovered,
-            counts,
-            "atomic template carrier has no active pipeline character table",
-        ));
-    };
-    let plan =
-        crate::structural_allomorph::MorphologyRelationPlan::build(g, TableId(table_index as u16))
-            .map_err(|error| {
-                atomic_carrier_refusal(uncovered.clone(), counts.clone(), &error.to_string())
-            })?;
-    let mut carriers: HashMap<(usize, usize), AtomicCarrier> = HashMap::new();
-    let mut mixed_templates: HashMap<usize, usize> = HashMap::new();
-    for projection in plan.slot_projections() {
-        let has_coupled = projection.alternatives().iter().any(|alternative| {
-            alternative.route() == crate::structural_allomorph::SlotAlternativeRoute::Coupled
-        });
-        let has_prefix = projection.alternatives().iter().any(|alternative| {
-            alternative.route() == crate::structural_allomorph::SlotAlternativeRoute::Prefix
-        });
-        let has_suffix = projection.alternatives().iter().any(|alternative| {
-            alternative.route() == crate::structural_allomorph::SlotAlternativeRoute::Suffix
-        });
-        if !(has_coupled || (has_prefix && has_suffix)) {
-            continue;
-        }
-        let key = projection.key();
-        if g.templates.get(key.template_index).is_none() {
-            return Err(atomic_carrier_refusal(
-                uncovered.clone(),
-                counts.clone(),
-                "atomic template carrier references an invalid template",
-            ));
-        };
-        if let Some(previous) = mixed_templates.insert(key.template_index, key.slot_index) {
-            if previous != key.slot_index {
-                return Err(atomic_carrier_refusal(
-                    uncovered.clone(),
-                    counts.clone(),
-                    "atomic template carrier supports at most one mixed physical slot per template",
-                ));
-            }
-        }
-        if g.templates[key.template_index].slots[key.slot_index]
-            .rules
-            .iter()
-            .any(|rule| g.strata.iter().any(|stratum| stratum.mrules.contains(rule)))
-        {
-            return Err(atomic_carrier_refusal(
-                uncovered.clone(),
-                counts.clone(),
-                "atomic template carrier does not support a mixed-slot rule also authored at a derivation site",
-            ));
-        }
-        if projection.alternatives().is_empty() && !projection.optional() {
-            return Err(atomic_carrier_refusal(
-                uncovered.clone(),
-                counts.clone(),
-                "atomic template carrier found an empty required mixed slot",
-            ));
-        }
-        let mut choices = Vec::new();
-        for (alternative_index, alternative) in projection.alternatives().iter().enumerate() {
-            if alternative.route() == crate::structural_allomorph::SlotAlternativeRoute::Coupled
-                && (!matches!(
-                    alternative.decision(),
-                    crate::structural_allomorph::MorphologyRewrite::DirectWholeRootWrapper { .. }
-                ) || alternative.prefix_variants().is_empty()
-                    || alternative.suffix_variants().is_empty())
-            {
-                return Err(atomic_carrier_refusal(
-                    uncovered.clone(),
-                    counts.clone(),
-                    "atomic carrier requires finite prefix and suffix variants for each coupled lane",
-                ));
-            }
-            let encode_variants = |variants: &[String]| {
-                variants
-                    .iter()
-                    .map(|variant| {
-                        if variant.is_empty() {
-                            Some(String::new())
-                        } else {
-                            alphabet.encode_query(variant)
-                        }
-                    })
-                    .collect::<Option<Vec<_>>>()
-            };
-            let Some(prefix_variants) = encode_variants(alternative.prefix_variants()) else {
-                return Err(atomic_carrier_refusal(
-                    uncovered.clone(),
-                    counts.clone(),
-                    "atomic carrier variant cannot be encoded by the active segmentation alphabet",
-                ));
-            };
-            let Some(suffix_variants) = encode_variants(alternative.suffix_variants()) else {
-                return Err(atomic_carrier_refusal(
-                    uncovered.clone(),
-                    counts.clone(),
-                    "atomic carrier variant cannot be encoded by the active segmentation alphabet",
-                ));
-            };
-            choices.push(AtomicCarrierChoice {
-                alternative: Some(alternative.clone()),
-                prefix_variants,
-                suffix_variants,
-                prefix_name: format!(
-                    "AtomicT{}S{}A{}Pfx",
-                    key.template_index, key.slot_index, alternative_index
-                ),
-                roots_name: format!(
-                    "AtomicT{}S{}A{}Roots",
-                    key.template_index, key.slot_index, alternative_index
-                ),
-                post_name: format!(
-                    "AtomicT{}S{}A{}Post",
-                    key.template_index, key.slot_index, alternative_index
-                ),
-                root_post_name: format!(
-                    "AtomicT{}S{}A{}RootPost",
-                    key.template_index, key.slot_index, alternative_index
-                ),
-            });
-        }
-        if projection.optional() {
-            choices.push(AtomicCarrierChoice {
-                alternative: None,
-                prefix_variants: Vec::new(),
-                suffix_variants: Vec::new(),
-                prefix_name: format!("AtomicT{}S{}ASkipPfx", key.template_index, key.slot_index),
-                roots_name: format!("AtomicT{}S{}ASkipRoots", key.template_index, key.slot_index),
-                post_name: format!("AtomicT{}S{}ASkipPost", key.template_index, key.slot_index),
-                root_post_name: format!(
-                    "AtomicT{}S{}ASkipRootPost",
-                    key.template_index, key.slot_index
-                ),
-            });
-        }
-        carriers.insert(
-            (key.template_index, key.slot_index),
-            AtomicCarrier {
-                template_index: key.template_index,
-                choices,
-            },
-        );
-    }
-    Ok(carriers)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn emit_atomic_projection_alternative(
-    out: &mut String,
-    g: &Grammar,
-    alternative: &crate::structural_allomorph::SlotProjectionAlternative,
-    zone: MarkerZone,
-    prefix_variants: &[String],
-    suffix_variants: &[String],
-    continuation: &str,
-    width: usize,
-    counts: &mut EmitCounts,
-    pk: &mut PrecisionEmit,
-) {
-    let tag = tags::morph_tag_lexc(owning_morpheme(g, alternative.rule()), width);
-    match alternative.decision() {
-        crate::structural_allomorph::MorphologyRewrite::OrdinaryLiteral { .. } => {
-            let variants = match zone {
-                MarkerZone::Prefix => prefix_variants,
-                MarkerZone::Suffix => suffix_variants,
-            };
-            for variant in variants {
-                write_tag_entry(
-                    out,
-                    &tag,
-                    variant,
-                    continuation,
-                    counts,
-                    pk,
-                    Some(alternative.allomorph()),
-                );
-            }
-        }
-        crate::structural_allomorph::MorphologyRewrite::DirectWholeRootWrapper { .. } => {
-            let variants = match zone {
-                MarkerZone::Prefix => prefix_variants,
-                MarkerZone::Suffix => suffix_variants,
-            };
-            for variant in variants {
-                write_tag_entry(
-                    out,
-                    &tag,
-                    variant,
-                    continuation,
-                    counts,
-                    pk,
-                    Some(alternative.allomorph()),
-                );
-            }
-        }
-        crate::structural_allomorph::MorphologyRewrite::MarkedStructural { .. } => {
-            let binding = match zone {
-                MarkerZone::Prefix => alternative.prefix_binding(),
-                MarkerZone::Suffix => alternative.suffix_binding(),
-            };
-            if let Some(binding) = binding {
-                write_tag_entry(
-                    out,
-                    &tag,
-                    &binding.symbol.to_string(),
-                    continuation,
-                    counts,
-                    pk,
-                    Some(alternative.allomorph()),
-                );
-            }
-        }
-        crate::structural_allomorph::MorphologyRewrite::Unsupported { .. } => {}
-    }
-}
-
-fn atomic_category_allowed(
-    g: &Grammar,
-    category: FsId,
-    alternative: &crate::structural_allomorph::SlotProjectionAlternative,
-) -> bool {
-    let required = required_category(g, alternative.rule());
-    g.fs_interner.get(required).is_empty()
-        || is_unifiable(g.fs_interner.get(category), g.fs_interner.get(required))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn emit_atomic_choice_prefix(
-    out: &mut String,
-    g: &Grammar,
-    choice: &AtomicCarrierChoice,
-    category: FsId,
-    continuation: &str,
-    width: usize,
-    counts: &mut EmitCounts,
-    pk: &mut PrecisionEmit,
-) {
-    let Some(alternative) = choice.alternative.as_ref() else {
-        write_bare(out, continuation, counts);
-        return;
-    };
-    if !atomic_category_allowed(g, category, alternative) {
-        return;
-    }
-    match alternative.route() {
-        crate::structural_allomorph::SlotAlternativeRoute::Prefix
-        | crate::structural_allomorph::SlotAlternativeRoute::Coupled => {
-            emit_atomic_projection_alternative(
-                out,
-                g,
-                alternative,
-                MarkerZone::Prefix,
-                &choice.prefix_variants,
-                &choice.suffix_variants,
-                continuation,
-                width,
-                counts,
-                pk,
-            );
-            counts.allomorphs_emitted += 1;
-        }
-        crate::structural_allomorph::SlotAlternativeRoute::Suffix => {
-            write_bare(out, continuation, counts);
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn emit_atomic_choice_suffix(
-    out: &mut String,
-    g: &Grammar,
-    choice: &AtomicCarrierChoice,
-    category: FsId,
-    exit: &str,
-    width: usize,
-    counts: &mut EmitCounts,
-    pk: &mut PrecisionEmit,
-) {
-    let Some(alternative) = choice.alternative.as_ref() else {
-        write_bare(out, exit, counts);
-        return;
-    };
-    if !atomic_category_allowed(g, category, alternative) {
-        return;
-    }
-    match alternative.route() {
-        crate::structural_allomorph::SlotAlternativeRoute::Suffix => {
-            emit_atomic_projection_alternative(
-                out,
-                g,
-                alternative,
-                MarkerZone::Suffix,
-                &choice.prefix_variants,
-                &choice.suffix_variants,
-                exit,
-                width,
-                counts,
-                pk,
-            );
-            counts.allomorphs_emitted += 1;
-        }
-        crate::structural_allomorph::SlotAlternativeRoute::Coupled => {
-            for variant in &choice.suffix_variants {
-                write_untagged_entry(out, variant, exit, counts);
-            }
-        }
-        crate::structural_allomorph::SlotAlternativeRoute::Prefix => {
-            write_bare(out, exit, counts);
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_atomic_prefix_chain(
-    out: &mut String,
-    g: &Grammar,
-    table: &CharDefTable,
-    prefix: &str,
-    slots: &[&SlotDef],
-    mixed_slot_index: usize,
-    carrier: &AtomicCarrier,
-    category: FsId,
-    width: usize,
-    exit: &str,
-    uncovered: &mut Vec<UncoveredItem>,
-    counts: &mut EmitCounts,
-    phon: Option<&PhonologyProbe>,
-    pk: &mut PrecisionEmit,
-    mode: TextMode<'_>,
-) -> String {
-    let entry_name = format!("{prefix}0");
-    if slots.is_empty() {
-        write_lexicon_header(out, &entry_name);
-        write_bare(out, exit, counts);
-        return entry_name;
-    }
-    let Some(mixed_position) = slots
-        .iter()
-        .position(|slot| slot_index_matches(g, slot, mixed_slot_index, carrier.template_index))
-    else {
-        write_lexicon_header(out, &entry_name);
-        write_bare(out, exit, counts);
-        return entry_name;
-    };
-
-    for choice in &carrier.choices {
-        let inner_slots = &slots[mixed_position + 1..];
-        if !inner_slots.is_empty() {
-            build_slot_chain(
-                out,
-                g,
-                table,
-                &format!("{}Inner", choice.prefix_name),
-                inner_slots,
-                Role::Prefix,
-                category,
-                width,
-                &format!("{}0", choice.prefix_name),
-                uncovered,
-                counts,
-                phon,
-                pk,
-                mode,
-            );
-        }
-    }
-
-    for (si, slot) in slots[..=mixed_position].iter().enumerate() {
-        let name = format!("{prefix}{si}");
-        let next = if si + 1 == slots.len() {
-            exit.to_string()
-        } else {
-            format!("{prefix}{}", si + 1)
-        };
-        write_lexicon_header(out, &name);
-        if si == mixed_position {
-            for choice in &carrier.choices {
-                let continuation = if slots.len() == mixed_position + 1 {
-                    format!("{}0", choice.prefix_name)
-                } else {
-                    format!("{}Inner0", choice.prefix_name)
-                };
-                emit_atomic_choice_prefix(
-                    out,
-                    g,
-                    choice,
-                    category,
-                    &continuation,
-                    width,
-                    counts,
-                    pk,
-                );
-            }
-            continue;
-        }
-        if slot.optional {
-            write_bare(out, &next, counts);
-        }
-        for &mid in &slot.rules {
-            let req = required_category(g, mid);
-            if !g.fs_interner.get(req).is_empty()
-                && !is_unifiable(g.fs_interner.get(category), g.fs_interner.get(req))
-            {
-                continue;
-            }
-            emit_rule_allomorphs(
-                out,
-                g,
-                table,
-                mid,
-                Role::Prefix,
-                width,
-                &next,
-                None,
-                uncovered,
-                counts,
-                phon,
-                None,
-                pk,
-                mode,
-            );
-        }
-    }
-    entry_name
-}
-
-fn slot_index_matches(g: &Grammar, slot: &SlotDef, index: usize, template_index: usize) -> bool {
-    g.templates
-        .get(template_index)
-        .and_then(|template| template.slots.get(index))
-        .is_some_and(|candidate| std::ptr::eq(candidate, slot))
-}
-
 fn write_root_entries_with_width(
     out: &mut String,
     roots: &[&RootRec],
@@ -1835,7 +1060,6 @@ fn collect_roots(
     cache: &RuleCache,
     morpher: Option<&Morpher>,
     allowed_entries: Option<&HashSet<LexEntryId>>,
-    mode: TextMode<'_>,
 ) -> Vec<RootRec> {
     let mut roots = Vec::new();
     // Stratum order then entry order, mirroring trie.rs's own roots collection — deterministic Vec walks only.
@@ -1860,79 +1084,6 @@ fn collect_roots(
                     "entry{}(morpheme={morpheme_name})#allo{allo_idx}",
                     entry_id.0
                 );
-                // `TextMode::UnderlyingTokens`: one token string via `encode_shape`; a lexical PATTERN allomorph is not representable here and is reported, never silently dropped.
-                if let TextMode::UnderlyingTokens(alphabet) = mode {
-                    // `is_pattern` alone misses a mandatory `[ClassName]` reference (crate::replace's own doc on this fact).
-                    if allo.is_pattern
-                        || !crate::replace::SegAlphabet::shape_is_tokenizable(&allo.shape.shape)
-                    {
-                        match pattern_root_token_route(
-                            alphabet,
-                            stratum_table,
-                            &allo.shape.shape,
-                            allo.environments.is_empty(),
-                        ) {
-                            Some(PatternRootTokenRoute::Regex(body)) => {
-                                roots.push(RootRec {
-                                    id: allo.id,
-                                    morpheme: entry.morpheme,
-                                    category: entry.syn_fs,
-                                    variants: Vec::new(),
-                                    stripped: Vec::new(),
-                                    never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
-                                    pattern_regex_body: Some(body),
-                                });
-                                counts.allomorphs_emitted += 1;
-                            }
-                            Some(PatternRootTokenRoute::Enumerated(variants)) => {
-                                roots.push(RootRec {
-                                    id: allo.id,
-                                    morpheme: entry.morpheme,
-                                    category: entry.syn_fs,
-                                    variants,
-                                    stripped: Vec::new(),
-                                    never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
-                                    pattern_regex_body: None,
-                                });
-                                counts.allomorphs_emitted += 1;
-                            }
-                            None => {
-                                uncovered.push(UncoveredItem {
-                                    kind: "pattern-allomorph".to_string(),
-                                    id: label,
-                                    reason:
-                                        "lexical pattern root shapes are not representable as a single \
-                                             underlying token string (P6 templated emitter, v1)"
-                                            .to_string(),
-                                });
-                                counts.allomorphs_skipped += 1;
-                            }
-                        }
-                        continue;
-                    }
-                    let variants =
-                        underlying_shape_variants(alphabet, stratum_table, &allo.shape.shape);
-                    if variants.is_empty() {
-                        uncovered.push(UncoveredItem {
-                            kind: "unsegmentable-root".to_string(),
-                            id: label,
-                            reason: "root shape has no representation in the final surface character-definition table".to_string(),
-                        });
-                        counts.allomorphs_skipped += 1;
-                        continue;
-                    }
-                    roots.push(RootRec {
-                        id: allo.id,
-                        morpheme: entry.morpheme,
-                        category: entry.syn_fs,
-                        variants,
-                        stripped: Vec::new(),
-                        never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
-                        pattern_regex_body: None,
-                    });
-                    counts.allomorphs_emitted += 1;
-                    continue;
-                }
                 // Routes every root uniformly through the Shape-based `pattern_variants` path rather than re-segmenting literal text: a mandatory (non-optional) `[ClassName]` node doesn't set `is_pattern`, but its literal text (e.g. `"b[Vowel]t"`) still can't re-segment, so text-based re-segmentation alone would miss it.
                 let (variants, limit) = pattern_variants(stratum_table, &allo.shape.shape);
                 // Unbounded shapes route to a regex entry instead of an enumerated list, scoped to allomorphs with no `<RequiredEnvironments>` (`crate::precision`'s owner-require flags need a literal surface, which an unbounded pattern has none of).
@@ -2205,38 +1356,10 @@ fn filter_roots_by_license<'a>(
 /// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc is the containment for the one input that can
 /// still make `levels` itself unreasonably large.
 ///
-/// **Shared by BOTH emitters** (`emit_with_budget_profiled`'s `TextMode::SurfaceProbed` path AND
-/// `emit_underlying_templated`'s templated path): one construction, generalized over
-/// `mode`/`phon`/`write_root_entries`/`write_stripped_root_entries` exactly the way
-/// `build_deriv_chain` (this file's other shared chain-builder) is already generalized over `mode`.
-/// A per-emitter unroller could silently drift from this one and, on the templated path, propose
-/// fewer compound depths than a rule's own `compounding_max_depth` bound allows even though
-/// `CompoundingRecursionSafePredicate` is `ConfirmOnly` unconditionally for `Compounding`
-/// (`capability.rs`'s own doc) -- one shared function rules that out by construction.
-///
-/// `write_prefix_hop`/`write_root_entries`/`write_stripped_root_entries` are supplied by the caller
-/// (each emitter's own local closure, capturing that emitter's own `width`/tag-writing convention --
-/// mirrors how `build_deriv_chain`'s callers already pass their own `mode`) rather than re-derived
-/// here, so this function never needs any emitter's own closure SHAPE.
-/// `write_stripped_root_entries` is only ever actually invoked when `emit_stripped` (the caller's own
-/// `phon.is_some()`; never true on the templated path or the `crate::uflexc` path, module doc: "No
-/// junction probing... under this mode"), so a caller with no real `Stripped` sibling can pass any
-/// closure with the right signature; it is provably never called there.
-///
-/// **Generic over the root record type `R` and the emitter-state type `C`.** The third caller,
-/// `crate::uflexc`, is a deliberately minimal
-/// `SegAlphabet`-token-space emitter that shares NONE of this module's emission state: it has no
-/// `RootRec` (its roots are `(tag, underlying-token)` pairs read straight off `Grammar::entries`),
-/// no `PrecisionEmit` (no FST precision knob at all), no `PhonologyProbe`, and -- most
-/// importantly -- its own SELF-LOOPING prefix chain rather than this module's rule-count-bounded
-/// `build_deriv_chain` derivation layers (`crate::uflexc`'s own module doc states that difference
-/// as its defining property). Parameterizing this function over those three seams (root record,
-/// emitter state, prefix hop) is what lets uflexc reuse the part that would actually DRIFT -- the
-/// level naming, the `{base}{k}` / `{base}{k}Pfx` / `{base}{k}Roots` triple, the `{base}{k}Next`
-/// dispatcher, and the "last level exits to `exit`" rule -- without importing half of this module's
-/// emission machinery into it. Everything removed from the signature here (`g`, `table`, `phon`,
-/// `deriv_prefix`, `width`, `mode`, `uncovered`) is now captured by the caller's own prefix-hop
-/// closure, so this function got SMALLER, not larger, for gaining a third caller.
+/// Generic over the root record type `R` and the emitter-state type `C`, with the prefix hop and
+/// the root-entry writers supplied by the caller as closures, so the caller's own `width` and
+/// tag-writing convention stay out of this function. `write_stripped_root_entries` is only
+/// invoked when `emit_stripped` (the caller's `phon.is_some()`) is true.
 ///
 /// `write_prefix_hop(out, pfx_base, roots_name, counts, ctx)` must define the lexicon
 /// **`{pfx_base}0`** -- the name this function has already bare-redirected the level's entry lexicon
@@ -2364,20 +1487,6 @@ fn compound_depth_bound(g: &Grammar) -> usize {
         .unwrap_or(2)
 }
 
-/// `compound_chain_depth_and_budget_check`'s computation and budget check, with the TYPED
-/// `ComposeError` as its error rather than that function's `EmitResult` refusal payload -- what a
-/// caller whose own error type is `ComposeError` (`crate::uflexc`, whose whole public surface is
-/// `Result<UEmitReport, ComposeError>`) calls instead, so uflexc's compound loop shares this
-/// module's depth bound and budget discipline verbatim rather than re-deriving either.
-///
-/// `compound_chain_depth_and_budget_check` is now a thin front end onto this that additionally
-/// renders the `FomaTier::Unsupported` refusal and structured depth detail the two
-/// `EmitResult`-returning emitters need -- the same "one construction, two presentations" split
-/// `build_compound_chain`'s own doc uses.
-pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, ComposeError> {
-    compound_extra_levels_checked_with_cap(g, None)
-}
-
 fn compound_extra_levels_checked_with_cap(
     g: &Grammar,
     chain_depth_cap: Option<usize>,
@@ -2413,20 +1522,13 @@ fn allomorph_zone_outcome(
     mid: MRuleId,
     allo: &AffixAllomorphDef,
     zone_role: Role,
-    mode: TextMode<'_>,
 ) -> AllomorphZoneOutcome {
     let role = classify_affix(&allo.rhs);
     if role == zone_role || role == Role::None {
         return AllomorphZoneOutcome::Routed;
     }
     if role == Role::CircumfixPrefix && matches!(zone_role, Role::Prefix | Role::Suffix) {
-        let texts = match mode {
-            TextMode::SurfaceProbed => circumfix_surface_texts(g, allo),
-            TextMode::UnderlyingTokens(alphabet) => {
-                crate::structural_allomorph::circumfix_texts(g, alphabet, allo)
-            }
-        };
-        if let Some(texts) = texts {
+        if let Some(texts) = circumfix_surface_texts(g, allo) {
             return AllomorphZoneOutcome::Circumfix(texts);
         }
     }
@@ -2453,7 +1555,6 @@ fn emit_rule_allomorphs(
     phon: Option<&PhonologyProbe>,
     junction_target: Option<&str>,
     pk: &mut PrecisionEmit,
-    mode: TextMode<'_>,
 ) {
     let morpheme = owning_morpheme(g, mid);
     let tag_lexc = tags::morph_tag_lexc(morpheme, width);
@@ -2470,7 +1571,7 @@ fn emit_rule_allomorphs(
         }
         let role = classify_affix(&allo.rhs);
         // Only the Prefix-zone occurrence carries the tag (the oracle always orders a circumfix's morpheme before the root); the Suffix-zone occurrence is untagged literal text, or the morpheme would be double-counted.
-        match allomorph_zone_outcome(g, mid, allo, zone_role, mode) {
+        match allomorph_zone_outcome(g, mid, allo, zone_role) {
             AllomorphZoneOutcome::Routed => {}
             AllomorphZoneOutcome::Circumfix(texts) => {
                 let emitted = texts.len();
@@ -2525,68 +1626,9 @@ fn emit_rule_allomorphs(
         match insert_action_texts(&allo.rhs) {
             InsertText::None => {
                 write_tag_entry(out, &tag_lexc, "", next, counts, pk, owner);
-                if let TextMode::UnderlyingTokens(_) = mode {
-                    let origin_table = origin_table_for_mrule(g, mid, table);
-                    if let Some(marker) = crate::structural_allomorph::structural_marker_for_zone(
-                        g,
-                        allo,
-                        origin_table,
-                        // Only a Role::None rule reaches both zone chains and needs the mark-once suppression.
-                        zone_role == Role::Prefix && role == Role::None,
-                    ) {
-                        write_tag_entry(
-                            out,
-                            &tag_lexc,
-                            &marker.to_string(),
-                            next,
-                            counts,
-                            pk,
-                            owner,
-                        );
-                    }
-                }
                 counts.allomorphs_emitted += 1;
             }
-            // `TextMode::UnderlyingTokens`: concatenates every action's token string via `encode_shape`, in document order — no surface-variant product, no phonology consultation; keeps Boundary nodes since the rule cascade's environments need them.
-            InsertText::Text { shapes, texts } if matches!(mode, TextMode::UnderlyingTokens(_)) => {
-                let TextMode::UnderlyingTokens(alphabet) = mode else {
-                    unreachable!()
-                };
-                let origin_table = origin_table_for_mrule(g, mid, table);
-                let variants = underlying_shape_concat_variants(alphabet, origin_table, &shapes);
-                let survives_boundary_cleanup = surface_variants_concat(origin_table, &texts)
-                    .is_some_and(|(variants, _)| {
-                        variants.iter().any(|surface| !surface.is_empty())
-                    });
-                if variants.is_empty() {
-                    uncovered.push(UncoveredItem {
-                        kind: "unsegmentable-affix".to_string(),
-                        id: label,
-                        reason: "affix insert shape has no representation in the final surface character-definition table".to_string(),
-                    });
-                    counts.allomorphs_skipped += 1;
-                    continue;
-                }
-                for underlying in variants {
-                    let target = if survives_boundary_cleanup {
-                        target_for(&underlying)
-                    } else {
-                        next
-                    };
-                    write_tag_entry(out, &tag_lexc, &underlying, target, counts, pk, owner);
-                }
-                if let Some(marker) = crate::structural_allomorph::structural_marker_for_zone(
-                    g,
-                    allo,
-                    origin_table,
-                    // See the InsertText::None call site above for why this is `&& role == Role::None`.
-                    zone_role == Role::Prefix && role == Role::None,
-                ) {
-                    write_tag_entry(out, &tag_lexc, &marker.to_string(), next, counts, pk, owner);
-                }
-                counts.allomorphs_emitted += 1;
-            }
-            InsertText::Text { texts, .. } => {
+            InsertText::Text { texts } => {
                 let mut emitted_any = false;
                 match surface_variants_concat_boundary_optional(table, &texts) {
                     Some((variants, limit)) => {
@@ -2657,80 +1699,7 @@ fn emit_rule_allomorphs(
 
 // --- Derivation layer chain (trie.rs::build_derivation_layer) -------------------------------------
 
-/// The stratum index owning `mid` as a standalone rule (`StratumDef::mrules`); mirrors `origin_table_for_mrule`'s search but for stratum identity rather than its table.
-fn owning_stratum_index_for_mrule(g: &Grammar, mid: MRuleId) -> Option<usize> {
-    g.strata
-        .iter()
-        .position(|stratum| stratum.mrules.contains(&mid))
-}
-
-/// Admits `rules` for `build_unordered_powerset_chain` when every rule applies at most once, shares one `Unordered` stratum, and the count is within `MAX_UNORDERED_POWERSET_RULES`; pinned by `mpr_overwrite_order_dependence_proposes_both_relative_orders` and `strrep_identity_proposes_every_stacking_order`.
-fn unordered_reorderable_rule_set(g: &Grammar, rules: &[MRuleId]) -> Option<Vec<MRuleId>> {
-    if rules.len() < 2 || rules.len() > MAX_UNORDERED_POWERSET_RULES {
-        return None;
-    }
-    let stratum_index = owning_stratum_index_for_mrule(g, rules[0])?;
-    if g.strata[stratum_index].mrule_order != MorphRuleOrder::Unordered {
-        return None;
-    }
-    for &mid in rules {
-        if owning_stratum_index_for_mrule(g, mid) != Some(stratum_index) {
-            return None;
-        }
-        let reps =
-            (g.mrules[mid.0 as usize].max_apps() as usize).clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
-        if reps != 1 {
-            return None;
-        }
-    }
-    Some(rules.to_vec())
-}
-
-/// State `mask` names which of `order_free`'s rules have already applied, so every root-to-full-mask walk realizes a genuinely distinct application order rather than `build_deriv_chain`'s single fixed document order; `phon` is always `None` on this path, so there is no junction routing to thread through.
-#[allow(clippy::too_many_arguments)]
-fn build_unordered_powerset_chain(
-    out: &mut String,
-    g: &Grammar,
-    table: &CharDefTable,
-    prefix: &str,
-    zone_role: Role,
-    order_free: &[MRuleId],
-    width: usize,
-    exit: &str,
-    uncovered: &mut Vec<UncoveredItem>,
-    counts: &mut EmitCounts,
-    pk: &mut PrecisionEmit,
-    mode: TextMode<'_>,
-) -> String {
-    let n = order_free.len();
-    let full: u32 = (1u32 << n) - 1;
-    let state_name = |mask: u32| -> String {
-        if mask == 0 {
-            format!("{prefix}0")
-        } else {
-            format!("{prefix}P{mask}")
-        }
-    };
-    for mask in 0..=full {
-        let name = state_name(mask);
-        write_lexicon_header(out, &name);
-        write_bare(out, exit, counts);
-        for (i, &mid) in order_free.iter().enumerate() {
-            let bit = 1u32 << i;
-            if mask & bit != 0 {
-                continue;
-            }
-            let next_name = state_name(mask | bit);
-            emit_rule_allomorphs(
-                out, g, table, mid, zone_role, width, &next_name, None, uncovered, counts, None,
-                None, pk, mode,
-            );
-        }
-    }
-    state_name(0)
-}
-
-/// Emits a chain of optional derivation layers ending at `exit`, always defining `{prefix}0`; `TextMode::UnderlyingTokens` gives each rule application its own dedicated level to kill the cross-level nondeterminism `SurfaceProbed` has, at the cost of fixing two standalone rules' relative order to document order — UNLESS `unordered_reorderable_rule_set` admits the zone, in which case `build_unordered_powerset_chain` replaces the fixed-order chain with the full order lattice. `phon` unions phonology spellings at every level; junction routing to `{exit}Stripped` fires only at the final, root-adjacent level.
+/// Emits a chain of optional derivation layers ending at `exit`, always defining `{prefix}0`.
 #[allow(clippy::too_many_arguments)]
 fn build_deriv_chain(
     out: &mut String,
@@ -2746,7 +1715,6 @@ fn build_deriv_chain(
     phon: Option<&PhonologyProbe>,
     exit_is_roots: bool,
     pk: &mut PrecisionEmit,
-    mode: TextMode<'_>,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if rules.is_empty() {
@@ -2754,53 +1722,13 @@ fn build_deriv_chain(
         write_bare(out, exit, counts);
         return entry_name;
     }
-    if let TextMode::UnderlyingTokens(_) = mode {
-        if let Some(order_free) = unordered_reorderable_rule_set(g, rules) {
-            build_unordered_powerset_chain(
-                out,
-                g,
-                table,
-                prefix,
-                zone_role,
-                &order_free,
-                width,
-                exit,
-                uncovered,
-                counts,
-                pk,
-                mode,
-            );
-            return entry_name;
-        }
-    }
     let junction_target = if zone_role == Role::Prefix && exit_is_roots && phon.is_some() {
         Some(format!("{exit}Stripped"))
     } else {
         None
     };
 
-    // `dedicated` is `Some` under the dedicated-level-per-rule strategy, `None` under legacy (full `rules` slice each level) — one shared loop below so the two strategies can never diverge in header/epsilon/junction handling.
-    let dedicated: Option<Vec<MRuleId>> = match mode {
-        TextMode::UnderlyingTokens(_) => {
-            let mut expanded = Vec::with_capacity(rules.len());
-            // Reverse prefix rules because underlying-token lexc walks from the surface edge toward the root.
-            let mut ordered = rules.to_vec();
-            if zone_role == Role::Prefix {
-                ordered.reverse();
-            }
-            for mid in ordered {
-                let reps = (g.mrules[mid.0 as usize].max_apps() as usize)
-                    .clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
-                expanded.extend(std::iter::repeat_n(mid, reps));
-            }
-            Some(expanded)
-        }
-        TextMode::SurfaceProbed => None,
-    };
-    let depth = match &dedicated {
-        Some(expanded) => expanded.len().max(DERIV_DEPTH_MIN),
-        None => rules.len().max(DERIV_DEPTH_MIN),
-    };
+    let depth = rules.len().max(DERIV_DEPTH_MIN);
 
     for level in 0..depth {
         let name = format!("{prefix}{level}");
@@ -2818,49 +1746,23 @@ fn build_deriv_chain(
         } else {
             None
         };
-        match &dedicated {
-            Some(expanded) => {
-                // Dedicated-level-per-rule: at most one rule per level; past `expanded`'s end is a harmless extra optional hop.
-                if let Some(&mid) = expanded.get(level) {
-                    emit_rule_allomorphs(
-                        out,
-                        g,
-                        table,
-                        mid,
-                        zone_role,
-                        width,
-                        &next,
-                        Some(&name),
-                        uncovered,
-                        counts,
-                        phon,
-                        junction_here,
-                        pk,
-                        mode,
-                    );
-                }
-            }
-            None => {
-                // Legacy strategy: every level offers every rule (unchanged).
-                for &mid in rules {
-                    emit_rule_allomorphs(
-                        out,
-                        g,
-                        table,
-                        mid,
-                        zone_role,
-                        width,
-                        &next,
-                        Some(&name),
-                        uncovered,
-                        counts,
-                        phon,
-                        junction_here,
-                        pk,
-                        mode,
-                    );
-                }
-            }
+        // Every level offers every rule.
+        for &mid in rules {
+            emit_rule_allomorphs(
+                out,
+                g,
+                table,
+                mid,
+                zone_role,
+                width,
+                &next,
+                Some(&name),
+                uncovered,
+                counts,
+                phon,
+                junction_here,
+                pk,
+            );
         }
     }
     entry_name
@@ -2938,7 +1840,6 @@ fn build_slot_chain(
     counts: &mut EmitCounts,
     phon: Option<&PhonologyProbe>,
     pk: &mut PrecisionEmit,
-    mode: TextMode<'_>,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if slots.is_empty() {
@@ -2969,7 +1870,7 @@ fn build_slot_chain(
             }
             emit_rule_allomorphs(
                 out, g, table, mid, zone_role, width, &next, None, uncovered, counts, phon, None,
-                pk, mode,
+                pk,
             );
         }
     }
@@ -3304,7 +2205,7 @@ pub fn eager_route_refuses_mixed_circumfix_zone(g: &Grammar) -> bool {
             allomorphs.iter().any(|allo| {
                 matches!(classify_affix(&allo.rhs), Role::Prefix | Role::Suffix)
                     && matches!(
-                        allomorph_zone_outcome(g, mid, allo, zone_role, TextMode::SurfaceProbed),
+                        allomorph_zone_outcome(g, mid, allo, zone_role),
                         AllomorphZoneOutcome::Uncovered
                     )
             })
@@ -3346,150 +2247,6 @@ pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>
     let wants_composite_emission = plan_has_leaf(&plan, &FragmentSpec::CompositeEmissionMarker);
     let wants_structural_composite = plan_has_leaf(&plan, &FragmentSpec::StructuralCompositeMarker);
     (wants_composite_emission, wants_structural_composite)
-}
-
-/// The real material behind `FragmentSpec::CompositeEmissionMarker`, computed by calling the SAME
-/// function the tuned route calls (`preexpand::build_composites_with_mode_and_trace`, this module's
-/// own "Composite entries" doc) rather than re-deriving `preexpand::should_run`'s own conservative
-/// candidate pre-check. `should_run` answers "could this grammar possibly need composites at all"
-/// (its own doc); the real answer can still be zero records once the builder actually runs (e.g.
-/// every junction this grammar has is already reachable through a DIFFERENT backend's own
-/// phonological-rule-cascade compose step). `crate::build::unbuildable_marker_material` and
-/// `crate::build::compile_marker_material` are the two callers, so the published refusal and what
-/// gets built can never drift apart.
-///
-/// `Err` when the closure did not finish within its resource boundary (mirrors the tuned route's own
-/// `FomaTier::Unsupported` for the identical condition) -- a caller must treat that the same as
-/// "genuinely unbuildable", never as empty.
-pub(crate) fn composite_emission_marker_material(
-    g: &Grammar,
-) -> Result<Vec<crate::preexpand::CompositeRec>, String> {
-    let phon = PhonologyProbe::new(g);
-    if !crate::preexpand::should_run(g, phon.as_ref()) {
-        return Ok(Vec::new());
-    }
-    let width = tags::tag_width(g.morphemes.len());
-    let mt = crate::morphotactics::MorphotacticIndex::build(g);
-    let mode = crate::morphotactics::explore_mode_from_env();
-    let probe_counter = std::sync::atomic::AtomicUsize::new(0);
-    let probe_budget = crate::morphotactics::probe_cap_from_env().map(|cap| ProbeBudget {
-        cap,
-        counter: &probe_counter,
-    });
-    let (composites, report) = crate::preexpand::build_composites_with_mode_and_trace(
-        g,
-        width,
-        phon.as_ref(),
-        &mt,
-        mode,
-        probe_budget,
-        None,
-    );
-    if report.pending_successors != 0 {
-        return Err(format!(
-            "composite-emission closure incomplete: {} successor(s) beyond the resource boundary",
-            report.pending_successors
-        ));
-    }
-    Ok(composites)
-}
-
-/// The real material behind `FragmentSpec::StructuralCompositeMarker` -- mirrors
-/// `composite_emission_marker_material`'s own doc, for `build_structural_composites_with_trace`.
-/// `structural_candidate_rules` is likewise a conservative candidate set (that function's own doc:
-/// "an uncovered item naming one of these is an emitter OVER-REPORT rather than a capability gap"),
-/// not the real decision.
-pub(crate) fn structural_composite_marker_material(
-    g: &Grammar,
-) -> Result<Vec<crate::preexpand::CompositeRec>, String> {
-    let rules = structural_candidate_rules(g);
-    if rules.is_empty() {
-        return Ok(Vec::new());
-    }
-    let phon = PhonologyProbe::new(g);
-    let width = tags::tag_width(g.morphemes.len());
-    let cache = RuleCache::build(g);
-    let morpher = Morpher::new(g, usize::MAX);
-    let mt = crate::morphotactics::MorphotacticIndex::build(g);
-    let mode = crate::morphotactics::explore_mode_from_env();
-    let probe_counter = std::sync::atomic::AtomicUsize::new(0);
-    let probe_budget = crate::morphotactics::probe_cap_from_env().map(|cap| ProbeBudget {
-        cap,
-        counter: &probe_counter,
-    });
-    let (composites, _covered, pending_successors, _pending_rules, _pruned) =
-        build_structural_composites_with_trace(
-            g,
-            width,
-            &rules,
-            &cache,
-            &morpher,
-            &mt,
-            mode,
-            probe_budget,
-            phon.as_ref(),
-            None,
-        );
-    if pending_successors != 0 {
-        return Err(format!(
-            "structural-composite closure incomplete: {pending_successors} successor(s) beyond the \
-             resource boundary"
-        ));
-    }
-    Ok(composites)
-}
-
-/// Whether NO derivational material could attach outside a composite/structural stem for `g` under
-/// `marker` -- the completeness precondition `crate::build::unbuildable_marker_material` requires
-/// before admitting a marker's bare-word union (`crate::build::compile_marker_material`'s own doc:
-/// that union cannot represent a further affix wrapped around a composite/structural stem, only a
-/// complete standalone word). Computed the SAME way the tuned route already classifies which rules
-/// wrap a root (`standalone_rule_zones`, this module's own standalone-derivation-layer zone
-/// membership): if every stratum-listed rule OTHER THAN ones `marker`'s own material already claims
-/// classifies outside both derivation zones, and the grammar declares no `AffixTemplate` at all,
-/// there is no OTHER affixation mechanism anywhere in this grammar that could ever wrap a root --
-/// ordinary or composite -- beyond what the marker's own material already encodes. The excluded set
-/// is `structural_candidate_rules` for `StructuralCompositeMarker` (exactly the rules that route to
-/// structural composite INSTEAD OF ordinary derivation, `is_structural_rule`'s own partition) and
-/// `preexpand::candidate_rules` for `CompositeEmissionMarker` (the same Prefix/Suffix/Infix
-/// candidate set `preexpand::build_composites` itself probes) -- without this exclusion, a rule
-/// that produces the marker's OWN material would count against its own admission, since
-/// `standalone_rule_zones` classifies by `Role` alone and does not know which route claims a rule.
-///
-/// Conservative by construction, deliberately: a template or a genuinely EXTERNAL standalone
-/// Prefix/Suffix rule refuses admission even where it provably could never reach a composite/
-/// structural stem (no per-slot or per-category reachability proof is attempted), which is the safe
-/// direction. This is also why an EMPTY marker result is never treated as vacuously complete by its
-/// caller: two grammars can be structurally identical under this fact (zero external standalone
-/// rules, zero templates) while one has an unrelated, pre-existing PlanComposed defect this fact
-/// cannot see (e.g. `SymbolicFeature@defaultSymbol`/UseDefaults not honoured by the compiled
-/// rewrite-rule cascade) -- admitting on emptiness alone would expose that defect as a new miss, so
-/// the caller only ever consults this function for a marker whose material is genuinely non-empty.
-pub(crate) fn marker_admission_is_complete(g: &Grammar, marker: &FragmentSpec) -> bool {
-    let claimed: std::collections::BTreeSet<u32> = match marker {
-        FragmentSpec::StructuralCompositeMarker => structural_candidate_rules(g)
-            .into_iter()
-            .map(|m| m.0)
-            .collect(),
-        FragmentSpec::CompositeEmissionMarker => crate::preexpand::candidate_rules(g)
-            .into_iter()
-            .map(|(m, _)| m.0)
-            .collect(),
-        other => panic!(
-            "marker_admission_is_complete only ever runs on CompositeEmissionMarker/\
-             StructuralCompositeMarker, got {other:?}"
-        ),
-    };
-    let no_external_affixation = g
-        .strata
-        .iter()
-        .flat_map(|s| s.mrules.iter())
-        .filter(|mid| !claimed.contains(&mid.0))
-        .all(|&mid| {
-            let (in_prefix, in_suffix) = standalone_rule_zones(g, mid);
-            !in_prefix && !in_suffix
-        });
-    no_external_affixation && g.templates.is_empty()
 }
 
 /// Uses extra stack headroom for recursive feature and rewrite probes.
@@ -4370,7 +3127,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         &rule_cache,
         morpher.as_ref(),
         allowed_entries,
-        TextMode::SurfaceProbed,
     );
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
@@ -4753,7 +3509,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             phon.as_ref(),
             false,
             &mut pk,
-            TextMode::SurfaceProbed,
         );
         // Deduped: templates with no prefix slots all point straight at their group's prefix-derivation entry. classify_template here only probes prefix-emptiness; its uncovered routing happens on the real pass below.
         write_lexicon_header(&mut out, "TmplDispatch");
@@ -4786,7 +3541,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             phon.as_ref(),
             false,
             &mut pk,
-            TextMode::SurfaceProbed,
         );
     }
 
@@ -4806,7 +3560,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             phon.as_ref(),
             true,
             &mut pk,
-            TextMode::SurfaceProbed,
         );
         write_lexicon_header(&mut out, "TLRoots");
         // Splits into head-eligible (TLPost: both TLSfx0 and TLCmp) vs. head-ineligible (TLPostNoCmp: TLSfx0 only); both reach TLSfx0, so plain-word recall never regresses, only the TLCmp option is withheld from an unlicensed head.
@@ -4857,7 +3610,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     phon.as_ref(),
                     true,
                     pk,
-                    TextMode::SurfaceProbed,
                 );
             };
             build_compound_chain(
@@ -4894,7 +3646,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             phon.as_ref(),
             false,
             &mut pk,
-            TextMode::SurfaceProbed,
         );
     }
 
@@ -4923,7 +3674,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     &mut counts,
                     phon.as_ref(),
                     &mut pk,
-                    TextMode::SurfaceProbed,
                 );
                 join_lines.insert(entry);
             }
@@ -4948,7 +3698,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             phon.as_ref(),
             false,
             &mut pk,
-            TextMode::SurfaceProbed,
         );
 
         let post_name = format!("G{gi}Post");
@@ -4982,7 +3731,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                         phon.as_ref(),
                         true,
                         pk,
-                        TextMode::SurfaceProbed,
                     );
                 };
             build_compound_chain(
@@ -5054,7 +3802,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             phon.as_ref(),
             true,
             &mut pk,
-            TextMode::SurfaceProbed,
         );
 
         for &ti in &group_templates[gi] {
@@ -5077,7 +3824,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 &mut counts,
                 phon.as_ref(),
                 &mut pk,
-                TextMode::SurfaceProbed,
             );
         }
 
@@ -5158,935 +3904,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             closure_evidence: closure_trace.map(|trace| trace.result()),
         },
     }
-}
-
-/// Post-emission check for a tag that was classified, declared, and had entries written, yet is absent from the compiled net's own sigma, narrowed against a known foma-rs tokenizer false positive.
-/// See docs/research/foma-rs-zero-digit-multichar-symbol-bug.md.
-fn verify_tags_reachable(
-    lexc_source: &str,
-    symbols: &BTreeSet<(bool, u32)>,
-    affix_owner_mrule: &HashMap<u32, MRuleId>,
-    width: usize,
-    uncovered: &mut Vec<UncoveredItem>,
-) {
-    let opts = FomaOptions::default();
-    let Some(net) = fsm_lexc_parse_string(&opts, None, lexc_source) else {
-        return;
-    };
-    let sigma: HashSet<&str> = net.sigma.iter().map(|s| s.symbol.as_str()).collect();
-
-    // See this function's own doc for the upstream artifact this checks for.
-    let is_known_zero_escape_artifact = |tag_text: &str| -> bool {
-        tag_text.contains('0')
-            && tag_text
-                .chars()
-                .all(|c| sigma.contains(c.to_string().as_str()))
-    };
-
-    let already_reported: HashSet<String> = uncovered.iter().map(|u| u.id.clone()).collect();
-    let has_other_reason = |label: &str| -> bool {
-        already_reported.contains(label)
-            || already_reported
-                .iter()
-                .any(|id| id.starts_with(&format!("{label}#")))
-    };
-    for &(is_root, id) in symbols {
-        let mid = MorphemeId(id);
-        let (tag_text, label) = if is_root {
-            (
-                tags::root_tag_text(mid, width),
-                format!("root-morpheme{id}"),
-            )
-        } else {
-            let label = match affix_owner_mrule.get(&id) {
-                Some(mrid) => format!("mrule{}", mrid.0),
-                None => format!("morpheme{id}"),
-            };
-            (tags::morph_tag_text(mid, width), label)
-        };
-        let reachable =
-            sigma.contains(tag_text.as_str()) || is_known_zero_escape_artifact(&tag_text);
-        if !reachable && !has_other_reason(&label) {
-            uncovered.push(UncoveredItem {
-                kind: "unreachable-after-lexc-compile".to_string(),
-                id: label.clone(),
-                reason: format!(
-                    "{label}'s tag {tag_text} is declared in Multichar_Symbols and its lexicon \
-                     entries are written, but the compiled lexc network's own alphabet does not \
-                     contain it (and this is not the known %0-escape decomposition artifact -- see \
-                     verify_tags_reachable's own doc) -- this fragment may be genuinely \
-                     UNREACHABLE from Root even though it looks fully wired in the emitted lexc \
-                     source"
-                ),
-            });
-        }
-    }
-}
-
-/// Templated-morphotactics emitter: `emit_with_budget`'s
-/// structural skeleton (template grouping, slot chains, derivation layers) refitted with
-/// `TextMode::UnderlyingTokens` instead of `TextMode::SurfaceProbed` — every leaf text site
-/// emits plain UNDERLYING text in `alphabet`'s token space, meant to be composed with
-/// `crate::replace::compile_and_compose_rules`'s rule cascade rather than this crate's own
-/// surface-junction machinery. Returns the SAME `EmitResult` shape `emit_with_budget` does, so
-/// a caller can inspect `report.tier`/`report.counts`/`report.uncovered` identically.
-///
-/// `allowed_entries`: mirrors `uflexc::emit_underlying_filtered`'s own convention exactly (that
-/// module's doc: "not a coverage gap — a DIFFERENT group's lexicon has it") — `crate::gate`'s
-/// static MPR/POS partition design, for whenever a templated grammar needs it. `None` (every
-/// caller today; Aweti has zero gated subrules — `crate::gate::find_gated_subrules` returns empty
-/// for it) includes every entry, unfiltered.
-///
-/// What this function deliberately does NOT do, and why:
-/// - **No FST precision knob.** `PrecisionConfig::Strip` only, hardcoded — every `write_tag_entry`/
-///   `build_deriv_chain`/`build_slot_chain` call below still takes a `PrecisionEmit` (unchanged
-///   function signatures), but it is always the pure-passthrough one (`crate::precision`'s own
-///   doc: "under `Strip` this is byte-identical to the pre-knob emitter").
-/// - **No junction probing, no bare-root phonology enrichment.** `phon` is `None` at every call
-///   site — the affix/root's own underlying spelling already IS the token text
-///   (`TextMode::UnderlyingTokens`'s whole point); this ALSO means every `{name}Stripped`
-///   sibling lexicon `emit_with_budget` writes (module doc, "Junction-aware affix/root
-///   emission") is skipped outright here, since nothing ever tests `phon.is_some()` true.
-/// - **No composite pipeline at all** (`crate::preexpand::build_composites_with_mode`,
-///   `build_structural_composites`) — this is the mechanism whose `O(roots × rules^depth)`
-///   eager Rust-side enumeration is exactly what OOMs on Aweti (855 roots × 135 mrules;
-///   the historical measurements for this grammar cite 2,833,559 fusion entries / 691MB lexc /
-///   ~8.8GB `apply_up` allocation), so skipping it
-///   unconditionally is the scale fix this function exists for. This path deliberately emits
-///   only the underlying-token skeleton and leaves composition to its dedicated backend.
-/// - **Aweti's 41 single-sided-truncation `is_structural_rule` mrules are NOT specially handled.**
-///   Under `TextMode::SurfaceProbed`, `build_structural_composites` is what gives these rules
-///   their CORRECT (LHS-material-dropped) surface; the ordinary two-entry `emit_rule_allomorphs`
-///   path this function DOES use emits each such allomorph's literal `InsertSegments` text
-///   verbatim, with no drop applied — upward-safe in the sense that it never emits LESS than a
-///   correct entry would (module doc convention throughout this crate), but it can genuinely MISS
-///   the correct underlying form for a root that needs the drop, if no OTHER allomorph of the same
-///   rule happens to cover it unconditionally. The general shape of the fix would be representing a
-///   structural allomorph via its OWN alternative underlying forms rather than the surface-probe
-///   composite path.
-pub fn emit_underlying_templated(
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    allowed_entries: Option<&HashSet<LexEntryId>>,
-) -> EmitResult {
-    if alpha_environment_refusal(g) {
-        return alpha_environment_emit_refusal(g);
-    }
-    let width = tags::tag_width(g.morphemes.len());
-    let table = alphabet.table();
-
-    let mut uncovered: Vec<UncoveredItem> = Vec::new();
-    let mut counts = EmitCounts {
-        entries: g.entries.len(),
-        rules: g.mrules.len(),
-        ..Default::default()
-    };
-
-    // No FST precision knob under this mode: built once, always Strip, a pure passthrough.
-    let catalog = ConstraintCatalog::build(g);
-    let mut pk = PrecisionEmit::build(&catalog, PrecisionConfig::Strip);
-
-    // No junction probing or bare-root phonology enrichment under this mode: phon stays None at every downstream call site below.
-    let phon: Option<&PhonologyProbe> = None;
-    let rule_cache = RuleCache::build(g);
-    let morpher: Option<&Morpher> = None;
-
-    let mode = TextMode::UnderlyingTokens(alphabet);
-    let roots = collect_roots(
-        g,
-        &mut uncovered,
-        &mut counts,
-        phon,
-        &rule_cache,
-        morpher,
-        allowed_entries,
-        mode,
-    );
-
-    if roots.is_empty() {
-        return EmitResult {
-            lexc_source: String::new(),
-            report: EmitReport {
-                uncovered,
-                counts,
-                tier: FomaTier::Unsupported {
-                    reason: "no root allomorph in this grammar produced any literal lexc text"
-                        .to_string(),
-                },
-                enum_budget_exceeded: None,
-                closure_refusal: None,
-                closure_evidence: None,
-            },
-        };
-    }
-
-    // Identical classification logic to emit_with_budget's own loop, including Role::None in both zones.
-    let mut deriv_prefix: Vec<MRuleId> = Vec::new();
-    let mut deriv_suffix: Vec<MRuleId> = Vec::new();
-    let mut has_compounding_rules = false;
-    let mut category_changing_out: Vec<FsId> = Vec::new();
-    for sd in &g.strata {
-        for &mid in &sd.mrules {
-            match &g.mrules[mid.0 as usize] {
-                MorphRuleDef::Compounding(_) => {
-                    has_compounding_rules = true;
-                    continue;
-                }
-                MorphRuleDef::AffixProcess(def) => {
-                    if !g.fs_interner.get(def.out_syn_fs).is_empty() {
-                        category_changing_out.push(def.out_syn_fs);
-                    }
-                }
-                MorphRuleDef::Realizational(_) => {}
-            }
-            match rule_role(g, mid) {
-                Role::Prefix => deriv_prefix.push(mid),
-                Role::Suffix => deriv_suffix.push(mid),
-                Role::None => {
-                    deriv_prefix.push(mid);
-                    deriv_suffix.push(mid);
-                }
-                // Given both zones below, like Role::None.
-                Role::CircumfixPrefix => {}
-                other => uncovered.push(UncoveredItem {
-                    kind: other.label().to_string(),
-                    id: format!("mrule{}", mid.0),
-                    reason: format!(
-                        "standalone rule's primary allomorph classifies as {other:?}; not representable (v1)"
-                    ),
-                }),
-            }
-            // Checked unconditionally (not just when rule_role itself said CircumfixPrefix): rule_role only reads allomorph 0, so a rule like mrMixed (allomorph 0 Suffix, allomorph 1 circumfix) already landed in deriv_suffix above and still needs deriv_prefix for its tagged occurrence.
-            if any_allomorph_is_circumfix_prefix(g, mid) {
-                if !deriv_prefix.contains(&mid) {
-                    deriv_prefix.push(mid);
-                }
-                if !deriv_suffix.contains(&mid) {
-                    deriv_suffix.push(mid);
-                }
-            }
-        }
-    }
-
-    let atomic_carriers =
-        match atomic_template_carriers(g, alphabet, counts.clone(), uncovered.clone()) {
-            Ok(carriers) => carriers,
-            Err(refusal) => return refusal,
-        };
-    if !atomic_carriers.is_empty() && has_compounding_rules {
-        return atomic_carrier_refusal(
-            uncovered,
-            counts,
-            "atomic template carrier requires a bounded non-compounding root/post topology",
-        );
-    }
-
-    // Identical grouping to emit_with_budget's own: one per distinct required_syn_fs, first-seen order.
-    let mut group_keys: Vec<FsId> = Vec::new();
-    let mut group_templates: Vec<Vec<usize>> = Vec::new();
-    for (ti, t) in g.templates.iter().enumerate() {
-        counts.slots += t.slots.len();
-        match group_keys.iter().position(|&k| k == t.required_syn_fs) {
-            Some(gi) => group_templates[gi].push(ti),
-            None => {
-                group_keys.push(t.required_syn_fs);
-                group_templates.push(vec![ti]);
-            }
-        }
-    }
-    counts.groups = group_keys.len();
-
-    let permissive: Vec<bool> = group_keys
-        .iter()
-        .map(|&key| {
-            let key_fs = g.fs_interner.get(key);
-            category_changing_out
-                .iter()
-                .any(|&ocat| is_unifiable(g.fs_interner.get(ocat), key_fs))
-        })
-        .collect();
-
-    let has_template_less_section =
-        !deriv_prefix.is_empty() || !deriv_suffix.is_empty() || has_compounding_rules;
-    let has_templates = !g.templates.is_empty();
-
-    let mut out = String::new();
-
-    // No composite/flag/combining-mark symbols here: no composite pipeline, no precision knob, and the token space is PUA codepoints, never Unicode combining marks.
-    let mut symbols: BTreeSet<(bool, u32)> = BTreeSet::new();
-    // Which MRuleId owns each non-root morpheme, for a readable UncoveredItem::id ("mrule105" rather than a bare morpheme index); first-seen wins.
-    let mut affix_owner_mrule: HashMap<u32, MRuleId> = HashMap::new();
-    for r in &roots {
-        symbols.insert((true, r.morpheme.0));
-    }
-    for &mid in deriv_prefix.iter().chain(deriv_suffix.iter()) {
-        if allomorphs_of(g, mid).is_empty() {
-            continue;
-        }
-        let owner = owning_morpheme(g, mid);
-        symbols.insert((false, owner.0));
-        affix_owner_mrule.entry(owner.0).or_insert(mid);
-    }
-    for t in &g.templates {
-        for slot in &t.slots {
-            for &mid in &slot.rules {
-                if !matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_))
-                    && !allomorphs_of(g, mid).is_empty()
-                {
-                    let owner = owning_morpheme(g, mid);
-                    symbols.insert((false, owner.0));
-                    affix_owner_mrule.entry(owner.0).or_insert(mid);
-                }
-            }
-        }
-    }
-    out.push_str("Multichar_Symbols\n");
-    for &(is_root, id) in &symbols {
-        let lexc = if is_root {
-            tags::root_tag_lexc(MorphemeId(id), width)
-        } else {
-            tags::morph_tag_lexc(MorphemeId(id), width)
-        };
-        out.push_str(&lexc);
-        out.push('\n');
-    }
-
-    // Mirrors emit_with_budget's own write_root_entries closure; no write_stripped_root_entries equivalent, since phon is always None here.
-    let write_root_entries = |out: &mut String,
-                              roots: &[&RootRec],
-                              continuation: &str,
-                              counts: &mut EmitCounts,
-                              pk: &mut PrecisionEmit| {
-        write_root_entries_with_width(out, roots, continuation, counts, pk, width);
-    };
-    let all_roots: Vec<&RootRec> = roots.iter().collect();
-
-    let compound_license = if has_compounding_rules {
-        compound_license(g)
-    } else {
-        None
-    };
-    // Overwritten below when has_compounding_rules; stays 1 for every no-compounding grammar, mirroring emit_with_budget_profiled's default.
-    let mut compound_extra_levels: usize = 1;
-    if compound_license.is_some() {
-        // Shares compound_chain_depth_and_budget_check with emit_with_budget_profiled.
-        compound_extra_levels =
-            match compound_chain_depth_and_budget_check(g, &uncovered, &counts, None) {
-                Ok(levels) => levels,
-                Err(early_return) => return early_return,
-            };
-    }
-    // Exists only to satisfy build_compound_chain's shared signature; phon is always None on this templated path, so build_compound_chain never actually invokes it.
-    let write_stripped_root_entries_noop =
-        |_out: &mut String,
-         _roots: &[&RootRec],
-         _continuation: &str,
-         _counts: &mut EmitCounts,
-         _pk: &mut PrecisionEmit| {
-            unreachable!(
-            "write_stripped_root_entries is only ever invoked when phon.is_some(), and phon is \
-             always None on the P6 templated path"
-        )
-        };
-
-    // LEXICON Root: bare roots, the template-less section, then the outer-prefix hop; no Composites bare-redirect, since this path has no composite pipeline.
-    write_lexicon_header(&mut out, "Root");
-    let bare_roots = bare_admissible_roots(&all_roots, &mut counts);
-    write_root_entries(&mut out, &bare_roots, "#", &mut counts, &mut pk);
-    if has_template_less_section {
-        write_bare(&mut out, "TLPfx0", &mut counts);
-    }
-    if has_templates {
-        write_bare(&mut out, "OuterPfx0", &mut counts);
-    }
-    if has_templates {
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "OuterPfx",
-            Role::Prefix,
-            &deriv_prefix,
-            width,
-            "TmplDispatch",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            false,
-            &mut pk,
-            mode,
-        );
-        write_lexicon_header(&mut out, "TmplDispatch");
-        let mut dispatch_lines: BTreeSet<String> = BTreeSet::new();
-        for (gi, tis) in group_templates.iter().enumerate() {
-            for &ti in tis {
-                let (prefix_slots, _) = classify_template(g, &g.templates[ti], &mut Vec::new());
-                let has_mixed = atomic_carriers
-                    .keys()
-                    .any(|&(template_index, _)| template_index == ti);
-                if prefix_slots.is_empty() && !has_mixed {
-                    dispatch_lines.insert(format!("G{gi}PfxD0"));
-                } else {
-                    dispatch_lines.insert(format!("T{ti}P0"));
-                }
-            }
-        }
-        for line in &dispatch_lines {
-            write_bare(&mut out, line, &mut counts);
-        }
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "OuterSfx",
-            Role::Suffix,
-            &deriv_suffix,
-            width,
-            "#",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            false,
-            &mut pk,
-            mode,
-        );
-    }
-    // ---- Template-less derivation section ----
-    if has_template_less_section {
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "TLPfx",
-            Role::Prefix,
-            &deriv_prefix,
-            width,
-            "TLRoots",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            true,
-            &mut pk,
-            mode,
-        );
-        write_lexicon_header(&mut out, "TLRoots");
-        // Same head-eligible/head-ineligible split as emit_with_budget's own TLRoots/TLPost/TLPostNoCmp.
-        let (tl_head_ok, tl_head_no): (Vec<&RootRec>, Vec<&RootRec>) = match &compound_license {
-            Some(license) => all_roots.iter().copied().partition(|r| {
-                root_lex_entry(g, r.id).is_some_and(|le| license.head_eligible.contains(&le))
-            }),
-            None => (all_roots.clone(), Vec::new()),
-        };
-        write_root_entries(&mut out, &tl_head_ok, "TLPost", &mut counts, &mut pk);
-        if !tl_head_no.is_empty() {
-            write_root_entries(&mut out, &tl_head_no, "TLPostNoCmp", &mut counts, &mut pk);
-        }
-        write_lexicon_header(&mut out, "TLPost");
-        write_bare(&mut out, "TLSfx0", &mut counts);
-        if has_compounding_rules {
-            write_bare(&mut out, "TLCmp", &mut counts);
-            // Same depth-budgeted build_compound_chain as the SurfaceProbed path, narrowed to the licensed non-head subset.
-            let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
-                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
-                None => all_roots.clone(),
-            };
-            let mut tl_prefix_hop = |out: &mut String,
-                                     pfx_base: &str,
-                                     roots_name: &str,
-                                     counts: &mut EmitCounts,
-                                     pk: &mut PrecisionEmit| {
-                build_deriv_chain(
-                    out,
-                    g,
-                    table,
-                    pfx_base,
-                    Role::Prefix,
-                    &deriv_prefix,
-                    width,
-                    roots_name,
-                    &mut uncovered,
-                    counts,
-                    phon,
-                    true,
-                    pk,
-                    mode,
-                );
-            };
-            build_compound_chain(
-                &mut out,
-                "TLCmp",
-                compound_extra_levels,
-                &tl_non_head_roots,
-                &all_roots,
-                "TLSfx0",
-                &mut counts,
-                &mut pk,
-                phon.is_some(),
-                &mut tl_prefix_hop,
-                &write_root_entries,
-                &write_stripped_root_entries_noop,
-            );
-        }
-        if !tl_head_no.is_empty() {
-            // TLPost's head-ineligible twin, written after the whole TLCmp block so entries never interleave.
-            write_lexicon_header(&mut out, "TLPostNoCmp");
-            write_bare(&mut out, "TLSfx0", &mut counts);
-        }
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "TLSfx",
-            Role::Suffix,
-            &deriv_suffix,
-            width,
-            "#",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            false,
-            &mut pk,
-            mode,
-        );
-    }
-    // ---- Per-group root sections + per-template slot chains ----
-    for (gi, &key) in group_keys.iter().enumerate() {
-        let mut join_lines: BTreeSet<String> = BTreeSet::new();
-        for &ti in &group_templates[gi] {
-            let template = &g.templates[ti];
-            let (_, suffix_slots) = classify_template(g, template, &mut uncovered);
-            let mixed_slot =
-                atomic_carriers
-                    .iter()
-                    .find_map(|(&(template_index, slot_index), carrier)| {
-                        (template_index == ti).then_some((slot_index, carrier))
-                    });
-            let suffix_slots: Vec<&SlotDef> = suffix_slots
-                .into_iter()
-                .filter(|slot| {
-                    mixed_slot
-                        .is_none_or(|(slot_index, _)| !slot_index_matches(g, slot, slot_index, ti))
-                })
-                .collect();
-            if suffix_slots.is_empty() {
-                join_lines.insert("OuterSfx0".to_string());
-            } else {
-                let entry = build_slot_chain(
-                    &mut out,
-                    g,
-                    table,
-                    &format!("T{ti}Z"),
-                    &suffix_slots,
-                    Role::Suffix,
-                    template.required_syn_fs,
-                    width,
-                    "OuterSfx0",
-                    &mut uncovered,
-                    &mut counts,
-                    phon,
-                    &mut pk,
-                    mode,
-                );
-                join_lines.insert(entry);
-            }
-        }
-        let join_name = format!("G{gi}Join");
-        write_lexicon_header(&mut out, &join_name);
-        for line in &join_lines {
-            write_bare(&mut out, line, &mut counts);
-        }
-
-        let sfx_deriv_entry = build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            &format!("G{gi}SfxD"),
-            Role::Suffix,
-            &deriv_suffix,
-            width,
-            &join_name,
-            &mut uncovered,
-            &mut counts,
-            phon,
-            false,
-            &mut pk,
-            mode,
-        );
-
-        let post_name = format!("G{gi}Post");
-        write_lexicon_header(&mut out, &post_name);
-        write_bare(&mut out, &sfx_deriv_entry, &mut counts);
-        if has_compounding_rules {
-            let cmp_name = format!("G{gi}Cmp");
-            write_bare(&mut out, &cmp_name, &mut counts);
-            // Same depth-budgeted chain as the template-less TLCmp section above; the head side stays ungated (unproven template+compounding interaction), only the non-head side below is narrowed.
-            let group_non_head_roots: Vec<&RootRec> = match &compound_license {
-                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
-                None => all_roots.clone(),
-            };
-            let mut group_prefix_hop =
-                |out: &mut String,
-                 pfx_base: &str,
-                 roots_name: &str,
-                 counts: &mut EmitCounts,
-                 pk: &mut PrecisionEmit| {
-                    build_deriv_chain(
-                        out,
-                        g,
-                        table,
-                        pfx_base,
-                        Role::Prefix,
-                        &deriv_prefix,
-                        width,
-                        roots_name,
-                        &mut uncovered,
-                        counts,
-                        phon,
-                        true,
-                        pk,
-                        mode,
-                    );
-                };
-            build_compound_chain(
-                &mut out,
-                &cmp_name,
-                compound_extra_levels,
-                &group_non_head_roots,
-                &all_roots,
-                &sfx_deriv_entry,
-                &mut counts,
-                &mut pk,
-                phon.is_some(),
-                &mut group_prefix_hop,
-                &write_root_entries,
-                &write_stripped_root_entries_noop,
-            );
-        }
-
-        let roots_name = format!("G{gi}Roots");
-        write_lexicon_header(&mut out, &roots_name);
-        let key_fs = g.fs_interner.get(key);
-        let eligible_roots: Vec<&RootRec> = roots
-            .iter()
-            .filter(|r| {
-                has_compounding_rules
-                    || permissive[gi]
-                    || key_fs.is_empty()
-                    || is_unifiable(g.fs_interner.get(r.category), key_fs)
-            })
-            .collect();
-        if eligible_roots.is_empty() {
-            write_bare(&mut out, &post_name, &mut counts);
-        } else {
-            write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
-        }
-
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            &format!("G{gi}PfxD"),
-            Role::Prefix,
-            &deriv_prefix,
-            width,
-            &roots_name,
-            &mut uncovered,
-            &mut counts,
-            phon,
-            true,
-            &mut pk,
-            mode,
-        );
-
-        for &ti in &group_templates[gi] {
-            let template = &g.templates[ti];
-            let mixed =
-                atomic_carriers
-                    .iter()
-                    .find_map(|(&(template_index, slot_index), carrier)| {
-                        (template_index == ti).then_some((slot_index, carrier))
-                    });
-            let (prefix_slots, suffix_slots) = classify_template(g, template, &mut Vec::new());
-            if let Some((mixed_slot_index, carrier)) = mixed {
-                let mut lane_prefix_slots: Vec<&SlotDef> = template
-                    .slots
-                    .iter()
-                    .filter(|slot| {
-                        slot_index_matches(g, slot, mixed_slot_index, ti)
-                            || prefix_slots
-                                .iter()
-                                .any(|prefix| std::ptr::eq(*prefix, *slot))
-                    })
-                    .collect();
-                lane_prefix_slots.reverse();
-                build_atomic_prefix_chain(
-                    &mut out,
-                    g,
-                    table,
-                    &format!("T{ti}P"),
-                    &lane_prefix_slots,
-                    mixed_slot_index,
-                    carrier,
-                    template.required_syn_fs,
-                    width,
-                    &format!("G{gi}PfxD0"),
-                    &mut uncovered,
-                    &mut counts,
-                    phon,
-                    &mut pk,
-                    mode,
-                );
-
-                let ordinary_suffix_slots: Vec<&SlotDef> = suffix_slots
-                    .into_iter()
-                    .filter(|slot| !slot_index_matches(g, slot, mixed_slot_index, ti))
-                    .collect();
-                let before_slots: Vec<&SlotDef> = ordinary_suffix_slots
-                    .iter()
-                    .copied()
-                    .filter(|slot| {
-                        template
-                            .slots
-                            .iter()
-                            .position(|candidate| std::ptr::eq(candidate, *slot))
-                            .is_some_and(|index| index < mixed_slot_index)
-                    })
-                    .collect();
-                let after_slots: Vec<&SlotDef> = ordinary_suffix_slots
-                    .iter()
-                    .copied()
-                    .filter(|slot| {
-                        template
-                            .slots
-                            .iter()
-                            .position(|candidate| std::ptr::eq(candidate, *slot))
-                            .is_some_and(|index| index > mixed_slot_index)
-                    })
-                    .collect();
-                let after_entry = if after_slots.is_empty() {
-                    let name = format!("AtomicT{}S{}After0", ti, mixed_slot_index);
-                    write_lexicon_header(&mut out, &name);
-                    write_bare(&mut out, "OuterSfx0", &mut counts);
-                    name
-                } else {
-                    build_slot_chain(
-                        &mut out,
-                        g,
-                        table,
-                        &format!("AtomicT{}S{}After", ti, mixed_slot_index),
-                        &after_slots,
-                        Role::Suffix,
-                        template.required_syn_fs,
-                        width,
-                        "OuterSfx0",
-                        &mut uncovered,
-                        &mut counts,
-                        phon,
-                        &mut pk,
-                        mode,
-                    )
-                };
-                for (choice_index, choice) in carrier.choices.iter().enumerate() {
-                    write_lexicon_header(&mut out, &choice.post_name);
-                    emit_atomic_choice_suffix(
-                        &mut out,
-                        g,
-                        choice,
-                        template.required_syn_fs,
-                        &after_entry,
-                        width,
-                        &mut counts,
-                        &mut pk,
-                    );
-                    let before_entry = if before_slots.is_empty() {
-                        let name =
-                            format!("AtomicT{}S{}A{}Before0", ti, mixed_slot_index, choice_index);
-                        write_lexicon_header(&mut out, &name);
-                        write_bare(&mut out, &choice.post_name, &mut counts);
-                        name
-                    } else {
-                        build_slot_chain(
-                            &mut out,
-                            g,
-                            table,
-                            &format!("AtomicT{}S{}A{}Before", ti, mixed_slot_index, choice_index),
-                            &before_slots,
-                            Role::Suffix,
-                            template.required_syn_fs,
-                            width,
-                            &choice.post_name,
-                            &mut uncovered,
-                            &mut counts,
-                            phon,
-                            &mut pk,
-                            mode,
-                        )
-                    };
-                    let suffix_deriv_entry = build_deriv_chain(
-                        &mut out,
-                        g,
-                        table,
-                        &format!("AtomicT{}S{}A{}SfxD", ti, mixed_slot_index, choice_index),
-                        Role::Suffix,
-                        &deriv_suffix,
-                        width,
-                        &before_entry,
-                        &mut uncovered,
-                        &mut counts,
-                        phon,
-                        false,
-                        &mut pk,
-                        mode,
-                    );
-                    write_lexicon_header(&mut out, &choice.root_post_name);
-                    write_bare(&mut out, &suffix_deriv_entry, &mut counts);
-                    write_lexicon_header(&mut out, &choice.roots_name);
-                    if eligible_roots.is_empty() {
-                        write_bare(&mut out, &choice.root_post_name, &mut counts);
-                    } else {
-                        write_root_entries(
-                            &mut out,
-                            &eligible_roots,
-                            &choice.root_post_name,
-                            &mut counts,
-                            &mut pk,
-                        );
-                    }
-                    build_deriv_chain(
-                        &mut out,
-                        g,
-                        table,
-                        &choice.prefix_name,
-                        Role::Prefix,
-                        &deriv_prefix,
-                        width,
-                        &choice.roots_name,
-                        &mut uncovered,
-                        &mut counts,
-                        phon,
-                        true,
-                        &mut pk,
-                        mode,
-                    );
-                }
-            } else if !prefix_slots.is_empty() {
-                build_slot_chain(
-                    &mut out,
-                    g,
-                    table,
-                    &format!("T{ti}P"),
-                    &prefix_slots,
-                    Role::Prefix,
-                    template.required_syn_fs,
-                    width,
-                    &format!("G{gi}PfxD0"),
-                    &mut uncovered,
-                    &mut counts,
-                    phon,
-                    &mut pk,
-                    mode,
-                );
-            }
-        }
-    }
-
-    // Run before the final dedup/tier computation, so any new findings fold in like every other uncovered source.
-    verify_tags_reachable(&out, &symbols, &affix_owner_mrule, width, &mut uncovered);
-
-    // Same dedup convention as emit_with_budget.
-    let mut seen_uncovered: BTreeSet<(String, String, String)> = BTreeSet::new();
-    uncovered.retain(|u| seen_uncovered.insert((u.kind.clone(), u.id.clone(), u.reason.clone())));
-
-    let tier = if uncovered.is_empty() {
-        FomaTier::Full
-    } else {
-        FomaTier::Partial {
-            uncovered: uncovered.len(),
-        }
-    };
-
-    EmitResult {
-        lexc_source: out,
-        report: EmitReport {
-            uncovered,
-            counts,
-            tier,
-            enum_budget_exceeded: None,
-            closure_refusal: None,
-            closure_evidence: None,
-        },
-    }
-}
-
-/// Predicate name for [`templated_route_uncovered_refusal`]'s diagnostics.
-const TEMPLATED_EMISSION_UNCOVERED_PREDICATE: &str = "templated-route.emission-uncovered";
-
-/// The templated route's own uncovered-construct verdict, run by calling
-/// [`emit_underlying_templated`] itself -- the exact function `crate::templated_compile::
-/// compile_templated_morphotactics` calls first, and one that only ever builds lexc text, never a
-/// `foma::types::Fsm` -- rather than re-deriving an equivalent uncovered-item check. `None` when
-/// the route reports `FomaTier::Full` or the grammar has no character table to build an alphabet
-/// from.
-///
-/// A panic in the emission pass is a REFUSAL, not an admission. `select_backends` calls this for
-/// every strategy, so the panic has to be caught here; but the thing that panicked is the compiler's
-/// own emission function, and a compile that would panic is a compile that cannot produce a network.
-/// Returning `None` -- as this did while `SegAlphabet::token`'s `NO_CHAR_DEF` overflow was still
-/// live -- publishes "admitted" for a grammar the backend provably cannot build, which is the
-/// "I could not look reads as everything is fine" failure this repo refuses everywhere else. No
-/// fixture reaches this arm today; `envelope_agrees_with_compiler_gate`'s too-strict count is what
-/// would show it if the probe ever panicked where the real compile does not.
-pub fn templated_route_uncovered_refusal(g: &Grammar) -> Option<CompileDecision> {
-    if g.char_tables.is_empty() {
-        return None;
-    }
-    let table = surface_table(g);
-    let alphabet = SegAlphabet::new(table);
-    let emitted = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        emit_underlying_templated(g, &alphabet, None)
-    })) {
-        Ok(emitted) => emitted,
-        Err(_) => {
-            return Some(CompileDecision::Refuse(vec![CapabilityDiagnostic {
-                predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
-                construct: "grammar (templated emission panicked)".to_string(),
-                witness: "the templated emission pass panicked on this grammar, so it cannot \
-                          produce a network for it"
-                    .to_string(),
-            }]));
-        }
-    };
-    let diagnostics: Vec<CapabilityDiagnostic> = match &emitted.report.tier {
-        FomaTier::Full => return None,
-        FomaTier::Partial { .. } => emitted
-            .report
-            .uncovered
-            .iter()
-            // `capability::templated_shape_floor` already re-derives every one of these kinds unconditionally, so keeping them here would double-report one gap under two predicates.
-            .filter(|item| {
-                !matches!(
-                    item.kind.as_str(),
-                    "infix" | "reduplication" | "process" | "circumfix-prefix"
-                )
-            })
-            .map(|item| CapabilityDiagnostic {
-                predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
-                construct: format!("{} {}", item.kind, item.id),
-                witness: item.reason.clone(),
-            })
-            .collect(),
-        FomaTier::Unsupported { reason } | FomaTier::CannotRepresent { reason } => {
-            vec![CapabilityDiagnostic {
-                predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
-                construct: "grammar (templated emission unsupported)".to_string(),
-                witness: reason.clone(),
-            }]
-        }
-    };
-    if diagnostics.is_empty() {
-        return None;
-    }
-    Some(CompileDecision::Refuse(diagnostics))
 }
 
 #[cfg(test)]

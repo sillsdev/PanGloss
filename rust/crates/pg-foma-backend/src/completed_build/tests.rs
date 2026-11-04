@@ -55,23 +55,6 @@ const MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>MinimalCompletedBu
       </Strata>
     </Language></HermitCrabInput>"#;
 
-/// Pins that no production artifact can come from this strategy; fails the day an arm is added.
-#[test]
-fn plan_composed_has_no_production_compile_arm() {
-    let grammar = pg_grammar::load(MINIMAL_XML).expect("fixture must load");
-    let attempt = CompileAttempt::try_new().expect("attempt id must construct");
-    let result = compile_completed_backend(&grammar, EmissionStrategy::PlanComposed, &attempt);
-    assert!(
-        matches!(
-            result,
-            Err(CompletedBuildError::UnsupportedStrategy(
-                EmissionStrategy::PlanComposed
-            ))
-        ),
-        "expected UnsupportedStrategy(PlanComposed); got {result:?}"
-    );
-}
-
 /// The measurement half must COMPLETE on the very grammar admission refuses, or the refusal reads as a backend that cannot build it.
 #[test]
 fn a_partial_grammar_compiles_under_containment_and_is_then_refused_publication() {
@@ -126,26 +109,6 @@ fn the_non_partial_control_still_returns_a_completed_build() {
     let build = compile_completed_backend(&grammar, EmissionStrategy::TunedSurfaceProbed, &attempt)
         .expect("a non-partial grammar must still produce a completed build");
     assert!(!build.payload_bytes().is_empty());
-}
-
-/// A `Role::Process` allomorph is `CannotRepresent` for Templated by architecture (`strrep-identity`'s plain-Prefix no longer fits this pin -- it compiles now).
-#[test]
-fn templated_route_refuses_before_emitting_when_the_envelope_refuses() {
-    let fixture = pg_conformance_fixtures::discover()
-        .into_iter()
-        .find(|f| f.label() == "machine:edge-cases/process-morphology-in-place-mutation")
-        .expect("fixture must be discoverable");
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
-    let attempt = CompileAttempt::try_new().expect("attempt id must construct");
-    let result = compile_completed_backend(
-        &grammar,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        &attempt,
-    );
-    assert!(
-        matches!(result, Err(CompletedBuildError::CapabilityRefused(_))),
-        "expected CapabilityRefused; got {result:?}"
-    );
 }
 
 #[test]

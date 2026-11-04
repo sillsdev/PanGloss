@@ -2,13 +2,14 @@ use super::*;
 
 fn selected_build(payload_fingerprint: String) -> CompletedBackendBuildWire {
     CompletedBackendBuildWire {
-        requested_strategy: "templated-underlying-tokens".to_string(),
-        realized_strategy: "templated-underlying-tokens".to_string(),
+        requested_strategy: "tuned-surface-probed".to_string(),
+        realized_strategy: "tuned-surface-probed".to_string(),
         grammar_identity: "grammar".to_string(),
         attempt_id: "attempt".to_string(),
-        completion_proof: crate::completed_build::CompletionProofWire::TemplatedFullEmission {
-            uncovered_count: 0,
-            skipped_count: 0,
+        completion_proof: crate::completed_build::CompletionProofWire::TunedClosure {
+            terminal: crate::characterization::ClosureTerminal::Complete,
+            worklist_empty: true,
+            pending_successor_count: 0,
         },
         state_count: 1,
         arc_count: 1,

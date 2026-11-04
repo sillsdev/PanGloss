@@ -49,14 +49,14 @@ fn missing_and_failed_backends_are_typed_errors_carrying_no_grammar_advice() {
     for (report, expected_code) in [
         (
             BackendReport::missing(
-                EmissionStrategy::TemplatedUnderlyingTokens,
+                EmissionStrategy::TunedSurfaceProbed,
                 "backend executable is unavailable",
             ),
             FindingCode::BuildProcessFailed,
         ),
         (
             BackendReport::failed(
-                EmissionStrategy::PlanComposed,
+                EmissionStrategy::TunedSurfaceProbed,
                 "compiler process exited unsuccessfully",
             ),
             FindingCode::BackendCompilationFailed,
@@ -78,35 +78,4 @@ fn missing_and_failed_backends_are_typed_errors_carrying_no_grammar_advice() {
              owner to edit a grammar that is not what went wrong: {report:?}"
         );
     }
-}
-
-#[test]
-fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
-    // mpr-gated-exception's empty material is never admitted, a stable witness; read at run time so a moved suite pin fails this test rather than the build.
-    let grammar_xml = pg_conformance_fixtures::require_fixture("edge-cases", "mpr-gated-exception")
-        .load_grammar_xml();
-    let grammar = pg_grammar::load(&grammar_xml).expect("marker fixture must load");
-    let selection = pg_foma_backend::backend_selection::select_backends_for_grammar(&grammar);
-    let composed = selection
-        .report_for(EmissionStrategy::PlanComposed)
-        .expect("PlanComposed must always have one report");
-
-    assert_eq!(composed.status(), BackendStatus::Refused);
-    assert_eq!(composed.worst_severity(), Severity::CannotRepresent);
-    assert!(composed.findings().iter().any(|finding| {
-        finding.code == FindingCode::BackendCoverageIncomplete
-            && finding
-                .affected
-                .iter()
-                .any(|affected| affected.contains("Composite") && affected.contains("Marker"))
-    }));
-    assert!(composed
-        .shapes()
-        .contains(&"plan-composed-missing-subtrees".to_string()));
-    assert!(composed.declined_on().iter().any(|diagnostic| {
-        diagnostic.predicate == "strategy-materializer.marker-subtree-not-buildable"
-            && diagnostic.witness.contains("build_controllable")
-    }));
-    assert!(!composed.failed_predicates().is_empty());
-    assert!(!composed.advice_references().is_empty());
 }

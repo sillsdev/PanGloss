@@ -11,9 +11,8 @@
 //! material, the proposal set under-generates and containment fails -- a fact a compile-only witness
 //! cannot see, because the network still builds.
 //!
-//! `crate::backend_runtime::word_proposal_containment` is the comparison; it is the same relation
-//! `tests/cross_compiler_equivalence_gate.rs` already checked, by hand, for one pinned fixture. This
-//! module runs it over every discovered fixture and folds the result into the same
+//! `crate::backend_runtime::word_proposal_containment` is the comparison. This module runs it over
+//! every discovered fixture and folds the result into the same
 //! `(capability::CharacteristicKind, enumerate::EmissionStrategy)` shape
 //! `crate::witnessed_coverage` reports in, so the two accounts read side by side.
 //!
@@ -43,6 +42,7 @@ use pg_grammar::model::Grammar;
 use crate::backend_runtime::{
     word_proposal_containment, RunEvaluationCache, RuntimeBudget, WordEvidence,
 };
+use crate::backend::ALL_BACKENDS;
 use crate::backend_selection::select_backends;
 use crate::capability::{CharacteristicKind, CompileDecision};
 use crate::coverage_seam::{self, MeasuredOutcome, Observation, Verdict};
@@ -162,9 +162,8 @@ impl FixtureContainmentObservation {
 /// (`crate::backend_runtime::evaluate_plans_observed_with_cache`) over `words` and checks
 /// `crate::backend_runtime::word_proposal_containment` for every comparable word.
 ///
-/// One `RunEvaluationCache` is shared across every selected backend for this fixture, exactly as
-/// `tests/cross_compiler_equivalence_gate.rs` shares one cache across its three pinned candidates --
-/// the oracle is prepared once, never once per backend.
+/// One `RunEvaluationCache` is shared across every selected backend for this fixture, so the
+/// oracle is prepared once, never once per backend.
 pub fn observe_fixture_containment(
     label: &str,
     grammar: &Grammar,
@@ -232,12 +231,7 @@ pub fn observe_fixture_containment(
             label: "faithfulness-containment-sweep",
             plan: baseline_plan.clone(),
             adapter: strategy,
-            // Only the plan-composing adapter reads this shared baseline plan, so it alone is baseline.
-            role: if strategy == EmissionStrategy::PlanComposed {
-                CandidateRole::Baseline
-            } else {
-                CandidateRole::Alternative
-            },
+            role: CandidateRole::Baseline,
         })
         .collect();
 
@@ -451,15 +445,16 @@ impl FaithfulnessReport {
                     .to_string(),
             );
         }
-        if self.backends_exercised.len() < 2 {
+        if self.backends_exercised.len() < ALL_BACKENDS.len().min(2) {
             violations.push(format!(
-                "only {} backend(s) had a containment comparison attempted ({:?}) -- a \
-                 single-backend run cannot distinguish one compiler's faithfulness from three",
+                "only {} backend(s) had a containment comparison attempted ({:?}) -- fewer than the \
+                 {} required",
                 self.backends_exercised.len(),
                 self.backends_exercised
                     .iter()
                     .map(|s| s.label())
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
+                ALL_BACKENDS.len().min(2)
             ));
         }
         if let FaithfulnessRequirement::NoMoreThan { failures } = requirement {

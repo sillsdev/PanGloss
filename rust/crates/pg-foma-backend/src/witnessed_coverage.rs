@@ -37,17 +37,14 @@
 use std::collections::BTreeSet;
 use std::panic::{self, AssertUnwindSafe};
 
-use foma::options::FomaOptions;
 use pg_grammar::model::Grammar;
 
+use crate::backend::ALL_BACKENDS;
 use crate::backend_selection::select_backends;
 use crate::capability::{CharacteristicKind, CompileDecision};
 use crate::coverage_seam::{self, MeasuredOutcome, NotAttemptedReason, Verdict};
-use crate::emit::surface_table;
-use crate::enumerate::{enumerate_default, EmissionStrategy};
+use crate::enumerate::EmissionStrategy;
 use crate::grammar_semantics::GrammarSemantics;
-use crate::junctions::PhonologyProbe;
-use crate::replace::SegAlphabet;
 use crate::strategy_coverage::{representation_of, StrategyRepresentation, ALL_STRATEGIES};
 
 /// What happened when one backend met one grammar. Only `Self::Compiled` can witness anything.
@@ -102,18 +99,10 @@ pub type GrammarObservation = coverage_seam::Observation<BackendOutcome>;
 /// may still be refused publication; keeping the two apart is what stops a readiness policy from
 /// masquerading as a compiler that could not build the grammar.
 ///
-/// Not routed through `crate::backend::Backend::compile_for_measurement`: that method's
-/// `PlanComposed` adapter's unconditional refusal is pinned by
-/// `plan_composed_backend_refuses_measurement_unconditionally`, because production measurement
-/// never runs the plan composer without a specific candidate plan. This module exists to WITNESS
-/// what each backend can compile, plan-composed included, so it cannot dispatch through a method
-/// that structurally excludes the one backend it most needs to measure. Nor is it
-/// `realize_accuracy_proposer`: that method scores one `LoweredCandidate`'s plan, and this function
-/// has none — `compile_plan_composed` below probes the grammar's own DEFAULT plan via
-/// `crate::enumerate::enumerate_default`, an independent, candidate-free build. The two
-/// whole-grammar arms below do call the same functions `crate::backend_runtime`'s own per-adapter
-/// realization calls, so a witness collected here still names a compiler the runtime can actually
-/// run.
+/// Not routed through `crate::backend::Backend::compile_for_measurement`, so a measurement can
+/// never be mistaken for the readiness policy. The arm calls the same function
+/// `crate::backend_runtime`'s own per-adapter realization calls, so a witness collected here still
+/// names a compiler the runtime can actually run.
 pub fn compile_with_backend_for_measurement(
     g: &Grammar,
     strategy: EmissionStrategy,
@@ -122,45 +111,7 @@ pub fn compile_with_backend_for_measurement(
         EmissionStrategy::TunedSurfaceProbed => {
             crate::backend_runtime::realize_tuned_surface_proposer(g).map(|_| ())
         }
-        EmissionStrategy::TemplatedUnderlyingTokens => {
-            crate::backend_runtime::realize_templated_underlying_proposer(g).map(|_| ())
-        }
-        EmissionStrategy::PlanComposed => compile_plan_composed(g),
     }
-}
-
-/// The plan-composing backend's production shape: enumerate the default plan, interpret it, and run the mandatory boundary-token cleanup a proposer needs.
-fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
-    let table = g
-        .char_tables
-        .first()
-        .ok_or_else(|| "grammar has no character table".to_string())?;
-    let alphabet = SegAlphabet::new(table);
-    let semantics = GrammarSemantics::derive(g);
-    let phonology = PhonologyProbe::new_with_semantics(&semantics);
-    let plan = enumerate_default(g, semantics.prules_in_order(), phonology.as_ref());
-    let markers = crate::build::unbuildable_marker_material(&plan, g);
-    if !markers.is_empty() {
-        return Err(format!(
-            "plan-composed cannot honour this plan: it requires subtrees build_controllable does \
-             not build ({})",
-            markers
-                .iter()
-                .map(|marker| format!("{marker:?}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    let opts = FomaOptions::default();
-    let mut built =
-        crate::build::build_controllable(&plan, &opts, g, &alphabet, semantics.prules_in_order())
-            .map_err(|e| format!("plan-composed build failed: {e:?}"))?;
-    let net = built
-        .net
-        .take()
-        .ok_or_else(|| "plan-composed build produced no network".to_string())?;
-    crate::build::finish_controllable_net(&opts, net, surface_table(g), &alphabet);
-    Ok(())
 }
 
 /// Characterizes `g`, asks `crate::backend_selection` which backends may run it, and COMPILES with
@@ -327,15 +278,16 @@ impl CompletenessReport {
                     .to_string(),
             );
         }
-        if self.backends_compiling.len() < 2 {
+        if self.backends_compiling.len() < ALL_BACKENDS.len().min(2) {
             violations.push(format!(
-                "only {} backend(s) compiled anything ({:?}) -- a single-backend run cannot \
-                 distinguish one compiler's ability from three",
+                "only {} backend(s) compiled anything ({:?}) -- fewer than the \
+                 {} required",
                 self.backends_compiling.len(),
                 self.backends_compiling
                     .iter()
                     .map(|s| s.label())
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>(),
+                ALL_BACKENDS.len().min(2)
             ));
         }
         if requirement == CompletenessRequirement::NoGaps && !self.gaps.is_empty() {

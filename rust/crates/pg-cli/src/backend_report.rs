@@ -146,7 +146,7 @@ pub struct BackendOptimizationReport {
     /// The winning candidate's `EmissionStrategy` label, when there is a winner.
     ///
     /// Load-bearing for reading `winner.plan.json`/`winner.plan.mmd` correctly. Those artifacts render
-    /// the winning candidate's `Plan`, and for a plan-composed winner that plan IS what got compiled.
+    /// the winning candidate's `Plan`, and for a strategy that interprets the plan it IS what got compiled.
     /// For a whole-grammar strategy it is NOT: that compiler derives its own topology and never
     /// interprets the plan, which it carries only because a candidate must have one. Without this
     /// field a reader opening `winner.plan.mmd` would reasonably believe the diagram depicts what the
