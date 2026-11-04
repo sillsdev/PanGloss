@@ -404,7 +404,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `lex_entry_infl_type` | `guid`, `name`, `abbreviation`, and nullable `fs_id` for the type's inflection features (owner `inflType`, role `features`). Gloss prepend and append are display-only and not published. |
 | `lex_entry_infl_type_slot` | `(infl_type_guid, ordinal)`, `slot_guid`; the slots the irregular form fills, in source order. The slot has no foreign key. |
 | `sense` | `sense_guid`, owning `entry_guid`, nullable source `msa_guid`. The MSA target is not a foreign key. |
-| `entry_variant` | `(variant_entry_guid, ref_guid, ordinal)`, `component_guid`, and `component_kind` (`entry`, `sense`, or `unresolved`). Each row is one component lexeme of a variant link (`LexEntryRef` with variant types); a component that is neither a loaded entry nor a sense is `unresolved`. Complex-form links are not published. |
+| `entry_variant` | `(variant_entry_guid, ref_guid, ordinal)`, `component_guid`, and `component_kind` (`entry`, `sense`, or `unresolved`). Each row is one component lexeme of a variant link (`LexEntryRef` with variant types); a component that is neither a loaded entry nor a sense is `unresolved`. A complex-form link (`LexEntryRef` with complex-form types and no variant types) is published too, with no `entry_variant_type` rows, when its entry has no senses, because the compiler then builds it as a variant like `HCLoader`. On an entry with senses it is not published. |
 | `entry_variant_type` | `(ref_guid, ordinal)`, `type_guid`, and `is_infl_type` (1 when the type is a `lex_entry_infl_type`). This is the only table that holds variant types. |
 | `sense_text` | `(sense_guid, kind, ordinal)`, `writing_system`, `text`; kind is `gloss` or `definition`. The table is `WITHOUT ROWID`. |
 | `adhoc_prohibition` | `prohibition_guid`, `kind` (`allomorph` or `morpheme`), `disabled`, `adjacency`, `primary_guid`, `target_kind` (`allomorph` or `msa`). |
@@ -559,7 +559,7 @@ identify the source column):
 | `via_ancestor` | any | Each descendant of a referenced inflection class. The compiler's subclass closure can use it, so it is published with the same referrer and effect as the reference to its ancestor. |
 | `constraint_feature` | `featureConstraint` | `feature_constraint.feature_guid`. |
 | `msa` | `sense` | `sense.msa_guid`. |
-| `variant_component`, `variant_type` | `entry` | `entry_variant` and `entry_variant_type`. |
+| `variant_component`, `variant_type` | `entry` | `entry_variant` and `entry_variant_type` (complex-form links of sense-less entries included, with no type rows). |
 | `primary`, `other` | `adhocProhibition` | `adhoc_prohibition` and `adhoc_other`. |
 
 `ordinal` is a sequence number within each `(referrer_kind, referrer_guid, role)`, in the order the

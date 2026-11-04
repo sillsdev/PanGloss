@@ -1,0 +1,29 @@
+# oracle-provenance: founding-oracle machine-commit=aab4c59819adb7b366915e09df2fb28c62b8c03a verified-date=2026-11-03
+# Replayed on hc.dll at Machine aab4c598 (see STAGING.md): the rows below are the oracle's own output.
+# Synthetic; no real language. tu is a sense-less entry whose one LexEntryRef is a complex-form ref (no variant types) to ta;
+# HCLoader loads every entry ref of a sense-less entry as a variant source (HCLoader.cs:639-668, GetInflTypes 706-710).
+language: VariantComplexFormRef
+inspired_by: ["a sense-less entry whose only entry ref is a complex-form ref is a variant of its component for HCLoader"]
+sources: ["HCLoader.cs:639-668 (LoadLexEntries)", "HCLoader.cs:706-710 (GetInflTypes)"]
+requires: []
+fieldworks_producible: true
+words:
+  - word: ta
+    note: >-
+      Control: the main stem.
+    parses:
+      - signature: "TA|ta"
+        rules: []
+        exercises: ["LexicalEntry"]
+  - word: tu
+    note: >-
+      The sense-less entry tu with a complex-form ref to ta parses as ta's Noun MSA, like any variant. A loader that treats a complex-form ref as no variant source gives no analysis.
+    parses:
+      - signature: "TA|tu"
+        rules: []
+        exercises: ["LexicalEntry"]
+  - word: tata
+    note: >-
+      Control: no compounding, so a doubled stem has no analysis.
+    expect_fail: true
+    exercises: ["LexicalEntry"]

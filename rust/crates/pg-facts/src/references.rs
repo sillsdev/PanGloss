@@ -799,14 +799,11 @@ impl Writer<'_, '_> {
                 }
             }
             for entry_ref in &entry.entry_refs {
-                let EntryRef::Variant {
-                    component_lexemes,
-                    variant_entry_types,
-                    ..
-                } = entry_ref
-                else {
+                if matches!(entry_ref, EntryRef::ComplexForm { .. }) && !entry.senses.is_empty() {
                     continue;
-                };
+                }
+                let component_lexemes = entry_ref.component_lexemes();
+                let variant_entry_types = entry_ref.variant_entry_types();
                 for component in component_lexemes {
                     let (target_kind, effect) = if entries.contains(&guid_text(component)) {
                         ("entry", self.effect(&entry_owner, "entry", component, None))

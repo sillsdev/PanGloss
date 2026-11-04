@@ -745,7 +745,7 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
 }
 
 /// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
-fn compile_recording_ok(
+pub(super) fn compile_recording_ok(
     snapshot: &Snapshot,
 ) -> (
     crate::model::Grammar,
@@ -1009,7 +1009,7 @@ fn import_warning_sanitizes_rule_form_failure_when_analysis_has_no_name() {
     );
 }
 
-fn ws(ws: &str, form: &str) -> WsForm {
+pub(super) fn ws(ws: &str, form: &str) -> WsForm {
     WsForm {
         ws: ws.to_string(),
         form: form.to_string(),
@@ -1050,7 +1050,7 @@ fn base_phonology() -> Phonology {
     }
 }
 
-fn simple_allomorph(guid: &str, morph_type: MorphType, form: &str) -> Allomorph {
+pub(super) fn simple_allomorph(guid: &str, morph_type: MorphType, form: &str) -> Allomorph {
     Allomorph {
         guid: guid.to_string(),
         morph_type,
@@ -1067,17 +1067,17 @@ fn simple_allomorph(guid: &str, morph_type: MorphType, form: &str) -> Allomorph 
 }
 
 /// One POS ("Noun") with one affix slot and one template using it, a stem entry, and an inflectional suffix entry filling that slot; every test below starts from this and mutates the parts it cares about.
-struct Fixture {
+pub(super) struct Fixture {
     noun_pos: String,
     slot: String,
     template: String,
-    stem_entry: String,
+    pub(super) stem_entry: String,
     stem_msa: String,
-    suffix_entry: String,
+    pub(super) suffix_entry: String,
     suffix_msa: String,
 }
 
-fn fixture() -> (Snapshot, Fixture) {
+pub(super) fn fixture() -> (Snapshot, Fixture) {
     let f = Fixture {
         noun_pos: "pos-noun".to_string(),
         slot: "slot-pl".to_string(),
@@ -3428,36 +3428,6 @@ fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_repre
     let (_grammar2, warnings2, inventory2, _issues2) = compile_recording_ok(&variant_snapshot);
     assert!(warnings2.is_empty(), "unexpected warnings: {warnings2:?}");
     assert_no_authored_or_selected_falls_through(&inventory2);
-}
-
-/// Only a `Variant` ref's guid is authored as an `EntryReference` atom, never a `ComplexForm`'s.
-#[test]
-fn complex_form_ref_guid_is_never_authored_as_an_entry_reference() {
-    let (mut snapshot, f) = fixture();
-    snapshot.lexicon.entries.push(LexEntry {
-        guid: "entry-complex".to_string(),
-        citation_form: vec![ws("sen", "kumita")],
-        lexeme_morph_type: MorphType::Stem,
-        allomorphs: vec![simple_allomorph("allo-complex", MorphType::Stem, "kumita")],
-        msas: Vec::new(),
-        senses: Vec::new(),
-        entry_refs: vec![EntryRef::ComplexForm {
-            guid: "entryref-complex-unauthored".to_string(),
-            component_lexemes: vec![f.stem_entry.clone()],
-            complex_entry_types: Vec::new(),
-        }],
-    });
-
-    let (_grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
-    let complex_form_key = InventoryKey::object(
-        InventoryKind::EntryReference,
-        "entryref-complex-unauthored".to_string(),
-    );
-    assert!(
-        !inventory.authored.contains(&complex_form_key),
-        "a ComplexForm ref's guid must never be authored as an EntryReference atom"
-    );
 }
 
 /// Every existing fixture-derived scenario elsewhere in this file must also leave the recorder's invariants intact; each snapshot here mirrors an existing test's mutation, checked through `compile_recording_ok` rather than duplicating that test's own assertions.

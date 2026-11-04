@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>VariantComplexFormRef</Name>
+    <!--
+      A complex-form LexEntryRef on a sense-less entry is a variant source for HCLoader.
+      In FieldWorks the stem ta is an entry with one Noun MoStemMsa and a sense. Its sibling tu is an entry with no senses
+      and no MSAs whose one LexEntryRef carries a complex-form type (ComplexEntryTypes, RefType 1, no VariantEntryTypes)
+      and component ta. HCLoader walks every EntryRefsOS item of a sense-less entry as a variant source, whatever its type
+      (LoadLexEntries, HCLoader.cs:639-668), and GetInflTypes yields the plain (null) type when VariantEntryTypes is empty
+      (HCLoader.cs:706-710), so tu is loaded once under ta's Noun MSA, with ta's morpheme name. This grammar is that per-copy form.
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eTa" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aTa"><PhoneticShape>ta</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TA</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eTu" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aTu"><PhoneticShape>tu</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TA</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

@@ -257,12 +257,10 @@ pub(crate) fn seed_authored_from_snapshot(
         for s in &e.senses {
             recorder.authored(InventoryKey::object(Sense, s.guid.clone()));
         }
-        // `lexicon::build_variant` walks a `Variant` ref only when the entry has no senses; `ComplexForm` refs are never consumed by this compiler at all (see `EntryRef::ComplexForm`'s own doc).
+        // `lexicon::build_variant` walks every entry ref (variant or complex form, as HCLoader does) only when the entry has no senses.
         if super::lexicon::entry_yields_variant_refs(e) {
             for er in &e.entry_refs {
-                if let pg_snapshot::lexicon::EntryRef::Variant { guid, .. } = er {
-                    recorder.authored(InventoryKey::object(EntryReference, guid.clone()));
-                }
+                recorder.authored(InventoryKey::object(EntryReference, er.guid().to_string()));
             }
         }
         for m in &e.msas {
