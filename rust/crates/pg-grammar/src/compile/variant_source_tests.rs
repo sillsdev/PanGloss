@@ -184,3 +184,48 @@ fn clitic_typed_variant_of_a_stem_also_gets_a_clitic_stratum_rule() {
         .iter()
         .all(|r| !grammar.strata[0].mrules.contains(r)));
 }
+
+#[test]
+fn suffix_typed_variant_of_a_stem_is_a_rule_in_the_morphology_stratum_and_no_stem_entry() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(variant_entry(
+        "entry-suffix-variant",
+        MorphType::Suffix,
+        "mi",
+        variant_ref(&f.stem_entry),
+    ));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let grammar = &output.grammar;
+    assert!(
+        output.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        output.warnings
+    );
+    assert!(
+        grammar
+            .entries
+            .iter()
+            .all(|e| e.authored_id != "entry-suffix-variant"),
+        "an affix-only variant has no stem form, so HCLoader builds no lexical entry for it"
+    );
+    let rule_ids: Vec<crate::model::MRuleId> = grammar
+        .allomorph_sources
+        .iter()
+        .zip(&grammar.allomorph_owners)
+        .filter(|(src, _)| {
+            src.form_guids
+                .contains(&Some("allo-entry-suffix-variant".to_string()))
+        })
+        .filter_map(|(_, owner)| match owner {
+            crate::model::AllomorphOwner::Affix(rule, _) => Some(*rule),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !rule_ids.is_empty(),
+        "the suffix form becomes an affix-process allomorph under the stem main"
+    );
+    assert!(rule_ids
+        .iter()
+        .all(|r| grammar.strata[0].mrules.contains(r) && !grammar.strata[1].mrules.contains(r)));
+}

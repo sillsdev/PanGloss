@@ -243,7 +243,7 @@ pub(crate) fn insert_gates(
     Ok(())
 }
 
-/// Publishes variant links and their types; complex-form links are not walked by the compiler.
+/// Publishes variant links and their types. A complex-form ref is published too when its entry has no senses, because the compiler (like `HCLoader`) builds every entry ref of a sense-less entry as a variant; it has no types.
 pub(crate) fn insert_entry_variants(
     tx: &Transaction<'_>,
     snapshot: &Snapshot,
@@ -265,14 +265,12 @@ pub(crate) fn insert_entry_variants(
     for entry in &snapshot.lexicon.entries {
         let variant_entry_guid = checked_guid(&entry.guid, "lexicon.entries.guid")?;
         for entry_ref in &entry.entry_refs {
-            let EntryRef::Variant {
-                guid,
-                component_lexemes,
-                variant_entry_types,
-            } = entry_ref
-            else {
+            if matches!(entry_ref, EntryRef::ComplexForm { .. }) && !entry.senses.is_empty() {
                 continue;
-            };
+            }
+            let guid = entry_ref.guid();
+            let component_lexemes = entry_ref.component_lexemes();
+            let variant_entry_types = entry_ref.variant_entry_types();
             let ref_guid = checked_guid(guid, "entryRef.guid")?;
             for (ordinal, component) in component_lexemes.iter().enumerate() {
                 let component_guid = checked_guid(component, "entryRef.componentLexeme")?;

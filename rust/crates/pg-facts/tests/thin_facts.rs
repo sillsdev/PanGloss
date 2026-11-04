@@ -4748,6 +4748,53 @@ fn variant_links_name_component_and_types() {
     );
 }
 
+#[test]
+fn complex_form_links_are_published_only_for_sense_less_entries() {
+    let mut source = snapshot();
+    let complex = |guid: &str| EntryRef::ComplexForm {
+        guid: guid.into(),
+        component_lexemes: vec![ENTRY_ROOT.into()],
+        complex_entry_types: vec![PLAIN_VARIANT_TYPE.into()],
+    };
+    {
+        let sense_less = entry_mut(&mut source, ENTRY_ROOT_TWO);
+        sense_less.senses.clear();
+        sense_less.entry_refs = vec![complex(VARIANT_REF)];
+    }
+    let with_senses = entry_mut(&mut source, ENTRY_ROOT);
+    assert!(!with_senses.senses.is_empty(), "the control entry keeps its senses");
+    with_senses.entry_refs = vec![complex(UNRESOLVED_COMPONENT)];
+    let db = publish_gates(&source, "complex-form-variants.sqlite");
+    let links: Vec<(String, String, String, String)> = db
+        .prepare("SELECT variant_entry_guid, ref_guid, component_guid, component_kind FROM entry_variant ORDER BY ordinal")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        links,
+        vec![(
+            ENTRY_ROOT_TWO.into(),
+            VARIANT_REF.into(),
+            ENTRY_ROOT.into(),
+            "entry".into()
+        )]
+    );
+    let type_rows: i64 = db
+        .query_row("SELECT COUNT(*) FROM entry_variant_type", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(type_rows, 0, "a complex-form link has no variant types");
+    let referenced: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM statement_reference WHERE role = 'variant_component' AND referrer_guid = ?1",
+            [ENTRY_ROOT_TWO],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(referenced, 1);
+}
+
 const ENV_SIDE_C_RIGHT: &str = "00000000-0000-0000-0000-0000000000b1";
 const ENV_SIDE_CONSONANT_RIGHT: &str = "00000000-0000-0000-0000-0000000000b2";
 const ENV_SIDE_V_SPACED: &str = "00000000-0000-0000-0000-0000000000b3";
