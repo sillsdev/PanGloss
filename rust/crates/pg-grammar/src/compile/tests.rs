@@ -1749,7 +1749,7 @@ fn unsupported_affix_process_arity_is_published_without_changing_compilation_war
     let _ = f;
 }
 
-/// HCLoader rejects a process whose input part is a bare word boundary (`LoadPatternNode` fails, HCLoader.cs:1405) but erases one inside a sequence (#164).
+/// HCLoader rejects a process whose input part is a bare word boundary (`LoadPatternNode` fails, HCLoader.cs:1407) but erases one inside a sequence (#164).
 #[test]
 fn word_boundary_affix_process_input_is_rejected_not_erased() {
     let process = |input: PhonContext| AffixProcess {
@@ -1785,6 +1785,19 @@ fn word_boundary_affix_process_input_is_rejected_not_erased() {
         (
             PhonContext::Sequence {
                 members: vec![PhonContext::WordBoundary, PhonContext::Variable],
+            },
+            true,
+        ),
+        (
+            PhonContext::Sequence {
+                members: vec![
+                    PhonContext::Iteration {
+                        min: 0,
+                        max: -1,
+                        member: Box::new(PhonContext::WordBoundary),
+                    },
+                    PhonContext::Variable,
+                ],
             },
             true,
         ),

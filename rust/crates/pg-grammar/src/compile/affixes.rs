@@ -1562,7 +1562,7 @@ fn build_process_allomorph(
             PhonContext::Variable => environment::any_star(ctx),
             other => phon_context_nodes(other, ctx)?,
         };
-        // HCLoader erases a word boundary inside a sequence but rejects a part left with no nodes (HCLoader.cs:1405, 2397).
+        // HCLoader erases a word boundary inside a sequence but rejects a part left with no nodes (HCLoader.cs:1407, 2397).
         if nodes.is_empty() {
             return Err("input part has no pattern nodes".to_string());
         }
@@ -1656,8 +1656,9 @@ pub(crate) fn phon_context_nodes(
         }
         PhonContext::Iteration { min, max, member } => {
             let children = phon_context_nodes(member, ctx)?;
+            // A failed member drops out of a sequence in HCLoader; only the top-level check rejects.
             if children.is_empty() {
-                return Err("iteration of a word boundary has no pattern nodes".to_string());
+                return Ok(Vec::new());
             }
             Ok(vec![PatternNode::Quantifier {
                 min: (*min).max(0) as u32,

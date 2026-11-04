@@ -440,7 +440,7 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
         AllomorphProcessBuildFailed => advice(
             "Affix process could not be loaded",
             "The affix process mappings could not be represented in the compiled grammar.",
-            "In Lexicon > Lexicon Edit, open Allomorphs > Affix Process Rule and inspect the named input or output part. Correct an unintended mapping to the rule's own input or to the intended phoneme or natural class. If the rule is valid in FieldWorks, report it to PanGloss.",
+            "In Lexicon > Lexicon Edit, open Allomorphs > Affix Process Rule and inspect the named input or output part. Correct an unintended mapping to the rule's own input or to the intended phoneme or natural class. An input part that is only a word boundary (#) cannot be loaded, as in FieldWorks; remove it or add the segments it should match. A phoneme inserted by the process needs a form in the project's default vernacular writing system on its first code. If the rule is valid in FieldWorks, report it to PanGloss.",
             &[("lexiconEdit", "Allomorphs > Affix Process Rule")],
             Some(ALLOMORPHS_HELP),
         ),
