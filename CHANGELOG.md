@@ -5,6 +5,10 @@ file has no section for.
 
 ## Unreleased
 
+## 0.15.2
+
+0.15.1 was tagged but never published: its Rust CI failed on the staged variant fixtures `variant-clitic-typed-form` and `variant-complex-form-ref-senseless-entry`, whose `exercises` tags (`LexicalEntry`, `MorphologicalRule`) were not known construct ids in the machine submodule's `constructs.txt`. 0.15.2 is the content of 0.15.1 plus #132, which resolves that: PanGloss now reads conformance grammars from the pinned `fieldworks-parser-conformance` suite (`conformance.commit`, fetched by `rust/tools/conformance.ps1` or pointed at with `HC_CONFORMANCE_SCOPE`/`HC_CONFORMANCE_SUITE`), and staged fixtures take their construct ids from `conformance-staging/constructs.txt`, which lists those tags. The `machine` submodule remains only as the pinned `hc.dll` oracle. 0.15.2 also supersedes the unpublished 0.15.0 and 0.15.1; see their sections below.
+
 ## 0.15.1
 
 0.15.1 replaces the unpublished 0.15.0: the v0.15.0 tag exists, but its release workflow failed on a `pg-facts` test and no GitHub release was published. Everything in 0.15.0 below ships in 0.15.1. Main added since the 0.15.0 tag (9d89ff83):
