@@ -30,7 +30,7 @@ file has no section for.
 
 ### Parse results
 
-- None. The Tuned surface probed outcome on the 157 conformance fixtures is unchanged: the counts (127 exact, 10 miss, 20 refused) and every pinned fixture cell match `main`.
+- None. The Tuned surface probed outcome on the 169 conformance fixtures is unchanged: the counts (143 exact, 12 miss, 20 refused) and every pinned fixture cell match `main`.
 
 ### Internal
 
