@@ -2361,7 +2361,8 @@ fn preserves_invalid_dangling_and_owner_unreached_environment_facts() {
         ENTRY_OWNER_REJECTED,
         SENSE_OWNER_REJECTED,
         {
-            let mut allo = allomorph(ALLO_OWNER_REJECTED, MorphType::Suffix, "[pattern]");
+            // A simulfix written as literal text is no rule form (HCLoader loads it only as an affix process), so the compiler rejects it before resolving its conditions. (A bracket-pattern form such as `[pattern]` used here until #148, but is now a loadable reduplication form.)
+            let mut allo = allomorph(ALLO_OWNER_REJECTED, MorphType::Simulfix, "pattern");
             allo.environments = vec![ENV_VALID.into()];
             allo
         },
