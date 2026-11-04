@@ -5,6 +5,13 @@ file has no section for.
 
 ## Unreleased
 
+## 0.15.1
+
+0.15.1 replaces the unpublished 0.15.0: the v0.15.0 tag exists, but its release workflow failed on a `pg-facts` test and no GitHub release was published. Everything in 0.15.0 below ships in 0.15.1. Main added since the 0.15.0 tag (9d89ff83):
+- #173: the `pg-facts` rejected-owner test uses a literal simulfix, because a bracket-pattern form now loads (this was the failing test).
+- #171: HCLoader parity for affix processes (#164, #165, #166).
+- #174: variant building as `HCLoader` does (#169, #170).
+
 ### FieldWorks import
 - An affix process whose input part is a bare word boundary (or an iteration of one) is now skipped with `grammar.allomorph.process-build-failed`, as `HCLoader` rejects it, instead of being imported with an empty pattern (#164). A boundary inside a sequence is still ignored, as in `HCLoader`.
 - A circumfix pairs only prefix and suffix halves, as `HCLoader` does; interfix and clitic halves are no longer paired, and an entry left without a valid half reports `grammar.circumfix.missing-half` (#165).
