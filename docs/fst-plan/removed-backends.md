@@ -44,16 +44,14 @@ with unrelated warnings still get an FST.
 | What | Commit |
 |---|---|
 | Last commit on `main` that contains both backends, their tests and their docs | `c241c204` (`main` at v0.15.2 when the deletion was rebased; v0.14.0 is `f4ed795c`) |
-| The commit that deletes them | `e29376ddaac7114fe4c0f8a4acb77f4f534a4b5e` (branch `fst/delete-templated-plancomposed`) |
+| The commit on `main` that deletes them | `4bbe78e4e4e1947bce069779bc76d47905140836` (squash of PR #175; it also adds this page) |
+| The pure deletion, without this page | `e29376ddaac7114fe4c0f8a4acb77f4f534a4b5e`, reachable at `refs/pull/175/head` (`git fetch origin pull/175/head`) |
 
-The commit that adds this page sits above the deletion, so reverting the deletion does not conflict with it.
-PanGloss lands by squash: after landing, the deletion is the squash commit named in the PR body; the
-branch commit above stays reachable at `refs/pull/<number>/head`.
-
-- Restore everything: `git revert e29376dd` (then re-run `pg.ps1 -Mode preland`; the
-  scoreboard, ledger golden and the `four_grammar_recipe_evidence` expectations change back).
-- Restore one file: `git show e29376dd^:<path> > <path>`.
-- List what was deleted: `git show --stat --diff-filter=D e29376dd`.
+- Restore everything: `git fetch origin pull/175/head && git revert e29376dd` (keeps this page), or
+  `git revert 4bbe78e4` and keep this page by hand. Then re-run `pg.ps1 -Mode preland`; the
+  scoreboard, ledger golden and the `four_grammar_recipe_evidence` expectations change back.
+- Restore one file: `git show 4bbe78e4^:<path> > <path>`.
+- List what was deleted: `git show --stat --diff-filter=D 4bbe78e4`.
 - Read the old code without restoring: `git show c241c204:<path>`.
 
 ## Behaviour that did not change
