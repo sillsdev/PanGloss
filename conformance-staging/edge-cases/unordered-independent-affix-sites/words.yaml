@@ -1,0 +1,174 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+# Replayed with hc.dll built from the pinned, unmodified Machine source.
+language: UnorderedIndependentAffixSites
+inspired_by: ["synthetic independent internal affix processes"]
+sources: ["HermitCrab unordered morphological rule cascade"]
+requires: []
+fieldworks_producible: true
+words:
+  - word: qabcd
+    parses:
+      - signature: "root|qabcd"
+        rules: []
+  - word: qaubcd
+    parses:
+      - signature: "root+m0|qaubcd"
+        rules: ["mr0"]
+  - word: qabvcd
+    parses:
+      - signature: "root+m1|qabvcd"
+        rules: ["mr1"]
+  - word: qaubvcd
+    parses:
+      - signature: "root+m0+m1|qaubvcd"
+        rules: ["mr0", "mr1"]
+      - signature: "root+m0+m1|qaubvcd"
+        rules: ["mr0", "mr1"]
+  - word: qabcwd
+    parses:
+      - signature: "root+m2|qabcwd"
+        rules: ["mr2"]
+  - word: qaubcwd
+    parses:
+      - signature: "root+m0+m2|qaubcwd"
+        rules: ["mr0", "mr2"]
+      - signature: "root+m0+m2|qaubcwd"
+        rules: ["mr0", "mr2"]
+  - word: qabvcwd
+    parses:
+      - signature: "root+m1+m2|qabvcwd"
+        rules: ["mr1", "mr2"]
+      - signature: "root+m1+m2|qabvcwd"
+        rules: ["mr1", "mr2"]
+  - word: qaubvcwd
+    parses:
+      - signature: "root+m0+m1+m2|qaubvcwd"
+        rules: ["mr0", "mr1", "mr2"]
+      - signature: "root+m0+m1+m2|qaubvcwd"
+        rules: ["mr0", "mr1", "mr2"]
+      - signature: "root+m0+m1+m2|qaubvcwd"
+        rules: ["mr0", "mr1", "mr2"]
+      - signature: "root+m0+m1+m2|qaubvcwd"
+        rules: ["mr0", "mr1", "mr2"]
+      - signature: "root+m0+m1+m2|qaubvcwd"
+        rules: ["mr0", "mr1", "mr2"]
+      - signature: "root+m0+m1+m2|qaubvcwd"
+        rules: ["mr0", "mr1", "mr2"]
+  - word: qabcdx
+    parses:
+      - signature: "root+m3|qabcdx"
+        rules: ["mr3"]
+  - word: qaubcdx
+    parses:
+      - signature: "root+m0+m3|qaubcdx"
+        rules: ["mr0", "mr3"]
+      - signature: "root+m0+m3|qaubcdx"
+        rules: ["mr0", "mr3"]
+  - word: qabvcdx
+    parses:
+      - signature: "root+m1+m3|qabvcdx"
+        rules: ["mr1", "mr3"]
+      - signature: "root+m1+m3|qabvcdx"
+        rules: ["mr1", "mr3"]
+  - word: qaubvcdx
+    parses:
+      - signature: "root+m0+m1+m3|qaubvcdx"
+        rules: ["mr0", "mr1", "mr3"]
+      - signature: "root+m0+m1+m3|qaubvcdx"
+        rules: ["mr0", "mr1", "mr3"]
+      - signature: "root+m0+m1+m3|qaubvcdx"
+        rules: ["mr0", "mr1", "mr3"]
+      - signature: "root+m0+m1+m3|qaubvcdx"
+        rules: ["mr0", "mr1", "mr3"]
+      - signature: "root+m0+m1+m3|qaubvcdx"
+        rules: ["mr0", "mr1", "mr3"]
+      - signature: "root+m0+m1+m3|qaubvcdx"
+        rules: ["mr0", "mr1", "mr3"]
+  - word: qabcwdx
+    parses:
+      - signature: "root+m2+m3|qabcwdx"
+        rules: ["mr2", "mr3"]
+      - signature: "root+m2+m3|qabcwdx"
+        rules: ["mr2", "mr3"]
+  - word: qaubcwdx
+    parses:
+      - signature: "root+m0+m2+m3|qaubcwdx"
+        rules: ["mr0", "mr2", "mr3"]
+      - signature: "root+m0+m2+m3|qaubcwdx"
+        rules: ["mr0", "mr2", "mr3"]
+      - signature: "root+m0+m2+m3|qaubcwdx"
+        rules: ["mr0", "mr2", "mr3"]
+      - signature: "root+m0+m2+m3|qaubcwdx"
+        rules: ["mr0", "mr2", "mr3"]
+      - signature: "root+m0+m2+m3|qaubcwdx"
+        rules: ["mr0", "mr2", "mr3"]
+      - signature: "root+m0+m2+m3|qaubcwdx"
+        rules: ["mr0", "mr2", "mr3"]
+  - word: qabvcwdx
+    parses:
+      - signature: "root+m1+m2+m3|qabvcwdx"
+        rules: ["mr1", "mr2", "mr3"]
+      - signature: "root+m1+m2+m3|qabvcwdx"
+        rules: ["mr1", "mr2", "mr3"]
+      - signature: "root+m1+m2+m3|qabvcwdx"
+        rules: ["mr1", "mr2", "mr3"]
+      - signature: "root+m1+m2+m3|qabvcwdx"
+        rules: ["mr1", "mr2", "mr3"]
+      - signature: "root+m1+m2+m3|qabvcwdx"
+        rules: ["mr1", "mr2", "mr3"]
+      - signature: "root+m1+m2+m3|qabvcwdx"
+        rules: ["mr1", "mr2", "mr3"]
+  - word: qaubvcwdx
+    parses:
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+      - signature: "root+m0+m1+m2+m3|qaubvcwdx"
+        rules: ["mr0", "mr1", "mr2", "mr3"]
+  - word: qaubvwcxd
+    expect_fail: true
+  - word: quabcd
+    expect_fail: true

@@ -160,6 +160,8 @@ pub(crate) struct CompositeRec {
     /// `render_all_variants` — or because a rule's own disjunctive allomorphs produce more than
     /// one distinct rendering for the same tag pair).
     pub variants: Vec<String>,
+    /// One optional boundary at any interior gap, represented by shared lexc continuations.
+    pub boundary_insertions: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -534,6 +536,7 @@ fn extend(
                             .collect(),
                         tag_lexc,
                         variants: new_variants,
+                        boundary_insertions: false,
                     });
                     if is_infix {
                         acc.report.interdigitation_entries += 1;

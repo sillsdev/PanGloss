@@ -141,7 +141,8 @@ fn aweti_enum_census_uncapped_structural() {
                 ExploreMode::Pruned,
                 None,
                 None,
-            );
+            )
+            .expect("structural census exceeded its containment budget");
         let mut s_by_len: std::collections::BTreeMap<usize, usize> =
             std::collections::BTreeMap::new();
         for r in &srecs {
