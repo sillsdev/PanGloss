@@ -44,11 +44,7 @@ pub(crate) fn run_facts(args: &[String]) -> ExitCode {
         Ok(bytes) => bytes,
         Err(error) => return fail("facts_write_failed", &error.to_string()),
     };
-    let producer = ProducerIdentity {
-        compiler_version: env!("CARGO_PKG_VERSION"),
-        source_revision: env!("PANGLOSS_BUILD_REVISION"),
-        build_identity: crate::build_info::embedded_build_info(),
-    };
+    let producer = producer_identity();
     let stats = match (&parsed.stats_cache, &parsed.stats_manifest) {
         (Some(cache_path), Some(manifest_path)) => Some(StatsInput::new(cache_path, manifest_path)),
         (None, None) => None,
@@ -90,6 +86,15 @@ pub(crate) fn run_facts(args: &[String]) -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// The producer `facts` stamps into every facts file; `grammar-health --facts-out` stamps the same one.
+pub(crate) fn producer_identity() -> ProducerIdentity<'static> {
+    ProducerIdentity {
+        compiler_version: env!("CARGO_PKG_VERSION"),
+        source_revision: env!("PANGLOSS_BUILD_REVISION"),
+        build_identity: crate::build_info::embedded_build_info(),
     }
 }
 
@@ -172,7 +177,7 @@ fn parse_args(args: &[String]) -> Result<FactsArgs, FactsError> {
     })
 }
 
-fn same_path(input: &Path, output: &Path) -> bool {
+pub(crate) fn same_path(input: &Path, output: &Path) -> bool {
     normalized_path(input)
         .zip(normalized_path(output))
         .is_some_and(|(a, b)| a == b)

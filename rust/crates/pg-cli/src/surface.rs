@@ -438,6 +438,26 @@ const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
         takes_value: true,
         summary: "bounded (default): compare FieldWorks stored analyses until a fixed work budget is spent; all: compare every wordform; off: skip the comparison.",
     },
+    FlagSpec {
+        name: "--snapshot-out",
+        takes_value: true,
+        summary: "also write the grammar snapshot `import` would write (byte-identical) from the same import; .fwdata/.fwbackup input only.",
+    },
+    FlagSpec {
+        name: "--facts-out",
+        takes_value: true,
+        summary: "also write the facts database `facts <that snapshot> --out --context` would write; needs --facts-context.",
+    },
+    FlagSpec {
+        name: "--facts-context",
+        takes_value: true,
+        summary: "the facts context JSON, as `facts --context`; needs --facts-out.",
+    },
+    FlagSpec {
+        name: "--facts-light",
+        takes_value: false,
+        summary: "write a light facts database, as `facts --light`; needs --facts-out.",
+    },
 ];
 
 #[cfg(feature = "foma-tools")]

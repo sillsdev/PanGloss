@@ -6,6 +6,12 @@
 //! comparison parses wordforms, so by default it stops at a fixed total work budget; a wordform it
 //! cannot finish, and the wordforms past the budget, are reported as findings, never dropped.
 //!
+//! `--snapshot-out <p>` and `--facts-out <p> --facts-context <p> [--facts-light]` (a `.fwdata` or
+//! `.fwbackup` project only) make the same single import also write the files `pangloss import`
+//! and `pangloss facts <that snapshot>` would, so a host that wants all three pays for one import
+//! and one health compile. The snapshot is `import`'s exact bytes and the facts database is built
+//! from those exact bytes, so its `source_sha256` is the snapshot file's hash.
+//!
 //! Deliberately a SEPARATE command from `fst-health`, not a section added to it: the two answer
 //! different questions (grammar authoring correctness vs. FST compilation/production readiness),
 //! and `fst-health`'s JSON is a versioned wire shape (`pg_health::HEALTH_SCHEMA_VERSION`) read by
@@ -14,6 +20,7 @@
 //! lossless plain-text log.
 
 use std::fs;
+use std::path::Path;
 
 use pg_grammar::grammar_health::{
     check_grammar_health_diagnostics, render_json, render_log, FieldWorksProject,
@@ -41,6 +48,7 @@ pub(crate) fn run_grammar_health_with_limits(
     let mut fst = false;
     let mut fst_check_error = None;
     let mut coverage = Coverage::Budget(limits.work_budget);
+    let mut artifacts = ArtifactArgs::default();
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -64,6 +72,22 @@ pub(crate) fn run_grammar_health_with_limits(
                 }
                 fieldworks_project = Some(value.as_str());
                 index += 2;
+            }
+            "--snapshot-out" => {
+                artifacts.snapshot_out = Some(path_value(args, index, "--snapshot-out")?);
+                index += 2;
+            }
+            "--facts-out" => {
+                artifacts.facts_out = Some(path_value(args, index, "--facts-out")?);
+                index += 2;
+            }
+            "--facts-context" => {
+                artifacts.facts_context = Some(path_value(args, index, "--facts-context")?);
+                index += 2;
+            }
+            "--facts-light" => {
+                artifacts.facts_light = true;
+                index += 1;
             }
             "--stored-analyses" => {
                 let value = args
@@ -98,15 +122,29 @@ pub(crate) fn run_grammar_health_with_limits(
         [grammar, output] => (*grammar, Some(*output)),
         _ => {
             return Err(
-                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst]"
+                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]"
                     .to_string(),
             );
         }
     };
 
+    artifacts.validate(grammar_path, out_path)?;
+    let mut capture = crate::ImportCapture {
+        keep_compile: artifacts.facts_out.is_some(),
+        ..Default::default()
+    };
     let project = fieldworks_project_for_path(grammar_path, fieldworks_project);
-    let diagnostics = match crate::load_grammar_impl(grammar_path, false, false) {
+    let loaded = crate::load_grammar_capturing(
+        grammar_path,
+        false,
+        false,
+        artifacts.requested().then_some(&mut capture),
+    );
+    // Written even when the compile fails.
+    let artifact_error;
+    let diagnostics = match loaded {
         Ok(loaded) => {
+            artifact_error = artifacts.write(&capture, Some(&loaded.grammar));
             crate::print_substrate_report(&loaded.substrate);
             let mut diagnostics = check_grammar_health_diagnostics(&loaded.grammar)
                 .map_err(|error| format!("run grammar health checks: {error}"))?;
@@ -128,6 +166,7 @@ pub(crate) fn run_grammar_health_with_limits(
             diagnostics
         }
         Err(crate::compile_failure::GrammarLoadError::Compile(failure)) => {
+            artifact_error = artifacts.write(&capture, None);
             if fst {
                 fst_check_error = Some(
                     "FST inspection requires a converted Grammar; grammar compilation failed."
@@ -136,7 +175,10 @@ pub(crate) fn run_grammar_health_with_limits(
             }
             failure.diagnostics
         }
-        Err(error) => return Err(error.to_string()),
+        Err(error) => {
+            artifacts.write(&capture, None);
+            return Err(error.to_string());
+        }
     };
     let mut report = GrammarHealthReport::new(diagnostics)
         .map_err(|error| format!("assemble grammar health report: {error}"))?
@@ -179,11 +221,148 @@ pub(crate) fn run_grammar_health_with_limits(
             "FST grammar-health inspection incomplete: {reason}"
         ));
     }
+    if let Some(error) = artifact_error {
+        return Err(error);
+    }
     let errors = count_level(report.diagnostics(), DiagnosticLevel::Error);
     if errors > 0 {
         return Err(format!("{errors} error(s); fix them before parsing"));
     }
     Ok(())
+}
+
+/// The extra outputs of one grammar-health run: `import`'s snapshot and `facts`' database.
+#[derive(Default)]
+struct ArtifactArgs<'a> {
+    snapshot_out: Option<&'a str>,
+    facts_out: Option<&'a str>,
+    facts_context: Option<&'a str>,
+    facts_light: bool,
+}
+
+fn path_value<'a>(args: &'a [String], index: usize, flag: &str) -> Result<&'a str, String> {
+    match args.get(index + 1) {
+        Some(value) if !value.starts_with("--") && !value.trim().is_empty() => Ok(value),
+        _ => Err(format!("{flag} requires a path")),
+    }
+}
+
+impl ArtifactArgs<'_> {
+    fn requested(&self) -> bool {
+        self.snapshot_out.is_some() || self.facts_out.is_some()
+    }
+
+    fn validate(&self, grammar_path: &str, out_path: Option<&str>) -> Result<(), String> {
+        if self.facts_out.is_some() != self.facts_context.is_some() {
+            return Err("--facts-out and --facts-context must be supplied together".to_string());
+        }
+        if self.facts_light && self.facts_out.is_none() {
+            return Err("--facts-light requires --facts-out".to_string());
+        }
+        if !self.requested() {
+            return Ok(());
+        }
+        let extension = Path::new(grammar_path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or("");
+        if !(extension.eq_ignore_ascii_case("fwdata") || extension.eq_ignore_ascii_case("fwbackup"))
+        {
+            return Err(
+                "--snapshot-out and --facts-out need a .fwdata or .fwbackup project: they write what `import` and `facts` would write from one"
+                    .to_string(),
+            );
+        }
+        let paths = [
+            Some(grammar_path),
+            out_path,
+            self.snapshot_out,
+            self.facts_out,
+            self.facts_context,
+        ];
+        for (left_index, left) in paths.iter().enumerate() {
+            for right in paths.iter().skip(left_index + 1) {
+                if let (Some(left), Some(right)) = (left, right) {
+                    if crate::facts_cmd::same_path(Path::new(left), Path::new(right)) {
+                        return Err(format!(
+                            "input, report, snapshot, facts and context paths must differ: {left} and {right} are the same file"
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes the snapshot and facts the one import made possible; returns the error to report last.
+    fn write(
+        &self,
+        capture: &crate::ImportCapture,
+        grammar: Option<&pg_grammar::model::Grammar>,
+    ) -> Option<String> {
+        if !self.requested() {
+            return None;
+        }
+        if capture.import_refused {
+            return Some(
+                "import refused (fatal conversion issues): snapshot and facts not written, as `import` would not write them"
+                    .to_string(),
+            );
+        }
+        let Some(snapshot) = capture.snapshot_json.as_deref() else {
+            return Some("no snapshot was produced; snapshot and facts not written".to_string());
+        };
+        if let Some(path) = self.snapshot_out {
+            if let Err(error) = fs::write(path, snapshot) {
+                return Some(format!("write {path}: {error}"));
+            }
+        }
+        let (Some(out), Some(context)) = (self.facts_out, self.facts_context) else {
+            return None;
+        };
+        let context = match fs::read(context) {
+            Ok(bytes) => bytes,
+            Err(error) => return Some(format!("read {context}: {error}")),
+        };
+        let options = pg_facts::FactsOptions {
+            light: self.facts_light,
+            stats: None,
+        };
+        let producer = crate::facts_cmd::producer_identity();
+        // The compile this run already did stands in for the one `facts` would repeat.
+        let reused = capture.compiled.is_some() && grammar.is_some();
+        let written = match (capture.compiled.as_ref(), grammar) {
+            (Some(compiled), Some(grammar)) => pg_facts::write_facts_with_compiled(
+                snapshot.as_bytes(),
+                &context,
+                out,
+                producer,
+                options,
+                (compiled, grammar),
+            ),
+            _ => pg_facts::write_facts_with_options(
+                snapshot.as_bytes(),
+                &context,
+                out,
+                producer,
+                options,
+            ),
+        };
+        match written {
+            Ok(result) => {
+                eprintln!(
+                    "facts written: {out} ({} bytes, {}, schema {}, compile {}{})",
+                    result.output_bytes,
+                    result.output_sha256,
+                    result.schema_version,
+                    result.compile_status,
+                    if reused { ", reused from this run" } else { "" }
+                );
+                None
+            }
+            Err(error) => Some(format!("facts {}: {error}", error.code())),
+        }
+    }
 }
 
 #[cfg(feature = "foma-tools")]

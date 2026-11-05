@@ -108,6 +108,10 @@ To materialize the intermediate snapshot for inspection or faster reloads:
 pangloss import <project.fwdata> <out.json>
 ```
 
+`pangloss grammar-health <project.fwdata> <report.json> --snapshot-out <out.json>` (optionally with
+`--facts-out`/`--facts-context`) writes that same snapshot, and the `facts` database, from the one
+import that also yields the health report.
+
 See [`docs/fwdata-import-plan.md`](docs/fwdata-import-plan.md) for the architecture and the
 conformance gate that checks the fwdata pipeline's parses against the legacy XML oracle, and
 [`docs/snapshot-format.md`](docs/snapshot-format.md) for the snapshot format.

@@ -121,6 +121,104 @@ fn write_facts_inner<F>(
 where
     F: FnOnce(&Connection),
 {
+    write_facts_core(
+        source_bytes,
+        context_bytes,
+        output_path,
+        producer,
+        facts_options,
+        None,
+        before_schema,
+    )
+}
+
+/// A successful default-options compile's results, apart from the grammar.
+pub struct CompiledParts {
+    pub inventory: InventoryDelta,
+    pub decisions: Vec<LoadDecision>,
+    pub compile_issues: Vec<ConversionIssue>,
+    pub environment_resolutions: Vec<pg_grammar::compile::EnvironmentResolution>,
+    pub compiled_outputs: Vec<pg_grammar::compile::CompiledOutput>,
+    pub compiled_mappings: Vec<pg_grammar::compile::CompiledMapping>,
+    pub compiled_allomorph_order: Vec<pg_grammar::compile::CompiledAllomorphOrder>,
+    pub allomorph_gates: Vec<pg_grammar::compile::AllomorphGateOutcome>,
+    pub allomorph_output_ids: Vec<Option<u32>>,
+}
+
+/// Like [`write_facts_with_options`] but records the caller's compile of the same Snapshot.
+pub fn write_facts_with_compiled(
+    source_bytes: &[u8],
+    context_bytes: &[u8],
+    output_path: impl AsRef<Path>,
+    producer: ProducerIdentity<'_>,
+    options: FactsOptions<'_>,
+    compiled: (&CompiledParts, &pg_grammar::model::Grammar),
+) -> Result<FactsResult, FactsError> {
+    write_facts_core(
+        source_bytes,
+        context_bytes,
+        output_path,
+        producer,
+        options,
+        Some(compiled),
+        |_| {},
+    )
+}
+
+type FreshCompile = (
+    CompiledParts,
+    Option<pg_grammar::model::Grammar>,
+    &'static str,
+);
+
+fn compile_fresh(snapshot: &Snapshot, options: CompileOptions) -> Result<FreshCompile, FactsError> {
+    match compile_project_with(snapshot, options) {
+        Ok(output) => Ok((
+            CompiledParts {
+                inventory: output.inventory,
+                decisions: output.load_decisions,
+                compile_issues: output.issues,
+                environment_resolutions: output.environment_resolutions,
+                compiled_outputs: output.compiled_outputs,
+                compiled_mappings: output.compiled_mappings,
+                compiled_allomorph_order: output.compiled_allomorph_order,
+                allomorph_gates: output.allomorph_gates,
+                allomorph_output_ids: output.allomorph_output_ids,
+            },
+            Some(output.grammar),
+            "completed",
+        )),
+        Err(pg_grammar::GrammarError::Conversion(error)) => Ok((
+            CompiledParts {
+                inventory: error.inventory,
+                decisions: error.load_decisions,
+                compile_issues: error.issues,
+                environment_resolutions: error.environment_resolutions,
+                compiled_outputs: error.compiled_outputs,
+                compiled_mappings: error.compiled_mappings,
+                compiled_allomorph_order: error.compiled_allomorph_order,
+                allomorph_gates: error.allomorph_gates,
+                allomorph_output_ids: Vec::new(),
+            },
+            None,
+            "refused",
+        )),
+        Err(error) => Err(FactsError::Compile(error.to_string())),
+    }
+}
+
+fn write_facts_core<F>(
+    source_bytes: &[u8],
+    context_bytes: &[u8],
+    output_path: impl AsRef<Path>,
+    producer: ProducerIdentity<'_>,
+    facts_options: FactsOptions<'_>,
+    precompiled: Option<(&CompiledParts, &pg_grammar::model::Grammar)>,
+    before_schema: F,
+) -> Result<FactsResult, FactsError>
+where
+    F: FnOnce(&Connection),
+{
     let FactsOptions {
         light,
         stats: stats_input,
@@ -166,8 +264,15 @@ where
     let options = CompileOptions::default();
     let options_json = options.canonical_projection_json();
     let options_sha256 = pg_assess::sha256_bytes(options_json.as_bytes());
-    let (
-        compile_status,
+    let fresh;
+    let (parts, grammar, compile_status) = match precompiled {
+        Some((parts, grammar)) => (parts, Some(grammar), "completed"),
+        None => {
+            fresh = compile_fresh(&snapshot, options)?;
+            (&fresh.0, fresh.1.as_ref(), fresh.2)
+        }
+    };
+    let CompiledParts {
         inventory,
         decisions,
         compile_issues,
@@ -176,40 +281,11 @@ where
         compiled_mappings,
         compiled_allomorph_order,
         allomorph_gates,
-        grammar,
         allomorph_output_ids,
-    ) = match compile_project_with(&snapshot, options) {
-        Ok(output) => (
-            "completed",
-            output.inventory,
-            output.load_decisions,
-            output.issues,
-            output.environment_resolutions,
-            output.compiled_outputs,
-            output.compiled_mappings,
-            output.compiled_allomorph_order,
-            output.allomorph_gates,
-            Some(output.grammar),
-            output.allomorph_output_ids,
-        ),
-        Err(pg_grammar::GrammarError::Conversion(error)) => (
-            "refused",
-            error.inventory,
-            error.load_decisions,
-            error.issues,
-            error.environment_resolutions,
-            error.compiled_outputs,
-            error.compiled_mappings,
-            error.compiled_allomorph_order,
-            error.allomorph_gates,
-            None,
-            Vec::new(),
-        ),
-        Err(error) => return Err(FactsError::Compile(error.to_string())),
-    };
+    } = parts;
     let stats = match stats_input {
         Some(input) => {
-            let Some(grammar) = grammar.as_ref() else {
+            let Some(grammar) = grammar else {
                 return Err(FactsError::StatsRunUnavailable(
                     "stats projection requires a completed production compile".into(),
                 ));
@@ -237,11 +313,8 @@ where
             pg_snapshot::SourceInventoryStatus::ImportedComplete
                 | pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
         );
-    let load_accounting_complete = crate::load::accounting_is_complete(
-        &snapshot.conversion_provenance,
-        &inventory,
-        &decisions,
-    );
+    let load_accounting_complete =
+        crate::load::accounting_is_complete(&snapshot.conversion_provenance, inventory, decisions);
     let mut sections = fixed_sections(
         compile_status == "completed",
         source_inventory_complete,
@@ -262,16 +335,16 @@ where
             options_json: &options_json,
             options_sha256: &options_sha256,
             compile_status,
-            inventory: &inventory,
-            decisions: &decisions,
-            compile_issues: &compile_issues,
-            environment_resolutions: &environment_resolutions,
-            compiled_outputs: &compiled_outputs,
-            allomorph_output_ids: &allomorph_output_ids,
-            compiled_mappings: &compiled_mappings,
-            compiled_allomorph_order: &compiled_allomorph_order,
-            allomorph_gates: &allomorph_gates,
-            grammar: grammar.as_ref(),
+            inventory,
+            decisions,
+            compile_issues,
+            environment_resolutions,
+            compiled_outputs,
+            allomorph_output_ids,
+            compiled_mappings,
+            compiled_allomorph_order,
+            allomorph_gates,
+            grammar,
             stats,
             sections,
             profile,
@@ -655,6 +728,65 @@ mod tests {
         source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     };
+
+    #[test]
+    fn precompiled_facts_equal_the_facts_that_compile_and_use_the_given_results() {
+        let source = fixture_source();
+        let snapshot = Snapshot::from_json(std::str::from_utf8(&source).unwrap()).unwrap();
+        let (parts, grammar, _) =
+            super::compile_fresh(&snapshot, pg_grammar::compile::CompileOptions::default())
+                .unwrap();
+        let grammar = grammar.expect("fixture compiles");
+        let temporary = tempdir().unwrap();
+        let fresh = temporary.path().join("fresh.sqlite");
+        let reused = temporary.path().join("reused.sqlite");
+        let tampered = temporary.path().join("tampered.sqlite");
+        write_facts_inner(
+            &source,
+            CONTEXT,
+            &fresh,
+            PRODUCER,
+            FactsOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        super::write_facts_with_compiled(
+            &source,
+            CONTEXT,
+            &reused,
+            PRODUCER,
+            FactsOptions::default(),
+            (&parts, &grammar),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(&fresh).unwrap(),
+            std::fs::read(&reused).unwrap()
+        );
+
+        // The given results are what is recorded: a changed result changes the file.
+        let mut altered = parts;
+        altered.compile_issues.push(pg_snapshot::ConversionIssue {
+            code: pg_snapshot::ImportWarningCode::SourceProvenanceUnknown,
+            class: pg_snapshot::IssueClass::AmbiguousSource,
+            source: None,
+            fatal: false,
+            message: "marker".into(),
+        });
+        super::write_facts_with_compiled(
+            &source,
+            CONTEXT,
+            &tampered,
+            PRODUCER,
+            FactsOptions::default(),
+            (&altered, &grammar),
+        )
+        .unwrap();
+        assert_ne!(
+            std::fs::read(&fresh).unwrap(),
+            std::fs::read(&tampered).unwrap()
+        );
+    }
 
     #[test]
     fn facts_write_commits_schema_and_rows_once() {
