@@ -595,6 +595,7 @@ fn gated_backend_decision(selection: &BackendSelection) -> CompileDecision {
     match selection.report_for(GATED_BACKEND) {
         Some(report) => report.decision().clone(),
         None => CompileDecision::Refuse(vec![CapabilityDiagnostic {
+            refusal: pg_foma::capability::CapabilityRefusal::StrategyCoverage,
             predicate: "capability-gate.backend-not-reported",
             construct: GATED_BACKEND.label().to_string(),
             witness: "the selector produced no report for this backend".to_string(),

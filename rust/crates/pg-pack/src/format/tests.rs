@@ -98,13 +98,12 @@ fn read_pack_rejects_manifest_v8_with_stale_embedded_health_schema_v6() {
     let stale_json = serde_json::to_string_pretty(&stale_value)
         .expect("stale health JSON serialization must succeed");
     let current_json_len = manifest.to_canonical_json().len();
-    assert_eq!(
-        stale_json.len(),
-        current_json_len,
-        "health schema v6 and v7 fixtures must retain the same framed manifest length"
+    bytes.splice(
+        HEADER_LEN..HEADER_LEN + current_json_len,
+        stale_json.bytes(),
     );
-
-    bytes[HEADER_LEN..HEADER_LEN + stale_json.len()].copy_from_slice(stale_json.as_bytes());
+    bytes[MAGIC_LEN + VERSION_LEN..MAGIC_LEN + VERSION_LEN + LEN_FIELD_SIZE]
+        .copy_from_slice(&(stale_json.len() as u64).to_le_bytes());
     let digest_offset = bytes.len() - DIGEST_LEN;
     let digest = Sha256::digest(&bytes[..digest_offset]);
     bytes[digest_offset..].copy_from_slice(&digest);

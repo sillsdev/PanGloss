@@ -18,6 +18,7 @@ test-concurrency-hook = ["pg-foma-runtime/test-concurrency-hook"]
 test-support = ["pg-foma-runtime/test-support"]
 
 [dependencies]
+pg-snapshot.workspace = true
 pg-foma-runtime.workspace = true
 # Pinned exact so a version bump is always deliberate and re-gated, not a silent float.
 # Originally validated at 0.1.1 by gate F0 (docs/fst-plan/foma-fst-plan.md); re-validated at
@@ -74,7 +75,6 @@ pg-parse.workspace = true
 # `load_grammar_for_worker`, mirroring `pg-cli::load_grammar`'s three-way extension dispatch so the
 # worker protocol can name any of the three grammar-path shapes the CLI already accepts). Promoted
 # from dev-only (below) to a real, non-wasm dependency by this change.
-pg-snapshot.workspace = true
 pg-fwdata.workspace = true
 pg-worker-containment.workspace = true
 

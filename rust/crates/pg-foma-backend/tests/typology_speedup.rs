@@ -902,6 +902,7 @@ mod tests {
     #[test]
     fn refusal_diagnostics_produce_named_rows_not_zero_not_omitted() {
         let diags = vec![CapabilityDiagnostic {
+            refusal: pg_health::capability::CapabilityRefusal::StrategyCoverage,
             predicate: "mpr-group.overwrite-output",
             construct: "mpr-group".to_owned(),
             witness: "test refusal witness".to_owned(),

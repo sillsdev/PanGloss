@@ -78,13 +78,38 @@ fn grammar(xml: &str) -> Grammar {
 }
 
 #[test]
+fn command_fst_analysis_is_explicit_and_feature_gated() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("grammar.xml");
+    let output = dir.path().join("health.json");
+    fs::write(&input, CLEAN_GRAMMAR_XML).unwrap();
+    let args = [
+        input.display().to_string(),
+        output.display().to_string(),
+        "--fst".to_string(),
+        "--stored-analyses=off".to_string(),
+    ];
+    let result = run_grammar_health(&args);
+    if cfg!(feature = "foma-tools") {
+        result.unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+        assert_eq!(value["fst_checked"], true);
+        assert_eq!(value["diagnostics"], serde_json::json!([]));
+    } else {
+        assert!(result.unwrap_err().contains("foma-tools"));
+        assert!(!output.exists());
+    }
+}
+
+#[test]
 fn clean_grammar_serializes_to_an_empty_versioned_report() {
     let g = grammar(CLEAN_GRAMMAR_XML);
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
     assert!(report.is_empty());
     let json = render_json(&report).expect("empty diagnostics serialize");
     let report_value: serde_json::Value = serde_json::from_str(&json).expect("versioned report");
-    assert_eq!(report_value["schema_version"], 4);
+    assert_eq!(report_value["schema_version"], 5);
     assert!(report_value["diagnostics"].is_array());
     assert_eq!(
         render_level_counts(&report),
@@ -98,7 +123,7 @@ fn json_is_versioned_by_default() {
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
     let json = render_json(&report).expect("structured diagnostics serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("structured JSON");
-    assert_eq!(value["schema_version"], 4);
+    assert_eq!(value["schema_version"], 5);
     assert!(value["diagnostics"].is_array());
 }
 
@@ -120,7 +145,7 @@ fn command_emits_versioned_json_by_default() {
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("the report is still written");
-    assert_eq!(report["schema_version"], 4);
+    assert_eq!(report["schema_version"], 5);
     assert!(report["diagnostics"].is_array());
     assert_eq!(report["diagnostics"][0]["level"], "error");
     assert_eq!(report["diagnostics"].as_array().unwrap().len(), 1);
@@ -170,7 +195,7 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("the report is still written");
 
-    assert_eq!(report["schema_version"], 4);
+    assert_eq!(report["schema_version"], 5);
     let error_count = report["diagnostics"]
         .as_array()
         .expect("diagnostics array")

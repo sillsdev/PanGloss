@@ -1,9 +1,5 @@
-//! Grammar-authoring health checks and versioned reports with source subjects and owned advice.
-//!
-//! Reports inspect the compiled grammar without changing compilation or parsing. Canonical-fact
-//! inspection errors propagate to the caller. FST publication policy remains in `pg-health`.
-//! Segment natural-class membership cannot identify undeclared tables after grammar loading;
-//! the model records only per-table character IDs, so that C# inspection is not represented here.
+//! Grammar-author findings, retained-construct FST labels, versioned reports and owned advice.
+//! Labels describe the converted Grammar and never change parsing.
 
 use crate::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use crate::grammar_health_presentation::{fieldworks_identity, fieldworks_link, FieldWorksSource};
@@ -34,6 +30,11 @@ pub enum GrammarHealthCode {
     StoredAnalysisNoLongerParses,
     StoredAnalysisIncomplete,
     StoredAnalysisBudgetReached,
+    FstPatternRootShape,
+    FstCircumfixNoRoute,
+    FstReduplicationNoRoute,
+    FstProcessNotEmittable,
+    FstShapeNotInSurfaceTable,
     ImportWarning(String),
 }
 
@@ -50,6 +51,11 @@ impl GrammarHealthCode {
         Self::StoredAnalysisNoLongerParses,
         Self::StoredAnalysisIncomplete,
         Self::StoredAnalysisBudgetReached,
+        Self::FstPatternRootShape,
+        Self::FstCircumfixNoRoute,
+        Self::FstReduplicationNoRoute,
+        Self::FstProcessNotEmittable,
+        Self::FstShapeNotInSurfaceTable,
     ];
 
     /// The stable wire string for this diagnostic code.
@@ -67,7 +73,31 @@ impl GrammarHealthCode {
             Self::StoredAnalysisNoLongerParses => "grammar.stored-analysis.no-longer-parses",
             Self::StoredAnalysisIncomplete => "grammar.stored-analysis.incomplete",
             Self::StoredAnalysisBudgetReached => "grammar.stored-analysis.budget-reached",
+            Self::FstPatternRootShape => "fst.pattern-root-shape",
+            Self::FstCircumfixNoRoute => "fst.circumfix-no-route",
+            Self::FstReduplicationNoRoute => "fst.reduplication-no-route",
+            Self::FstProcessNotEmittable => "fst.process-not-emittable",
+            Self::FstShapeNotInSurfaceTable => "fst.shape-not-in-surface-table",
             Self::ImportWarning(code) => code,
+        }
+    }
+
+    /// Why a construct retained in the converted Grammar blocks FST publication.
+    pub fn fst_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::UndeclaredSegment => Some("The loaded allomorph or rule retains a segment absent from the declared inventory; the FST cannot emit its alphabet symbol."),
+            Self::StemWithoutCategory => Some("The stem is retained as a partial entry with unenforced category restrictions; FST support for partial morphemes is unproven."),
+            Self::InflectionalAffixWithoutTemplateSlot => Some("The affix is retained as a partial rule with incomplete template restrictions; FST support for partial morphemes is unproven."),
+            Self::UnclassifiedAffix => Some("The unclassified affix is retained as a partial rule; FST support for partial morphemes is unproven."),
+            Self::PartialReasonUnspecified => Some("The HC-XML partial marker is retained without a stated cause; FST support for partial morphemes is unproven."),
+            Self::FstPatternRootShape => Some("The root retains a pattern shape that this FST route cannot represent completely."),
+            Self::FstCircumfixNoRoute => Some("The Grammar retains a circumfix shape or allomorph zone with no supported FST route."),
+            Self::FstReduplicationNoRoute => Some("The Grammar retains reduplication without a complete proposal route."),
+            Self::FstProcessNotEmittable => Some("The Grammar retains a morphological process that the FST cannot emit completely."),
+            Self::FstShapeNotInSurfaceTable => Some("The Grammar retains a shape without a supported final surface-table spelling."),
+            Self::DuplicateFeatureBundle | Self::ProvisionalPhonemeFeatures
+            | Self::StoredAnalysisNoLongerParses | Self::StoredAnalysisIncomplete
+            | Self::StoredAnalysisBudgetReached | Self::ImportWarning(_) => None,
         }
     }
 
@@ -171,6 +201,36 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
             "No FieldWorks correction is needed. To compare every wordform, run pangloss grammar-health with --stored-analyses=all; on a large project that can take minutes.",
             vec![], PARSER_HELP,
         ),
+        GrammarHealthCode::FstPatternRootShape => (
+            "Pattern root has no FST route", Warning,
+            "The lexical pattern root is retained in the Grammar but its complete spelling set has no supported FST route.",
+            "Use the full morphological parser for this grammar. If the pattern is intentional, report the named root and PanGloss version; no FieldWorks correction is established.",
+            vec![], PARSER_HELP,
+        ),
+        GrammarHealthCode::FstCircumfixNoRoute => (
+            "Circumfix has no FST route", Warning,
+            "A retained circumfix or allomorph zone has no complete structural FST route. A circumfix half dropped during import does not cause this finding.",
+            "Use the full morphological parser. For an intentional HC-XML circumfix, report the named rule and PanGloss version; no FieldWorks correction is established.",
+            vec![], PARSER_HELP,
+        ),
+        GrammarHealthCode::FstReduplicationNoRoute => (
+            "Reduplication has no FST route", Warning,
+            "A retained reduplication rule has neither a peel route nor a structural synthesis route in the FST proposer.",
+            "Use the full morphological parser. Report the named HC-XML rule and PanGloss version if the reduplication is intentional; changing its linguistic meaning is not a verified remedy.",
+            vec![], PARSER_HELP,
+        ),
+        GrammarHealthCode::FstProcessNotEmittable => (
+            "Process has no FST route", Warning,
+            "A retained morphological output action or allomorph has no complete emission route after structural synthesis has been considered.",
+            "Use the full morphological parser and report the named rule with the PanGloss version. Do not remove a legitimate process merely to enable the FST.",
+            vec![], PARSER_HELP,
+        ),
+        GrammarHealthCode::FstShapeNotInSurfaceTable => (
+            "Shape lacks surface spelling", Warning,
+            "A retained root or affix shape has no spelling in the final surface table. Undeclared-segment findings take precedence for the same authored item.",
+            "Use the full morphological parser and inspect the named shape and its character table. Report an intentional multi-table grammar with the PanGloss version; no fixed FieldWorks correction is established.",
+            vec![], PARSER_HELP,
+        ),
         GrammarHealthCode::ImportWarning(_) => return None,
     };
     Some(CheckDiagnosticMetadata {
@@ -240,6 +300,11 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
             "grammar.stored-analysis.no-longer-parses" => Self::StoredAnalysisNoLongerParses,
             "grammar.stored-analysis.incomplete" => Self::StoredAnalysisIncomplete,
             "grammar.stored-analysis.budget-reached" => Self::StoredAnalysisBudgetReached,
+            "fst.pattern-root-shape" => Self::FstPatternRootShape,
+            "fst.circumfix-no-route" => Self::FstCircumfixNoRoute,
+            "fst.reduplication-no-route" => Self::FstReduplicationNoRoute,
+            "fst.process-not-emittable" => Self::FstProcessNotEmittable,
+            "fst.shape-not-in-surface-table" => Self::FstShapeNotInSurfaceTable,
             _ => Self::ImportWarning(wire),
         })
     }
@@ -460,6 +525,8 @@ fn unnamed_subject_title(kind: FwClass) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrammarHealthDiagnostic {
     pub level: DiagnosticLevel,
+    pub blocks_fst: bool,
+    pub fst_reason: Option<String>,
     pub code: GrammarHealthCode,
     pub group_name: String,
     pub origin: DiagnosticOrigin,
@@ -480,6 +547,8 @@ impl serde::Serialize for GrammarHealthDiagnostic {
         #[derive(serde::Serialize)]
         struct Wire<'a> {
             level: DiagnosticLevel,
+            blocks_fst: bool,
+            fst_reason: &'a Option<String>,
             code: GrammarHealthCode,
             group_name: &'a str,
             origin: DiagnosticOrigin,
@@ -503,6 +572,8 @@ impl serde::Serialize for GrammarHealthDiagnostic {
             fieldworks_places: &self.fieldworks_places,
             scope: self.scope(),
             level: self.level,
+            blocks_fst: self.blocks_fst,
+            fst_reason: &self.fst_reason,
             code: self.code.clone(),
             group_name: &self.group_name,
             origin: self.origin,
@@ -548,6 +619,8 @@ impl GrammarHealthDiagnostic {
                 .map(str::to_string),
             fieldworks_places: advice.map_or_else(Vec::new, |advice| advice.fieldworks_places),
             level: metadata.level,
+            blocks_fst: code.fst_reason().is_some(),
+            fst_reason: code.fst_reason().map(str::to_string),
             code,
             group_name,
             origin: DiagnosticOrigin::Import,
@@ -581,6 +654,34 @@ impl GrammarHealthDiagnostic {
         Self::checked(code, message.into(), subjects)
     }
 
+    /// Builds a finding using the grammar's canonical lexical-entry identity and navigation.
+    pub fn for_lexical_entry(
+        grammar: &Grammar,
+        id: LexEntryId,
+        code: GrammarHealthCode,
+        message: impl Into<String>,
+    ) -> Result<Self, crate::GrammarError> {
+        Ok(Self::checked(
+            code,
+            message.into(),
+            vec![lex_entry_subject(grammar, None, id)?],
+        ))
+    }
+
+    /// Builds a finding using the grammar's canonical morphological-rule identity and navigation.
+    pub fn for_morph_rule(
+        grammar: &Grammar,
+        id: MRuleId,
+        code: GrammarHealthCode,
+        message: impl Into<String>,
+    ) -> Result<Self, crate::GrammarError> {
+        Ok(Self::checked(
+            code,
+            message.into(),
+            vec![morph_rule_subject(grammar, None, id)?],
+        ))
+    }
+
     fn checked(
         code: GrammarHealthCode,
         message: String,
@@ -595,6 +696,8 @@ impl GrammarHealthDiagnostic {
                 .and_then(|advice| advice.help_body)
                 .map(str::to_string),
             fieldworks_places: advice.map_or_else(Vec::new, |advice| advice.fieldworks_places),
+            blocks_fst: code.fst_reason().is_some(),
+            fst_reason: code.fst_reason().map(str::to_string),
             level: code.level(),
             group_name: code.group_name(),
             guidance: check_guidance(&code, &subjects),
@@ -619,8 +722,9 @@ impl GrammarHealthDiagnostic {
             .map(|subject| subject.render_location(include_guids))
             .collect::<Vec<_>>();
         format!(
-            "{} [{}] {}: {} - {}",
+            "{}{} [{}] {}: {} - {}",
             self.level.wire(),
+            if self.blocks_fst { " [blocks FST]" } else { "" },
             self.group_name,
             kinds.join(", "),
             titles.join(", "),
@@ -629,7 +733,7 @@ impl GrammarHealthDiagnostic {
     }
 }
 
-pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 4;
+pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GrammarHealthReportErrorCode {
@@ -681,6 +785,8 @@ pub struct GrammarHealthReport {
     diagnostics: Vec<GrammarHealthDiagnostic>,
     fieldworks_project: FieldWorksProject,
     locale: String,
+    fst_checked: bool,
+    fst_check_error: Option<String>,
 }
 
 impl GrammarHealthReport {
@@ -691,6 +797,8 @@ impl GrammarHealthReport {
             diagnostics,
             fieldworks_project: FieldWorksProject::default(),
             locale: "en".to_string(),
+            fst_checked: false,
+            fst_check_error: None,
         }
         .with_fieldworks_project(FieldWorksProject::default());
         Self::validated(report.diagnostics, report.fieldworks_project)
@@ -705,6 +813,8 @@ impl GrammarHealthReport {
             validate_diagnostic(diagnostic, diagnostic_index)?;
             let details = (
                 &diagnostic.group_name,
+                diagnostic.blocks_fst,
+                &diagnostic.fst_reason,
                 diagnostic.level,
                 diagnostic.origin,
                 &diagnostic.explanation,
@@ -728,6 +838,8 @@ impl GrammarHealthReport {
             diagnostics,
             fieldworks_project,
             locale: "en".to_string(),
+            fst_checked: false,
+            fst_check_error: None,
         })
     }
 
@@ -746,6 +858,31 @@ impl GrammarHealthReport {
         }
         self.fieldworks_project = fieldworks_project;
         self
+    }
+
+    /// Marks a report whose caller has also run FST capability analysis.
+    pub fn with_fst_checked(mut self) -> Self {
+        self.fst_checked = true;
+        self.fst_check_error = None;
+        self
+    }
+
+    /// Retains why an attempted FST check could not finish, without losing author findings.
+    pub fn with_fst_check_error(mut self, reason: String) -> Self {
+        self.fst_checked = false;
+        self.fst_check_error = Some(reason);
+        self
+    }
+
+    pub fn fst_checked(&self) -> bool {
+        self.fst_checked
+    }
+
+    pub fn fst_blocking_count(&self) -> usize {
+        self.diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.blocks_fst)
+            .count()
     }
 
     pub fn diagnostics(&self) -> &[GrammarHealthDiagnostic] {
@@ -816,6 +953,21 @@ impl GrammarHealthReport {
         let summary: Vec<GrammarHealthSummaryRow> = required_field(object, "summary", None)?;
         let mut report = Self::validated(diagnostics, fieldworks_project)?;
         report.locale = locale;
+        report.fst_checked = required_field(object, "fst_checked", None)?;
+        report.fst_check_error = required_field(object, "fst_check_error", None)?;
+        if report.fst_checked && report.fst_check_error.is_some()
+            || report
+                .fst_check_error
+                .as_deref()
+                .is_some_and(|reason| reason.trim().is_empty())
+        {
+            return Err(report_error(
+                GrammarHealthReportErrorCode::InvalidField,
+                None,
+                Some("fst_check_error"),
+                "inconsistent FST check status".to_string(),
+            ));
+        }
         if report.fieldworks_project.clone().normalized() != report.fieldworks_project {
             return Err(report_error(
                 GrammarHealthReportErrorCode::InvalidField,
@@ -864,6 +1016,8 @@ impl GrammarHealthReport {
                     code: diagnostic.code.wire().to_string(),
                     group_name: diagnostic.group_name.clone(),
                     level: diagnostic.level,
+                    blocks_fst: diagnostic.blocks_fst,
+                    fst_reason: diagnostic.fst_reason.clone(),
                     count: 1,
                 });
         }
@@ -877,6 +1031,8 @@ pub struct GrammarHealthSummaryRow {
     pub group_name: String,
     pub level: DiagnosticLevel,
     pub count: usize,
+    pub blocks_fst: bool,
+    pub fst_reason: Option<String>,
 }
 
 impl std::ops::Deref for GrammarHealthReport {
@@ -895,6 +1051,8 @@ impl serde::Serialize for GrammarHealthReport {
         #[derive(serde::Serialize)]
         struct Wire<'a> {
             schema_version: u32,
+            fst_checked: bool,
+            fst_check_error: &'a Option<String>,
             locale: &'a str,
             fieldworks_project: &'a FieldWorksProject,
             summary: Vec<GrammarHealthSummaryRow>,
@@ -903,6 +1061,8 @@ impl serde::Serialize for GrammarHealthReport {
 
         Wire {
             schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
+            fst_checked: self.fst_checked,
+            fst_check_error: &self.fst_check_error,
             locale: &self.locale,
             fieldworks_project: &self.fieldworks_project,
             summary: self.summary(),
@@ -1003,6 +1163,8 @@ fn decode_diagnostic(
     let fieldworks_places = required_field(object, "fieldworks_places", Some(diagnostic_index))?;
     let title: String = required_field(object, "title", Some(diagnostic_index))?;
     let diagnostic = GrammarHealthDiagnostic {
+        blocks_fst: required_field(object, "blocks_fst", Some(diagnostic_index))?,
+        fst_reason: required_field(object, "fst_reason", Some(diagnostic_index))?,
         level,
         code,
         group_name,
@@ -1051,6 +1213,19 @@ fn validate_diagnostic(
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
     {
         return missing("code", format!("{prefix}: invalid diagnostic code"));
+    }
+    if diagnostic.blocks_fst != diagnostic.fst_reason.is_some()
+        || diagnostic
+            .fst_reason
+            .as_deref()
+            .is_some_and(|reason| reason.trim().is_empty())
+        || (registered_diagnostic_codes().any(|known| known == diagnostic.code)
+            && diagnostic.blocks_fst != diagnostic.code.fst_reason().is_some())
+    {
+        return missing(
+            "blocks_fst/fst_reason",
+            format!("{prefix}: inconsistent FST label"),
+        );
     }
     if diagnostic.message.trim().is_empty() {
         return missing("description", format!("{prefix}: missing description"));
@@ -1222,6 +1397,11 @@ fn render_diagnostic_page(code: &GrammarHealthCode, advice: DiagnosticAdvice) ->
         advice.explanation,
         advice.guidance.replace("{subject}", "the named item")
     );
+    if let Some(reason) = code.fst_reason() {
+        page.push_str(&format!(
+            "\nLabel: **blocks FST**\n\nPresent in the converted Grammar because: {reason}\n"
+        ));
+    }
     if !advice.fieldworks_places.is_empty() {
         page.push_str("\n## FieldWorks places\n\n| Tool | Field |\n|---|---|\n");
         for place in advice.fieldworks_places {
@@ -1253,16 +1433,21 @@ pub fn render_diagnostics_reference() -> String {
             .filter(|code| code.level() == level)
             .collect();
         out.push_str(&format!(
-            "\n## {title} ({})\n\n| Code | Title | What to do |\n|---|---|---|\n",
+            "\n## {title} ({})\n\n| Code | Title | Label | What to do |\n|---|---|---|---|\n",
             codes.len()
         ));
         for code in codes {
             let advice = diagnostic_advice(&code).expect("registered code has advice");
             out.push_str(&format!(
-                "| [{}](diagnostics/{}.md) | {} | {} |\n",
+                "| [{}](diagnostics/{}.md) | {} | {} | {} |\n",
                 code.wire(),
                 code.wire(),
                 advice.title.replace('|', "\\|"),
+                if code.fst_reason().is_some() {
+                    "blocks FST"
+                } else {
+                    ""
+                },
                 advice
                     .guidance
                     .replace("{subject}", "the named item")

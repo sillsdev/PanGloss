@@ -9,6 +9,7 @@ use crate::backend_optimizer::{
 use crate::compose_budget::{ApplyBudget, ComposeBudget};
 use crate::composite::{FomaAnalyzer, ProfiledFomaApplyOutcomeWithCandidates};
 use crate::enumerate::{EmissionStrategy, LoweredCandidate};
+use crate::grammar_admission::assess_completed_fst;
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
@@ -16,7 +17,6 @@ use crate::parity::{
     certified_occurrence, IdentityDivergence, IdentityMismatchDirection, OccurrenceIdentities,
     ParitySide,
 };
-use crate::production_admission::assess_completed_fst;
 use crate::tags::Candidate;
 use pg_grammar::model::Grammar;
 use pg_parse::WordAnalysis;
@@ -1003,7 +1003,7 @@ pub struct RuntimeEvaluation {
     /// resource breach, an excluded corpus, a per-word apply-budget refusal) -- see that
     /// constructor's own doc for why "nothing compared" must never read as a clean zero.
     pub divergence: IdentityDivergence,
-    /// `production_admission::assess_completed_fst`'s verdict on THIS candidate,
+    /// `grammar_admission::assess_completed_fst`'s verdict on THIS candidate,
     /// orthogonal to `certification`: `certification` answers accuracy/parity against the oracle,
     /// this answers publishability of the compiled artifact, and neither stands in for the other
     /// -- a candidate can be accurate but unpublishable (a partial-bearing grammar), or compile
@@ -1022,7 +1022,7 @@ impl RuntimeEvaluation {
     /// `ConfirmationEvidence`/`CandidateReport`) reads the SAME comparison rather than each
     /// re-deriving it against `Severity::NotProductionReady` by hand.
     pub fn production_blocks_publication(&self) -> bool {
-        crate::production_admission::health_blocks_publication(&self.production_health)
+        crate::grammar_admission::health_blocks_publication(&self.production_health)
     }
 }
 

@@ -6,8 +6,8 @@ use pg_foma::strategy_coverage::ALL_STRATEGIES;
 use pg_foma_backend::backend_selection::{
     select_backends_for_grammar, BackendSelection, BackendStatus,
 };
+use pg_foma_backend::grammar_admission::assess_completed_fst;
 use pg_foma_backend::health::{FindingCode, Severity};
-use pg_foma_backend::production_admission::assess_completed_fst;
 use pg_grammar::model::Grammar;
 
 /// The named corpus' grammar, whatever file the manifest says backs it.
@@ -146,21 +146,20 @@ fn mbugwe_backend_reports_are_complete() {
     assert_only_tuned_surface_accepts("mbugwe", &selection);
 }
 
-/// One grammar's FST production status derived from its OWN partial inventory, so no grammar name appears in the decision.
-fn assert_production_status_follows_partial_inventory(name: &str) {
+/// One grammar's FST publication status derived from grammar-health labels, so no grammar name appears in the decision.
+fn assert_production_status_follows_grammar_health_labels(name: &str) {
     let grammar = load(name);
-    let facts = grammar
-        .partial_morpheme_facts()
-        .unwrap_or_else(|error| panic!("{name}: partial inventory must be valid: {error}"));
-    let expected_publishable = !facts.has_partials();
+    let diagnostics = pg_grammar::grammar_health::check_grammar_health_diagnostics(&grammar)
+        .unwrap_or_else(|error| panic!("{name}: grammar-health must decide: {error}"));
+    let blocking = diagnostics.iter().filter(|d| d.blocks_fst).count();
+    let expected_publishable = blocking == 0;
     for &strategy in ALL_STRATEGIES {
         let admission = assess_completed_fst(&grammar, strategy)
             .unwrap_or_else(|error| panic!("{name}: admission must decide: {error}"));
         eprintln!(
-            "{name}: partial_entries={} partial_rules={} backend={:?} publishable={} \
+            "{name}: labelled_findings={} backend={:?} publishable={} \
              admission={:?} by_class=[{}]",
-            facts.partial_entry_count(),
-            facts.partial_rule_count(),
+            blocking,
             strategy,
             !admission.blocks_publication(),
             admission.health().admission(),
@@ -169,10 +168,7 @@ fn assert_production_status_follows_partial_inventory(name: &str) {
         assert_eq!(
             !admission.blocks_publication(),
             expected_publishable,
-            "{name} x {strategy:?}: production status must follow the grammar's own partial \
-             inventory ({} entry/entries, {} rule(s))",
-            facts.partial_entry_count(),
-            facts.partial_rule_count(),
+            "{name} x {strategy:?}: production status must follow grammar-health labels ({blocking} findings)",
         );
         // A readiness refusal must never masquerade as a representability denial.
         assert_eq!(
@@ -189,31 +185,31 @@ fn assert_production_status_follows_partial_inventory(name: &str) {
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn sena_production_status_follows_its_partial_inventory() {
-    assert_production_status_follows_partial_inventory("sena");
+    assert_production_status_follows_grammar_health_labels("sena");
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn indonesian_production_status_follows_its_partial_inventory() {
-    assert_production_status_follows_partial_inventory("indonesian");
+    assert_production_status_follows_grammar_health_labels("indonesian");
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn amharic_production_status_follows_its_partial_inventory() {
-    assert_production_status_follows_partial_inventory("amharic");
+    assert_production_status_follows_grammar_health_labels("amharic");
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn aweti_production_status_follows_its_partial_inventory() {
-    assert_production_status_follows_partial_inventory("aweti");
+    assert_production_status_follows_grammar_health_labels("aweti");
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn mbugwe_production_status_follows_its_partial_inventory() {
-    assert_production_status_follows_partial_inventory("mbugwe");
+    assert_production_status_follows_grammar_health_labels("mbugwe");
 }
 
 /// All five reference grammars keep an accepted backend; which one, and why, is pinned above.

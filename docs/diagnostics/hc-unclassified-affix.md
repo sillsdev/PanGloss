@@ -12,6 +12,10 @@ The affix has neither an inflectional nor a derivational analysis. It is partial
 
 In Lexicon > Lexicon Edit, classify the affix's Grammatical Info. as inflectional or derivational if that describes it, then supply the category and restrictions that analysis requires.
 
+Label: **blocks FST**
+
+Present in the converted Grammar because: The unclassified affix is retained as a partial rule; FST support for partial morphemes is unproven.
+
 ## FieldWorks places
 
 | Tool | Field |

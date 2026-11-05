@@ -21,8 +21,8 @@ mod backend_seam_gate;
 mod backend_selection_contract;
 #[path = "../bare_root_compile_time_discharge.rs"]
 mod bare_root_compile_time_discharge;
-#[path = "../partial_fst_production_admission_gate.rs"]
-mod partial_fst_production_admission_gate;
+#[path = "../grammar_health_publication_gate.rs"]
+mod grammar_health_publication_gate;
 #[path = "../strategy_aware_capability_gate.rs"]
 mod strategy_aware_capability_gate;
 #[path = "../strategy_coverage_join_gate.rs"]

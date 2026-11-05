@@ -79,7 +79,7 @@ $crateSpecs = @(
             'late_structural_anchor_recall.rs', 'mechanism_provider_gate.rs',
             'mentanukam_multiplicity_recovered_by_confirm.rs', 'morphotactics_boundary_cleanup_slice.rs', 'oracle_work_determinism_gate.rs', 'orthogonal_basis_group_a.rs',
             'orthogonal_basis_group_b.rs', 'parity_divergence_census.rs',
-            'partial_fst_production_admission_gate.rs', 'pattern_root_regex_route_gate.rs',
+            'grammar_health_publication_gate.rs', 'pattern_root_regex_route_gate.rs',
             'pk2_eliminate_flag_oracle.rs',
             'phase_c_chain_scale.rs',
             'plan_interaction_coverage_gate.rs',

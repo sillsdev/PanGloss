@@ -1,5 +1,5 @@
 //! `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-//! [--stored-analyses bounded|all|off]`: run the ported `hc-*` HermitCrab grammar-authoring checks
+//! [--stored-analyses bounded|all|off] [--fst]`: run the ported `hc-*` HermitCrab grammar-authoring checks
 //! (`pg_grammar::grammar_health`) and print/serialize the diagnostics.
 //!
 //! The checks that do not parse always run to completion. The FieldWorks stored-analysis
@@ -24,7 +24,7 @@ use pg_snapshot::DiagnosticLevel;
 use crate::stored_analysis_health::{Coverage, Limits};
 
 /// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-/// [--stored-analyses bounded|all|off]`; `<out.json>` omitted prints the versioned report to stdout
+/// [--stored-analyses bounded|all|off] [--fst]`; `<out.json>` omitted prints the versioned report to stdout
 /// instead of a file. Diagnostics are also logged one per line on stderr.
 pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     run_grammar_health_with_limits(args, Limits::DEFAULT)
@@ -38,10 +38,19 @@ pub(crate) fn run_grammar_health_with_limits(
     let mut positionals = Vec::new();
     let mut fieldworks_project = None;
     let mut log_guids = false;
+    let mut fst = false;
+    let mut fst_check_error = None;
     let mut coverage = Coverage::Budget(limits.work_budget);
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "--fst" => {
+                if !cfg!(feature = "foma-tools") {
+                    return Err("--fst requires a build with the foma-tools feature".to_string());
+                }
+                fst = true;
+                index += 1;
+            }
             "--log-guids" => {
                 log_guids = true;
                 index += 1;
@@ -89,7 +98,7 @@ pub(crate) fn run_grammar_health_with_limits(
         [grammar, output] => (*grammar, Some(*output)),
         _ => {
             return Err(
-                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off]"
+                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst]"
                     .to_string(),
             );
         }
@@ -101,6 +110,9 @@ pub(crate) fn run_grammar_health_with_limits(
             crate::print_substrate_report(&loaded.substrate);
             let mut diagnostics = check_grammar_health_diagnostics(&loaded.grammar)
                 .map_err(|error| format!("run grammar health checks: {error}"))?;
+            if fst {
+                fst_check_error = extend_fst_diagnostics(&loaded.grammar, &mut diagnostics);
+            }
             diagnostics.extend(crate::stored_analysis_health::check(
                 &loaded.grammar,
                 &loaded.stored_analyses,
@@ -115,12 +127,25 @@ pub(crate) fn run_grammar_health_with_limits(
             );
             diagnostics
         }
-        Err(crate::compile_failure::GrammarLoadError::Compile(failure)) => failure.diagnostics,
+        Err(crate::compile_failure::GrammarLoadError::Compile(failure)) => {
+            if fst {
+                fst_check_error = Some(
+                    "FST inspection requires a converted Grammar; grammar compilation failed."
+                        .to_string(),
+                );
+            }
+            failure.diagnostics
+        }
         Err(error) => return Err(error.to_string()),
     };
-    let report = GrammarHealthReport::new(diagnostics)
+    let mut report = GrammarHealthReport::new(diagnostics)
         .map_err(|error| format!("assemble grammar health report: {error}"))?
         .with_fieldworks_project(project);
+    if let Some(reason) = &fst_check_error {
+        report = report.with_fst_check_error(reason.clone());
+    } else if fst {
+        report = report.with_fst_checked();
+    }
     let json =
         render_json(&report).map_err(|e| format!("serialize grammar health diagnostics: {e}"))?;
 
@@ -140,11 +165,44 @@ pub(crate) fn run_grammar_health_with_limits(
         report.len(),
         render_level_counts(report.diagnostics()),
     );
+    eprintln!(
+        "FST: blocked by {} labelled finding(s); capability inspection {}",
+        report.fst_blocking_count(),
+        if report.fst_checked() {
+            "complete"
+        } else {
+            "not complete (see fst_check_error; use --fst when not requested)"
+        }
+    );
+    if let Some(reason) = fst_check_error {
+        return Err(format!(
+            "FST grammar-health inspection incomplete: {reason}"
+        ));
+    }
     let errors = count_level(report.diagnostics(), DiagnosticLevel::Error);
     if errors > 0 {
         return Err(format!("{errors} error(s); fix them before parsing"));
     }
     Ok(())
+}
+
+#[cfg(feature = "foma-tools")]
+fn extend_fst_diagnostics(
+    grammar: &pg_grammar::model::Grammar,
+    diagnostics: &mut Vec<GrammarHealthDiagnostic>,
+) -> Option<String> {
+    match pg_foma::grammar_health::extend_diagnostics(grammar, diagnostics) {
+        Ok(reason) => reason,
+        Err(error) => Some(error.to_string()),
+    }
+}
+
+#[cfg(not(feature = "foma-tools"))]
+fn extend_fst_diagnostics(
+    _grammar: &pg_grammar::model::Grammar,
+    _diagnostics: &mut Vec<GrammarHealthDiagnostic>,
+) -> Option<String> {
+    Some("FST inspection requires the foma-tools feature.".to_string())
 }
 
 fn fieldworks_project_for_path(

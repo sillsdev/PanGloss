@@ -91,19 +91,11 @@ fn characterization_raises_cannot_represent_finding_for_refuse_verdict() {
         .iter()
         .any(|f| f.code == FindingCode::BackendCoveragePartial));
     assert_eq!(finding.metric, Metric::BackendCoverageGapCount);
-    assert_eq!(
-        finding.value,
-        MetricValue::Count(finding.affected.len() as u64)
-    );
+    assert_eq!(finding.value, MetricValue::Count(1));
     assert_eq!(finding.phase, Phase::Characterization);
     assert_eq!(finding.provenance, ValueProvenance::Observed);
-    assert!(
-        finding
-            .affected
-            .iter()
-            .any(|a| a.contains("mrule 0 allomorph #0")),
-        "expected the non-peel-eligible reduplication construct named: {finding:?}"
-    );
+    assert!(finding.affected.is_empty());
+    assert!(finding.explanation.contains("grammar-health"));
 }
 
 /// Crossing `RULE_PRODUCT_WARNING_THRESHOLD` raises a `Predicted`/`LargeMultiplier` finding naming the exact product; exercised directly against a synthetic `CharacteristicsProfile` since this finding depends on nothing else in the profile.
@@ -129,10 +121,11 @@ fn rule_interaction_product_finding_fires_above_threshold_not_below() {
 
 /// A grammar one compiler accepts and another refuses is not refused as a whole, yet used to produce no finding at all (G15); the finding now names the declining compilers.
 #[test]
-fn a_partly_refused_envelope_yields_a_finding_naming_the_declining_compilers() {
+fn a_partly_refused_envelope_yields_an_aggregate_finding() {
     use crate::capability::{CapabilityDiagnostic, StrategyVerdict};
     use crate::strategy_coverage::ALL_STRATEGIES;
     let diagnostic = CapabilityDiagnostic {
+        refusal: pg_health::capability::CapabilityRefusal::StrategyCoverage,
         predicate: "some-predicate",
         construct: "mrule 0".to_string(),
         witness: "w".to_string(),
@@ -161,13 +154,8 @@ fn a_partly_refused_envelope_yields_a_finding_naming_the_declining_compilers() {
     assert_eq!(finding.code, FindingCode::BackendCoveragePartial);
     assert_eq!(finding.severity, Severity::Elevated);
     assert_eq!(finding.value, MetricValue::Count(1));
-    assert_eq!(finding.affected, vec!["mrule 0".to_string()]);
-    assert!(
-        finding
-            .explanation
-            .contains(&format!("{:?} declines", ALL_STRATEGIES[0])),
-        "the finding must name the declining compiler: {finding:?}"
-    );
+    assert!(finding.affected.is_empty());
+    assert!(finding.explanation.contains("grammar-health"));
 
     assert!(
         partial_refusal_finding(&decisions(&[])).is_none(),

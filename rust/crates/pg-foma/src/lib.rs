@@ -33,6 +33,9 @@ pub use pg_foma_runtime::confirm;
 pub mod emit;
 pub mod enumerate;
 pub mod gate;
+pub mod grammar_health;
+#[cfg(test)]
+mod grammar_health_tests;
 pub mod grammar_semantics;
 pub mod junctions;
 pub use pg_health::health;

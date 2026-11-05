@@ -38,9 +38,18 @@ pub struct CharacterizationResult {
     pub evidence: ClosureEvidence,
 }
 
+/// An emission observation's author-facing finding or compiler-only classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EmissionHealth {
+    Grammar(Box<pg_grammar::grammar_health::GrammarHealthDiagnostic>),
+    Budget { value: usize, limit: usize },
+    Advisory,
+}
+
 /// One construct this emitter could not represent as literal lexc — never silently dropped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UncoveredItem {
+    pub grammar_health: EmissionHealth,
     /// A short machine-stable category: "pattern-allomorph", "process-morph", "unsegmentable-root",
     /// "unsegmentable-affix", "infix", "reduplication", "circumfix-prefix", "circumfix-suffix",
     /// "process".
@@ -99,11 +108,8 @@ pub struct EmitCounts {
 /// Overall verdict for this grammar's foma path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FomaTier {
-    /// Every construct the grammar uses was representable (no `uncovered` entries).
+    /// Every construct was represented; `uncovered` may contain compiler cost advisories.
     Full,
-    /// Emitted lexc material with known uncovered constructs. This is development evidence, not a
-    /// trusted proposer: confirmation cannot restore candidates that the emission omitted.
-    Partial { uncovered: usize },
     /// A grammar construct cannot be faithfully represented by this backend.
     CannotRepresent { reason: String },
     /// Could not emit a usable network at all; the grammar is refused and any use of the full engine is the caller's choice.

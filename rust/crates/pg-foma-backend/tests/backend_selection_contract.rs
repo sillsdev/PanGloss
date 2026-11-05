@@ -4,10 +4,11 @@ use pg_foma_backend::backend_selection::{BackendReport, BackendStatus};
 use pg_foma_backend::health::{FindingCode, Severity};
 
 fn refused(strategy: EmissionStrategy) -> BackendReport {
-    // Not `BackendReport::refused` (pg-health's data-only half); the predicate id must be real and registered, since `capability_shape_key`'s advice-shape lookup is closed and panics on one it does not own.
+    // Exercise the compiler-facing constructor; author advice is owned by grammar-health.
     pg_foma_backend::backend_selection::refused(
         strategy,
         CompileDecision::Refuse(vec![CapabilityDiagnostic {
+            refusal: pg_health::capability::CapabilityRefusal::StrategyCoverage,
             predicate: "surface-probe.root-spelling-cap",
             construct: "unsupported".to_string(),
             witness: "synthetic".to_string(),
@@ -30,7 +31,7 @@ fn accepted_constructor_rejects_refusal() {
 }
 
 #[test]
-fn capability_refusal_is_a_typed_cannot_represent_with_actionable_advice() {
+fn capability_refusal_is_a_typed_cannot_represent_with_grammar_health_guidance() {
     let report = refused(EmissionStrategy::TunedSurfaceProbed);
     assert_eq!(report.status(), BackendStatus::Refused);
     assert_eq!(report.worst_severity(), Severity::CannotRepresent);
@@ -40,8 +41,11 @@ fn capability_refusal_is_a_typed_cannot_represent_with_actionable_advice() {
         FindingCode::BackendCoverageIncomplete
     );
     assert!(!report.failed_predicates().is_empty());
-    assert!(!report.shapes().is_empty());
-    assert!(!report.advice_references().is_empty());
+    assert!(report.shapes().is_empty());
+    assert!(report.advice_references().is_empty());
+    assert!(report.findings()[0]
+        .explanation
+        .contains("see grammar-health"));
 }
 
 #[test]

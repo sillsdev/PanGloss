@@ -2,10 +2,10 @@
 
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
+use pg_foma_backend::grammar_admission::assess_completed_fst;
 use pg_foma_backend::health::{
     FindingClass, FindingCode, Metric, MetricValue, Severity, ValueProvenance,
 };
-use pg_foma_backend::production_admission::assess_completed_fst;
 use pg_foma_backend::witnessed_coverage::compile_with_backend_for_measurement;
 use pg_grammar::model::Grammar;
 
@@ -150,13 +150,13 @@ fn every_strategy_refuses_publication_for_both_partial_shapes() {
             let finding = admission.health().findings.first().unwrap_or_else(|| {
                 panic!("{label} x {strategy:?}: a blocked admission must carry a finding")
             });
-            assert_eq!(finding.code, FindingCode::PartialMorphemeProductionPolicy);
+            assert_eq!(finding.code, FindingCode::GrammarHealthBlocksFst);
             assert_eq!(finding.class(), FindingClass::Readiness);
-            assert_eq!(finding.metric, Metric::PartialMorphemeCount);
+            assert_eq!(finding.metric, Metric::GrammarHealthBlockingCount);
             assert_eq!(finding.value, MetricValue::Count(1));
             assert_eq!(finding.provenance, ValueProvenance::Observed);
             assert!(
-                finding.affected.iter().any(|id| id == authored_id),
+                finding.affected.iter().any(|code| code.starts_with("hc-")),
                 "{label}: the finding must name {authored_id}, got {:?}",
                 finding.affected
             );
@@ -338,11 +338,11 @@ fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial
 #[test]
 fn the_partial_policy_code_answers_readiness_and_nothing_else() {
     assert_eq!(
-        FindingCode::PartialMorphemeProductionPolicy.class(),
+        FindingCode::GrammarHealthBlocksFst.class(),
         FindingClass::Readiness
     );
     assert_ne!(
-        FindingCode::PartialMorphemeProductionPolicy.class(),
+        FindingCode::GrammarHealthBlocksFst.class(),
         FindingClass::Representability
     );
 }

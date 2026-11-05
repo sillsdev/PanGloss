@@ -337,7 +337,7 @@ pub enum CompletedBuildError {
         health: crate::health::HealthReport,
     },
     /// Production admission could not be decided, so nothing is admitted.
-    PartialFactsUnavailable(String),
+    GrammarHealthUnavailable(String),
 }
 
 impl fmt::Display for CompletedBuildError {
@@ -416,7 +416,7 @@ impl fmt::Display for CompletedBuildError {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
-            Self::PartialFactsUnavailable(error) => write!(
+            Self::GrammarHealthUnavailable(error) => write!(
                 f,
                 "production admission could not be decided, so nothing is admitted: {error}"
             ),
@@ -445,8 +445,8 @@ pub fn compile_completed_backend(
         requested_strategy,
         request,
     )?;
-    let admission = crate::production_admission::assess_completed_fst(grammar, requested_strategy)
-        .map_err(|error| CompletedBuildError::PartialFactsUnavailable(error.to_string()))?;
+    let admission = crate::grammar_admission::assess_completed_fst(grammar, requested_strategy)
+        .map_err(|error| CompletedBuildError::GrammarHealthUnavailable(error.to_string()))?;
     if admission.blocks_publication() {
         drop(measured);
         return Err(CompletedBuildError::NotProductionReady {
