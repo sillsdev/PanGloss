@@ -607,6 +607,11 @@ impl<'g> FomaAnalyzer<'g> {
         )
     }
 
+    /// Effective peel bound, exposed for reproducible differential manifests.
+    pub fn peel_chain_depth_cap(&self) -> Option<usize> {
+        self.peel_budget.chain_depth_cap
+    }
+
     /// How this analyzer filters candidates before confirming them.
     pub fn candidate_filter(&self) -> &CandidateFilterSettings {
         &self.filter

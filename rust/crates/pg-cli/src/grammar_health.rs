@@ -42,6 +42,9 @@ pub(crate) fn run_grammar_health_with_limits(
     args: &[String],
     limits: Limits,
 ) -> Result<(), String> {
+    #[cfg(feature = "foma-tools")]
+    let mut fst_config = pg_foma::construction::FstCompileConfig::default();
+    let mut fst_report: Option<serde_json::Value> = None;
     let mut positionals = Vec::new();
     let mut fieldworks_project = None;
     let mut log_guids = false;
@@ -51,6 +54,11 @@ pub(crate) fn run_grammar_health_with_limits(
     let mut artifacts = ArtifactArgs::default();
     let mut index = 0;
     while index < args.len() {
+        #[cfg(feature = "foma-tools")]
+        if fst_config.parse_option(args, &mut index)? {
+            fst = true;
+            continue;
+        }
         match args[index].as_str() {
             "--fst" => {
                 if !cfg!(feature = "foma-tools") {
@@ -146,6 +154,13 @@ pub(crate) fn run_grammar_health_with_limits(
         Ok(loaded) => {
             artifact_error = artifacts.write(&capture, Some(&loaded.grammar));
             crate::print_substrate_report(&loaded.substrate);
+            #[cfg(feature = "foma-tools")]
+            if fst {
+                fst_report = Some(crate::fst_health::compile_report(
+                    &loaded.grammar,
+                    &fst_config,
+                )?);
+            }
             let mut diagnostics = check_grammar_health_diagnostics(&loaded.grammar)
                 .map_err(|error| format!("run grammar health checks: {error}"))?;
             if fst {
@@ -188,8 +203,14 @@ pub(crate) fn run_grammar_health_with_limits(
     } else if fst {
         report = report.with_fst_checked();
     }
-    let json =
+    let mut json =
         render_json(&report).map_err(|e| format!("serialize grammar health diagnostics: {e}"))?;
+    if let Some(fst) = fst_report.take() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&json).map_err(|error| error.to_string())?;
+        value["fst"] = fst;
+        json = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
+    }
 
     match out_path {
         Some(path) => {

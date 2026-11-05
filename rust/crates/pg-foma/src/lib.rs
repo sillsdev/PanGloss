@@ -29,6 +29,8 @@ pub use pg_foma_runtime::compose_budget;
 #[cfg(not(feature = "test-support"))]
 pub(crate) use pg_foma_runtime::compose_budget;
 pub mod composite;
+pub use pg_foma_runtime::construction;
+pub mod differential;
 pub use pg_foma_runtime::confirm;
 pub mod emit;
 pub mod enumerate;
@@ -48,9 +50,7 @@ workbench_module! {
     pub mod precision;
 }
 pub(crate) mod preexpand;
-workbench_module! {
-    pub mod profile;
-}
+pub mod profile;
 pub mod replace;
 pub mod strategy_coverage;
 pub mod structural_allomorph;

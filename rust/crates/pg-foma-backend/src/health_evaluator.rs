@@ -348,6 +348,9 @@ pub fn evaluate(measurements: CompileMeasurements) -> HealthReport {
 /// Converts every typed Foma construction failure into nonempty backend-local health evidence.
 pub fn evaluate_foma_error(error: &FomaError) -> HealthReport {
     match error {
+        FomaError::ConstructionRefused(_) | FomaError::StrategyNotImplemented(_) => {
+            HealthReport::new(vec![backend_compilation_failed_finding(error.to_string())])
+        }
         FomaError::LexcCompileFailed(report) => {
             let mut health = evaluate(CompileMeasurements {
                 phases: AttemptedPhases::starting_with(Phase::Compile),

@@ -39,6 +39,8 @@ fn render_refusal(diagnostics: &[pg_health::capability::CapabilityDiagnostic]) -
 /// parser is the caller's decision, made from the readiness verdict.
 #[derive(Debug)]
 pub enum FomaError {
+    ConstructionRefused(Box<crate::construction::ConstructionReport>),
+    StrategyNotImplemented(crate::construction::ConstructionStrategy),
     /// `fsm_lexc_parse_string` returned `None`; carries the emitter's own report for diagnosis.
     LexcCompileFailed(Box<EmitReport>),
     /// The emitter proved that no complete Foma artifact can be built for this grammar.
@@ -51,6 +53,8 @@ pub enum FomaError {
 impl fmt::Display for FomaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            FomaError::StrategyNotImplemented(strategy) => write!(f, "FST strategy {} is not implemented", strategy.label()),
+            FomaError::ConstructionRefused(report) => write!(f, "FST construction refused: {report:?}"),
             FomaError::LexcCompileFailed(report) => write!(
                 f,
                 "foma lexc compile failed (emit report: {} uncovered constructs, tier {:?})",

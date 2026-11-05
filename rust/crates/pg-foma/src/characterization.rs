@@ -33,8 +33,9 @@ pub struct ClosureTestLimits {
 /// root/chain-state x rule applications, never affix depth. Ordinary selection keeps this budget
 /// frozen; characterization uses these fixed internal limits.
 pub(crate) const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
-pub(crate) const DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT: usize = 64;
-const DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT: usize = 200;
+pub(crate) const DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT: usize =
+    crate::construction::DEFAULT_CLOSURE_DEPTH;
+const DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT: usize = crate::construction::DEFAULT_COMPOUND_DEPTH;
 
 /// Mutable evidence sink shared by the production emitter and characterization APIs.
 pub(crate) struct ClosureTrace {
@@ -71,6 +72,11 @@ impl ClosureTrace {
                 terminal: None,
             }),
         }
+    }
+
+    pub(crate) fn with_compound_depth_cap(mut self, cap: usize) -> Self {
+        self.compound_chain_depth_cap = cap;
+        self
     }
 
     pub(crate) fn depth_cap(&self) -> usize {

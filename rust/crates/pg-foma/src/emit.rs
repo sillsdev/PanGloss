@@ -1980,43 +1980,7 @@ fn build_slot_chain(
 const DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET: usize =
     crate::preexpand::DEFAULT_CLOSURE_DEPTH_BUDGET;
 
-/// Containment limits, independent of the grammar's per-rule application bounds.
-#[derive(Clone, Copy, Debug)]
-pub struct StructuralClosureLimits {
-    pub work_limit: usize,
-    pub retained_bytes_limit: usize,
-}
-
-impl Default for StructuralClosureLimits {
-    fn default() -> Self {
-        Self {
-            work_limit: 100_000,
-            retained_bytes_limit: 16 * 1024 * 1024,
-        }
-    }
-}
-
-impl StructuralClosureLimits {
-    fn from_env() -> Result<Self, String> {
-        fn limit(name: &str, default: usize) -> Result<usize, String> {
-            match std::env::var(name) {
-                Ok(value) => value
-                    .parse()
-                    .map_err(|_| format!("{name} must be a nonnegative integer; got {value:?}")),
-                Err(std::env::VarError::NotPresent) => Ok(default),
-                Err(error) => Err(format!("cannot read {name}: {error}")),
-            }
-        }
-        let defaults = Self::default();
-        Ok(Self {
-            work_limit: limit("HC_STRUCTURAL_CLOSURE_WORK_LIMIT", defaults.work_limit)?,
-            retained_bytes_limit: limit(
-                "HC_STRUCTURAL_CLOSURE_BYTES_LIMIT",
-                defaults.retained_bytes_limit,
-            )?,
-        })
-    }
-}
+pub use crate::construction::StructuralClosureLimits;
 
 #[derive(Default, Clone, Debug)]
 struct StructuralBudgetState {
@@ -3311,7 +3275,7 @@ pub fn composite_scale_hint(g: &Grammar) -> (bool, usize, usize) {
 /// only cardinality — the census C4 handoff test needs this to prove a rule reaches this set
 /// specifically, rather than merely inferring it from a count that could shift for an unrelated
 /// reason.
-#[cfg(feature = "test-support")]
+#[derive(serde::Serialize)]
 pub struct CompositeCandidateDiagnostics {
     pub preexpand_candidates: Vec<(u32, &'static str)>,
     pub structural_probe_would_refuse: bool,
@@ -3320,7 +3284,6 @@ pub struct CompositeCandidateDiagnostics {
 }
 
 /// See `CompositeCandidateDiagnostics`.
-#[cfg(feature = "test-support")]
 pub fn composite_candidate_rules(g: &Grammar) -> CompositeCandidateDiagnostics {
     let preexpand_candidates = (0..g.mrules.len() as u32)
         .filter_map(|i| {
@@ -3499,10 +3462,56 @@ fn structural_budget_refusal(
 fn emit_with_budget_profiled_with_strategy_and_trace(
     g: &Grammar,
     precision: PrecisionConfig,
+    profile: Option<&mut CompileProfileBuilder>,
+    strategy: SurfaceEmitStrategy,
+    closure_trace: Option<&crate::characterization::ClosureTrace>,
+    allow_env_trace: bool,
+) -> EmitResult {
+    emit_with_budget_profiled_with_strategy_and_trace_limits(
+        g,
+        precision,
+        profile,
+        strategy,
+        closure_trace,
+        allow_env_trace,
+        None,
+    )
+}
+
+pub(crate) fn emit_configured_surface(
+    g: &Grammar,
+    bounds: &crate::construction::ConstructionBounds,
+    structural_limits: StructuralClosureLimits,
+    profile: &mut CompileProfileBuilder,
+) -> EmitResult {
+    let trace =
+        crate::characterization::ClosureTrace::new(crate::characterization::ClosureTestLimits {
+            work_cap: bounds.closure_work.unwrap_or(usize::MAX),
+            depth_cap: bounds.closure_depth,
+        })
+        .with_compound_depth_cap(bounds.compound_depth);
+    emit_with_budget_profiled_with_strategy_and_trace_limits(
+        g,
+        PrecisionConfig::Strip,
+        Some(profile),
+        SurfaceEmitStrategy {
+            structural_limits: Some(structural_limits),
+            ..Default::default()
+        },
+        Some(&trace),
+        true,
+        bounds.derivation_depth,
+    )
+}
+
+fn emit_with_budget_profiled_with_strategy_and_trace_limits(
+    g: &Grammar,
+    precision: PrecisionConfig,
     mut profile: Option<&mut CompileProfileBuilder>,
     strategy: SurfaceEmitStrategy,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     allow_env_trace: bool,
+    derivation_depth: Option<usize>,
 ) -> EmitResult {
     if alpha_environment_refusal(g) {
         return alpha_environment_emit_refusal(g);
@@ -3789,7 +3798,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // Refuse (never truncate) a derivation chain deeper than the budget.
     let deepest = deriv_chain_depth(g, &deriv_prefix).max(deriv_chain_depth(g, &deriv_suffix));
-    let chain_budget = deriv_chain_depth_budget();
+    let chain_budget = derivation_depth.map_or_else(deriv_chain_depth_budget, Ok);
     let over = match &chain_budget {
         Ok(limit) => deepest > *limit,
         Err(_) => true,

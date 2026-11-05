@@ -156,6 +156,8 @@ pub struct GroupLineCount {
 /// minimization" section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompileProfile {
+    #[serde(default)]
+    pub construction: crate::construction::ConstructionReport,
     /// This profile's pipeline fingerprint (`PRODUCTION_PIPELINE`) — an owned `String` (not
     /// `&'static str`) so this type derives `Deserialize` without a lifetime parameter.
     pub pipeline: String,
@@ -250,6 +252,7 @@ impl CompileProfileBuilder {
         final_arc_count: Option<i32>,
     ) -> CompileProfile {
         CompileProfile {
+            construction: Default::default(),
             pipeline: self.pipeline.to_string(),
             total_elapsed_millis: self.start.elapsed().as_millis() as u64,
             stages: self.stages,
