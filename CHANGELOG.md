@@ -6,7 +6,7 @@ file has no section for.
 ## Unreleased
 
 - FST derivation chains honour `multipleApplication` (#151): a chain's depth is the sum of `max_apps` over its non-realizational rules (realizational rules count one level), a sound upper bound (every level offers every rule, so mixed rules can over-propose and confirm prunes; a realizational rule is ungated in HermitCrab but counts one level), so a rule allowed N applications no longer loses analyses HermitCrab finds. A chain over 200 levels (`HC_DERIV_CHAIN_DEPTH_BUDGET`) is refused with a typed `derivation chain depth` budget reason instead of being truncated; a malformed `HC_DERIV_CHAIN_DEPTH_BUDGET` is refused too, not ignored. No shipped grammar sets an affix `max_apps` above 1, and the FieldWorks import always sets 1.
-- FST structural closure removes redundant commuting rule orders after checking the engine's full annotated result, and shares speculative boundary paths. Configurable work and retained-output budgets refuse incomplete construction with the bound named, instead of allowing unbounded permutation growth (#177).
+- FST structural closure removes redundant commuting rule orders after checking the engine's full annotated result, and shares speculative boundary paths. Configurable work and retained-output budgets refuse incomplete construction with the bound named, instead of allowing unbounded permutation growth (#177). `HC_STRUCTURAL_CLOSURE_BYTES_LIMIT` (16 MiB) is a conservative charge, about four times the measured retained size, so a compile refuses when real retained data is roughly a quarter of the stated limit; raise it by the `retained_charge` the trace reports, not by expected memory.
 
 ## 0.15.2
 
