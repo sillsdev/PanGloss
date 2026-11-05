@@ -107,14 +107,33 @@ PanGloss's own Rust loader (`pg-conformance-fixtures`) reads `claims`.
 
 The previous pin also lacked the #500/#556 behaviour the suite's `truncate-morphotactic*` rows record
 (`head-ambiguous-compounding`, `truncate-morphotactic` ("ga"), `-copy-u`, `-identity` and `-subsumption`
-failed on it); the current pin passes the whole suite in self-check. HC-Rust has not ported machine#500/#556
-(PanGloss #18): the morph order inside the signatures of subsumed and zero-width truncation markers
-differs, so the Rust gates still waive those words
-(`conformance_fixtures_gate::ORACLE_UNMERGED_WORDS`). The port is in `pg-rules` `morph.rs`
-`attribute_morphs` and its final sort.
-`templated_conformance_proposal_pins::truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens`
-is a separate, proposer-side gap: the suite's new word "a" has two rule-order identities and the templated
-route offers one.
+failed on it). HC-Rust now ports that attribution through `pg-rules`' `MorphLayout`,
+`attribute_morphs`, and the shared validity ranges: input annotations transfer before a pure
+truncation claims the last node. The five per-word waivers and three shell-runner fixture waivers
+tracked by [PanGloss #18](https://github.com/sillsdev/PanGloss/issues/18) are removed.
+`pg-parse/tests/truncate_morphotactic_identity.rs` pins complete morph occurrences, application
+histories, subsumption, copied markers, and the root-boundary discriminator, using the suite's
+fixtures rather than staged duplicates. The implementation originated in
+[PR #9](https://github.com/sillsdev/PanGloss/pull/9), against
+[Machine #500](https://github.com/sillsdev/machine/pull/500) and
+[Machine #556](https://github.com/sillsdev/machine/pull/556).
+
+The former `templated_conformance_proposal_pins` truncation cell tracked a separate proposer gap.
+That test and its backend were removed in [#175](https://github.com/sillsdev/PanGloss/pull/175);
+removing the HC-Rust waivers does not establish parity for that retired route.
+
+The surviving tuned-surface backend still misses a copy-U `gau` proposal under the corrected
+HC-Rust identities (`CircumfixOutputAction` in `faithfulness_coverage_gate`). An original-production
+control measures that fixture as `OracleExact`; the port changes it to `CompilesButMisses`, while
+the other 175 measured fixture cells retain their outcomes. The scoreboard therefore moves from
+144 exact / 12 misses / 20 refusals to 143 / 13 / 20. This exposes a proposer gap against the
+corrected oracle; the full parser's five-word parity repair does not repair that backend.
+
+On the current 177-fixture inventory, both original and corrected HC-Rust give 13 held and 11
+failing construct/backend containment pairs, with no unmeasured pairs or over-generation. The
+faithfulness ceiling is tightened from 24 to 11 for the surviving backend; this is not a claim
+that the parser port fixed thirteen proposer gaps. The `CircumfixOutputAction` example changes
+from `metathesis-phase-isolation` "hasaasa" to copy-U "gau", without changing the failing kind set.
 
 Staged fixtures are replayed by the same pin driver and use `claims` too; `pg-conformance-fixtures` reads
 only that name. Move the pin with a new `pangloss-oracle-pin-*` tag, never by editing the old one.

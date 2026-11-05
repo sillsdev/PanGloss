@@ -102,8 +102,8 @@ went to an issue are open work, not permanent differences. Evidence under `evide
 | 033 | Final-template analysis pruning | #27 |
 | 034 | Stratum analysis-state merging | #26 |
 | 035 | Template/slot feature collisions and widening | #26 |
-| 036 | Zero-width morpheme identity preservation | PR #9 |
-| 037 | Oracle annotation ordering instability | #64 (machine#506) |
+| 036 | Zero-width morpheme identity preservation | Machine #500/#556 attribution port from PR #9; suite fixtures and `truncate_morphotactic_identity.rs`; see [conformance suite](../design/conformance-suite.md) |
+| 037 | Oracle annotation ordering instability | #64 (machine#506); corrected Machine #500/#556 semantics ported from PR #9, with complete occurrence/application-order regressions; see [conformance suite](../design/conformance-suite.md) |
 | 038 | Edge-segment prefilter | Optimized in Rust; git history; Machine PR #574 |
 | 039 | fwdata circumfix conditioning encoding | Fixed in Rust (or not a bug); git history |
 | 040 | FST rewrite/metathesis compilation was blind to cross-table shared representations | Fixed in Rust (or not a bug); git history |

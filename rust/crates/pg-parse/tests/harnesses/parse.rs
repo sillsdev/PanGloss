@@ -37,10 +37,10 @@ mod effective_analysis_target;
 mod exact_analysis_fs_recall;
 #[path = "../featureless_wide_class_rewrite.rs"]
 mod featureless_wide_class_rewrite;
-#[path = "../final_template_pruning_gate.rs"]
-mod final_template_pruning_gate;
 #[path = "../final_template_partial_root_gate.rs"]
 mod final_template_partial_root_gate;
+#[path = "../final_template_pruning_gate.rs"]
+mod final_template_pruning_gate;
 #[path = "../free_fluctuation_gate.rs"]
 mod free_fluctuation_gate;
 #[path = "../fw_metathesis.rs"]
