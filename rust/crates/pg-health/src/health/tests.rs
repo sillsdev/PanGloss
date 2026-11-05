@@ -162,7 +162,7 @@ fn characterization_phase_has_product_vocabulary_on_the_wire() {
 
 #[test]
 fn dead_health_labels_bump_health_schema_version() {
-    assert_eq!(HEALTH_SCHEMA_VERSION, 9);
+    assert_eq!(HEALTH_SCHEMA_VERSION, 10);
 }
 
 /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -212,7 +212,7 @@ fn representative_report() -> HealthReport {
 }
 
 const GOLDEN_JSON: &str = r#"{
-  "schema_version": 9,
+  "schema_version": 10,
   "findings": [
     {
       "code": "PGF0001",
@@ -267,10 +267,10 @@ fn fst_health_schema_round_trip() {
 
 #[test]
 fn fst_health_schema_rejects_stale_v8_reports() {
-    let stale = GOLDEN_JSON.replacen("\"schema_version\": 9", "\"schema_version\": 8", 1);
+    let stale = GOLDEN_JSON.replacen("\"schema_version\": 10", "\"schema_version\": 8", 1);
     let error = HealthReport::from_json(&stale).expect_err("schema v8 must be rejected");
     assert!(error.to_string().contains("schema version 8"));
-    assert!(error.to_string().contains("expected 9"));
+    assert!(error.to_string().contains("expected 10"));
 }
 
 // fst_health_finding_class: FindingCode -> FindingClass, the four-question vocabulary.

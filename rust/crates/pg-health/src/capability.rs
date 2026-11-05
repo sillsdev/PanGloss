@@ -8,12 +8,35 @@
 /// A predicate's stable identity (e.g. `"simultaneous.subrule-overlap"`).
 pub type PredicateId = &'static str;
 
+/// Compiler-owned causes; grammar-health maps these exhaustively to author findings or budgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityRefusal {
+    /// Temporary compiler refusal pending #177; never an author label.
+    AlphaEnvironment,
+    CircumfixNoRoute {
+        rule: Option<u32>,
+    },
+    ReduplicationNoRoute {
+        rule: u32,
+    },
+    PatternRootShape {
+        entry: u32,
+    },
+    RootSpellingBudget {
+        entry: u32,
+        bytes: usize,
+        limit: usize,
+    },
+    StrategyCoverage,
+}
+
 /// A `Refuse` verdict's typed payload: which predicate refused, what construct/config, and a
 /// human-readable witness: compilation fails with a typed diagnostic naming the construct and
 /// configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use = "a capability verdict that is computed and dropped decides nothing"]
 pub struct CapabilityDiagnostic {
+    pub refusal: CapabilityRefusal,
     pub predicate: PredicateId,
     pub construct: String,
     pub witness: String,

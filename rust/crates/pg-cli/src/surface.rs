@@ -419,6 +419,11 @@ const FST_HEALTH_FLAGS: &[FlagSpec] = &[];
 
 const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
+        name: "--fst",
+        takes_value: false,
+        summary: "include FST-blocking grammar findings (requires foma-tools); finite inspection reports incomplete checks explicitly.",
+    },
+    FlagSpec {
         name: "--fw-project",
         takes_value: true,
         summary: "FieldWorks project/database name used for deep links.",

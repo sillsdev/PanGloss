@@ -12,6 +12,10 @@ This inflectional affix is marked partial because it has no template slot. PanGl
 
 In Grammar > Category Edit > the category's Affix Templates, right-click the intended slot and choose Add inflectional affix(es) to that slot. Select the existing affix. In Lexicon > Lexicon Edit, check Grammatical Info. > Category and Slots for its inflectional analysis.
 
+Label: **blocks FST**
+
+Present in the converted Grammar because: The affix is retained as a partial rule with incomplete template restrictions; FST support for partial morphemes is unproven.
+
 ## FieldWorks places
 
 | Tool | Field |

@@ -1,18 +1,4 @@
-//! One backend's place in a compile's selection, and the whole selection over every backend —
-//! plain data plus the constructors that need nothing but a `HealthFinding`/`CompileDecision`
-//! already in hand. `pg_foma::backend_selection` owns the rest: turning a capability envelope
-//! into a `BackendSelection` (`select_backends`), and attaching the advice catalog's shapes/
-//! remedies to a refusal (its own free `refused` function) — both need the compiler's capability
-//! registry and embedded advice catalog, which this crate does not and must not depend on. That
-//! module re-exports every type here at its historical path.
-//!
-//! # Why `refused` is a free function here, not `BackendReport::refused`
-//! An inherent impl on a type must live in the type's own defining crate, and populating a
-//! refusal's `shapes`/`advice_references` needs `pg_foma`'s embedded advice catalog and
-//! grammar-wide-check registry. So this module builds the refusal's `HealthFinding` alone
-//! (`BackendReport::refused`, below — that much needs only data already in hand) and exposes
-//! `BackendReport::with_capability_advice` as the seam `pg_foma::backend_selection::refused`
-//! uses to attach the catalog-derived shapes/remedies afterward.
+//! Plain backend selection reports and compiler aggregates; author advice belongs to grammar-health.
 
 use crate::capability::{CapabilityDiagnostic, CompileDecision};
 use crate::health::{
@@ -177,9 +163,7 @@ impl BackendReport {
         Ok(report)
     }
 
-    /// A refusal's `HealthFinding` and failed-predicate list, from data alone — no advice
-    /// catalog. `pg_foma::backend_selection::refused` is the production entry point: it calls
-    /// this, then attaches catalog-derived shapes/remedies via `Self::with_capability_advice`.
+    /// Retains the typed refusal and summarizes author findings independently of budget stops.
     pub fn refused(
         strategy: EmissionStrategy,
         decision: CompileDecision,
@@ -188,24 +172,58 @@ impl BackendReport {
             return Err("a refused backend report requires a Refuse decision");
         };
         let failed_predicates = Self::predicates_from_decision(&decision);
-        let explanation = diagnostics
+        let diagnostic_count = diagnostics
             .iter()
-            .map(|diagnostic| {
-                format!(
-                    "predicate={} construct={} witness={}",
-                    diagnostic.predicate, diagnostic.construct, diagnostic.witness
+            .filter(|diagnostic| {
+                !matches!(
+                    diagnostic.refusal,
+                    crate::capability::CapabilityRefusal::RootSpellingBudget { .. }
+                        | crate::capability::CapabilityRefusal::AlphaEnvironment
                 )
             })
-            .collect::<Vec<_>>()
-            .join("; ");
-        let constructs = diagnostics
+            .count() as u64;
+        let budget_findings: Vec<_> = diagnostics
             .iter()
-            .map(|diagnostic| diagnostic.construct.clone())
+            .filter_map(|diagnostic| {
+                if diagnostic.refusal == crate::capability::CapabilityRefusal::AlphaEnvironment {
+                    return Some(HealthFinding::new(
+                        FindingCode::BackendCoverageIncomplete,
+                        Severity::CannotRepresent,
+                        Phase::Characterization,
+                        Metric::BackendCoverageGapCount,
+                        MetricValue::Count(1),
+                        ValueProvenance::Observed,
+                        "FST construction refuses alpha environments pending #177; this compiler restriction is not a grammar-health label.",
+                    ));
+                }
+                if let crate::capability::CapabilityRefusal::RootSpellingBudget {
+                    bytes,
+                    limit,
+                    ..
+                } = diagnostic.refusal
+                {
+                    Some(
+                        HealthFinding::new(
+                            FindingCode::ResourceBudgetReached,
+                            Severity::NotProductionReady,
+                            Phase::Characterization,
+                            Metric::RepresentationEnumerationBytes,
+                            MetricValue::Bytes(bytes as u64),
+                            ValueProvenance::Observed,
+                            diagnostic.witness.clone(),
+                        )
+                        .against_threshold(MetricValue::Bytes(limit as u64)),
+                    )
+                } else {
+                    None
+                }
+            })
             .collect();
-        let diagnostic_count = diagnostics.len() as u64;
         let mut report = Self::base(strategy, decision, BackendStatus::Refused);
         report.failed_predicates = failed_predicates;
-        report.findings.push(
+        report.findings.extend(budget_findings);
+        if diagnostic_count != 0 {
+            report.findings.push(
             HealthFinding::new(
                 FindingCode::BackendCoverageIncomplete,
                 Severity::CannotRepresent,
@@ -213,14 +231,11 @@ impl BackendReport {
                 Metric::BackendCoverageGapCount,
                 MetricValue::Count(diagnostic_count),
                 ValueProvenance::Observed,
-                format!(
-                    "{:?} cannot prove a complete FST relation for {} characterized \
-                     construct(s): {explanation}",
-                    report.strategy, diagnostic_count
-                ),
+                format!("FST blocked by {diagnostic_count} labelled grammar-health finding(s); see grammar-health for the author findings."),
             )
-            .affecting(constructs),
+            ,
         );
+        }
         Ok(report)
     }
 
@@ -328,6 +343,7 @@ impl BackendSelection {
         match self.report_for(strategy) {
             Some(report) => report.decision().clone(),
             None => CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                refusal: crate::capability::CapabilityRefusal::StrategyCoverage,
                 predicate: "selection.backend-not-reported",
                 construct: strategy.label().to_string(),
                 witness: "no compatibility report was composed for this backend".to_string(),

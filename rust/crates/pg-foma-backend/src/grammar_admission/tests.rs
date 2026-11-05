@@ -34,9 +34,8 @@ fn a_grammar_with_no_partials_is_production_admissible_for_every_strategy() {
 #[test]
 fn a_partial_entry_blocks_publication_as_readiness_only() {
     let mut grammar = pg_grammar::load(NO_PARTIAL_XML).expect("fixture must load");
-    grammar.entries[0].partial_reason = Some(
-        pg_grammar::model::PartialMorphemeReason::StemWithoutCategory,
-    );
+    grammar.entries[0].partial_reason =
+        Some(pg_grammar::model::PartialMorphemeReason::StemWithoutCategory);
     for &strategy in crate::strategy_coverage::ALL_STRATEGIES {
         let admission = assess_completed_fst(&grammar, strategy).expect("valid grammar facts");
         assert_eq!(admission.health().admission(), Severity::NotProductionReady);
@@ -48,26 +47,40 @@ fn a_partial_entry_blocks_publication_as_readiness_only() {
         assert!(admission.blocks_publication());
         let finding = &admission.health().findings[0];
         assert_eq!(finding.class(), FindingClass::Readiness);
-        assert_eq!(finding.metric, Metric::PartialMorphemeCount);
+        assert_eq!(finding.metric, Metric::GrammarHealthBlockingCount);
         assert_eq!(finding.value, MetricValue::Count(1));
         assert_eq!(finding.provenance, ValueProvenance::Observed);
-        assert_eq!(finding.affected, vec!["entry-plain".to_string()]);
+        assert_eq!(
+            finding.affected,
+            vec!["hc-stem-no-grammatical-category".to_string()]
+        );
     }
 }
 
-/// The diagnostic must separate the two kinds; one count cannot stand in for the other.
 #[test]
-fn the_diagnostic_names_both_kinds_separately() {
-    let mut grammar = pg_grammar::load(NO_PARTIAL_XML).expect("fixture must load");
-    grammar.entries[0].partial_reason = Some(
-        pg_grammar::model::PartialMorphemeReason::StemWithoutCategory,
+fn a_labelled_warning_blocks_publication_without_partials() {
+    let mut grammar = pg_grammar::load(NO_PARTIAL_XML).unwrap();
+    let mut shape = pg_shape::ShapeBuilder::new();
+    shape.push_segment(9_999);
+    grammar.entries[0].allomorphs[0].shape.shape = shape.finish();
+    assert!(!grammar.partial_morpheme_facts().unwrap().has_partials());
+    let admission = assess_completed_fst(&grammar, EmissionStrategy::TunedSurfaceProbed).unwrap();
+    assert!(admission.blocks_publication());
+    assert_eq!(
+        admission.health().findings[0].affected,
+        vec!["hc-undeclared-segment"]
     );
-    let admission = assess_completed_fst(&grammar, EmissionStrategy::TunedSurfaceProbed)
-        .expect("valid grammar facts");
-    let explanation = &admission.health().findings[0].explanation;
-    assert!(
-        explanation.contains("1 lexical entry/entries")
-            && explanation.contains("0 affix-process rule(s)"),
-        "explanation must count both kinds: {explanation}"
-    );
+}
+
+#[test]
+fn an_unlabelled_error_does_not_block_fst_publication() {
+    let xml = NO_PARTIAL_XML.replace("<CharacterDefinitionTable", r#"<PhonologicalFeatureSystem><SymbolicFeature id="voice"><Name>Voice</Name><Symbols><Symbol id="plus">+</Symbol></Symbols></SymbolicFeature></PhonologicalFeatureSystem><CharacterDefinitionTable"#).replace("</SegmentDefinitions>", r#"<SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition></SegmentDefinitions>"#);
+    let grammar = pg_grammar::load(&xml).unwrap();
+    let diagnostics =
+        pg_grammar::grammar_health::check_grammar_health_diagnostics(&grammar).unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.code == pg_grammar::grammar_health::GrammarHealthCode::DuplicateFeatureBundle));
+    let admission = assess_completed_fst(&grammar, EmissionStrategy::TunedSurfaceProbed).unwrap();
+    assert!(!admission.blocks_publication());
 }

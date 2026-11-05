@@ -1,7 +1,73 @@
 use super::*;
 
 #[test]
-fn schema_four_supplies_owned_advice_for_every_registered_code() {
+fn blocks_fst_label_is_independent_of_level_and_import_loss() {
+    let expected = [
+        "hc-undeclared-segment",
+        "hc-stem-no-grammatical-category",
+        "hc-inflectional-affix-missing-template-slot",
+        "hc-unclassified-affix",
+        "hc-partial-reason-unspecified",
+        "fst.pattern-root-shape",
+        "fst.circumfix-no-route",
+        "fst.reduplication-no-route",
+        "fst.process-not-emittable",
+        "fst.shape-not-in-surface-table",
+    ];
+    for code in GrammarHealthCode::ALL.iter().cloned().chain(
+        ImportWarningCode::ALL
+            .iter()
+            .map(|code| GrammarHealthCode::ImportWarning(code.wire().to_string())),
+    ) {
+        let subject = FwObjectRef::new(FwClass::Project)
+            .name("Grammar")
+            .project_settings();
+        let diagnostic = match &code {
+            GrammarHealthCode::ImportWarning(wire) => GrammarHealthDiagnostic::from_import_warning(
+                &Warning::new(
+                    ImportWarningCode::from_wire_or_unregistered(wire),
+                    "Dropped construct.",
+                )
+                .with_subject(subject),
+            ),
+            _ => GrammarHealthDiagnostic::from_check(
+                code.clone(),
+                "Retained construct.",
+                vec![subject],
+            ),
+        };
+        let report = GrammarHealthReport::new(vec![diagnostic]).unwrap();
+        let value = serde_json::to_value(&report).unwrap();
+        let labelled = expected.contains(&code.wire());
+        assert_eq!(
+            value["diagnostics"][0]["blocks_fst"],
+            labelled,
+            "{}",
+            code.wire()
+        );
+        assert_eq!(
+            value["summary"][0]["blocks_fst"],
+            labelled,
+            "{}",
+            code.wire()
+        );
+        assert_eq!(
+            value["diagnostics"][0]["fst_reason"].as_str().is_some(),
+            labelled
+        );
+        assert_eq!(
+            render_log(&report, false).contains("[blocks FST]"),
+            labelled
+        );
+        assert_eq!(
+            GrammarHealthReport::from_json(&report.to_json().unwrap()).unwrap(),
+            report
+        );
+    }
+}
+
+#[test]
+fn schema_five_supplies_owned_advice_for_every_registered_code() {
     let codes = GrammarHealthCode::ALL.iter().cloned().chain(
         ImportWarningCode::ALL
             .iter()
@@ -32,7 +98,7 @@ fn schema_four_supplies_owned_advice_for_every_registered_code() {
         };
         let value =
             serde_json::to_value(GrammarHealthReport::new(vec![diagnostic]).unwrap()).unwrap();
-        assert_eq!(value["schema_version"], 4);
+        assert_eq!(value["schema_version"], 5);
         assert_eq!(value["locale"], "en");
         let finding = &value["diagnostics"][0];
         assert!(
@@ -79,7 +145,7 @@ fn unknown_code_preserves_message_without_invented_advice() {
 }
 
 #[test]
-fn schema_four_reader_rejects_inconsistent_summary_and_navigation() {
+fn schema_five_reader_rejects_inconsistent_summary_and_navigation() {
     let warning = pg_snapshot::Warning::new(
         ImportWarningCode::PhonemeNoRepresentation,
         "Missing spelling.",
@@ -134,11 +200,11 @@ use crate::grammar_health_presentation::fieldworks_link_from_identity;
 use pg_shape::ShapeBuilder;
 
 #[test]
-fn grammar_health_report_uses_v4_envelope() {
+fn grammar_health_report_uses_v5_envelope() {
     let report = GrammarHealthReport::new(Vec::new()).expect("empty report is valid");
     let json = serde_json::to_value(report).expect("report serializes");
 
-    assert_eq!(json["schema_version"], 4);
+    assert_eq!(json["schema_version"], 5);
     assert!(json["fieldworks_project"].is_object());
     assert!(json["summary"].is_array());
     assert!(json["diagnostics"].is_array());
@@ -427,6 +493,11 @@ fn every_code_has_a_distinct_stable_linguist_group_name() {
 #[test]
 fn every_catalog_kind_delivers_advice_or_has_a_documented_correction_limit() {
     let without_specific_correction = [
+        ("fst.pattern-root-shape", "An intentional pattern root can be valid HC-XML; no FieldWorks edit fixes an FST route gap."),
+        ("fst.circumfix-no-route", "The retained HC-XML circumfix is not an import drop; no verified FieldWorks edit supplies a compiler route."),
+        ("fst.reduplication-no-route", "Intentional retained reduplication needs a compiler route rather than a change in linguistic meaning."),
+        ("fst.process-not-emittable", "An intentional morphological process can exceed current emission support; no FieldWorks correction is established."),
+        ("fst.shape-not-in-surface-table", "An intentional multi-table spelling can exceed current surface emission support; no universal FieldWorks edit is verified."),
         ("fwdata.dangling-reference", "The owning class and field vary; no universal editable field is established."),
         ("fwdata.unexpected-class", "The owning class and field vary; valid data can expose an importer limitation."),
         ("fwdata.missing-required-field", "The owning class and required field vary by producer."),
@@ -1343,6 +1414,10 @@ fn report_rejects_an_incomplete_diagnostic_instead_of_dropping_it() {
     let incomplete = GrammarHealthDiagnostic {
         level: DiagnosticLevel::Error,
         code: GrammarHealthCode::StemWithoutCategory,
+        blocks_fst: true,
+        fst_reason: GrammarHealthCode::StemWithoutCategory
+            .fst_reason()
+            .map(str::to_owned),
         group_name: "Stem has no category".to_string(),
         origin: DiagnosticOrigin::Check,
         message: " ".to_string(),
@@ -1378,7 +1453,7 @@ fn an_empty_report_remains_valid() {
 
 #[test]
 fn every_code_variant_occurs_once_in_all() {
-    assert_eq!(GrammarHealthCode::ALL.len(), 10);
+    assert_eq!(GrammarHealthCode::ALL.len(), 15);
     for code in [
         GrammarHealthCode::UndeclaredSegment,
         GrammarHealthCode::DuplicateFeatureBundle,
@@ -1390,6 +1465,11 @@ fn every_code_variant_occurs_once_in_all() {
         GrammarHealthCode::StoredAnalysisNoLongerParses,
         GrammarHealthCode::StoredAnalysisIncomplete,
         GrammarHealthCode::StoredAnalysisBudgetReached,
+        GrammarHealthCode::FstPatternRootShape,
+        GrammarHealthCode::FstCircumfixNoRoute,
+        GrammarHealthCode::FstReduplicationNoRoute,
+        GrammarHealthCode::FstProcessNotEmittable,
+        GrammarHealthCode::FstShapeNotInSurfaceTable,
     ] {
         assert_eq!(
             GrammarHealthCode::ALL
@@ -1544,7 +1624,7 @@ fn log_and_json_render_the_same_guid_fixture_with_explicit_link_state() {
     assert!(!log_with_guids.contains("entry0"));
 
     let json = render_json(&with_project).expect("structured diagnostics serialize");
-    assert!(json.contains("\"schema_version\": 4"));
+    assert!(json.contains("\"schema_version\": 5"));
     assert!(json.contains("\"group_name\": \"Stem has no category\""));
     assert!(json.contains("silfw://localhost/link?database%3DFieldWorks+Demo%26tool%3DlexiconEdit"));
     assert!(json.contains("\"internal_id\""));
@@ -1910,6 +1990,10 @@ fn report_constructor_owns_validation_and_renderers_accept_only_reports() {
     let diagnostic = GrammarHealthDiagnostic {
         level: DiagnosticLevel::Error,
         code: GrammarHealthCode::StemWithoutCategory,
+        blocks_fst: true,
+        fst_reason: GrammarHealthCode::StemWithoutCategory
+            .fst_reason()
+            .map(str::to_owned),
         group_name: "Stem has no category".to_string(),
         origin: DiagnosticOrigin::Check,
         message: "partial".to_string(),
@@ -2039,7 +2123,7 @@ fn unresolved_subject_never_becomes_a_live_link_when_project_is_supplied() {
 }
 
 #[test]
-fn schema_four_preserves_producer_advice_across_catalog_versions() {
+fn schema_five_preserves_producer_advice_across_catalog_versions() {
     let warning = Warning::new(
         ImportWarningCode::PhonemeNoRepresentation,
         "Missing spelling.",
@@ -2346,4 +2430,39 @@ fn unknown_code_advice_is_complete_or_absent_independently_of_the_local_catalog(
             "{field}"
         );
     }
+}
+
+#[test]
+fn report_rejects_inconsistent_labels_and_preserves_incomplete_inspection() {
+    let diagnostic = GrammarHealthDiagnostic::from_check(
+        GrammarHealthCode::StemWithoutCategory,
+        "Retained partial stem.",
+        vec![FwObjectRef::new(FwClass::Project)
+            .name("Grammar")
+            .project_settings()],
+    );
+    let report = GrammarHealthReport::new(vec![diagnostic])
+        .unwrap()
+        .with_fst_check_error("Construction work budget reached.".to_string());
+    let value = serde_json::to_value(&report).unwrap();
+    assert_eq!(value["fst_checked"], false);
+    assert_eq!(
+        value["fst_check_error"],
+        "Construction work budget reached."
+    );
+    assert_eq!(
+        GrammarHealthReport::from_json(&report.to_json().unwrap()).unwrap(),
+        report
+    );
+    for (key, replacement) in [
+        ("blocks_fst", serde_json::json!(false)),
+        ("fst_reason", serde_json::Value::Null),
+    ] {
+        let mut invalid = value.clone();
+        invalid["diagnostics"][0][key] = replacement;
+        assert!(GrammarHealthReport::from_json(&invalid.to_string()).is_err());
+    }
+    let mut invalid = value;
+    invalid["fst_checked"] = serde_json::json!(true);
+    assert!(GrammarHealthReport::from_json(&invalid.to_string()).is_err());
 }

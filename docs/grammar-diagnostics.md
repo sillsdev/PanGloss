@@ -1,16 +1,17 @@
 # Grammar diagnostics
 
 `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-[--stored-analyses bounded|all|off]` reports problems in a grammar that its author should fix in
+[--stored-analyses bounded|all|off] [--fst]` reports problems in a grammar that its author should fix in
 FieldWorks. This document explains how each
 diagnostic's level is chosen and what the report looks like. For every code, with its level and
 fix, see the generated [grammar-diagnostics-reference.md](grammar-diagnostics-reference.md).
 
-The diagnostics come from two sources:
+The diagnostics come from grammar checks, import findings, and optional FST inspection:
 
 - **Checks** (`hc-*` codes) inspect the compiled grammar. They are ported from HermitCrab's
   `GrammarHealthChecker` (sillsdev/machine PR 475). The one change is that C#'s single
   `hc-partial-morpheme` is split into one code per reason.
+- **FST findings** (`fst.*`) with `--fst` in a `foma-tools` build reuse the compiler's typed refusals and emission decisions. They perform finite emission inspection without compiling an FST artifact.
 - **Import codes** (`fwdata.*`, `grammar.*`, `conversion.*`, and so on) are raised while a FieldWorks
   project is converted into a grammar.
 
@@ -94,6 +95,38 @@ Some codes stay warnings until they are split or verified:
 - `hc-undeclared-segment` stays a warning until the parser's behaviour on an undeclared segment is
   verified.
 
+## The “blocks FST” label
+
+`blocks_fst` advises independently of `level`. A finding receives this label only when the
+converted Grammar still contains a construct without proven FST support. Both engines consume
+that same Grammar: a dropped item, unresolved source reference, collision or import approximation
+does not itself require an extra FST capability. A dropped circumfix half is therefore unlabelled.
+Errors and warnings alone do not define FST admission.
+
+Five existing codes carry the label: the four partial-morpheme codes and `hc-undeclared-segment`.
+Their levels are unchanged. The retained construct and why it blocks FST publication are recorded
+in `fst_reason`, also shown on each diagnostic page. The FST-only findings currently emitted are
+`fst.pattern-root-shape`, `fst.circumfix-no-route`, `fst.reduplication-no-route`,
+`fst.process-not-emittable` and `fst.shape-not-in-surface-table`. The last yields to an existing
+undeclared-segment finding for the same item. Remedies live on these pages, alongside the rest
+of grammar-health advice; compiler reports provide an aggregate count.
+
+Alpha environments are deliberately unlabelled: proposals may overgenerate and HermitCrab
+confirmation enforces the bindings. The temporary compiler refusal stays until #177 fixes
+construction containment. Quantifiers, simultaneous and right-to-left rewrites, and
+metathesis do not acquire blanket labels when the current backend has a proposal route. A
+construction work, byte or depth budget is a compiler/containment finding, not a grammar-author
+finding. A finished grammar may legitimately need those constructs.
+
+`--fst` is explicit because the compiler crates are outside the default dependency set. Without
+it, the five existing labels are still reported, but `fst_checked` is false. If finite FST
+inspection cannot complete, the report retains all findings, sets `fst_checked: false` and
+records `fst_check_error`; the command exits nonzero after writing it. No labelled findings
+is an admission answer only after a complete FST inspection and a completed compiler result.
+A labelled grammar can still be measured under containment; the labels prevent publication,
+not a contained construction attempt. The compiler's PGF0018 aggregate consumes grammar-health's
+labels after completion, replacing the separate PGF0016 partial-morpheme detector.
+
 ## Stored-analysis comparison
 
 The checks that do not parse always run to completion and are always written. The stored-analysis
@@ -116,29 +149,33 @@ The comparison never aborts the report and never drops a wordform silently:
 
 Both limits count deterministic parse work, never time. The default report is therefore the same
 on every machine and at every thread count. Neither finding is an error, so neither changes the exit
-status. Both codes are additive within schema version 4.
+status. Both codes are retained in schema version 5.
 
 ## Report format
 
-### JSON (schema version 4)
+### JSON (schema version 5)
 
-Written to `<out.json>`, or to stdout when no output path is given. Version 4 adds PanGloss-owned advice, CommonMark help and structured subject status. Consumers must explicitly support the schema version; PanGloss's reader rejects other versions and inconsistent counts or navigation. The current producer writes `locale: en`. Readers preserve the producing tag's text and nonblank locale rather than comparing wording with their own catalog.
+Written to `<out.json>`, or to stdout when no output path is given. Version 5 adds FST labels and their retained-construct reasons to diagnostic and summary rows, plus explicit FST-inspection status. It retains version 4's owned advice and navigation. Consumers must explicitly support the schema version; PanGloss's reader rejects other versions and inconsistent counts or navigation. The current producer writes `locale: en`. Readers preserve the producing tag's text and nonblank locale rather than comparing wording with their own catalog.
 
 Illustrative excerpt (background text is abbreviated):
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
+  "fst_checked": false,
+  "fst_check_error": null,
   "locale": "en",
   "fieldworks_project": { "name": "fixture", "source": "fwdata_path" },
   "summary": [
     { "code": "grammar.msa.no-allomorphs", "group_name": "No usable entry allomorphs",
-      "level": "error", "count": 1 }
+      "level": "error", "count": 1, "blocks_fst": false, "fst_reason": null }
   ],
   "diagnostics": [
     {
       "level": "error",
       "code": "grammar.msa.no-allomorphs",
+      "blocks_fst": false,
+      "fst_reason": null,
       "group_name": "No usable entry allomorphs",
       "title": "No usable entry allomorphs",
       "origin": "import",
@@ -177,10 +214,14 @@ Illustrative excerpt (background text is abbreviated):
 |---|---|
 | `fieldworks_project.name` | Project used to build FieldWorks links: `--fw-project`, or the stem of a `.fwdata` path. `source` is `argument` or `fwdata_path`, or null when neither applies. |
 | `summary` | One row per code, with its count. |
+| `blocks_fst` | Boolean label independent of level. Motif may render it as a “blocks FST” chip; use this field rather than a consumer-owned code list. |
+| `fst_reason` | Why the unsupported construct is still present in the converted Grammar; null for unlabelled findings. Also present on summary rows. |
+| `fst_checked` | Report-level boolean: optional FST inspection finished. False without `--fst` and on incomplete inspection. |
+| `fst_check_error` | Report-level reason an attempted FST inspection could not complete; null when not requested or complete. |
 | `level` | `error`, `warning` or `info`. |
 | `code` | Stable identifier. Filter, suppress and test on this, never on `description`. |
 | `group_name` | Short, stable human label for the code. |
-| `origin` | `check` for `hc-*` codes, `import` for conversion codes. |
+| `origin` | `check` for grammar and FST checks, `import` for conversion codes. |
 | `description` | Human-readable message naming the item. Wording may change. |
 | `locale` | Language of the producer-owned text; the current catalog is `en`, and readers preserve other locales. |
 | `title` | Per-code title, also supplied as `group_name` for existing consumers. |
@@ -230,9 +271,7 @@ Then run the managed `pg-grammar` checks and unit tests (`rust/tools/pg.ps1 -Mod
 shows up in the diff. The `every_registered_code_has_a_current_version_pinnable_page` test does the same for all per-code pages. Review and commit all regenerated files with the change. Update this document when a new
 class of error is introduced.
 
-This report is separate from `pangloss fst-health`, which asks whether a compiled FST may be
-published. That report blocks publication of an FST built from a grammar with partial morphemes
-(`PGF0016`) independently of these levels.
+The separate `pangloss fst-health` compiler report retains cost and containment findings. It does not own another grammar-author remedy list. FST-health schema 10 retires PGF0016 and adds the PGF0018 label aggregate; the facts SQLite schema is unchanged. Consumers that check schema equality, including Motif, must explicitly accept grammar-health 5 and FST-health 10.
 
 ## Version-pinned help
 

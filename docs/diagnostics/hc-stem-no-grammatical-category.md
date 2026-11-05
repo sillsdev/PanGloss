@@ -12,6 +12,10 @@ This stem is marked partial because its grammatical category is missing. Its cat
 
 In Lexicon > Lexicon Edit, open the named entry and set Grammatical Info. > Category for its stem analysis.
 
+Label: **blocks FST**
+
+Present in the converted Grammar because: The stem is retained as a partial entry with unenforced category restrictions; FST support for partial morphemes is unproven.
+
 ## FieldWorks places
 
 | Tool | Field |

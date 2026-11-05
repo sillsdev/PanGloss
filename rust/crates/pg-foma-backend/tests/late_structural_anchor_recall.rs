@@ -80,9 +80,9 @@ fn assert_product_analysis_matches_oracle(grammar: &Grammar, surface: &str) {
         !oracle.structured.is_empty(),
         "oracle must analyze {surface}"
     );
-    // Synthetic variants check propose/peel/confirm behavior, not artifact completeness.
+    // Developer measurement still requires complete emission before checking propose/peel/confirm.
     let (proposer, _) = pg_foma::analyzer::compile_proposer_unproven_with_profile(grammar);
-    let proposer = proposer.expect("development-only proposer must compile");
+    let proposer = proposer.expect("development-only proposer must emit a complete artifact");
     let mut analyzer = FomaAnalyzer::from_precompiled_proposer(grammar, proposer);
     let outcome = analyzer.analyze_word(surface);
     assert_eq!(

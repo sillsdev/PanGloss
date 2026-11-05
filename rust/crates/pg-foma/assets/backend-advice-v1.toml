@@ -2,22 +2,6 @@
 schema_version = 1
 
 [[entry]]
-shape_key = "alpha-variable-environments"
-backend_id = "foma"
-route = "environment-matching"
-failed_predicate = "alpha-variable environment bindings are not represented by the FST backend"
-evidence_refs = ["backend:foma", "route:environment-matching", "predicate:alpha-variable-environments"]
-
-[[entry.remedy]]
-rank = 10
-remedy_key = "use-full-parser"
-description = "Use the full morphological parser for this grammar."
-effort = "easy"
-prerequisites = ["the full morphological parser is available"]
-contraindications = ["the deployment requires an FST-only backend"]
-equivalence_caveat = "The full parser preserves variable bindings during environment matching."
-
-[[entry]]
 shape_key = "late-structural-reachability"
 backend_id = "foma"
 route = "surface-enumeration"
@@ -42,31 +26,6 @@ effort = "hard"
 prerequisites = ["a finite reachable-category certificate"]
 contraindications = ["the operation is intended for every reachable category"]
 equivalence_caveat = "A reachability constraint can remove analyses unless equivalence is established."
-
-[[entry]]
-shape_key = "nonregular-process-morphology"
-backend_id = "foma"
-route = "surface-enumeration"
-failed_predicate = "process morphology is not represented by a finite-state relation"
-evidence_refs = ["backend:foma", "route:surface-enumeration", "predicate:finite-state-relation", "witness:process-operation"]
-
-[[entry.remedy]]
-rank = 10
-remedy_key = "finite-structural-operation"
-description = "Use a supported finite structural operation with a proven bounded relation."
-effort = "hard"
-prerequisites = ["a finite relation certificate"]
-contraindications = ["the process is genuinely unbounded or nonregular"]
-equivalence_caveat = "The finite reformulation must be checked against the intended analysis."
-
-[[entry.remedy]]
-rank = 20
-remedy_key = "regularize-phonology"
-description = "Re-express the regular portion of the process as a phonological rewrite cascade."
-effort = "medium"
-prerequisites = ["the affected portion is regular"]
-contraindications = ["the rewrite changes a structural dependency"]
-equivalence_caveat = "A rewrite reformulation may alter the analysis if the dependency is structural."
 
 [[entry]]
 shape_key = "null-cycle"
@@ -119,31 +78,6 @@ contraindications = ["the templates intentionally share optional paths"]
 equivalence_caveat = "Template separation requires checking the complete analysis set."
 
 [[entry]]
-shape_key = "repeated-application"
-backend_id = "foma"
-route = "rule-application-counter"
-failed_predicate = "the route cannot prove a finite application count"
-evidence_refs = ["backend:foma", "route:rule-application-counter", "rule:repeated-rule", "metric:application-count"]
-
-[[entry.remedy]]
-rank = 10
-remedy_key = "finite-application-counter"
-description = "Set the smallest correct multiple-application bound."
-effort = "medium"
-prerequisites = ["a finite application bound is linguistically correct"]
-contraindications = ["the rule is intended to apply without a finite bound"]
-equivalence_caveat = "An application bound can exclude intended repeated analyses."
-
-[[entry.remedy]]
-rank = 20
-remedy_key = "separate-rule-reuse"
-description = "Separate independent reusable rules into finite, explicitly reachable paths."
-effort = "hard"
-prerequisites = ["the reused paths are independently bounded"]
-contraindications = ["the rule identity itself carries semantic meaning"]
-equivalence_caveat = "Path separation requires an equivalence check for repeated analyses."
-
-[[entry]]
 shape_key = "structural-deletion-or-truncation"
 backend_id = "foma"
 route = "surface-enumeration"
@@ -167,31 +101,6 @@ effort = "hard"
 prerequisites = ["slot locality is proven equivalent"]
 contraindications = ["the operation crosses slot boundaries"]
 equivalence_caveat = "Slot localization can change cross-slot interactions."
-
-[[entry]]
-shape_key = "unordered-interactions"
-backend_id = "foma"
-route = "rule-ordering"
-failed_predicate = "interacting rules have no proven finite application order"
-evidence_refs = ["backend:foma", "route:rule-ordering", "rule:interacting-rules", "metric:permutation-count"]
-
-[[entry.remedy]]
-rank = 10
-remedy_key = "order-rules"
-description = "Order the interacting rules if the language licenses a fixed order."
-effort = "easy"
-prerequisites = ["a fixed linguistic order is proven"]
-contraindications = ["the interactions are intentionally unordered"]
-equivalence_caveat = "Ordering rules can change the set of analyses."
-
-[[entry.remedy]]
-rank = 20
-remedy_key = "split-rule-strata"
-description = "Split independent interacting rule groups into separate strata."
-effort = "medium"
-prerequisites = ["the rule groups are independent"]
-contraindications = ["a rule depends on the other group's output"]
-equivalence_caveat = "Stratification changes reachability unless independence is established."
 
 [[entry]]
 shape_key = "wide-phonology"

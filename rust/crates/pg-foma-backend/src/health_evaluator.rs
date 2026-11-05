@@ -1,55 +1,4 @@
-//! The Rust health **evaluator**: reads `crate::compose_budget` measurements and produces
-//! `crate::health::HealthFinding`s from them. `crate::health` owns the finding schema itself; this
-//! module is the one place that reads real compile measurements and turns them into findings.
-//!
-//! # Scope: consume, never remeasure
-//! Measurements come from the admission walker and budget tracker once; the health evaluator
-//! consumes them without recomputation. This module reads only the measurement sources that exist
-//! in this crate **today** — nothing here calls `foma`, walks a grammar, or measures anything
-//! itself:
-//! - **Payload size**: a plain `u64` byte count the caller already has (the emitted network /
-//!   `pg-pack` payload), scored by `crate::health::severity_for_size_bytes`; oversized payloads
-//!   remain readiness `NotProductionReady`, never `MachineLimit`/`CannotRepresent`.
-//! - **`crate::emit::EmitReport`**: `tier`/`uncovered`, already produced by
-//!   `crate::emit::emit`/`emit_with_budget`.
-//! - **`crate::compose_budget::ComposeError`** (compile-time composition budget trips) and
-//!   `ApplyBudgetTrip` (this module's own lightweight distillation of a per-word
-//!   `crate::compose_budget::ApplyOutcome::Incomplete` — see that type's own doc for why it exists
-//!   instead of taking `ApplyOutcome<T>` generically).
-//!
-//! # Two distinct axes, again (see `crate::health`'s own doc first)
-//! Every `HealthFinding` this module builds carries `severity` on the cost/health axis only
-//! (never a capability admission decision). This evaluator only reads compiler measurements.
-//! `HealthReport::admission`
-//! (unmodified, called as-is — never re-derived here) is what turns this report's findings into
-//! the "FST admission result".
-//!
-//! # Judgment calls flagged for review
-//! 1. **`crate::compose_budget::ComposeError::ChainDepthExceeded` maps to
-//!    `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`** because it is
-//!    detected after a real recursion/unapplication step count is measured.
-//! 2. **`crate::emit::FomaTier::Partial`'s `uncovered` count maps to
-//!    `FindingCode::BackendCoverageIncomplete` at `Severity::CannotRepresent`**. This is observed
-//!    semantic under-proposal, not uncertain cost: confirmation cannot manufacture a candidate
-//!    that the proposer omitted. `ValueProvenance::Observed` (not `Predicted`) is used throughout
-//!    this module's `FomaTier`-derived findings because the uncovered count is an exact, already-
-//!    counted value, never a heuristic guess.
-//! 4. **`crate::emit::FomaTier::Unsupported` maps to `FindingCode::UnknownUnboundedConstruct`
-//!    at `Severity::NotProductionReady`**: this backend produced no usable network, while another
-//!    backend may succeed. This is "any uncertainty that could omit an analysis fails closed" for
-//!    one route, (total, not partial, coverage loss), not the ordinary bounded-cost-uncertainty
-//!    shape the code otherwise names. `MetricValue::Unbounded` is used here (this compile's
-//!    residual coverage is definitionally unknown, not a countable partial gap).
-//! 5. **`ApplyBudgetTrip` is this module's own type, not `crate::compose_budget::ApplyOutcome<T>`
-//!    directly**: `ApplyOutcome<T>`'s `Complete(T)` payload type varies by caller (e.g.
-//!    `Vec<Candidate>`) and carries nothing this evaluator needs; making `evaluate` generic
-//!    over `T` just to ignore `Complete`'s payload would cost every caller a type parameter for no
-//!    benefit. Callers extract each `ApplyOutcome::Incomplete { dimension, value, limit }` into an
-//!    `ApplyBudgetTrip` themselves — a direct field-for-field copy, not a recomputation.
-//! 7. **All findings this module builds set `affected` from whatever stable identifier the source
-//!    measurement already carries** (a compose-budget `site` label, an `UncoveredItem::id`, a rule
-//!    XML id, an apply-time word) — never inventing a new identifier scheme; grammar-level findings
-//!    with no specific construct identifier (e.g. a payload-size finding) leave `affected` empty.
+//! Scores compiler observations and containment events without re-detecting author findings.
 
 use crate::analyzer::FomaError;
 use crate::compose_budget::{ApplyDimension, ComposeError};
@@ -115,29 +64,6 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
         )
         .against_threshold(size_band_crossed_threshold(severity)),
     )
-}
-
-/// `crate::emit::FomaTier::Partial`'s observed coverage gaps, which refuse normal generation.
-fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFinding {
-    let affected: Vec<String> = report
-        .uncovered
-        .iter()
-        .map(|item| item.id.clone())
-        .collect();
-    HealthFinding::new(
-        FindingCode::BackendCoverageIncomplete,
-        Severity::CannotRepresent,
-        Phase::Compile,
-        Metric::BackendCoverageGapCount,
-        MetricValue::Count(uncovered_count as u64),
-        ValueProvenance::Observed,
-        format!(
-            "{uncovered_count} construct occurrence(s) could not be represented in this \
-             FST-propose network and contribute no candidates for it. Confirmation cannot restore \
-             omitted candidates, so normal generation fails closed."
-        ),
-    )
-    .affecting(affected)
 }
 
 /// A backend-local unsupported result: no artifact for this route, but not a whole-build invariant failure.
@@ -244,9 +170,6 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
     let mut findings = Vec::new();
     match &report.tier {
         FomaTier::Full => {}
-        FomaTier::Partial { uncovered } => {
-            findings.push(partial_tier_finding(report, *uncovered));
-        }
         FomaTier::Unsupported { reason } => {
             findings.push(unsupported_tier_finding(report, reason));
         }
@@ -256,7 +179,16 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
                 Severity::CannotRepresent,
                 Phase::Compile,
                 Metric::BackendCoverageGapCount,
-                MetricValue::Count(1),
+                MetricValue::Count(
+                    report
+                        .uncovered
+                        .iter()
+                        .filter(|item| {
+                            matches!(item.grammar_health, crate::emit::EmissionHealth::Grammar(_))
+                        })
+                        .count()
+                        .max(1) as u64,
+                ),
                 ValueProvenance::Observed,
                 reason.clone(),
             ));
@@ -432,7 +364,7 @@ pub fn evaluate_foma_error(error: &FomaError) -> HealthReport {
             )));
             HealthReport::new(health.findings)
         }
-        FomaError::Unsupported(report) | FomaError::Incomplete(report) => {
+        FomaError::Unsupported(report) => {
             let mut health = evaluate(CompileMeasurements {
                 phases: AttemptedPhases::starting_with(Phase::Compile),
                 payload_bytes: None,
@@ -449,35 +381,14 @@ pub fn evaluate_foma_error(error: &FomaError) -> HealthReport {
         }
         // No emission ran, so there is no `EmitReport` to evaluate; the refusal is already typed.
         FomaError::CapabilityRefused(diagnostics) => {
-            HealthReport::new(vec![capability_refused_finding(diagnostics)])
+            let report = crate::backend_selection::BackendReport::refused(
+                crate::enumerate::EmissionStrategy::TunedSurfaceProbed,
+                crate::capability::CompileDecision::Refuse(diagnostics.clone()),
+            )
+            .expect("a refusing decision has a backend report");
+            HealthReport::new(report.findings().to_vec())
         }
     }
-}
-
-/// A pre-emission capability refusal, as `Representability` rather than an operational failure.
-fn capability_refused_finding(
-    diagnostics: &[crate::capability::CapabilityDiagnostic],
-) -> HealthFinding {
-    HealthFinding::new(
-        FindingCode::BackendCoverageIncomplete,
-        Severity::CannotRepresent,
-        Phase::Characterization,
-        Metric::BackendCoverageGapCount,
-        MetricValue::Count(diagnostics.len() as u64),
-        ValueProvenance::Observed,
-        format!(
-            "The capability envelope refused this backend for {} construct(s) before any emission \
-             ran: {}",
-            diagnostics.len(),
-            crate::capability_gate::render_refusal(diagnostics)
-        ),
-    )
-    .affecting(
-        diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.construct.clone())
-            .collect::<Vec<_>>(),
-    )
 }
 
 #[cfg(test)]

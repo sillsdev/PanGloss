@@ -1938,9 +1938,6 @@ fn the_inert_guard_detects_an_inert_registration() {
         fn id(&self) -> PredicateId {
             "test.proven-only"
         }
-        fn shape_key(&self) -> &'static str {
-            "nonregular-process-morphology"
-        }
         fn discharges(&self) -> &[CharacteristicKind] {
             &[CharacteristicKind::Affixation]
         }
@@ -1987,6 +1984,7 @@ fn all_kinds_have_a_default_disposition() {
 
 fn diag(predicate: PredicateId, construct: &str) -> CapabilityDiagnostic {
     CapabilityDiagnostic {
+        refusal: CapabilityRefusal::StrategyCoverage,
         predicate,
         construct: construct.to_string(),
         witness: "unit-test witness".to_string(),
@@ -2898,6 +2896,7 @@ fn every_narrowing_excuses_only_a_compiler_that_can_represent_the_construct() {
 fn global_refuses_only_when_every_strategy_refuses() {
     fn diagnostic(id: PredicateId) -> CapabilityDiagnostic {
         CapabilityDiagnostic {
+            refusal: pg_health::capability::CapabilityRefusal::StrategyCoverage,
             predicate: id,
             construct: "X".to_string(),
             witness: "w".to_string(),
@@ -2972,26 +2971,5 @@ fn global_refuses_only_when_every_strategy_refuses() {
             EmissionStrategy::TunedSurfaceProbed
         ],
         "the envelope must name which verdicts declined, which a scalar decision cannot"
-    );
-}
-
-#[test]
-fn strategy_floor_advice_is_only_for_process_morphology() {
-    let refusal = |kind: CharacteristicKind| CapabilityDiagnostic {
-        predicate: STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE,
-        construct: format!("{kind:?}"),
-        witness: String::new(),
-    };
-    assert_eq!(
-        strategy_floor_shape_key(&refusal(CharacteristicKind::ProcessMorphology)),
-        Some("nonregular-process-morphology")
-    );
-    assert_eq!(
-        strategy_floor_shape_key(&refusal(CharacteristicKind::RealizationalMorphology)),
-        None
-    );
-    assert_eq!(
-        strategy_floor_shape_key(&refusal(CharacteristicKind::CrossTableRespelling)),
-        None
     );
 }

@@ -1629,7 +1629,7 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 
 /// `PredicateId` and `CapabilityDiagnostic` are plain data the pack format also reads, so they
 /// live in `pg-health`; re-exported here at their historical path.
-pub use pg_health::capability::{CapabilityDiagnostic, PredicateId};
+pub use pg_health::capability::{CapabilityDiagnostic, CapabilityRefusal, PredicateId};
 
 /// Where a predicate's evidence comes from.
 ///
@@ -1784,8 +1784,6 @@ pub const DERIVATION_LAYER_STRATEGIES: &[EmissionStrategy] =
 pub trait CapabilityPredicate {
     /// e.g. `"simultaneous.subrule-overlap"`.
     fn id(&self) -> PredicateId;
-    /// The `crate::advice_catalog` remedy shape this predicate's refusal maps to.
-    fn shape_key(&self) -> &'static str;
     /// Which `CharacteristicKind`(s) this predicate claims to discharge.
     fn discharges(&self) -> &[CharacteristicKind];
     /// Reachable concrete forms discharged by this predicate, excluding vacuous absence.
@@ -2113,10 +2111,6 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
         "multi-table.faithful-table-threading"
     }
 
-    fn shape_key(&self) -> &'static str {
-        "wide-phonology"
-    }
-
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::MultiTable]
     }
@@ -2301,10 +2295,6 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
         "circumfix-output-action.faithful-structural-composite"
     }
 
-    fn shape_key(&self) -> &'static str {
-        "late-structural-reachability"
-    }
-
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::CircumfixOutputAction]
     }
@@ -2324,6 +2314,9 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
             any_observed = true;
             if !detail.structural_composite_attempted {
                 return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                    refusal: CapabilityRefusal::CircumfixNoRoute {
+                        rule: Some(detail.rule.0),
+                    },
                     predicate: self.id(),
                     construct: format!(
                         "mrule {} allomorph #{} (LHS-material-dropping output action)",
@@ -2448,10 +2441,6 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
         "reduplication.peel-eligible-rule-kind"
     }
 
-    fn shape_key(&self) -> &'static str {
-        "nonregular-process-morphology"
-    }
-
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::Reduplication]
     }
@@ -2471,6 +2460,9 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
             any_observed = true;
             if !detail.peel_attempted && !detail.structural_composite_attempted {
                 return PredicateVerdict::Refuse(CapabilityDiagnostic {
+                    refusal: CapabilityRefusal::ReduplicationNoRoute {
+                        rule: detail.rule.0,
+                    },
                     predicate: self.id(),
                     construct: format!(
                         "mrule {} allomorph #{} (true reduplication has no proposal route)",
@@ -2591,10 +2583,6 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
         "compounding.non-recursive"
     }
 
-    fn shape_key(&self) -> &'static str {
-        "repeated-application"
-    }
-
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::Compounding]
     }
@@ -2659,10 +2647,6 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
 
     fn id(&self) -> PredicateId {
         "unordered-application.chain-depth-bounded"
-    }
-
-    fn shape_key(&self) -> &'static str {
-        "unordered-interactions"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2773,10 +2757,6 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
         "mpr-group.append-output"
     }
 
-    fn shape_key(&self) -> &'static str {
-        "nonregular-process-morphology"
-    }
-
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::MprGroupAppend]
     }
@@ -2834,10 +2814,6 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
 
     fn id(&self) -> PredicateId {
         "mpr-group.overwrite-output"
-    }
-
-    fn shape_key(&self) -> &'static str {
-        "nonregular-process-morphology"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2974,10 +2950,6 @@ impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
         "epenthesis.structural-composite-route"
     }
 
-    fn shape_key(&self) -> &'static str {
-        "wide-phonology"
-    }
-
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::Epenthesis]
     }
@@ -3030,6 +3002,33 @@ impl PredicateRegistry {
 
     pub fn predicates(&self) -> &[Box<dyn CapabilityPredicate>] {
         &self.predicates
+    }
+}
+
+/// Publishes the same representability decision made by each compiler.
+pub struct AlphaEnvironmentCheck(pub EmissionStrategy);
+
+impl GrammarWideCheck for AlphaEnvironmentCheck {
+    fn id(&self) -> PredicateId {
+        match self.0 {
+            EmissionStrategy::TunedSurfaceProbed => "alpha-environment.tuned",
+        }
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        self.0
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::emit::alpha_environment_refusal(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                refusal: CapabilityRefusal::AlphaEnvironment,
+                predicate: self.id(),
+                construct: "alpha-variable environment".to_string(),
+                witness: crate::emit::ALPHA_ENVIRONMENT_REFUSAL.to_string(),
+            }])
+        })
     }
 }
 
@@ -3104,8 +3103,7 @@ pub trait GrammarWideCheck {
     fn id(&self) -> PredicateId;
     /// The one `EmissionStrategy` this fact's proposer shape is about.
     fn strategy(&self) -> EmissionStrategy;
-    /// The `crate::advice_catalog` remedy shape this check's refusal maps to.
-    fn shape_key(&self) -> &'static str;
+    /// Evidence supporting this published compiler fact.
     fn provenance(&self) -> EvidenceProvenance;
     /// `None` when the fact does not apply to `semantics`/`plan`; `Some(Refuse(..))` when it does.
     /// Never `Some(Admit)`/`Some(ConfirmOnly)` — a grammar-wide fact only ever narrows.
@@ -3122,15 +3120,13 @@ impl GrammarWideCheck for TunedSurfaceMixedCircumfixZoneCheck {
     fn strategy(&self) -> EmissionStrategy {
         EmissionStrategy::TunedSurfaceProbed
     }
-    fn shape_key(&self) -> &'static str {
-        "nonregular-process-morphology"
-    }
     fn provenance(&self) -> EvidenceProvenance {
         EvidenceProvenance::Structural
     }
     fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
         crate::emit::eager_route_refuses_mixed_circumfix_zone(semantics.grammar()).then(|| {
             CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                refusal: CapabilityRefusal::CircumfixNoRoute { rule: None },
                 predicate: self.id(),
                 construct:
                     "rule mixing a circumfix allomorph with a non-circumfix, non-zero allomorph"
@@ -3172,56 +3168,18 @@ impl GrammarWideCheck for EagerRouteDropsRootSpellingsCheck {
     fn strategy(&self) -> EmissionStrategy {
         EmissionStrategy::TunedSurfaceProbed
     }
-    fn shape_key(&self) -> &'static str {
-        "repeated-application"
-    }
     fn provenance(&self) -> EvidenceProvenance {
         EvidenceProvenance::Structural
     }
     fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
-        crate::emit::eager_route_drops_root_spellings(semantics.grammar()).then(|| {
-            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+        let diagnostics: Vec<_> = crate::emit::eager_route_root_spelling_refusals(semantics.grammar())
+            .into_iter().map(|refusal| CapabilityDiagnostic {
+                refusal,
                 predicate: self.id(),
-                construct: "root allomorph whose pattern shape cannot be enumerated in full"
-                    .to_string(),
-                witness: "EmissionStrategy::TunedSurfaceProbed's eager route leaves root spellings \
-                          out of the compiled network -- an unbounded `*` shape, which has no finite \
-                          spelling set at any budget, or REP_VARIANT_BYTE_BUDGET reached mid \
-                          enumeration -- so confirm has no candidate left to recover them. Breadth \
-                          alone never reaches here: a complete enumeration is emitted in full \
-                          however large"
-                    .to_string(),
-            }])
-        })
-    }
-}
-
-/// Publishes the same representability decision made by each compiler.
-pub struct AlphaEnvironmentCheck(pub EmissionStrategy);
-
-impl GrammarWideCheck for AlphaEnvironmentCheck {
-    fn id(&self) -> PredicateId {
-        match self.0 {
-            EmissionStrategy::TunedSurfaceProbed => "alpha-environment.tuned",
-        }
-    }
-    fn strategy(&self) -> EmissionStrategy {
-        self.0
-    }
-    fn shape_key(&self) -> &'static str {
-        "alpha-variable-environments"
-    }
-    fn provenance(&self) -> EvidenceProvenance {
-        EvidenceProvenance::Structural
-    }
-    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
-        crate::emit::alpha_environment_refusal(semantics.grammar()).then(|| {
-            CompileDecision::Refuse(vec![CapabilityDiagnostic {
-                predicate: self.id(),
-                construct: "alpha-variable environment".to_string(),
-                witness: crate::emit::ALPHA_ENVIRONMENT_REFUSAL.to_string(),
-            }])
-        })
+                construct: "root allomorph whose pattern shape cannot be enumerated in full".to_string(),
+                witness: "The root spelling set is incomplete: an unbounded shape with required environments has no regex route, or the representation byte budget was reached.".to_string(),
+            }).collect();
+        (!diagnostics.is_empty()).then_some(CompileDecision::Refuse(diagnostics))
     }
 }
 
@@ -3779,18 +3737,9 @@ pub fn compose_envelope_for_strategy(
     )
 }
 
-/// `strategy_floor`'s own refusal id -- not a registered `CapabilityPredicate` or `GrammarWideCheck` (it has no plan node and applies identically to every strategy), so `crate::backend_selection::capability_shape_key` reads this constant directly rather than the registry lookup those two shapes go through.
+/// Refusal identifier for the per-strategy representation account.
 pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE: &str =
     "strategy-coverage.construct-not-representable";
-/// The advice shape for a floor refusal of process morphology; the catalog's remedies are written for that construct only.
-const STRATEGY_FLOOR_PROCESS_MORPHOLOGY_SHAPE_KEY: &str = "nonregular-process-morphology";
-
-/// The advice shape key for a [`STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE`] refusal, or `None` when the catalog has no advice for that construct (realizational morphology, cross-table respelling): naming process-morphology remedies for them would be wrong advice.
-pub(crate) fn strategy_floor_shape_key(diagnostic: &CapabilityDiagnostic) -> Option<&'static str> {
-    (diagnostic.construct == format!("{:?}", CharacteristicKind::ProcessMorphology))
-        .then_some(STRATEGY_FLOOR_PROCESS_MORPHOLOGY_SHAPE_KEY)
-}
-
 // The per-strategy account's contribution alone; `compose_over_predicates` folds in the dispositions.
 fn strategy_floor(strategy: EmissionStrategy, kind: CharacteristicKind) -> CompileDecision {
     use crate::strategy_coverage::StrategyRepresentation;
@@ -3801,6 +3750,7 @@ fn strategy_floor(strategy: EmissionStrategy, kind: CharacteristicKind) -> Compi
         StrategyRepresentation::RepresentsWithKnownGap => CompileDecision::ConfirmOnly,
         StrategyRepresentation::CannotRepresent => {
             CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                refusal: CapabilityRefusal::StrategyCoverage,
                 predicate: STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE,
                 construct: format!("{kind:?}"),
                 witness: format!(

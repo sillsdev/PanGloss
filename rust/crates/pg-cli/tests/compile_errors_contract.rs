@@ -60,7 +60,7 @@ fn parse_refusal_is_a_json_stderr_line_and_health_still_writes_findings() {
     assert!(!health.status.success());
     let report: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(health_path).unwrap()).unwrap();
-    assert_eq!(report["schema_version"], 4);
+    assert_eq!(report["schema_version"], 5);
     assert!(report["diagnostics"]
         .as_array()
         .unwrap()

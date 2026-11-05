@@ -95,7 +95,7 @@ pub type GrammarObservation = coverage_seam::Observation<BackendOutcome>;
 ///
 /// This is a MEASUREMENT, and the name says so because the distinction is load-bearing: it returns
 /// `Ok(())`, never a network, a payload or an artifact, and it asks
-/// [`crate::production_admission::assess_completed_fst`] nothing. A grammar this function compiles
+/// [`crate::grammar_admission::assess_completed_fst`] nothing. A grammar this function compiles
 /// may still be refused publication; keeping the two apart is what stops a readiness policy from
 /// masquerading as a compiler that could not build the grammar.
 ///
