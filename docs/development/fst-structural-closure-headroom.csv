@@ -1,0 +1,187 @@
+fixture,structural_trace,nodes,work,retained_charge_bytes,tier
+machine:edge-cases/adhoc-prohibition-affix-environment-copies,yes,0,0,0,ok
+machine:edge-cases/adhoc-prohibition-affix-msa-copies,yes,0,0,0,ok
+machine:edge-cases/adhoc-prohibition-allomorph-variant-control,yes,0,0,0,ok
+machine:edge-cases/adhoc-prohibition-circumfix-pairings,yes,3,3,10560,ok
+machine:edge-cases/adhoc-prohibition-stem-msa-copies,yes,0,0,0,ok
+machine:edge-cases/adhoc-prohibition-variant-enclitic-first,yes,0,0,0,ok
+machine:edge-cases/adhoc-prohibition-variant-main-first-enclitic,yes,0,0,0,ok
+machine:edge-cases/adhoc-prohibition-variant-msa-copies,yes,0,0,0,ok
+machine:edge-cases/alpha-variable-name-collision,yes,0,0,0,ok
+machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl,yes,0,0,0,ok
+machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr,yes,0,0,0,ok
+machine:edge-cases/ambiguous-disagree-mixed-plus-class,yes,0,0,0,ok
+machine:edge-cases/ambiguous-disagree-repeated-minus-partial-focus,no (refused before structural stage),,,,ok
+machine:edge-cases/boundary-first-in-narrowing-lhs,yes,0,0,0,ok
+machine:edge-cases/boundary-first-in-narrowing-lhs-strrep,yes,0,0,0,ok
+machine:edge-cases/boundary-leftover-in-narrowing-lhs-strrep,yes,0,0,0,ok
+machine:edge-cases/boundary-mid-in-narrowing-lhs-strrep,yes,0,0,0,ok
+machine:edge-cases/boundary-narrowing-probe,yes,0,0,0,ok
+machine:edge-cases/chained-output-feature-override-loss,yes,0,0,0,ok
+machine:edge-cases/circumfix-conditioned-halves,yes,4,4,3520,ok
+machine:edge-cases/circumfix-cross-product-and-infix-drop,yes,6,27,8488,ok
+machine:edge-cases/circumfix-in-template-slot,yes,1,1,896,ok
+machine:edge-cases/circumfix-infix-interior-action-precedence,yes,1,1,896,ok
+machine:edge-cases/circumfix-non-first-allomorph-selection,yes,1,1,1752,ok
+machine:edge-cases/circumfix-reduplication-precedence,yes,1,1,912,ok
+machine:edge-cases/class-deletion-reinsertion-strrep,yes,0,0,0,ok
+machine:edge-cases/clitic-enclitic-and-proclitic,yes,0,0,0,ok
+machine:edge-cases/clitic-flex-layout-blocking-morphology,yes,8,9,1848,ok
+machine:edge-cases/clitic-proclitic-after-final-template,yes,0,0,0,ok
+machine:edge-cases/clitic-rule-designation,yes,0,0,0,ok
+machine:edge-cases/clitic-stem-entry,yes,0,0,0,ok
+machine:edge-cases/compound-max-applications,yes,0,0,0,ok
+machine:edge-cases/compounding-breadth,yes,0,0,0,ok
+machine:edge-cases/compounding-non-recursive,yes,0,0,0,ok
+machine:edge-cases/copy-agreement-featureless-redup,yes,0,0,0,ok
+machine:edge-cases/cross-stem-material-determination,yes,0,0,0,ok
+machine:edge-cases/deep-optional-affix-nesting,yes,0,0,0,ok
+machine:edge-cases/deletion-reapplications,yes,0,0,0,ok
+machine:edge-cases/deletion-reduplication-exception-composite,yes,0,0,0,ok
+machine:edge-cases/deletion-reinserted-feature-unapply,yes,0,0,0,ok
+machine:edge-cases/diacritic-segments,yes,0,0,0,ok
+machine:edge-cases/discontinuous-morph-environment,yes,0,0,0,ok
+machine:edge-cases/disjunctive-recheck,yes,0,0,0,ok
+machine:edge-cases/epenthesis-fed-merge,yes,0,0,0,ok
+machine:edge-cases/expansion-interposed-optional,yes,0,0,0,ok
+machine:edge-cases/expansion-overlapping-targets,yes,0,0,0,ok
+machine:edge-cases/feature-gating-breadth,yes,0,0,0,ok
+machine:edge-cases/feature-rule-before-merge,yes,0,0,0,ok
+machine:edge-cases/final-template-merge-key,yes,0,0,0,ok
+machine:edge-cases/final-template-partial-discriminators,yes,0,0,0,ok
+machine:edge-cases/final-template-partial-root,yes,0,0,0,ok
+machine:edge-cases/final-template-partial-trace,yes,0,0,0,ok
+machine:edge-cases/flex-null-affix-environments,yes,0,0,0,ok
+machine:edge-cases/free-fluctuating-allomorph-pair,yes,0,0,0,ok
+machine:edge-cases/geminate-under-merge,yes,0,0,0,ok
+machine:edge-cases/guess-roots-settings,yes,0,0,0,ok
+machine:edge-cases/guesser-pattern-root-fallback,yes,0,0,0,ok
+machine:edge-cases/head-ambiguous-compounding,yes,0,0,0,ok
+machine:edge-cases/infix-interdigitation,yes,0,0,0,ok
+machine:edge-cases/interposed-optional-multi-rhs,yes,0,0,0,ok
+machine:edge-cases/iterative-epenthesis-cascade,yes,0,0,0,ok
+machine:edge-cases/literal-hash-affix-context,yes,0,0,0,ok
+machine:edge-cases/loader-pattern-shapes,yes,0,0,0,ok
+machine:edge-cases/merge-subrules-pos-ltr-template,yes,0,0,0,ok
+machine:edge-cases/merge-subrules-pos-rtl-template,yes,0,0,0,ok
+machine:edge-cases/merge-subrules-pos-simultaneous-template,yes,0,0,0,ok
+machine:edge-cases/merge-then-metathesis,yes,0,0,0,ok
+machine:edge-cases/morphotactic-attribute-breadth,yes,0,0,0,ok
+machine:edge-cases/mpr-gated-exception,yes,0,0,0,ok
+machine:edge-cases/non-clitic-after-final-template-layout,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-bounded-ltr-left,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-bounded-ltr-right,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-bounded-rtl-left,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-bounded-rtl-right,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-plain-ltr-right,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-unbounded-ltr-left,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-unbounded-ltr-right,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-unbounded-rtl-left,yes,0,0,0,ok
+machine:edge-cases/nullable-disagree-unbounded-rtl-right,yes,0,0,0,ok
+machine:edge-cases/optional-template-composite,yes,1548,3000,440752,unsupported
+machine:edge-cases/overridden-alpha-bounded-ltr-left,no (refused before structural stage),,,,ok
+machine:edge-cases/overridden-alpha-bounded-rtl-left,no (refused before structural stage),,,,ok
+machine:edge-cases/overridden-alpha-plain-ltr-left,no (refused before structural stage),,,,ok
+machine:edge-cases/overridden-alpha-unbounded-ltr-left,no (refused before structural stage),,,,ok
+machine:edge-cases/partial-class-disagree-bounded-ltr-left,yes,0,0,0,ok
+machine:edge-cases/partial-class-disagree-bounded-rtl-left,yes,0,0,0,ok
+machine:edge-cases/partial-class-disagree-bounded-rtl-right,yes,0,0,0,ok
+machine:edge-cases/partial-class-disagree-unbounded-ltr-right,yes,0,0,0,ok
+machine:edge-cases/partial-class-disagree-unbounded-rtl-left,yes,0,0,0,ok
+machine:edge-cases/partial-class-disagree-unbounded-rtl-right,yes,0,0,0,ok
+machine:edge-cases/pattern-root-required-environment,yes,0,0,0,ok
+machine:edge-cases/process-morphology-in-place-mutation,yes,3,3,840,ok
+machine:edge-cases/quantified-alpha-bounded-ltr-left,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-bounded-ltr-right,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-bounded-rtl-left,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-bounded-rtl-right,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-bounded-zero-left,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-bounded-zero-right,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-unbounded-ltr-left,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-unbounded-ltr-right,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-unbounded-rtl-left,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-unbounded-rtl-right,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-unbounded-zero-left,no (refused before structural stage),,,,ok
+machine:edge-cases/quantified-alpha-unbounded-zero-right,no (refused before structural stage),,,,ok
+machine:edge-cases/recursive-endocentric-compounding,yes,0,0,0,ok
+machine:edge-cases/right-to-left-anchor-environment,yes,0,0,0,ok
+machine:edge-cases/right-to-left-bounded-quantifier-rewrite,yes,0,0,0,ok
+machine:edge-cases/right-to-left-metathesis-reversal,yes,0,0,0,ok
+machine:edge-cases/right-to-left-segments-environment,yes,0,0,0,ok
+machine:edge-cases/shared-template-unconstrained-suffix,yes,0,0,0,ok
+machine:edge-cases/simultaneous-epenthesis-cascade,yes,0,0,0,ok
+machine:edge-cases/simultaneous-expansion-terminates,yes,0,0,0,ok
+machine:edge-cases/simultaneous-feeding,yes,0,0,0,ok
+machine:edge-cases/simultaneous-feeding-control-iterative,yes,0,0,0,ok
+machine:edge-cases/simultaneous-subrule-genuine-overlap,yes,0,0,0,ok
+machine:edge-cases/standalone-combining-mark,yes,0,0,0,ok
+machine:edge-cases/stem-name-restricted-root-allomorph,yes,0,0,0,ok
+machine:edge-cases/strrep-identity,yes,0,0,0,ok
+machine:edge-cases/strrep-rewrite-unapplication,yes,0,0,0,ok
+machine:edge-cases/subrule-morphosyntactic-gating,yes,1,1,856,ok
+machine:edge-cases/template-category-sharing,yes,0,0,0,ok
+machine:edge-cases/truncate-morphotactic,yes,15,33,13928,ok
+machine:edge-cases/truncate-morphotactic-copy-u,yes,41,91,28488,ok
+machine:edge-cases/truncate-morphotactic-identity,yes,15,33,13928,ok
+machine:edge-cases/truncate-morphotactic-subsumption,yes,6,10,4848,ok
+machine:edge-cases/two-merges-cascade-env,yes,0,0,0,ok
+machine:edge-cases/unbounded-iterative-quantifier-expansion,yes,0,0,0,ok
+machine:edge-cases/word-boundary-affix-rewrite,yes,0,0,0,ok
+machine:languages/metathesis-phase-isolation,yes,19,9,8024,ok
+machine:languages/polysynthetic-stratal-derivation-chain,yes,0,0,0,ok
+machine:languages/suffixing-evidential-adjacency-chain,yes,0,0,0,ok
+machine:languages/suffixing-extension-slot-ordering,yes,0,0,0,ok
+machine:languages/suffixing-vowel-harmony,no (refused before structural stage),,,,ok
+machine:languages/templatic-root-modification,yes,63,90,26184,ok
+staging:edge-cases/backend-gated-generic,yes,0,0,0,ok
+staging:edge-cases/backend-ordered-generic,yes,19,9,8024,ok
+staging:edge-cases/backend-strata-generic,yes,0,0,0,ok
+staging:edge-cases/backend-template-generic,yes,0,0,0,ok
+staging:edge-cases/bistratal-overlapping-segment-representation,yes,0,0,0,ok
+staging:edge-cases/bracket-pattern-reduplication-affix,yes,0,0,0,ok
+staging:edge-cases/clitic-rule-designation-iscliticrule,yes,0,0,0,ok
+staging:edge-cases/cross-table-root-respelling,yes,0,0,0,ok
+staging:edge-cases/do-not-use-for-parsing-flag-ignored,yes,0,0,0,ok
+staging:edge-cases/feature-system-breadth,yes,9,9,6872,ok
+staging:edge-cases/featureless-segment-class-rewrite,yes,0,0,0,ok
+staging:edge-cases/featureless-single-member-class-rewrite,yes,0,0,0,ok
+staging:edge-cases/interposed-optional-expansion-rhs,yes,0,0,0,ok
+staging:edge-cases/loader-default-symbol,yes,0,0,0,ok
+staging:edge-cases/loader-isactive,yes,0,0,0,ok
+staging:edge-cases/loader-isactive-breadth,yes,0,0,0,ok
+staging:edge-cases/mpr-group-overwrite-without-realizational,yes,0,0,0,ok
+staging:edge-cases/mpr-overwrite-order-dependence,yes,0,0,0,ok
+staging:edge-cases/multi-table-metathesis-shared-representation,yes,0,0,0,ok
+staging:edge-cases/narrowing-boundary-first-alpha-lhs,yes,0,0,0,ok
+staging:edge-cases/narrowing-boundary-order-alpha-lhs,yes,0,0,0,ok
+staging:edge-cases/pos-scoped-deletion-blocks-metathesis,yes,4,1,856,ok
+staging:edge-cases/realizational-reduplication-no-proposal-route,yes,0,0,0,ok
+staging:edge-cases/rewrite-analysis-feature-neutralization,yes,0,0,0,ok
+staging:edge-cases/rewrite-default-environment,yes,0,0,0,ok
+staging:edge-cases/rewrite-default-epenthesis,yes,0,0,0,ok
+staging:edge-cases/rewrite-default-full-set,yes,0,0,0,ok
+staging:edge-cases/rewrite-default-narrow,yes,0,0,0,ok
+staging:edge-cases/right-to-left-cross-table-segments-environment,yes,0,0,0,ok
+staging:edge-cases/right-to-left-multi-child-quantifier-rewrite,yes,0,0,0,ok
+staging:edge-cases/right-to-left-segments-environment-segments-node,yes,0,0,0,ok
+staging:edge-cases/segment-natural-class-table-binding,yes,0,0,0,ok
+staging:edge-cases/subrule-morphosyntactic-gating-linear-order,yes,1,1,856,ok
+staging:edge-cases/synthesis-stratum-render-stale-table,yes,0,0,0,ok
+staging:edge-cases/two-table-shared-representation-recall,yes,0,0,0,ok
+staging:edge-cases/unordered-independent-affix-sites,yes,15,66,14968,ok
+staging:edge-cases/variant-clitic-typed-form,yes,0,0,0,ok
+staging:edge-cases/variant-complex-form-ref-senseless-entry,yes,0,0,0,ok
+staging:edge-cases/zero-width-morpheme-identity-stability,yes,1,1,856,ok
+staging:filter-passes/allomorph-compatibility,yes,0,0,0,ok
+staging:filter-passes/co-occurrence,yes,0,0,0,ok
+staging:filter-passes/exact-span,yes,0,0,0,ok
+staging:filter-passes/local-environment,yes,0,0,0,ok
+staging:filter-passes/ownership,yes,0,0,0,ok
+staging:filter-passes/slot-order,yes,0,0,0,ok
+staging:filter-passes/static-signature,yes,0,0,0,ok
+staging:filter-passes/structural-transition,yes,0,0,0,ok
+staging:filter-passes/surface-consistency,yes,0,0,0,ok
+staging:languages/fusional-realizational-morphology,yes,24,0,0,unsupported
+staging:languages/prefixal-discontinuous-slot-dependency,yes,0,0,0,ok
+staging:languages/suffixing-evidential-adjacency-chain-require-rules,yes,0,0,0,ok
+staging:languages/suffixing-extension-slot-ordering-single-stem-name,yes,0,0,0,ok

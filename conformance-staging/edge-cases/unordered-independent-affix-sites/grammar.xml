@@ -1,0 +1,44 @@
+<HermitCrabInput><Language><Name>Independent internal affixes</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t"><Name>Main</Name><SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition><SegmentDefinition id="cc"><Representations><Representation>c</Representation></Representations></SegmentDefinition><SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations></SegmentDefinition><SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition><SegmentDefinition id="cf"><Representations><Representation>f</Representation></Representations></SegmentDefinition><SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition><SegmentDefinition id="cv"><Representations><Representation>v</Representation></Representations></SegmentDefinition><SegmentDefinition id="cw"><Representations><Representation>w</Representation></Representations></SegmentDefinition><SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition><SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition><SegmentDefinition id="cz"><Representations><Representation>z</Representation></Representations></SegmentDefinition><SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable>
+      <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+      <Strata><Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="mr0 mr1 mr2 mr3"><Name>Main</Name>
+      <MorphologicalRuleDefinitions><MorphologicalRule id="mr0" requiredPartsOfSpeech="posV">
+          <Name>internal u</Name><MorphemeId>m0</MorphemeId><MorphologicalSubrules>
+          <MorphologicalSubrule id="sub0"><MorphologicalInput>
+            <PhoneticSequence id="left0"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+            <PhoneticSequence id="site0"><Segment segment="ca" /></PhoneticSequence>
+            <PhoneticSequence id="right0"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+          </MorphologicalInput><MorphologicalOutput><CopyFromInput index="left0" />
+            <InsertSegments><PhoneticShape>au</PhoneticShape></InsertSegments>
+            <CopyFromInput index="right0" /></MorphologicalOutput>
+          </MorphologicalSubrule></MorphologicalSubrules></MorphologicalRule><MorphologicalRule id="mr1" requiredPartsOfSpeech="posV">
+          <Name>internal v</Name><MorphemeId>m1</MorphemeId><MorphologicalSubrules>
+          <MorphologicalSubrule id="sub1"><MorphologicalInput>
+            <PhoneticSequence id="left1"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+            <PhoneticSequence id="site1"><Segment segment="cb" /></PhoneticSequence>
+            <PhoneticSequence id="right1"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+          </MorphologicalInput><MorphologicalOutput><CopyFromInput index="left1" />
+            <InsertSegments><PhoneticShape>bv</PhoneticShape></InsertSegments>
+            <CopyFromInput index="right1" /></MorphologicalOutput>
+          </MorphologicalSubrule></MorphologicalSubrules></MorphologicalRule><MorphologicalRule id="mr2" requiredPartsOfSpeech="posV">
+          <Name>internal w</Name><MorphemeId>m2</MorphemeId><MorphologicalSubrules>
+          <MorphologicalSubrule id="sub2"><MorphologicalInput>
+            <PhoneticSequence id="left2"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+            <PhoneticSequence id="site2"><Segment segment="cc" /></PhoneticSequence>
+            <PhoneticSequence id="right2"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+          </MorphologicalInput><MorphologicalOutput><CopyFromInput index="left2" />
+            <InsertSegments><PhoneticShape>cw</PhoneticShape></InsertSegments>
+            <CopyFromInput index="right2" /></MorphologicalOutput>
+          </MorphologicalSubrule></MorphologicalSubrules></MorphologicalRule><MorphologicalRule id="mr3" requiredPartsOfSpeech="posV">
+          <Name>internal x</Name><MorphemeId>m3</MorphemeId><MorphologicalSubrules>
+          <MorphologicalSubrule id="sub3"><MorphologicalInput>
+            <PhoneticSequence id="left3"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+            <PhoneticSequence id="site3"><Segment segment="cd" /></PhoneticSequence>
+            <PhoneticSequence id="right3"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+          </MorphologicalInput><MorphologicalOutput><CopyFromInput index="left3" />
+            <InsertSegments><PhoneticShape>dx</PhoneticShape></InsertSegments>
+            <CopyFromInput index="right3" /></MorphologicalOutput>
+          </MorphologicalSubrule></MorphologicalSubrules></MorphologicalRule></MorphologicalRuleDefinitions><LexicalEntries>
+      <LexicalEntry id="root" partOfSpeech="posV"><MorphemeId>root</MorphemeId><Allomorphs><Allomorph id="rootA"><PhoneticShape>qabcd</PhoneticShape></Allomorph></Allomorphs><Gloss>invented</Gloss></LexicalEntry>
+      </LexicalEntries></Stratum></Strata></Language></HermitCrabInput>
