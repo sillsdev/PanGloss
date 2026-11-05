@@ -52,21 +52,12 @@
 //!    LAST goes first, physically FIRST goes second) — identical output to C#'s tag-driven order for
 //!    every attested shape, and additionally a true inverse of `synthesis_reorder` for the reversed
 //!    one.
-//! 2. **Middle node preserved**: a node strictly between the two switches (by original physical
-//!    position) is no longer dropped — it is kept in its own slot, between the two (now reordered)
-//!    switch nodes, UNLESS it resolves to a `CharDefKind::Boundary` (a literal `<BoundaryMarker>`):
-//!    a boundary is excluded from the analysis match sequence entirely regardless of pattern shape
-//!    (`MutShape::segs(false)`'s own `NodeKind::Boundary` exclusion, "Segment+Anchor only, no
-//!    boundaries" below), so keeping one in the rebuilt pattern would require a match position that
-//!    can never be satisfied — dropping it is not just harmless but necessary. This is why C#'s own
-//!    unconditional drop (`AnalysisMetathesisRuleSpec.cs:27-45`'s `TakeWhile(!Group)` on both ends)
-//!    never surfaced as a problem in the one real shape its own conformance suite exercises there
-//!    (`mrComplexMeta`'s `<BoundaryMarker>`, `metathesis-phase-isolation`'s `mu+?i` word, ported as
-//!    `csharp_port_metathesis.rs::complex_rule`) — a boundary is dropped either way. A genuine middle
-//!    SEGMENT context node (never attested in any real HermitCrab fixture C#'s own conformance suite
-//!    carries, but DTD-legal and reachable via `pg_grammar_gen`) is instead preserved, matching
-//!    `synthesis_reorder`'s real behavior (`synthesis_reorder`'s own doc: "a node strictly between
-//!    them keeps its slot untouched") and letting analysis actually confirm it.
+//! 2. **Middle nodes dropped, as in C#**: a node strictly between the two switches is not part of
+//!    the rebuilt pattern. `AnalysisMetathesisRuleSpec` keeps only the nodes before the first group
+//!    and after the last one (`TakeWhile(!Group)` on both ends), so with a middle context the
+//!    analysis searches for the two switches immediately adjacent. Synthesis leaves the middle node
+//!    in its slot, so hc.dll never finds the reorder it produced (divergence 127). This port
+//!    reproduces that on purpose: hc.dll is the oracle.
 //!
 //! Matched with `reverse(rule.dir)` over `Segment+Anchor` only (no boundaries), nondeterministic (C#:
 //! shape nodes can be underspecified during analysis). On a match, `ana_union` bitwise-ORs the two
@@ -87,13 +78,13 @@
 
 use pg_featstruct::flat_unifiable;
 use pg_fst::{CompileNode, Direction, Fst, Segment, Transduce, ENTIRE_MATCH};
-use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
+use pg_grammar_model::chardef::{CharDefId, CharDefTable};
 use pg_grammar_model::model::{
     Grammar, MetathesisRuleDef, PRuleId, Pattern, PatternNode, StratumId, TableId,
 };
-use pg_shape::{NodeKind, Shape};
+use pg_shape::{CdBits, CdSet, NodeKind, Shape};
 
-use crate::bridge::PatternBridge;
+use crate::bridge::{PatternBridge, StrRepMatcher};
 use crate::rewrite::{dir_from_model, reverse, MutNode, MutShape};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::Word;
@@ -124,7 +115,8 @@ fn compile_switch_pattern(
 ) -> CompiledSwitchPattern {
     let bridge = PatternBridge::new(g)
         .with_table(table)
-        .deterministic(deterministic);
+        .deterministic(deterministic)
+        .strrep(true);
     let mut compiled = bridge
         .compile_pattern(pattern)
         .expect("metathesis pattern compiles");
@@ -170,11 +162,9 @@ fn non_anchor_count(nodes: &[PatternNode]) -> usize {
         .count()
 }
 
-/// Rebuild the search pattern analysis needs to recognize whatever `synthesis_reorder` actually produces, physical-position-first (matching `synthesis_reorder`'s real behavior, not C#'s tag-driven order); a middle node is dropped only if `is_boundary_node` says it can never appear in the analysis match sequence.
+/// Rebuild the search pattern analysis needs to recognize whatever `synthesis_reorder` produces, physical-position-first like C#'s `AnalysisMetathesisRuleSpec`; every node strictly between the two switches is dropped, exactly as C# drops it (divergence 127).
 /// See docs/research/pg-rules-metathesis-design-notes.md for the full reordering rationale.
 fn build_analysis_pattern(
-    g: &Grammar,
-    table: TableId,
     pattern: &Pattern,
     left_switch: u32,
     right_switch: u32,
@@ -187,25 +177,10 @@ fn build_analysis_pattern(
     let mut nodes: Vec<PatternNode> = pattern.nodes[..first as usize].to_vec();
     nodes.push(pattern.nodes[last as usize].clone());
     let left_full = (nodes.len() - 1) as u32;
-    for mid in &pattern.nodes[(first as usize + 1)..(last as usize)] {
-        if !is_boundary_node(g, table, mid) {
-            nodes.push(mid.clone());
-        }
-    }
     nodes.push(pattern.nodes[first as usize].clone());
     let right_full = (nodes.len() - 1) as u32;
     nodes.extend(pattern.nodes[(last as usize + 1)..].iter().cloned());
     (Pattern { nodes }, left_full, right_full)
-}
-
-/// Whether `node` lowers to a `NodeKind::Boundary` shape node at segmentation time (only a literal `<Segment>`/`<BoundaryMarker>` resolving to a `CharDefKind::Boundary` char def); used by `build_analysis_pattern` to decide whether a middle node must be dropped or preserved.
-fn is_boundary_node(g: &Grammar, table: TableId, node: &PatternNode) -> bool {
-    match node {
-        PatternNode::CharDef(id) => {
-            g.char_tables[table.0 as usize].get(*id).kind() == CharDefKind::Boundary
-        }
-        _ => false,
-    }
 }
 
 // Matching.
@@ -353,23 +328,57 @@ fn move_nodes_after(
 
 /// C# `AnalysisMetathesisRuleSpec.ApplyRhs`: for each Segment-typed `(leftNode, rightNode)` pair, union each node's `FeatureStruct` into the other's (a plain bitwise OR over dense lanes, exact given this port's UNCONSTRAINED=u64::MAX representation) and mark both dirty; also resets both nodes' `char_def`, this port's own addition since C#'s `Union` has no analogous per-node identity to reset.
 /// See docs/research/pg-rules-metathesis-design-notes.md for the full union-semantics and char_def-reset argument.
-fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize]) {
+fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize], cd_count: Option<usize>) {
     for (&a, &b) in left.iter().zip(right) {
         if ms.nodes[a].kind != NodeKind::Segment || ms.nodes[b].kind != NodeKind::Segment {
             continue;
         }
+        // A featureless grammar keeps each segment's spelling (`StrRep`); `FeatureStruct.Union` merges the two spelling sets, or drops the key when either side has none.
+        let spellings = cd_count.and_then(|n| {
+            let (sa, sb) = (
+                spelling_set(&ms.nodes[a], n)?,
+                spelling_set(&ms.nodes[b], n)?,
+            );
+            let mut all = sa;
+            all.extend(sb);
+            all.sort_unstable();
+            all.dedup();
+            Some(all)
+        });
         let w = ms.nodes[a].lanes.len();
         for f in 0..w {
             let combined = ms.nodes[a].lanes[f] | ms.nodes[b].lanes[f];
             ms.nodes[a].lanes[f] = combined;
             ms.nodes[b].lanes[f] = combined;
         }
-        ms.nodes[a].dirty = true;
-        ms.nodes[b].dirty = true;
-        ms.nodes[a].char_def = pg_shape::NO_CHAR_DEF;
-        ms.nodes[b].char_def = pg_shape::NO_CHAR_DEF;
-        ms.nodes[a].cd_set = pg_shape::CdSet::Unrestricted;
-        ms.nodes[b].cd_set = pg_shape::CdSet::Unrestricted;
+        for i in [a, b] {
+            ms.nodes[i].dirty = true;
+            match &spellings {
+                Some(all) if all.len() == 1 => {
+                    ms.nodes[i].char_def = all[0];
+                    ms.nodes[i].cd_set = CdSet::Unrestricted;
+                }
+                Some(all) => {
+                    ms.nodes[i].char_def = pg_shape::NO_CHAR_DEF;
+                    ms.nodes[i].cd_set = CdSet::Members(CdBits::from_ids(all.iter().copied()));
+                }
+                None => {
+                    ms.nodes[i].char_def = pg_shape::NO_CHAR_DEF;
+                    ms.nodes[i].cd_set = CdSet::Unrestricted;
+                }
+            }
+        }
+    }
+}
+
+/// The spellings a featureless node stands for, or `None` when it is unrestricted.
+fn spelling_set(node: &MutNode, cd_count: usize) -> Option<Vec<u32>> {
+    if node.char_def != pg_shape::NO_CHAR_DEF {
+        return Some(vec![node.char_def]);
+    }
+    match &node.cd_set {
+        CdSet::Unrestricted => None,
+        CdSet::Members(bits) => Some((0..cd_count as u32).filter(|&i| bits.contains(i)).collect()),
     }
 }
 
@@ -391,7 +400,13 @@ pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<S
     let pattern_len = non_anchor_count(&rule.pattern.nodes);
     // `table` is `synthesis_reorder`'s own per-node validity check's target -- see its doc.
     let table = &g.char_tables[table_id.0 as usize];
-    synthesize_with_pattern(&compiled, pattern_len, input, table)
+    synthesize_with_pattern(
+        &compiled,
+        pattern_len,
+        input,
+        table,
+        StrRepMatcher::new(g, table),
+    )
 }
 
 /// `g` is needed only to resolve `MetaCache::table_id` into the actual `CharDefTable`
@@ -406,7 +421,7 @@ pub(crate) fn synthesize_cached(
 ) -> Vec<Shape> {
     let pattern_len = non_anchor_count(&rule.pattern.nodes);
     let table = &g.char_tables[cache.table_id.0 as usize];
-    synthesize_with_pattern(&cache.syn, pattern_len, input, table)
+    synthesize_with_pattern(&cache.syn, pattern_len, input, table, cache.strrep)
 }
 
 fn synthesize_with_pattern(
@@ -414,8 +429,9 @@ fn synthesize_with_pattern(
     pattern_len: usize,
     input: &Shape,
     table: &CharDefTable,
+    strrep: Option<StrRepMatcher>,
 ) -> Vec<Shape> {
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::from_shape_strrep(input, strrep);
     let mut applied = false;
     loop {
         let (segs, node_of) = ms.segs(true);
@@ -535,19 +551,21 @@ pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shap
     // Same owning-table resolution and fallback contract as `synthesize`, for the un-apply direction.
     let table_id = crate::cache::owning_table_for_metathesis_rule(g, rule).unwrap_or(TableId(0));
     let dir = reverse(dir_from_model(rule.dir));
-    let (ana_pattern, left_idx_full, right_idx_full) = build_analysis_pattern(
-        g,
-        table_id,
-        &rule.pattern,
-        rule.left_switch,
-        rule.right_switch,
-    );
+    let (ana_pattern, left_idx_full, right_idx_full) =
+        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
     let left_idx = compiled_index(&ana_pattern, left_idx_full);
     let right_idx = compiled_index(&ana_pattern, right_idx_full);
     let compiled =
         compile_switch_pattern(g, table_id, &ana_pattern, left_idx, right_idx, dir, false);
     let pattern_len = non_anchor_count(&ana_pattern.nodes);
-    analyze_with_pattern(&compiled, pattern_len, input)
+    let table = &g.char_tables[table_id.0 as usize];
+    analyze_with_pattern(
+        &compiled,
+        pattern_len,
+        input,
+        StrRepMatcher::new(g, table),
+        table.len(),
+    )
 }
 
 pub(crate) fn analyze_cached(
@@ -555,15 +573,23 @@ pub(crate) fn analyze_cached(
     input: &Shape,
     cache: &MetaCache,
 ) -> Vec<Shape> {
-    analyze_with_pattern(&cache.ana, cache.ana_pattern_len, input)
+    analyze_with_pattern(
+        &cache.ana,
+        cache.ana_pattern_len,
+        input,
+        cache.strrep,
+        cache.cd_count,
+    )
 }
 
 fn analyze_with_pattern(
     pattern: &CompiledSwitchPattern,
     pattern_len: usize,
     input: &Shape,
+    strrep: Option<StrRepMatcher>,
+    cd_count: usize,
 ) -> Vec<Shape> {
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::from_shape_strrep(input, strrep);
     let mut applied = false;
     loop {
         let (segs, node_of) = ms.segs(false);
@@ -599,7 +625,7 @@ fn analyze_with_pattern(
             {
                 continue;
             }
-            ana_union(&mut ms, &left_nodes, &right_nodes);
+            ana_union(&mut ms, &left_nodes, &right_nodes, strrep.map(|_| cd_count));
             applied = true;
             acted = true;
             break;
@@ -682,6 +708,9 @@ pub(crate) struct MetaCache {
     /// The rule's own owning table, already resolved once by `crate::cache::owning_table_for_prule`.
     /// See `docs/research/pg-rules-metathesis-design-notes.md`.
     table_id: TableId,
+    /// Spelling matcher on a featureless grammar (`None` when the grammar has features), and the owning table's size.
+    strrep: Option<StrRepMatcher>,
+    cd_count: usize,
 }
 
 pub(crate) fn build_meta_cache(
@@ -703,13 +732,8 @@ pub(crate) fn build_meta_cache(
     );
 
     let ana_dir = reverse(syn_dir);
-    let (ana_pattern, ana_left_full, ana_right_full) = build_analysis_pattern(
-        g,
-        table_id,
-        &rule.pattern,
-        rule.left_switch,
-        rule.right_switch,
-    );
+    let (ana_pattern, ana_left_full, ana_right_full) =
+        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
     let ana_left = compiled_index(&ana_pattern, ana_left_full);
     let ana_right = compiled_index(&ana_pattern, ana_right_full);
     let ana_pattern_len = non_anchor_count(&ana_pattern.nodes);
@@ -728,5 +752,7 @@ pub(crate) fn build_meta_cache(
         ana,
         ana_pattern_len,
         table_id,
+        strrep: StrRepMatcher::new(g, &g.char_tables[table_id.0 as usize]),
+        cd_count: g.char_tables[table_id.0 as usize].len(),
     }
 }

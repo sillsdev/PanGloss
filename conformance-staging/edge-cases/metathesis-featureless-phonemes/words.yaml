@@ -1,0 +1,42 @@
+# oracle-provenance: founding-oracle
+# Signatures and rules transcribed from the C# founding oracle (hc-conformance self-check, sillsdev/machine
+# 4d9b454d). Pins a metathesis rule between featureless phonemes (a t k -> a k t): analysis must still
+# find the surface of a root the rule reorders. The rule never applies to itka or tika (no a before t k).
+language: MetathesisFeatureless
+inspired_by: ["synthetic metathesis probe (not modeling any real language)"]
+sources:
+  - "src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/AnalysisMetathesisRuleSpec.cs"
+  - "src/SIL.Machine.Morphology.HermitCrab/PhonologicalRules/SynthesisMetathesisRuleSpec.cs"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: akta
+    note: >-
+      Surface of root atka after the rule: atka -> akta. Featureless phonemes carry no identity features, so analysis has nothing to unify but the segment identity.
+    parses:
+      - signature: "ATKA|akta"
+        rules: [mt]
+  - word: atka
+    note: >-
+      The rule always reorders root atka, so its unreordered spelling is not a word.
+    expect_fail: true
+  - word: itka
+    note: >-
+      Root itka: no a before t k, the rule does not apply.
+    parses:
+      - signature: "ITKA|itka"
+        rules: []
+  - word: ikta
+    note: >-
+      itka reordered would need the left environment a; it is not a word.
+    expect_fail: true
+  - word: tika
+    note: >-
+      Root tika: the rule does not apply.
+    parses:
+      - signature: "TIKA|tika"
+        rules: []
+  - word: kita
+    note: >-
+      Not a word.
+    expect_fail: true
