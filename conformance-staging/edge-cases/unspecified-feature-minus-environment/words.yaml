@@ -1,0 +1,51 @@
+# oracle-provenance: founding-oracle
+# Signatures transcribed from the C# founding oracle (hc-conformance self-check, in-process Morpher),
+# machine pin 4d9b454d, 2026-11-05.
+#
+# prNas: [arch:+] -> [nasal:+, arch:-] / _ + [nasal:-]. The vowel a has NO nasal value. In hc.dll the
+# environment segment must carry nasal:- (FeatureStruct.SubsumesImpl returns false when the feature
+# is absent), so a stem that starts with a does not trigger the rule: N+ata surfaces as Nata and
+# never as mata. PanGloss treated the unspecified feature as satisfying [nasal:-] (sillsdev/pangloss#180).
+language: UnspecifiedFeatureMinusEnvironment
+inspired_by: ["synthetic nasal-place archiphoneme assimilation (not modeling any real language)"]
+sources:
+  - "src/SIL.Machine/FeatureModel/FeatureStruct.cs"
+  - "src/SIL.Machine/FiniteState/Input.cs"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: Nata
+    note: >-
+      N+ata. The stem starts with a, which has no nasal value, so [nasal:-] is not satisfied, the
+      rule does not apply and N surfaces unchanged. The word PanGloss 0.15.2 got wrong by not
+      parsing it (negative control for mata).
+    parses:
+      - signature: "NPFX+ATA|N+?a[pt]a"
+        rules: [mrN]
+  - word: mata
+    note: >-
+      The unspecified-feature witness. Only a rule firing on the unspecified a could turn N into m
+      here. hc.dll does not parse it; PanGloss 0.15.2 did.
+    expect_fail: true
+  - word: mpa
+    note: >-
+      N+pa. p is nasal:-, so the rule applies and N becomes m (positive control: the rule still fires).
+    parses:
+      - signature: "NPFX+PA|m+?[pt]a"
+        rules: [mrN, prNas]
+  - word: Npa
+    note: >-
+      Negative control: before p the rule is obligatory, so N never survives.
+    expect_fail: true
+  - word: ata
+    note: >-
+      Bare root; no prefix, no environment.
+    parses:
+      - signature: "ATA|a[pt]a"
+        rules: []
+  - word: pa
+    note: >-
+      Bare root; no prefix, no environment.
+    parses:
+      - signature: "PA|[pt]a"
+        rules: []

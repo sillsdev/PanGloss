@@ -510,6 +510,8 @@ pub(crate) struct EnvFst {
     agreement: Option<Vec<AgreementNode>>,
     binding_nodes: Option<Vec<AgreementNode>>,
     defaults: Vec<(usize, u64, u64)>,
+    /// `(feature, full mask, phantom bit)` per default-less feature this synthesis environment pins; an unspecified lane takes the phantom bit, which no pin contains.
+    unset_fails: Vec<(usize, u64, u64)>,
 }
 
 /// Compile an environment for **synthesis**, and for the allomorph-environment gate, which shares
@@ -622,6 +624,25 @@ fn compile_env_impl(
         }
     }
 
+    let mut pinned = Vec::new();
+    if !strip_boundaries && !id_lane {
+        collect_pinned_features(g, &compiled.agreement_nodes, &mut pinned);
+    }
+    let unset_fails = pinned
+        .into_iter()
+        .filter(|&(f, _)| g.phon_features.default_bits(FlatIndex(f as u32)).is_none())
+        .filter_map(|(f, mask)| {
+            let free = !mask;
+            (free != 0).then(|| (f, mask, free & free.wrapping_neg()))
+        })
+        .collect();
+
+    // A position that does not pin a feature may carry its full mask (a literal segment or boundary does) where a class carries `UNCONSTRAINED`; the phantom bit meets only the latter, so equate them.
+    for &(f, mask, _) in &unset_fails {
+        widen_full_mask_lanes(&mut compiled.input.nodes, f, mask);
+        widen_agreement_lanes(&mut compiled.agreement_nodes, f, mask);
+    }
+
     Some(EnvFst {
         fst: compiled
             .input
@@ -633,6 +654,7 @@ fn compile_env_impl(
         group_names,
         agreement,
         binding_nodes: compiled.uses_alpha_vars.then_some(compiled.agreement_nodes),
+        unset_fails,
         defaults: if id_lane {
             Vec::new()
         } else {
@@ -647,9 +669,85 @@ fn compile_env_impl(
     })
 }
 
+fn widen_full_mask_lanes(nodes: &mut [CompileNode], feature: usize, mask: u64) {
+    for node in nodes {
+        match node {
+            CompileNode::Constraint(lanes) => {
+                if lanes.get(feature) == Some(&mask) {
+                    lanes[feature] = UNCONSTRAINED;
+                }
+            }
+            CompileNode::Group { children, .. } | CompileNode::Quantifier { children, .. } => {
+                widen_full_mask_lanes(children, feature, mask)
+            }
+            CompileNode::Alternation(branches) => {
+                for branch in branches {
+                    widen_full_mask_lanes(branch, feature, mask);
+                }
+            }
+        }
+    }
+}
+
+fn widen_agreement_lanes(nodes: &mut [AgreementNode], feature: usize, mask: u64) {
+    for node in nodes {
+        match node {
+            AgreementNode::Constraint { lanes, .. } => {
+                if lanes.get(feature) == Some(&mask) {
+                    lanes[feature] = UNCONSTRAINED;
+                }
+            }
+            AgreementNode::Alternation(children) | AgreementNode::Repeat { children, .. } => {
+                widen_agreement_lanes(children, feature, mask)
+            }
+        }
+    }
+}
+
+/// The phonological features some constraint in `nodes` pins to a proper subset of their symbols, with each feature's full mask. Alpha-governed lanes are already lowered to unconstrained, so they do not count.
+fn collect_pinned_features(g: &Grammar, nodes: &[AgreementNode], out: &mut Vec<(usize, u64)>) {
+    for node in nodes {
+        match node {
+            AgreementNode::Constraint { lanes, .. } => {
+                for (f, &bits) in lanes.iter().take(g.phon_features.len()).enumerate() {
+                    let mask = full_mask(g, f);
+                    let is_type = f == g.phon_features.type_flat().0 as usize;
+                    if !is_type
+                        && bits != UNCONSTRAINED
+                        && bits != mask
+                        && !out.iter().any(|&(o, _)| o == f)
+                    {
+                        out.push((f, mask));
+                    }
+                }
+            }
+            AgreementNode::Alternation(branches) => collect_pinned_features(g, branches, out),
+            AgreementNode::Repeat { children, .. } => collect_pinned_features(g, children, out),
+        }
+    }
+}
+
+/// A binding lane as an alpha variable sees it: the phantom bit `env_input` plants stands for an unspecified feature, which binds as the full mask.
+fn bind_lane(g: &Grammar, segment: &Segment, feature: usize) -> u64 {
+    let lane = segment.lanes[feature];
+    let mask = full_mask(g, feature);
+    if lane & mask == 0 {
+        mask
+    } else {
+        lane
+    }
+}
+
 fn env_input(env: &EnvFst, segs: &[Segment]) -> Vec<Segment> {
     let mut input = segs.to_vec();
     for segment in &mut input {
+        for &(feature, mask, phantom) in &env.unset_fails {
+            if segment.lanes.get(feature) == Some(&mask)
+                && !segment.explicit_full.contains(&(feature as u32))
+            {
+                segment.lanes[feature] = phantom;
+            }
+        }
         for &(feature, mask, default) in &env.defaults {
             if segment.lanes.get(feature) == Some(&mask)
                 && !segment.explicit_full.contains(&(feature as u32))
@@ -980,7 +1078,7 @@ fn binding_constraint_can_match(
                 let mut candidate = bindings.clone();
                 pg_featstruct::flat_unifiable(&segment.lanes, lanes)
                     && vars.iter().all(|occ| {
-                        bind_or_check(g, &mut candidate, occ, segment.lanes[occ.feature])
+                        bind_or_check(g, &mut candidate, occ, bind_lane(g, segment, occ.feature))
                     })
             }
             AgreementNode::Alternation(branches) => {
@@ -1065,9 +1163,9 @@ fn walk_binding_environment<'a>(
                 }
                 let mut next = bindings.clone();
                 if pg_featstruct::flat_unifiable(&segment.lanes, lanes)
-                    && vars
-                        .iter()
-                        .all(|occ| bind_or_check(g, &mut next, occ, segment.lanes[occ.feature]))
+                    && vars.iter().all(|occ| {
+                        bind_or_check(g, &mut next, occ, bind_lane(g, segment, occ.feature))
+                    })
                 {
                     if let Some(found) = walk_binding_environment(
                         g,
@@ -1354,13 +1452,14 @@ fn agreement_node(
     }
 }
 
+/// Confirm C#'s `UseDefaults` flag on a matched target; with `subsumption` an unspecified pinned feature with no default also fails.
 /// docs/research/rewrite-usedefaults-confirm.md
-/// Confirm C#'s `UseDefaults` matcher flag on a matched target.
 fn pattern_defaults_ok(
     g: &Grammar,
     ms: &MutShape,
     target_nodes: &[usize],
     pattern_lanes: &[Vec<u64>],
+    subsumption: bool,
 ) -> bool {
     for (k, row) in pattern_lanes.iter().enumerate() {
         let node = target_nodes[k];
@@ -1373,10 +1472,10 @@ fn pattern_defaults_ok(
                 && ms.nodes[node].lanes[f] == mask
                 && !ms.nodes[node].is_explicit_full(f)
             {
-                if let Some(default_bits) = g.phon_features.default_bits(FlatIndex(f as u32)) {
-                    if default_bits & bits == 0 {
-                        return false;
-                    }
+                match g.phon_features.default_bits(FlatIndex(f as u32)) {
+                    Some(default_bits) if default_bits & bits == 0 => return false,
+                    None if subsumption => return false,
+                    _ => {}
                 }
             }
         }
@@ -2497,7 +2596,7 @@ fn syn_feature(
                 continue;
             };
             // UseDefaults confirm: reject a candidate the FST only accepted because an LHS-pinned feature is unspecified on the node and its default wouldn't have satisfied the pin; see `pattern_defaults_ok`.
-            if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes) {
+            if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes, true) {
                 rejected.insert(s);
                 continue;
             }
@@ -2593,7 +2692,7 @@ fn sim_feature(
         ) else {
             continue;
         };
-        if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes) {
+        if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes, true) {
             continue;
         }
         accepted.push((target_nodes, bindings));
@@ -2814,7 +2913,7 @@ fn ana_feature(
                 continue;
             }
             // UseDefaults confirm, same as `syn_feature`'s analogous call, but against the analysis target's combined `LHS ⊕ RHS` lanes; see `pattern_defaults_ok`.
-            if !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes) {
+            if !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes, false) {
                 rejected.insert(s);
                 continue;
             }
@@ -2916,7 +3015,7 @@ fn syn_narrow(
             if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
                 continue;
             }
-            if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes) {
+            if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes, true) {
                 continue;
             }
             // Widened to allow a matched Boundary node (Amharic `prule7`'s LHS has a real top-level `BoundaryMarker`): C#'s synthesis matcher filter is `Segment|Boundary|Anchor`, so its narrowing target can consume one too.
@@ -3018,7 +3117,7 @@ fn sim_narrow(
         if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
             continue;
         }
-        if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes) {
+        if !pattern_defaults_ok(g, ms, &target_nodes, &lhs_lanes, true) {
             continue;
         }
         if target_nodes.iter().any(|&n| {
@@ -3175,7 +3274,7 @@ fn ana_narrow_general(
     let (segs, node_of) = ms.segs(false);
     let mut matches: Vec<(usize, usize, Vec<usize>, Bindings)> = Vec::new();
     let mut consider = |s: usize, e: usize, target_nodes: Vec<usize>| {
-        if !pattern_defaults_ok(g, ms, &target_nodes, &rhs_lanes) {
+        if !pattern_defaults_ok(g, ms, &target_nodes, &rhs_lanes, false) {
             return;
         }
         let Some(left_match) = left_env_match_for_binding(left, &segs, s) else {
@@ -3520,7 +3619,7 @@ fn ana_epenthesis(
             if !width_matches(&target_nodes, expected_len) {
                 continue;
             }
-            if !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes) {
+            if !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes, false) {
                 continue;
             }
             if !epenthesis_target_environments_match(
@@ -3570,7 +3669,7 @@ fn ana_epenthesis(
             if target_nodes.is_empty()
                 || target_nodes.iter().any(|&n| ms.nodes[n].dirty)
                 || !width_matches(&target_nodes, expected_len)
-                || !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes)
+                || !pattern_defaults_ok(g, ms, &target_nodes, &target_lanes, false)
                 || !epenthesis_target_environments_match(
                     g,
                     ms,

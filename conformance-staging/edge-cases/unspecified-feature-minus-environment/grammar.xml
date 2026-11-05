@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>UnspecifiedFeatureMinusEnvironment</Name>
+    <!-- Synthetic. A segment with NO value for a feature must not satisfy a rule environment that
+         asks for that feature to be minus. Subsumption in FeatureStruct.SubsumesImpl
+         (SIL.Machine/FeatureModel/FeatureStruct.cs) fails when the segment lacks the feature, and
+         the synthesis rewrite rule matches environments by subsumption (Input.Matches).
+           prNas  [arch:+] -> [nasal:+, arch:-] / _ + [nasal:-]
+         The archiphoneme N (nasal+, arch+) becomes m (nasal+, arch-) before a stem that starts with
+         a nasal:- segment (p). The vowel a has no nasal value, so a stem that starts with a does
+         not trigger the rule and N stays N. Nothing here has a default symbol. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featNas">
+        <Name>nasal</Name>
+        <Symbols>
+          <Symbol id="nasPlus">+</Symbol>
+          <Symbol id="nasMinus">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featArch">
+        <Name>arch</Name>
+        <Symbols>
+          <Symbol id="archPlus">+</Symbol>
+          <Symbol id="archMinus">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featSyl">
+        <Name>syl</Name>
+        <Symbols>
+          <Symbol id="sylPlus">+</Symbol>
+          <Symbol id="sylMinus">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cM">
+          <Representations><Representation>m</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasPlus" />
+          <FeatureValue feature="featArch" symbolValues="archMinus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cN">
+          <Representations><Representation>N</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasPlus" />
+          <FeatureValue feature="featArch" symbolValues="archPlus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cP">
+          <Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasMinus" />
+          <FeatureValue feature="featArch" symbolValues="archMinus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT">
+          <Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasMinus" />
+          <FeatureValue feature="featArch" symbolValues="archMinus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA">
+          <Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featArch" symbolValues="archMinus" />
+          <FeatureValue feature="featSyl" symbolValues="sylPlus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="bPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncArchPlus">
+        <Name>archPlus</Name>
+        <FeatureValue feature="featArch" symbolValues="archPlus" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="ncNasalMinus">
+        <Name>nasalMinus</Name>
+        <FeatureValue feature="featNas" symbolValues="nasMinus" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="ncNasalPlusArchMinus">
+        <Name>nasalPlusArchMinus</Name>
+        <FeatureValue feature="featNas" symbolValues="nasPlus" />
+        <FeatureValue feature="featArch" symbolValues="archMinus" />
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prNas">
+        <Name>nasalAssimilation</Name>
+        <PhoneticInput>
+          <PhoneticSequence><SimpleContext naturalClass="ncArchPlus" /></PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence><SimpleContext naturalClass="ncNasalPlusArchMinus" /></PhoneticSequence>
+            </PhoneticOutput>
+            <Environment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <BoundaryMarker boundary="bPlus" />
+                    <SimpleContext naturalClass="ncNasalMinus" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered" morphologicalRules="mrN" phonologicalRules="prNas">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrN" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>N-prefix</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="msubN">
+                <MorphologicalInput>
+                  <PhoneticSequence id="msubN_stem">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <InsertSegments><PhoneticShape>N+</PhoneticShape></InsertSegments>
+                  <CopyFromInput index="msubN_stem" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NPFX</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="ePa" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aPa"><PhoneticShape>pa</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>PA</MorphemeId>
+            <Gloss>pa</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eAta" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aAta"><PhoneticShape>ata</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ATA</MorphemeId>
+            <Gloss>ata</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

@@ -1,0 +1,36 @@
+# oracle-provenance: founding-oracle
+# Signatures transcribed from the C# founding oracle (hc-conformance self-check, in-process Morpher),
+# machine pin 4d9b454d, 2026-11-05.
+#
+# prDel: [nasal:-] -> (deleted), no environment. The vowel a has no nasal value, so the rule's
+# target does not match it in hc.dll (synthesis rewrite rules match by subsumption,
+# FeatureStruct.SubsumesImpl); only p and t are deleted. A port that lets the unspecified a match
+# the pin deletes every segment of ata, so aa never parses (sillsdev/pangloss#180).
+language: UnspecifiedFeatureMinusTarget
+inspired_by: ["synthetic obligatory consonant deletion (not modeling any real language)"]
+sources:
+  - "src/SIL.Machine/FeatureModel/FeatureStruct.cs"
+  - "src/SIL.Machine/FiniteState/Input.cs"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: aa
+    note: >-
+      ata with its t deleted; both a survive because they have no nasal value.
+    parses:
+      - signature: "ATA|aa"
+        rules: [prDel]
+  - word: a
+    note: >-
+      pa with its p deleted (positive control: a nasal:- target is deleted).
+    parses:
+      - signature: "PA|a"
+        rules: [prDel]
+  - word: ata
+    note: >-
+      The rule is obligatory: t never survives.
+    expect_fail: true
+  - word: pa
+    note: >-
+      The rule is obligatory: p never survives.
+    expect_fail: true

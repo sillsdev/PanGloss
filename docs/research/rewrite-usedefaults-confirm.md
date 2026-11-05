@@ -56,3 +56,17 @@ whichever pattern the caller's `target: &Fst` was compiled from). A feature is "
 `k` iff `pattern_lanes[k][f] != full_mask(g, f)`. `target_nodes[k]` is target-pattern position `k`'s
 already-resolved shape-node index — see `resolve_bindings`'s doc for why this isn't always a
 contiguous `node_of[s+k]` slice.
+
+## Subsumption: an unspecified feature with no default fails a pin (#180)
+
+Synthesis rewrite matchers keep `MatchingMethod.Subsumption` (the `MatcherSettings` default), so
+`FeatureStruct.SubsumesImpl` returns false when the node lacks a pinned feature and the feature
+declares no default; analysis matchers use `Unification`, where the unspecified feature is
+compatible. HC-Rust matched through unification everywhere. Synthesis targets now fail in
+`pattern_defaults_ok(.., subsumption = true)`; synthesis environments plant a phantom symbol bit on
+an unspecified, pinned, default-less feature (`EnvFst::unset_fails`, `env_input`) that no pin
+contains and no unpinned position rejects. Fixtures `unspecified-feature-minus-target` and
+`unspecified-feature-minus-environment` replay this against hc.dll. Not covered: a node that
+authors a multi-symbol set properly wider than the pin (C# subsumption fails it, overlap passes it),
+which FieldWorks does not produce; allomorph environments, which C# also matches by subsumption but
+which take a different compile path here.

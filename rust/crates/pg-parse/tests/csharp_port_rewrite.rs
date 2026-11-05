@@ -921,3 +921,35 @@ fn alpha_environment_recovers_the_optional_deletion_candidate() {
     let morpher = Morpher::new(&grammar, usize::MAX);
     assert_morphs_eq(&morpher.parse_word("bg"), &["1"]);
 }
+
+/// sillsdev/pangloss#180: synthesis matches environments by subsumption, so a segment with no value for a feature does not satisfy a `[feature:-]` pin. `a` has no nasal value: `N+ata` stays `Nata` and never becomes `mata`, while `N+pa` still becomes `mpa`. Verdicts from hc.dll at the machine pin; the fixture is `conformance-staging/edge-cases/unspecified-feature-minus-environment`.
+#[test]
+fn unspecified_feature_does_not_satisfy_a_minus_environment() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "unspecified-feature-minus-environment",
+    );
+    let xml = std::fs::read_to_string(fixture.dir.join("grammar.xml")).expect("grammar reads");
+    let grammar = pg_grammar::load(&xml).expect("grammar loads");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let count = |word: &str| morpher.parse_word(word).analyses.len();
+    assert_eq!(count("Nata"), 1, "the rule does not apply before a");
+    assert_eq!(count("mata"), 0, "unspecified nasal is not nasal:-");
+    assert_eq!(count("mpa"), 1, "p is nasal:-, the rule applies");
+    assert_eq!(count("Npa"), 0, "the rule is obligatory before p");
+}
+
+/// The target half of #180: `[nasal:-] -> (deleted)` deletes p and t but not the unspecified `a`, so `ata` surfaces as `aa`. Fixture `unspecified-feature-minus-target`.
+#[test]
+fn unspecified_feature_does_not_satisfy_a_minus_target() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "unspecified-feature-minus-target");
+    let xml = std::fs::read_to_string(fixture.dir.join("grammar.xml")).expect("grammar reads");
+    let grammar = pg_grammar::load(&xml).expect("grammar loads");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let count = |word: &str| morpher.parse_word(word).analyses.len();
+    assert_eq!(count("aa"), 1, "only t is deleted");
+    assert_eq!(count("a"), 1, "p is deleted");
+    assert_eq!(count("ata"), 0, "the rule is obligatory");
+    assert_eq!(count("pa"), 0, "the rule is obligatory");
+}
