@@ -166,6 +166,20 @@ impl MutShape {
         }
     }
 
+    /// A shape whose segments are matched by spelling on a featureless grammar (`strrep` is `Some` only there), carrying each node's spelling set as the input shape recorded it.
+    pub(crate) fn from_shape_strrep(s: &Shape, strrep: Option<StrRepMatcher>) -> Self {
+        let mut result = Self::from_shape(s);
+        result.strrep = strrep;
+        if strrep.is_some() {
+            for (i, node) in result.nodes.iter_mut().enumerate() {
+                if let EffectiveCdSet::Members(bits) = s.node_cd_set(i) {
+                    node.cd_set = CdSet::Members(bits.clone());
+                }
+            }
+        }
+        result
+    }
+
     fn for_rewrite(g: &Grammar, table: &CharDefTable, s: &Shape) -> Self {
         let mut result = Self::from_shape(s);
         result.strrep = StrRepMatcher::new(g, table);
