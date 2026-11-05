@@ -120,12 +120,9 @@ fn backend_seam_shape_key_table_is_pinned() {
     }
 
     let expected: BTreeSet<ShapeRow> = [
-        ("alpha-environment.tuned", "alpha-variable-environments"),
-        (
-            "reduplication.peel-eligible-rule-kind",
-            "nonregular-process-morphology",
-        ),
-        ("surface-probe.root-spelling-cap", "repeated-application"),
+        ("alpha-environment.tuned", NO_ADVICE),
+        ("reduplication.peel-eligible-rule-kind", NO_ADVICE),
+        ("surface-probe.root-spelling-cap", NO_ADVICE),
     ]
     .into_iter()
     .collect();
@@ -135,7 +132,13 @@ fn backend_seam_shape_key_table_is_pinned() {
          rows above for what this fixture set now produces"
     );
 
-    let expected_ids: BTreeSet<&'static str> = expected.iter().map(|&(id, _)| id).collect();
+    let expected_ids: BTreeSet<&'static str> = [
+        "alpha-environment.tuned",
+        "reduplication.peel-eligible-rule-kind",
+        "surface-probe.root-spelling-cap",
+    ]
+    .into_iter()
+    .collect();
     assert_eq!(
         predicate_ids, expected_ids,
         "the set of predicate ids that ever reach a Refuse diagnostic changed"

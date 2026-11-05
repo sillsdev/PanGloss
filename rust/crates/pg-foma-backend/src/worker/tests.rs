@@ -79,10 +79,10 @@ fn selected_payload_one_byte_over_limit_emits_no_raw_frame() {
 #[test]
 fn selected_not_production_ready_writes_no_raw_payload_frame() {
     let health = HealthReport::new(vec![HealthFinding::new(
-        FindingCode::PartialMorphemeProductionPolicy,
+        FindingCode::GrammarHealthBlocksFst,
         Severity::NotProductionReady,
         Phase::Compile,
-        Metric::PartialMorphemeCount,
+        Metric::GrammarHealthBlockingCount,
         MetricValue::Count(2),
         ValueProvenance::Observed,
         "synthetic partial-morpheme readiness refusal".to_string(),

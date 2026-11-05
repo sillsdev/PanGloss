@@ -75,7 +75,7 @@ workbench_module! {
 pub mod plan_diagram;
 pub mod plan_interaction_coverage;
 workbench_module! {
-    pub mod production_admission;
+    pub mod grammar_admission;
 }
 workbench_module! {
     pub mod scoreboard;

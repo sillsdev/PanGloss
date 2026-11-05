@@ -1,70 +1,5 @@
-//! The cheap characterization pass: reports constructs, quantifier/alternative products, alpha
-//! tuples, templates/slots, predicted emitted work, peeled/confirm-only expansion, and
-//! unknown/unbounded work before a selected production backend build. Unknown cost is not itself a
-//! MachineLimit or CannotRepresent verdict when construction is recall-preserving; any uncertainty
-//! that could omit an analysis fails closed.
-//!
-//! # Consume, never remeasure (same discipline as `crate::health_evaluator`)
-//! `characterization_findings` takes a `&Grammar`, derives ONE
-//! `crate::grammar_semantics::GrammarSemantics` from it, and reads exactly two existing, already-
-//! tested facts off it — never re-derives their logic itself. Memoized characteristics may construct
-//! Foma networks for `Simultaneous` subrules; that is characterization work, not a selected production
-//! backend build:
-//! - `crate::grammar_semantics::GrammarSemantics::characteristics` — this crate's own one-time,
-//!   exhaustive walk over every represented `pg_grammar::model::Grammar` construct variant. Its
-//!   `crate::capability::CharacteristicsProfile::cardinality`
-//!   (`crate::capability::GrammarCardinality`) and per-observation detail structs
-//!   (`crate::capability::QuantifierPatternDetail::all_bounded`,
-//!   `crate::capability::UnorderedStratumDetail::rule_count`) feed this module's
-//!   cardinality findings verbatim — never re-walked from the grammar.
-//! - `crate::backend_selection::best_case_across_backends` — an ADVISORY-ONLY, whole-grammar join
-//!   over every backend's compatibility report (see that function's own doc), composing
-//!   `characterize` with the predicate registry (`crate::capability::compose_envelope`/
-//!   `crate::capability::default_registry`) into one final `crate::capability::CompileDecision`.
-//!
-//! # Two distinct axes this module keeps separate
-//! - **Semantic uncertainty** (`semantic_uncertainty_finding`): [`crate::capability::CompileDecision::
-//!   Refuse`] — at least one construct has no predicate-proven recall-preserving compilation path at
-//!   all. This characterization walk cannot guarantee every HermitCrab analysis survives, so it reports a
-//!   `CannotRepresent` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
-//! - **Cost uncertainty** (`cost_uncertainty_finding`, `unbounded_quantifier_findings`):
-//!   `crate::capability::CompileDecision::ConfirmOnly` (a first-class, non-failure verdict:
-//!   propose the superset, HermitCrab confirm prunes false positives) or a specific
-//!   `crate::capability::QuantifierPatternDetail::all_bounded` occurrence marked `false`. Always
-//!   `LargeMultiplier`, never `CannotRepresent` on its own (unknown cost is not itself a
-//!   CannotRepresent verdict when construction is recall-preserving) — an actual budget trip during the real compile is a completely
-//!   different, already-handled code path: `crate::health_evaluator::compose_error_finding`'s
-//!   `crate::health::FindingCode::ResourceBudgetReached` arm, which this module's own findings
-//!   never constructs.
-//!
-//! # Bounded products
-//! `rule_interaction_product_finding` computes bounded products for alternatives, templates, and
-//! slots: `crate::capability::GrammarCardinality::mrule_count` times `prule_count` is a cheap,
-//! generic proxy for how much morphological x phonological rule-interaction surface a grammar
-//! presents. `RULE_PRODUCT_WARNING_THRESHOLD` is a conservative, provisional placeholder (this
-//! crate's own repeated convention): no real-grammar calibration evidence exists yet for this
-//! specific product, so this finding is
-//! `Predicted`/`LargeMultiplier` only, never something that can reject a compile on its own. It is
-//! `crate::health::FindingCode::RuleInteractionProduct`, not `UnknownUnboundedConstruct`: the
-//! product is an EXACT, already-computed count (large, not unknown), the textbook
-//! `Severity::LargeMultiplier` case per that variant's own doc.
-//!
-//! # Design notes
-//! 1. **Semantic and cost uncertainty use different stable codes.** A `Refuse` verdict is a known
-//!    coverage gap and uses `crate::health::FindingCode::BackendCoverageIncomplete` with
-//!    `crate::health::Metric::BackendCoverageGapCount`. When only some backends decline,
-//!    `crate::health::FindingCode::BackendCoveragePartial` reports the gap at nonblocking
-//!    `Elevated` severity because another backend still offers a path. Recall-preserving `ConfirmOnly` and
-//!    unbounded quantifiers remain genuine cost uncertainty and use
-//!    `crate::health::FindingCode::UnknownUnboundedConstruct`; the rule-interaction proxy is an
-//!    exact bounded product instead and uses `crate::health::FindingCode::RuleInteractionProduct`.
-//! 2. **`semantic_uncertainty_finding`'s `affected` names each [`crate::capability::
-//!    CapabilityDiagnostic::construct`] string verbatim** — never a re-derived identifier
-//!    scheme.
-//! 3. **`rule_interaction_product_finding`'s `affected` is empty** — this is a grammar-wide
-//!    cardinality fact, not about any one construct, matching `crate::health_evaluator`'s own
-//!    "grammar-level findings with no specific construct identifier ... leave `affected` empty"
-//!    convention (`payload_size_finding`).
+//! Compiler cost characterization and aggregate capability findings. Grammar-author findings
+//! and remedies are owned by grammar-health; this pass consumes the shared capability decision.
 
 use std::sync::Mutex;
 
@@ -258,38 +193,17 @@ pub fn characterization_findings_with_semantics(
 }
 
 /// `CompileDecision::Refuse`: at least one construct has no predicate-proven recall-preserving compilation path. `None` for `Admit`/`ConfirmOnly`.
-fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding> {
-    let CompileDecision::Refuse(diags) = decision else {
-        return None;
-    };
-    let affected: Vec<String> = diags.iter().map(|d| d.construct.clone()).collect();
-    let witnesses: Vec<String> = diags
-        .iter()
-        .map(|d| {
-            format!(
-                "predicate={} construct={} witness={}",
-                d.predicate, d.construct, d.witness
-            )
-        })
-        .collect();
-    Some(HealthFinding::new(
-        FindingCode::BackendCoverageIncomplete,
-        Severity::CannotRepresent,
-        Phase::Characterization,
-        Metric::BackendCoverageGapCount,
-        MetricValue::Count(diags.len() as u64),
-        ValueProvenance::Observed,
-        format!(
-            "This grammar's ADR 0001 capability gate resolves to Refuse: {} construct(s) have no \
-             predicate-proven recall-preserving compilation path ({}), so this characterization walk cannot \
-             guarantee every HermitCrab analysis would be retained. R6: any uncertainty that could \
-             omit an analysis fails closed. An explicit ADR 0005 capability override can force \
-             compilation anyway.",
-            diags.len(),
-            witnesses.join("; "),
-        ),
+fn semantic_uncertainty_finding(decision: &CompileDecision) -> Vec<HealthFinding> {
+    if !matches!(decision, CompileDecision::Refuse(_)) {
+        return Vec::new();
+    }
+    crate::backend_selection::BackendReport::refused(
+        crate::enumerate::EmissionStrategy::TunedSurfaceProbed,
+        decision.clone(),
     )
-        .affecting(affected))
+    .expect("a refusing decision has a backend report")
+    .findings()
+    .to_vec()
 }
 
 /// Some compilers decline while another still offers a path, so the scalar join warns about nothing. `None` when no compiler declines or when every one does (the `Refuse` finding already says so). Never blocks: the declining compilers are the ones a build must not pick.
@@ -301,41 +215,19 @@ fn partial_refusal_finding(envelope: &StrategyEnvelope) -> Option<HealthFinding>
     if declining.is_empty() {
         return None;
     }
-    let names: Vec<String> = declining
-        .iter()
-        .map(|(strategy, diags)| {
-            let why: Vec<String> = diags
-                .iter()
-                .map(|d| format!("predicate={} construct={}", d.predicate, d.construct))
-                .collect();
-            format!("{strategy:?} declines ({})", why.join(", "))
-        })
-        .collect();
-    let mut affected: Vec<String> = declining
-        .iter()
-        .flat_map(|(_, diags)| diags.iter().map(|d| d.construct.clone()))
-        .collect();
-    affected.sort();
-    affected.dedup();
-    Some(
-        HealthFinding::new(
-            FindingCode::BackendCoveragePartial,
-            Severity::Elevated,
-            Phase::Characterization,
-            Metric::BackendCoverageGapCount,
-            MetricValue::Count(declining.len() as u64),
-            ValueProvenance::Observed,
-            format!(
-                "{} of {} compilers decline this grammar ({}); at least one other compiler still \
-                 offers a path, so the grammar is not refused, but a build must not select a \
-                 declining compiler.",
-                declining.len(),
-                envelope.verdicts().len(),
-                names.join("; "),
-            ),
-        )
-        .affecting(affected),
-    )
+    Some(HealthFinding::new(
+        FindingCode::BackendCoveragePartial,
+        Severity::Elevated,
+        Phase::Characterization,
+        Metric::BackendCoverageGapCount,
+        MetricValue::Count(declining.len() as u64),
+        ValueProvenance::Observed,
+        format!(
+            "{} of {} compilers are blocked; see grammar-health for labelled author findings.",
+            declining.len(),
+            envelope.verdicts().len(),
+        ),
+    ))
 }
 
 /// `CompileDecision::ConfirmOnly`: recall-preserving, but this characterization stage has no proven cost bound for the construct(s) that landed here. Always `LargeMultiplier`/`Predicted`; `None` for `Admit`/`Refuse`.

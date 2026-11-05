@@ -43,11 +43,7 @@ pub enum FomaError {
     LexcCompileFailed(Box<EmitReport>),
     /// The emitter proved that no complete Foma artifact can be built for this grammar.
     Unsupported(Box<EmitReport>),
-    /// The emitter produced lexc material but also identified constructs which can contribute
-    /// analyses that material does not propose. Confirmation cannot restore omitted candidates,
-    /// so normal construction must refuse this report before compiling the partial network.
-    Incomplete(Box<EmitReport>),
-    /// The capability envelope refused this backend before any emission ran. Unlike the three
+    /// The capability envelope refused this backend before any emission ran. Unlike the two
     /// above, this verdict costs no emission and names the construct rather than a tier.
     CapabilityRefused(Vec<pg_health::capability::CapabilityDiagnostic>),
 }
@@ -64,13 +60,6 @@ impl fmt::Display for FomaError {
             FomaError::Unsupported(report) => write!(
                 f,
                 "foma backend unsupported for this grammar (emit report: {} uncovered constructs, tier {:?}): {}",
-                report.uncovered.len(),
-                report.tier,
-                uncovered_constructs(report)
-            ),
-            FomaError::Incomplete(report) => write!(
-                f,
-                "foma emission is incomplete and cannot be used as a trusted proposer (emit report: {} uncovered constructs, tier {:?}): {}",
                 report.uncovered.len(),
                 report.tier,
                 uncovered_constructs(report)

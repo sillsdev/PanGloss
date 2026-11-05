@@ -1,27 +1,5 @@
 use super::*;
 
-/// Every registered predicate's and grammar-wide check's own declared shape key must be a real catalog entry, or `refused`'s `expect("every capability-refusal shape must exist in the advice catalog")` is one bad key away from panicking in production.
-#[test]
-fn every_declared_shape_key_exists_in_the_advice_catalog() {
-    let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
-    for predicate in default_registry().predicates() {
-        let key = predicate.shape_key();
-        assert!(
-            catalog.entry_for(key).is_some(),
-            "{:?} declares shape key {key:?}, which has no catalog entry",
-            predicate.id()
-        );
-    }
-    for check in default_grammar_wide_checks() {
-        let key = check.shape_key();
-        assert!(
-            catalog.entry_for(key).is_some(),
-            "{:?} declares shape key {key:?}, which has no catalog entry",
-            check.id()
-        );
-    }
-}
-
 const ADMIT_XML: &str = r#"<HermitCrabInput><Language><Name>BackendSelectionFixture</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>

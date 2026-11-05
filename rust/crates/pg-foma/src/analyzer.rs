@@ -12,10 +12,6 @@ use pg_grammar::model::Grammar;
 use crate::emit::{self, FomaTier};
 use crate::profile::{CompileProfile, CompileProfileBuilder, CompileStage};
 
-fn tier_requires_unproven_build(tier: &FomaTier) -> bool {
-    matches!(tier, FomaTier::Partial { .. })
-}
-
 pub fn compile_proposer(g: &Grammar) -> Result<FomaProposer> {
     compile_proposer_with_profile(g).0
 }
@@ -41,10 +37,10 @@ pub fn compile_proposer_unproven_with_profile(
 
 fn compile_proposer_with_profile_policy(
     g: &Grammar,
-    allow_incomplete: bool,
+    bypass_capability_gate: bool,
 ) -> (Result<FomaProposer>, CompileProfile) {
     let mut profile = CompileProfileBuilder::production();
-    if !allow_incomplete {
+    if !bypass_capability_gate {
         if let Err(diagnostics) =
             crate::capability_gate::refuse_unless_admitted(g, FomaProposer::EMISSION_STRATEGY)
         {
@@ -59,13 +55,12 @@ fn compile_proposer_with_profile_policy(
         crate::precision::PrecisionConfig::Strip,
         Some(&mut profile),
     );
-    finish_profiled_compile(result, profile, allow_incomplete)
+    finish_profiled_compile(result, profile)
 }
 
 fn finish_profiled_compile(
     result: crate::emit::EmitResult,
     mut profile: CompileProfileBuilder,
-    allow_incomplete: bool,
 ) -> (Result<FomaProposer>, CompileProfile) {
     if matches!(
         result.report.tier,
@@ -73,12 +68,6 @@ fn finish_profiled_compile(
     ) {
         return (
             Err(FomaError::Unsupported(Box::new(result.report))),
-            profile.finish(None, None),
-        );
-    }
-    if tier_requires_unproven_build(&result.report.tier) && !allow_incomplete {
-        return (
-            Err(FomaError::Incomplete(Box::new(result.report))),
             profile.finish(None, None),
         );
     }

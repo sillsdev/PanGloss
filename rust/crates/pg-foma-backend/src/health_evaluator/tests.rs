@@ -20,6 +20,13 @@ fn compile_measurements<'a>(
     }
 }
 
+fn synthetic_grammar_finding() -> crate::emit::EmissionHealth {
+    crate::emit::EmissionHealth::Grammar(crate::emit::EmissionGrammarFinding {
+        code: pg_grammar::grammar_health::GrammarHealthCode::FstProcessNotEmittable,
+        subject: crate::emit::EmissionSubject::MorphRule(pg_grammar::model::MRuleId(0)),
+    })
+}
+
 fn synthetic_full_emit_report() -> EmitReport {
     EmitReport {
         uncovered: Vec::new(),
@@ -169,14 +176,16 @@ fn fst_health_evaluator_full_tier_produces_no_finding() {
 }
 
 #[test]
-fn fst_health_evaluator_partial_tier_is_cannot_represent_coverage_gap() {
+fn fst_health_evaluator_labelled_emission_gaps_are_aggregated() {
     let uncovered = vec![
         UncoveredItem {
+            grammar_health: synthetic_grammar_finding(),
             kind: "infix".to_string(),
             id: "mrule12#allo0".to_string(),
             reason: "synthetic interdigitation not representable".to_string(),
         },
         UncoveredItem {
+            grammar_health: synthetic_grammar_finding(),
             kind: "process-morph".to_string(),
             id: "mrule13#allo0".to_string(),
             reason: "synthetic process morph not representable".to_string(),
@@ -185,7 +194,7 @@ fn fst_health_evaluator_partial_tier_is_cannot_represent_coverage_gap() {
     let report = EmitReport {
         uncovered: uncovered.clone(),
         counts: EmitCounts::default(),
-        tier: FomaTier::Partial { uncovered: 2 },
+        tier: FomaTier::CannotRepresent { reason: "FST blocked by 2 labelled grammar-health finding(s); see grammar-health for the author findings.".to_string() },
         enum_budget_exceeded: None,
         closure_refusal: None,
         closure_evidence: None,
@@ -197,10 +206,7 @@ fn fst_health_evaluator_partial_tier_is_cannot_represent_coverage_gap() {
     assert_eq!(finding.severity, Severity::CannotRepresent);
     assert_eq!(finding.metric, Metric::BackendCoverageGapCount);
     assert_eq!(finding.value, MetricValue::Count(2));
-    assert_eq!(
-        finding.affected,
-        vec!["mrule12#allo0".to_string(), "mrule13#allo0".to_string()]
-    );
+    assert!(finding.affected.is_empty());
     assert_eq!(health.admission(), Severity::CannotRepresent);
 }
 
@@ -230,12 +236,13 @@ fn fst_health_evaluator_unsupported_tier_with_no_closure_refusal_is_cannot_repre
 fn representability_never_reports_as_machine_limit() {
     let partial = EmitReport {
         uncovered: vec![UncoveredItem {
+            grammar_health: synthetic_grammar_finding(),
             kind: "infix".to_string(),
             id: "mrule1#allo0".to_string(),
             reason: "synthetic".to_string(),
         }],
         counts: EmitCounts::default(),
-        tier: FomaTier::Partial { uncovered: 1 },
+        tier: FomaTier::CannotRepresent { reason: "FST blocked by 1 labelled grammar-health finding(s); see grammar-health for the author findings.".to_string() },
         enum_budget_exceeded: None,
         closure_refusal: None,
         closure_evidence: None,
@@ -488,12 +495,13 @@ fn representative_inputs() -> (u64, EmitReport) {
     let payload_bytes = 250_000_000u64; // NotProductionReady: over IDEAL_MAX_BYTES
     let emit_report = EmitReport {
         uncovered: vec![UncoveredItem {
+            grammar_health: synthetic_grammar_finding(),
             kind: "process-morph".to_string(),
             id: "mrule0007#allo0".to_string(),
             reason: "synthetic non-concatenative process morph".to_string(),
         }],
         counts: EmitCounts::default(),
-        tier: FomaTier::Partial { uncovered: 1 },
+        tier: FomaTier::CannotRepresent { reason: "FST blocked by 1 labelled grammar-health finding(s); see grammar-health for the author findings.".to_string() },
         enum_budget_exceeded: None,
         closure_refusal: None,
         closure_evidence: None,
@@ -502,7 +510,7 @@ fn representative_inputs() -> (u64, EmitReport) {
 }
 
 const GOLDEN_JSON: &str = r#"{
-  "schema_version": 9,
+  "schema_version": 10,
   "findings": [
     {
       "code": "PGF0001",
@@ -526,16 +534,14 @@ const GOLDEN_JSON: &str = r#"{
       "code": "PGF0013",
       "severity": "cannot_represent",
       "phase": "compile",
-      "affected": [
-        "mrule0007#allo0"
-      ],
+      "affected": [],
       "metric": "backend_coverage_gap_count",
       "value": {
         "kind": "count",
         "value": 1
       },
       "provenance": "observed",
-      "explanation": "1 construct occurrence(s) could not be represented in this FST-propose network and contribute no candidates for it. Confirmation cannot restore omitted candidates, so normal generation fails closed.",
+      "explanation": "FST blocked by 1 labelled grammar-health finding(s); see grammar-health for the author findings.",
       "remedies": []
     }
   ]

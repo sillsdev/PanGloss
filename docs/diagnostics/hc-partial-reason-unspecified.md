@@ -12,6 +12,10 @@ The grammar marks this morpheme partial but records no reason. PanGloss cannot i
 
 Inspect the named morpheme and its grammatical analysis in Lexicon > Lexicon Edit. If the analysis is complete, report the finding with its description and PanGloss version; no specific correction has been verified.
 
+Label: **blocks FST**
+
+Present in the converted Grammar because: The HC-XML partial marker is retained without a stated cause; FST support for partial morphemes is unproven.
+
 ## Background
 
 # Modelling a grammar the parser can use
