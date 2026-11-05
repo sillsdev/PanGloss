@@ -27,8 +27,10 @@
 //!   realizational rule counts one) — deeper than trie's
 //!   `deriv_depth = 2` (an upward deviation, found by the recall gate: Sena's corpus word
 //!   `kubulukira` stacks THREE derivational suffixes, REV + separado + APPLIC, which depth 2
-//!   silently loses). Depth = sum of `max_apps` is the engine-faithful bound (HermitCrab lets a rule
-//!   unapply `multipleApplication` times; each rule at the default 1 applies once). A chain over
+//!   silently loses). Depth = sum of `max_apps` is a sound UPPER bound (HermitCrab lets a rule
+//!   unapply `multipleApplication` times; each rule at the default 1 applies once; every level
+//!   offers every rule, so mixed rules can over-propose and confirm prunes). A realizational
+//!   rule is ungated in HermitCrab but counts one level here, so it is the one under-count. A chain over
 //!   `DEFAULT_DERIV_CHAIN_DEPTH_BUDGET` levels is REFUSED with a typed `enum_budget_exceeded`
 //!   ("derivation chain depth"), never truncated. Rules whose first allomorph
 //!   classifies `None` (a pure zero morph) are SKIPPED by trie's `rule_op` routing
@@ -236,11 +238,18 @@ const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
 const DEFAULT_DERIV_CHAIN_DEPTH_BUDGET: usize = 200;
 
 /// `HC_DERIV_CHAIN_DEPTH_BUDGET` overrides `DEFAULT_DERIV_CHAIN_DEPTH_BUDGET`.
-fn deriv_chain_depth_budget() -> usize {
-    std::env::var("HC_DERIV_CHAIN_DEPTH_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_DERIV_CHAIN_DEPTH_BUDGET)
+fn deriv_chain_depth_budget() -> Result<usize, String> {
+    parse_deriv_chain_budget(std::env::var("HC_DERIV_CHAIN_DEPTH_BUDGET").ok().as_deref())
+}
+
+/// The budget for an env value (`None` = unset); a malformed value is an error, never a silent default.
+pub fn parse_deriv_chain_budget(raw: Option<&str>) -> Result<usize, String> {
+    let Some(v) = raw else {
+        return Ok(DEFAULT_DERIV_CHAIN_DEPTH_BUDGET);
+    };
+    v.trim()
+        .parse()
+        .map_err(|_| format!("HC_DERIV_CHAIN_DEPTH_BUDGET={v:?} is not a non-negative integer"))
 }
 
 /// `HC_COMPOUND_CHAIN_DEPTH_BUDGET`: see `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc.
@@ -1712,7 +1721,7 @@ fn emit_rule_allomorphs(
 // --- Derivation layer chain (trie.rs::build_derivation_layer) -------------------------------------
 
 /// Chain depth: the sum of `max_apps` over non-realizational rules (a realizational rule counts one), never below `DERIV_DEPTH_MIN`.
-fn deriv_chain_depth(g: &Grammar, rules: &[MRuleId]) -> usize {
+pub fn deriv_chain_depth(g: &Grammar, rules: &[MRuleId]) -> usize {
     let sum: usize = rules
         .iter()
         .map(|&mid| match &g.mrules[mid.0 as usize] {
@@ -3344,17 +3353,23 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     }
 
     // Refuse (never truncate) a derivation chain deeper than the budget.
-    let chain_budget = deriv_chain_depth_budget();
     let deepest = deriv_chain_depth(g, &deriv_prefix).max(deriv_chain_depth(g, &deriv_suffix));
-    if deepest > chain_budget {
-        if let Some(trace) = closure_trace {
-            trace.refuse(crate::characterization::ClosureStopReason::UnsupportedTransition);
-        }
-        let reason = format!(
-            "a derivation chain needs {deepest} levels (the sum of multipleApplication over its \
-             affix rules), over the budget of {chain_budget}; the emitted subset would be \
-             incomplete, so no artifact was generated. Use the full morphological-parser engine."
-        );
+    let chain_budget = deriv_chain_depth_budget();
+    let over = match &chain_budget {
+        Ok(limit) => deepest > *limit,
+        Err(_) => true,
+    };
+    if over {
+        let limit = chain_budget.as_ref().copied().unwrap_or(0);
+        let reason = match &chain_budget {
+            Ok(_) => format!(
+                "derivation chain depth is {deepest} levels (the sum of multipleApplication over \
+                 its affix rules), over the budget of {limit} (HC_DERIV_CHAIN_DEPTH_BUDGET); the \
+                 emitted subset would be incomplete, so no artifact was generated. Use the full \
+                 morphological-parser engine."
+            ),
+            Err(bad) => format!("derivation chain depth budget unreadable: {bad}"),
+        };
         return EmitResult {
             lexc_source: String::new(),
             report: EmitReport {
@@ -3364,10 +3379,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 enum_budget_exceeded: Some(EnumBudgetExceeded {
                     measure: "derivation chain depth",
                     value: deepest,
-                    limit: chain_budget,
+                    limit,
                 }),
                 closure_refusal: None,
-                closure_evidence: closure_trace.map(|trace| trace.result()),
+                closure_evidence: None,
             },
         };
     }

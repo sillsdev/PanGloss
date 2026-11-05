@@ -5,7 +5,7 @@ file has no section for.
 
 ## Unreleased
 
-- FST derivation chains honour `multipleApplication` (#151): a chain's depth is the sum of `max_apps` over its non-realizational rules (realizational rules count one level), so a rule allowed N applications no longer loses analyses HermitCrab finds. A chain over 200 levels (`HC_DERIV_CHAIN_DEPTH_BUDGET`) is refused with a typed `derivation chain depth` budget reason instead of being truncated. No shipped grammar sets an affix `max_apps` above 1, and the FieldWorks import always sets 1.
+- FST derivation chains honour `multipleApplication` (#151): a chain's depth is the sum of `max_apps` over its non-realizational rules (realizational rules count one level), a sound upper bound (every level offers every rule, so mixed rules can over-propose and confirm prunes; a realizational rule is ungated in HermitCrab but counts one level), so a rule allowed N applications no longer loses analyses HermitCrab finds. A chain over 200 levels (`HC_DERIV_CHAIN_DEPTH_BUDGET`) is refused with a typed `derivation chain depth` budget reason instead of being truncated; a malformed `HC_DERIV_CHAIN_DEPTH_BUDGET` is refused too, not ignored. No shipped grammar sets an affix `max_apps` above 1, and the FieldWorks import always sets 1.
 
 ## 0.15.2
 
