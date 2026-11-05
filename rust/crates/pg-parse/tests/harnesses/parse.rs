@@ -35,6 +35,8 @@ mod edge_prefilter_gate;
 mod effective_analysis_target;
 #[path = "../exact_analysis_fs_recall.rs"]
 mod exact_analysis_fs_recall;
+#[path = "../featureless_modify_from_input.rs"]
+mod featureless_modify_from_input;
 #[path = "../featureless_wide_class_rewrite.rs"]
 mod featureless_wide_class_rewrite;
 #[path = "../final_template_partial_root_gate.rs"]
