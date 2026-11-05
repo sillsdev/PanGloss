@@ -42,9 +42,9 @@
 //! that isolates this.
 //!
 //! # Cardinality and construction shape
-//! `build_deriv_chain`'s `depth` for a role zone equals that zone's rule count (its own doc:
-//! `depth = rules.len().max(DERIV_DEPTH_MIN)`) -- so an `Unordered` stratum's own loose-rule count
-//! is EXACTLY the quantity whose growth predicts this construction's compiled-network cost (each
+//! `build_deriv_chain`'s `depth` for a role zone is the sum of `max_apps` over that zone's rules
+//! (`deriv_chain_depth`; the rule count when every `max_apps` is 1) -- so an `Unordered` stratum's
+//! own loose-rule count is the quantity whose growth predicts this construction's compiled-network cost (each
 //! extra level offers every rule again: `O(rule_count)` extra levels x `O(rule_count)` per-level
 //! arcs). The `rule_count` is retained as a structural fact for diagnostics and analysis; it is
 //! not a representability judgment.

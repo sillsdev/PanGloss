@@ -209,7 +209,7 @@ fn build_deriv_chain_u(
         write_bare(out, exit, lines);
         return entry_name;
     }
-    let depth = rules.len().max(2); // DERIV_DEPTH_MIN, emit.rs's own floor.
+    let depth = pg_foma::emit::deriv_chain_depth(g, rules);
     for level in 0..depth {
         let name = format!("{prefix}{level}");
         write_lexicon_header(out, &name);
