@@ -6,7 +6,7 @@ use pg_grammar::GrammarError;
 use pg_snapshot::{FwClass, FwObjectRef};
 
 use crate::capability::{CapabilityRefusal, CompileDecision};
-use crate::emit::{EmissionHealth, FomaTier};
+use crate::emit::{EmissionHealth, EmitReport, FomaTier};
 use crate::enumerate::EmissionStrategy;
 
 /// Adds FST findings without repeating an existing undeclared-segment or identical finding.
@@ -79,19 +79,31 @@ pub fn extend_diagnostics(
     }
 
     let emitted = crate::emit::emit_tuned_surface(grammar);
+    extend_emission_diagnostics(grammar, emitted.report, diagnostics)
+}
+
+/// Projects emitter-owned facts without reclassifying their roles or constructing compiler artifacts.
+pub(crate) fn extend_emission_diagnostics(
+    grammar: &Grammar,
+    report: EmitReport,
+    diagnostics: &mut Vec<GrammarHealthDiagnostic>,
+) -> Result<Option<String>, GrammarError> {
     let mut errors = Vec::new();
     let mut grammar_gaps = 0;
-    for item in emitted.report.uncovered {
+    for item in report.uncovered {
         match item.grammar_health {
             EmissionHealth::Grammar(diagnostic) => {
                 grammar_gaps += 1;
-                push_finding(diagnostics, *diagnostic);
+                push_finding(
+                    diagnostics,
+                    diagnostic.into_diagnostic(grammar, item.reason)?,
+                );
             }
             EmissionHealth::Budget { .. } => errors.push(item.reason),
             EmissionHealth::Advisory => {}
         }
     }
-    match emitted.report.tier {
+    match report.tier {
         FomaTier::Unsupported { reason } => errors.push(reason),
         FomaTier::CannotRepresent { reason } if grammar_gaps == 0 => errors.push(reason),
         FomaTier::CannotRepresent { .. } | FomaTier::Full => {}
