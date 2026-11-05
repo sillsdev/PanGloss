@@ -23,13 +23,14 @@
 //!   `mbali` vs the engine's 8).
 //! - **Derivation layers** (`trie.rs::build_derivation_layer`, `trie.rs:796-836`): the
 //!   standalone (stratum-attached, non-template) affix rules, in a bounded chain of optional
-//!   levels. Depth = the NUMBER OF RULES routed to that side (min 2) — deeper than trie's
+//!   levels. Depth = the SUM OF `max_apps` over the rules routed to that side (min 2; a
+//!   realizational rule counts one) — deeper than trie's
 //!   `deriv_depth = 2` (an upward deviation, found by the recall gate: Sena's corpus word
 //!   `kubulukira` stacks THREE derivational suffixes, REV + separado + APPLIC, which depth 2
-//!   silently loses). Depth = rule count is the engine-faithful bound for the default
-//!   `multipleApplication = 1` case (each rule can apply once, so no chain exceeds the rule
-//!   count); a rule with `max_apps > 1` could still exceed it — none exists in the reference
-//!   grammars, and the corpus recall gate is the empirical backstop. Rules whose first allomorph
+//!   silently loses). Depth = sum of `max_apps` is the engine-faithful bound (HermitCrab lets a rule
+//!   unapply `multipleApplication` times; each rule at the default 1 applies once). A chain over
+//!   `DEFAULT_DERIV_CHAIN_DEPTH_BUDGET` levels is REFUSED with a typed `enum_budget_exceeded`
+//!   ("derivation chain depth"), never truncated. Rules whose first allomorph
 //!   classifies `None` (a pure zero morph) are SKIPPED by trie's `rule_op` routing
 //!   (`trie.rs:1001-1006` — `MorphOp::None => {}`); this emitter instead includes them in BOTH
 //!   layers (an upward deviation; zero such rules exist in Sena — note for future grammars: each
@@ -230,6 +231,17 @@ pub const DERIV_DEPTH_MIN: usize = 2;
 
 /// Caps compound-loop unrolling to keep generated lexicon size bounded.
 const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
+
+/// Largest derivation chain (levels) the emitter will unroll; deeper refuses with a typed reason.
+const DEFAULT_DERIV_CHAIN_DEPTH_BUDGET: usize = 200;
+
+/// `HC_DERIV_CHAIN_DEPTH_BUDGET` overrides `DEFAULT_DERIV_CHAIN_DEPTH_BUDGET`.
+fn deriv_chain_depth_budget() -> usize {
+    std::env::var("HC_DERIV_CHAIN_DEPTH_BUDGET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_DERIV_CHAIN_DEPTH_BUDGET)
+}
 
 /// `HC_COMPOUND_CHAIN_DEPTH_BUDGET`: see `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc.
 fn compound_chain_depth_budget() -> usize {
@@ -1699,6 +1711,18 @@ fn emit_rule_allomorphs(
 
 // --- Derivation layer chain (trie.rs::build_derivation_layer) -------------------------------------
 
+/// Chain depth: the sum of `max_apps` over non-realizational rules (a realizational rule counts one), never below `DERIV_DEPTH_MIN`.
+fn deriv_chain_depth(g: &Grammar, rules: &[MRuleId]) -> usize {
+    let sum: usize = rules
+        .iter()
+        .map(|&mid| match &g.mrules[mid.0 as usize] {
+            MorphRuleDef::Realizational(_) => 1,
+            rule => usize::from(rule.max_apps().max(1)),
+        })
+        .sum();
+    sum.max(DERIV_DEPTH_MIN)
+}
+
 /// Emits a chain of optional derivation layers ending at `exit`, always defining `{prefix}0`.
 #[allow(clippy::too_many_arguments)]
 fn build_deriv_chain(
@@ -1728,7 +1752,7 @@ fn build_deriv_chain(
         None
     };
 
-    let depth = rules.len().max(DERIV_DEPTH_MIN);
+    let depth = deriv_chain_depth(g, rules);
 
     for level in 0..depth {
         let name = format!("{prefix}{level}");
@@ -3317,6 +3341,35 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 deriv_suffix.push(mid);
             }
         }
+    }
+
+    // Refuse (never truncate) a derivation chain deeper than the budget.
+    let chain_budget = deriv_chain_depth_budget();
+    let deepest = deriv_chain_depth(g, &deriv_prefix).max(deriv_chain_depth(g, &deriv_suffix));
+    if deepest > chain_budget {
+        if let Some(trace) = closure_trace {
+            trace.refuse(crate::characterization::ClosureStopReason::UnsupportedTransition);
+        }
+        let reason = format!(
+            "a derivation chain needs {deepest} levels (the sum of multipleApplication over its \
+             affix rules), over the budget of {chain_budget}; the emitted subset would be \
+             incomplete, so no artifact was generated. Use the full morphological-parser engine."
+        );
+        return EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                uncovered,
+                counts,
+                tier: FomaTier::Unsupported { reason },
+                enum_budget_exceeded: Some(EnumBudgetExceeded {
+                    measure: "derivation chain depth",
+                    value: deepest,
+                    limit: chain_budget,
+                }),
+                closure_refusal: None,
+                closure_evidence: closure_trace.map(|trace| trace.result()),
+            },
+        };
     }
 
     // Template groups: one per distinct `required_syn_fs`, first-seen template document order.

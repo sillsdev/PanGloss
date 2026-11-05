@@ -15,6 +15,8 @@ mod cover_compounding;
 mod cover_compounding_recursive_depth_bound;
 #[path = "../cover_mpr_groups.rs"]
 mod cover_mpr_groups;
+#[path = "../cover_multiple_application_chain.rs"]
+mod cover_multiple_application_chain;
 #[path = "../cover_realizational_morphology_constraints.rs"]
 mod cover_realizational_morphology_constraints;
 #[path = "../cover_recursive_endocentric_compounding.rs"]
