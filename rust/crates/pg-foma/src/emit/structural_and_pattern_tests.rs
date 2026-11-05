@@ -1173,3 +1173,233 @@ fn plan_topology_decisions_matches_real_seams_circumfix_only() {
         </Language></HermitCrabInput>"#;
     assert_plan_topology_matches_real_seams(&load_xml(XML), (false, true));
 }
+
+/// Outcome of walking one grammar's structural closure with canonicalization on and off.
+enum DifferentialOutcome {
+    /// No structural candidate rules, so nothing to compare.
+    NoCandidates,
+    /// A resource or depth limit ended one walk, so the record sets are not comparable.
+    Incomplete,
+    Compared {
+        records: usize,
+        commutations: usize,
+        nodes_on: usize,
+        nodes_off: usize,
+    },
+}
+
+/// Walks the closure without asserting completion; `None` means the walk was cut short.
+fn structural_walk_if_complete(
+    g: &Grammar,
+    rules: &[MRuleId],
+    canonical_order: bool,
+) -> Option<(BTreeSet<(String, String, bool)>, StructuralBudgetState)> {
+    let cache = RuleCache::build(g);
+    let morpher = Morpher::new(g, usize::MAX);
+    let mt = MorphotacticIndex::build(g);
+    let trace =
+        crate::characterization::ClosureTrace::new(crate::characterization::ClosureTestLimits {
+            work_cap: 1_000_000,
+            depth_cap: 64,
+        });
+    let mut structural_trace = StructuralTrace::new(StructuralClosureLimits::default());
+    structural_trace.canonical_order = canonical_order;
+    let (records, _, pending, _, _) = build_structural_composites_with_trace(
+        g,
+        tags::tag_width(g.morphemes.len()),
+        rules,
+        &cache,
+        &morpher,
+        &mt,
+        ExploreMode::Pruned,
+        None,
+        None,
+        Some(&trace),
+        &structural_trace,
+    );
+    let stats = structural_trace.state.lock().unwrap().clone();
+    let complete = matches!(
+        trace.result().terminal,
+        crate::characterization::ClosureTerminal::Complete
+    );
+    if pending != 0 || stats.refusal.is_some() || !complete {
+        return None;
+    }
+    let outputs = records
+        .into_iter()
+        .flat_map(|r| {
+            let boundary = r.boundary_insertions;
+            r.variants
+                .into_iter()
+                .map(move |s| (r.tag_lexc.clone(), s, boundary))
+        })
+        .collect();
+    Some((outputs, stats))
+}
+
+/// The record sets with and without canonicalization must be equal; a difference names the grammar.
+fn assert_canonicalization_preserves_records(label: &str, g: &Grammar) -> DifferentialOutcome {
+    let rules = structural_candidate_rules(g);
+    if rules.is_empty() {
+        return DifferentialOutcome::NoCandidates;
+    }
+    let Some((off, off_stats)) = structural_walk_if_complete(g, &rules, false) else {
+        return DifferentialOutcome::Incomplete;
+    };
+    let on = structural_walk_if_complete(g, &rules, true).unwrap_or_else(|| {
+        panic!("{label}: canonicalization ended a walk that completes without it")
+    });
+    assert_eq!(
+        on.0,
+        off,
+        "{label}: structural record sets differ (only in canonical: {:?}; only without: {:?})",
+        on.0.difference(&off).take(5).collect::<Vec<_>>(),
+        off.difference(&on.0).take(5).collect::<Vec<_>>()
+    );
+    DifferentialOutcome::Compared {
+        records: off.len(),
+        commutations: on.1.commutations,
+        nodes_on: on.1.nodes,
+        nodes_off: off_stats.nodes,
+    }
+}
+
+fn expect_compared(label: &str, g: &Grammar) -> (usize, usize, usize, usize) {
+    match assert_canonicalization_preserves_records(label, g) {
+        DifferentialOutcome::Compared {
+            records,
+            commutations,
+            nodes_on,
+            nodes_off,
+        } => {
+            eprintln!(
+                "DIFFERENTIAL {label}: records={records} commutations={commutations} nodes_on={nodes_on} nodes_off={nodes_off}"
+            );
+            (records, commutations, nodes_on, nodes_off)
+        }
+        DifferentialOutcome::NoCandidates => panic!("{label}: no structural candidate rules"),
+        DifferentialOutcome::Incomplete => panic!("{label}: a walk was cut short"),
+    }
+}
+
+const ORDINARY_REWRITE_PRULE: &str = r#"<PhonologicalRuleDefinitions><PhonologicalRule id="pr1"><Name>u before b</Name>
+  <PhoneticInput><PhoneticSequence><Segment segment="cu" /><Segment segment="cb" /></PhoneticSequence></PhoneticInput>
+  <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="cu" /><Segment segment="cz" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+  </PhonologicalRule></PhonologicalRuleDefinitions>"#;
+
+const EPENTHESIS_PRULE: &str = r#"<PhonologicalRuleDefinitions><PhonologicalRule id="pr1"><Name>insert z</Name>
+  <PhoneticInput />
+  <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncZ" /></PhoneticSequence></PhoneticOutput>
+  <Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cu" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+  <RightEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+  </PhonologicalSubrule></PhonologicalSubrules></PhonologicalRule></PhonologicalRuleDefinitions>"#;
+
+fn with_phonology(xml: String, prule: &str) -> String {
+    xml.replace(
+        "</NaturalClasses>",
+        r#"<SegmentNaturalClass id="ncZ"><Name>Z</Name><Segment segment="cz" /></SegmentNaturalClass></NaturalClasses>"#,
+    )
+    .replace("</NaturalClasses>", &format!("</NaturalClasses>{prule}"))
+    .replace(
+        "morphologicalRuleOrder=\"unordered\"",
+        "morphologicalRuleOrder=\"unordered\" phonologicalRules=\"pr1\"",
+    )
+}
+
+#[test]
+fn canonicalization_differential_multiple_application() {
+    let xml = commuting_structural_xml(3).replace(
+        "<MorphologicalRule id=\"mr",
+        "<MorphologicalRule multipleApplication=\"2\" id=\"mr",
+    );
+    let g = pg_grammar::load(&xml).unwrap();
+    assert!(g.mrules.iter().all(|r| r.max_apps() == 2));
+    let (records, commutations, nodes_on, nodes_off) = expect_compared("max_apps=2", &g);
+    assert!(records > 7, "repeated applications add records: {records}");
+    assert!(commutations > 0 && nodes_on < nodes_off);
+}
+
+#[test]
+fn canonicalization_differential_order_dependent_phonology() {
+    for (label, prule) in [
+        ("rewrite", ORDINARY_REWRITE_PRULE),
+        (
+            "epenthesis (probe refused, generate_words fallback)",
+            EPENTHESIS_PRULE,
+        ),
+    ] {
+        let g = pg_grammar::load(&with_phonology(commuting_structural_xml(3), prule))
+            .unwrap_or_else(|e| panic!("{label}: {e:?}"));
+        assert_eq!(probe_would_refuse(&g), label.starts_with("epenthesis"));
+        expect_compared(label, &g);
+    }
+}
+
+/// Every discovered fixture (conformance plus staging) is compared; categories are reported and the ones the emitter exercises must be non-vacuous.
+#[test]
+fn canonicalization_differential_over_every_fixture() {
+    let mut fixtures = pg_conformance_fixtures::discover();
+    fixtures.extend(pg_conformance_fixtures::discover_filter_passes());
+    assert!(fixtures.len() > 40, "{} fixtures", fixtures.len());
+    let (mut compared, mut incomplete, mut none) = (0usize, 0usize, 0usize);
+    let (mut redup, mut partial, mut multi, mut prules, mut commuting) = (0, 0, 0, 0, 0);
+    for fixture in &fixtures {
+        let label = fixture.label();
+        let Ok(g) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        match assert_canonicalization_preserves_records(&label, &g) {
+            DifferentialOutcome::NoCandidates => none += 1,
+            DifferentialOutcome::Incomplete => {
+                incomplete += 1;
+                eprintln!("DIFFERENTIAL {label}: incomplete walk, not compared");
+            }
+            DifferentialOutcome::Compared {
+                records,
+                commutations,
+                ..
+            } => {
+                compared += 1;
+                let has_records = records > 0;
+                commuting += usize::from(commutations > 0);
+                redup +=
+                    usize::from(has_records && fixture.load_grammar_xml().contains("Reduplicat"));
+                partial += usize::from(
+                    has_records
+                        && g.mrules
+                            .iter()
+                            .any(|r| matches!(r, MorphRuleDef::AffixProcess(d) if d.is_partial()))
+                        || g.entries.iter().any(|e| e.is_partial()),
+                );
+                multi += usize::from(
+                    has_records
+                        && g.mrules
+                            .iter()
+                            .any(|r| matches!(r, MorphRuleDef::AffixProcess(d) if d.max_apps > 1)),
+                );
+                prules += usize::from(has_records && !g.prules.is_empty());
+                eprintln!("DIFFERENTIAL {label}: records={records} commutations={commutations}");
+            }
+        }
+    }
+    eprintln!(
+        "DIFFERENTIAL SUMMARY fixtures={} compared={compared} incomplete={incomplete} no_candidates={none} with_records: reduplication={redup} partial={partial} max_apps>1={multi} phonology={prules} commuting={commuting}",
+        fixtures.len()
+    );
+    assert!(compared >= 10, "only {compared} fixtures compared");
+}
+
+#[test]
+fn canonicalization_differential_partial_rules() {
+    let mut g = pg_grammar::load(&commuting_structural_xml(4)).unwrap();
+    for index in [1, 3] {
+        let MorphRuleDef::AffixProcess(def) = &mut g.mrules[index] else {
+            panic!("affix process rule")
+        };
+        def.partial_reason =
+            Some(pg_grammar::model::PartialMorphemeReason::InflectionalAffixWithoutTemplateSlot);
+    }
+    let (records, commutations, ..) = expect_compared("partial rules", &g);
+    assert_eq!(records, (1 << 4) - 1);
+    assert!(commutations > 0);
+}

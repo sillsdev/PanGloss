@@ -1960,6 +1960,16 @@ struct StructuralBudgetState {
     retained_bytes: usize,
     nodes: usize,
     commutations: usize,
+    /// Reverse-order proofs attempted (gates passed); each ends in exactly one outcome below.
+    proof_attempts: usize,
+    /// Failed: the reverse order is not morphotactically reachable or synthesizes nothing.
+    proof_fail_no_reverse: usize,
+    /// Failed: a reverse path exists but reaches a different continuation state.
+    proof_fail_state: usize,
+    /// Failed: a reverse path reaches the same state but a different annotated word.
+    proof_fail_word: usize,
+    /// Output records rejected because their (tag, surface, boundary) key was already retained.
+    seen_duplicate_hits: usize,
     dedup_bytes: usize,
     refusal: Option<EnumBudgetExceeded>,
 }
@@ -2016,6 +2026,10 @@ impl StructuralTrace {
             state.work = value;
         }
         true
+    }
+
+    fn bump(&self, f: impl FnOnce(&mut StructuralBudgetState)) {
+        f(&mut self.state.lock().expect("structural trace poisoned"));
     }
 
     fn stopped(&self) -> bool {
@@ -2666,17 +2680,22 @@ fn structural_reverse_order_matches(
     {
         return false;
     }
+    ctx.structural_trace.bump(|st| st.proof_attempts += 1);
     let Some(first_state) = structural_next_state(ctx, before_state, next, before) else {
+        ctx.structural_trace
+            .bump(|st| st.proof_fail_no_reverse += 1);
         return false;
     };
     if !ctx.structural_trace.charge(None) {
         return false;
     }
+    let (mut state_mismatch, mut word_unequal) = (false, false);
     for first in pg_rules::morph::synthesize(ctx.g, before, &ctx.g.mrules[next.0 as usize]) {
         let Some(second_state) = structural_next_state(ctx, &first_state, previous, &first) else {
             continue;
         };
         if second_state != *result_state {
+            state_mismatch = true;
             continue;
         }
         if !ctx.structural_trace.charge(None) {
@@ -2692,8 +2711,18 @@ fn structural_reverse_order_matches(
                     .commutations += 1;
                 return true;
             }
+            word_unequal = true;
         }
     }
+    ctx.structural_trace.bump(|st| {
+        if word_unequal {
+            st.proof_fail_word += 1;
+        } else if state_mismatch {
+            st.proof_fail_state += 1;
+        } else {
+            st.proof_fail_no_reverse += 1;
+        }
+    });
     false
 }
 
@@ -2899,6 +2928,8 @@ fn struct_extend(
                         variants: vec![s.clone()],
                         boundary_insertions,
                     });
+                } else {
+                    ctx.structural_trace.bump(|st| st.seen_duplicate_hits += 1);
                 }
             }
 
@@ -3552,7 +3583,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         .expect("structural trace poisoned")
         .clone();
     if allow_env_trace && std::env::var_os("PANGLOSS_TRACE_EMIT_STAGES").is_some() {
-        eprintln!("pangloss structural closure: nodes={} work={} retained_charge={} dedup_bytes={} commutations={}", structural_stats.nodes, structural_stats.work, structural_stats.retained_bytes, structural_stats.dedup_bytes, structural_stats.commutations);
+        eprintln!("pangloss structural closure: nodes={} work={} retained_charge={} dedup_bytes={} commutations={} proof_attempts={} proof_fail_no_reverse={} proof_fail_state={} proof_fail_word={} seen_duplicate_hits={}", structural_stats.nodes, structural_stats.work, structural_stats.retained_bytes, structural_stats.dedup_bytes, structural_stats.commutations, structural_stats.proof_attempts, structural_stats.proof_fail_no_reverse, structural_stats.proof_fail_state, structural_stats.proof_fail_word, structural_stats.seen_duplicate_hits);
     }
     let structural_refusal = structural_stats.refusal;
     if let Some(refusal) = structural_refusal {
