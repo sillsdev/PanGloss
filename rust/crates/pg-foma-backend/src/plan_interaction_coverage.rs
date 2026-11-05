@@ -20,7 +20,7 @@
 //! an actual parent-child edge present in a caller-supplied, per-fixture reified `Plan` — a tuple
 //! cannot be marked `Covered` by a fixture that merely contains both node kinds somewhere without
 //! the specific edge between them. See "The coverage report" section below for the fuller argument.
-//! Nothing in `plan.rs`/`enumerate.rs`/`build.rs`/`oracle.rs`/`capability.rs` is modified by this
+//! Nothing in `plan.rs`/`enumerate.rs`/`capability.rs` is modified by this
 //! module — read/reuse only.
 //!
 //! # The tuple model
@@ -65,32 +65,20 @@
 //! attach these more precisely once one exists.
 //!
 //! # Orthogonality pruning — what is actually retired, and why
-//! `retired_interactions` is a SMALL, HAND-CITED, evidence-backed list — never invented. Two
-//! entries exist today, both load-bearing proofs already in this crate:
+//! `retired_interactions` is a SMALL, HAND-CITED, evidence-backed list — never invented. One
+//! entry exists today, a load-bearing proof already in this crate:
 //! 1. **`mpr-group.append-output` × `unordered-application`** — load-bearing, not open: `Append`
 //!    accumulation is a commutative-monoid set union — order-invariant BY CONSTRUCTION — so
 //!    `cover-unordered-morph-rules`' any-order proposal composes with `mpr-group.append-output` for
 //!    free once both reach `ConfirmOnly`. Both characteristics fold onto the SAME representative
 //!    `crate::plan::PlanNodeKind::Gate` node (neither has its own `PlanNodeKind`), so this retires
-//!    their CO-OCCURRENCE at a `Gate` node — no fuzz case is ever generated crossing these two
+//!    their CO-OCCURRENCE at a `Gate` node — no case is ever generated crossing these two
 //!    characteristics.
-//! 2. **Gate-group sibling reordering** (`crate::gate`'s own module doc, "why the union is safe
-//!    here": partition groups are lexically disjoint by construction; `crate::build::
-//!    build_controllable`'s `fsm_union` call site, same argument; `crate::oracle::
-//!    permute_gate_groups` + its own `differential_oracle_agrees_on_permuted_gate_groups_of_the_same
-//!    _grammar` test, oracle.rs): reordering a `crate::plan::PlanNodeKind::Gate` node's
-//!    `partition.groups` changes that node's OWN content address but never the composed relation
-//!    (union is commutative; the partition is a proven-disjoint, hence proven-safe, union). This
-//!    retires PAIRWISE interaction among a `Gate` node's own `Compose`-group SIBLINGS — their
-//!    relative order never needs a dedicated fuzz case, only membership does.
-//!    `fuzz_gate_group_reordering_for_grammar` re-confirms this SAME claim on every
-//!    REAL corpus grammar, not just `oracle.rs`'s own hand-built two-group fixture.
 //!
-//! Neither retirement is an ADJACENCY-tuple-level claim (an adjacency tuple like `(Gate, Compose)` is
+//! The retirement is not an ADJACENCY-tuple-level claim (an adjacency tuple like `(Gate, Compose)` is
 //! most emphatically NOT proven orthogonal in general — that is exactly where a real
-//! soundness bug once lived, see `crate::plan::ReplaceCascadeSpec`'s own doc). Both retirements operate one
-//! level down: characteristic CO-OCCURRENCE at a shared node, and sibling-ORDER independence under a
-//! shared parent. `InteractionCoverageReport` reports them in their own `retired` section,
+//! soundness bug once lived, see `crate::plan::ReplaceCascadeSpec`'s own doc). The retirement operates one
+//! level down: characteristic CO-OCCURRENCE at a shared node. `InteractionCoverageReport` reports them in their own `retired` section,
 //! separate from (not a subtype of) the required/covered/uncovered adjacency-
 //! tuple table — a deliberate, documented shape, not a missing unification.
 //!
@@ -130,40 +118,16 @@
 //! a `(Gate, Compose)` occurrence may belong to a construct in a different branch. `tags` is
 //! informative context only; it never drives `status`.
 //!
-//! # Fuzz slice
-//! `fuzz_gate_group_reordering_for_grammar` is TARGETED subtree fuzzing for the `Gate` node — the
-//! one node kind this crate's own history shows is genuinely non-orthogonal in the small (a
-//! per-group `Replace`-node soundness bug lived exactly here) — reusing existing machinery
-//! end-to-end: `crate::enumerate::enumerate_default` + `crate::oracle::permute_gate_groups` +
-//! `crate::oracle::differential_oracle`. It is a
-//! CORRECTNESS check, not a coverage-completeness claim — `tests/plan_interaction_coverage_gate.rs`
-//! runs it as a hard assertion for every discovered fixture with >=2 Gate partition groups,
-//! because a real
-//! disagreement here would mean retirement #2 above is WRONG for that grammar, a genuine
-//! regression, never something to paper over.
-//!
-//! A FULLER fuzzer (deliberately out of scope: this module does NOT build a general CIT engine)
-//! would need: (a) seeded RANDOM subtree mutation (not just the one deterministic
-//! group-reversal transform `permute_gate_groups` ships), (b) equivalent transforms for `Union`/
-//! `Compose`/`Replace` nodes (today only `Gate` has a second-topology generator at all), (c) failure
-//! minimization to a stable named recipe (not attempted here), and (d) a real
-//! confirm-engine comparison rather than raw `apply_up` result-set diffing (`crate::oracle`'s own
-//! documented scope limit, inherited unchanged here).
 
 use std::collections::{HashMap, HashSet};
 
-use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PRuleId};
 
 use crate::capability::{CharacteristicKind, CharacteristicsProfile, Disposition, ModelLocation};
-use crate::compose_budget::ComposeError;
-use crate::emit::surface_table;
 use crate::enumerate::enumerate_default;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::oracle::{differential_oracle, permute_gate_groups, OracleResult};
 use crate::plan::{ComposeStrategy, FragmentSpec, NodeId, Plan, PlanNodeKind};
-use crate::replace::SegAlphabet;
 
 // The tuple model
 
@@ -348,7 +312,7 @@ pub(crate) fn node_own_characteristics(
 
 // Orthogonality pruning — the retired list
 
-/// One proven-orthogonal interaction, retired from the required/fuzzed set — see this module's own
+/// One proven-orthogonal interaction, retired from the required set — see this module's own
 /// top-doc for the full citation of each entry. Never invented: every entry here names a proof that
 /// already exists elsewhere in this crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -357,7 +321,7 @@ pub struct RetiredInteraction {
     pub evidence: &'static str,
 }
 
-/// The two orthogonality proofs this crate can actually cite today (module top-doc). Deliberately
+/// The orthogonality proof this crate can actually cite today (module top-doc). Deliberately
 /// small: use what actually exists as proof today; where no proof exists, the tuple is REQUIRED
 /// — this is not a place to speculate about future proofs.
 pub fn retired_interactions() -> Vec<RetiredInteraction> {
@@ -372,22 +336,8 @@ pub fn retired_interactions() -> Vec<RetiredInteraction> {
                 genuinely orthogonal by construction\", design.md's own words, citing ADR 0001 D4). \
                 Both characteristics fold onto the SAME representative Gate node (neither has its own \
                 PlanNodeKind, per crate::capability::compose_envelope's own doc) -- this retires their \
-                CO-OCCURRENCE there, not a distinct node-kind adjacency: no fuzz case crosses these \
+                CO-OCCURRENCE there, not a distinct node-kind adjacency: no case crosses these \
                 two characteristics.",
-        },
-        RetiredInteraction {
-            label: "Gate-group sibling reordering (Compose-group siblings under a shared Gate)",
-            evidence: "crate::gate's own module doc (\"why the union is safe here\": a Gate node's \
-                partition groups are lexically disjoint by construction) plus crate::build's \
-                fsm_union call site (same argument, restated at build time) plus \
-                crate::oracle::permute_gate_groups's own doc and its \
-                differential_oracle_agrees_on_permuted_gate_groups_of_the_same_grammar test: \
-                reordering a Gate node's partition.groups changes that node's own content address but \
-                never the composed relation (union is commutative; the disjoint partition makes the \
-                union sound). This retires PAIRWISE interaction among a Gate node's own Compose-group \
-                SIBLINGS -- their relative order never needs its own fuzz case, only membership does. \
-                fuzz_gate_group_reordering_for_grammar (this module) re-confirms this claim on every \
-                real corpus grammar, not just oracle.rs's own hand-built two-group fixture.",
         },
     ]
 }
@@ -559,41 +509,6 @@ pub fn gate_group_count(plan: &Plan) -> usize {
             _ => None,
         })
         .unwrap_or(0)
-}
-
-/// Targeted subtree fuzzing for the `Gate` node, reusing existing machinery
-/// end-to-end (module top-doc) — builds `g`'s default plan, its `permute_gate_groups` twin, and
-/// asserts (via `differential_oracle`) that the two agree over `words`. Returns the source plan's
-/// own Gate partition-group count alongside the `OracleResult` so a caller can report/skip
-/// trivially-single-group grammars (reordering one group is a no-op, not a real exercise of the
-/// retirement claim) without rebuilding the plan a second time.
-///
-/// # Errors
-/// Propagates a `ComposeError` from either build (`crate::build::build_controllable`, via
-/// `differential_oracle`) unchanged — same convention `differential_oracle` itself documents.
-pub fn fuzz_gate_group_reordering_for_grammar(
-    g: &Grammar,
-    words: &[&str],
-) -> Result<(usize, OracleResult), ComposeError> {
-    let semantics = GrammarSemantics::derive(g);
-    let alphabet = SegAlphabet::new(surface_table(g));
-    let phon = PhonologyProbe::new_with_semantics(&semantics);
-    let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
-    let groups = gate_group_count(&plan);
-    let permuted = permute_gate_groups(&plan);
-
-    let opts = FomaOptions::default();
-    let result = differential_oracle(
-        &plan,
-        &permuted,
-        ("enumerate_default", "permute_gate_groups"),
-        &opts,
-        g,
-        &alphabet,
-        semantics.prules_in_order(),
-        words,
-    )?;
-    Ok((groups, result))
 }
 
 #[cfg(test)]

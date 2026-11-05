@@ -25,7 +25,7 @@
 //! module's `misaligned = true` recipe is UNCHANGED -- it is now what proves the fix is real (a
 //! misaligned rule that resolved correctly by ACCIDENT, e.g. because both tables happened to agree,
 //! would be a much weaker witness than one that provably names the wrong segment pre-fix and the
-//! right one post-fix). `tests/phase_c_multi_table.rs` (formerly a DETECT-WRONG gate, now inverted)
+//! right one post-fix). The multi-table gate (formerly a DETECT-WRONG gate, now inverted)
 //! derives (and pins) exactly which segment is which.
 
 //! ## Why every segment ALSO gets a globally-unique `featId` value

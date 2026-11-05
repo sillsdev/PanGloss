@@ -27,8 +27,7 @@
 //! proposer proposes the superset"* -- a claim about a **proposer**, not about a grammar. Without a
 //! place to name which compiler makes that claim, one compiler's ability can be inherited by every
 //! compiler that touches the same construct: `Compounding` rested at `ConfirmOnly` grammar-wide
-//! while `crate::uflexc`, the only lexicon emitter
-//! `crate::enumerate::EmissionStrategy::PlanComposed` has, could not propose a single compound.
+//! while one compiler could not propose a single compound.
 //!
 //! So this vocabulary makes that inexpressible. A `MechanismNode` owns **requirements**, never
 //! recall guarantees: `MechanismNode::construct_requirements` is a set of
@@ -61,7 +60,7 @@
 //! # No node names a plan shape
 //! Wave 3 measured plan-shape permutation to vary nothing: on Sena two different families with two
 //! different transforms produced bit-identical networks (2044 states / 21114 arcs), and on
-//! Indonesian all five plan-composed permutations scored bit-identically. Accordingly there is no
+//! Indonesian all five plan permutations scored bit-identically. Accordingly there is no
 //! node, body field, or edge attribute here that names a family, a topology, or a permutation. The
 //! order mechanisms compose in is a single canonical spine (`MechanismKind::COMPOSITION_ORDER`),
 //! not an axis.
@@ -675,7 +674,7 @@ pub enum ExecutionDisposition {
 /// only constructor is `Self::derive`, and `derive` requires a strategy.
 ///
 /// That is not stylistic. `Disposition::ConfirmOnly` means "recall-preserving only if the proposer
-/// proposes the superset" -- a per-proposer fact. Recording it as a grammar fact is how `uflexc`
+/// proposes the superset" -- a per-proposer fact. Recording it as a grammar fact is how a compiler
 /// held a `ConfirmOnly` `Compounding` verdict while being unable to propose a single compound. A
 /// guarantee that does not name whose guarantee it is, is that bug.
 ///
@@ -688,6 +687,18 @@ pub struct MechanismBinding {
     strategy: EmissionStrategy,
     disposition: ExecutionDisposition,
     limiting_rows: Vec<StrategyCoverageRow>,
+}
+
+/// The disposition the worst requirement row allows a mechanism of `kind`.
+fn disposition_for(worst: StrategyRepresentation, kind: MechanismKind) -> ExecutionDisposition {
+    match (worst, kind) {
+        (StrategyRepresentation::CannotRepresent, _) => ExecutionDisposition::Refused,
+        (StrategyRepresentation::RepresentsWithKnownGap, _) => ExecutionDisposition::ConfirmOnly,
+        (StrategyRepresentation::Represents, MechanismKind::CopyProcess) => {
+            ExecutionDisposition::Peeled
+        }
+        (StrategyRepresentation::Represents, _) => ExecutionDisposition::ExactFst,
+    }
 }
 
 impl MechanismBinding {
@@ -706,21 +717,10 @@ impl MechanismBinding {
             worst = worse_of(worst, row.representation);
         }
 
-        let disposition = match (worst, node.kind()) {
-            (StrategyRepresentation::CannotRepresent, _) => ExecutionDisposition::Refused,
-            (StrategyRepresentation::RepresentsWithKnownGap, _) => {
-                ExecutionDisposition::ConfirmOnly
-            }
-            (StrategyRepresentation::Represents, MechanismKind::CopyProcess) => {
-                ExecutionDisposition::Peeled
-            }
-            (StrategyRepresentation::Represents, _) => ExecutionDisposition::ExactFst,
-        };
-
         Self {
             mechanism: node.id.clone(),
             strategy,
-            disposition,
+            disposition: disposition_for(worst, node.kind()),
             limiting_rows,
         }
     }

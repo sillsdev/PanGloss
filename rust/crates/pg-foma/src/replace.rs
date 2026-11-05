@@ -163,7 +163,7 @@ impl<'t> SegAlphabet<'t> {
     /// `Self::new`) OR `cd`'s own spelling happens to be unique to this table — i.e. byte-
     /// identical to the pre-aliasing behavior for every existing single-table grammar and every
     /// multi-table grammar with no shared representation, which is exactly why
-    /// `tests/p6_gate_parity.rs`/`tests/f3_parity.rs` stay green (module doc, "no reference
+    /// `tests/f3_parity.rs` stays green (module doc, "no reference
     /// grammar is multi-table with shared representations"). When `cd`'s spelling IS shared with
     /// another table, returns the union over every `(table, cd')` sharing it (deduplicated,
     /// `RepresentationAliasMap::aliases_for`'s own contract) — this only ever ADDS alternatives,
@@ -255,53 +255,6 @@ impl<'t> SegAlphabet<'t> {
     pub fn table(&self) -> &'t CharDefTable {
         self.table
     }
-}
-
-/// True when some root allomorph in `g`'s lexicon carries a shape
-/// [`SegAlphabet::shape_is_tokenizable`] declines AND `crate::emit::pattern_root_token_route`
-/// also declines it — the pattern-language `[ClassName]` construct
-/// (`machine:edge-cases/loader-pattern-shapes`'s `b[Vowel]t`) segments to an abstract node even
-/// when it is not `RootAllomorphDef::is_pattern` (that flag only fires for an optional/iterative
-/// node, never a mandatory class reference), so `crate::uflexc`/`crate::emit`'s own `is_pattern`
-/// guard alone lets one through into `SegAlphabet::encode_shape` -- but `collect_roots` may still
-/// route it through the token-space pattern route, so this calls that SAME decision rather than
-/// re-deriving a wider one. Names `TemplatedUnderlyingTokens`'s own refusal condition
-/// specifically — too weak a claim for `PlanComposed` (below), which tolerates a partial
-/// lexicon; pinned by `the_published_untokenizable_root_shape_fact_never_over_claims_a_refusal`.
-pub fn grammar_has_untokenizable_root_shape(g: &Grammar) -> bool {
-    let alphabet = SegAlphabet::new(crate::emit::surface_table(g));
-    g.strata.iter().any(|stratum| {
-        let stratum_table = &g.char_tables[stratum.table.0 as usize];
-        stratum.entries.iter().any(|&entry_id| {
-            g.entries[entry_id.0 as usize]
-                .allomorphs
-                .iter()
-                .any(|allo| {
-                    !SegAlphabet::shape_is_tokenizable(&allo.shape.shape)
-                        && crate::emit::pattern_root_token_route(
-                            &alphabet,
-                            stratum_table,
-                            &allo.shape.shape,
-                            allo.environments.is_empty(),
-                        )
-                        .is_none()
-                })
-        })
-    })
-}
-
-/// True when EVERY root allomorph in `g`'s lexicon is `RootAllomorphDef::is_pattern` or a shape
-/// [`SegAlphabet::shape_is_tokenizable`] declines — the condition under which
-/// `crate::uflexc::emit_underlying_filtered` skips every root line, leaving `PlanComposed` with no
-/// candidate to certify. Vacuously true for a lexicon with no allomorph at all; pinned by
-/// `the_published_no_tokenizable_root_fact_never_over_claims_a_refusal`.
-pub fn grammar_has_no_tokenizable_root(g: &Grammar) -> bool {
-    g.entries.iter().all(|entry| {
-        entry
-            .allomorphs
-            .iter()
-            .all(|allo| allo.is_pattern || !SegAlphabet::shape_is_tokenizable(&allo.shape.shape))
-    })
 }
 
 // Re-exported from `crate::lower` (canonical home) at the same paths so existing callers need no change.
@@ -719,12 +672,9 @@ fn compile_rewrite_rule_subset_inner(
 /// Returns `None` if there are zero compilable rules at all (the composition would be a no-op —
 /// callers should compose with an identity net instead of calling this).
 ///
-/// Deliberately NOT given a final minimize call (unlike `crate::gate::
-/// compile_gated_grammar`): `tests/p6_gate_parity.rs`'s
-/// `amharic_gated_subrules_and_tuple_counts_unregressed` hard-asserts this function's return value
-/// is BYTE IDENTICAL to a fixed state/arc count (82 states / 1,110,358 arcs) with no minimize
-/// applied by this function itself -- adding one here would change those counts (composing minimal
-/// nets is not itself guaranteed minimal) and break that regression guard. Callers that want a
+/// Deliberately NOT given a final minimize call: adding one here would change the state and
+/// arc counts of the composed net (composing minimal nets is not itself guaranteed minimal), which
+/// callers that pin those counts rely on. Callers that want a
 /// minimal composed rule net should call
 /// `foma::minimize::fsm_minimize` themselves (every example driver already does, on the FULL
 /// `lexc .o. rules .o. cleanup` composition, not on this

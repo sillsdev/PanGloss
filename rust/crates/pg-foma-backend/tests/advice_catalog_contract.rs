@@ -11,7 +11,6 @@ const REQUIRED_SHAPES: &[&str] = &[
     "nonregular-process-morphology",
     "null-cycle",
     "optional-slot-branching",
-    "plan-composed-missing-subtrees",
     "repeated-application",
     "structural-deletion-or-truncation",
     "unordered-interactions",

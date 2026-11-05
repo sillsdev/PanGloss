@@ -137,11 +137,11 @@ fn a_partly_refused_envelope_yields_a_finding_naming_the_declining_compilers() {
         construct: "mrule 0".to_string(),
         witness: "w".to_string(),
     };
+    const COMPILERS: usize = 2;
     let decisions = |declining: &[usize]| {
         StrategyEnvelope::from_verdicts(
-            ALL_STRATEGIES
-                .iter()
-                .copied()
+            // One strategy is registered; the verdict list repeats it to model two compilers, which is all `partial_refusal_finding` reads.
+            std::iter::repeat_n(ALL_STRATEGIES[0], COMPILERS)
                 .enumerate()
                 .map(|(i, strategy)| StrategyVerdict {
                     strategy,
@@ -173,38 +173,9 @@ fn a_partly_refused_envelope_yields_a_finding_naming_the_declining_compilers() {
         partial_refusal_finding(&decisions(&[])).is_none(),
         "nobody declines"
     );
-    let everyone: Vec<usize> = (0..ALL_STRATEGIES.len()).collect();
+    let everyone: Vec<usize> = (0..COMPILERS).collect();
     assert!(
         partial_refusal_finding(&decisions(&everyone)).is_none(),
         "a whole-grammar refusal is the other finding's job"
-    );
-}
-
-/// Production wiring on a real grammar: the templated compiler declines this circumfix grammar while another compiler admits it, so the whole grammar is not refused and the walker must still say which compiler declined. Census over all 134 conformance fixtures: 21 are partly refused, 1 wholly refused, and every partly refused one names a real declining compiler.
-#[test]
-fn a_real_partly_refused_grammar_is_reported_through_characterization_findings() {
-    let fixture = pg_conformance_fixtures::require_fixture(
-        "edge-cases",
-        "circumfix-infix-interior-action-precedence",
-    );
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar loads");
-    assert!(!matches!(
-        best_case_across_backends(&GrammarSemantics::derive(&grammar)),
-        CompileDecision::Refuse(_)
-    ));
-    let findings = characterization_findings(&grammar);
-    let finding = findings
-        .iter()
-        .find(|f| f.code == FindingCode::BackendCoveragePartial)
-        .unwrap_or_else(|| panic!("expected the partial-refusal finding, got {findings:?}"));
-    assert!(!findings
-        .iter()
-        .any(|f| f.code == FindingCode::BackendCoverageIncomplete));
-    assert_eq!(finding.severity, Severity::Elevated);
-    assert!(
-        finding
-            .explanation
-            .contains("TemplatedUnderlyingTokens declines"),
-        "{finding:?}"
     );
 }

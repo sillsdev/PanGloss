@@ -136,10 +136,6 @@ name = "mbugwe_corpus_smoke_gate"
 path = "tests/mbugwe_corpus_smoke_gate.rs"
 
 [[test]]
-name = "p6_gate_parity"
-path = "tests/p6_gate_parity.rs"
-
-[[test]]
 name = "pk1_precision_recall_invariance"
 path = "tests/pk1_precision_recall_invariance.rs"
 
@@ -150,11 +146,6 @@ path = "tests/harnesses/phase_c.rs"
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true
-
-[[example]]
-name = "p6_templated_q3_oracle_bounds"
-path = "examples/p6_templated_q3_oracle_bounds.rs"
-required-features = ["examples"]
 
 [[example]]
 name = "propose_parity"

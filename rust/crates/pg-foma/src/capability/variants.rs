@@ -28,14 +28,6 @@ pub enum ConstructVariant {
     CompoundingRecursive,
     UnorderedOrderUnion,
     MprOverwrite,
-    SimultaneousDisjoint,
-    SimultaneousUnproven,
-    RtlReversal,
-    RtlUnlowerable,
-    MetathesisLtrSwap,
-    MetathesisRtlSwap,
-    MetathesisLtrUnlowerable,
-    MetathesisRtlUnlowerable,
     EpenthesisStructural,
     CircumfixStructural,
     CircumfixUnrouted,
@@ -44,10 +36,6 @@ pub enum ConstructVariant {
     ReduplicationUnrouted,
     MultiTableDisjoint,
     MultiTableShared,
-    QuantifierBounded,
-    QuantifierUnbounded,
-    QuantifierBoundedUnlowerable,
-    QuantifierUnboundedUnlowerable,
 }
 
 impl ConstructVariant {
@@ -58,14 +46,6 @@ impl ConstructVariant {
             Self::CompoundingRecursive => "compounding.recursive",
             Self::UnorderedOrderUnion => "unordered-application.order-union",
             Self::MprOverwrite => "mpr-group.overwrite",
-            Self::SimultaneousDisjoint => "simultaneous.proven-disjoint",
-            Self::SimultaneousUnproven => "simultaneous.unproven-pair",
-            Self::RtlReversal => "right-to-left-rewrite.reversal",
-            Self::RtlUnlowerable => "right-to-left-rewrite.unlowerable",
-            Self::MetathesisLtrSwap => "metathesis.left-to-right-swap",
-            Self::MetathesisRtlSwap => "metathesis.right-to-left-swap",
-            Self::MetathesisLtrUnlowerable => "metathesis.left-to-right-unlowerable",
-            Self::MetathesisRtlUnlowerable => "metathesis.right-to-left-unlowerable",
             Self::EpenthesisStructural => "epenthesis.structural-route",
             Self::CircumfixStructural => "circumfix.structural-route",
             Self::CircumfixUnrouted => "circumfix.no-structural-route",
@@ -74,10 +54,6 @@ impl ConstructVariant {
             Self::ReduplicationUnrouted => "reduplication.no-proposal-route",
             Self::MultiTableDisjoint => "multi-table.disjoint-representations",
             Self::MultiTableShared => "multi-table.shared-representations",
-            Self::QuantifierBounded => "quantifier.bounded-compilable",
-            Self::QuantifierUnbounded => "quantifier.unbounded-compilable",
-            Self::QuantifierBoundedUnlowerable => "quantifier.bounded-unlowerable",
-            Self::QuantifierUnboundedUnlowerable => "quantifier.unbounded-unlowerable",
         }
     }
 
@@ -87,14 +63,6 @@ impl ConstructVariant {
             Self::CompoundingRecursive => CharacteristicKind::Compounding,
             Self::UnorderedOrderUnion => CharacteristicKind::UnorderedMorphRuleApplication,
             Self::MprOverwrite => CharacteristicKind::MprGroupOverwrite,
-            Self::SimultaneousDisjoint => CharacteristicKind::SimultaneousRewrite,
-            Self::SimultaneousUnproven => CharacteristicKind::SimultaneousRewrite,
-            Self::RtlReversal => CharacteristicKind::RightToLeftRewrite,
-            Self::RtlUnlowerable => CharacteristicKind::RightToLeftRewrite,
-            Self::MetathesisLtrSwap => CharacteristicKind::Metathesis,
-            Self::MetathesisRtlSwap => CharacteristicKind::Metathesis,
-            Self::MetathesisLtrUnlowerable => CharacteristicKind::Metathesis,
-            Self::MetathesisRtlUnlowerable => CharacteristicKind::Metathesis,
             Self::EpenthesisStructural => CharacteristicKind::Epenthesis,
             Self::CircumfixStructural => CharacteristicKind::CircumfixOutputAction,
             Self::CircumfixUnrouted => CharacteristicKind::CircumfixOutputAction,
@@ -103,10 +71,6 @@ impl ConstructVariant {
             Self::ReduplicationUnrouted => CharacteristicKind::Reduplication,
             Self::MultiTableDisjoint => CharacteristicKind::MultiTable,
             Self::MultiTableShared => CharacteristicKind::MultiTable,
-            Self::QuantifierBounded => CharacteristicKind::QuantifierPattern,
-            Self::QuantifierUnbounded => CharacteristicKind::QuantifierPattern,
-            Self::QuantifierBoundedUnlowerable => CharacteristicKind::QuantifierPattern,
-            Self::QuantifierUnboundedUnlowerable => CharacteristicKind::QuantifierPattern,
         }
     }
 
@@ -117,14 +81,6 @@ impl ConstructVariant {
             Self::CompoundingRecursive => VariantDisposition::ConfirmOnly,
             Self::UnorderedOrderUnion => VariantDisposition::ConfirmOnly,
             Self::MprOverwrite => VariantDisposition::ConfirmOnly,
-            Self::SimultaneousDisjoint => VariantDisposition::Admit,
-            Self::SimultaneousUnproven => VariantDisposition::Refuse,
-            Self::RtlReversal => VariantDisposition::ConfirmOnly,
-            Self::RtlUnlowerable => VariantDisposition::Refuse,
-            Self::MetathesisLtrSwap => VariantDisposition::ConfirmOnly,
-            Self::MetathesisRtlSwap => VariantDisposition::ConfirmOnly,
-            Self::MetathesisLtrUnlowerable => VariantDisposition::Refuse,
-            Self::MetathesisRtlUnlowerable => VariantDisposition::Refuse,
             Self::EpenthesisStructural => VariantDisposition::ConfirmOnly,
             Self::CircumfixStructural => VariantDisposition::ConfirmOnly,
             Self::CircumfixUnrouted => VariantDisposition::Refuse,
@@ -133,10 +89,6 @@ impl ConstructVariant {
             Self::ReduplicationUnrouted => VariantDisposition::Refuse,
             Self::MultiTableDisjoint => VariantDisposition::ConfirmOnly,
             Self::MultiTableShared => VariantDisposition::ConfirmOnly,
-            Self::QuantifierBounded => VariantDisposition::ConfirmOnly,
-            Self::QuantifierUnbounded => VariantDisposition::ConfirmOnly,
-            Self::QuantifierBoundedUnlowerable => VariantDisposition::Refuse,
-            Self::QuantifierUnboundedUnlowerable => VariantDisposition::Refuse,
         }
     }
 
@@ -145,10 +97,6 @@ impl ConstructVariant {
         match self {
             Self::CircumfixUnrouted | Self::ReduplicationUnrouted => Some(
                 "not authorable in FieldWorks; HC-XML only \
-                 (docs/divergences/059-fieldworks-unauthorable-variants.md)",
-            ),
-            Self::MetathesisLtrUnlowerable | Self::MetathesisRtlUnlowerable => Some(
-                "not authorable in FieldWorks, and C# HermitCrab cannot load it; LT-22826, LT-22827 \
                  (docs/divergences/059-fieldworks-unauthorable-variants.md)",
             ),
             _ => None,

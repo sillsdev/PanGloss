@@ -2,7 +2,6 @@
 
 use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
 use pg_foma::emit::{self, ClosureRefusalCode, FomaTier};
-use pg_foma::replace::SegAlphabet;
 use pg_parse::{Morpher, ParseOptions};
 
 const CONCATENATIVE_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>LoopableRealizational</Name>
@@ -119,14 +118,6 @@ fn boundary_only_realizational_output_does_not_form_an_epsilon_self_loop() {
     );
     pg_foma::analyzer::compile_proposer(&grammar)
         .expect("boundary-only non-looping rule must still compile");
-
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
-    let underlying = emit::emit_underlying_templated(&grammar, &alphabet, None);
-    assert!(
-        tagged_self_loops(&underlying.lexc_source).is_empty(),
-        "underlying emission formed a tagged self-loop whose boundary tokens clean up to epsilon: {:?}",
-        tagged_self_loops(&underlying.lexc_source)
-    );
 }
 
 #[test]

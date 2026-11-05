@@ -29,5 +29,5 @@ a non-zero exit), which meant an entire run's banked candidates were reachable o
 `progress.jsonl`.
 
 Reproduced end to end on the `recipe-strata-generic` fixture with `--confirmation-work` set one
-unit below the corpus's total confirmation work; pinned by
-`pg-cli/tests/recipe_optimize_continuation.rs::a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report`.
+unit below the corpus's total confirmation work; the test that pinned it
+(`a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report`) was deleted with the Plan composed backend, because one strategy leaves one candidate.

@@ -1,7 +1,5 @@
 use super::*;
-use pg_featstruct::SymbolBits;
-use pg_grammar::featsys::FlatIndex;
-use pg_grammar::model::{NatClassId, SegmentedText};
+use pg_grammar::model::MorphRuleDef;
 
 const XML: &str = r#"<HermitCrabInput><Language><Name>CrossTableCircumfix</Name>
       <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
@@ -43,39 +41,5 @@ fn circumfix_text_uses_surface_table_tokens_for_foreign_insertions() {
             alphabet.token(surface.lookup_nfd("x").unwrap()).to_string(),
             alphabet.token(surface.lookup_nfd("z").unwrap()).to_string(),
         )]
-    );
-}
-
-#[test]
-fn feature_context_rejects_values_outside_feature_mask() {
-    let mut g = pg_grammar::load(XML).expect("fixture must load");
-    g.natural_classes[0].kind =
-        NaturalClassKind::Feature(vec![(FlatIndex(0), SymbolBits(1u64 << 63))]);
-    let context = SimpleContext {
-        nat_class: NatClassId(0),
-        vars: Vec::new(),
-    };
-    assert_eq!(
-        validate_context_features(&g, &context),
-        Err("invalid-source-feature-mask")
-    );
-}
-
-#[test]
-fn shape_member_extraction_rejects_non_segment_nodes() {
-    let g = pg_grammar::load(XML).expect("fixture must load");
-    let mut builder = pg_shape::ShapeBuilder::new();
-    builder.push_boundary(0);
-    let node = PatternNode::Segments {
-        table: TableId(0),
-        shape: SegmentedText {
-            text: "x".into(),
-            shape: builder.finish(),
-        },
-    };
-    let mut members = Vec::new();
-    assert_eq!(
-        collect_node_members(&g, TableId(0), &node, &mut members),
-        Err("invalid-source-segment-node")
     );
 }

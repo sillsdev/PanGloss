@@ -114,7 +114,7 @@ Rerun one test:
 
 ```
 rust\tools\pg.ps1 -Mode test -Package pg-foma -Filter f5_diacritics
-rust\tools\pg.ps1 -Mode test -Package pg-foma-backend -TestTarget net_dedup_gate
+rust\tools\pg.ps1 -Mode test -Package pg-foma-backend -TestTarget backend_scoreboard_gate
 rust\tools\pg.ps1 -Mode test -NoNextest        # force plain cargo test
 ```
 

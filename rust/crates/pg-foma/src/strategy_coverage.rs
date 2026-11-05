@@ -4,26 +4,11 @@
 //!
 //! # The hole this closes
 //! `crate::capability::Disposition::ConfirmOnly`'s own definition (`capability.rs`) is: *"Recall-preserving only if
-//! the proposer proposes the superset."* That is a claim about a PROPOSER, and until this module
-//! existed nothing in the capability layer knew which proposer was in use.
-//! `crate::capability::characterize` takes a bare `&Grammar`, [`crate::capability::
-//! compose_envelope`] takes a `&Grammar` and a `&Plan`, and
-//! `crate::enumerate::EmissionStrategy` -- the type that names WHICH compiler realizes a
-//! candidate -- appeared nowhere in `capability.rs`, `coverage_ledger.rs`,
-//! `conformance_coverage.rs` or `gate.rs` at all.
-//!
-//! The consequence was measured, not hypothesized. `Compounding` rested at a non-refusing
-//! disposition on the strength of `crate::emit`'s compilers being able to propose compounds, while
-//! `crate::uflexc` -- the ONLY lexicon emitter
-//! `crate::enumerate::EmissionStrategy::PlanComposed` has -- emitted a structurally single-root
-//! continuation graph that could not propose ANY compound (that module's own "Bounded compound
-//! loop" doc). One compiler's ability was silently inherited by all three. The compound hole itself
-//! is now fixed; this module fixes the ACCOUNTING that let it hide, so the next one cannot.
-//!
-//! The repo already has a name for this shape: the coverage-gate inheritance trap, previously seen
-//! across CONSTRUCT granularity (a coarse `constructs.txt` row inheriting a fine
-//! `CharacteristicKind`'s coverage). This is the same trap on a different axis -- per STRATEGY
-//! rather than per construct.
+//! the proposer proposes the superset."* That is a claim about a PROPOSER, so the capability layer has to know
+//! which proposer is in use. This table records, per `EmissionStrategy`, which constructs that
+//! compiler can represent, so one compiler's ability is never silently inherited by another (the
+//! coverage-gate inheritance trap, seen per STRATEGY rather than per construct). Only
+//! `TunedSurfaceProbed` exists today; a comparison backend would need its own rows here.
 //!
 //! # What this module is, and is not
 //! It is a hand-curated, source-cited table: for each `(EmissionStrategy, CharacteristicKind)`
@@ -110,11 +95,7 @@ pub struct StrategyCoverageRow {
 /// `CharacteristicKind::ALL` (Rust has no enum reflection). Adding a variant and forgetting this
 /// constant is caught by `representation_of`'s exhaustive, catch-all-free `match` on `strategy`
 /// only if the new variant is also given arms there, which it must be for the build to pass.
-pub const ALL_STRATEGIES: &[EmissionStrategy] = &[
-    EmissionStrategy::PlanComposed,
-    EmissionStrategy::TunedSurfaceProbed,
-    EmissionStrategy::TemplatedUnderlyingTokens,
-];
+pub const ALL_STRATEGIES: &[EmissionStrategy] = &[EmissionStrategy::TunedSurfaceProbed];
 
 /// The curated table (module doc). Exhaustively matched on BOTH axes with no catch-all arm, the
 /// same discipline `crate::capability::characterize` and
@@ -127,9 +108,7 @@ pub fn representation_of(
     kind: CharacteristicKind,
 ) -> StrategyCoverageRow {
     let (representation, evidence) = match strategy {
-        EmissionStrategy::PlanComposed => plan_composed(kind),
         EmissionStrategy::TunedSurfaceProbed => tuned_surface_probed(kind),
-        EmissionStrategy::TemplatedUnderlyingTokens => templated_underlying_tokens(kind),
     };
     StrategyCoverageRow {
         strategy,
@@ -139,125 +118,12 @@ pub fn representation_of(
     }
 }
 
-/// `EmissionStrategy::PlanComposed`'s only lexicon emitter, `crate::uflexc`, is an explicitly minimal prototype, so it is the strategy with real holes -- previously invisible to a strategy-blind account.
-fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static str) {
-    use CharacteristicKind::*;
-    use StrategyRepresentation::*;
-    match kind {
-        // uflexc emits prefix/suffix chains from `classify_affix`-classified allomorphs.
-        Affixation => (
-            Represents,
-            "uflexc::emit_underlying_filtered -- Role::Prefix/Role::Suffix allomorphs become \
-             prefix/suffix continuation-chain lines",
-        ),
-        // `MorphRuleDef::AffixProcess` and `::Realizational` share one allomorph shape (`MorphRuleDef::affix_allomorphs`), and uflexc now walks both through the same Role::Prefix/Role::Suffix classification -- the rule's own gate (RealizationalFeatures/RequiredHeadFeatures) is left to confirm, same as every other ConfirmOnly characteristic this emitter proposes a superset for.
-        RealizationalMorphology => (
-            Represents,
-            "uflexc::emit_underlying_filtered -- MorphRuleDef::affix_allomorphs() walks \
-             Realizational allomorphs through the same Role::Prefix/Role::Suffix classification \
-             AffixProcess allomorphs get, becoming prefix/suffix continuation-chain lines",
-        ),
-        // Now a real, budget-bounded, unrolled compound chain over `emit::compound_license`'s head/non-head split.
-        Compounding => (
-            Represents,
-            "uflexc's bounded compound loop (emit::build_compound_chain + emit::compound_license) \
-             -- unrolled to emit::compound_extra_levels_checked levels; before it existed this row \
-             was CannotRepresent and nothing in the capability layer could say so",
-        ),
-        // Rule order is a property of the cascade `build_controllable` composes, not of the lexicon.
-        OrderedMorphRuleApplication => (
-            Represents,
-            "build::build_controllable composes the Plan's Replace cascade in authored order",
-        ),
-        // uflexc's prefix/suffix chains self-loop, so any order of a stratum's loose rules is already a path through the emitted graph.
-        UnorderedMorphRuleApplication => (
-            Represents,
-            "uflexc's self-looping prefix/suffix continuation chains admit every order of a \
-             stratum's loose rules by construction (uflexc module doc)",
-        ),
-        // MPR-group state is a confirm-time mechanism in every strategy; no emitter tracks it.
-        MprGroupAppend | MprGroupOverwrite => (
-            Represents,
-            "MPR accumulation/overwrite is enforced at confirm time (pg_rules::validity) for every \
-             strategy alike; no lexicon emitter represents or filters on it",
-        ),
-        // Every rewrite/metathesis/epenthesis/quantifier fact belongs to the compiled rule cascade, the same one every strategy composes with its own lexicon, so these rows are strategy-invariant.
-        IterativeRewrite | SimultaneousRewrite | LeftToRightRewrite | RightToLeftRewrite
-        | Metathesis | Epenthesis | QuantifierPattern => (
-            Represents,
-            "compiled by crate::replace's rule cascade, which build::build_controllable composes \
-             with the uflexc lexicon -- the same cascade every strategy uses",
-        ),
-        // Gating is what the Plan's Gate node is; build_controllable builds one network per partition group and unions them.
-        SubruleGating => (
-            Represents,
-            "build::build_controllable builds one network per crate::gate partition group and \
-             unions them; uflexc takes each group's own allowed_entries",
-        ),
-        // Not a whole-construct hole: a Prefix/Suffix-classified allomorph that also drops non-edge material is still emitted, just without the drop applied -- a documented partial, not a refusal.
-        CircumfixOutputAction => (
-            RepresentsWithKnownGap,
-            "uflexc::emit_underlying_filtered skips every allomorph whose emit::classify_affix role \
-             is not Prefix/Suffix (`role=circumfix-prefix`/`process`/`none` in `skipped`), and has \
-             no structural-composite path (emit::build_structural_composites) to resynthesize \
-             dropped material for the ones it does emit",
-        ),
-        // Reduplication is peeled outside the compiled FST for every strategy, so the lexicon emitter is not the mechanism; uflexc's own skip of these allomorphs is consistent with that division, not an extra gap.
-        Reduplication => (
-            Represents,
-            "reduplication is handled by crate::peel outside the compiled FST for every strategy \
-             (capability.rs's Reduplication arm); uflexc's `role=reduplication` skip is that same \
-             division, not an extra gap",
-        ),
-        CoOccurrenceConstraint => (
-            Represents,
-            "co-occurrence adjacency is a confirm-time constraint (pg_rules::validity) for every \
-             strategy; no lexicon emitter filters on it",
-        ),
-        NaturalClassDefinition => (
-            Represents,
-            "representational only -- consumed by crate::replace's pattern lowering, identically \
-             for every strategy",
-        ),
-        MultiTable => (
-            Represents,
-            "per-rule owning-table threading lives in crate::replace (fix-multitable-fst-\
-             compilation), shared by every strategy; uflexc encodes shapes through \
-             replace::SegAlphabet",
-        ),
-        // Measured, not reasoned: the isolating fixture is oracle-exact and stays exact when the final table is reordered, so the token resolution is by bundle, not by raw index.
-        CrossTableRespelling => (
-            Represents,
-            "uflexc::emit_underlying_filtered encodes an inner-stratum root through \
-             replace::SegAlphabet tokens that the final table resolves by bundle; \
-             tests/cross_table_root_respelling_gate.rs holds it oracle-exact on the isolating \
-             fixture and unmoved by reordering that fixture's final table",
-        ),
-        // Every root allomorph is emitted bare and unconditionally; the restriction is confirm's.
-        StemName => (
-            Represents,
-            "every non-pattern root allomorph is emitted bare (uflexc module doc's \"Deliberate \
-             supersets\"); stem-name restriction is discharged only by \
-             pg_rules::validity::stem_name_gate_reason at confirm, identically for every strategy",
-        ),
-        FreeFluctuation => (
-            Represents,
-            "every allomorph of a multi-allomorph entry gets its own root line, uniformly -- the \
-             uniform over-proposal capability.rs's FreeFluctuation arm describes",
-        ),
-        ProcessMorphology => (
-            CannotRepresent,
-            "uflexc::emit_underlying_filtered -- its own module doc lists Role::Process in the \n             SKIPPED set (\"Reduplication/Infix/CircumfixPrefix/CircumfixSuffix/Process/None is \n             skipped and reported\"); no lexc line is emitted for an in-place mutation at all",
-        ),
-    }
-}
-
-/// `EmissionStrategy::TunedSurfaceProbed`, the mainline whole-grammar compiler every containment witness in `crate::coverage_ledger` was written against; the other two strategies' rows are gaps against it.
+/// `EmissionStrategy::TunedSurfaceProbed`, the mainline whole-grammar compiler every containment witness in `crate::coverage_ledger` is written against.
 fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static str) {
     use CharacteristicKind::*;
     use StrategyRepresentation::*;
     let mainline = "emit::emit_with_budget -- the mainline whole-grammar compiler; every \
-                    tests/cover_*.rs and tests/phase_c_*.rs containment witness in \
+                    tests/cover_*.rs containment witness in \
                     coverage_ledger::containment_evidence_for exercises this compiler";
     match kind {
         Affixation
@@ -291,76 +157,6 @@ fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'
         ProcessMorphology => (
             Represents,
             "emit::is_structural_rule admits Role::Process unconditionally (emit.rs), routing it \n             through build_structural_composites, which replays pg_rules::morph::synthesize -- the \n             real engine -- so the mutated surface is faithful rather than spliced",
-        ),
-    }
-}
-
-/// `EmissionStrategy::TemplatedUnderlyingTokens` shares `emit.rs`'s morphotactic machinery but composes a real rewrite cascade; that function's own doc enumerates what it deliberately drops.
-fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentation, &'static str) {
-    use CharacteristicKind::*;
-    use StrategyRepresentation::*;
-    let shared =
-        "emit::emit_underlying_templated shares emit.rs's collect_roots/build_deriv_chain/\
-                  build_slot_chain morphotactics with the mainline compiler";
-    match kind {
-        // `emit.rs`'s rule accessors treat Realizational exactly like AffixProcess, and this emitter uses those same accessors.
-        Affixation | RealizationalMorphology => (Represents, shared),
-        Compounding => (
-            Represents,
-            "emit::build_compound_chain -- the SAME shared unroller emit_with_budget and uflexc \
-             use (emit.rs task #44 generalized it over the root-record and emitter-state types)",
-        ),
-        OrderedMorphRuleApplication | UnorderedMorphRuleApplication => (Represents, shared),
-        MprGroupAppend | MprGroupOverwrite => (
-            Represents,
-            "MPR accumulation/overwrite is enforced at confirm time for every strategy; no \
-             lexicon emitter represents or filters on it",
-        ),
-        IterativeRewrite | SimultaneousRewrite | LeftToRightRewrite | RightToLeftRewrite
-        | Metathesis | Epenthesis | QuantifierPattern => (
-            Represents,
-            "templated_compile::compile_templated_morphotactics composes crate::replace's real \
-             rewrite cascade -- the strategy's whole premise (the cascade does the phonological \
-             work the surface probe would otherwise bake in)",
-        ),
-        SubruleGating => (
-            Represents,
-            "emit_underlying_templated takes crate::gate's allowed_entries with uflexc's own \
-             convention (that function's own doc)",
-        ),
-        // Runs no composite pipeline, so a single-sided-truncation allomorph is emitted with its literal text and no drop applied -- material IS emitted, so this is a documented partial, not a refusal.
-        CircumfixOutputAction => (
-            RepresentsWithKnownGap,
-            "emit::emit_underlying_templated's own doc: \"No composite pipeline at all\" -- \
-             build_structural_composites is skipped, so a single-sided-truncation allomorph is \
-             emitted with its literal InsertSegments text and no drop applied, and can miss the \
-             correct underlying form",
-        ),
-        Reduplication => (
-            Represents,
-            "reduplication is peeled outside the compiled FST by crate::peel for every strategy \
-             (capability.rs's Reduplication arm)",
-        ),
-        CoOccurrenceConstraint | NaturalClassDefinition | StemName | FreeFluctuation => (
-            Represents,
-            "confirm-time or representational only -- identical for every strategy; no lexicon \
-             emitter filters on any of these",
-        ),
-        ProcessMorphology => (
-            CannotRepresent,
-            "emit::emit_underlying_templated's own doc: \"No composite pipeline at all\" -- with no \n             composite route there is nothing to realize an in-place mutation with",
-        ),
-        MultiTable => (
-            Represents,
-            "per-rule owning-table threading lives in crate::replace, shared by every strategy",
-        ),
-        // The templated TextMode re-encodes a root against the final table's alphabet and files `unsegmentable-root` when its own spelling is absent there, which templated_route_uncovered_refusal publishes as a refusal.
-        CrossTableRespelling => (
-            CannotRepresent,
-            "emit::collect_roots's templated branch routes a root through \
-             underlying_shape_variants over the final table and skips it as `unsegmentable-root` \
-             when its own spelling has no final-table token; emit::cross_table_root_surface is \
-             only unioned on the mainline branch",
         ),
     }
 }

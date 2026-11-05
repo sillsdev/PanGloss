@@ -1,4 +1,4 @@
-//! Cross-table respelling (`CharacteristicKind::CrossTableRespelling`), ratcheted in both directions: which fixtures the characterizer flags, and what every backend does with each. A fixture gaining or losing the construct, or a backend flipping between exact and refused, fails here by name.
+//! Cross-table respelling (`CharacteristicKind::CrossTableRespelling`), ratcheted in both directions: which fixtures the characterizer flags, and what the backend does with each. A fixture gaining or losing the construct, or a backend flipping between exact and refused, fails here by name.
 //! See docs/research/grill-me-queue.md (G11) for how the construct was misattributed to rewrite-rule feature erasure and how hc.dll settled it.
 
 use std::collections::BTreeMap;
@@ -15,23 +15,23 @@ enum Expected {
     Refused,
 }
 
-const EXPECTED: &[(&str, [Expected; 3])] = &[
+const EXPECTED: &[(&str, [Expected; 1])] = &[
     (
         "staging:edge-cases/cross-table-root-respelling",
-        [Expected::Exact, Expected::Exact, Expected::Refused],
+        [Expected::Exact],
     ),
     (
         "staging:edge-cases/rewrite-analysis-feature-neutralization",
-        [Expected::Refused, Expected::Exact, Expected::Refused],
+        [Expected::Exact],
     ),
     (
         "staging:edge-cases/segment-natural-class-table-binding",
-        [Expected::Refused, Expected::Exact, Expected::Refused],
+        [Expected::Exact],
     ),
     // The respelled root ("w" as the final table's "i") is then changed by a rule; the construct is present even though hc.dll renders the signature's surface half empty.
     (
         "staging:edge-cases/synthesis-stratum-render-stale-table",
-        [Expected::Refused, Expected::Exact, Expected::Refused],
+        [Expected::Exact],
     ),
 ];
 
@@ -88,7 +88,7 @@ fn cross_table_respelling_is_observed_on_exactly_the_known_fixtures() {
 }
 
 #[test]
-fn every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere() {
+fn every_respelling_fixture_is_oracle_exact_on_tsp() {
     let fixtures = respelling_fixtures();
     assert!(
         !fixtures.is_empty(),
@@ -155,7 +155,7 @@ fn every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere() {
 }
 
 #[test]
-fn plan_composed_spells_by_bundle_not_by_index() {
+fn tsp_spells_by_bundle_not_by_index() {
     let fixture = discover()
         .into_iter()
         .find(|f| f.label() == "staging:edge-cases/cross-table-root-respelling")
@@ -202,14 +202,5 @@ fn plan_composed_spells_by_bundle_not_by_index() {
             CellOutcome::OracleExact
         ),
         "the mainline spells by bundle and must not care about table order"
-    );
-    assert!(
-        matches!(
-            outcome(EmissionStrategy::PlanComposed),
-            CellOutcome::OracleExact
-        ),
-        "PlanComposed lost exactness when the final table was reordered: its token resolution has \
-         become index-dependent, so its strategy_coverage row for CrossTableRespelling can no \
-         longer say Represents"
     );
 }

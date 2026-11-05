@@ -344,7 +344,7 @@ fn selectable_requires_both_accurate_certification_and_clean_production_health()
         |certification: Certification, production_health: HealthReport| RuntimeEvaluation {
             certification,
             score,
-            realized_strategy: EmissionStrategy::PlanComposed,
+            realized_strategy: EmissionStrategy::TunedSurfaceProbed,
             divergence,
             production_health,
         };

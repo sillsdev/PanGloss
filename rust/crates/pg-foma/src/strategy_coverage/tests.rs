@@ -20,17 +20,10 @@ fn every_strategy_kind_pair_has_a_cited_row() {
 #[test]
 fn all_strategies_lists_every_emission_strategy() {
     let labels: Vec<&str> = ALL_STRATEGIES.iter().map(|s| s.label()).collect();
-    assert_eq!(
-        labels,
-        vec![
-            "plan-composed",
-            "tuned-surface-probed",
-            "templated-underlying-tokens"
-        ]
-    );
+    assert_eq!(labels, vec!["tuned-surface-probed"]);
 }
 
-/// Pinned so a regression in `uflexc`'s `affix_allomorphs()`-based walk is a reviewed table edit.
+/// Pinned so a regression in realizational morphology is a reviewed table edit.
 #[test]
 fn realizational_morphology_is_representable_by_every_strategy_now() {
     for &strategy in ALL_STRATEGIES {
@@ -40,26 +33,6 @@ fn realizational_morphology_is_representable_by_every_strategy_now() {
             "{strategy:?}"
         );
     }
-}
-
-/// If the strategies never disagreed, this table would be a strategy-indexed copy of one answer.
-#[test]
-fn at_least_one_kind_is_answered_differently_by_two_strategies() {
-    let disagreements: Vec<CharacteristicKind> = CharacteristicKind::ALL
-        .iter()
-        .copied()
-        .filter(|&kind| {
-            let first = representation_of(ALL_STRATEGIES[0], kind).representation;
-            ALL_STRATEGIES
-                .iter()
-                .any(|&s| representation_of(s, kind).representation != first)
-        })
-        .collect();
-    assert!(
-        !disagreements.is_empty(),
-        "no construct is answered differently by two strategies -- the table would be \
-         strategy-blind in effect"
-    );
 }
 
 /// Pinned so a regression in the bounded compound loop shows up here as a reviewed table edit.
@@ -87,35 +60,17 @@ fn some_strategy_represents_every_kind() {
 }
 
 #[test]
-fn unrepresentable_kinds_names_every_hole_and_leaves_the_mainline_clear() {
-    assert_eq!(
-        unrepresentable_kinds(EmissionStrategy::PlanComposed),
-        vec![
-            // uflexc lists Role::Process in its own skipped set; no lexc line is emitted at all.
-            CharacteristicKind::ProcessMorphology
-        ]
-    );
-    assert_eq!(
-        unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens),
-        vec![
-            // A root whose own spelling the final table lacks is filed `unsegmentable-root` and skipped.
-            CharacteristicKind::CrossTableRespelling,
-            CharacteristicKind::ProcessMorphology
-        ],
-        "the templated emitter's own doc says it has no composite pipeline, so it cannot \
-         realize an in-place mutation"
-    );
+fn the_mainline_compiler_has_no_unrepresentable_kind() {
     assert!(unrepresentable_kinds(EmissionStrategy::TunedSurfaceProbed).is_empty());
 }
 
 #[test]
-fn strategies_that_represent_excludes_every_holed_compiler() {
-    assert_eq!(
-        strategies_that_represent(CharacteristicKind::ProcessMorphology),
-        vec![EmissionStrategy::TunedSurfaceProbed]
-    );
-    assert_eq!(
-        strategies_that_represent(CharacteristicKind::Affixation).len(),
-        ALL_STRATEGIES.len()
-    );
+fn strategies_that_represent_lists_the_mainline_for_every_kind() {
+    for &kind in CharacteristicKind::ALL {
+        assert_eq!(
+            strategies_that_represent(kind),
+            vec![EmissionStrategy::TunedSurfaceProbed],
+            "{kind:?}"
+        );
+    }
 }

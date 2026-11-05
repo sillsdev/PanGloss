@@ -46,22 +46,17 @@ fn baseline() -> Plan {
     plan
 }
 
-/// The baseline fact is derived from the candidate (Identity plus a plan-interpreting adapter), never from position -- rejected alternatives were a positional `i == 0` rule and a caller-supplied `&[bool]`.
+/// The baseline fact is carried on the candidate, never inferred from position: the one seeded candidate is this grammar's default compilation and carries the baseline plan verbatim.
 #[test]
 fn the_baseline_role_follows_the_baseline_plan_and_never_the_position() {
     let grammar = minimal_grammar();
     let base = baseline();
-    let registry = Registry::seeded();
-    let materialized = registry
+    let materialized = Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar: &grammar,
             baseline: &base,
         })
         .expect("the seeded registry must materialize for this grammar");
-    assert!(
-        materialized.len() >= 2,
-        "this assertion needs at least a baseline and one non-baseline candidate to distinguish"
-    );
 
     let baselines: Vec<&BackendInstance> = materialized
         .iter()
@@ -73,7 +68,6 @@ fn the_baseline_role_follows_the_baseline_plan_and_never_the_position() {
         1,
         "exactly one candidate may be this grammar's default compilation; got {baselines:?}"
     );
-
     for (instance, candidate) in &materialized {
         if candidate.is_baseline() {
             assert_eq!(
@@ -81,20 +75,6 @@ fn the_baseline_role_follows_the_baseline_plan_and_never_the_position() {
                 base.root(),
                 "{}: a candidate marked Baseline must carry the baseline plan VERBATIM, or the \
                  role is a label rather than a derived fact",
-                instance.family_id
-            );
-            assert!(
-                backend_for(candidate.adapter).interprets_plan(),
-                "{}: only the plan-interpreting adapter can be a plan's own compilation",
-                instance.family_id
-            );
-        } else {
-            let rewrites_the_plan = candidate.plan.root() != base.root();
-            let different_compiler = !backend_for(candidate.adapter).interprets_plan();
-            assert!(
-                rewrites_the_plan || different_compiler,
-                "{}: an Alternative must differ from the baseline in its PLAN or its COMPILER; a \
-                 candidate that differs in neither is the baseline wearing a second label",
                 instance.family_id
             );
         }
@@ -193,7 +173,7 @@ fn extension_and_content_address_dedup_do_not_change_registry_core() {
             Ok(LoweredCandidate {
                 label,
                 plan: c.baseline.clone(),
-                adapter: EmissionStrategy::PlanComposed,
+                adapter: EmissionStrategy::TunedSurfaceProbed,
                 role: CandidateRole::Alternative,
             })
         }) as MaterializerFn
@@ -230,7 +210,7 @@ fn policy_exclusions_happen_before_materialization_and_opt_in_restores_instances
                     Ok(LoweredCandidate {
                         label: "synthetic-tie",
                         plan: context.baseline.clone(),
-                        adapter: EmissionStrategy::PlanComposed,
+                        adapter: EmissionStrategy::TunedSurfaceProbed,
                         role: CandidateRole::Alternative,
                     })
                 },
@@ -250,23 +230,11 @@ fn policy_exclusions_happen_before_materialization_and_opt_in_restores_instances
 }
 
 #[test]
-fn seeded_tie_policy_names_exactly_the_recorded_plan_rewrite_families() {
+fn no_seeded_family_skips_on_compositional_topology() {
     let registry = Registry::seeded();
-    let actual = registry
+    assert!(registry
         .families()
-        .filter(|family| family.search_policy == FamilySearchPolicy::SkipOnCompositionalTopology)
-        .map(|family| family.id.as_str())
-        .collect::<BTreeSet<_>>();
-    let expected = [
-        FAMILY_CLASS_EXCEPTION_CASCADE,
-        FAMILY_COMPLETE_TEMPLATE,
-        FAMILY_SPECIALIZED_BRANCH,
-        FAMILY_COPY_BRANCH,
-        FAMILY_LAYERED_MORPHOLOGY,
-    ]
-    .into_iter()
-    .collect::<BTreeSet<_>>();
-    assert_eq!(actual, expected);
+        .all(|family| family.search_policy == FamilySearchPolicy::AlwaysSearch));
 }
 
 // Cross-derivation agreement: each fact below has more than one derivation in this crate, so these tests assert them all against the same synthetic grammar to keep them from drifting apart.
@@ -320,7 +288,7 @@ fn pos_gated_no_mpr_features_grammar() -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-/// `HasGatedExceptions` must track `gate::find_gated_subrules` with no extra `mpr_features` precondition, agreeing with `backend_space::GrammarFacts` and the offered family.
+/// `HasGatedExceptions` must track `gate::find_gated_subrules` with no extra `mpr_features` precondition, agreeing with `backend_space::GrammarFacts`.
 #[test]
 fn pos_only_gating_without_mpr_features_agrees_across_every_derivation() {
     let g = pos_gated_no_mpr_features_grammar();
@@ -347,18 +315,6 @@ fn pos_only_gating_without_mpr_features_agrees_across_every_derivation() {
         Applicability::HasGatedExceptions.matches(&g),
         "HasGatedExceptions must be a projection of gate::find_gated_subrules, not a \
          reimplementation with an mpr_features precondition of its own"
-    );
-
-    // (c) the family the predicate gates
-    let offered = Registry::seeded()
-        .instances_for_grammar(&g)
-        .into_iter()
-        .map(|instance| instance.family_id)
-        .collect::<BTreeSet<_>>();
-    assert!(
-        offered.contains(FAMILY_CLASS_EXCEPTION_CASCADE),
-        "a genuinely gated grammar must be offered {FAMILY_CLASS_EXCEPTION_CASCADE}; offered: \
-         {offered:?}"
     );
 }
 
@@ -451,17 +407,6 @@ fn non_default_redup_hint_without_an_echoed_part_is_reduplication_free_everywher
         0,
         "reduplication_count must consume rhs_has_true_reduplication, not the redup_hint"
     );
-    // (d) the family the predicate gates
-    let offered = Registry::seeded()
-        .instances_for_grammar(&g)
-        .into_iter()
-        .map(|instance| instance.family_id)
-        .collect::<BTreeSet<_>>();
-    assert!(
-        !offered.contains(FAMILY_COPY_BRANCH),
-        "a reduplication-free grammar must not be offered {FAMILY_COPY_BRANCH}; offered: \
-         {offered:?}"
-    );
 }
 
 /// The other half of the same contract: a genuinely reduplicating grammar must still be detected by all three derivations.
@@ -478,15 +423,5 @@ fn a_genuinely_echoed_part_is_reduplication_everywhere() {
     assert_eq!(
         crate::backend_space::GrammarFacts::from_grammar(&g).reduplicative_allomorphs,
         1
-    );
-    let offered = Registry::seeded()
-        .instances_for_grammar(&g)
-        .into_iter()
-        .map(|instance| instance.family_id)
-        .collect::<BTreeSet<_>>();
-    assert!(
-        offered.contains(FAMILY_COPY_BRANCH),
-        "a genuinely reduplicating grammar must be offered {FAMILY_COPY_BRANCH}; offered: \
-         {offered:?}"
     );
 }

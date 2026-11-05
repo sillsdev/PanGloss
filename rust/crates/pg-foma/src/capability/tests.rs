@@ -823,7 +823,7 @@ const RTL_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>RtlPlain</Name>
       <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtl"><Name>S</Name></Stratum></Strata>
     </Language></HermitCrabInput>"#;
 
-/// A plain, in-shape `Dir::RightToLeft` rule characterizes `ConfigPredicate` with `reversal_construction_attempted == true`.
+/// A plain, in-shape `Dir::RightToLeft` rule characterizes `ConfirmOnly` with `reversal_construction_attempted == true`.
 #[test]
 fn characterize_marks_right_to_left_rewrite_config_predicate_when_shape_supported() {
     let g = load(RTL_PLAIN_XML);
@@ -838,8 +838,8 @@ fn characterize_marks_right_to_left_rewrite_config_predicate_when_shape_supporte
             .observations()
             .iter()
             .any(|o| o.kind == CharacteristicKind::RightToLeftRewrite
-                && o.disposition == Disposition::ConfigPredicate),
-        "Dir::RightToLeft must characterize ConfigPredicate: {:?}",
+                && o.disposition == Disposition::ConfirmOnly),
+        "Dir::RightToLeft must characterize ConfirmOnly: {:?}",
         profile.observations()
     );
     let detail = profile
@@ -852,366 +852,7 @@ fn characterize_marks_right_to_left_rewrite_config_predicate_when_shape_supporte
     );
 }
 
-/// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for an in-shape rule.
-#[test]
-fn right_to_left_predicate_confirm_only_for_supported_shape() {
-    let g = load(RTL_PLAIN_XML);
-    let profile = characterize(&g);
-    let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "an in-shape RTL rule must be ConfirmOnly, never Refuse or Admit"
-    );
-}
-
-/// A plain `Dir::LeftToRight` rule never observes `RightToLeftRewrite`, and the predicate vacuously `Admit`s.
-#[test]
-fn right_to_left_predicate_admits_vacuously_for_left_to_right_rule() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>LtrPlain</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="prLtr">
-              <Name>ltrDemo</Name>
-              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prLtr"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule");
-    };
-    assert_eq!(r.dir, Dir::LeftToRight);
-    let profile = characterize(&g);
-    assert!(
-        !profile
-            .observations()
-            .iter()
-            .any(|o| o.kind == CharacteristicKind::RightToLeftRewrite),
-        "a LeftToRight rule must never observe RightToLeftRewrite at all"
-    );
-    let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::Admit
-    );
-}
-
-/// A positive `ConfirmOnly` witness: a `Dir::RightToLeft` rule whose LHS is a genuinely unbounded `Quantifier`, which `pattern_slots` accepts, so the predicate must `ConfirmOnly`, never silently `Admit`.
-#[test]
-fn right_to_left_predicate_confirm_only_for_unbounded_quantifier_shaped_rule() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>RtlQuantifier</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /><Segment segment="cb" /></SegmentNaturalClass></NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="prRtlQ" multipleApplicationOrder="rightToLeftIterative">
-              <Name>rtlQuantifierDemo</Name>
-              <PhoneticInput><PhoneticSequence>
-                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
-              </PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlQ"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule");
-    };
-    assert_eq!(r.dir, Dir::RightToLeft);
-
-    let profile = characterize(&g);
-    let detail = profile
-        .right_to_left_detail(PRuleId(0))
-        .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
-    assert!(
-        detail.reversal_construction_attempted,
-        "a well-formed unbounded Quantifier-shaped LHS is now within \
-         crate::replace::pattern_slots' own supported shape"
-    );
-
-    let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "an unbounded Quantifier-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
-    );
-}
-
 // ---- `Anchor`/same-table `Segments` do not disqualify; an unambiguous disagree-polarity alpha var no longer does either ----
-
-/// Positive witness: an `Anchor`-shaped `Dir::RightToLeft` rule characterizes `reversal_construction_attempted == true`, and the predicate `ConfirmOnly`s it.
-#[test]
-fn right_to_left_predicate_confirm_only_for_anchor_shaped_rule() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>RtlAnchor</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="prRtlAnchor" multipleApplicationOrder="rightToLeftIterative">
-              <Name>rtlAnchorDemo</Name>
-              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate finalBoundaryCondition="true"><PhoneticSequence /></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlAnchor"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule");
-    };
-    assert_eq!(r.dir, Dir::RightToLeft);
-    assert!(
-        matches!(
-            r.subrules[0].right_env.as_ref().unwrap().nodes.as_slice(),
-            [pg_grammar::model::PatternNode::Anchor(
-                pg_grammar::model::AnchorSide::Right
-            )]
-        ),
-        "fixture must lower to a right_env containing JUST a trailing Anchor(Right) node: {:?}",
-        r.subrules[0].right_env
-    );
-
-    let profile = characterize(&g);
-    let detail = profile
-        .right_to_left_detail(PRuleId(0))
-        .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
-    assert!(
-        detail.reversal_construction_attempted,
-        "an Anchor-shaped right environment is now within crate::replace::pattern_slots' own \
-         supported shape (task 4.2)"
-    );
-    assert_eq!(
-        detail.unsupported_reason, None,
-        "nothing to diagnose once the construction is attempted"
-    );
-
-    let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "an Anchor-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
-    );
-}
-
-/// Positive witness: a same-table `Segments` node in a `Dir::RightToLeft` rule's right environment characterizes `reversal_construction_attempted == true`, and the predicate `ConfirmOnly`s it.
-#[test]
-fn right_to_left_predicate_confirm_only_for_same_table_segments_shaped_rule() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>RtlSegments</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="prRtlSeg" multipleApplicationOrder="rightToLeftIterative">
-              <Name>rtlSegmentsDemo</Name>
-              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
-                    <Segments><PhoneticShape>a</PhoneticShape></Segments>
-                  </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlSeg"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule");
-    };
-    assert_eq!(r.dir, Dir::RightToLeft);
-    assert!(
-        matches!(
-            r.subrules[0].right_env.as_ref().unwrap().nodes.as_slice(),
-            [pg_grammar::model::PatternNode::Segments { .. }]
-        ),
-        "fixture must lower to a right_env containing a Segments node: {:?}",
-        r.subrules[0].right_env
-    );
-
-    let profile = characterize(&g);
-    let detail = profile
-        .right_to_left_detail(PRuleId(0))
-        .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
-    assert!(
-        detail.reversal_construction_attempted,
-        "a same-table Segments node is now within crate::replace::pattern_slots' own \
-         supported shape (task 4.2)"
-    );
-    assert_eq!(detail.unsupported_reason, None);
-
-    let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "a same-table-Segments-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
-    );
-}
-
-/// Positive witness: a cross-table `Segments` node is admitted as a table-qualified feature constraint, staying `ConfirmOnly` since confirmation prunes the recall-safe token union.
-#[test]
-fn right_to_left_predicate_accepts_cross_table_segments_for_confirmation() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>RtlCrossTableSegments</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <CharacterDefinitionTable id="t2"><Name>Other</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="prRtlCrossSeg" multipleApplicationOrder="rightToLeftIterative">
-              <Name>rtlCrossTableSegmentsDemo</Name>
-              <PhoneticInput><PhoneticSequence><Segment segment="ca" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
-                    <Segments characterDefinitionTable="t2"><PhoneticShape>x</PhoneticShape></Segments>
-                  </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlCrossSeg"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule");
-    };
-    assert_eq!(r.dir, Dir::RightToLeft);
-    assert_eq!(
-        g.char_tables.len(),
-        2,
-        "fixture must declare two distinct tables"
-    );
-
-    let profile = characterize(&g);
-    let detail = profile
-        .right_to_left_detail(PRuleId(0))
-        .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
-    assert!(
-        detail.reversal_construction_attempted,
-        "cross-table Segments must retain table identity and reach reversal construction"
-    );
-    assert_eq!(detail.unsupported_reason, None);
-
-    let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "cross-table Segments must be recall-safe candidate generation, never Refuse or Admit"
-    );
-}
-
-/// Positive witness: a disagree-polarity `AlphaVariable` now lowers and resolves like any other alpha occurrence, so an otherwise-in-scope `Dir::RightToLeft` rule carrying one characterizes `reversal_construction_attempted == true` and the predicate `ConfirmOnly`s it — this was never reversal-specific (`resolve_alpha_tuples`' own joint-polarity filter, shared by every `Dir`).
-#[test]
-fn right_to_left_predicate_confirm_only_for_disagree_polarity_alpha_var_shaped_rule() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>RtlDisagree</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <PhonologicalFeatureSystem>
-            <SymbolicFeature id="featA"><Name>a</Name><Symbols><Symbol id="symX">x</Symbol><Symbol id="symY">y</Symbol></Symbols></SymbolicFeature>
-          </PhonologicalFeatureSystem>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featA" symbolValues="symX" /></SegmentDefinition>
-              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featA" symbolValues="symY" /></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="prRtlDisagree" multipleApplicationOrder="rightToLeftIterative">
-              <Name>rtlDisagreeDemo</Name>
-              <VariableFeatures><VariableFeature id="var1" name="a" phonologicalFeature="featA" /></VariableFeatures>
-              <PhoneticInput><PhoneticSequence>
-                <SimpleContext naturalClass="ncAll"><AlphaVariables><AlphaVariable variableFeature="var1" polarity="minus" /></AlphaVariables></SimpleContext>
-              </PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlDisagree"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule");
-    };
-    assert_eq!(r.dir, Dir::RightToLeft);
-    let pg_grammar::model::PatternNode::Context(sc) = &r.lhs.nodes[0] else {
-        panic!("expected a Context node at lhs.nodes[0]: {:?}", r.lhs.nodes);
-    };
-    assert!(
-        sc.vars.iter().any(|v| !v.plus),
-        "fixture must actually carry a disagree-polarity (plus == false) AlphaVar: {sc:?}"
-    );
-
-    let profile = characterize(&g);
-    let detail = profile
-        .right_to_left_detail(PRuleId(0))
-        .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
-    assert!(
-        detail.reversal_construction_attempted,
-        "a disagree-polarity alpha var must now be admitted -- resolve_alpha_tuples' \
-         joint-polarity filter implements both agree (bitwise overlap) and disagree (bitwise \
-         non-overlap)"
-    );
-    assert_eq!(
-        detail.unsupported_reason, None,
-        "nothing left to diagnose once reversal_construction_attempted is true"
-    );
-
-    let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "a disagree-polarity-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
-    );
-}
 
 // ---- Metathesis ----
 
@@ -1244,7 +885,7 @@ const METATHESIS_PLAIN_XML: &str = r#"<HermitCrabInput><Language><Name>MetaPlain
       <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrPlain"><Name>S</Name></Stratum></Strata>
     </Language></HermitCrabInput>"#;
 
-/// A plain, in-shape `Dir::LeftToRight` metathesis rule characterizes `ConfigPredicate` with `swap_construction_attempted == true`.
+/// A plain, in-shape `Dir::LeftToRight` metathesis rule characterizes `ConfirmOnly` with `swap_construction_attempted == true`.
 #[test]
 fn characterize_marks_metathesis_config_predicate_when_shape_supported() {
     let g = load(METATHESIS_PLAIN_XML);
@@ -1259,8 +900,8 @@ fn characterize_marks_metathesis_config_predicate_when_shape_supported() {
             .observations()
             .iter()
             .any(|o| o.kind == CharacteristicKind::Metathesis
-                && o.disposition == Disposition::ConfigPredicate),
-        "PhonRuleDef::Metathesis must characterize ConfigPredicate: {:?}",
+                && o.disposition == Disposition::ConfirmOnly),
+        "PhonRuleDef::Metathesis must characterize ConfirmOnly: {:?}",
         profile.observations()
     );
     let detail = profile
@@ -1270,141 +911,6 @@ fn characterize_marks_metathesis_config_predicate_when_shape_supported() {
         detail.swap_construction_attempted,
         "a plain two-singleton-switch, no-environment rule is exactly the shape the swap \
          construction supports"
-    );
-}
-
-/// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for an in-shape rule.
-#[test]
-fn metathesis_predicate_confirm_only_for_supported_shape() {
-    let g = load(METATHESIS_PLAIN_XML);
-    let profile = characterize(&g);
-    let predicate = MetathesisFaithfulSwapPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "an in-shape metathesis rule must be ConfirmOnly, never Refuse or Admit"
-    );
-}
-
-/// A grammar with no `PhonRuleDef::Metathesis` never observes it, and the predicate vacuously `Admit`s.
-#[test]
-fn metathesis_predicate_admits_vacuously_for_rule_without_metathesis() {
-    let g = load(RTL_PLAIN_XML);
-    let profile = characterize(&g);
-    assert!(
-        !profile
-            .observations()
-            .iter()
-            .any(|o| o.kind == CharacteristicKind::Metathesis),
-        "a grammar with no MetathesisRule must never observe Metathesis at all"
-    );
-    let predicate = MetathesisFaithfulSwapPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::Admit
-    );
-}
-
-/// Positive witness: a `Dir::RightToLeft` metathesis rule, otherwise identical to `METATHESIS_PLAIN_XML`, characterizes `swap_construction_attempted == true` and `ConfirmOnly`, this test's job being only the capability-gate verdict.
-#[test]
-fn metathesis_predicate_confirm_only_for_right_to_left_rule() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>MetaRtl</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses>
-            <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="cq" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
-          </NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <MetathesisRule id="mrRtl" leftSwitch="swP" rightSwitch="swQ" multipleApplicationOrder="rightToLeftIterative">
-              <Name>metaRtlDemo</Name>
-              <StructuralDescription>
-                <PhoneticTemplate>
-                  <PhoneticSequence>
-                    <SimpleContext id="swQ" naturalClass="ncQ" />
-                    <SimpleContext id="swP" naturalClass="ncP" />
-                  </PhoneticSequence>
-                </PhoneticTemplate>
-              </StructuralDescription>
-            </MetathesisRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrRtl"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Metathesis(m) = &g.prules[0] else {
-        panic!("expected a Metathesis-kind rule");
-    };
-    assert_eq!(m.dir, Dir::RightToLeft);
-
-    let profile = characterize(&g);
-    let detail = profile
-        .metathesis_detail(PRuleId(0))
-        .expect("Metathesis must carry a MetathesisDetail");
-    assert!(
-        detail.swap_construction_attempted,
-        "Dir::RightToLeft is now IN scope (task 4.6): the structural admission floor is \
-         Dir-agnostic, and this rule's own pattern shape (two singleton-class switches, no \
-         environment) is exactly what it accepts"
-    );
-
-    let predicate = MetathesisFaithfulSwapPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "a Dir::RightToLeft metathesis rule with an otherwise-supported pattern shape must be \
-         ConfirmOnly, never Refuse or Admit"
-    );
-}
-
-/// A trailing `Slot::Anchor` is erased rather than enforced, so the swap construction is attempted and the verdict is `ConfirmOnly`, never `Refuse`.
-#[test]
-fn metathesis_predicate_confirm_only_for_anchor_shaped_pattern() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>MetaAnchor</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses>
-            <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="cq" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
-          </NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <MetathesisRule id="mrAnchor" leftSwitch="swP" rightSwitch="swQ">
-              <Name>metaAnchorDemo</Name>
-              <StructuralDescription>
-                <PhoneticTemplate finalBoundaryCondition="true">
-                  <PhoneticSequence>
-                    <SimpleContext id="swQ" naturalClass="ncQ" />
-                    <SimpleContext id="swP" naturalClass="ncP" />
-                  </PhoneticSequence>
-                </PhoneticTemplate>
-              </StructuralDescription>
-            </MetathesisRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrAnchor"><Name>S</Name></Stratum></Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let profile = characterize(&g);
-    let detail = profile
-        .metathesis_detail(PRuleId(0))
-        .expect("Metathesis must carry a MetathesisDetail");
-    assert!(
-        detail.swap_construction_attempted,
-        "an edge Anchor must use the anchor-erased ConfirmOnly swap superset"
-    );
-
-    let predicate = MetathesisFaithfulSwapPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly
     );
 }
 
@@ -2172,7 +1678,7 @@ const QUANT_UNBOUNDED_ENV_XML: &str = r#"<HermitCrabInput><Language><Name>QuantU
       <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prQuantUnbounded"><Name>S</Name></Stratum></Strata>
     </Language></HermitCrabInput>"#;
 
-/// A bounded environment quantifier characterizes `ConfigPredicate` with `all_bounded == true` and `compile_attempted == true`.
+/// A bounded environment quantifier characterizes `ConfirmOnly` with `all_bounded == true` and `compile_attempted == true`.
 #[test]
 fn characterize_marks_quantifier_pattern_config_predicate_when_bounded() {
     let g = load(QUANT_BOUNDED_ENV_XML);
@@ -2187,8 +1693,8 @@ fn characterize_marks_quantifier_pattern_config_predicate_when_bounded() {
             .observations()
             .iter()
             .any(|o| o.kind == CharacteristicKind::QuantifierPattern
-                && o.disposition == Disposition::ConfigPredicate),
-        "a bounded environment quantifier must characterize ConfigPredicate: {:?}",
+                && o.disposition == Disposition::ConfirmOnly),
+        "a bounded environment quantifier must characterize ConfirmOnly: {:?}",
         profile.observations()
     );
     let detail = profile
@@ -2199,19 +1705,6 @@ fn characterize_marks_quantifier_pattern_config_predicate_when_bounded() {
         detail.compile_attempted,
         "a bounded environment quantifier alongside an ordinary fixed-segment LHS/RHS is \
          exactly the shape crate::replace::pattern_slots accepts"
-    );
-}
-
-/// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`/`Refuse`, for a bounded rule.
-#[test]
-fn quantifier_predicate_confirm_only_for_bounded_shape() {
-    let g = load(QUANT_BOUNDED_ENV_XML);
-    let profile = characterize(&g);
-    let predicate = QuantifierBoundedExpansionPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "a bounded, compile-attempted quantifier rule must be ConfirmOnly, never Admit or Refuse"
     );
 }
 
@@ -2226,47 +1719,6 @@ fn characterize_marks_quantifier_unbounded_as_not_all_bounded() {
     assert!(
         !detail.all_bounded,
         "max=-1 is the DTD's own unbounded Kleene sentinel"
-    );
-}
-
-/// A positive `ConfirmOnly` witness: the predicate does not `Refuse` merely for an unbounded quantifier, once `pattern_slots` accepts the whole pattern shape.
-#[test]
-fn quantifier_predicate_confirm_only_for_unbounded_shape() {
-    let g = load(QUANT_UNBOUNDED_ENV_XML);
-    let profile = characterize(&g);
-    let detail = profile
-        .quantifier_detail(PRuleId(0))
-        .expect("QuantifierPattern must carry a QuantifierPatternDetail");
-    assert!(
-        detail.compile_attempted,
-        "an unbounded quantifier used in a well-formed right-environment is exactly the shape \
-         crate::replace::pattern_slots now accepts"
-    );
-    let predicate = QuantifierBoundedExpansionPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::ConfirmOnly,
-        "an unbounded, compile-attempted quantifier rule must be ConfirmOnly, never Admit or \
-         Refuse"
-    );
-}
-
-/// A rule that never uses `Quantifier` never observes `QuantifierPattern`, and the predicate vacuously `Admit`s.
-#[test]
-fn quantifier_predicate_admits_vacuously_for_rule_without_quantifier() {
-    let g = load(RTL_PLAIN_XML);
-    let profile = characterize(&g);
-    assert!(
-        !profile
-            .observations()
-            .iter()
-            .any(|o| o.kind == CharacteristicKind::QuantifierPattern),
-        "a quantifier-free rule must never observe QuantifierPattern at all"
-    );
-    let predicate = QuantifierBoundedExpansionPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::Admit
     );
 }
 
@@ -2375,78 +1827,6 @@ fn ordinary_affix_and_iterative_rewrite_grammar_characterizes_proven() {
         .any(|o| o.kind == CharacteristicKind::OrderedMorphRuleApplication));
 }
 
-// ---- simultaneous.subrule-overlap ----
-
-const SIMULTANEOUS_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>SimultaneousOverlapProbe</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <MorphologicalPhonologicalRuleFeatures>
-        <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
-      </MorphologicalPhonologicalRuleFeatures>
-      <PhonologicalFeatureSystem>
-        <SymbolicFeature id="featCons"><Name>cons</Name>
-          <Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols>
-        </SymbolicFeature>
-        <SymbolicFeature id="featVoi"><Name>voi</Name>
-          <Symbols><Symbol id="symVoiP">+</Symbol><Symbol id="symVoiM">-</Symbol></Symbols>
-        </SymbolicFeature>
-      </PhonologicalFeatureSystem>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations>
-            <FeatureValue feature="featCons" symbolValues="symConsP" />
-            <FeatureValue feature="featVoi" symbolValues="symVoiM" />
-          </SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses>
-        <FeatureNaturalClass id="ncStop"><Name>Stop</Name>
-          <FeatureValue feature="featCons" symbolValues="symConsP" />
-        </FeatureNaturalClass>
-        <FeatureNaturalClass id="ncVoiced"><Name>Voiced</Name>
-          <FeatureValue feature="featVoi" symbolValues="symVoiP" />
-        </FeatureNaturalClass>
-        <FeatureNaturalClass id="ncVoiceless"><Name>Voiceless</Name>
-          <FeatureValue feature="featVoi" symbolValues="symVoiM" />
-        </FeatureNaturalClass>
-      </NaturalClasses>
-      <PhonologicalRuleDefinitions>
-        <PhonologicalRule id="prAdmit" multipleApplicationOrder="simultaneous"><Name>admit</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules>
-            <PhonologicalSubrule requiredMPRFeatures="mprA">
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-            <PhonologicalSubrule excludedMPRFeatures="mprA">
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-          </PhonologicalSubrules>
-        </PhonologicalRule>
-        <PhonologicalRule id="prRefuseOverlap" multipleApplicationOrder="simultaneous"><Name>refuseOverlap</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-          </PhonologicalSubrules>
-        </PhonologicalRule>
-        <PhonologicalRule id="prRefuseSelfOpaquing" multipleApplicationOrder="simultaneous"><Name>refuseSelfOpaquing</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVoiceless" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-            </PhonologicalSubrule>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-          </PhonologicalSubrules>
-        </PhonologicalRule>
-      </PhonologicalRuleDefinitions>
-    </Language></HermitCrabInput>"#;
-
 fn leaf_for(rule: PRuleId) -> PlanNodeKind {
     PlanNodeKind::Leaf {
         fragment: FragmentSpec::RewriteRule { rule },
@@ -2454,389 +1834,11 @@ fn leaf_for(rule: PRuleId) -> PlanNodeKind {
     }
 }
 
-/// Admit when the two subrules' MPR gates are provably disjoint and neither is self_opaquing.
-#[test]
-fn simultaneous_predicate_admits_mpr_disjoint_subrules() {
-    let g = load(SIMULTANEOUS_PROBE_XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected rewrite rule at 0 (prAdmit)")
-    };
-    assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
-
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    let verdict = predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0)));
-    assert_eq!(
-        verdict,
-        PredicateVerdict::Admit,
-        "mpr-disjoint, non-self-opaquing subrules must Admit"
-    );
-}
-
-/// Refuse when neither subrule declares an MPR gate, so overlap cannot be ruled out.
-#[test]
-fn simultaneous_predicate_refuses_when_overlap_cannot_be_ruled_out() {
-    let g = load(SIMULTANEOUS_PROBE_XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[1] else {
-        panic!("expected rewrite rule at 1 (prRefuseOverlap)")
-    };
-    assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
-    assert!(r.subrules[0].required_mpr.is_empty() && r.subrules[0].excluded_mpr.is_empty());
-
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    let verdict = predicate.evaluate(&g, &profile, &leaf_for(PRuleId(1)));
-    match verdict {
-        PredicateVerdict::Refuse(diag) => {
-            assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
-        }
-        other => panic!("expected Refuse, got {other:?}"),
-    }
-}
-
-/// Refuse when a subrule is self_opaquing; do not attempt Admit regardless of mpr gating.
-#[test]
-fn simultaneous_predicate_refuses_self_opaquing_subrule() {
-    let g = load(SIMULTANEOUS_PROBE_XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[2] else {
-        panic!("expected rewrite rule at 2 (prRefuseSelfOpaquing)")
-    };
-    assert!(
-        r.subrules[0].self_opaquing,
-        "prRefuseSelfOpaquing's first subrule must be self_opaquing (RHS Voiced vs \
-         RightEnvironment Voiceless, disjoint voi bits)"
-    );
-
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    let verdict = predicate.evaluate(&g, &profile, &leaf_for(PRuleId(2)));
-    match verdict {
-        PredicateVerdict::Refuse(diag) => {
-            assert!(diag.witness.contains("self_opaquing"));
-        }
-        other => panic!("expected Refuse, got {other:?}"),
-    }
-}
-
-/// A non-Simultaneous (Iterative) rule is always Admit.
-#[test]
-fn simultaneous_predicate_admits_iterative_rule_unconditionally() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="pr1">
-              <Name>PR</Name>
-              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticOutput>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::Admit
-    );
-}
-
 // ---- The real automaton intersection, isolated from the self-opaquing/mpr-gate early-outs ----
 // See docs/research/pg-foma-capability-design-notes.md.
 
-/// Two subrules whose right environments are mutually exclusive `SegmentNaturalClass`es genuinely cannot overlap; the real automaton intersection proves their spans disjoint and `Admit`s.
-#[test]
-fn simultaneous_predicate_admits_genuinely_non_overlapping_subrules_via_lowered_span() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerAdmit</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses>
-            <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncFront"><Name>Front</Name><Segment segment="cFront" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncBack"><Name>Back</Name><Segment segment="cBack" /></SegmentNaturalClass>
-          </NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous"><Name>PR</Name>
-              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected rewrite rule at 0")
-    };
-    assert_eq!(r.mode, RewriteMode::Simultaneous);
-    assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
-    // No MPR features declared, so `mpr_gates_disjoint` cannot short-circuit; decided purely by the lowered-span intersection.
-    assert!(r.subrules[0].required_mpr.is_empty() && r.subrules[0].excluded_mpr.is_empty());
-    assert!(r.subrules[1].required_mpr.is_empty() && r.subrules[1].excluded_mpr.is_empty());
-
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::Admit,
-        "Front/Back-flanked, non-mpr-disjoint, non-self-opaquing subrules must now Admit \
-         via the real lowered-span intersection (previously Refuse under the conservative \
-         fallback)"
-    );
-}
-
-/// Two subrules whose right environments genuinely overlap (a shared member, not identical automata) must still `Refuse`, with a witness naming the real intersection.
-#[test]
-fn simultaneous_predicate_refuses_genuinely_overlapping_subrules_via_lowered_span() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerRefuse</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses>
-            <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncFrontOrBack"><Name>FrontOrBack</Name><Segment segment="cFront" /><Segment segment="cBack" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncBack"><Name>Back</Name><Segment segment="cBack" /></SegmentNaturalClass>
-          </NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous"><Name>PR</Name>
-              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFrontOrBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected rewrite rule at 0")
-    };
-    assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
-
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    match predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))) {
-        PredicateVerdict::Refuse(diag) => {
-            assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
-            assert!(
-                diag.witness.contains("genuinely intersect"),
-                "witness should name the real intersection, not the old conservative \
-                 wording: {diag:?}"
-            );
-        }
-        other => {
-            panic!("expected Refuse (genuine overlap via shared Back member), got {other:?}")
-        }
-    }
-}
-
-/// A right environment using an `Anchor` node, which `lower_span` does not represent, must conservatively `Refuse`, naming the unhandled kind.
-#[test]
-fn simultaneous_predicate_refuses_unsupported_pattern_node_conservatively() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>SimLowerUnsupported</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses>
-            <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncFront"><Name>Front</Name><Segment segment="cFront" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncBack"><Name>Back</Name><Segment segment="cBack" /></SegmentNaturalClass>
-          </NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous"><Name>PR</Name>
-              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate finalBoundaryCondition="true"><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-                  <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected rewrite rule at 0")
-    };
-    assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
-    assert!(
-        matches!(
-            r.subrules[0].right_env.as_ref().unwrap().nodes.last(),
-            Some(pg_grammar::model::PatternNode::Anchor(
-                pg_grammar::model::AnchorSide::Right
-            ))
-        ),
-        "fixture must actually carry an Anchor node in subrule 0's right_env: {:?}",
-        r.subrules[0].right_env
-    );
-
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    match predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))) {
-        PredicateVerdict::Refuse(diag) => {
-            assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
-            assert!(
-                diag.witness.contains("Anchor"),
-                "witness must name the unhandled Anchor node kind: {diag:?}"
-            );
-        }
-        other => panic!("expected conservative Refuse naming Anchor, got {other:?}"),
-    }
-}
-
 // ---- The `owning_table` fix to `lower_subrule_span`, and its compile-facing consumer chain ----
 // See docs/research/pg-foma-capability-design-notes.md.
-
-/// Two tables; the Simultaneous rule is wired into the second stratum's table, `t1`. Table `t0` is deliberately tiny and unrelated, so a `g.char_tables.first()` default would fail this rule's span lowering.
-const TWO_TABLE_SIMULTANEOUS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
-<HermitCrabInput>
-  <Language>
-    <Name>TwoTableSimultaneous</Name>
-    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-    <PhonologicalFeatureSystem>
-      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols>
-        <Symbol id="symVless">vless</Symbol><Symbol id="symVd1">vd1</Symbol><Symbol id="symVd2">vd2</Symbol>
-      </Symbols></SymbolicFeature>
-      <SymbolicFeature id="featPlace"><Name>place</Name><Symbols>
-        <Symbol id="symFront">front</Symbol><Symbol id="symBack">back</Symbol><Symbol id="symNeutral">neutral</Symbol>
-      </Symbols></SymbolicFeature>
-    </PhonologicalFeatureSystem>
-    <CharacterDefinitionTable id="t0"><Name>T0</Name>
-      <SegmentDefinitions>
-        <SegmentDefinition id="c0z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
-      </SegmentDefinitions>
-    </CharacterDefinitionTable>
-    <CharacterDefinitionTable id="t1"><Name>T1</Name>
-      <SegmentDefinitions>
-        <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featPlace" symbolValues="symFront" /><FeatureValue feature="featVoice" symbolValues="symVless" /></SegmentDefinition>
-        <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featPlace" symbolValues="symBack" /><FeatureValue feature="featVoice" symbolValues="symVless" /></SegmentDefinition>
-        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd1" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-        <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd2" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-      </SegmentDefinitions>
-    </CharacterDefinitionTable>
-    <NaturalClasses>
-      <FeatureNaturalClass id="ncStop"><Name>Stop</Name><FeatureValue feature="featVoice" symbolValues="symVless" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncFront"><Name>Front</Name><FeatureValue feature="featPlace" symbolValues="symFront" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncBack"><Name>Back</Name><FeatureValue feature="featPlace" symbolValues="symBack" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncB"><Name>B</Name><FeatureValue feature="featVoice" symbolValues="symVd1" /></FeatureNaturalClass>
-      <FeatureNaturalClass id="ncD"><Name>D</Name><FeatureValue feature="featVoice" symbolValues="symVd2" /></FeatureNaturalClass>
-    </NaturalClasses>
-    <PhonologicalRuleDefinitions>
-      <PhonologicalRule id="prSimT1" multipleApplicationOrder="simultaneous">
-        <Name>simT1Demo</Name>
-        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-        <PhonologicalSubrules>
-          <PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncB" /></PhoneticSequence></PhoneticOutput>
-            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-          </PhonologicalSubrule>
-          <PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
-            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-          </PhonologicalSubrule>
-        </PhonologicalSubrules>
-      </PhonologicalRule>
-    </PhonologicalRuleDefinitions>
-    <Strata>
-      <Stratum characterDefinitionTable="t0"><Name>S0</Name></Stratum>
-      <Stratum characterDefinitionTable="t1" phonologicalRules="prSimT1"><Name>S1</Name></Stratum>
-    </Strata>
-  </Language>
-</HermitCrabInput>
-"#;
-
-/// Positive witness: `lower_subrule_span` must resolve this rule's span against its own owning table, never table 0.
-#[test]
-fn lower_subrule_span_uses_the_rules_owning_table_not_table_zero() {
-    let g = load(TWO_TABLE_SIMULTANEOUS_XML);
-    assert_eq!(
-        g.char_tables.len(),
-        2,
-        "fixture must declare exactly 2 tables"
-    );
-    assert_eq!(
-        g.char_tables[0].len(),
-        1,
-        "table 0 must be the tiny, unrelated 1-segment table"
-    );
-    assert_eq!(
-        g.char_tables[1].len(),
-        5,
-        "table 1 must be the rule's own 5-segment inventory"
-    );
-
-    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule at prules[0]");
-    };
-    assert_eq!(rule.mode, RewriteMode::Simultaneous);
-    assert!(!rule.subrules[0].self_opaquing && !rule.subrules[1].self_opaquing);
-
-    let table = crate::replace::owning_table(&g, rule)
-        .expect("prSimT1 is wired into stratum S1's own phonologicalRules cascade");
-    assert_eq!(
-        table.len(),
-        5,
-        "owning_table must resolve to table 1 (5 segments) -- NOT table 0's 1-segment table"
-    );
-
-    // The real end-to-end proof: this can only succeed if owning-table threading is actually wired in.
-    assert_eq!(
-        simultaneous_rule_admitted_for_compile(&g, rule),
-        Ok(()),
-        "the real per-owning-table lowering must Admit this genuinely non-overlapping rule"
-    );
-
-    // Cross-check: the gate and the compiler must agree, proving they share one proof, never two.
-    let profile = characterize(&g);
-    let predicate = SimultaneousSubruleOverlapPredicate;
-    assert_eq!(
-        predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
-        PredicateVerdict::Admit,
-        "the registered predicate must also Admit, using the SAME owning-table-lowered spans \
-         `characterize` computed"
-    );
-}
 
 /// Negative witness: a rule with no owning stratum in a 2+-table grammar is genuinely ambiguous, so `lower_subrule_span` must return `Unsupported` rather than guess table 0.
 #[test]
@@ -3510,9 +2512,9 @@ fn compose_envelope_confirm_only_for_co_occurrence_rule_alone() {
     );
 }
 
-/// A `Simultaneous` rule whose subrules are provably mpr-disjoint and not self-opaquing must compose to `Admit`.
+/// A `Simultaneous` rule whose subrules are provably mpr-disjoint and not self-opaquing composes to `ConfirmOnly`: no predicate proves the pair safe, so confirm prunes it.
 #[test]
-fn compose_envelope_admits_simultaneous_rule_with_mpr_disjoint_subrules() {
+fn compose_envelope_confirms_only_simultaneous_rule_with_mpr_disjoint_subrules() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>SimAdmit</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <MorphologicalPhonologicalRuleFeatures>
@@ -3563,88 +2565,6 @@ fn compose_envelope_admits_simultaneous_rule_with_mpr_disjoint_subrules() {
     let plan = enumerated_plan(&g);
     let registry = default_registry();
 
-    assert_eq!(
-        compose_envelope(&g, &plan, &registry),
-        CompileDecision::Admit
-    );
-}
-
-/// The same shape, but neither subrule declares an MPR gate, so overlap can't be ruled out and the cascade-composing compilers must `Refuse`.
-#[test]
-fn compose_envelope_refuses_simultaneous_rule_when_overlap_cannot_be_ruled_out() {
-    const XML: &str = r#"<HermitCrabInput><Language><Name>SimRefuse</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses>
-            <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
-          </NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous">
-              <Name>PR</Name>
-              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-              <PhonologicalSubrules>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-                </PhonologicalSubrule>
-                <PhonologicalSubrule>
-                  <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-                </PhonologicalSubrule>
-              </PhonologicalSubrules>
-            </PhonologicalRule>
-          </PhonologicalRuleDefinitions>
-          <Strata>
-            <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
-              <Name>S</Name>
-              <LexicalEntries>
-                <LexicalEntry id="e1">
-                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-                </LexicalEntry>
-              </LexicalEntries>
-            </Stratum>
-          </Strata>
-        </Language></HermitCrabInput>"#;
-    let g = load(XML);
-    let PhonRuleDef::Rewrite(r) = &g.prules[0] else {
-        panic!("expected rewrite rule at 0")
-    };
-    assert!(!r.subrules[0].self_opaquing && !r.subrules[1].self_opaquing);
-    assert!(r.subrules[0].required_mpr.is_empty() && r.subrules[0].excluded_mpr.is_empty());
-
-    let semantics = GrammarSemantics::derive(&g);
-    let plan = enumerated_plan(&g);
-    let registry = default_registry();
-
-    for &strategy in CASCADE_COMPOSING_STRATEGIES {
-        match compose_envelope_for_strategy(&semantics, &plan, strategy, &registry) {
-            CompileDecision::Refuse(diags) => {
-                assert!(
-                    diags
-                        .iter()
-                        .any(|d| d.predicate == "simultaneous.subrule-overlap"),
-                    "{strategy:?}: expected a simultaneous.subrule-overlap diagnostic: {diags:?}"
-                );
-            }
-            other => {
-                panic!("{strategy:?} composes replace's cascade, so it must Refuse; got {other:?}")
-            }
-        }
-    }
-
-    // The mainline emitter composes no cascade, so `replace`'s admission floor is not its limit.
-    assert_eq!(
-        compose_envelope_for_strategy(
-            &semantics,
-            &plan,
-            EmissionStrategy::TunedSurfaceProbed,
-            &registry
-        ),
-        CompileDecision::ConfirmOnly
-    );
     assert_eq!(
         compose_envelope(&g, &plan, &registry),
         CompileDecision::ConfirmOnly
@@ -3885,7 +2805,7 @@ fn per_strategy_derivation_is_identical_across_all_three_verdicts() {
           </Strata>
         </Language></HermitCrabInput>"#;
 
-    // Where the compilers disagree: PlanComposed emits no lexc line for a RealizationalRule.
+    // A RealizationalRule on its own emits no lexc line.
     const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -3973,34 +2893,6 @@ fn every_narrowing_excuses_only_a_compiler_that_can_represent_the_construct() {
     }
 }
 
-// The property making every narrowing safe: the floor a dropped predicate lands on is ConfirmOnly.
-#[test]
-fn a_narrowed_predicate_can_never_land_its_kind_on_an_admit_floor() {
-    let registry = default_registry();
-    let mut narrowed_kinds = 0usize;
-    for predicate in registry.predicates() {
-        if predicate.constrains_strategies().len() == ALL_STRATEGIES.len() {
-            continue;
-        }
-        for &kind in predicate.discharges() {
-            narrowed_kinds += 1;
-            assert_eq!(
-                disposition_floor(kind.default_disposition()),
-                CompileDecision::ConfirmOnly,
-                "predicate {} is narrowed, so a compiler it no longer constrains falls back to \
-                 disposition_floor for {kind:?} -- that floor must be ConfirmOnly, or narrowing \
-                 could manufacture an Admit and license an admission filter nothing proved",
-                predicate.id()
-            );
-        }
-    }
-    assert!(
-        narrowed_kinds > 0,
-        "no predicate is narrowed, so this property is vacuous -- it must be re-pointed at \
-         whatever replaced the narrowing rather than left passing on an empty set"
-    );
-}
-
 // Hand-built verdicts, so the join claim does not wait on finding a grammar of each shape.
 #[test]
 fn global_refuses_only_when_every_strategy_refuses() {
@@ -4011,13 +2903,15 @@ fn global_refuses_only_when_every_strategy_refuses() {
             witness: "w".to_string(),
         }
     }
+    // The join is defined over any number of verdicts; the strategy label is irrelevant to it.
     fn envelope(decisions: [CompileDecision; 3]) -> StrategyEnvelope {
         StrategyEnvelope {
-            verdicts: ALL_STRATEGIES
-                .iter()
-                .copied()
-                .zip(decisions)
-                .map(|(strategy, decision)| StrategyVerdict { strategy, decision })
+            verdicts: decisions
+                .into_iter()
+                .map(|decision| StrategyVerdict {
+                    strategy: EmissionStrategy::TunedSurfaceProbed,
+                    decision,
+                })
                 .collect(),
         }
     }
@@ -4074,10 +2968,10 @@ fn global_refuses_only_when_every_strategy_refuses() {
     assert_eq!(
         reported,
         vec![
-            EmissionStrategy::PlanComposed,
-            EmissionStrategy::TemplatedUnderlyingTokens
+            EmissionStrategy::TunedSurfaceProbed,
+            EmissionStrategy::TunedSurfaceProbed
         ],
-        "the envelope must name which compilers declined, which a scalar decision cannot"
+        "the envelope must name which verdicts declined, which a scalar decision cannot"
     );
 }
 

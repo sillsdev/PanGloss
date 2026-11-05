@@ -10,10 +10,10 @@
 //!
 //! | | states | arcs | relative `apply_up` cost |
 //! |---|---|---|---|
-//! | plan-composed (`uflexc`) | 2,044 | 21,114 | ~1300x slower |
+//! | self-looping chains | 2,044 | 21,114 | ~1300x slower |
 //! | hand-spun (`crate::emit`) | 106,365 | 702,364 | baseline |
 //!
-//! The plan-composed net is **50x smaller and ~1300x slower to apply**. Any metric monotone in
+//! The self-looping net is **50x smaller and ~1300x slower to apply**. Any metric monotone in
 //! states, arcs, or total proposal count picks the wrong candidate here (proposal counts were
 //! 575 vs 127 — "nearly tied" — across that same 1300x gap). So this module deliberately reports
 //! size and reports it as *context*, never as a ranking term.
@@ -21,7 +21,7 @@
 //! # What IS predictive: the shape of the continuation graph
 //! `crate::emit` builds BOUNDED, non-looping derivational chains where each slot appears exactly
 //! once (that module's `build_deriv_chain`), so branching at any input position is small and
-//! locally bounded. `crate::uflexc` builds SELF-LOOPING prefix/suffix chains, and `apply_up` must
+//! locally bounded. A net built from SELF-LOOPING prefix/suffix chains behaves differently, and `apply_up` must
 //! keep "did the word take another turn through this loop" live at every loop state, with the
 //! ambiguity compounding across the word. **The `apply_up` code is identical on both sides — the
 //! gap is entirely automaton shape.**
@@ -48,7 +48,7 @@
 //! # What foma already provides, and why that was not enough
 //! `foma::topsort::fsm_topsort` is a prefabricated linear Kahn's-algorithm pass that already answers
 //! "is this net cyclic" (setting `is_loop_free` / a `PATHCOUNT_CYCLIC` pathcount), and
-//! `examples/p6_templated_q1_cycle_check.rs` already used it for exactly that. It is deliberately
+//! is used for exactly that elsewhere. It is deliberately
 //! NOT re-implemented here for the coarse question: [`shape_unit_tests::
 //! full_graph_cycle_detection_agrees_with_fomas_own_topsort`] cross-checks this module's own
 //! full-graph answer against foma's, on six nets, so a bug in the walk below shows up as a
@@ -57,7 +57,7 @@
 //! What `fsm_topsort` cannot do is the thing that matters: it returns one boolean for the WHOLE net,
 //! over the WHOLE arc set. It cannot say a cycle is zero-width in a given apply direction, cannot
 //! separate the deliberate input-consuming loops from the pathological free ones, and reports no
-//! per-state distribution at all. On `uflexc`'s output its answer is "cyclic" both before and after
+//! per-state distribution at all. On a self-looping net its answer is "cyclic" both before and after
 //! the fix that removed the explosion, so it cannot discriminate the case this module exists for.
 //!
 //! # HARD SCOPE: this is a first-pass filter and a regression tripwire, NEVER a certification signal
@@ -172,7 +172,7 @@ pub struct NetShape {
     /// Reported for CONTEXT only, as `Self::states`.
     pub arcs: u64,
     /// Cycles over the FULL continuation graph, labels ignored. A high count here is normal and not
-    /// by itself a problem: `uflexc`'s self-looping affix chains are deliberate, and a loop whose
+    /// by itself a problem: self-looping affix chains are deliberate, and a loop whose
     /// every lap consumes a real surface character is bounded by the query's own length.
     pub cycles: CycleCensus,
     /// Cycles over the subgraph of arcs that consume NOTHING in `Self::direction`. **This is the
@@ -313,9 +313,8 @@ impl NetShape {
     /// One deterministic line naming every counter, for a gate's evidence output.
     ///
     /// Deliberately exhaustive: a gate that prints only the number it asserts on cannot be used to
-    /// diagnose the run that failed it, and this crate's existing convention
-    /// (`boundary_marker_epsilon_collapse_gate`'s own printed lines) is to emit the whole
-    /// deterministic vector unconditionally, passing or failing.
+    /// diagnose the run that failed it, and this crate's convention is to
+    /// emit the whole deterministic vector unconditionally, passing or failing.
     pub fn evidence_line(&self) -> String {
         format!(
             "dir={:?} states={} arcs={} \

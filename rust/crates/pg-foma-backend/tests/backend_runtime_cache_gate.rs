@@ -1,7 +1,6 @@
 //! A run-scoped evaluator cache must never change a score, certification, or winner relative to the uncached path, and a cache prepared for fewer occurrences than requested must fail closed rather than select silently.
 
 use pg_conformance_fixtures::require_fixture;
-use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 use pg_foma_backend::backend_optimizer::{pareto_frontier, select_confirmed, Certification};
 use pg_foma_backend::backend_registry::{MaterializerContext, Registry};
@@ -99,48 +98,21 @@ fn cached_and_uncached_scores_and_winner_are_invariant() {
 }
 
 #[test]
-fn prepared_oracle_is_shared_and_composed_backends_do_not_emit_another_backend() {
+fn prepared_oracle_is_shared_across_every_candidate() {
     let (grammar, words) = fixture();
     let all_plans = plans(&grammar);
-    let (whole, composed): (Vec<_>, Vec<_>) = all_plans
-        .into_iter()
-        .partition(|plan| plan.strategy().is_whole_grammar());
-    let composed = composed
-        .into_iter()
-        .filter(|plan| plan.strategy() == EmissionStrategy::PlanComposed)
-        .take(2)
-        .collect::<Vec<_>>();
-    assert!(
-        !whole.is_empty(),
-        "fixture must have a whole-grammar candidate"
-    );
-    assert!(
-        composed.len() >= 2,
-        "fixture must have two composed candidates"
-    );
+    assert!(!all_plans.is_empty(), "fixture must have a candidate");
 
-    let mut whole_cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
     evaluate_plans_with_cache(
         &grammar,
-        &whole,
+        &all_plans,
         &words,
         RuntimeBudget::default(),
-        &mut whole_cache,
+        &mut cache,
     );
-    assert_eq!(whole_cache.oracle_calls(), words.len());
-
-    let mut composed_cache =
-        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
-            .expect("oracle preparation must succeed for this fixture");
-    evaluate_plans_with_cache(
-        &grammar,
-        &composed,
-        &words,
-        RuntimeBudget::default(),
-        &mut composed_cache,
-    );
-    assert_eq!(composed_cache.oracle_calls(), words.len());
+    assert_eq!(cache.oracle_calls(), words.len());
 }
 
 #[test]

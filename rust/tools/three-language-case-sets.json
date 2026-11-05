@@ -502,7 +502,7 @@
       "sourceSha256": "sha256:33124870ea1ef148759220c3dbf513042682934e94131443bb4b4e53db6ee57e",
       "grammarSource": "amharic-hc.xml",
       "grammarSha256": "sha256:d5156ea82c6c92c169fd6cabcab1ebfb19ec5d95e9d8dea21938ff421f5fff70",
-      "selectedBackend": "templated-underlying-tokens",
+      "selectedBackend": "tuned-surface-probed",
       "selectionPolicy": "first 200 alphabet-encodable source lines after the four-line header",
       "declaredCount": 200,
       "cases": [
@@ -1315,7 +1315,7 @@
       "sourceSha256": "sha256:e888ce23f92638ddd5a3d5a21e5f88f645d51ccf1d27ad6cf2e42e21dc58b4ec",
       "grammarSource": "aweti.json",
       "grammarSha256": "sha256:f4d5426f177b8c296f5ba78068d0591a72a9f081e330df81dedc8c0455cc31f6",
-      "selectedBackend": "templated-underlying-tokens",
+      "selectedBackend": "tuned-surface-probed",
       "selectionPolicy": "historical 106 oracle-bearing source lines; current exact complete analysis sets remain required",
       "declaredCount": 106,
       "cases": [

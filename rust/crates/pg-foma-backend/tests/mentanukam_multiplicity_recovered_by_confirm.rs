@@ -26,10 +26,8 @@ fn mentanukam_proposes_once_but_confirms_the_oracles_full_multiplicity() {
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let baseline_plan = enumerate_default(&g, semantics.prules_in_order(), phonology.as_ref());
 
-    for strategy in [
-        EmissionStrategy::TunedSurfaceProbed,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-    ] {
+    {
+        let strategy = EmissionStrategy::TunedSurfaceProbed;
         let candidate = LoweredCandidate {
             label: "mentanukam-multiplicity",
             plan: baseline_plan.clone(),

@@ -1,13 +1,11 @@
 //! Integration test for tree-structured node/subtree interaction coverage over the reified compilation plan (rather than pairwise covering arrays over raw grammar "knobs"); build-breaking if any required `AdjacencyTuple` is `Uncovered`.
-//! See docs/research/pg-foma-plan-interaction-coverage-gate-notes.md for what this gate does and does not assert, and the separate fuzz-slice correctness check it also runs.
+//! See docs/research/pg-foma-plan-interaction-coverage-gate-notes.md for what this gate does and does not assert.
 
 use pg_conformance_fixtures::discover;
 use pg_foma::capability::CharacteristicsProfile;
-use pg_foma::oracle::OracleResult;
 use pg_foma::plan::Plan;
 use pg_foma_backend::plan_interaction_coverage::{
-    compute_interaction_coverage, fuzz_gate_group_reordering_for_grammar, gate_group_count,
-    plan_and_profile, TupleStatus,
+    compute_interaction_coverage, plan_and_profile, TupleStatus,
 };
 
 /// The coverage-report half, build-breaking; see this file's own top-doc for exactly what it does and does not assert.
@@ -36,7 +34,7 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
         .collect();
     let report = compute_interaction_coverage(&refs);
 
-    // Non-vacuity first: a report that silently shrank/grew the tuple set would make the build-breaking assertion below pass trivially, so `7`/`2` here are pinned literals, never derived from the functions they check.
+    // Non-vacuity first: a report that silently shrank/grew the tuple set would make the build-breaking assertion below pass trivially, so `7`/`1` here are pinned literals, never derived from the functions they check.
     assert_eq!(
         report.required.len(),
         7,
@@ -52,11 +50,7 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
          something to silently drop: {:?}",
         report.unexpected_tuples
     );
-    assert_eq!(
-        report.retired.len(),
-        2,
-        "the two cited orthogonality proofs"
-    );
+    assert_eq!(report.retired.len(), 1, "the one cited orthogonality proof");
 
     let covered_n = report
         .required
@@ -77,7 +71,7 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
             row.tuple, row.status, row.tags, row.covering_fixtures
         );
     }
-    eprintln!("RETIRED (proven orthogonal, never fuzzed):");
+    eprintln!("RETIRED (proven orthogonal):");
     for r in &report.retired {
         eprintln!("  {}: {}", r.label, r.evidence);
     }
@@ -93,81 +87,5 @@ fn plan_interaction_coverage_has_no_uncovered_required_tuples() {
          what each of the 7 shapes requires. Full report above.",
         uncovered.len(),
         uncovered.iter().map(|r| &r.tuple).collect::<Vec<_>>()
-    );
-}
-
-/// The fuzz-slice half; see this file's own top-doc for why this is a hard assertion, unlike the coverage report above.
-#[test]
-fn gate_group_reordering_agrees_on_every_multi_group_corpus_fixture() {
-    let mut checked = 0usize;
-    let mut skipped_single_group = 0usize;
-    let mut skipped_unloadable = 0usize;
-    let mut refused_alpha = 0usize;
-
-    for f in discover() {
-        let xml = f.load_grammar_xml();
-        let Ok(g) = pg_grammar::load(&xml) else {
-            skipped_unloadable += 1;
-            continue;
-        };
-        let (plan, _profile) = plan_and_profile(&g);
-        if gate_group_count(&plan) < 2 {
-            // Reordering a single group (or no Gate node at all) is a no-op, so skip it rather than padding the count with vacuous Agrees.
-            skipped_single_group += 1;
-            continue;
-        }
-
-        let words_yaml = f.load_words_yaml();
-        let words: Vec<&str> = words_yaml
-            .words
-            .iter()
-            .map(|w| w.word.as_str())
-            .take(25) // bound compile+apply cost per fixture; this is a targeted regression slice,
-            // not an exhaustive replay (module top-doc's own "targeted, not general" framing).
-            .collect();
-        if words.is_empty() {
-            continue;
-        }
-
-        let (groups, result) = match fuzz_gate_group_reordering_for_grammar(&g, &words) {
-            Ok(value) => value,
-            Err(pg_foma::compose_budget::ComposeError::CannotRepresent { .. })
-                if pg_foma::emit::alpha_environment_refusal(&g) =>
-            {
-                refused_alpha += 1;
-                continue;
-            }
-            Err(e) => panic!("{}: both plans must build: {e:?}", f.label()),
-        };
-        assert!(groups >= 2, "{}: gate_group_count contract", f.label());
-
-        match result {
-            OracleResult::Agree => {}
-            OracleResult::Disagree {
-                word,
-                only_in_a,
-                only_in_b,
-                ..
-            } => panic!(
-                "{}: gate-group reordering must Agree (retirement #2's own order-invariance claim) \
-                 -- got a real divergence at {word:?}: only_in_a={only_in_a:?}, \
-                 only_in_b={only_in_b:?}. This is a genuine regression, never something to paper \
-                 over.",
-                f.label()
-            ),
-        }
-        checked += 1;
-    }
-
-    eprintln!(
-        "=== Gate-group-reordering fuzz slice (deliverable 5) === checked {checked} multi-group \
-         fixtures, skipped {skipped_single_group} single/no-group fixtures, {skipped_unloadable} \
-         unloadable, {refused_alpha} alpha-environment refusals"
-    );
-    assert!(
-        checked > 0,
-        "at least one discovered fixture must have >=2 Gate partition groups to exercise this \
-         slice -- if this ever fails, either the corpus lost its only gated-multi-group fixture or \
-         fixture discovery itself broke; either way it's worth knowing, not silently skipping"
     );
 }

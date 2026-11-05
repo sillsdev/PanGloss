@@ -6,9 +6,9 @@ use pg_foma::capability::{CharacteristicKind, ModelLocation};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma_backend::backend_mechanism::{
     mechanism_kind_for, BoundaryCleanupSpec, BoundaryState, ExecutionDisposition, InterfaceField,
-    MechanismBinding, MechanismBody, MechanismEdge, MechanismEndpoint, MechanismGraph,
-    MechanismGraphError, MechanismId, MechanismKind, MechanismNode, MechanismSource,
-    MechanismSourceKind, MorphotacticsSpec, SymbolSpace, WireModelId, WireModelKind,
+    MechanismBody, MechanismEdge, MechanismEndpoint, MechanismGraph, MechanismGraphError,
+    MechanismId, MechanismKind, MechanismNode, MechanismSource, MechanismSourceKind,
+    MorphotacticsSpec, SymbolSpace, WireModelId, WireModelKind,
 };
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{
@@ -385,7 +385,7 @@ fn backend_mechanism_accepts_composable_morphotactics_cleanup_graph() {
 
 // --- Bindings: the only place a disposition exists, and it always names its compiler. ---
 
-/// A mechanism requiring `ProcessMorphology` is refused by `PlanComposed` AND `TemplatedUnderlyingTokens` (neither runs a composite pipeline for an in-place mutation) yet exact for `TunedSurfaceProbed` -- same node, same graph, per-compiler answers, each carrying its compiler's name.
+/// A mechanism requiring `ProcessMorphology` is exact for `TunedSurfaceProbed`, and every binding names its compiler.
 #[test]
 fn backend_mechanism_binding_answers_per_compiler_and_never_anonymously() {
     let mut node = morphotactics("morph");
@@ -399,20 +399,6 @@ fn backend_mechanism_binding_answers_per_compiler_and_never_anonymously() {
     g.validate()
         .expect("graph is composable regardless of compiler");
 
-    for strategy in [
-        EmissionStrategy::PlanComposed,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-    ] {
-        let refused = g.refusals(strategy);
-        assert_eq!(refused.len(), 1, "{strategy:?}");
-        assert_eq!(refused[0].mechanism(), &MechanismId("morph".to_owned()));
-        assert_eq!(refused[0].strategy(), strategy);
-        assert!(
-            !refused[0].limiting_rows().is_empty(),
-            "a refusal must carry strategy_coverage's own citation"
-        );
-    }
-
     assert!(
         g.refusals(EmissionStrategy::TunedSurfaceProbed).is_empty(),
         "TunedSurfaceProbed represents ProcessMorphology"
@@ -424,18 +410,6 @@ fn backend_mechanism_binding_answers_per_compiler_and_never_anonymously() {
     assert!(bindings
         .iter()
         .all(|b| b.strategy() == EmissionStrategy::TunedSurfaceProbed));
-}
-
-/// A documented partial gap is confirm-gated, never silently exact and never a refusal.
-#[test]
-fn backend_mechanism_binding_folds_a_known_gap_to_confirm_only() {
-    let mut node = morphotactics("morph");
-    node.construct_requirements = [CharacteristicKind::CircumfixOutputAction]
-        .into_iter()
-        .collect();
-    let binding = MechanismBinding::derive(&node, EmissionStrategy::PlanComposed);
-    assert_eq!(binding.disposition(), ExecutionDisposition::ConfirmOnly);
-    assert_eq!(binding.limiting_rows().len(), 1);
 }
 
 /// Every construct lands in exactly one mechanism, and every mechanism receives at least one.

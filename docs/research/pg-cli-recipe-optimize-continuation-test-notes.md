@@ -56,3 +56,12 @@ above the rest (so a derived bound can single it out). Measured order:
 
 Nothing in the test file hardcodes these numbers; they are recorded here so a reader knows what the
 fixture is for.
+
+## Since the Templated and Plan composed backends were deleted
+
+One strategy is registered, so a run evaluates one candidate. The binary can no longer show a failing
+candidate mid-sequence, nor a bound that abandons one candidate while a later one is evaluated. The
+tests `a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress` and
+`a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report` were removed, and the
+other two were retargeted to the single candidate (see `docs/fst-plan/removed-backends.md`). The
+continuation property is owed again by whichever change registers a second strategy.

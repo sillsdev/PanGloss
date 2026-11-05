@@ -147,8 +147,9 @@ pub struct FomaProposer {
     // Fully owned/`'static` (a clone of the compiled `Fsm`), not a borrow this struct would also need to store.
     handle: Box<ApplyHandle>,
     /// Diagnostics from the compiler that built this proposer, when that compiler produces an
-    /// `EmitReport`. Plan-composed networks deliberately carry `None`: asking the tuned-surface
-    /// emitter to manufacture diagnostics for a different backend can itself be unbounded work.
+    /// `EmitReport`. A network built by a compiler that makes none carries `None`: asking the
+    /// tuned-surface emitter to manufacture diagnostics for a different backend can itself be
+    /// unbounded work.
     pub report: Option<EmitReport>,
     query_encoder: Option<SegmentQueryEncoder>,
 }

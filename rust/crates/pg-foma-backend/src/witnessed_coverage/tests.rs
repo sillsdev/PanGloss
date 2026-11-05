@@ -15,38 +15,34 @@ fn observation(
 /// A refused backend and a failed compile must both credit nothing, or the collector is just the declarative table with extra steps.
 #[test]
 fn only_a_successful_compile_witnesses_anything() {
-    let report = build_report(
-        "all",
-        1,
-        &[observation(
-            "synthetic",
-            &[CharacteristicKind::Affixation],
-            &[
-                (EmissionStrategy::PlanComposed, BackendOutcome::Compiled),
-                (
-                    EmissionStrategy::TunedSurfaceProbed,
-                    BackendOutcome::CompileFailed("forced".to_string()),
-                ),
-                (
-                    EmissionStrategy::TemplatedUnderlyingTokens,
-                    BackendOutcome::RefusedBySelector,
-                ),
-            ],
-        )],
-    );
+    let strategy = EmissionStrategy::TunedSurfaceProbed;
+    let report_for = |outcome: BackendOutcome| {
+        build_report(
+            "all",
+            1,
+            &[observation(
+                "synthetic",
+                &[CharacteristicKind::Affixation],
+                &[(strategy, outcome)],
+            )],
+        )
+    };
+
+    let compiled = report_for(BackendOutcome::Compiled);
     assert_eq!(
-        report.witnessed,
-        vec![(
-            CharacteristicKind::Affixation,
-            EmissionStrategy::PlanComposed
-        )]
+        compiled.witnessed,
+        vec![(CharacteristicKind::Affixation, strategy)]
     );
-    assert_eq!(
-        report.backends_compiling,
-        vec![EmissionStrategy::PlanComposed]
-    );
-    assert_eq!(report.compile_failures.len(), 1);
-    assert_eq!(report.selector_refusals.len(), 1);
+    assert_eq!(compiled.backends_compiling, vec![strategy]);
+
+    let failed = report_for(BackendOutcome::CompileFailed("forced".to_string()));
+    assert!(failed.witnessed.is_empty());
+    assert!(failed.backends_compiling.is_empty());
+    assert_eq!(failed.compile_failures.len(), 1);
+
+    let refused = report_for(BackendOutcome::RefusedBySelector);
+    assert!(refused.witnessed.is_empty());
+    assert_eq!(refused.selector_refusals.len(), 1);
 }
 
 /// A kind no observed grammar contains can never be witnessed, however many backends compiled.
@@ -105,17 +101,10 @@ fn each_gap_names_why_it_is_one() {
         &[observation(
             "synthetic",
             &[CharacteristicKind::Affixation],
-            &[
-                (EmissionStrategy::PlanComposed, BackendOutcome::Compiled),
-                (
-                    EmissionStrategy::TunedSurfaceProbed,
-                    BackendOutcome::RefusedBySelector,
-                ),
-                (
-                    EmissionStrategy::TemplatedUnderlyingTokens,
-                    BackendOutcome::Compiled,
-                ),
-            ],
+            &[(
+                EmissionStrategy::TunedSurfaceProbed,
+                BackendOutcome::RefusedBySelector,
+            )],
         )],
     );
     assert_eq!(report.gaps.len(), report.gap_attributions.len());
@@ -150,21 +139,28 @@ fn a_vacuous_run_is_refused_by_the_non_vacuity_requirement() {
         .check(CompletenessRequirement::NonVacuity)
         .expect_err("an empty collection must not pass");
     assert_eq!(violations.len(), 3, "{violations:?}");
-    assert_eq!(report.gaps.len(), 69, "every representable pair is a gap");
+    assert_eq!(
+        report.gaps.len(),
+        CompletenessReport::total_pairs(),
+        "every representable pair is a gap"
+    );
 }
 
 /// The strict requirement is live code, not a comment: it must reject exactly what the lenient one tolerates.
 #[test]
 fn the_strict_requirement_rejects_a_gap_the_lenient_one_reports() {
-    let mut outcomes: Vec<(EmissionStrategy, BackendOutcome)> = ALL_STRATEGIES
+    let outcomes: Vec<(EmissionStrategy, BackendOutcome)> = ALL_STRATEGIES
         .iter()
         .map(|&s| (s, BackendOutcome::Compiled))
         .collect();
-    outcomes.pop();
     let report = build_report(
         "all",
         1,
-        &[observation("synthetic", CharacteristicKind::ALL, &outcomes)],
+        &[observation(
+            "synthetic",
+            &[CharacteristicKind::Affixation],
+            &outcomes,
+        )],
     );
     assert!(!report.gaps.is_empty());
     assert!(report.check(CompletenessRequirement::NonVacuity).is_ok());

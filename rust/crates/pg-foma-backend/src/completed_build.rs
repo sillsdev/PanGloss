@@ -19,7 +19,6 @@ use crate::characterization::ClosureTerminal;
 use crate::composite::FomaAnalyzer;
 use crate::emit::{EmitReport, FomaTier};
 use crate::enumerate::EmissionStrategy;
-use crate::templated_compile::compile_templated_morphotactics;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttemptId(String);
@@ -76,13 +75,11 @@ impl CompileAttempt {
 
 /// Which kind of route-specific evidence made a completed payload eligible for selection.
 ///
-/// The proof is deliberately not interchangeable: a templated emission certificate never claims
-/// to have run TunedSurface closure, and a TunedSurface closure certificate never stands in for a
-/// templated emitter's Full report.
+/// The proof is deliberately not interchangeable: each backend names its own kind, so one
+/// backend's certificate never stands in for another's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionProofKind {
     TunedClosure,
-    TemplatedFullEmission,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,17 +89,12 @@ enum CompletionProof {
         worklist_empty: bool,
         pending_successor_count: usize,
     },
-    TemplatedFullEmission {
-        uncovered_count: usize,
-        skipped_count: usize,
-    },
 }
 
 impl CompletionProof {
     fn kind(&self) -> CompletionProofKind {
         match self {
             Self::TunedClosure { .. } => CompletionProofKind::TunedClosure,
-            Self::TemplatedFullEmission { .. } => CompletionProofKind::TemplatedFullEmission,
         }
     }
 }
@@ -180,13 +172,6 @@ impl CompletedBackendBuildEvidence {
                     pending_successor_count,
                 },
             ) => *worklist_empty && *pending_successor_count == 0,
-            (
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                CompletionProof::TemplatedFullEmission {
-                    uncovered_count,
-                    skipped_count,
-                },
-            ) => *uncovered_count == 0 && *skipped_count == 0,
             _ => false,
         }
     }
@@ -218,13 +203,6 @@ impl CompletedBackendBuild {
                 terminal: *terminal,
                 worklist_empty: *worklist_empty,
                 pending_successor_count: *pending_successor_count,
-            },
-            CompletionProof::TemplatedFullEmission {
-                uncovered_count,
-                skipped_count,
-            } => CompletionProofWire::TemplatedFullEmission {
-                uncovered_count: *uncovered_count,
-                skipped_count: *skipped_count,
             },
         };
         CompletedBackendBuildWire {
@@ -268,10 +246,6 @@ pub enum CompletionProofWire {
         worklist_empty: bool,
         pending_successor_count: usize,
     },
-    TemplatedFullEmission {
-        uncovered_count: usize,
-        skipped_count: usize,
-    },
 }
 
 /// The selector's opaque choice.  It cannot be constructed from a caller-supplied strategy or
@@ -310,10 +284,7 @@ impl SelectedBackendBuild {
         validate_payload(&self.build)?;
         let net = read_foma_binary_payload(&self.build.payload_bytes)
             .map_err(|error| CompletedBuildError::PayloadRead(error.to_string()))?;
-        let mut proposer = FomaProposer::from_precompiled_network_without_emit_report(&net);
-        if self.strategy() == EmissionStrategy::TemplatedUnderlyingTokens {
-            proposer = proposer.with_segment_query_encoder(crate::emit::surface_table(grammar));
-        }
+        let proposer = FomaProposer::from_precompiled_network_without_emit_report(&net);
         Ok(FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
     }
 }
@@ -530,47 +501,6 @@ pub(crate) fn compile_tuned_surface_for_measurement(
         grammar_id,
         request,
         proposer,
-        model_fingerprint,
-        completion_proof,
-    )
-}
-
-/// `TemplatedUnderlyingTokens`'s own measurement compile, called through `crate::backend::Backend::compile_for_measurement`.
-pub(crate) fn compile_templated_underlying_for_measurement(
-    grammar: &Grammar,
-    selection: &crate::backend_selection::BackendSelection,
-    request: &CompileAttempt,
-) -> Result<CompletedBackendBuild, CompletedBuildError> {
-    let requested_strategy = EmissionStrategy::TemplatedUnderlyingTokens;
-    let grammar_id = grammar_identity(grammar);
-    // Refused before emitting, per ADR-0001, mirroring `analyzer::FomaProposer::new`'s own gate.
-    if let Err(diagnostics) =
-        crate::capability_gate::refuse_unless_admitted_in(selection, requested_strategy)
-    {
-        return Err(CompletedBuildError::CapabilityRefused(diagnostics));
-    }
-    let output = compile_templated_morphotactics(grammar)
-        .map_err(|error| CompletedBuildError::Compiler(error.to_string()))?;
-    let report = output.proposer.report.as_ref().ok_or_else(|| {
-        CompletedBuildError::IncompleteEvidence("templated compiler emitted no report".to_string())
-    })?;
-    validate_emit_report(report)?;
-    let skipped = output.profile.skipped_rules.len() + report.counts.allomorphs_skipped;
-    if skipped != 0 {
-        return Err(CompletedBuildError::IncompleteEvidence(format!(
-            "templated compiler skipped {skipped} rule/allomorph items"
-        )));
-    }
-    let completion_proof = CompletionProof::TemplatedFullEmission {
-        uncovered_count: report.uncovered.len(),
-        skipped_count: skipped,
-    };
-    let model_fingerprint = finished_net_digest(&output.network);
-    build_from_proposer(
-        requested_strategy,
-        grammar_id,
-        request,
-        output.proposer,
         model_fingerprint,
         completion_proof,
     )

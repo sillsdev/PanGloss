@@ -93,12 +93,10 @@
 //!    actually realized by the grammar's own entries (≤ `#entries`), an honest, measurable
 //!    per-grammar quantity — matches this repo's "keep old paths, measure don't guess" convention
 //!    rather than a blind assumption it always stays small.
-//! 4. `compile_gated_grammar` builds ONE composed network PER GROUP: [`crate::uflexc::
-//!    emit_underlying_filtered`] restricted to that group's entries (affix chains unfiltered — see
-//!    their own doc), `crate::replace::compile_and_compose_rules_gated` with every gated
-//!    subrule's inclusion decided by that group's own key (ungated subrules always included), then
-//!    `lexc_group .o. rules_group`. The per-group nets are then `foma::constructions::fsm_union`ed into one final
-//!    network.
+//! 4. The partition is data a `crate::plan::PlanNodeKind::Gate` node carries (`crate::enumerate`).
+//!    The compile path that built one composed network per group and unioned them
+//!    (`compile_gated_grammar`) was removed with the plan-composed backend. The text below describes
+//!    why that union was safe.
 //!
 //! **Why the union is safe here** (the report's own §2.2 warning about union-of-complete-replace-
 //! nets does NOT apply): that warning was about unioning several REPLACE-RULE nets that all
@@ -140,16 +138,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use foma::constructions::{fsm_compose, fsm_union};
-use foma::minimize::fsm_minimize;
-use foma::options::FomaOptions;
-use foma::types::Fsm;
-
 use pg_grammar::model::{Grammar, LexEntryId, MprGroupMatchType, PhonRuleDef, RewriteSubruleDef};
-
-use crate::compose_budget::ComposeError;
-use crate::replace::{compile_and_compose_rules_gated, SegAlphabet, TupleReport};
-use crate::uflexc::{emit_underlying_filtered, UEmitReport};
 
 /// One (rule position in `prules_in_order`, subrule index within that rule) pair whose
 /// `RewriteSubruleDef` declares a nontrivial `required_pos`/`required_mpr`/`excluded_mpr` (module
@@ -251,136 +240,4 @@ pub fn partition_entries(
         .into_iter()
         .map(|(key, entries)| EntryGroup { key, entries })
         .collect()
-}
-
-/// Full result of the gated compile (module doc step 4): the final unioned network, plus
-/// diagnostics pooled across every group (skipped rules/allomorphs, alpha-tuple reports, per-group
-/// entry/root counts) so a caller can report exactly what this prototype covers.
-#[derive(Debug)]
-pub struct GatedCompileResult {
-    pub net: Option<Fsm>,
-    pub groups: usize,
-    pub skipped_rules: Vec<String>,
-    pub skipped_allomorphs: Vec<String>,
-    pub tuple_reports: Vec<(String, Vec<TupleReport>)>,
-    /// One entry per group: `(gate key, root entries emitted, prefix entries, suffix entries)` —
-    /// `prefix_entries`/`suffix_entries` are identical across every group (module doc: affix chains
-    /// are shared, unfiltered) and repeated here only for a caller's own sanity-printing.
-    pub group_reports: Vec<(Vec<bool>, usize, usize, usize)>,
-}
-
-/// Orchestrates module doc steps 1-4: find the gated subrules, partition entries, compile one
-/// lexc+rules network PER GROUP, union them. `prules_in_order` is the same stratum-cascade-order
-/// slice every other `replace`/`uflexc` entry point takes.
-///
-/// Fallible only where the underlying emitter is: its compound-chain work can refuse a grammar.
-/// The ordinary foma compose/union/minimize operations themselves are infallible.
-/// This function also performs its own FINAL minimize on the fully unioned
-///   network -- `compile_gated_grammar` takes ownership of its own FINAL minimize instead of leaving
-///   it to example drivers, turning a convention (every
-///   example driver already minimizes its own further-composed network) into an enforced
-///   invariant at this layer. Callers that further compose this result (every example/test driver
-///   does, with a boundary-cleanup net) still need their OWN final minimize afterward -- minimizing
-///   here does not make a LATER compose's result minimal.
-pub fn compile_gated_grammar(
-    opts: &FomaOptions,
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    prules_in_order: &[&PhonRuleDef],
-) -> Result<GatedCompileResult, ComposeError> {
-    if crate::emit::alpha_environment_refusal(g) {
-        return Err(ComposeError::CannotRepresent {
-            reason: crate::emit::ALPHA_ENVIRONMENT_REFUSAL,
-        });
-    }
-    let gated = find_gated_subrules(g, prules_in_order);
-    let groups = partition_entries(g, &gated, prules_in_order);
-
-    let mut final_net: Option<Fsm> = None;
-    let mut skipped_rules: Vec<String> = Vec::new();
-    let mut skipped_allomorphs: Vec<String> = Vec::new();
-    let mut tuple_reports: Vec<(String, Vec<TupleReport>)> = Vec::new();
-    let mut group_reports = Vec::new();
-
-    for group in &groups {
-        let UEmitReport {
-            lexc_source,
-            skipped: uskipped,
-            root_entries,
-            prefix_entries,
-            suffix_entries,
-            ..
-        } = emit_underlying_filtered(g, alphabet, Some(&group.entries))?;
-        skipped_allomorphs.extend(uskipped);
-        group_reports.push((
-            group.key.clone(),
-            root_entries,
-            prefix_entries,
-            suffix_entries,
-        ));
-
-        if root_entries == 0 {
-            // An empty group contributes nothing (e.g. a grammar declares a POS no entry uses); skip rather than compile-and-union an empty lexicon.
-            continue;
-        }
-
-        let lexc_net = foma::lexcread::fsm_lexc_parse_string(opts, None, &lexc_source)
-            .unwrap_or_else(|| panic!("gated group lexc failed to compile:\n{lexc_source}"));
-
-        let subrule_ok = |rule_pos: usize, sub_idx: usize| -> bool {
-            match gated
-                .iter()
-                .position(|gs| gs.rule_pos == rule_pos && gs.sub_idx == sub_idx)
-            {
-                None => true, // ungated subrule: always included
-                Some(gate_index) => {
-                    let gs = gated[gate_index];
-                    let PhonRuleDef::Rewrite(rule) = prules_in_order[gs.rule_pos] else {
-                        unreachable!("GatedSubrule always indexes a Rewrite rule")
-                    };
-                    let sr = &rule.subrules[gs.sub_idx];
-                    // A morphological rule may change POS after partitioning, so the root-static key isn't a sound filter then: include the subrule as a proposal superset and let confirmation evaluate the derived POS.
-                    group.key[gate_index] || (sr.required_pos.is_some() && !g.mrules.is_empty())
-                }
-            }
-        };
-        let mut group_skipped_rules = Vec::new();
-        let rules_net = compile_and_compose_rules_gated(
-            opts,
-            g,
-            alphabet,
-            prules_in_order,
-            &subrule_ok,
-            &mut group_skipped_rules,
-            &mut tuple_reports,
-        );
-        // Only report a rule as skipped once, deduped, since every group would otherwise re-report the same unsupported construct.
-        for s in group_skipped_rules {
-            if !skipped_rules.contains(&s) {
-                skipped_rules.push(s);
-            }
-        }
-
-        let group_net = match rules_net {
-            Some(rules) => fsm_compose(opts, lexc_net, rules),
-            None => lexc_net,
-        };
-        final_net = Some(match final_net {
-            None => group_net,
-            // Safe union: groups are lexically disjoint (module doc "why the union is safe here").
-            Some(prev) => fsm_union(opts, prev, group_net),
-        });
-    }
-
-    // This function's own final minimize, taking ownership of the invariant instead of leaving it to every caller.
-    let final_net = final_net.map(|net| fsm_minimize(opts, net));
-
-    Ok(GatedCompileResult {
-        net: final_net,
-        groups: groups.len(),
-        skipped_rules,
-        skipped_allomorphs,
-        tuple_reports,
-        group_reports,
-    })
 }

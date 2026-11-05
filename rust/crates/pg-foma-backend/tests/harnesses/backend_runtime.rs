@@ -3,8 +3,6 @@
 
 #[path = "../backend_runtime_cache_gate.rs"]
 mod backend_runtime_cache_gate;
-#[path = "../backend_runtime_net_is_queryable_gate.rs"]
-mod backend_runtime_net_is_queryable_gate;
 #[path = "../backend_runtime_oracle_bound_gate.rs"]
 mod backend_runtime_oracle_bound_gate;
 #[path = "../five_language_backend_reports_gate.rs"]

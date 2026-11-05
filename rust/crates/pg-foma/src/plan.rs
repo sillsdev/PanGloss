@@ -1,8 +1,9 @@
 //! The compilation `Plan`: a content-addressed AND-OR DAG over a closed node-kind enum.
 //!
 //! Compilation topology is data here rather than control flow, so a compiler can be COMPOSED from
-//! parts instead of hand-written. `crate::enumerate` emits a `Plan` for a `Grammar`;
-//! `crate::build` interprets one into real `foma::types::Fsm`s.
+//! parts instead of hand-written. `crate::enumerate` emits a `Plan` for a `Grammar`. No interpreter
+//! turns one into a `foma::types::Fsm` today (the plan-composed backend's `build_controllable` was
+//! removed); the capability layer reads it as data.
 //!
 //! `emit`/`preexpand` keep their own hardcoded seams and do not consult a `Plan`.
 //!
@@ -101,8 +102,7 @@ fn content_address(kind: &PlanNodeKind) -> NodeId {
 /// topology so a future cost model can vary the strategy per edge without the enumerator
 /// having to emit a combinatorially separate `Compose` topology for every strategy choice.
 ///
-/// Single-variant today: `crate::build::build_controllable` and `crate::enumerate`'s
-/// `refine_gate_partition` both construct and interpret only `Static`. The enum stays (rather
+/// Single-variant today: only `Static` is constructed. The enum stays (rather
 /// than collapsing `Compose { strategy, .. }` to drop the field) because a config-only difference
 /// is still a content-address difference: a future strategy belongs
 /// in this enum, not in a new field elsewhere.
@@ -239,7 +239,7 @@ pub struct GatePartitionSpec {
 /// empty key" collapse) carries `gated_subrules: vec![]` / `group_key: vec![]`, matching
 /// `GatePartitionSpec`'s own ungated-collapse shape.
 ///
-/// `Replace` is content-pure with this fix in place (`crate::build`'s own module doc): its
+/// `Replace` is content-pure with this fix in place (the removed `build_controllable` interpreter relied on it): its
 /// compiled `Fsm` depends on nothing this struct doesn't already carry, so a future `NodeId`-keyed
 /// plan-cache/memoizing interpreter can treat it like any other node, not a `Gate`-aware special
 /// case.

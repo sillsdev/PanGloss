@@ -373,10 +373,10 @@ impl Score {
     /// # Why `raw_paths` joins the leading term, at a measured weight
     /// `confirmation_work` prices confirm-side work only. It does not price what it costs to *produce*
     /// the candidates confirm then adjudicates, and chunk fusion means propose-side blowups do not
-    /// reliably show up as more confirmation work. Measured on Sena's four-corpus shape, the
-    /// plan-composed path produced 575 proposals over 42 calls and the hand-spun candidate 127 over 17
-    /// calls with nearly equal confirmation cost, so a key that never priced the 4.5x proposal gap
-    /// picked the 575-proposal candidate. `raw_paths` (raw paths `apply_up` yields before
+    /// reliably show up as more confirmation work. Measured on Sena's four-corpus shape, one candidate
+    /// produced 575 proposals over 42 calls and another 127 over 17 calls with nearly equal
+    /// confirmation cost, so a key that never priced the 4.5x proposal gap picked the 575-proposal
+    /// candidate. `raw_paths` (raw paths `apply_up` yields before
     /// tag-decode/dedup, summed across the corpus) restores that cost deterministically.
     ///
     /// A work step is about 30 times finer than an analysis attempt was, so a raw path is weighted by

@@ -43,37 +43,16 @@ impl Bucket {
 }
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
-// Rebased on main with the bracket-pattern reduplication fixture (#158): PlanComposed and TSP exact, TUT refused. The two featureless segment-class rewrite fixtures (#120) add: TSP one exact and one miss, TUT two exact, PlanComposed two refused. TSP misses the multi-member one because its model rewrites a featureless node only by one literal spelling, not by a class of several.
-const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Measured on the 169 fixtures of conformance.commit plus staging (the two variant fixtures of #174 are exact on all three strategies); divergence 116 moved 18 TSP and 17 TUT to refused.
-    (
-        EmissionStrategy::TunedSurfaceProbed,
-        Bucket {
-            oracle_exact: 143,
-            compiles_but_misses: 12,
-            refused: 20,
-            unmeasurable: 0,
-        },
-    ),
-    (
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        Bucket {
-            oracle_exact: 117,
-            compiles_but_misses: 12,
-            refused: 46,
-            unmeasurable: 0,
-        },
-    ),
-    (
-        EmissionStrategy::PlanComposed,
-        Bucket {
-            oracle_exact: 69,
-            compiles_but_misses: 3,
-            refused: 100,
-            unmeasurable: 3,
-        },
-    ),
-];
+// Tuned surface probed is the only backend. Measured on the 169 fixtures of conformance.commit plus staging: 143 exact, 12 miss, 20 refused. TSP misses the multi-member featureless segment-class rewrite fixture (#120) because its model rewrites a featureless node only by one literal spelling, not by a class of several.
+const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
+    EmissionStrategy::TunedSurfaceProbed,
+    Bucket {
+        oracle_exact: 143,
+        compiles_but_misses: 12,
+        refused: 20,
+        unmeasurable: 0,
+    },
+)];
 
 /// A ratchet on the NAMED set, not just the count -- a fixture gaining or losing `expect_crash` is reviewable, not just countable.
 const EXPECTED_EXCLUDED: &[&str] = &["machine:edge-cases/simultaneous-epenthesis-cascade"];
@@ -97,7 +76,7 @@ const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
     "machine:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
 
-// Tuned-surface misses two words here (a rewritten second copy and a second spelling of one vowel), each by one identity; see the reconciliation note's altered-copy gap. The other two strategies refuse the reduplication shape.
+// Tuned-surface misses two words here (a rewritten second copy and a second spelling of one vowel), each by one identity; see the reconciliation note's altered-copy gap.
 const COPY_AGREEMENT_FEATURELESS_REDUP: &str =
     "machine:edge-cases/copy-agreement-featureless-redup";
 
@@ -119,58 +98,25 @@ const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
 
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
-    use EmissionStrategy::{PlanComposed, TemplatedUnderlyingTokens, TunedSurfaceProbed};
+    use EmissionStrategy::TunedSurfaceProbed;
     match (fixture, strategy) {
-        (f, _) if f == BOUNDARY_NARROWING_FIXTURE => "oracle_exact",
-        (f, PlanComposed) if REWRITE_DEFAULT_FIXTURES.contains(&f) => "refused",
         (f, TunedSurfaceProbed)
             if f == REWRITE_DEFAULT_EPENTHESIS || f == REWRITE_DEFAULT_FULL_SET =>
         {
             "compiles_but_misses"
         }
-        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
-            if REWRITE_DEFAULT_FIXTURES.contains(&f) =>
-        {
-            "oracle_exact"
-        }
-        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
-            if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE =>
-        {
-            "oracle_exact"
-        }
-        (f, PlanComposed) if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE => "oracle_exact",
-        (f, TunedSurfaceProbed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => "oracle_exact",
-        (f, TemplatedUnderlyingTokens | PlanComposed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => {
-            "refused"
-        }
-        // Divergence 067 requires HC-confirmed oracle equality for the admitted ambiguous-disagree shape.
-        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
-            if f == AMBIGUOUS_DISAGREEMENT_FIXTURE =>
-        {
-            "oracle_exact"
-        }
-        (f, PlanComposed) if f == AMBIGUOUS_DISAGREEMENT_FIXTURE => "refused",
-        (f, TunedSurfaceProbed)
-            if f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
-                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
-        {
-            "oracle_exact"
-        }
-        (f, TemplatedUnderlyingTokens | PlanComposed)
-            if f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
-                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
-        {
-            "refused"
-        }
-        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
-            if PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) =>
-        {
-            "oracle_exact"
-        }
-        (f, PlanComposed) if PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) => "refused",
         (f, TunedSurfaceProbed) if f == COPY_AGREEMENT_FEATURELESS_REDUP => "compiles_but_misses",
-        (f, TemplatedUnderlyingTokens | PlanComposed) if f == COPY_AGREEMENT_FEATURELESS_REDUP => {
-            "refused"
+        (f, TunedSurfaceProbed)
+            if f == BOUNDARY_NARROWING_FIXTURE
+                || REWRITE_DEFAULT_FIXTURES.contains(&f)
+                || f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
+                || f == REALIZATIONAL_UNBOUNDED_FIXTURE
+                || f == AMBIGUOUS_DISAGREEMENT_FIXTURE
+                || f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
+                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                || PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) =>
+        {
+            "oracle_exact"
         }
         (f, s) => panic!("no pinned expectation for ({f}, {s:?})"),
     }

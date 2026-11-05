@@ -1,5 +1,7 @@
 # Backend choice: from a hand-written preference order to a measured one
 
+> **Two backends described here are deleted (2026-11-03).** Templated underlying tokens and Plan composed no longer exist; Tuned surface probed is the only backend. What was removed, the commit that removed it and how to restore it are in [removed-backends.md](fst-plan/removed-backends.md).
+
 Status: planning document, 2026-08-10. Read-only survey of `crp-depth-abort` (== `origin/main`
 at a763189). Every structural claim below carries a file:line citation and is marked VERIFIED
 (read in this worktree) or INFERRED (a conclusion drawn from verified facts). Paths are relative

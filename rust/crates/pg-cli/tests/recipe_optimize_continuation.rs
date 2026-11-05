@@ -1,4 +1,4 @@
-//! Pins that a non-selectable-verdict candidate still appears in `progress.jsonl` and leaves every other candidate evaluable; drives the real `pangloss` binary because this is a property of the loop, evaluator, progress writer, supervisor and report validator together.
+//! Pins that a candidate abandoned by a resource bound is banked in `progress.jsonl` as itself, and that every evaluated candidate is banked; drives the real `pangloss` binary because this is a property of the loop, evaluator, progress writer, supervisor and report validator together.
 //! See docs/research/pg-cli-recipe-optimize-continuation-test-notes.md for why this file exists and why its bounds are self-calibrated rather than hardcoded.
 
 use std::fs;
@@ -140,9 +140,9 @@ fn with_confirmation_work(tag: &str, allowance: u64) -> Run {
     )
 }
 
-/// The continuation property in its purest form, with no resource bound in force: a candidate that disagrees with the oracle sits mid-sequence, and the candidates after it must still be evaluated, banked, and eligible to win.
+/// With no resource bound in force, every evaluated candidate is banked in `progress.jsonl` as itself and the run completes with a confirmed winner. One strategy is registered, so one candidate is evaluated and the loop's continuation past a failing candidate cannot be driven through the binary.
 #[test]
-fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
+fn every_evaluated_candidate_is_banked_and_the_run_completes() {
     let run = unbounded();
     assert!(run.worker_succeeded, "an unbounded run must not fail");
 
@@ -153,21 +153,12 @@ fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
             .expect("an unbounded run writes a report");
         let statuses = run.statuses();
 
-        // Non-vacuity FIRST: without both kinds present this test asserts nothing.
-        let failing = statuses
-            .iter()
-            .position(|status| status.as_str() != "full-hc-confirmed")
-            .expect("the fixture must produce at least one non-selectable verdict");
+        // Non-vacuity FIRST: without a confirmed candidate this test asserts nothing.
         assert!(
             statuses
                 .iter()
                 .any(|status| status.as_str() == "full-hc-confirmed"),
-            "the fixture must also confirm at least one candidate"
-        );
-        assert!(
-            failing + 1 < statuses.len(),
-            "the failing candidate must not be LAST, or 'the run continued past it' is untestable \
-             (verdicts in evaluation order: {statuses:?})"
+            "the fixture must confirm at least one candidate (verdicts: {statuses:?})"
         );
 
         // (a) Nothing evaluated is missing from progress.jsonl, what survives a deadline kill.
@@ -197,7 +188,7 @@ fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
         in_report.sort_unstable();
         assert_eq!(banked, in_report);
 
-        // (b) The run continued past the failure and reached a clean completion with a winner.
+        // (b) The run reached a clean completion with a winner.
         assert_eq!(report["termination"], "complete");
         assert_eq!(report["quality"], "exact");
         assert_eq!(report["search"]["unexplored"].as_u64().unwrap(), 0);
@@ -239,12 +230,9 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
              (confirmations {confirmations:?})"
         );
         assert!(
-            target > 0
-                && statuses[..target]
-                    .iter()
-                    .any(|status| status.as_str() != "full-hc-confirmed"),
-            "candidates before the abandoned one must include a genuine failure, or the \
-             'a disagreement is never relabelled' half of this test is vacuous ({statuses:?})"
+            statuses[target] == "full-hc-confirmed",
+            "the abandoned candidate must be one that confirms unbounded, so the breach is the \
+             only reason it is not selectable ({statuses:?})"
         );
 
         let bounded = with_confirmation_work(
@@ -314,66 +302,5 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
             .unwrap()
             .iter()
             .any(|candidate| candidate["certification"]["status"] == "resource-breach"));
-    }
-}
-
-/// A run that evaluated every candidate it selected and only then discovered it had overrun an aggregate bound must still write its report: pairing zero unexplored with `quality: Approximate` fails `BackendOptimizationReport::validate`, and the supervisor's partial-report.json does not cover a non-zero exit either.
-#[test]
-fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
-    let baseline = unbounded();
-    let confirmations = baseline.confirmations();
-    let total: u64 = confirmations.iter().sum();
-
-    // RATCHET, not the real assertion: "one unit under the total" only reaches every candidate when the LAST one carries cost, and the fixture's last candidate is a refused plan-composed one today (see docs/research/conformance-containment-inventory.md, "What this blocks").
-    assert_eq!(
-        confirmations.last().copied(),
-        Some(0),
-        "FIXTURE's last candidate now carries confirmation cost ({confirmations:?}, total {total}) \
-         -- restore this test's real assertions, preserved verbatim below, as its body"
-    );
-    return;
-
-    #[allow(unreachable_code)]
-    {
-        assert!(
-            confirmations.len() > 1 && total > 0,
-            "this test needs a multi-candidate run that does measurable confirmation work \
-             ({confirmations:?})"
-        );
-
-        // One unit under the whole corpus's cost: every candidate is still reached, since the running total only passes the bound once the last one is added.
-        let allowance = total - 1;
-        assert!(
-            (1..confirmations.len())
-                .all(|index| confirmations[..index].iter().sum::<u64>() <= allowance),
-            "the derived bound must not stop the run early, or this test exercises the deficit path \
-             instead ({confirmations:?})"
-        );
-
-        let bounded = with_confirmation_work(
-            "overrun",
-            baseline.pilot_confirmation().saturating_add(allowance),
-        );
-        assert_eq!(
-            bounded.rows.len(),
-            confirmations.len(),
-            "every selected candidate must still be evaluated and banked"
-        );
-        assert!(
-            bounded.worker_succeeded,
-            "the worker must not fail after evaluating every candidate it selected"
-        );
-        let report = bounded
-            .report
-            .as_ref()
-            .expect("a run that overran on its last candidate must still write report.json");
-        assert_eq!(
-            report["candidates"].as_array().unwrap().len(),
-            confirmations.len()
-        );
-        // It says WHY it stopped without claiming it looked at less than it did.
-        assert_eq!(report["termination"], "budget-exhausted");
-        assert_eq!(report["search"]["unexplored"].as_u64().unwrap(), 0);
-        assert_eq!(report["quality"], "exact");
     }
 }

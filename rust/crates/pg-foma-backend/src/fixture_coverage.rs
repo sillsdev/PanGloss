@@ -17,10 +17,6 @@ pub const UPSTREAM_VARIANT_TAG_EXTENSIONS: &[(&str, pg_foma::capability::Constru
         pg_foma::capability::ConstructVariant::EpenthesisStructural,
     ),
     (
-        "machine:edge-cases/simultaneous-feeding",
-        pg_foma::capability::ConstructVariant::SimultaneousDisjoint,
-    ),
-    (
         "staging:edge-cases/mpr-group-overwrite-without-realizational",
         pg_foma::capability::ConstructVariant::MprOverwrite,
     ),
@@ -31,38 +27,6 @@ pub const UPSTREAM_VARIANT_TAG_EXTENSIONS: &[(&str, pg_foma::capability::Constru
     (
         "machine:edge-cases/recursive-endocentric-compounding",
         pg_foma::capability::ConstructVariant::CompoundingRecursive,
-    ),
-    (
-        "machine:edge-cases/simultaneous-subrule-genuine-overlap",
-        pg_foma::capability::ConstructVariant::SimultaneousUnproven,
-    ),
-    (
-        "machine:edge-cases/right-to-left-bounded-quantifier-rewrite",
-        pg_foma::capability::ConstructVariant::RtlReversal,
-    ),
-    (
-        "machine:edge-cases/right-to-left-bounded-quantifier-rewrite",
-        pg_foma::capability::ConstructVariant::QuantifierBounded,
-    ),
-    (
-        "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
-        pg_foma::capability::ConstructVariant::RtlUnlowerable,
-    ),
-    (
-        "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl",
-        pg_foma::capability::ConstructVariant::QuantifierBoundedUnlowerable,
-    ),
-    (
-        "machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr",
-        pg_foma::capability::ConstructVariant::QuantifierUnboundedUnlowerable,
-    ),
-    (
-        "machine:edge-cases/unbounded-iterative-quantifier-expansion",
-        pg_foma::capability::ConstructVariant::QuantifierUnbounded,
-    ),
-    (
-        "machine:edge-cases/right-to-left-metathesis-reversal",
-        pg_foma::capability::ConstructVariant::MetathesisRtlSwap,
     ),
     (
         "machine:edge-cases/circumfix-cross-product-and-infix-drop",

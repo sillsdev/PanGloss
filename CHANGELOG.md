@@ -23,6 +23,19 @@ file has no section for.
 - A sense-less entry whose only entry ref is a complex-form ref is now built as a variant of its component, as `HCLoader` does (it walks every entry ref of a sense-less entry). Before, a word FieldWorks parses through that entry had no analysis (#169).
 - A variant entry with clitic-typed forms now gets its stem copy and clitic rule in the Clitics stratum, and a variant's rule loop includes stem MSAs (a clitic rule), as `HCLoader` loads each stratum's forms against the main entry's MSAs. Before, only the Morphology stratum was built (#170).
 
+### Interface changes
+
+- The Templated underlying tokens (`templated-underlying-tokens`) and Plan composed (`plan-composed`) FST backends are deleted; Tuned surface probed (`tuned-surface-probed`) is the only backend. `EmissionStrategy::from_label` no longer accepts the two removed labels, so a stored backend report, progress row or recipe that names one is refused instead of read. `pangloss recipe-optimize` evaluates the one remaining strategy: its candidate set shrinks to the baseline, and winner ids carry `@tuned-surface-probed`. The advice catalog drops its `plan-composed-missing-subtrees` entry.
+- The FST scope is unchanged by this: the FST adds no capability that only a grammar already carrying a grammar-health error or warning would need (partial morphemes, for example), and grammars with unrelated warnings still get an FST.
+
+### Parse results
+
+- None. The Tuned surface probed outcome on the 169 conformance fixtures is unchanged: the counts (143 exact, 12 miss, 20 refused) and every pinned fixture cell match `main`.
+
+### Internal
+
+- The backend trait, `ALL_BACKENDS`/`backend_for`, `ALL_STRATEGIES`, the strategy-aware capability envelope, the coverage ledger and the scoreboard gate stay generic, so a backend can be added back or a comparison backend added. `docs/fst-plan/removed-backends.md` names the deleting commit, lists the paths removed and says how to restore or add a backend (`git revert <sha>`).
+
 ## 0.15.0
 
 ### Parse results

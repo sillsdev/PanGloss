@@ -1,18 +1,6 @@
 // Included test files share support modules (`mod common;`), so each is loaded once per includer.
 #![allow(clippy::duplicate_mod)]
 
-#[path = "../confirmed_rewrite_fixture.rs"]
-mod confirmed_rewrite_fixture;
-
-#[path = "../ambiguous_alpha_containment.rs"]
-mod ambiguous_alpha_containment;
-#[path = "../rewrite_oracle_fixtures.rs"]
-mod rewrite_oracle_fixtures;
-
-#[path = "../boundary_marker_epsilon_collapse_gate.rs"]
-mod boundary_marker_epsilon_collapse_gate;
-#[path = "../cross_compiler_equivalence_gate.rs"]
-mod cross_compiler_equivalence_gate;
 #[path = "../cross_table_root_respelling_gate.rs"]
 mod cross_table_root_respelling_gate;
 #[path = "../exercises_tag_liveness.rs"]
@@ -25,19 +13,9 @@ mod f5_diacritics_gate;
 mod f6_reduplication_peel_chain_depth;
 #[path = "../flag_replace_scope.rs"]
 mod flag_replace_scope;
-#[path = "../net_dedup_gate.rs"]
-mod net_dedup_gate;
-#[path = "../net_dedup_sizing_census.rs"]
-mod net_dedup_sizing_census;
-#[path = "../net_shape_gate.rs"]
-mod net_shape_gate;
 #[path = "../oracle_work_determinism_gate.rs"]
 mod oracle_work_determinism_gate;
 #[path = "../permanent_variant_refusals.rs"]
 mod permanent_variant_refusals;
 #[path = "../pk2_eliminate_flag_oracle.rs"]
 mod pk2_eliminate_flag_oracle;
-#[path = "../repeated_alpha_containment.rs"]
-mod repeated_alpha_containment;
-#[path = "../uflexc_compound_loop.rs"]
-mod uflexc_compound_loop;
