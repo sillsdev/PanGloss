@@ -504,6 +504,77 @@ fn compound_synthesis_does_not_transfer_genuine_head_children() {
 }
 
 #[test]
+fn copying_a_floating_markers_anchor_does_not_restore_its_node_ownership() {
+    let g = load_alpha_grammar();
+    let stem = root_word(&g, "apa", 100);
+    let prefix = affix_rule(
+        200,
+        vec![allomorph(
+            200,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                insert_segments(&g, "n"),
+                OutputAction::Copy(PartRef::Input(0)),
+            ],
+        )],
+    );
+    let delete_prefix = affix_rule(
+        201,
+        vec![allomorph(
+            201,
+            vec![single("nc_any", &g), one_or_more("nc_any", &g)],
+            vec![OutputAction::Copy(PartRef::Input(1))],
+        )],
+    );
+    let suffix = affix_rule(
+        202,
+        vec![allomorph(
+            202,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "k"),
+            ],
+        )],
+    );
+    let records = |word: &Word| {
+        word.morphs
+            .iter()
+            .map(|morph| (morph.allomorph.0, morph.order, morph.status))
+            .collect::<Vec<_>>()
+    };
+
+    let prefixed = synthesize(&g, &stem, &prefix).remove(0);
+    let truncated = synthesize(&g, &prefixed, &delete_prefix).remove(0);
+    assert_eq!(char_defs(&truncated.shape), char_defs(&stem.shape));
+    assert_eq!(
+        records(&truncated),
+        vec![
+            (100, 0, MorphStatus::Real),
+            (200, 0, MorphStatus::Floating),
+            (201, 2, MorphStatus::SubsumedFirst),
+        ],
+        "the copied root reclaims node zero from the deleted prefix's fallback mark"
+    );
+
+    let copied = synthesize(&g, &truncated, &suffix).remove(0);
+    assert_eq!(
+        char_defs(&copied.shape),
+        char_defs(&shape_with_lanes(&g, "apak"))
+    );
+    assert_eq!(
+        records(&copied),
+        vec![
+            (100, 0, MorphStatus::Real),
+            (201, 2, MorphStatus::Real),
+            (200, 3, MorphStatus::SubsumedChild),
+            (202, 3, MorphStatus::Real),
+        ],
+        "copying node zero transfers its root owner; the empty prefix annotation becomes a child of the new suffix"
+    );
+}
+
+#[test]
 fn affix_fallback_suppression_observes_child_allomorphs() {
     let g = load_alpha_grammar();
     let stem = root_word(&g, "apa", 100);

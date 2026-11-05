@@ -122,7 +122,7 @@ The former `templated_conformance_proposal_pins` truncation cell tracked a separ
 That test and its backend were removed in [#175](https://github.com/sillsdev/PanGloss/pull/175);
 removing the HC-Rust waivers does not establish parity for that retired route.
 
-The surviving tuned-surface backend still misses a copy-U `gau` proposal under the corrected
+The surviving tuned-surface backend still misses two copy-U `gau` identities under the corrected
 HC-Rust identities (`CircumfixOutputAction` in `faithfulness_coverage_gate`). An original-production
 control measures that fixture as `OracleExact`; the port changes it to `CompilesButMisses`, while
 the other 175 measured fixture cells retain their outcomes. The scoreboard therefore moves from
@@ -137,3 +137,82 @@ from `metathesis-phase-isolation` "hasaasa" to copy-U "gau", without changing th
 
 Staged fixtures are replayed by the same pin driver and use `claims` too; `pg-conformance-fixtures` reads
 only that name. Move the pin with a new `pangloss-oracle-pin-*` tag, never by editing the old one.
+
+## Truncation scoreboard provenance and proposal identities
+
+The `OracleExact` scoreboard label means identity-set equality with the **current HC-Rust**
+parser, not with the founding C# oracle or the fixture's committed expectations.
+`backend_runtime::PreparedCorpus::prepare` constructs `pg_parse::Morpher` and calls `parse_word`;
+`scoreboard::measure` uses that cache. `parity::OccurrenceIdentities::same_identities` compares
+ordered stable morpheme keys, root index, and category, deduplicating derivation multiplicity.
+That deliberately weaker multiplicity relation does not explain the old truncation result:
+for `gau`, the original pipeline even reproduced HC-Rust's complete nine-derivation multiset,
+which had seven distinct identities and disagreed with C#'s eight distinct identities.
+
+Tuned-surface proposals themselves depend on HC-Rust synthesis. The compiler calls
+`preexpand::extend` -> `pg_rules::morph::synthesize_cached` and
+`emit::struct_extend` -> `pg_rules::morph::synthesize`. `preexpand::morph_order_tags` and
+`emit::struct_morph_order_tags` derive composite lexc tag order from the resulting `Word.morphs`
+(sorted by `order`, retaining the first occurrence of each allomorph). Thus the attribution port
+changes compiled proposal tags without any FST source edit; this is not merely a fixed proposer
+being compared against a different baseline. Confirmation also uses HC-Rust and routes results
+by the exact `(ordered morpheme ordinals, root index)` key in `confirm_batch_impl`.
+
+A focused public-API probe compiled the same copy-U grammar twice, changing only
+`pg-rules/{morph,validity,word}.rs` between base `879d00f2fb4e0d7e52d819f366e1b9fc2a751982`
+and port `adfd6eef73f939ca98fac21a6a1b269b4e5da0c1`. The suite pin was
+`67ef89fe3b0d42d2bdeac01811814cd32f194fa4`; C# remains pinned at
+`4d9b454d42a0da35e058641a65596339a79d115b`. Raw compiled-network proposals for `gau` changed
+from 469 to 655 distinct keys (150 removed, 336 added). In each run they exactly equalled the
+observed pipeline's final proposal set, ruling out peeling as the source of this difference.
+The serialized networks also differed. After confirmation, the original run had 9 derivations /
+7 identities and `FullHcConfirmed`; the port had 7 derivations / 6 identities against HC-Rust's
+9 / 8 and `IdentityMismatch { direction: RecallMiss, .. }` (two oracle-only identities,
+zero candidate-only identities).
+
+The table records the complete union of before/after HC-Rust identities for `gau` and each key's
+actual proposal membership; counts are derivation multiplicities. Every identity has category
+`posV`. Fixture names map `A=mruleTruncTrail` (ordinal 0), `B=mruleTruncLead` (1),
+`C=mruleTruncOptIns` (2), `U=mrU` (3), and `ROOT=root32` (4); root indexes start at zero.
+The C# column uses the suite expectations independently verified by the pinned driver during
+port verification, not a new C# run for this diagnostic.
+
+| Identity (root index) | HC before | HC after / C# | Proposed before | Proposed after | Confirmed before | Confirmed after |
+|---|---:|---:|---|---|---:|---:|
+| `A+B+C+ROOT+U` (3) | 1 | 0 | yes | no | 1 | 0 |
+| `A+C+ROOT+U` (2) | 1 | 0 | yes | no | 1 | 0 |
+| `B+A+C+ROOT+U` (3) | 1 | 1 | yes | no | 1 | 0 |
+| `B+C+ROOT+A+U` (2) | 2 | 0 | yes | yes | 2 | 0 |
+| `C+A+ROOT+B+U` (2) | 0 | 1 | no | yes | 0 | 1 |
+| `C+A+ROOT+U` (2) | 0 | 1 | no | no | 0 | 0 |
+| `C+B+ROOT+A+U` (2) | 0 | 1 | no | yes | 0 | 1 |
+| `C+ROOT+A+B+U` (1) | 1 | 0 | yes | yes | 1 | 0 |
+| `C+ROOT+A+U` (1) | 2 | 0 | yes | yes | 2 | 0 |
+| `C+ROOT+B+A+U` (1) | 1 | 0 | yes | yes | 1 | 0 |
+| `ROOT+A+C+B+U` (0) | 0 | 1 | no | yes | 0 | 1 |
+| `ROOT+B+C+A+U` (0) | 0 | 1 | no | yes | 0 | 1 |
+| `ROOT+C+A+U` (0) | 0 | 2 | no | yes | 0 | 2 |
+| `ROOT+U+C+A+B` (0) | 0 | 1 | no | yes | 0 | 1 |
+
+In particular, `B+A+C+ROOT+U` / `([1,0,2,4,3], 3)` is required in both versions, but its proposal
+is lost by the port-dependent compilation. `C+A+ROOT+U` / `([2,0,4,3], 2)` becomes required
+and is absent from both proposal sets. These are two different failure directions. The
+143 exact / 13 misses / 20 refusals pin records both effects in one fixture cell; it does not
+establish that the original FST matched C# or that all proposal changes improved recall.
+No FST-source repair or isolation of the particular composite derivation that drops the first
+key is claimed. The full parser's unwaived multiset gate, rather than this scoreboard label,
+establishes the five-word oracle parity repair.
+
+### Floating-marker transition coverage
+
+`pg-rules/tests/morph_gate.rs`'s
+`copying_a_floating_markers_anchor_does_not_restore_its_node_ownership` uses three real synthesis
+transitions: add a prefix, delete it while copying the root, then copy that shape and insert a
+suffix. Deletion leaves the prefix as an empty `Floating` annotation at node zero; the root
+owns that node. Copying node zero therefore transfers the root owner, and the empty prefix
+becomes a `SubsumedChild` of the new suffix rather than regaining node ownership.
+This expectation is source-derived from the pinned C# `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`
+(node-parent lookup, untransferred top-level fallback) and `Word.MarkMorph` (node reparenting).
+It is not a new direct C# execution. The test fails against the three original production files
+at the intermediate ownership assertion and passes with the port; it also pins the final
+shape and all annotation statuses/orders.
