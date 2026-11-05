@@ -1,0 +1,58 @@
+# oracle-provenance: founding-oracle
+# Signatures and zero-parse rows transcribed from the C# founding oracle (hc-conformance self-check,
+# in-process Morpher), 2026-11-05.
+#
+# mrModS rewrites the vowel after the first consonant (V = {a i}) to the segment class {i} with
+# ModifyFromInput and appends s, in a grammar with NO phonological feature system. C# undoes a
+# modification in analysis by adding the context's AntiFeatureStruct to the node; for a segment class
+# that leaves the node's StrRep restricted to the new spelling {i}, so analysis can only recover a
+# root whose own vowel is already i. PanGloss used to widen the node, which found roots hc.dll
+# cannot (issue #121).
+language: FeaturelessModifyFromInput
+inspired_by: ["synthetic vowel rewrite plus suffix (not modeling any real language)"]
+requires: []
+fieldworks_producible: true
+words:
+  - word: kitas
+    note: >-
+      The root kita already has the vowel i, so rewriting that vowel to {i} changes nothing and the
+      restricted StrRep still unifies with the root. The root kata would also give kitas by synthesis,
+      but hc.dll cannot recover its a, so kitas has exactly one analysis.
+    parses:
+      - signature: "KITA+MODS|kitas"
+        rules: [mrModS]
+        exercises:
+          - "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+  - word: sikas
+    note: The same with a different consonant and a second root whose vowel is i.
+    parses:
+      - signature: "SIKA+MODS|sikas"
+        rules: [mrModS]
+        exercises:
+          - "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+  - word: kita
+    note: The bare root, to show the suffixed readings do not leak onto unsuffixed words.
+    parses:
+      - signature: "KITA|kita"
+        rules: []
+        exercises: []
+  - word: kata
+    note: The bare root whose vowel the rule would rewrite.
+    parses:
+      - signature: "KATA|kata"
+        rules: []
+        exercises: []
+  - word: tisis
+    note: >-
+      Synthesis of the root tasi plus mrModS gives tisis, but the analysis undo leaves the vowel
+      restricted to {i} and the root's a does not unify with it, so hc.dll finds nothing (issue #121).
+    expect_fail: true
+  - word: pisas
+    note: Same as tisis with the root pasa.
+    expect_fail: true
+  - word: kakas
+    note: A vowel that stayed a is never a surface of the rule, whatever the root.
+    expect_fail: true
+  - word: tata
+    note: Neither a bare root nor a suffixed one.
+    expect_fail: true

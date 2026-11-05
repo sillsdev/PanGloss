@@ -150,7 +150,12 @@ impl MutShape {
                 kind: s.kind(i),
                 char_def: s.char_def(i),
                 from_input: true,
-                cd_set: CdSet::Unrestricted,
+                cd_set: match s.node_cd_set(i) {
+                    EffectiveCdSet::Members(bits) => CdSet::Members(bits.clone()),
+                    EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => {
+                        CdSet::Unrestricted
+                    }
+                },
                 lanes: s.node_lanes(i).to_vec(),
                 explicit_full: Vec::new(),
                 optional: s.flags(i).is_optional(),

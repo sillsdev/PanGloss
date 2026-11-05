@@ -344,7 +344,12 @@ pub(crate) fn reachable_via_ordinary_emission(
 }
 
 /// Every literal spelling a probed segment node can honestly mean; fast path returns just the node's own concrete representations, falling back to a full lane-unifiable table search when identity was cleared or invalidated: docs/research/pg-foma-preexpand-design-notes.md.
-fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
+fn matching_reps_local(
+    table: &CharDefTable,
+    char_def: u32,
+    cd_set: &pg_shape::CdSet,
+    lanes: &[u64],
+) -> Vec<String> {
     if char_def != NO_CHAR_DEF {
         let cd = table.get(CharDefId(char_def));
         if flat_unifiable(lanes, &cd.matching_lanes()) {
@@ -362,7 +367,11 @@ fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Ve
                     .unifiable_cds(CharDefId(char_def))
                     .is_some_and(|b| b.contains(id.0))
         } else {
-            true // NO_CHAR_DEF (post-rewrite abstract node): pure lane unification, no identity gate.
+            // NO_CHAR_DEF (post-rewrite abstract node): lane unification, gated only by the spellings it was restricted to.
+            match cd_set {
+                pg_shape::CdSet::Members(bits) => bits.contains(id.0),
+                pg_shape::CdSet::Unrestricted => true,
+            }
         };
         if !member {
             continue;
@@ -381,7 +390,7 @@ fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
         if seg.deleted {
             continue;
         }
-        let reps = matching_reps_local(table, seg.char_def, &seg.lanes);
+        let reps = matching_reps_local(table, seg.char_def, &seg.cd_set, &seg.lanes);
         if reps.is_empty() {
             return Vec::new();
         }
