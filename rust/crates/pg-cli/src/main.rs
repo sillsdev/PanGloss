@@ -426,7 +426,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
          usage: pangloss fst-health <grammar> [<out.json>]\n\
-         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off]\n\
+         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
          usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
          usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{}\n\
@@ -522,10 +522,34 @@ struct LoadedGrammar {
     substrate: pg_grammar::compile::issues::SubstrateReport,
 }
 
+/// What a FieldWorks import produced, kept for `grammar-health --snapshot-out`/`--facts-out` so the
+/// one import also yields the files `import` and `facts` would. Filled right after the import and
+/// before the compile, so a compile refusal still leaves it behind, as `import` alone would.
+#[derive(Default)]
+pub(crate) struct ImportCapture {
+    /// The snapshot JSON; `None` when the import has a fatal issue.
+    pub snapshot_json: Option<String>,
+    pub import_refused: bool,
+    /// Set by the caller that will write facts: keep the compile's results for it, when reusing them is safe.
+    pub keep_compile: bool,
+    /// The successful compile's results, kept only when the snapshot JSON parses back to an equal Snapshot.
+    pub compiled: Option<pg_facts::CompiledParts>,
+    reuse_compile: bool,
+}
+
 fn load_grammar_impl(
     path: &str,
     capture_metadata: bool,
     capture_stats_identity: bool,
+) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
+    load_grammar_capturing(path, capture_metadata, capture_stats_identity, None)
+}
+
+pub(crate) fn load_grammar_capturing(
+    path: &str,
+    capture_metadata: bool,
+    capture_stats_identity: bool,
+    mut capture: Option<&mut ImportCapture>,
 ) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
     let ext = std::path::Path::new(path)
         .extension()
@@ -575,6 +599,17 @@ fn load_grammar_impl(
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
             serve::record_ms(&serve::IMPORT_MS, t_phase);
+            if let Some(capture) = capture.as_deref_mut() {
+                capture.import_refused =
+                    compile_failure::CompileFailure::import_has_fatal_issues(&report.provenance);
+                if !capture.import_refused {
+                    let json = snapshot.to_json();
+                    capture.reuse_compile = capture.keep_compile
+                        && pg_snapshot::Snapshot::from_json(&json)
+                            .is_ok_and(|parsed| parsed == snapshot);
+                    capture.snapshot_json = Some(json);
+                }
+            }
             let stored_analyses = report.stored_analyses;
             if let Some(source_bytes) = source_bytes.as_deref() {
                 let bytes_after_import =
@@ -606,6 +641,19 @@ fn load_grammar_impl(
                 ))
             })?;
             serve::record_ms(&serve::COMPILE_MS, t_compile);
+            if let Some(capture) = capture.filter(|capture| capture.reuse_compile) {
+                capture.compiled = Some(pg_facts::CompiledParts {
+                    inventory: output.inventory,
+                    decisions: output.load_decisions,
+                    compile_issues: output.issues,
+                    environment_resolutions: output.environment_resolutions,
+                    compiled_outputs: output.compiled_outputs,
+                    compiled_mappings: output.compiled_mappings,
+                    compiled_allomorph_order: output.compiled_allomorph_order,
+                    allomorph_gates: output.allomorph_gates,
+                    allomorph_output_ids: output.allomorph_output_ids,
+                });
+            }
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "fwdata"));
             Ok(LoadedGrammar {

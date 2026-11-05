@@ -213,7 +213,11 @@ pangloss facts <snapshot.json> --out <facts.sqlite> --context <facts-context.jso
 
 Add `--light` for a file that leaves out what Motif does not read; see [Light files](#light-files).
 
-Only `.json` Snapshot input is accepted. Use `pangloss import` first for a FieldWorks project.
+Only `.json` Snapshot input is accepted. Use `pangloss import` first for a FieldWorks project, or
+`pangloss grammar-health <project> <report.json> --snapshot-out <snapshot.json> --facts-out
+<facts.sqlite> --facts-context <context.json>` to get the snapshot and this file from the one
+import that also produces the health report (the output is identical; see
+[Grammar diagnostics](grammar-diagnostics.md#writing-the-snapshot-and-facts-from-the-same-run)).
 `--out` must name a new path. The writer never replaces an existing file. `--json` writes one
 result object to stdout; diagnostics go to stderr. A structured compiler refusal still publishes
 authored and diagnostic facts and exits unsuccessfully with `compileStatus: "refused"`.

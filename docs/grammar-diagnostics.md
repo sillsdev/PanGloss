@@ -1,7 +1,8 @@
 # Grammar diagnostics
 
 `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-[--stored-analyses bounded|all|off] [--fst]` reports problems in a grammar that its author should fix in
+[--stored-analyses bounded|all|off] [--fst] [--snapshot-out <snapshot.json>]
+[--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]` reports problems in a grammar that its author should fix in
 FieldWorks. This document explains how each
 diagnostic's level is chosen and what the report looks like. For every code, with its level and
 fix, see the generated [grammar-diagnostics-reference.md](grammar-diagnostics-reference.md).
@@ -260,6 +261,38 @@ pangloss grammar-health: 3 error(s); fix them before parsing
 ```
 
 The report is always written in full before the command fails.
+
+## Writing the snapshot and facts from the same run
+
+A host that wants the health report, the grammar snapshot and the facts database for one project
+would otherwise run `grammar-health`, `import` and `facts`, importing and compiling the project each
+time. These flags make the one import also write the other two files (`.fwdata` and `.fwbackup`
+input only; any other input is refused before work starts):
+
+```text
+pangloss grammar-health <project.fwdata> <report.json> --snapshot-out <snapshot.json> \
+  --facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]
+```
+
+- `--snapshot-out` writes the bytes `pangloss import <project> <snapshot.json>` writes.
+- `--facts-out` with `--facts-context` (required together; `--facts-light` as `facts --light`)
+  writes the file `pangloss facts <that snapshot> --out <facts.sqlite> --context <context.json>`
+  writes, built from the snapshot bytes just written, so its `source_sha256` is that file's hash and
+  a stats manifest from `pangloss batch` on `<snapshot.json>` matches it. The facts file records
+  the grammar compile this run already did instead of compiling the project again, so the run
+  imports once and compiles once. That reuse happens only when the snapshot JSON parses back to a
+  Snapshot equal to the in-memory one (checked every run) and the compile succeeded; otherwise
+  `facts` compiles for itself, with the same result. `--facts-out` needs no
+  `--snapshot-out`. Stats facts (`facts --stats`) need a batch run on the snapshot first, so
+  run `pangloss facts <snapshot.json> --stats ...` afterwards; this flag set does not write them.
+- Same refusal as `import`: when the project has fatal conversion issues, neither file is written,
+  the report still is, and the command fails. A compile refusal after a clean import still writes
+  both, as `import` and `facts` would (facts records `compileStatus: "refused"`).
+- The two files are written after the import and before the checks run, so they exist even when
+  the report has errors and the command exits non-zero. All output paths, the context and the input
+  must be different files; `--facts-out` never replaces an existing file, as with `facts`.
+- The report's JSON and the `--fst` and `--stored-analyses` behaviour are unchanged; no schema
+  version changes (health report 5, facts 9, snapshot as before).
 
 ## Changing a level
 

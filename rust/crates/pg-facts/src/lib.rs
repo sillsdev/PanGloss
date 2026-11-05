@@ -32,6 +32,7 @@ pub use stats::StatsInput;
 pub use write::write_facts;
 pub use write::write_facts_with_options;
 pub use write::write_facts_with_stats;
+pub use write::{write_facts_with_compiled, CompiledParts};
 
 /// What a facts build is asked for beyond the Snapshot and context.
 #[derive(Debug, Clone, Copy, Default)]
