@@ -1403,3 +1403,21 @@ fn canonicalization_differential_partial_rules() {
     assert_eq!(records, (1 << 4) - 1);
     assert!(commutations > 0);
 }
+
+#[test]
+fn grammar_health_unbounded_affix_is_a_process_gap_not_a_surface_table_gap() {
+    let grammar = load("edge-cases/realizational-reduplication-no-proposal-route/grammar.xml");
+    let EmissionHealth::Grammar(finding) = affix_spelling_gap(MRuleId(0), VariantLimit::Unbounded)
+    else {
+        panic!("an unbounded spelling set must retain its author finding");
+    };
+    let diagnostic = finding
+        .into_diagnostic(&grammar, "Unbounded affix spelling set".to_string())
+        .unwrap();
+    assert_eq!(diagnostic.code.wire(), "fst.process-not-emittable");
+    assert!(diagnostic.blocks_fst);
+    assert!(matches!(
+        affix_spelling_gap(MRuleId(0), VariantLimit::BytesExhausted { bytes: 1 }),
+        EmissionHealth::Budget { value: 1, .. }
+    ));
+}

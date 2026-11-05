@@ -21,12 +21,10 @@ fn compile_measurements<'a>(
 }
 
 fn synthetic_grammar_finding() -> crate::emit::EmissionHealth {
-    use pg_grammar::grammar_health::{GrammarHealthCode, GrammarHealthDiagnostic};
-    crate::emit::EmissionHealth::Grammar(Box::new(GrammarHealthDiagnostic::from_check(
-        GrammarHealthCode::FstProcessNotEmittable,
-        "synthetic retained process cannot be emitted",
-        vec![],
-    )))
+    crate::emit::EmissionHealth::Grammar(crate::emit::EmissionGrammarFinding {
+        code: pg_grammar::grammar_health::GrammarHealthCode::FstProcessNotEmittable,
+        subject: crate::emit::EmissionSubject::MorphRule(pg_grammar::model::MRuleId(0)),
+    })
 }
 
 fn synthetic_full_emit_report() -> EmitReport {

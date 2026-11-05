@@ -215,10 +215,10 @@ use crate::tags;
 pub use pg_foma_runtime::emission_support::*;
 pub use pg_foma_runtime::emit_report::{
     CharacterizationResult, ClosureEvidence, ClosureFallbackBackend, ClosureRefusal,
-    ClosureRefusalCode, EmissionHealth, EmitCounts, EmitReport, EmitResult, EnumBudgetExceeded,
-    FomaTier, UncoveredItem,
+    ClosureRefusalCode, EmissionGrammarFinding, EmissionHealth, EmissionSubject, EmitCounts,
+    EmitReport, EmitResult, EnumBudgetExceeded, FomaTier, UncoveredItem,
 };
-use pg_grammar::grammar_health::{GrammarHealthCode, GrammarHealthDiagnostic};
+use pg_grammar::grammar_health::GrammarHealthCode;
 
 fn trace_emit_stage(stage: CompileStage, elapsed: std::time::Duration, allow_env_trace: bool) {
     if allow_env_trace && std::env::var_os("PANGLOSS_TRACE_EMIT_STAGES").is_some() {
@@ -1075,24 +1075,33 @@ struct RootRec {
 
 fn uncovered_role_code(role: Role) -> GrammarHealthCode {
     match role {
-        Role::CircumfixPrefix | Role::CircumfixSuffix => GrammarHealthCode::FstCircumfixNoRoute,
-        Role::Reduplication => GrammarHealthCode::FstReduplicationNoRoute,
-        Role::None | Role::Prefix | Role::Suffix | Role::Infix | Role::Process => {
-            GrammarHealthCode::FstProcessNotEmittable
+        // A plain prefix/suffix reaches this gap only when its rule's assigned zone cannot route it.
+        Role::Prefix | Role::Suffix | Role::CircumfixPrefix | Role::CircumfixSuffix => {
+            GrammarHealthCode::FstCircumfixNoRoute
         }
+        Role::Reduplication => GrammarHealthCode::FstReduplicationNoRoute,
+        Role::None | Role::Infix | Role::Process => GrammarHealthCode::FstProcessNotEmittable,
     }
 }
 
-fn rule_gap(
-    grammar: &Grammar,
-    rule: MRuleId,
-    code: GrammarHealthCode,
-    message: impl Into<String>,
-) -> EmissionHealth {
-    EmissionHealth::Grammar(Box::new(
-        GrammarHealthDiagnostic::for_morph_rule(grammar, rule, code, message)
-            .expect("emission requires a valid rule identity"),
-    ))
+fn rule_gap(rule: MRuleId, code: GrammarHealthCode) -> EmissionHealth {
+    EmissionHealth::Grammar(EmissionGrammarFinding {
+        code,
+        subject: EmissionSubject::MorphRule(rule),
+    })
+}
+
+fn affix_spelling_gap(rule: MRuleId, limit: VariantLimit) -> EmissionHealth {
+    match limit {
+        VariantLimit::Unbounded => rule_gap(rule, GrammarHealthCode::FstProcessNotEmittable),
+        VariantLimit::BytesExhausted { bytes } => EmissionHealth::Budget {
+            value: bytes,
+            limit: REP_VARIANT_BYTE_BUDGET,
+        },
+        VariantLimit::Complete { .. } => {
+            unreachable!("only incomplete enumeration reaches this branch")
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1138,15 +1147,12 @@ fn collect_roots(
                 if limit.drops_spellings() && pattern_regex_body.is_none() {
                     uncovered.push(UncoveredItem {
                         grammar_health: match limit {
-                            VariantLimit::Unbounded => EmissionHealth::Grammar(Box::new(
-                                GrammarHealthDiagnostic::for_lexical_entry(
-                                    g,
-                                    entry_id,
-                                    GrammarHealthCode::FstPatternRootShape,
-                                    "Unbounded root with required environments has no regex route.",
-                                )
-                                .expect("emission requires a valid entry identity"),
-                            )),
+                            VariantLimit::Unbounded => {
+                                EmissionHealth::Grammar(EmissionGrammarFinding {
+                                    code: GrammarHealthCode::FstPatternRootShape,
+                                    subject: EmissionSubject::LexicalEntry(entry_id),
+                                })
+                            }
                             VariantLimit::BytesExhausted { bytes } => EmissionHealth::Budget {
                                 value: bytes,
                                 limit: REP_VARIANT_BYTE_BUDGET,
@@ -1173,22 +1179,14 @@ fn collect_roots(
                 }
                 if pattern_regex_body.is_none() && variants.is_empty() {
                     uncovered.push(UncoveredItem {
-                        grammar_health: EmissionHealth::Grammar(Box::new(
-                            GrammarHealthDiagnostic::for_lexical_entry(
-                                g,
-                                entry_id,
-                                if allo.is_pattern {
-                                    GrammarHealthCode::FstPatternRootShape
-                                } else {
-                                    GrammarHealthCode::FstShapeNotInSurfaceTable
-                                },
-                                format!(
-                                    "Root shape {:?} produced no concrete spelling.",
-                                    allo.shape.text
-                                ),
-                            )
-                            .expect("emission requires a valid entry identity"),
-                        )),
+                        grammar_health: EmissionHealth::Grammar(EmissionGrammarFinding {
+                            code: if allo.is_pattern {
+                                GrammarHealthCode::FstPatternRootShape
+                            } else {
+                                GrammarHealthCode::FstShapeNotInSurfaceTable
+                            },
+                            subject: EmissionSubject::LexicalEntry(entry_id),
+                        }),
                         kind: if allo.is_pattern {
                             "pattern-allomorph".to_string()
                         } else {
@@ -1644,12 +1642,7 @@ fn emit_rule_allomorphs(
         let label = format!("mrule{}#allo{allo_idx}", mid.0);
         if has_unemittable_action(&allo.rhs) {
             uncovered.push(UncoveredItem {
-                grammar_health: rule_gap(
-                    g,
-                    mid,
-                    GrammarHealthCode::FstProcessNotEmittable,
-                    "Modify/InsertContext action has no literal text to emit.",
-                ),
+                grammar_health: rule_gap(mid, GrammarHealthCode::FstProcessNotEmittable),
                 kind: "process-morph".to_string(),
                 id: label,
                 reason: "Modify/InsertContext action has no literal text to emit (v1)".to_string(),
@@ -1684,7 +1677,7 @@ fn emit_rule_allomorphs(
             AllomorphZoneOutcome::OwnZoneElsewhere => continue,
             AllomorphZoneOutcome::Uncovered => {
                 uncovered.push(UncoveredItem {
-                    grammar_health: rule_gap(g, mid, uncovered_role_code(role), format!("Allomorph {allo_idx} has no route in its assigned {zone_role:?} zone.")),
+                    grammar_health: rule_gap(mid, uncovered_role_code(role)),
                     kind: role.label().to_string(),
                     id: label,
                     reason: format!(
@@ -1723,11 +1716,7 @@ fn emit_rule_allomorphs(
                     Some((variants, limit)) => {
                         if limit.drops_spellings() {
                             uncovered.push(UncoveredItem {
-                                grammar_health: match limit {
-                                    VariantLimit::Unbounded => rule_gap(g, mid, GrammarHealthCode::FstShapeNotInSurfaceTable, "Affix spelling set is unbounded and has no emission route."),
-                                    VariantLimit::BytesExhausted { bytes } => EmissionHealth::Budget { value: bytes, limit: REP_VARIANT_BYTE_BUDGET },
-                                    VariantLimit::Complete { .. } => unreachable!("only incomplete enumeration reaches this branch"),
-                                },
+                                grammar_health: affix_spelling_gap(mid, limit),
                                 kind: "rep-variant-overflow".to_string(),
                                 id: label.clone(),
                                 reason: format!(
@@ -1751,7 +1740,7 @@ fn emit_rule_allomorphs(
                     }
                     None => {
                         uncovered.push(UncoveredItem {
-                            grammar_health: rule_gap(g, mid, GrammarHealthCode::FstShapeNotInSurfaceTable, format!("Affix insert text {texts:?} has no final surface-table spelling.")),
+                            grammar_health: rule_gap(mid, GrammarHealthCode::FstShapeNotInSurfaceTable),
                             kind: "unsegmentable-affix".to_string(),
                             id: label.clone(),
                             reason: format!(
@@ -1916,7 +1905,7 @@ fn classify_template<'g>(
                     let role = rule_role(g, mid);
                     if role != Role::Prefix && role != Role::Suffix && role != Role::None {
                         uncovered.push(UncoveredItem {
-                            grammar_health: rule_gap(g, mid, uncovered_role_code(role), "Template allomorph has no complete FST route."),
+                            grammar_health: rule_gap(mid, uncovered_role_code(role)),
                             kind: role.label().to_string(),
                             id: format!("mrule{}", mid.0),
                             reason: format!(
@@ -3780,7 +3769,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             }
             if let Some(other) = standalone_rule_unclaimed_role(g, mid) {
                 uncovered.push(UncoveredItem {
-                    grammar_health: rule_gap(g, mid, uncovered_role_code(other), "Standalone allomorph has no complete FST route."),
+                    grammar_health: rule_gap(mid, uncovered_role_code(other)),
                     kind: other.label().to_string(),
                     id: format!("mrule{}", mid.0),
                     reason: format!(

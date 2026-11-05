@@ -41,9 +41,42 @@ pub struct CharacterizationResult {
 /// An emission observation's author-facing finding or compiler-only classification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EmissionHealth {
-    Grammar(Box<pg_grammar::grammar_health::GrammarHealthDiagnostic>),
+    Grammar(EmissionGrammarFinding),
     Budget { value: usize, limit: usize },
     Advisory,
+}
+
+/// The canonical identity needed to resolve an emission finding into author navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmissionSubject {
+    LexicalEntry(pg_grammar::model::LexEntryId),
+    MorphRule(pg_grammar::model::MRuleId),
+}
+
+/// Compiler-owned finding data; author diagnostics are constructed only when requested.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmissionGrammarFinding {
+    pub code: pg_grammar::grammar_health::GrammarHealthCode,
+    pub subject: EmissionSubject,
+}
+
+impl EmissionGrammarFinding {
+    /// Resolves canonical navigation, returning a typed grammar error for an invalid identity.
+    pub fn into_diagnostic(
+        self,
+        grammar: &pg_grammar::model::Grammar,
+        message: String,
+    ) -> Result<pg_grammar::grammar_health::GrammarHealthDiagnostic, pg_grammar::GrammarError> {
+        use pg_grammar::grammar_health::GrammarHealthDiagnostic;
+        match self.subject {
+            EmissionSubject::LexicalEntry(id) => {
+                GrammarHealthDiagnostic::for_lexical_entry(grammar, id, self.code, message)
+            }
+            EmissionSubject::MorphRule(id) => {
+                GrammarHealthDiagnostic::for_morph_rule(grammar, id, self.code, message)
+            }
+        }
+    }
 }
 
 /// One construct this emitter could not represent as literal lexc — never silently dropped.

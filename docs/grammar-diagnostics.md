@@ -108,7 +108,9 @@ Their levels are unchanged. The retained construct and why it blocks FST publica
 in `fst_reason`, also shown on each diagnostic page. The FST-only findings currently emitted are
 `fst.pattern-root-shape`, `fst.circumfix-no-route`, `fst.reduplication-no-route`,
 `fst.process-not-emittable` and `fst.shape-not-in-surface-table`. The last yields to an existing
-undeclared-segment finding for the same item. Remedies live on these pages, alongside the rest
+undeclared-segment finding for the same item. An unbounded affix spelling set is
+`fst.process-not-emittable`, because its output has no complete emission route; it is not a
+missing surface-table spelling. Remedies live on these pages, alongside the rest
 of grammar-health advice; compiler reports provide an aggregate count.
 
 Alpha environments are deliberately unlabelled: proposals may overgenerate and HermitCrab
