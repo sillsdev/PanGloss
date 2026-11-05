@@ -1,5 +1,286 @@
 use super::*;
 
+/// Independent internal affix sites retain their own segments in either application order.
+fn commuting_structural_xml(n: usize) -> String {
+    let sites = ['a', 'b', 'c', 'd', 'e', 'f'];
+    let insertions = ['u', 'v', 'w', 'x', 'y', 'z'];
+    let segments: String = sites.iter().chain(insertions.iter()).chain(['q'].iter()).map(|c| format!(
+        "<SegmentDefinition id=\"c{c}\"><Representations><Representation>{c}</Representation></Representations></SegmentDefinition>"
+    )).collect();
+    let rules: String = (0..n).map(|i| {
+        let c = sites[i];
+        let v = insertions[i];
+        format!(r#"<MorphologicalRule id="mr{i}" requiredPartsOfSpeech="posV">
+          <Name>internal {v}</Name><MorphemeId>m{i}</MorphemeId><MorphologicalSubrules>
+          <MorphologicalSubrule id="sub{i}"><MorphologicalInput>
+            <PhoneticSequence id="left{i}"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+            <PhoneticSequence id="site{i}"><Segment segment="c{c}" /></PhoneticSequence>
+            <PhoneticSequence id="right{i}"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+          </MorphologicalInput><MorphologicalOutput><CopyFromInput index="left{i}" />
+            <InsertSegments><PhoneticShape>{c}{v}</PhoneticShape></InsertSegments>
+            <CopyFromInput index="right{i}" /></MorphologicalOutput>
+          </MorphologicalSubrule></MorphologicalSubrules></MorphologicalRule>"#)
+    }).collect();
+    let rule_ids = (0..n)
+        .map(|i| format!("mr{i}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let stem: String = std::iter::once(&'q').chain(sites[..n].iter()).collect();
+    format!(
+        r#"<HermitCrabInput><Language><Name>Independent internal affixes</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t"><Name>Main</Name><SegmentDefinitions>{segments}</SegmentDefinitions></CharacterDefinitionTable>
+      <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+      <Strata><Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="{rule_ids}"><Name>Main</Name>
+      <MorphologicalRuleDefinitions>{rules}</MorphologicalRuleDefinitions><LexicalEntries>
+      <LexicalEntry id="root" partOfSpeech="posV"><MorphemeId>root</MorphemeId><Allomorphs><Allomorph id="rootA"><PhoneticShape>{stem}</PhoneticShape></Allomorph></Allomorphs><Gloss>invented</Gloss></LexicalEntry>
+      </LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#
+    )
+}
+
+fn structural_walk(
+    g: &Grammar,
+    canonical_order: bool,
+) -> (
+    BTreeSet<(String, String)>,
+    crate::characterization::CharacterizationResult,
+    StructuralBudgetState,
+) {
+    let rules = structural_candidate_rules(g);
+    assert_eq!(rules.len(), g.mrules.len());
+    let cache = RuleCache::build(g);
+    let morpher = Morpher::new(g, usize::MAX);
+    let mt = MorphotacticIndex::build(g);
+    let trace =
+        crate::characterization::ClosureTrace::new(crate::characterization::ClosureTestLimits {
+            work_cap: 1_000_000,
+            depth_cap: 64,
+        });
+    let mut structural_trace = StructuralTrace::new(StructuralClosureLimits::default());
+    structural_trace.canonical_order = canonical_order;
+    let (records, _, pending, _, _) = build_structural_composites_with_trace(
+        g,
+        tags::tag_width(g.morphemes.len()),
+        &rules,
+        &cache,
+        &morpher,
+        &mt,
+        ExploreMode::Pruned,
+        None,
+        None,
+        Some(&trace),
+        &structural_trace,
+    );
+    assert_eq!(pending, 0);
+    let outputs = records
+        .into_iter()
+        .flat_map(|r| r.variants.into_iter().map(move |s| (r.tag_lexc.clone(), s)))
+        .collect();
+    let stats = structural_trace.state.lock().unwrap().clone();
+    assert!(stats.refusal.is_none(), "{stats:?}");
+    (outputs, trace.result(), stats)
+}
+
+#[test]
+fn structural_commuting_rules_do_not_explore_factorial_chains() {
+    let n = 5;
+    let g = pg_grammar::load(&commuting_structural_xml(n)).expect("synthetic HC XML loads");
+    let (baseline, old_trace, old_stats) = structural_walk(&g, false);
+    assert_eq!(old_trace.evidence.rule_pairs_visited, 325);
+    assert_eq!(old_trace.evidence.per_depth_counts, [5, 20, 60, 120, 120]);
+    let (outputs, trace, stats) = structural_walk(&g, true);
+    assert_eq!(
+        outputs, baseline,
+        "both directions of the surface/analysis differential"
+    );
+    assert!(stats.commutations > 0);
+    assert!(stats.nodes < old_stats.nodes);
+    assert!(
+        stats.nodes <= 1 << n,
+        "one canonical prefix per subset: {stats:?}"
+    );
+    assert!(stats.dedup_bytes < 4 * 1024 * 1024, "{stats:?}");
+    eprintln!("STRUCTURAL old={old_stats:?} canonical={stats:?}");
+    eprintln!(
+        "STRUCTURAL n={n} outputs={} evidence={:?}",
+        outputs.len(),
+        trace.evidence
+    );
+    assert_eq!(
+        outputs.len(),
+        (1 << n) - 1,
+        "every nonempty subset remains represented"
+    );
+    assert!(
+        trace.evidence.rule_pairs_visited <= n * n * n,
+        "commuting permutations must collapse: {:?}",
+        trace.evidence
+    );
+}
+
+#[test]
+fn structural_feature_interaction_keeps_both_orders() {
+    let xml = commuting_structural_xml(2)
+        .replace("<CharacterDefinitionTable", r#"<HeadFeatures><SymbolicFeature id="f"><Name>state</Name><Symbols><Symbol id="sA">A</Symbol><Symbol id="sB">B</Symbol></Symbols></SymbolicFeature></HeadFeatures><CharacterDefinitionTable"#)
+        .replace("<Name>internal u</Name>", r#"<Name>internal u</Name><OutputHeadFeatures><FeatureValue feature="f" symbolValues="sA" /></OutputHeadFeatures>"#)
+        .replace("<Name>internal v</Name>", r#"<Name>internal v</Name><OutputHeadFeatures><FeatureValue feature="f" symbolValues="sB" /></OutputHeadFeatures>"#);
+    let g = pg_grammar::load(&xml).unwrap();
+    let (baseline, _, _) = structural_walk(&g, false);
+    let (outputs, trace, stats) = structural_walk(&g, true);
+    assert_eq!(outputs, baseline);
+    assert_eq!(trace.evidence.rule_pairs_visited, 4);
+    assert_eq!(
+        stats.commutations, 0,
+        "equal text cannot hide different feature states"
+    );
+}
+
+#[test]
+fn structural_commutation_survives_empty_clitic_and_surface_strata() {
+    let xml = commuting_structural_xml(4).replace("</Strata>", r#"<Stratum characterDefinitionTable="t"><Name>Clitics</Name></Stratum><Stratum characterDefinitionTable="t"><Name>Surface</Name></Stratum></Strata>"#);
+    let g = pg_grammar::load(&xml).unwrap();
+    let (baseline, _, _) = structural_walk(&g, false);
+    let (outputs, _, stats) = structural_walk(&g, true);
+    assert_eq!(outputs, baseline);
+    assert!(
+        stats.commutations > 0,
+        "empty later strata cannot invalidate an intra-stratum diamond"
+    );
+    assert!(stats.nodes <= 16);
+}
+
+#[test]
+fn structural_commutation_keeps_uncertain_stratum_interactions() {
+    let xml = commuting_structural_xml(3).replace("</Strata>", r#"<Stratum characterDefinitionTable="t"><Name>Later morphology</Name><LexicalEntries><LexicalEntry id="laterRoot" partOfSpeech="posV"><MorphemeId>laterRoot</MorphemeId><Allomorphs><Allomorph id="laterRootA"><PhoneticShape>qabc</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata>"#);
+    let g = pg_grammar::load(&xml).unwrap();
+    assert_eq!(g.strata[1].entries.len(), 1);
+    let (baseline, _, _) = structural_walk(&g, false);
+    let (outputs, _, stats) = structural_walk(&g, true);
+    assert_eq!(outputs, baseline);
+    assert_eq!(stats.commutations, 0);
+}
+
+#[test]
+fn structural_segment_interaction_keeps_both_orders() {
+    let xml = commuting_structural_xml(2).replace(
+        "<PhoneticShape>au</PhoneticShape>",
+        "<PhoneticShape>bu</PhoneticShape>",
+    );
+    let g = pg_grammar::load(&xml).unwrap();
+    let (baseline, _, _) = structural_walk(&g, false);
+    let (outputs, _, stats) = structural_walk(&g, true);
+    assert_eq!(outputs, baseline);
+    assert_eq!(outputs.len(), 4, "the two full-length surfaces differ");
+    assert_eq!(stats.commutations, 0);
+}
+
+#[test]
+fn structural_production_work_budget_is_a_typed_refusal() {
+    let g = pg_grammar::load(&commuting_structural_xml(2)).unwrap();
+    let emitted = emit_with_structural_limits(
+        &g,
+        StructuralClosureLimits {
+            work_limit: 0,
+            ..Default::default()
+        },
+    );
+    assert!(
+        emitted.lexc_source.is_empty(),
+        "a contained attempt must return no subset artifact"
+    );
+    assert!(matches!(emitted.report.tier, FomaTier::Unsupported { .. }));
+    assert_eq!(
+        emitted.report.enum_budget_exceeded,
+        Some(EnumBudgetExceeded {
+            measure: "HC_STRUCTURAL_CLOSURE_WORK_LIMIT",
+            value: 1,
+            limit: 0,
+        })
+    );
+}
+
+#[test]
+fn structural_boundary_graph_matches_enumerated_language() {
+    let reps = vec!["+".to_string(), "=".to_string()];
+    for surface in ["a0λ", "a\u{301}b", "a", "abcd"] {
+        let tag = tags::root_tag_lexc(MorphemeId(0), 4);
+        let mut out = format!("Multichar_Symbols\n{tag}\nLEXICON Root\n{tag}:0 BN0 ;\n");
+        let mut counts = EmitCounts::default();
+        write_boundary_surface_lexicons(&mut out, surface, &reps, "B", "#", &mut counts);
+        let net = foma::lexcread::fsm_lexc_parse_string(
+            &foma::options::FomaOptions::default(),
+            None,
+            &out,
+        )
+        .expect("boundary graph compiles");
+        let mut apply = foma::apply::apply_init(&net);
+        let actual: BTreeSet<String> = apply.down(&tags::root_tag_text(MorphemeId(0), 4)).collect();
+        let expected: BTreeSet<String> = with_boundary_insertions(surface, &reps)
+            .into_iter()
+            .collect();
+        assert_eq!(actual, expected, "{surface:?}\n{out}");
+    }
+}
+
+#[test]
+fn structural_boundary_graph_grows_linearly() {
+    let reps = vec!["+".to_string(), "=".to_string()];
+    for n in [10, 100, 1000] {
+        let mut out = String::new();
+        let mut counts = EmitCounts::default();
+        write_boundary_surface_lexicons(&mut out, &"a".repeat(n), &reps, "B", "#", &mut counts);
+        assert!(counts.lexc_lines <= 4 * n);
+        assert!(out.len() < 150 * n, "{n}: {} bytes", out.len());
+    }
+}
+
+#[test]
+fn structural_boundary_graph_is_used_by_the_production_emitter() {
+    let g = load("languages/metathesis-phase-isolation/grammar.xml");
+    let emitted = emit(&g);
+    assert!(emitted.report.counts.composite_structural_entries > 0);
+    assert!(
+        emitted.lexc_source.contains("LEXICON SC"),
+        "shared boundary continuations must be reachable"
+    );
+    assert_confirms("languages/metathesis-phase-isolation", &["mu+i"]);
+}
+
+#[test]
+fn structural_production_retained_bytes_budget_is_a_typed_refusal() {
+    let g = pg_grammar::load(&commuting_structural_xml(2)).unwrap();
+    let emitted = emit_with_structural_limits(
+        &g,
+        StructuralClosureLimits {
+            retained_bytes_limit: 0,
+            ..Default::default()
+        },
+    );
+    assert!(emitted.lexc_source.is_empty());
+    let refusal = emitted
+        .report
+        .enum_budget_exceeded
+        .expect("named retained-output budget");
+    assert_eq!(refusal.measure, "HC_STRUCTURAL_CLOSURE_BYTES_LIMIT");
+    assert_eq!(refusal.limit, 0);
+    assert!(refusal.value > 0);
+}
+
+#[test]
+fn structural_production_budget_allows_completion_exactly_at_the_limit() {
+    let g = pg_grammar::load(&commuting_structural_xml(1)).unwrap();
+    let emitted = emit_with_structural_limits(
+        &g,
+        StructuralClosureLimits {
+            work_limit: 1,
+            ..Default::default()
+        },
+    );
+    assert_eq!(emitted.report.tier, FomaTier::Full);
+    assert!(emitted.report.enum_budget_exceeded.is_none());
+    assert!(!emitted.lexc_source.is_empty());
+}
+
 /// A count cap re-added here would refuse Aweti (4096) and Mbugwe (256) for ordinary breadth.
 #[test]
 fn breadth_alone_never_reads_as_dropped_spellings() {

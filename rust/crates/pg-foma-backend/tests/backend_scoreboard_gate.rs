@@ -43,11 +43,11 @@ impl Bucket {
 }
 
 /// Pins measured coverage, keeping missing proposals distinct from typed refusals.
-// Tuned surface probed is the only backend. Measured on the 169 fixtures of conformance.commit plus staging: 143 exact, 12 miss, 20 refused. TSP misses the multi-member featureless segment-class rewrite fixture (#120) because its model rewrites a featureless node only by one literal spelling, not by a class of several.
+// TSP misses the multi-member featureless segment-class rewrite fixture because its model rewrites a featureless node only by one literal spelling, not by a class of several.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 143,
+        oracle_exact: 144,
         compiles_but_misses: 12,
         refused: 20,
         unmeasurable: 0,
