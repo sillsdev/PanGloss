@@ -221,7 +221,7 @@ fn defaults_apply_to_quantified_right_environment_in_analysis() {
 }
 
 #[test]
-fn defaults_allow_matching_the_declared_default_and_absent_default() {
+fn a_declared_default_satisfies_a_pin_and_an_absent_default_does_not() {
     let xml = GRAMMAR_XML.replacen(
         "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
         "",
@@ -242,9 +242,9 @@ fn defaults_allow_matching_the_declared_default_and_absent_default() {
         pat_ctx(nat_class(&without_default, "nc_voi")),
         subrule(Pattern::default(), None, None),
     );
+    // Synthesis matches by subsumption: a pinned feature the node lacks, with no default, fails (hc.dll; sillsdev/pangloss#180).
     assert!(
-        !pg_rules::rewrite::synthesize(&without_default, &r, &seg(&without_default, "a"))
-            .is_empty()
+        pg_rules::rewrite::synthesize(&without_default, &r, &seg(&without_default, "a")).is_empty()
     );
 }
 

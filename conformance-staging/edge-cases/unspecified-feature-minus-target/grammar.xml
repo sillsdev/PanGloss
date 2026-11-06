@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>UnspecifiedFeatureMinusTarget</Name>
+    <!-- Synthetic. A rule whose TARGET pins [nasal:-] must not rewrite a segment that has no nasal
+         value (FeatureStruct.SubsumesImpl fails on an absent feature; synthesis matches by
+         subsumption).
+           prDel  [nasal:-] -> (deleted)
+         p and t are nasal:- and are deleted. The vowel a has no nasal value and survives; ata surfaces as aa.
+         Were a matched, every segment would be deleted and aa would not parse. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featNas">
+        <Name>nasal</Name>
+        <Symbols>
+          <Symbol id="nasPlus">+</Symbol>
+          <Symbol id="nasMinus">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featLab">
+        <Name>lab</Name>
+        <Symbols>
+          <Symbol id="labPlus">+</Symbol>
+          <Symbol id="labMinus">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featSyl">
+        <Name>syl</Name>
+        <Symbols>
+          <Symbol id="sylPlus">+</Symbol>
+          <Symbol id="sylMinus">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cM">
+          <Representations><Representation>m</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasPlus" />
+          <FeatureValue feature="featLab" symbolValues="labPlus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cN">
+          <Representations><Representation>n</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasPlus" />
+          <FeatureValue feature="featLab" symbolValues="labMinus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cP">
+          <Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasMinus" />
+          <FeatureValue feature="featLab" symbolValues="labPlus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT">
+          <Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featNas" symbolValues="nasMinus" />
+          <FeatureValue feature="featLab" symbolValues="labMinus" />
+          <FeatureValue feature="featSyl" symbolValues="sylMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA">
+          <Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featSyl" symbolValues="sylPlus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncNasalMinus">
+        <Name>nasalMinus</Name>
+        <FeatureValue feature="featNas" symbolValues="nasMinus" />
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prDel">
+        <Name>delete-nasal-minus</Name>
+        <PhoneticInput>
+          <PhoneticSequence><SimpleContext naturalClass="ncNasalMinus" /></PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput />
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered" phonologicalRules="prDel">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="ePa" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aPa"><PhoneticShape>pa</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>PA</MorphemeId>
+            <Gloss>pa</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eAta" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aAta"><PhoneticShape>ata</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ATA</MorphemeId>
+            <Gloss>ata</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
