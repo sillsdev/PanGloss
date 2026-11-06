@@ -55,8 +55,8 @@ else:
         'words': [word.strip() for word in Path(words).read_text().splitlines() if word.strip()],
         'machine_pin': subprocess.check_output(['git', 'rev-parse', 'HEAD:machine'], text=True).strip(),
         'config': {'strategy': strategy, 'auto_order': auto_order.split(','),
-                   'bounds': {'closure_work': int(closure_work), 'closure_depth': 64,
-                              'compound_depth': 200, 'derivation_depth': None}},
+                   'bounds': {'closure_work': int(closure_work), 'closure_depth': None,
+                              'compound_depth': None, 'derivation_depth': None}},
         'xml_sha256': hashlib.sha256(Path(source).read_bytes()).hexdigest() if source.endswith('.xml') else None,
         'phase': 'launch_failed',
     }

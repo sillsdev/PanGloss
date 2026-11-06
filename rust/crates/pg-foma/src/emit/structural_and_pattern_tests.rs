@@ -1188,12 +1188,14 @@ enum DifferentialOutcome {
     },
 }
 
+type StructuralWalkResult = (BTreeSet<(String, String, bool)>, StructuralBudgetState);
+
 /// Walks the closure without asserting completion; `None` means the walk was cut short.
 fn structural_walk_if_complete(
     g: &Grammar,
     rules: &[MRuleId],
     canonical_order: bool,
-) -> Option<(BTreeSet<(String, String, bool)>, StructuralBudgetState)> {
+) -> Option<StructuralWalkResult> {
     let cache = RuleCache::build(g);
     let morpher = Morpher::new(g, usize::MAX);
     let mt = MorphotacticIndex::build(g);

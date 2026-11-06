@@ -7,6 +7,12 @@ file has no section for.
 
 - Phonological rewrite synthesis now checks ambiguous intermediate segments and bound alpha variables against the full required feature set, matching hc.dll when later rules inspect generated segment classes. Analysis continues to use unification, and missing feature values retain their partial-grammar behavior.
 
+- Retain unspelled intermediate feature bundles in permissive FST phonology, with bounded atomic refusal and explicit construction coverage. Iterative empty-focus insertion now refuses atomically because fed insertions within an original gap are outside that construction; simultaneous insertion remains supported.
+
+- The proposing phonology relation keeps independent choices at each rewrite site, widens alpha agreement and material outputs, and preserves iterative and cross-subrule feeding. Explicit replacement-or-unchanged material choices retain expansion outputs that foma's native optional replacement loses; RTL iterative batches mirror the operands and reverse the result to retain expansions with processed right contexts. Staged C# controls cover single and multiple sites, literal contexts and final anchors. Unsupported cascades, including simultaneous multi-token focus, return a typed refusal with no partial net. Production morphology composition remains a later stage.
+
+- FST construction reports retain the existing pre-expansion and chain-depth environment controls. Explicit depth configuration overrides the environment; the report records the resolved bounds, and compound refusals name the working CLI option.
+
 - Phonological rewrite synthesis tries subrules in order at each site, matching hc.dll when a later subrule feeds an earlier one at a following site. Right-to-left epenthesis advances correctly after insertion, and inapplicable rules skip target traversal. Staged fixtures check the corresponding analyses and negative controls.
 
 ## 0.16.1

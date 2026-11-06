@@ -11,7 +11,7 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 
-use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
+use pg_foma::replace::{compile_and_compose_rules_recall_safe, SegAlphabet};
 use pg_foma::tags;
 use pg_foma_backend::e2_infix_probe::emit_underlying_amharic_probe;
 use pg_grammar::chardef::CharDefKind;
@@ -218,19 +218,12 @@ fn run() {
         }
     }
     let t_rules = Instant::now();
-    let mut skipped_rules: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
-    let rule_net = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &rules_in_order,
-        &mut skipped_rules,
-        &mut tuple_reports,
-    );
+    let rule_net =
+        compile_and_compose_rules_recall_safe(&opts, &g, &rules_in_order, &mut tuple_reports);
     let rules_elapsed = t_rules.elapsed();
-    println!("\nrule compile+compose: {rules_elapsed:?}; skipped: {skipped_rules:?}");
-    let rule_net = rule_net.expect("Amharic's 7 rules must compile (see skipped_rules if not)");
+    println!("\nrule compile+compose: {rules_elapsed:?}");
+    let rule_net = rule_net.expect("Amharic's complete cascade must compile");
     println!(
         "composed rule net: {} states, {} arcs",
         rule_net.statecount, rule_net.arccount

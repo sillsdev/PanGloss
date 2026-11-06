@@ -1,0 +1,18 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: UnattestedIntermediateBundle
+inspired_by: ["ordered rounding and neutralization"]
+sources: ["read-only review of d741df3f"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: e
+    note: "a becomes back rounded, then neutralizes to e; the intermediate bundle has no character definition."
+    parses:
+      - signature: "ROOT|e"
+        rules: [rRound, rResolve]
+  - word: a
+    note: "Both ordered changes are obligatory."
+    expect_fail: true
+  - word: i
+    note: "The first rule preserves backness, so it cannot produce the front rounded vowel."
+    expect_fail: true

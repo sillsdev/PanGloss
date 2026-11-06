@@ -98,7 +98,7 @@ fn configured_compound_depth_is_enforced_by_the_emitter() {
     let grammar = fixture.load_grammar();
     let mut config = FstCompileConfig::default();
     assert!(compile_proposer_with_config(&grammar, &config).0.is_ok());
-    config.bounds.compound_depth = 0;
+    config.bounds.compound_depth = Some(0);
     let (result, profile) = compile_proposer_with_config(&grammar, &config);
     assert!(result.is_err());
     let attempt = &profile.construction.attempts[0];
@@ -119,7 +119,7 @@ fn shared_cli_parser_sets_strategy_order_and_every_construction_bound() {
     assert_eq!((config.bounds.structural_work, config.bounds.structural_bytes), (Some(23), Some(29)));
     assert_eq!(config.strategy, StrategySelection::Auto);
     assert_eq!(config.strategies().unwrap(), vec![ConstructionStrategy::Factored, ConstructionStrategy::SurfaceEnum]);
-    assert_eq!((config.bounds.closure_work, config.bounds.closure_depth, config.bounds.compound_depth, config.bounds.derivation_depth), (Some(17), 3, 4, Some(5)));
+    assert_eq!((config.bounds.closure_work, config.bounds.closure_depth, config.bounds.compound_depth, config.bounds.derivation_depth), (Some(17), Some(3), Some(4), Some(5)));
 }
 
 #[test]

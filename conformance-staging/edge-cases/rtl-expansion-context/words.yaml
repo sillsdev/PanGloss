@@ -1,0 +1,18 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: RTLExpansionContext
+inspired_by: ["ordinary vowel lengthening before a rounded vowel"]
+sources: ["read-only review of 0627ce48"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: aau
+    note: "The sole a duplicates before u; right-to-left traversal cannot remove this site."
+    parses:
+      - signature: "ROOT|aau"
+        rules: [rExpand]
+  - word: au
+    note: "The matching target must lengthen."
+    expect_fail: true
+  - word: aaau
+    note: "The inserted a is not reapplied in this single traversal."
+    expect_fail: true

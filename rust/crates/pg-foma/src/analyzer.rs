@@ -87,9 +87,12 @@ fn compile_configured(
         )?;
         config.bounds.structural_work = Some(structural_limits.work_limit);
         config.bounds.structural_bytes = Some(structural_limits.retained_bytes_limit);
-        if crate::compose_budget::clamp_chain_depth_cap(config.bounds.compound_depth)
-            != config.bounds.compound_depth
-        {
+        config.bounds.resolve_depths_from_env();
+        let compound_depth = config
+            .bounds
+            .compound_depth
+            .expect("resolved compound depth");
+        if crate::compose_budget::clamp_chain_depth_cap(compound_depth) != compound_depth {
             return Err(
                 "configured compound depth exceeds the absolute chain-depth ceiling".to_string(),
             );

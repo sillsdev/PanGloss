@@ -16,6 +16,9 @@ use pg_grammar::model::{Grammar, NaturalClassKind, Pattern, PatternNode, TableId
 
 use crate::replace::SegAlphabet;
 
+mod intermediate;
+pub(crate) use intermediate::IntermediateBundles;
+
 /// Resolves exact class membership while leaving alpha-bound feature lanes for tuple binding.
 fn class_members(
     g: &Grammar,
@@ -521,7 +524,9 @@ pub(crate) fn resolve_alpha_tuples(
 
 /// Renders an already-deduplicated token set as one atom: a bare char for a singleton, or foma's own `[a | b | ...]` union syntax for two-or-more, so an aliased `Slot::Fixed` atom and an aliased-and-unioned `Slot::Union` atom look identical to a caller that never observes aliasing.
 fn format_union_tokens(chars: &[char]) -> String {
-    if chars.len() == 1 {
+    if chars.is_empty() {
+        "[0 - 0]".to_owned()
+    } else if chars.len() == 1 {
         chars[0].to_string()
     } else {
         let inner: Vec<String> = chars.iter().map(|c| c.to_string()).collect();

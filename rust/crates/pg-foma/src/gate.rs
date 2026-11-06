@@ -171,7 +171,7 @@ fn ungrouped_or_all(g: &Grammar, mpr: pg_grammar::model::MprSet) -> pg_grammar::
 }
 
 /// Scan every `Rewrite`-kind `PhonRuleDef` in `prules_in_order` (document/cascade order, same
-/// slice `crate::replace::compile_and_compose_rules` takes) for gated subrules (module doc).
+/// slice `crate::replace::compile_and_compose_rules_recall_safe` takes) for gated subrules (module doc).
 pub fn find_gated_subrules(g: &Grammar, prules_in_order: &[&PhonRuleDef]) -> Vec<GatedSubrule> {
     let mut out = Vec::new();
     for (rule_pos, pr) in prules_in_order.iter().enumerate() {

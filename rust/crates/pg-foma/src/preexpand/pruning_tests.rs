@@ -259,3 +259,149 @@ fn amharic_pruned_composites_are_a_subset_of_flat() {
         pruned_set.len() <= flat_set.len(),
     );
 }
+
+/// Environment controls run in fresh test processes, without changing the parallel suite's env.
+#[test]
+fn configured_environment_overrides_reach_the_emitter() {
+    let mut failures = Vec::new();
+    for case in [
+        "default",
+        "flat",
+        "probe",
+        "compound",
+        "compose",
+        "precedence",
+    ] {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args([
+            "--ignored",
+            "--exact",
+            "preexpand::pruning_tests::configured_environment_child",
+            "--nocapture",
+        ]);
+        for name in [
+            "HC_PREEXPAND_FLAT",
+            "HC_PREEXPAND_PROBE_CAP",
+            "HC_COMPOUND_CHAIN_DEPTH_BUDGET",
+            "HC_COMPOSE_CHAIN_DEPTH_BUDGET",
+        ] {
+            command.env_remove(name);
+        }
+        command.env("PANGLOSS_CONSTRUCTION_ENV_CASE", case);
+        match case {
+            "flat" => {
+                command.env("HC_PREEXPAND_FLAT", "1");
+            }
+            "probe" => {
+                command.env("HC_PREEXPAND_PROBE_CAP", "0");
+            }
+            "compound" | "precedence" => {
+                command.env("HC_COMPOUND_CHAIN_DEPTH_BUDGET", "0");
+                command.env("HC_COMPOSE_CHAIN_DEPTH_BUDGET", "1");
+            }
+            "compose" => {
+                command.env("HC_COMPOSE_CHAIN_DEPTH_BUDGET", "0");
+            }
+            "default" => {}
+            _ => unreachable!(),
+        }
+        let output = command.output().unwrap();
+        if !output.status.success() {
+            failures.push(format!(
+                "{case}: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+#[ignore = "child process for configured_environment_overrides_reach_the_emitter"]
+fn configured_environment_child() {
+    use crate::construction::FstCompileConfig;
+    let case = std::env::var("PANGLOSS_CONSTRUCTION_ENV_CASE").unwrap();
+    let g = if case == "compound" || case == "precedence" {
+        pg_conformance_fixtures::require_fixture("edge-cases", "recursive-endocentric-compounding")
+            .load_grammar()
+    } else {
+        load(&slot_gate_fixture(false))
+    };
+    if case == "probe" {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::analyzer::compile_proposer_with_config(&g, &FstCompileConfig::default())
+        }));
+        let error = outcome
+            .err()
+            .expect("the measurement-only probe cap must actually abort");
+        let text = error
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| error.downcast_ref::<&str>().copied())
+            .unwrap_or("");
+        assert!(text.contains("HC_PREEXPAND_PROBE_CAP=0 exceeded"), "{text}");
+        return;
+    }
+    let mut request = FstCompileConfig::default();
+    if case == "precedence" {
+        for option in ["--fst-closure-depth=64", "--fst-compound-depth=200"] {
+            assert!(request.parse_option(&[option.to_string()], &mut 0).unwrap());
+        }
+    }
+    let (result, profile) = crate::analyzer::compile_proposer_with_config(&g, &request);
+    assert_eq!(
+        profile.construction.requested_config.as_ref(),
+        Some(&request)
+    );
+    let attempt = &profile.construction.attempts[0];
+    match case.as_str() {
+        "default" | "precedence" => {
+            assert!(result.is_ok());
+            let effective = &profile.construction.config.as_ref().unwrap().bounds;
+            assert_eq!(effective.closure_depth, Some(64));
+            assert_eq!(effective.compound_depth, Some(200));
+        }
+        "flat" => {
+            assert!(result.is_ok());
+            let evidence = &attempt.closure.as_ref().unwrap().evidence;
+            assert_eq!(
+                evidence.per_depth_counts[0], 2,
+                "flat must probe the otherwise blocked slot"
+            );
+        }
+        "compound" => {
+            assert!(result.is_err());
+            let bound = attempt
+                .bound_refusal
+                .as_ref()
+                .expect("named compound refusal");
+            assert_eq!(bound.limit, 0);
+            assert!(bound.value > 0);
+            assert!(attempt
+                .detail
+                .as_ref()
+                .unwrap()
+                .contains("--fst-compound-depth"));
+            assert_eq!(
+                profile
+                    .construction
+                    .config
+                    .as_ref()
+                    .unwrap()
+                    .bounds
+                    .compound_depth,
+                Some(0)
+            );
+        }
+        "compose" => {
+            assert!(
+                result.is_err(),
+                "the general chain-depth environment cap must bind closure"
+            );
+            let config = serde_json::to_value(&profile.construction.config).unwrap();
+            assert_eq!(config["bounds"]["closure_depth"], 0);
+        }
+        _ => unreachable!(),
+    }
+}
