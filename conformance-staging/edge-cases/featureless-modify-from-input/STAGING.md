@@ -1,6 +1,6 @@
 # featureless-modify-from-input
 
-**Classification: BUG PIN (PanGloss issue #121; HC-Rust parsed `tisis` and `pisas`, and a second `kitas` reading, which hc.dll rejects)**
+**Classification: KNOWN PANGLOSS DIVERGENCE (divergence 128, partial-feature grammars; was BUG PIN for issue #121)**
 
 ## What it tests
 
@@ -40,3 +40,9 @@ Oracle of record: C# founding oracle, hc-conformance self-check, one run, 2026-1
 
 Promotion status: upstream_candidate.
 Upstream fixture PR: not opened; candidate destination is machine/conformance/edge-cases/featureless-modify-from-input/.
+
+## PanGloss divergence (divergence 128)
+
+Owner decision 2026-11-05: PanGloss deliberately covers featureless (XAmple-style) grammars through full HermitCrab feature grammars, and keeps the generous behaviour where hc.dll's behaviour comes from missing features. So this fixture's `words.yaml` now records PanGloss's answers and is red against hc.dll on purpose (`# oracle-provenance: forward-synthesis`; exact mismatch pinned in `rust/tools/oracle-conformance-known-divergences.json`).
+
+hc.dll's answers (the text above, 2026-11-05): `kitas` has one analysis (KITA), `tisis` and `pisas` have none. PanGloss: `kitas` has two (KITA, KATA), `tisis` is TASI+MODS and `pisas` is PASA+MODS, as in a grammar with a feature system. `kakas` and `tata` parse in neither. hc.dll mismatch against this `words.yaml`: `kitas` (got KITA only), `tisis` and `pisas` (got none).

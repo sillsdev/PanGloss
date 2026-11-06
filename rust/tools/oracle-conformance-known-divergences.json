@@ -27,6 +27,24 @@
       "kind": "forward-synthesis",
       "reason": "2/6 word(s) mismatched: nui: expected [NIU|nui] got []; mu+i: expected [MI+3SGU|mu+?i] got []",
       "note": "Divergence 050 / Machine #520: hc.dll (master c2454760, includes #539) finds no parse for the two metathesis words while a POS-scoped deletion exists; expectations are hand-forward-derived, see words.yaml."
+    },
+    {
+      "fixture": "edge-cases/featureless-modify-from-input",
+      "kind": "forward-synthesis",
+      "reason": "3/8 word(s) mismatched: kitas: expected [KATA+MODS|kitas | KITA+MODS|kitas] got [KITA+MODS|kitas]; tisis: expected [TASI+MODS|tisis] got []; pisas: expected [PASA+MODS|pisas] got []",
+      "note": "Divergence 128 (partial-feature grammars, owner decision 2026-11-05): PanGloss keeps the generous featureless ModifyFromInput undo; hc.dll restricts the node's StrRep. Expectations are PanGloss's, hc.dll's own answers are in STAGING.md."
+    },
+    {
+      "fixture": "edge-cases/unspecified-feature-minus-environment",
+      "kind": "forward-synthesis",
+      "reason": "2/6 word(s) mismatched: Nata: expected [] got [NPFX+ATA|N+?a[pt]a]; mata: expected [NPFX+ATA|m+?a[pt]a] got []",
+      "note": "Divergence 129 (partial-feature grammars, owner decision 2026-11-05): PanGloss lets a segment with no value for a feature satisfy a [feature:-] environment; hc.dll matches by subsumption. Expectations are PanGloss's, hc.dll's own answers are in STAGING.md."
+    },
+    {
+      "fixture": "edge-cases/unspecified-feature-minus-target",
+      "kind": "forward-synthesis",
+      "reason": "2/4 word(s) mismatched: aa: expected [] got [ATA|aa]; a: expected [] got [PA|a]",
+      "note": "Divergence 129 (partial-feature grammars, owner decision 2026-11-05): PanGloss lets a segment with no value for a feature satisfy a [feature:-] rule target; hc.dll matches by subsumption. Expectations are PanGloss's, hc.dll's own answers are in STAGING.md."
     }
   ],
   "evidence_measured_date": "2026-09-30"

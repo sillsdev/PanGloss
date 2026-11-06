@@ -1,4 +1,4 @@
-//! `ModifyFromInput` through a segment class, undone in analysis (issue #121). C# adds the context's `AntiFeatureStruct()` to the node; that leaves `StrRep` as the node's own spelling united with the context's, and only a segment without authored features has one. So in a featureless grammar a root is recovered only if its spelling is already in the node's set. With a feature system the segments carry no `StrRep` and the same grammar recovers every root. The grammar is the staged fixture `featureless-modify-from-input`; every verdict below is from the C# oracle.
+//! `ModifyFromInput` through a segment class, undone in analysis (issue #121; divergence 128, partial-feature grammars). hc.dll adds the context's `AntiFeatureStruct()` to the node; that leaves `StrRep` as the node's own spelling united with the context's, so in a featureless grammar it recovers a root only if its spelling is already in the node's set. PanGloss deliberately keeps the generous behaviour of a grammar with features: undoing the modification does not restrict the node's spelling, so `kikata`-like words recover root `kata`. The grammar is the staged fixture `featureless-modify-from-input`; the hc.dll verdicts are in its STAGING.md and the PanGloss verdicts below are its words.yaml.
 
 use pg_grammar::load;
 use pg_grammar_model::model::Grammar;
@@ -43,7 +43,7 @@ fn parses(g: &Grammar, word: &str) -> usize {
 }
 
 #[test]
-fn featureless_undo_recovers_only_a_root_whose_spelling_is_in_the_class() {
+fn featureless_undo_recovers_every_root_as_a_featured_grammar_does() {
     let g = load(&featureless()).expect("fixture grammar loads");
     assert!(
         g.phon_features.is_empty(),
@@ -51,19 +51,26 @@ fn featureless_undo_recovers_only_a_root_whose_spelling_is_in_the_class() {
     );
     assert_eq!(
         parses(&g, "kitas"),
-        1,
-        "kita, not kata: the a is not recovered"
+        2,
+        "kita and kata: the a is recovered (hc.dll finds only kita)"
     );
     assert_eq!(parses(&g, "sikas"), 1, "sika already has the vowel i");
     assert_eq!(parses(&g, "kita"), 1, "the bare root");
     assert_eq!(parses(&g, "kata"), 1, "the bare root");
-    for word in ["tisis", "pisas", "kakas", "tata"] {
-        assert_eq!(parses(&g, word), 0, "{word}: hc.dll finds no analysis");
+    for word in ["tisis", "pisas"] {
+        assert_eq!(
+            parses(&g, word),
+            1,
+            "{word}: root tasi/pasa is recovered (hc.dll finds none)"
+        );
+    }
+    for word in ["kakas", "tata"] {
+        assert_eq!(parses(&g, word), 0, "{word}: no root synthesizes it");
     }
 }
 
 #[test]
-fn a_feature_system_recovers_every_root() {
+fn a_feature_system_recovers_every_root_and_agrees_with_the_featureless_grammar() {
     let g = load(&featured()).expect("featured grammar loads");
     assert!(
         !g.phon_features.is_empty(),

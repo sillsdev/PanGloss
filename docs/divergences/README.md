@@ -39,6 +39,12 @@ table below, so the gaps in this folder are expected.
 - **From the status table below:** every entry is listed with both sites, kind, status and pinning
   fixture in one row.
 
+## Partial-feature grammars (policy)
+
+PanGloss deliberately covers three kinds of grammar and everything between them: **featureless (XAmple-style)** grammars whose phonemes are bare spellings, **full HermitCrab feature grammars**, and **partial-feature grammars** in which only some phonemes carry some features. A phoneme gains features one at a time, and every stage must parse without a complete feature set (owner decision 2026-11-05; `docs/adr/0009-partial-feature-grammars.md`).
+
+hc.dll was built for the fully featured end. Where its behaviour on a featureless or partial grammar comes from a *missing* feature (a built-in spelling that survives only on featureless segments, a subsumption test that fails when a segment lacks a value), PanGloss keeps the generous behaviour a grammar with the feature would show, and records it here as a true divergence. Entries: 128, 129. Rules for adding one: the difference must come from the missing feature; it needs a staged fixture whose `words.yaml` records PanGloss's answers (`# oracle-provenance: forward-synthesis`) and an `oracle-conformance-known-divergences.json` entry pinning hc.dll's mismatch; and the FST must not under-propose relative to the parser. Other differences stay parity bugs.
+
 ## Status table
 
 | id | title | kind | status | C# site | Rust site | pinning fixture/test |
@@ -63,6 +69,8 @@ table below, so the gaps in this folder are expected.
 | 125 | [PanGloss applies the stored `maxApps` of an exocentric compound rule; HCLoader ignores it](125-exocentric-compound-max-applications-honoured.md) | behavioural (loader only) | permanent (accepted-divergence) | `HCLoader.cs` (`LoadExoCompoundingRule`; endocentric lookup at 1943-1945); machine `XmlLanguageLoader.cs` honours it | `pg-grammar/src/compile/compounding.rs` | source reading only |
 | 126 | [A pattern member that cannot be converted refuses the allomorph or rule in PanGloss; HCLoader drops the member](126-malformed-pattern-members-refuse-the-allomorph-or-rule.md) | behavioural (loader only; malformed input) | permanent (accepted-divergence) | `HCLoader.cs` (`LoadPatternNode`, `LoadRewriteRule`) | `pg-grammar/src/compile/affixes.rs`, `rules.rs` | source reading only |
 | 127 | [hc.dll drops the middle context of a metathesis rule in analysis; PanGloss keeps it](127-metathesis-analysis-drops-the-middle-context.md) | behavioural (C# defect, machine#619) | temporary: remove when machine#619 lands and the oracle pin moves | `AnalysisMetathesisRuleSpec.cs` (constructor: `TakeWhile(!Group)` from both ends) | `pg-rules/src/metathesis.rs` (`build_analysis_pattern`) | `conformance-staging/edge-cases/metathesis-middle-context` (known oracle mismatch); `pg-rules/tests/metathesis_gate.rs::metathesis_middle_context_node_round_trips` |
+| 128 | [Undoing a featureless `ModifyFromInput` recovers every root, where hc.dll restricts the spelling](128-featureless-modify-from-input-keeps-every-root.md) | behavioural (partial-feature grammars) | permanent; owner decision 2026-11-05 | `AnalysisMorphologicalTransform.cs:34` (`AddCapturedPartNodes`); `HermitCrabExtensions.cs:29` (`AntiFeatureStruct` copies the built-in `StrRep`) | `pg-rules/src/morph.rs` (`generate_shape`) | `pg-parse/tests/featureless_modify_from_input.rs`; staged `featureless-modify-from-input` |
+| 129 | [A segment with no value for a feature satisfies a `[feature:-]` pin in synthesis](129-unspecified-feature-satisfies-minus-pin.md) | behavioural (partial-feature grammars) | permanent; owner decision 2026-11-05 | `SynthesisRewriteRule` (`MatchingMethod.Subsumption`); `FeatureStruct.SubsumesImpl` | `pg-rules/src/rewrite.rs` (`pattern_defaults_ok`, synthesis target and environment matching) | `pg-parse/tests/csharp_port_rewrite.rs`; `pg-rules/tests/rewrite_gate.rs`; staged `unspecified-feature-minus-environment`, `unspecified-feature-minus-target` |
 
 ## Retired entries
 

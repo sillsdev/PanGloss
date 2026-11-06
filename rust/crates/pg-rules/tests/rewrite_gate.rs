@@ -221,7 +221,7 @@ fn defaults_apply_to_quantified_right_environment_in_analysis() {
 }
 
 #[test]
-fn a_declared_default_satisfies_a_pin_and_an_absent_default_does_not() {
+fn defaults_allow_matching_the_declared_default_and_absent_default() {
     let xml = GRAMMAR_XML.replacen(
         "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
         "",
@@ -242,9 +242,10 @@ fn a_declared_default_satisfies_a_pin_and_an_absent_default_does_not() {
         pat_ctx(nat_class(&without_default, "nc_voi")),
         subrule(Pattern::default(), None, None),
     );
-    // Synthesis matches by subsumption: a pinned feature the node lacks, with no default, fails (hc.dll; sillsdev/pangloss#180).
+    // Divergence 129 (partial-feature grammars): a pinned feature the node lacks, with no default, still matches (unification); hc.dll's synthesis subsumption would fail it.
     assert!(
-        pg_rules::rewrite::synthesize(&without_default, &r, &seg(&without_default, "a")).is_empty()
+        !pg_rules::rewrite::synthesize(&without_default, &r, &seg(&without_default, "a"))
+            .is_empty()
     );
 }
 

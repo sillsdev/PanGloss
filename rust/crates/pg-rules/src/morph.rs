@@ -33,7 +33,7 @@ use pg_grammar_model::model::{
     NaturalClassKind, OutputAction, PartRef, Pattern, PatternNode, RealizationalRuleDef,
     ReduplicationHint, RootAllomorphDef, SimpleContext, StratumId, TableId,
 };
-use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
+use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge, StrRepMatcher};
 use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
@@ -993,32 +993,6 @@ fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
         nc,
         &pins,
     )
-}
-
-/// Identity of a node whose `ModifyFromInput` is undone: hc.dll's anti-feature-struct leaves `StrRep` as the node's spelling united with the class's, so it is not cleared.
-fn undo_modify_identity(
-    g: &Grammar,
-    table: TableId,
-    ctx: Option<&SimpleContext>,
-    char_def: u32,
-    cd_set: CdSet,
-) -> (u32, CdSet) {
-    let t = &g.char_tables[table.0 as usize];
-    if char_def == NO_CHAR_DEF || t.get(CharDefId(char_def)).has_authored_features() {
-        return (NO_CHAR_DEF, cd_set);
-    }
-    let Some(ctx) = ctx else {
-        return (char_def, cd_set);
-    };
-    let nc = &g.natural_classes[ctx.nat_class.0 as usize];
-    let NaturalClassKind::Segments(segs) = &nc.kind else {
-        return (char_def, cd_set);
-    };
-    if segs.iter().any(|cd| t.get(*cd).has_authored_features()) {
-        return (char_def, cd_set);
-    }
-    let members = CdBits::from_ids(segs.iter().map(|cd| cd.0).chain([char_def]));
-    (NO_CHAR_DEF, CdSet::Members(members))
 }
 
 /// The owned `CdSet` for a copied `OutNode`: harmlessly `Unrestricted` for a concrete source (its `char_def` already carries identity), real propagation only when the source was itself `NO_CHAR_DEF`.
@@ -2692,19 +2666,13 @@ fn generate_shape(
                 for &p in &node_of[s as usize..e as usize] {
                     let mut lanes = fit(g, shape.node_lanes(p));
                     let mut char_def = shape.char_def(p);
-                    let mut cd_set = cd_set_of(shape, p);
                     if shape.kind(p) == NodeKind::Segment {
                         if let Some(feats) = &modify_pins {
                             for &f in feats {
                                 lanes[f] = full_mask(g, f); // underspecify (undo the change)
                             }
-                            (char_def, cd_set) = undo_modify_identity(
-                                g,
-                                table,
-                                lhs.modify.get(name).map(|(_, ctx)| ctx),
-                                char_def,
-                                cd_set,
-                            );
+                            // The analysis-side counterpart of `copy_part`'s modify handling: clearing char_def makes lookup fall back to lane unification, since a pre-modification lexical root can't be found while this node still claims to be the post-modification one. Divergence 128 (partial-feature grammars): in a featureless grammar this recovers every root the lanes admit, where hc.dll keeps the node's own StrRep united with the class's.
+                            char_def = NO_CHAR_DEF;
                         }
                     }
                     out.push(OutNode {
@@ -2713,7 +2681,7 @@ fn generate_shape(
                         lanes,
                         optional: shape.flags(p).is_optional(),
                         origin: Origin::Head(p - 1),
-                        cd_set,
+                        cd_set: cd_set_of(shape, p),
                     });
                 }
                 emitted = true;
