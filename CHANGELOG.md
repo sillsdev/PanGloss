@@ -3,7 +3,9 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.16.0
+
+Released 2026-11-05.
 
 - Metathesis matches hc.dll in two cases (#162): between featureless phonemes the matcher now compares segment spelling, so `a t k -> a k t` reorders only `atka` instead of every root, and analysis unions the two spelling sets as `FeatureStruct.Union` does; a rule with a middle context drops that context from its analysis pattern, as hc.dll does (divergence 127), so PanGloss no longer finds the `kita` analysis of root `tika` that hc.dll misses. Staged fixtures `metathesis-featureless-phonemes` and `metathesis-middle-context`.
 - `pangloss grammar-health` can write the grammar snapshot and the facts database from its one import: `--snapshot-out <p>` writes the bytes `import` writes, and `--facts-out <p> --facts-context <p> [--facts-light]` writes the file `facts` writes from that snapshot (so `source_sha256` is the snapshot file's hash), saving a host two further imports and the facts compile (#176; the facts reuse the run's compile when the snapshot round-trips equal, else they compile for themselves). `.fwdata`/`.fwbackup` input only; a project `import` refuses gets neither file. Additive: no schema version changes (grammar-health 5, facts 9).
