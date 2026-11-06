@@ -1,11 +1,13 @@
-# oracle-provenance: founding-oracle
-# Signatures transcribed from the C# founding oracle (hc-conformance self-check, in-process Morpher),
-# machine pin 4d9b454d, 2026-11-05.
+# oracle-provenance: forward-synthesis
+# PanGloss-expected answers: a deliberate, recorded divergence from hc.dll (docs/divergences/129-*.md,
+# policy "partial-feature grammars"). This fixture is RED against hc.dll on purpose; do not "fix" it back.
+# hc.dll's answers (hc-conformance self-check, in-process Morpher, machine pin 4d9b454d, 2026-11-05) are
+# in STAGING.md and pinned in rust/tools/oracle-conformance-known-divergences.json.
 #
-# prDel: [nasal:-] -> (deleted), no environment. The vowel a has no nasal value, so the rule's
-# target does not match it in hc.dll (synthesis rewrite rules match by subsumption,
-# FeatureStruct.SubsumesImpl); only p and t are deleted. A port that lets the unspecified a match
-# the pin deletes every segment of ata, so aa never parses (sillsdev/pangloss#180).
+# prDel: [nasal:-] -> (deleted), no environment. The vowel a has no nasal value. hc.dll's synthesis
+# match is subsumption, so its target does not match a and only p and t are deleted (ata -> aa). PanGloss
+# matches by unification, so the unspecified a satisfies [nasal:-] and every segment of ata and pa is
+# deleted: the rule is obligatory, so aa and a never parse, and neither do ata or pa.
 language: UnspecifiedFeatureMinusTarget
 inspired_by: ["synthetic obligatory consonant deletion (not modeling any real language)"]
 sources:
@@ -16,16 +18,12 @@ fieldworks_producible: true
 words:
   - word: aa
     note: >-
-      ata with its t deleted; both a survive because they have no nasal value.
-    parses:
-      - signature: "ATA|aa"
-        rules: [prDel]
+      hc.dll: ata with its t deleted, both a survive. PanGloss: a is deleted too, so nothing derives aa.
+    expect_fail: true
   - word: a
     note: >-
-      pa with its p deleted (positive control: a nasal:- target is deleted).
-    parses:
-      - signature: "PA|a"
-        rules: [prDel]
+      hc.dll: pa with its p deleted. PanGloss: a is deleted too, so nothing derives a.
+    expect_fail: true
   - word: ata
     note: >-
       The rule is obligatory: t never survives.

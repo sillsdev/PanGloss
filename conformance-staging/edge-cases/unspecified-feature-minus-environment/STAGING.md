@@ -1,6 +1,6 @@
 # unspecified-feature-minus-environment
 
-**Classification: BUG PIN (PanGloss issue #180; HC-Rust differed from the oracle on 2 of 6 words before the fix)**
+**Classification: KNOWN PANGLOSS DIVERGENCE (divergence 129, partial-feature grammars; was BUG PIN for issue #180)**
 
 ## What it tests
 
@@ -34,3 +34,9 @@ Oracle of record: C# founding oracle, one run, 2026-11-05. Synthetic data only.
 Promotion status: upstream_candidate. Upstream fixture PR: not opened.
 
 Sibling fixture for the rule target: `unspecified-feature-minus-target`.
+
+## PanGloss divergence (divergence 129)
+
+Owner decision 2026-11-05: a segment with no value for a feature satisfies a `[feature:-]` condition in PanGloss (unification), so a grammar's phonemes can build features up gradually and still work. `words.yaml` now records PanGloss's answers and is red against hc.dll on purpose (`# oracle-provenance: forward-synthesis`; exact mismatch pinned in `rust/tools/oracle-conformance-known-divergences.json`).
+
+hc.dll (subsumption): `Nata` parses (N unchanged), `mata` does not. PanGloss: `mata` parses (`NPFX+ATA|m+?a[pt]a`), `Nata` does not. `mpa`, `Npa`, `ata`, `pa` agree.
