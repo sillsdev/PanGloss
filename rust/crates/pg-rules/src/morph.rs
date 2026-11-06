@@ -1112,13 +1112,14 @@ struct OutNode {
     origin: Origin,
     /// Char-def-set identity, consulted only when `char_def == NO_CHAR_DEF`; a real `char_def` leaves this `Unrestricted` and unread.
     cd_set: CdSet,
+    generated_full: Vec<u32>,
 }
 
 /// Freezes interior `OutNode`s into a bracketed `Shape`; optional segments use a delete-then-reinsert workaround since `ShapeBuilder` has no set-flags-in-place.
 fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
     let w = feat_width(g) as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, nodes.len());
-    for n in nodes {
+    for (i, n) in nodes.iter().enumerate() {
         let lanes = fit(g, &n.lanes);
         match n.kind {
             // Class insertions carry their real cd_set; a concrete segment's own char_def is already the identity, so `n.cd_set` goes unread there.
@@ -1129,6 +1130,7 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
             NodeKind::Boundary => b.push_boundary_with_lanes(n.char_def, &lanes),
             _ => {}
         }
+        b.set_generated_full(i + 1, &n.generated_full);
     }
     let mut shape = b.finish();
     let optional_positions: Vec<usize> = nodes
@@ -1159,6 +1161,7 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
                     &lanes,
                 );
             }
+            m.set_generated_full(idx, &n.generated_full);
         }
         shape = m.freeze();
     }
@@ -1563,6 +1566,11 @@ fn copy_part(
             optional: src.shape.flags(p).is_optional(),
             origin,
             cd_set,
+            generated_full: src
+                .shape
+                .generated_full_features(p)
+                .filter(|f| !pins.iter().any(|(pinned, _)| *pinned == *f as usize))
+                .collect(),
         });
     }
 }
@@ -1584,6 +1592,7 @@ fn insert_segments(
             optional: false,
             origin,
             cd_set: CdSet::Unrestricted,
+            generated_full: Vec::new(),
         });
     }
 }
@@ -2378,6 +2387,7 @@ fn synth_process_allomorph(
                     optional: false,
                     origin: Origin::Affix,
                     cd_set: ctx_cd_set(g, table, ctx),
+                    generated_full: Vec::new(),
                 });
             }
             // Cross-list part refs never appear on an affix rule (loader invariant).
@@ -2703,6 +2713,7 @@ fn generate_shape(
                         optional: shape.flags(p).is_optional(),
                         origin: Origin::Head(p - 1),
                         cd_set: cd_set_of(shape, p),
+                        generated_full: shape.generated_full_features(p).collect(),
                     });
                 }
             } else {
@@ -2750,6 +2761,14 @@ fn generate_shape(
                         optional: shape.flags(p).is_optional(),
                         origin: Origin::Head(p - 1),
                         cd_set: cd_set_of(shape, p),
+                        generated_full: shape
+                            .generated_full_features(p)
+                            .filter(|f| {
+                                !modify_pins
+                                    .as_ref()
+                                    .is_some_and(|pins| pins.contains(&(*f as usize)))
+                            })
+                            .collect(),
                     });
                 }
                 emitted = true;
@@ -2784,6 +2803,7 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
                     optional,
                     origin: Origin::Affix,
                     cd_set: ctx_cd_set(g, table, sc),
+                    generated_full: Vec::new(),
                 }),
                 PatternNode::CharDef(cd) => {
                     let t = &g.char_tables[table.0 as usize];
@@ -2797,6 +2817,7 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
                             optional,
                             origin: Origin::Affix,
                             cd_set: CdSet::Unrestricted,
+                            generated_full: Vec::new(),
                         });
                     }
                 }
@@ -3649,6 +3670,7 @@ fn synth_compound_subrule(
                 optional: false,
                 origin: Origin::Insert,
                 cd_set: ctx_cd_set(g, table, ctx),
+                generated_full: Vec::new(),
             }),
             // Modify / Input refs are not used by the reference compounding rules.
             _ => {}

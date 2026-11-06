@@ -203,13 +203,17 @@ pub struct Shape {
     feat_lanes: Box<[u64]>,
     /// Explicit char-def-set per node, consulted only when `char_defs[i] == NO_CHAR_DEF`; `CdSet::Unrestricted` for every node whose producer doesn't set one (concrete nodes ignore this column entirely).
     cd_sets: Box<[CdSet]>,
+    /// Sparse (node, feature) pairs for present full sets created by rewriting.
+    generated_full: Box<[(u32, u32)]>,
 }
 
 impl Shape {
     /// Work units for hashing and comparing every component of this shape.
     pub fn key_work(&self) -> usize {
         self.cd_sets.iter().fold(
-            self.len().saturating_mul(3 + self.feat_width as usize),
+            self.len()
+                .saturating_mul(3 + self.feat_width as usize)
+                .saturating_add(self.generated_full.len()),
             |total, set| match set {
                 CdSet::Members(bits) => total.saturating_add(bits.0.len()),
                 CdSet::Unrestricted => total,
@@ -239,6 +243,9 @@ impl Shape {
             .saturating_add(allocation(
                 self.cd_sets.len() * std::mem::size_of::<CdSet>(),
             ));
+        let columns = columns.saturating_add(allocation(
+            self.generated_full.len() * std::mem::size_of::<(u32, u32)>(),
+        ));
         self.cd_sets.iter().fold(columns, |total, set| match set {
             CdSet::Members(bits) if bits.0.spilled() => {
                 total.saturating_add(allocation(bits.0.capacity() * std::mem::size_of::<u64>()))
@@ -285,6 +292,13 @@ impl Shape {
     pub fn node_lanes(&self, i: usize) -> &[u64] {
         let w = self.feat_width as usize;
         &self.feat_lanes[i * w..i * w + w]
+    }
+
+    /// Feature indexes whose full values were produced by a rewrite on this node.
+    pub fn generated_full_features(&self, i: usize) -> impl Iterator<Item = u32> + '_ {
+        self.generated_full
+            .iter()
+            .filter_map(move |&(node, feature)| (node as usize == i).then_some(feature))
     }
 
     /// The effective char-def-set identity of node `i` (plan §13.1 Tier-1 #3): a concrete node
@@ -341,6 +355,7 @@ pub struct ShapeBuilder {
     feat_width: u32,
     feat_lanes: Vec<u64>,
     cd_sets: Vec<CdSet>,
+    generated_full: Vec<(u32, u32)>,
 }
 
 impl ShapeBuilder {
@@ -369,6 +384,7 @@ impl ShapeBuilder {
             feat_width,
             feat_lanes: Vec::with_capacity((cap + 2) * w),
             cd_sets: Vec::with_capacity(cap + 2),
+            generated_full: Vec::new(),
         };
         b.push(NodeKind::LeftAnchor, NO_CHAR_DEF, NodeFlags::EMPTY);
         b
@@ -384,6 +400,7 @@ impl ShapeBuilder {
             feat_width: src.feat_width,
             feat_lanes: src.feat_lanes.to_vec(),
             cd_sets: src.cd_sets.to_vec(),
+            generated_full: src.generated_full.to_vec(),
         }
     }
 
@@ -498,6 +515,11 @@ impl ShapeBuilder {
             index >= 1 && index < self.kinds.len(),
             "insert index must be interior (between the anchors)"
         );
+        for (node, _) in &mut self.generated_full {
+            if *node as usize >= index {
+                *node += 1;
+            }
+        }
         self.kinds.insert(index, kind);
         self.char_defs.insert(index, char_def);
         self.flags.insert(index, flags);
@@ -531,6 +553,13 @@ impl ShapeBuilder {
             self.kinds[index] != NodeKind::LeftAnchor && self.kinds[index] != NodeKind::RightAnchor,
             "cannot delete an anchor node"
         );
+        self.generated_full
+            .retain(|(node, _)| *node as usize != index);
+        for (node, _) in &mut self.generated_full {
+            if *node as usize > index {
+                *node -= 1;
+            }
+        }
         self.kinds.remove(index);
         self.char_defs.remove(index);
         self.flags.remove(index);
@@ -540,6 +569,16 @@ impl ShapeBuilder {
             self.feat_lanes.remove(index * w + k);
         }
         self.cd_sets.remove(index);
+    }
+
+    /// Set the rewrite-produced full feature values for a node.
+    pub fn set_generated_full(&mut self, index: usize, features: &[u32]) {
+        assert!(index < self.kinds.len());
+        self.generated_full
+            .retain(|(node, _)| *node as usize != index);
+        self.generated_full
+            .extend(features.iter().map(|&f| (index as u32, f)));
+        self.generated_full.sort_unstable();
     }
 
     /// Feature-change: replace node `index`'s lanes with `lanes` (`lanes.len()` must be
@@ -597,6 +636,7 @@ impl ShapeBuilder {
             feat_width: self.feat_width,
             feat_lanes: self.feat_lanes.into_boxed_slice(),
             cd_sets: self.cd_sets.into_boxed_slice(),
+            generated_full: self.generated_full.into_boxed_slice(),
         }
     }
 }

@@ -1,6 +1,95 @@
 use super::*;
 
 #[test]
+fn ambiguous_intermediate_context_uses_subsumption_in_synthesis_and_unification_in_analysis() {
+    use pg_grammar_model::model::{Dir, PhonRuleDef};
+    let xml =
+        pg_conformance_fixtures::require_fixture("edge-cases", "permissive-intermediate-class")
+            .load_grammar_xml();
+    for dir in [Dir::LeftToRight, Dir::RightToLeft] {
+        let mut g = pg_grammar::load(&xml).unwrap();
+        for rule in &mut g.prules {
+            if let PhonRuleDef::Rewrite(rule) = rule {
+                rule.dir = dir;
+            }
+        }
+        let PhonRuleDef::Rewrite(make_ambiguous) = &g.prules[0] else {
+            panic!("rewrite")
+        };
+        let PhonRuleDef::Rewrite(flank) = &g.prules[1] else {
+            panic!("rewrite")
+        };
+        let PhonRuleDef::Rewrite(other_flank) = &g.prules[2] else {
+            panic!("rewrite")
+        };
+        let table = &g.char_tables[0];
+        let input = crate::shape_feat::segment_with_features(&g, table, "aua").unwrap();
+        let ambiguous = synthesize(&g, make_ambiguous, &input).pop().unwrap();
+        assert!(
+            synthesize(&g, flank, &ambiguous).is_empty(),
+            "{dir:?}: [y|u] is not wholly front"
+        );
+        assert!(
+            synthesize(&g, other_flank, &ambiguous).is_empty(),
+            "{dir:?}: [y|u] is not wholly back"
+        );
+        assert!(
+            synthesize(&g, make_ambiguous, &ambiguous).is_empty(),
+            "{dir:?}: [y|u] is not wholly u"
+        );
+
+        for (rule, word, expected) in [(flank, "aya", "iya"), (other_flank, "aua", "auy")] {
+            let input = crate::shape_feat::segment_with_features(&g, table, word).unwrap();
+            let expected = crate::shape_feat::segment_with_features(&g, table, expected).unwrap();
+            let actual = synthesize(&g, rule, &input);
+            assert_eq!(actual.len(), 1, "{dir:?} {word}");
+            for pos in 0..expected.len() {
+                assert_eq!(
+                    &actual[0].node_lanes(pos)[..g.phon_features.len()],
+                    &expected.node_lanes(pos)[..g.phon_features.len()],
+                    "{dir:?} {word} position {pos}"
+                );
+            }
+        }
+
+        let surface = crate::shape_feat::segment_with_features(&g, table, "iua").unwrap();
+        let ambiguous_surface = synthesize(&g, make_ambiguous, &surface).pop().unwrap();
+        let analyzed = analyze(&g, flank, &ambiguous_surface, None);
+        assert_eq!(analyzed.len(), 1, "{dir:?}: [y|u] unifies with front");
+        let first = (0..analyzed[0].len())
+            .find(|&i| analyzed[0].kind(i) == NodeKind::Segment)
+            .unwrap();
+        let i = table.lookup_nfd("i").unwrap();
+        let a = table.lookup_nfd("a").unwrap();
+        for f in 0..g.phon_features.len() {
+            let expected = table.get(i).feature_lanes()[f] | table.get(a).feature_lanes()[f];
+            assert_eq!(
+                analyzed[0].node_lanes(first)[f],
+                expected,
+                "{dir:?} feature {f}"
+            );
+        }
+        let surface = crate::shape_feat::segment_with_features(&g, table, "auy").unwrap();
+        let ambiguous_surface = synthesize(&g, make_ambiguous, &surface).pop().unwrap();
+        let analyzed = analyze(&g, other_flank, &ambiguous_surface, None);
+        assert_eq!(analyzed.len(), 1, "{dir:?}: [y|u] unifies with back");
+        let last = (0..analyzed[0].len())
+            .rev()
+            .find(|&i| analyzed[0].kind(i) == NodeKind::Segment)
+            .unwrap();
+        let y = table.lookup_nfd("y").unwrap();
+        for f in 0..g.phon_features.len() {
+            let expected = table.get(y).feature_lanes()[f] | table.get(a).feature_lanes()[f];
+            assert_eq!(
+                analyzed[0].node_lanes(last)[f],
+                expected,
+                "{dir:?} feature {f}"
+            );
+        }
+    }
+}
+
+#[test]
 fn probing_a_mixed_rule_keeps_deleted_nodes_and_matches_synthesis() {
     let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
         .load_grammar_xml();
@@ -150,5 +239,179 @@ fn rtl_epenthesis_resumes_before_the_inserted_sequence_in_every_route() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn generated_full_intermediate_remains_present_between_rules_in_both_directions() {
+    use pg_grammar_model::model::{Dir, PhonRuleDef};
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "generated-full-intermediate")
+        .load_grammar_xml();
+    for dir in [Dir::LeftToRight, Dir::RightToLeft] {
+        let mut g = pg_grammar::load(&xml).unwrap();
+        for rule in &mut g.prules {
+            if let PhonRuleDef::Rewrite(rule) = rule {
+                rule.dir = dir;
+            }
+        }
+        let PhonRuleDef::Rewrite(merge) = &g.prules[0] else {
+            panic!("rewrite")
+        };
+        let PhonRuleDef::Rewrite(front) = &g.prules[1] else {
+            panic!("rewrite")
+        };
+        let PhonRuleDef::Rewrite(back) = &g.prules[2] else {
+            panic!("rewrite")
+        };
+        let table = &g.char_tables[0];
+        let input = crate::shape_feat::segment_with_features(&g, table, "auua").unwrap();
+        let middle = synthesize(&g, merge, &input).pop().unwrap();
+        assert_eq!(middle.generated_full_features(2).count(), 2, "{dir:?}");
+        assert!(synthesize(&g, front, &middle).is_empty(), "{dir:?} front");
+        assert!(synthesize(&g, back, &middle).is_empty(), "{dir:?} back");
+        let input = crate::shape_feat::segment_with_features(&g, table, "iuua").unwrap();
+        let middle = synthesize(&g, merge, &input).pop().unwrap();
+        assert!(
+            !analyze(&g, front, &middle, None).is_empty(),
+            "{dir:?} analysis unifies"
+        );
+    }
+}
+
+#[test]
+fn bound_alpha_subsumes_in_synthesis_and_overlaps_in_analysis_in_both_walks() {
+    let xml =
+        pg_conformance_fixtures::require_fixture("edge-cases", "intermediate-alpha-subsumption")
+            .load_grammar_xml();
+    let g = pg_grammar::load(&xml).unwrap();
+    let feature = 0;
+    let plus = VarOccur {
+        feature,
+        var: 0,
+        plus: true,
+    };
+    let minus = VarOccur {
+        feature,
+        var: 0,
+        plus: false,
+    };
+    let table = &g.char_tables[0];
+    let a = table.get(table.lookup_nfd("a").unwrap()).feature_lanes()[feature];
+    let y = table.get(table.lookup_nfd("y").unwrap()).feature_lanes()[feature];
+    let ambiguous = a | y;
+    for occ in [&plus, &minus] {
+        let mut binding = Bindings::default();
+        assert!(bind_or_check(&g, &mut binding, occ, a, true, false));
+        assert!(!bind_or_check(
+            &g,
+            &mut binding.clone(),
+            occ,
+            ambiguous,
+            true,
+            false
+        ));
+        assert!(bind_or_check(
+            &g,
+            &mut binding.clone(),
+            occ,
+            ambiguous,
+            false,
+            false
+        ));
+        let mut lanes: Vec<_> = (0..pg_grammar_model::membership::width(&g.phon_features))
+            .map(|f| full_mask(&g, f))
+            .collect();
+        lanes[feature] = ambiguous;
+        let segment = Segment::new(lanes);
+        let constraint = AgreementNode::Constraint {
+            lanes: vec![],
+            vars: vec![occ.clone()],
+        };
+        for reverse in [false, true] {
+            for (synthesis, expected) in [(true, false), (false, true)] {
+                let result = walk_binding_environment(
+                    &g,
+                    &[&segment],
+                    reverse,
+                    false,
+                    1,
+                    synthesis,
+                    vec![BindingTask::Node(&constraint)],
+                    0,
+                    binding.clone(),
+                );
+                assert_eq!(
+                    result.is_some(),
+                    expected,
+                    "reverse={reverse} synthesis={synthesis}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn target_alpha_bindings_follow_the_match_direction() {
+    use pg_grammar_model::model::PhonRuleDef;
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "intermediate-alpha-target")
+        .load_grammar_xml();
+    let g = pg_grammar::load(&xml).unwrap();
+    let PhonRuleDef::Rewrite(make_ambiguous) = &g.prules[0] else {
+        panic!("rewrite")
+    };
+    let PhonRuleDef::Rewrite(target) = &g.prules[1] else {
+        panic!("rewrite")
+    };
+    let table = &g.char_tables[0];
+    let input = crate::shape_feat::segment_with_features(&g, table, "aua").unwrap();
+    let intermediate = synthesize(&g, make_ambiguous, &input).pop().unwrap();
+    let ms = MutShape::for_rewrite(&g, table, &intermediate);
+    let (segs, node_of) = ms.segs(true);
+    let vars = pattern_var_occurrences(&target.lhs);
+    let nodes = &node_of[..2];
+    let bindings = |reverse| {
+        resolve_bindings(
+            &g, &ms, &node_of, nodes, &segs, 0, 2, &vars, &None, &None, &None, &None, true, reverse,
+        )
+    };
+    assert!(
+        bindings(false).is_none(),
+        "singleton binding cannot subsume the ambiguous node"
+    );
+    assert!(
+        bindings(true).is_some(),
+        "ambiguous binding subsumes the singleton node"
+    );
+}
+
+#[test]
+fn alpha_output_keeps_absent_and_generated_full_values_distinct() {
+    let xml =
+        pg_conformance_fixtures::require_fixture("edge-cases", "intermediate-alpha-subsumption")
+            .load_grammar_xml();
+    let g = pg_grammar::load(&xml).unwrap();
+    let table = &g.char_tables[0];
+    let shape = crate::shape_feat::segment_with_features(&g, table, "a").unwrap();
+    let ms = MutShape::for_rewrite(&g, table, &shape);
+    let occ = VarOccur {
+        feature: 0,
+        var: 0,
+        plus: true,
+    };
+    let mask = full_mask(&g, occ.feature);
+    let narrow = table.get(table.lookup_nfd("a").unwrap()).feature_lanes()[occ.feature];
+    let mut wanted = vec![u64::MAX; ms.w];
+    wanted[occ.feature] = narrow;
+    for (absent, expected_match) in [(true, true), (false, false)] {
+        let mut bindings = Bindings::default();
+        assert!(bind_or_check(&g, &mut bindings, &occ, mask, true, absent));
+        let mut node = ms.nodes[1].clone();
+        apply_variable_bindings(&g, &mut node, std::slice::from_ref(&occ), &bindings);
+        let segment =
+            Segment::new(node.lanes.clone()).with_explicit_full(segment_full_markers(&node));
+        assert_eq!(
+            synthesis_constraint_matches(&g, &segment, &wanted),
+            expected_match
+        );
     }
 }

@@ -46,6 +46,8 @@ pub(crate) struct MutNode {
     pub(crate) lanes: Vec<u64>,
     /// Features authored with every symbol: their lane equals the full mask like an absent feature's, but C# keeps them present so `UseDefaults` leaves them alone. Taken from the node's char-def; empty for nearly every node. Carried unchanged within one rule application, even when a featured rewrite sets `char_def` to NO_CHAR_DEF (stale-retained, not cleared); the next rule re-derives it from the shape's `char_def`, so a node a featured rule touched reads as absent again. Mostly harmless and closer to C# than before; it matters only for grammars that author a full set, which FieldWorks does not produce.
     pub(crate) explicit_full: Vec<u32>,
+    /// Present full values created by a rewrite, rather than absent feature lanes.
+    pub(crate) generated_full: Vec<u32>,
     pub(crate) optional: bool,
     /// C# `Annotation.FeatureStruct[Deletion] == Deleted` (synthesis narrow marks then filters).
     pub(crate) deleted: bool,
@@ -57,7 +59,7 @@ pub(crate) struct MutNode {
 impl MutNode {
     /// Whether feature `f` is present with its full symbol set, so a default must not replace it.
     fn is_explicit_full(&self, f: usize) -> bool {
-        self.explicit_full.contains(&(f as u32))
+        self.explicit_full.contains(&(f as u32)) || self.generated_full.contains(&(f as u32))
     }
 
     fn contains_strrep(&self, cd: u32) -> bool {
@@ -158,6 +160,7 @@ impl MutShape {
                 },
                 lanes: s.node_lanes(i).to_vec(),
                 explicit_full: Vec::new(),
+                generated_full: s.generated_full_features(i).collect(),
                 optional: s.flags(i).is_optional(),
                 deleted: false,
                 dirty: false,
@@ -211,7 +214,7 @@ impl MutShape {
             })
             .collect();
         let mut b = ShapeBuilder::with_features_capacity(w, interior.len());
-        for n in &interior {
+        for (i, n) in interior.iter().enumerate() {
             match n.kind {
                 NodeKind::Segment if n.char_def == pg_shape::NO_CHAR_DEF => {
                     b.push_segment_with_lanes_and_set(&n.lanes, n.cd_set.clone());
@@ -220,6 +223,7 @@ impl MutShape {
                 NodeKind::Boundary => b.push_boundary_with_lanes(n.char_def, &n.lanes),
                 _ => unreachable!(),
             }
+            b.set_generated_full(i + 1, &n.generated_full);
         }
         let mut shape = b.finish();
         // Segments that must be Optional: delete + reinsert with the OPTIONAL flag.
@@ -250,6 +254,7 @@ impl MutShape {
                         &n.lanes,
                     );
                 }
+                m.set_generated_full(idx, &n.generated_full);
             }
             shape = m.freeze();
         }
@@ -283,7 +288,7 @@ impl MutShape {
                     } else {
                         Segment::new(lanes)
                     };
-                    segs.push(seg.with_explicit_full(n.explicit_full.clone()));
+                    segs.push(seg.with_explicit_full(segment_full_markers(n)));
                     node_of.push(i);
                 }
                 NodeKind::Boundary if include_boundaries => {
@@ -308,6 +313,49 @@ fn explicit_full_of(table: &CharDefTable, char_def: u32) -> Vec<u32> {
         .get(CharDefId(char_def))
         .explicit_full_features()
         .to_vec()
+}
+
+// High indexes tag rewrite provenance in the Segment full-feature list.
+fn segment_full_markers(node: &MutNode) -> Vec<u32> {
+    let mut markers = node.explicit_full.clone();
+    for &feature in &node.generated_full {
+        markers.push(feature);
+        markers.push(u32::MAX - feature);
+    }
+    markers
+}
+
+fn generated_full(segment: &Segment, feature: usize) -> bool {
+    segment.explicit_full.contains(&(u32::MAX - feature as u32))
+}
+
+fn generated_full_of(g: &Grammar, table: &CharDefTable, node: &PatternNode) -> Vec<u32> {
+    let PatternNode::Context(sc) = node else {
+        return Vec::new();
+    };
+    (0..g.phon_features.len())
+        .filter(|&f| {
+            if sc.vars.iter().any(|v| v.feature.0 as usize == f) {
+                return false;
+            }
+            match &g.natural_classes[sc.nat_class.0 as usize].kind {
+                NaturalClassKind::Feature(pairs) => pairs
+                    .iter()
+                    .any(|(feature, bits)| feature.0 as usize == f && bits.0 == full_mask(g, f)),
+                NaturalClassKind::Segments(members) => {
+                    !members.is_empty()
+                        && members
+                            .iter()
+                            .all(|cd| !table.get(*cd).feature_is_defaulted(FlatIndex(f as u32)))
+                        && members
+                            .iter()
+                            .fold(0, |bits, cd| bits | table.get(*cd).feature_lanes()[f])
+                            == full_mask(g, f)
+                }
+            }
+        })
+        .map(|f| f as u32)
+        .collect()
 }
 
 fn full_mask(g: &Grammar, f: usize) -> u64 {
@@ -510,14 +558,13 @@ pub(crate) struct EnvFst {
     agreement: Option<Vec<AgreementNode>>,
     binding_nodes: Option<Vec<AgreementNode>>,
     defaults: Vec<(usize, u64, u64)>,
+    synthesis: bool,
 }
 
-/// Compile an environment for **synthesis**, and for the allomorph-environment gate, which shares
-/// C#'s segment-boundary-anchor filter: boundary-marker constraints are kept verbatim, since C#
-/// passes both environments straight through unstripped. Analysis callers must use
-/// `compile_env_analysis` instead — see its doc for why.
+/// Compile a rewrite synthesis environment with C#'s segment-boundary-anchor filter and
+/// subsumption matching. Analysis and allomorph environments use their own constructors.
 pub(crate) fn compile_env(g: &Grammar, table_id: TableId, env: Option<&Pattern>) -> Option<EnvFst> {
-    compile_env_impl(g, table_id, env, false, false)
+    compile_env_impl(g, table_id, env, false, false, true)
 }
 
 /// Allomorph environments use the identity lane carried by `crate::morph::segs_of`.
@@ -531,7 +578,7 @@ pub(crate) fn compile_env_allomorph(
     table_id: TableId,
     env: Option<&Pattern>,
 ) -> Option<EnvFst> {
-    compile_env_impl(g, table_id, env, false, true)
+    compile_env_impl(g, table_id, env, false, true, false)
 }
 
 /// Compile an environment for phonological **analysis**, stripping boundary constraints as C#'s
@@ -551,7 +598,7 @@ pub(crate) fn compile_env_analysis(
     table_id: TableId,
     env: Option<&Pattern>,
 ) -> Option<EnvFst> {
-    compile_env_impl(g, table_id, env, true, false)
+    compile_env_impl(g, table_id, env, true, false, false)
 }
 
 fn compile_env_impl(
@@ -560,6 +607,7 @@ fn compile_env_impl(
     env: Option<&Pattern>,
     strip_boundaries: bool,
     id_lane: bool,
+    synthesis: bool,
 ) -> Option<EnvFst> {
     let env = env?;
     let stripped;
@@ -632,7 +680,8 @@ fn compile_env_impl(
         node_vars: compiled.node_vars,
         group_names,
         agreement,
-        binding_nodes: compiled.uses_alpha_vars.then_some(compiled.agreement_nodes),
+        binding_nodes: (synthesis || compiled.uses_alpha_vars).then_some(compiled.agreement_nodes),
+        synthesis,
         defaults: if id_lane {
             Vec::new()
         } else {
@@ -786,11 +835,18 @@ fn right_env_match_for_binding(
 
 // Bind alpha variables in target, left-environment, then right-environment order.
 
-/// Bindings: `VarId.0` → (bound symbol bits, governing feature index, kept for the disagree/negation mask).
-type Bindings = HashMap<u16, (u64, usize)>;
+/// Bindings carry symbol bits, their feature index, and full-set matching provenance.
+type Bindings = HashMap<u16, (u64, usize, bool)>;
 
-/// One agreement step (C# `SimpleFeatureValue.IsUnifiableImpl` variable arm): binds on first sight, else checks agreement; returns `false` only when a bound variable is violated.
-fn bind_or_check(g: &Grammar, bindings: &mut Bindings, occ: &VarOccur, node_bits: u64) -> bool {
+/// Bind or check an alpha variable using synthesis subsumption or analysis unification.
+fn bind_or_check(
+    g: &Grammar,
+    bindings: &mut Bindings,
+    occ: &VarOccur,
+    node_bits: u64,
+    synthesis: bool,
+    permissive_full: bool,
+) -> bool {
     let mask = full_mask(g, occ.feature);
     match bindings.get(&occ.var) {
         None => {
@@ -800,13 +856,17 @@ fn bind_or_check(g: &Grammar, bindings: &mut Bindings, occ: &VarOccur, node_bits
             } else {
                 mask & !node_bits
             };
-            bindings.insert(occ.var, (bound, occ.feature));
+            bindings.insert(occ.var, (bound, occ.feature, !permissive_full));
             true
         }
-        Some(&(b, _)) => {
-            // binding.Overlaps(!Agree, node): negate the binding within the mask when disagree.
+        Some(&(b, _, _)) => {
+            // A disagreeing occurrence uses the complement of the binding.
             let eff = if occ.plus { b } else { mask & !b };
-            eff & node_bits != 0
+            if synthesis && !permissive_full {
+                node_bits & !eff == 0
+            } else {
+                eff & node_bits != 0
+            }
         }
     }
 }
@@ -837,15 +897,34 @@ fn resolve_bindings(
     left_match: &Option<Vec<FstResult>>,
     right: &Option<EnvFst>,
     right_match: &Option<Vec<FstResult>>,
+    synthesis: bool,
+    reverse_target: bool,
 ) -> Option<Bindings> {
     let mut bindings: Bindings = HashMap::default();
 
     // (1) target nodes, in match order.
-    for (k, occs) in lhs_vars.iter().enumerate() {
+    for k in (0..lhs_vars.len()).map(|i| {
+        if reverse_target {
+            lhs_vars.len() - 1 - i
+        } else {
+            i
+        }
+    }) {
+        let occs = &lhs_vars[k];
         let node = target_nodes[k];
         for occ in occs {
             let bits = rewrite_variable_bits(g, occ, &ms.nodes[node]);
-            if !bind_or_check(g, &mut bindings, occ, bits) {
+            if !bind_or_check(
+                g,
+                &mut bindings,
+                occ,
+                bits,
+                synthesis,
+                bits == full_mask(g, occ.feature)
+                    && !ms.nodes[node]
+                        .generated_full
+                        .contains(&(occ.feature as u32)),
+            ) {
                 return None;
             }
         }
@@ -927,9 +1006,13 @@ fn apply_variable_bindings(
     bindings: &Bindings,
 ) {
     for occ in vars {
-        if let Some(&(bits, _)) = bindings.get(&occ.var) {
+        if let Some(&(bits, _, present)) = bindings.get(&occ.var) {
             let mask = full_mask(g, occ.feature);
             node.lanes[occ.feature] = if occ.plus { bits } else { mask & !bits };
+            node.generated_full.retain(|&f| f as usize != occ.feature);
+            if present && node.lanes[occ.feature] == mask {
+                node.generated_full.push(occ.feature as u32);
+            }
         }
     }
 }
@@ -965,11 +1048,22 @@ fn push_binding_nodes<'a>(
     }
 }
 
+fn synthesis_constraint_matches(g: &Grammar, segment: &Segment, lanes: &[u64]) -> bool {
+    pg_featstruct::flat_unifiable(&segment.lanes, lanes)
+        && (0..g.phon_features.len()).all(|f| {
+            let actual = segment.lanes.get(f).copied().unwrap_or(u64::MAX);
+            let wanted = lanes.get(f).copied().unwrap_or(u64::MAX);
+            // Absent and legacy authored full values remain permissive.
+            (actual == full_mask(g, f) && !generated_full(segment, f)) || actual & wanted == actual
+        })
+}
+
 fn binding_constraint_can_match(
     g: &Grammar,
     nodes: &[AgreementNode],
     segment: &Segment,
     bindings: &Bindings,
+    synthesis: bool,
 ) -> bool {
     nodes.iter().any(|node| {
         if !pg_fst::work::consume() {
@@ -978,16 +1072,27 @@ fn binding_constraint_can_match(
         match node {
             AgreementNode::Constraint { lanes, vars } => {
                 let mut candidate = bindings.clone();
-                pg_featstruct::flat_unifiable(&segment.lanes, lanes)
-                    && vars.iter().all(|occ| {
-                        bind_or_check(g, &mut candidate, occ, segment.lanes[occ.feature])
-                    })
+                (if synthesis {
+                    synthesis_constraint_matches(g, segment, lanes)
+                } else {
+                    pg_featstruct::flat_unifiable(&segment.lanes, lanes)
+                }) && vars.iter().all(|occ| {
+                    bind_or_check(
+                        g,
+                        &mut candidate,
+                        occ,
+                        segment.lanes[occ.feature],
+                        synthesis,
+                        segment.lanes[occ.feature] == full_mask(g, occ.feature)
+                            && !generated_full(segment, occ.feature),
+                    )
+                })
             }
             AgreementNode::Alternation(branches) => {
-                binding_constraint_can_match(g, branches, segment, bindings)
+                binding_constraint_can_match(g, branches, segment, bindings, synthesis)
             }
             AgreementNode::Repeat { children, .. } => {
-                binding_constraint_can_match(g, children, segment, bindings)
+                binding_constraint_can_match(g, children, segment, bindings, synthesis)
             }
         }
     })
@@ -1018,7 +1123,8 @@ fn match_binding_environment(
     let furthest = input
         .iter()
         .position(|segment| {
-            !segment.optional && !binding_constraint_can_match(g, nodes, segment, bindings)
+            !segment.optional
+                && !binding_constraint_can_match(g, nodes, segment, bindings, env.synthesis)
         })
         .unwrap_or(input.len());
     if pg_fst::work::stopped() {
@@ -1030,6 +1136,7 @@ fn match_binding_environment(
         reverse,
         anchored,
         furthest,
+        env.synthesis,
         tasks,
         0,
         bindings.clone(),
@@ -1044,6 +1151,7 @@ fn walk_binding_environment<'a>(
     reverse: bool,
     anchored: bool,
     furthest: usize,
+    synthesis: bool,
     mut tasks: Vec<BindingTask<'a>>,
     pos: usize,
     bindings: Bindings,
@@ -1064,17 +1172,28 @@ fn walk_binding_environment<'a>(
                     return None;
                 }
                 let mut next = bindings.clone();
-                if pg_featstruct::flat_unifiable(&segment.lanes, lanes)
-                    && vars
-                        .iter()
-                        .all(|occ| bind_or_check(g, &mut next, occ, segment.lanes[occ.feature]))
-                {
+                if (if synthesis {
+                    synthesis_constraint_matches(g, segment, lanes)
+                } else {
+                    pg_featstruct::flat_unifiable(&segment.lanes, lanes)
+                }) && vars.iter().all(|occ| {
+                    bind_or_check(
+                        g,
+                        &mut next,
+                        occ,
+                        segment.lanes[occ.feature],
+                        synthesis,
+                        segment.lanes[occ.feature] == full_mask(g, occ.feature)
+                            && !generated_full(segment, occ.feature),
+                    )
+                }) {
                     if let Some(found) = walk_binding_environment(
                         g,
                         input,
                         reverse,
                         anchored,
                         furthest,
+                        synthesis,
                         tasks.clone(),
                         candidate + 1,
                         next,
@@ -1109,6 +1228,7 @@ fn walk_binding_environment<'a>(
                     reverse,
                     anchored,
                     furthest,
+                    synthesis,
                     next,
                     pos,
                     bindings.clone(),
@@ -1135,7 +1255,9 @@ fn walk_binding_environment<'a>(
                 count: 0,
                 stalled: false,
             });
-            walk_binding_environment(g, input, reverse, anchored, furthest, tasks, pos, bindings)
+            walk_binding_environment(
+                g, input, reverse, anchored, furthest, synthesis, tasks, pos, bindings,
+            )
         }
         BindingTask::Repeat {
             children,
@@ -1161,6 +1283,7 @@ fn walk_binding_environment<'a>(
                     reverse,
                     anchored,
                     furthest,
+                    synthesis,
                     next,
                     pos,
                     bindings.clone(),
@@ -1173,7 +1296,7 @@ fn walk_binding_environment<'a>(
             }
             if count >= min {
                 if let Some(found) = walk_binding_environment(
-                    g, input, reverse, anchored, furthest, tasks, pos, bindings,
+                    g, input, reverse, anchored, furthest, synthesis, tasks, pos, bindings,
                 ) {
                     if found.0 == furthest {
                         return Some(found);
@@ -1203,7 +1326,9 @@ fn walk_binding_environment<'a>(
                 count,
                 stalled: previous == pos,
             });
-            walk_binding_environment(g, input, reverse, anchored, furthest, tasks, pos, bindings)
+            walk_binding_environment(
+                g, input, reverse, anchored, furthest, synthesis, tasks, pos, bindings,
+            )
         }
     }
 }
@@ -1257,7 +1382,17 @@ fn bind_environment(
                     continue;
                 };
                 for occ in occs {
-                    if !bind_or_check(g, &mut found, occ, ms.nodes[node].lanes[occ.feature]) {
+                    if !bind_or_check(
+                        g,
+                        &mut found,
+                        occ,
+                        ms.nodes[node].lanes[occ.feature],
+                        false,
+                        ms.nodes[node].lanes[occ.feature] == full_mask(g, occ.feature)
+                            && !ms.nodes[node]
+                                .generated_full
+                                .contains(&(occ.feature as u32)),
+                    ) {
                         return None;
                     }
                 }
@@ -1311,9 +1446,17 @@ fn agreement_node(
             while let Some(segment) = input.get(pos) {
                 let mut found = bindings.clone();
                 if pg_featstruct::flat_unifiable(&segment.lanes, lanes)
-                    && vars
-                        .iter()
-                        .all(|occ| bind_or_check(g, &mut found, occ, segment.lanes[occ.feature]))
+                    && vars.iter().all(|occ| {
+                        bind_or_check(
+                            g,
+                            &mut found,
+                            occ,
+                            segment.lanes[occ.feature],
+                            false,
+                            segment.lanes[occ.feature] == full_mask(g, occ.feature)
+                                && !segment.generated_full.contains(&(occ.feature as u32)),
+                        )
+                    })
                 {
                     matched.push((pos + 1, found));
                 }
@@ -1525,7 +1668,14 @@ fn synthesize_sites(
         .lhs
         .nodes
         .iter()
-        .map(|n| node_full_lanes(g, table, n))
+        .zip(&lhs_vars)
+        .map(|(n, vars)| {
+            let mut lanes = node_full_lanes(g, table, n);
+            for var in vars {
+                lanes[var.feature] = full_mask(g, var.feature);
+            }
+            lanes
+        })
         .collect();
     let dir = dir_of(rule);
     let mut cursor: Option<usize> = None;
@@ -1560,6 +1710,10 @@ fn synthesize_sites(
                     if nodes.iter().any(|&n| {
                         ms.nodes[n].dirty
                             || !matches!(ms.nodes[n].kind, NodeKind::Segment | NodeKind::Boundary)
+                    }) || nodes.iter().enumerate().any(|(i, &node)| {
+                        let segment = Segment::new(ms.nodes[node].lanes.clone())
+                            .with_explicit_full(segment_full_markers(&ms.nodes[node]));
+                        !synthesis_constraint_matches(g, &segment, &lhs_lanes[i])
                     }) || !pattern_defaults_ok(g, ms, &nodes, &lhs_lanes)
                     {
                         return None;
@@ -1621,7 +1775,20 @@ fn synthesize_sites(
                         continue;
                     };
                     resolve_bindings(
-                        g, ms, &node_of, &nodes, &segs, s, e, &lhs_vars, left, &lm, right, &rm,
+                        g,
+                        ms,
+                        &node_of,
+                        &nodes,
+                        &segs,
+                        s,
+                        e,
+                        &lhs_vars,
+                        left,
+                        &lm,
+                        right,
+                        &rm,
+                        true,
+                        dir == Direction::RightToLeft,
                     )
                 };
                 if let Some(bindings) = bindings {
@@ -1711,6 +1878,9 @@ fn apply_synthesis_site(
             for (k, &node) in nodes.iter().enumerate() {
                 for &(f, bits) in &prepared.rhs_pins[k] {
                     ms.nodes[node].lanes[f] = bits;
+                    ms.nodes[node]
+                        .generated_full
+                        .retain(|&feature| feature as usize != f);
                 }
                 apply_variable_bindings(g, &mut ms.nodes[node], &rhs_vars[k], &site.bindings);
                 ms.nodes[node].dirty = true;
@@ -2768,6 +2938,8 @@ fn ana_feature(
                 &left_match,
                 right,
                 &right_match,
+                false,
+                false,
             )
             .is_none()
             {
@@ -2806,7 +2978,15 @@ fn ana_feature(
             }
             for (k, &node) in target_nodes.iter().enumerate() {
                 for &(f, neg) in &changed[k] {
+                    let mask = full_mask(g, f);
+                    let previous = ms.nodes[node].lanes[f];
                     ms.nodes[node].lanes[f] |= neg;
+                    if previous != mask
+                        && ms.nodes[node].lanes[f] == mask
+                        && !ms.nodes[node].generated_full.contains(&(f as u32))
+                    {
+                        ms.nodes[node].generated_full.push(f as u32);
+                    }
                 }
                 ms.nodes[node].dirty = true;
                 if let Some(spellings) = input_spellings[k] {
@@ -2951,6 +3131,8 @@ fn ana_narrow_general(
             &left_match,
             right,
             &right_match,
+            false,
+            false,
         ) else {
             return;
         };
@@ -2979,13 +3161,8 @@ fn ana_narrow_general(
     for (_, _, target_nodes, bindings) in matches.into_iter().rev() {
         // Resolve RHS alpha-variable bindings onto the reconstructed LHS before unioning or inserting it.
         let mut resolved_lhs = lhs_template.clone();
-        for (k, node) in resolved_lhs.iter_mut().enumerate() {
-            for occ in &lhs_vars[k] {
-                if let Some(&(b, _)) = bindings.get(&occ.var) {
-                    let mask = full_mask(g, occ.feature);
-                    node.lanes[occ.feature] = if occ.plus { b } else { mask & !b };
-                }
-            }
+        for (node, vars) in resolved_lhs.iter_mut().zip(&lhs_vars) {
+            apply_variable_bindings(g, node, vars, &bindings);
         }
 
         if union_narrowing {
@@ -3028,8 +3205,23 @@ fn union_narrowing_node(g: &Grammar, table: &CharDefTable, target: &mut MutNode,
         target.char_def != pg_shape::NO_CHAR_DEF || matches!(&target.cd_set, CdSet::Members(_));
     let lhs_has_strrep = lhs.char_def != pg_shape::NO_CHAR_DEF;
 
-    for (target_lane, lhs_lane) in target.lanes.iter_mut().zip(&lhs.lanes) {
-        *target_lane |= lhs_lane;
+    for f in 0..target.lanes.len() {
+        let mask = full_mask(g, f);
+        let before = target.lanes[f];
+        let lhs_present = lhs.lanes[f] != mask || lhs.is_explicit_full(f);
+        let target_present = before != mask || target.is_explicit_full(f);
+        target.lanes[f] |= lhs.lanes[f];
+        if f < g.phon_features.len() && target.lanes[f] == mask {
+            if !lhs_present || !target_present {
+                target
+                    .generated_full
+                    .retain(|&feature| feature as usize != f);
+            } else if (before != mask || lhs.generated_full.contains(&(f as u32)))
+                && !target.generated_full.contains(&(f as u32))
+            {
+                target.generated_full.push(f as u32);
+            }
+        }
     }
 
     if target_has_strrep && lhs_has_strrep {
@@ -3078,7 +3270,17 @@ fn epenthesis_target_environments_match(
     for (&node, vars) in target_nodes.iter().zip(target_vars) {
         for occ in vars {
             let bits = rewrite_variable_bits(g, occ, &ms.nodes[node]);
-            if !bind_or_check(g, &mut bindings, occ, bits) {
+            if !bind_or_check(
+                g,
+                &mut bindings,
+                occ,
+                bits,
+                false,
+                bits == full_mask(g, occ.feature)
+                    && !ms.nodes[node]
+                        .generated_full
+                        .contains(&(occ.feature as u32)),
+            ) {
                 return false;
             }
         }
@@ -3348,6 +3550,7 @@ fn new_seg_node_dirty(
         cd_set: CdSet::Unrestricted,
         lanes: node_full_lanes(g, table, node),
         explicit_full: explicit_full_of(table, char_def),
+        generated_full: generated_full_of(g, table, node),
         optional,
         deleted: false,
         dirty,
