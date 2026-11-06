@@ -486,3 +486,44 @@ fn rust_only_oracle_provenance_backlog_does_not_grow() {
          (rust/tools/oracle-conformance.ps1) before being marked rust-only"
     );
 }
+
+#[test]
+fn generated_full_material_is_not_an_absent_feature() {
+    let g = require_fixture("edge-cases", "generated-full-intermediate").load_grammar();
+    let m = Morpher::new(&g, 10_000_000);
+    let rejected = m.parse_word("iuy");
+    assert!(!rejected.capped && !rejected.timed_out && !rejected.invalid_shape);
+    assert_eq!(rejected.signature(), "-", "pinned C# rejects iuy from auua");
+    assert_ne!(
+        m.parse_word("aua").signature(),
+        "-",
+        "pinned C# accepts aua"
+    );
+}
+
+#[test]
+fn alpha_bindings_subsume_both_environment_sides_and_targets() {
+    let mut failures = Vec::new();
+    for (name, negative, positive) in [
+        ("intermediate-alpha-subsumption", "iua", "aua"),
+        ("intermediate-alpha-left", "aui", "aua"),
+        ("intermediate-alpha-target", "iia", "aii"),
+    ] {
+        let g = require_fixture("edge-cases", name).load_grammar();
+        let m = Morpher::new(&g, 10_000_000);
+        let rejected = m.parse_word(negative);
+        assert!(!rejected.capped && !rejected.timed_out && !rejected.invalid_shape);
+        if rejected.signature() != "-" {
+            failures.push(format!(
+                "{name}: accepted {negative}: {}",
+                rejected.signature()
+            ));
+        }
+        let accepted = m.parse_word(positive);
+        assert!(!accepted.capped && !accepted.timed_out && !accepted.invalid_shape);
+        if accepted.signature() == "-" {
+            failures.push(format!("{name}: missing {positive}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

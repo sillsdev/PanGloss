@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+- Phonological rewrite synthesis now checks ambiguous intermediate segments and bound alpha variables against the full required feature set, matching hc.dll when later rules inspect generated segment classes. Analysis continues to use unification, and missing feature values retain their partial-grammar behavior.
+
 - Phonological rewrite synthesis tries subrules in order at each site, matching hc.dll when a later subrule feeds an earlier one at a following site. Right-to-left epenthesis advances correctly after insertion, and inapplicable rules skip target traversal. Staged fixtures check the corresponding analyses and negative controls.
 
 ## 0.16.1

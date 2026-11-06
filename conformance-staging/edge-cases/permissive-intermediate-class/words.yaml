@@ -1,0 +1,21 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: PermissiveIntermediateClass
+inspired_by: ["synthetic ambiguous material followed by complementary vowel contexts"]
+sources: ["Read-only review of PanGloss 5cc418d4"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: iuy
+    note: "Pinned C# rejects this surface."
+    expect_fail: true
+  - word: aua
+    note: "Pinned C# preserves an ambiguous middle vowel and leaves both flanks unchanged."
+    parses:
+      - signature: "ROOT|a[yu]a"
+        rules: [r1]
+  - word: auy
+    note: "Pinned C# rejects this surface."
+    expect_fail: true
+  - word: iya
+    note: "Pinned C# rejects this surface."
+    expect_fail: true
