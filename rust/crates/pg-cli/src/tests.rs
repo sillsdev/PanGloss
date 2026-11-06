@@ -353,6 +353,7 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
         analyses: vec![("partial".into(), "kat".into())],
         structured: Vec::new(),
         capped: true,
+        capture_capped: false,
         invalid_shape: false,
         work_steps: 0,
         timed_out: true,
@@ -637,6 +638,45 @@ fn the_removed_step_cap_flag_is_refused_like_any_unknown_option() {
     for refusal in refusals {
         let err = refusal.expect_err("--step-cap must be refused");
         assert!(err.contains("unknown option: --step-cap"), "{err}");
+    }
+}
+
+#[test]
+fn capture_cap_is_typed_in_both_batch_writer_paths_and_can_be_disabled() {
+    let grammar = homophonous_suffix_grammar_xml(1);
+    for threads in ["1", "2"] {
+        let capped = run_batch_tsv_custom(
+            "capture-cap",
+            &grammar,
+            "kadd\n",
+            &["--capture-cap-mib", "0", "--threads", threads],
+        );
+        let fields: Vec<_> = capped.last().unwrap().split('\t').collect();
+        assert_eq!(fields[3], "MEMCAP", "{fields:?}");
+        let complete = run_batch_tsv_custom(
+            "capture-unbounded",
+            &grammar,
+            "kadd\n",
+            &["--capture-cap-mib=unbounded", "--threads", threads],
+        );
+        let fields: Vec<_> = complete.last().unwrap().split('\t').collect();
+        assert_eq!(fields[3], "ok", "{fields:?}");
+        assert_ne!(
+            fields[4], "-",
+            "the word must parse when the cap is disabled"
+        );
+    }
+}
+
+#[test]
+fn capture_cap_cli_values_are_checked_before_file_access() {
+    assert_eq!(super::parse_capture_cap("unbounded"), Ok(None));
+    assert_eq!(
+        super::parse_capture_cap("256"),
+        Ok(Some(pg_fst::work::DEFAULT_RETAINED_CAP_BYTES))
+    );
+    for value in ["-1", "abc", &usize::MAX.to_string()] {
+        assert!(super::parse_capture_cap(value).is_err());
     }
 }
 

@@ -170,6 +170,7 @@ fn assert_wire_matches_owner(
         analyses: owner.analyses.clone(),
         structured: owner.structured.clone(),
         capped: owner.capped,
+        capture_capped: false,
         invalid_shape: owner.invalid_shape,
         work_steps: 0,
         timed_out: owner.timed_out,

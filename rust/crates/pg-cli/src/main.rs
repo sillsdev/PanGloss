@@ -1,7 +1,7 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates[=true|false]]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates[=true|false]]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
 //! preserving partial projections when a cap or timeout fires.
@@ -187,6 +187,8 @@ fn outcome_status(outcome: &pg_parse::ParseOutcome) -> &'static str {
         "SKIPPED"
     } else if outcome.timed_out {
         "TIMEOUT"
+    } else if outcome.capture_capped {
+        "MEMCAP"
     } else if outcome.capped {
         "CAP"
     } else {
@@ -369,6 +371,21 @@ fn parse_work_cap(value: &str) -> Result<WorkCap, String> {
     value.parse::<WorkCap>()
 }
 
+/// `--capture-cap-mib N|unbounded`: MiB of matcher capture state one word may hold at once, as the byte ceiling `Morpher::with_capture_cap` takes.
+fn parse_capture_cap(value: &str) -> Result<Option<usize>, String> {
+    if value == "unbounded" {
+        return Ok(None);
+    }
+    value
+        .parse::<usize>()
+        .ok()
+        .and_then(|mib| mib.checked_mul(1024 * 1024))
+        .map(Some)
+        .ok_or_else(|| {
+            format!("invalid --capture-cap-mib: {value} (expected MiB or \"unbounded\")")
+        })
+}
+
 /// The value of a `--flag=true|false` override of a project parser setting.
 fn parse_bool_flag(flag: &str, value: &str) -> Result<bool, String> {
     match value {
@@ -418,7 +435,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
@@ -1252,6 +1269,8 @@ fn run_batch_with_counter(
 ) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut work_cap: WorkCap = DEFAULT_WORK_CAP;
+    // --capture-cap-mib: ceiling on matcher capture state one word may hold at once; None = unbounded.
+    let mut capture_cap: Option<usize> = Some(pg_fst::work::DEFAULT_RETAINED_CAP_BYTES);
     // --word-timeout-ms: an optional wall-clock deadline per word, independent of --work-cap; None (omitted) is a complete no-op.
     let mut word_timeout_ms: Option<u64> = None;
     // Default (unspecified --threads only) is logical CPUs capped at 8, since per-word memory on a pathological grammar multiplies by thread count and an uncapped default can exhaust machine memory.
@@ -1282,6 +1301,13 @@ fn run_batch_with_counter(
             }
             s if s.starts_with("--work-cap=") => {
                 work_cap = parse_work_cap(&s["--work-cap=".len()..])?;
+            }
+            "--capture-cap-mib" => {
+                let v = it.next().ok_or("--capture-cap-mib requires a value")?;
+                capture_cap = parse_capture_cap(v)?;
+            }
+            s if s.starts_with("--capture-cap-mib=") => {
+                capture_cap = parse_capture_cap(&s["--capture-cap-mib=".len()..])?;
             }
             "--word-timeout-ms" => {
                 let v = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -1364,7 +1390,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
                 .into(),
         );
     };
@@ -1515,6 +1541,7 @@ fn run_batch_with_counter(
 
     let t_morpher = Instant::now();
     let morpher = Morpher::new(&grammar, work_cap.as_morpher_cap())
+        .with_capture_cap(capture_cap)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates)
         .with_guess_roots(guess);
@@ -1618,10 +1645,10 @@ fn run_batch_with_counter(
                     eprintln!("TIMEOUT\t{i}\t{word}");
                     "-".to_string()
                 }
-                "CAP" => {
+                "CAP" | "MEMCAP" => {
                     parsed += 1;
                     capped_words += 1;
-                    eprintln!("CAP\t{i}\t{word}");
+                    eprintln!("{status}\t{i}\t{word}");
                     outcome.signature()
                 }
                 _ => {
@@ -1864,10 +1891,10 @@ fn run_batch_with_counter(
                     eprintln!("TIMEOUT\t{i}\t{word}");
                     "-".to_string()
                 }
-                "CAP" => {
+                "CAP" | "MEMCAP" => {
                     parsed += 1;
                     capped_words += 1;
-                    eprintln!("CAP\t{i}\t{word}");
+                    eprintln!("{status}\t{i}\t{word}");
                     r.outcome.signature()
                 }
                 _ => {

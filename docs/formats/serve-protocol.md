@@ -73,7 +73,7 @@ For `traceDetails: true`, every field is identical to the cold document except t
 
 Every `result` response, in both modes, also carries the word's search counts beside `result`, outside the cold stdout:
 
-- `status`: `ok`, `CAP` when the work cap stopped the parse, `TIMEOUT` when the
+- `status`: `ok`, `CAP` when the work cap stopped the parse, `MEMCAP` when the default 256 MiB ceiling on affix-matching capture state stopped it, `TIMEOUT` when the
   time limit stopped it, or `SKIPPED` for an invalid shape. This optional field is absent from
   older servers.
 - `workSteps`: the word's work, meaning the total of work steps the parse reserved. This is the quantity `--work-cap` bounds.

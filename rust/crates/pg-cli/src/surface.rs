@@ -238,6 +238,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "N or \"unbounded\"; the work steps one word may spend in analysis (default: 5000000000); confirmation may spend one sixteenth more",
     },
     FlagSpec {
+        name: "--capture-cap-mib",
+        takes_value: true,
+        summary: "N or \"unbounded\"; MiB of affix-matching capture state one word may hold at once (default: 256); a word that reaches it writes a MEMCAP row",
+    },
+    FlagSpec {
         name: "--word-timeout-ms",
         takes_value: true,
         summary: "wall-clock deadline per word, independent of --work-cap",

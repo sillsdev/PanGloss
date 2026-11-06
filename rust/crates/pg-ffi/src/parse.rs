@@ -81,6 +81,7 @@ fn unified_to_parse(unified: pg_lexicon::UnifiedAnalysis) -> pg_parse::ParseOutc
         analyses: unified.analyses,
         structured: unified.structured,
         capped: unified.capped,
+        capture_capped: unified.capture_capped,
         invalid_shape: unified.invalid_shape,
         work_steps: 0,
         timed_out: unified.timed_out,
@@ -304,5 +305,32 @@ pub unsafe extern "C" fn hc_buf_free(buf: *mut HcResultBuf) {
             "hc_buf_free: caught panic: {}",
             crate::error::panic_message(payload)
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unified_to_parse;
+    use crate::{hc_grammar_free, hc_grammar_load, HcError, HC_OK};
+
+    const XML: &str = r#"<HermitCrabInput><Language><Name>FfiCap</Name><PartsOfSpeech><PartOfSpeech id="posN"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="e" partOfSpeech="posN"><Allomorphs><Allomorph id="aa"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
+
+    /// A memory-capped word keeps its typed reason through the FFI conversion, so MEMCAP is not reported as CAP.
+    #[test]
+    fn capture_cap_is_forwarded_not_reset_by_the_ffi_conversion() {
+        let mut handle = std::ptr::null_mut();
+        let mut error = HcError::EMPTY;
+        assert_eq!(
+            unsafe { hc_grammar_load(XML.as_ptr(), XML.len(), &mut handle, &mut error) },
+            HC_OK
+        );
+        let gh = unsafe { crate::grammar::borrow(handle) }.expect("live handle");
+        let mut unified = gh.analyze_word("a", false);
+        assert!(!unified_to_parse(unified.clone()).capture_capped);
+        unified.capped = true;
+        unified.capture_capped = true;
+        let outcome = unified_to_parse(unified);
+        assert!(outcome.capture_capped && outcome.capped);
+        unsafe { hc_grammar_free(handle) };
     }
 }

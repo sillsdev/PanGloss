@@ -166,18 +166,44 @@ impl FstResult {
     }
 }
 
-/// A live traversal instance (C# `TraversalInstance`). `registers` is copy-on-write shared (`Rc`): cloning an `Inst` is an O(1) refcount bump, and `Rc::make_mut` deep-copies lazily, only when an arc's non-empty command range actually writes.
+/// A capture register in one `u32` (bit 0 `has`, bit 1 `start`, the rest the offset): half the bytes of `Register`, which is what the visited set keeps one block of per configuration. Equality is `Register` equality on every register the traversal can build (`unset` is the single zero value).
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+struct Packed(u32);
+
+impl Packed {
+    const UNSET: Packed = Packed(0);
+
+    #[inline]
+    fn at(offset: i32, start: bool) -> Packed {
+        assert!(
+            (0..1 << 30).contains(&offset),
+            "register offset {offset} does not fit the packed form"
+        );
+        Packed(((offset as u32) << 2) | (u32::from(start) << 1) | 1)
+    }
+
+    #[inline]
+    fn unpack(self) -> Register {
+        if self.0 & 1 == 0 {
+            Register::unset()
+        } else {
+            Register::at((self.0 >> 2) as i32, self.0 & 2 != 0)
+        }
+    }
+}
+
+/// A live traversal instance (C# `TraversalInstance`). `registers` is copy-on-write shared (`Rc<[Packed]>`, one allocation): cloning an `Inst` is an O(1) refcount bump, and `writable` deep-copies lazily, only when an arc's non-empty command range actually writes.
 /// See `docs/research/pg-fst-traverse-design-notes.md` for why this representation change was needed and why it's purely a representation change.
 #[derive(Clone)]
 struct Inst {
     state: usize,
     ann_index: usize,
-    registers: Rc<Vec<Register>>,
+    registers: Rc<[Packed]>,
 }
 
 /// Visited-set key wrapper for the shared register scaffold of the nondeterministic traversal: semantically identical to the plain `Vec<Register>` key it replaces, but stores the instance's `Rc` instead of a second deep clone of the registers.
 /// See `docs/research/pg-fst-traverse-design-notes.md` for the `Eq`/`Hash` contract this must preserve.
-struct RegKey(Rc<Vec<Register>>);
+struct RegKey(Rc<[Packed]>);
 
 impl PartialEq for RegKey {
     #[inline]
@@ -190,8 +216,39 @@ impl Eq for RegKey {}
 impl std::hash::Hash for RegKey {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        // Content-based, delegating to Vec<Register>'s derived Hash -- bit-for-bit the hash the old key produced for the registers component.
+        // Hash contents so independently allocated equal register blocks deduplicate.
         self.0.hash(h);
+    }
+}
+
+/// The registers of `rc` for writing: in place when this instance is their only owner, else a private copy first (the copy-on-write step `Rc::make_mut` did for `Rc<Vec<_>>`).
+fn writable(rc: &mut Rc<[Packed]>) -> &mut [Packed] {
+    if Rc::get_mut(rc).is_none() {
+        *rc = Rc::from(&**rc);
+    }
+    Rc::get_mut(rc).expect("a just-created Rc is unique")
+}
+
+/// Bytes of capture state the visited set keeps alive besides the registers themselves: the `(state, ann_index, key)` entry, its hash-table control byte, and the `Rc` counts.
+const VISITED_ENTRY_BYTES: usize =
+    std::mem::size_of::<(usize, usize, RegKey)>() + 1 + 2 * std::mem::size_of::<usize>();
+
+/// Capture state charged to the active work budget; returns whatever is still charged when the traversal ends, however it ends.
+struct RetainedCharge(usize);
+
+impl RetainedCharge {
+    fn add(&mut self, bytes: usize) -> bool {
+        if !crate::work::charge_retained(bytes) {
+            return false;
+        }
+        self.0 += bytes;
+        true
+    }
+}
+
+impl Drop for RetainedCharge {
+    fn drop(&mut self) {
+        crate::work::release_retained(self.0);
     }
 }
 
@@ -286,7 +343,7 @@ impl<'f> Transduce<'f> {
 
     // --- command execution (TraversalMethodBase.ExecuteCommands) -----------------------------
 
-    fn execute_commands(registers: &mut [Register], cmds: &[Cmd], start: Register, end: Register) {
+    fn execute_commands(registers: &mut [Packed], cmds: &[Cmd], start: Packed, end: Packed) {
         for cmd in cmds {
             if !crate::work::consume() {
                 return;
@@ -320,7 +377,7 @@ impl<'f> Transduce<'f> {
     fn check_accepting(
         &self,
         ann_index: usize,
-        registers: &[Register],
+        registers: &[Packed],
         state: usize,
         cur_results: &mut Vec<FstResult>,
     ) {
@@ -336,14 +393,10 @@ impl<'f> Transduce<'f> {
         }
         let next_ann = self.next_ann_pos(ann_index);
         pg_cost::add_registers(registers.len());
-        let mut match_registers = registers.to_vec();
+        let mut packed = registers.to_vec();
         let fin = &self.fst.commands[meta.fin_lo as usize..meta.fin_hi as usize];
-        Self::execute_commands(
-            &mut match_registers,
-            fin,
-            Register::unset(),
-            Register::unset(),
-        );
+        Self::execute_commands(&mut packed, fin, Packed::UNSET, Packed::UNSET);
+        let match_registers: Vec<Register> = packed.iter().map(|r| r.unpack()).collect();
 
         let infos = &self.fst.accept_infos[meta.accept_lo as usize..meta.accept_hi as usize];
         if infos.is_empty() {
@@ -406,12 +459,12 @@ impl<'f> Transduce<'f> {
                 if Rc::strong_count(&inst.registers) > 1 {
                     pg_cost::add_registers(inst.registers.len());
                 }
-                let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
+                let regs = writable(&mut inst.registers);
                 Self::execute_commands(
                     regs,
                     arc_cmds,
-                    Register::at(next_offset, next_start),
-                    Register::at(end, false),
+                    Packed::at(next_offset, next_start),
+                    Packed::at(end, false),
                 );
             }
             if !optional || self.end_anchor {
@@ -432,12 +485,12 @@ impl<'f> Transduce<'f> {
                 if Rc::strong_count(&inst.registers) > 1 {
                     pg_cost::add_registers(inst.registers.len());
                 }
-                let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
+                let regs = writable(&mut inst.registers);
                 Self::execute_commands(
                     regs,
                     arc_cmds,
-                    Register::at(next_offset, false),
-                    Register::at(end, false),
+                    Packed::at(next_offset, false),
+                    Packed::at(end, false),
                 );
             }
             self.check_accepting(self.n(), &inst.registers, arc.target as usize, cur_results);
@@ -451,7 +504,7 @@ impl<'f> Transduce<'f> {
     fn initialize(
         &self,
         ann_index: &mut usize,
-        registers: &mut [Register],
+        registers: &mut [Packed],
         cmds: &[Cmd],
         init_anns: &mut HashSet<usize>,
     ) -> Vec<Inst> {
@@ -471,12 +524,7 @@ impl<'f> Transduce<'f> {
             }
         }
 
-        Self::execute_commands(
-            registers,
-            cmds,
-            Register::at(offset, true),
-            Register::unset(),
-        );
+        Self::execute_commands(registers, cmds, Packed::at(offset, true), Packed::UNSET);
 
         // linear: exactly one annotation starts at `offset`.
         if *ann_index < self.n() && !init_anns.contains(ann_index) {
@@ -484,7 +532,7 @@ impl<'f> Transduce<'f> {
             insts.push(Inst {
                 state: self.fst.start() as usize,
                 ann_index: *ann_index,
-                registers: Rc::new(registers.to_vec()),
+                registers: Rc::from(&*registers),
             });
             init_anns.insert(*ann_index);
         }
@@ -495,7 +543,7 @@ impl<'f> Transduce<'f> {
     fn check_accepting_start_state(
         &self,
         init_anns: &HashSet<usize>,
-        registers: &[Register],
+        registers: &[Packed],
         cur_results: &mut Vec<FstResult>,
     ) {
         let start = self.fst.start() as usize;
@@ -512,7 +560,7 @@ impl<'f> Transduce<'f> {
     fn traverse_from(
         &self,
         ann_index: &mut usize,
-        init_registers: &mut [Register],
+        init_registers: &mut [Packed],
         cmds: &[Cmd],
         init_anns: &mut HashSet<usize>,
     ) -> Vec<FstResult> {
@@ -546,6 +594,7 @@ impl<'f> Transduce<'f> {
             let __o2_nondet_start = Instant::now();
             // Same visited-set key as before: the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
             let mut traversed: FxHashSet<(usize, usize, RegKey)> = FxHashSet::default();
+            let mut retained = RetainedCharge(0);
             let n = self.n();
             let min_hops = self.fst.min_hops_to_accept();
             while let Some(inst) = stack.pop() {
@@ -564,12 +613,17 @@ impl<'f> Transduce<'f> {
                             continue;
                         }
                         for new_inst in self.advance(inst.clone(), arc, false, &mut cur_results) {
+                            // Charge a full block even when shared: refcounts cannot tell whether another visited entry already paid for it.
+                            let register_bytes = std::mem::size_of_val(&*new_inst.registers);
                             let key = (
                                 new_inst.state,
                                 new_inst.ann_index,
                                 RegKey(Rc::clone(&new_inst.registers)),
                             );
                             if traversed.insert(key) {
+                                if !retained.add(VISITED_ENTRY_BYTES + register_bytes) {
+                                    return Vec::new();
+                                }
                                 stack.push(new_inst);
                             }
                         }
@@ -606,13 +660,13 @@ impl<'f> Transduce<'f> {
                 return Vec::new();
             }
             pg_cost::add_registers(reg_slots);
-            let mut init_registers = vec![Register::unset(); reg_slots];
+            let mut init_registers = vec![Packed::UNSET; reg_slots];
             let offset = self.ann_start(ann_index);
             // initializers: dest==0 set directly; others -> cmds (Fst.cs:376-387).
             let mut cmds: Vec<Cmd> = Vec::new();
             for cmd in &self.fst.initializers {
                 if cmd.dest == 0 {
-                    init_registers[0] = Register::at(offset, true);
+                    init_registers[0] = Packed::at(offset, true);
                 } else {
                     cmds.push(*cmd);
                 }

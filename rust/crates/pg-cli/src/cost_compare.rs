@@ -9,7 +9,7 @@ const CLEAR_PERCENT: f64 = 5.0;
 const PROBABLE_PERCENT: f64 = 2.0;
 
 /// The values of the status field; a tab inside a word shifts the fields and breaks this.
-const STATUSES: [&str; 4] = ["ok", "CAP", "TIMEOUT", "SKIPPED"];
+const STATUSES: [&str; 5] = ["ok", "CAP", "MEMCAP", "TIMEOUT", "SKIPPED"];
 
 #[derive(Debug, PartialEq, Eq)]
 struct Row {
