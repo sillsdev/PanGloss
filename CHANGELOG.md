@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+- Phonological rewrite synthesis tries subrules in order at each site, matching hc.dll when a later subrule feeds an earlier one at a following site. Right-to-left epenthesis advances correctly after insertion, and inapplicable rules skip target traversal. Staged fixtures check the corresponding analyses and negative controls.
+
 ## 0.16.1
 
 Released 2026-11-06.

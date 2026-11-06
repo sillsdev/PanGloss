@@ -1064,6 +1064,7 @@ name = "pg-rules"
 version = "0.16.0"
 dependencies = [
  "hashbrown 0.15.5",
+ "pg-conformance-fixtures",
  "pg-featstruct",
  "pg-fst",
  "pg-grammar",
