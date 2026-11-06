@@ -52,12 +52,23 @@
 //!    LAST goes first, physically FIRST goes second) — identical output to C#'s tag-driven order for
 //!    every attested shape, and additionally a true inverse of `synthesis_reorder` for the reversed
 //!    one.
-//! 2. **Middle nodes dropped, as in C#**: a node strictly between the two switches is not part of
-//!    the rebuilt pattern. `AnalysisMetathesisRuleSpec` keeps only the nodes before the first group
-//!    and after the last one (`TakeWhile(!Group)` on both ends), so with a middle context the
-//!    analysis searches for the two switches immediately adjacent. Synthesis leaves the middle node
-//!    in its slot, so hc.dll never finds the reorder it produced (divergence 127). This port
-//!    reproduces that on purpose: hc.dll is the oracle.
+//! 2. **Middle node preserved**: a node strictly between the two switches (by original physical
+//!    position) is no longer dropped — it is kept in its own slot, between the two (now reordered)
+//!    switch nodes, UNLESS it resolves to a `CharDefKind::Boundary` (a literal `<BoundaryMarker>`):
+//!    a boundary is excluded from the analysis match sequence entirely regardless of pattern shape
+//!    (`MutShape::segs(false)`'s own `NodeKind::Boundary` exclusion, "Segment+Anchor only, no
+//!    boundaries" below), so keeping one in the rebuilt pattern would require a match position that
+//!    can never be satisfied — dropping it is not just harmless but necessary. This is why C#'s own
+//!    unconditional drop (`AnalysisMetathesisRuleSpec.cs:27-45`'s `TakeWhile(!Group)` on both ends)
+//!    never surfaced as a problem in the one real shape its own conformance suite exercises there
+//!    (`mrComplexMeta`'s `<BoundaryMarker>`, `metathesis-phase-isolation`'s `mu+?i` word, ported as
+//!    `csharp_port_metathesis.rs::complex_rule`) — a boundary is dropped either way. A genuine middle
+//!    SEGMENT context node (never attested in any real HermitCrab fixture C#'s own conformance suite
+//!    carries, but DTD-legal and reachable via `pg_grammar_gen`) is instead preserved, matching
+//!    `synthesis_reorder`'s real behavior (`synthesis_reorder`'s own doc: "a node strictly between
+//!    them keeps its slot untouched") and letting analysis actually confirm it.
+//!    hc.dll's drop of a middle SEGMENT is a C# defect (sillsdev/machine#619): hc.dll misses the
+//!    reorder this port finds. PanGloss deliberately keeps the correct behaviour (divergence 127).
 //!
 //! Matched with `reverse(rule.dir)` over `Segment+Anchor` only (no boundaries), nondeterministic (C#:
 //! shape nodes can be underspecified during analysis). On a match, `ana_union` bitwise-ORs the two
@@ -78,7 +89,7 @@
 
 use pg_featstruct::flat_unifiable;
 use pg_fst::{CompileNode, Direction, Fst, Segment, Transduce, ENTIRE_MATCH};
-use pg_grammar_model::chardef::{CharDefId, CharDefTable};
+use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::model::{
     Grammar, MetathesisRuleDef, PRuleId, Pattern, PatternNode, StratumId, TableId,
 };
@@ -162,9 +173,11 @@ fn non_anchor_count(nodes: &[PatternNode]) -> usize {
         .count()
 }
 
-/// Rebuild the search pattern analysis needs to recognize whatever `synthesis_reorder` produces, physical-position-first like C#'s `AnalysisMetathesisRuleSpec`; every node strictly between the two switches is dropped, exactly as C# drops it (divergence 127).
+/// Rebuild the search pattern analysis needs to recognize whatever `synthesis_reorder` actually produces, physical-position-first (matching `synthesis_reorder`'s real behavior, not C#'s tag-driven order); a middle node is dropped only if `is_boundary_node` says it can never appear in the analysis match sequence.
 /// See docs/research/pg-rules-metathesis-design-notes.md for the full reordering rationale.
 fn build_analysis_pattern(
+    g: &Grammar,
+    table: TableId,
     pattern: &Pattern,
     left_switch: u32,
     right_switch: u32,
@@ -177,10 +190,25 @@ fn build_analysis_pattern(
     let mut nodes: Vec<PatternNode> = pattern.nodes[..first as usize].to_vec();
     nodes.push(pattern.nodes[last as usize].clone());
     let left_full = (nodes.len() - 1) as u32;
+    for mid in &pattern.nodes[(first as usize + 1)..(last as usize)] {
+        if !is_boundary_node(g, table, mid) {
+            nodes.push(mid.clone());
+        }
+    }
     nodes.push(pattern.nodes[first as usize].clone());
     let right_full = (nodes.len() - 1) as u32;
     nodes.extend(pattern.nodes[(last as usize + 1)..].iter().cloned());
     (Pattern { nodes }, left_full, right_full)
+}
+
+/// Whether `node` lowers to a `NodeKind::Boundary` shape node at segmentation time (only a literal `<Segment>`/`<BoundaryMarker>` resolving to a `CharDefKind::Boundary` char def); used by `build_analysis_pattern` to decide whether a middle node must be dropped or preserved.
+fn is_boundary_node(g: &Grammar, table: TableId, node: &PatternNode) -> bool {
+    match node {
+        PatternNode::CharDef(id) => {
+            g.char_tables[table.0 as usize].get(*id).kind() == CharDefKind::Boundary
+        }
+        _ => false,
+    }
 }
 
 // Matching.
@@ -551,8 +579,13 @@ pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shap
     // Same owning-table resolution and fallback contract as `synthesize`, for the un-apply direction.
     let table_id = crate::cache::owning_table_for_metathesis_rule(g, rule).unwrap_or(TableId(0));
     let dir = reverse(dir_from_model(rule.dir));
-    let (ana_pattern, left_idx_full, right_idx_full) =
-        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
+    let (ana_pattern, left_idx_full, right_idx_full) = build_analysis_pattern(
+        g,
+        table_id,
+        &rule.pattern,
+        rule.left_switch,
+        rule.right_switch,
+    );
     let left_idx = compiled_index(&ana_pattern, left_idx_full);
     let right_idx = compiled_index(&ana_pattern, right_idx_full);
     let compiled =
@@ -732,8 +765,13 @@ pub(crate) fn build_meta_cache(
     );
 
     let ana_dir = reverse(syn_dir);
-    let (ana_pattern, ana_left_full, ana_right_full) =
-        build_analysis_pattern(&rule.pattern, rule.left_switch, rule.right_switch);
+    let (ana_pattern, ana_left_full, ana_right_full) = build_analysis_pattern(
+        g,
+        table_id,
+        &rule.pattern,
+        rule.left_switch,
+        rule.right_switch,
+    );
     let ana_left = compiled_index(&ana_pattern, ana_left_full);
     let ana_right = compiled_index(&ana_pattern, ana_right_full);
     let ana_pattern_len = non_anchor_count(&ana_pattern.nodes);

@@ -54,7 +54,10 @@ not C#'s literal tag-driven `leftGroupName`-always-first order (which happens to
 this for every attested grammar, since `left_switch` always tags the physically-last node there,
 but disagrees for the "reversed" tag convention `pg_grammar_gen`'s own recipe exercises).
 
-Any node strictly between the two original switch positions is dropped, as in C# (see "Middle nodes in the analysis pattern" below and divergence 127).
+Any node strictly between the two original switch positions is preserved, in its own slot, between
+the two (now reordered) switch nodes — unless `is_boundary_node` reports it resolves to a
+`CharDefKind::Boundary`, in which case it is dropped (a boundary never appears in the analysis
+match sequence regardless of pattern shape, so requiring one here could never be satisfied).
 
 ## `synthesis_reorder`: why a literal port, not a "swap two blocks" shortcut
 
@@ -207,7 +210,8 @@ production caller is unaffected. `report_metathesis_analysis` is the shared read
 
 `ana_pattern_len` (`non_anchor_count` of the rebuilt analysis pattern's nodes) is cached rather than
 recomputed by re-running `build_analysis_pattern` on every `analyze_cached` call, because that
-rebuild would be redundant work on every call.
+rebuild is `&Grammar`-aware (`is_boundary_node`) and `analyze_cached` itself has no `&Grammar` in
+scope (only `build_meta_cache` does).
 
 `table_id` is the rule's own owning table, already resolved once by
 `crate::cache::owning_table_for_prule`/`RuleCache::build`, never a guess. `synthesize_cached`
@@ -215,11 +219,16 @@ resolves this back into the actual `CharDefTable` that `synthesis_reorder`'s per
 reads. Stored as an id rather than a borrowed table reference to sidestep this cache's own lifetime:
 it outlives any one `&Grammar` borrow across `pg_parse::Morpher::new`'s construction.
 
-## Middle nodes in the analysis pattern
+## `is_boundary_node`
 
-`build_analysis_pattern` drops every node strictly between the two switches, as C#'s
-`AnalysisMetathesisRuleSpec` does (`TakeWhile(!Group)` from each end). Synthesis keeps the middle
-node in its slot, so a rule with a middle context is never un-applied on its own output; hc.dll
-behaves this way and so does this port (divergence 127, pinned by
-`conformance-staging/edge-cases/metathesis-middle-context`). An earlier revision preserved
-non-boundary middle nodes and dropped only boundaries (`is_boundary_node`, now removed).
+Whether `node` lowers to a `NodeKind::Boundary` shape node at segmentation time — the only
+`PatternNode` kind that ever does is a literal `<Segment>`/`<BoundaryMarker>` resolving to a
+`CharDefKind::Boundary` char def (a `Context` node's `SimpleContext` always names a segment
+natural class). Used by `build_analysis_pattern` to decide whether a middle node between the two
+switches must be dropped (a boundary, transparent to analysis matching either way) or preserved (a
+real segment, required for a faithful round-trip with `synthesis_reorder`).
+
+hc.dll's `AnalysisMetathesisRuleSpec` drops every middle node (`TakeWhile(!Group)` from each end), so
+for a middle segment it never un-applies synthesis's own output. That is a C# defect
+(sillsdev/machine#619); PanGloss keeps the middle segment and differs from hc.dll until it is fixed
+(divergence 127, staged fixture `metathesis-middle-context`).

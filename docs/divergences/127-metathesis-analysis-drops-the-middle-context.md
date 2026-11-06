@@ -1,13 +1,15 @@
-# 127: Metathesis analysis drops the middle context, as hc.dll does
+# 127: hc.dll drops the middle context of a metathesis rule in analysis; PanGloss keeps it
 
-Kind: decision record (PanGloss reproduces a C# defect so it never parses differently from hc.dll).
-Status: permanent until sillsdev/machine fixes it; then remove `build_analysis_pattern`'s drop and the staged fixture's `kita` expectation together. Issue #162 (ledger rows 122 and 123).
+Kind: behavioural (PanGloss is correct; hc.dll has a C# defect).
+Status: temporary-permanent: remove when sillsdev/machine#619 lands and the oracle pin moves. Then delete this entry, the `forward-synthesis` marker in the staged fixture and its `oracle-conformance-known-divergences.json` row. Issue #162 (ledger rows 122 and 123).
 
 ## Decision
 
-A metathesis rule with a segment between its two switches (`t i k -> k i t`) is applied by synthesis with the middle segment left in place, but un-applied by analysis as if the switches were adjacent. So hc.dll never recovers the reorder it produced: root `tika` surfaces as `kita` and `kita` has only the analysis of root `kita`. PanGloss 0.15.2 kept the middle segment in its analysis pattern and so found `kita` for `tika`. That is the better answer, but it is a parse hc.dll does not give, and the oracle rule wins. PanGloss now drops the middle context too.
+A metathesis rule with a segment between its two switches (`t i k -> k i t`) is applied by synthesis with the middle segment left in place, but un-applied by hc.dll's analysis as if the switches were adjacent. hc.dll therefore never recovers the reorder it produced: root `tika` surfaces as `kita`, and `kita` gets only the analysis of root `kita`. PanGloss keeps the middle segment in its analysis pattern, so `kita` has two analyses (`KITA|kita`, `TIKA|kita`) and `tika` none.
 
-This is plainly a C# defect (synthesis and analysis disagree about the same rule); it is copied here deliberately, not silently. A middle context is authorable in FieldWorks (the rule's `StrucChange` can hold a context between the switches).
+Owner decision 2026-11-05: this is a plain C# bug, filed as [sillsdev/machine#619](https://github.com/sillsdev/machine/issues/619) with a machine fix PR being prepared. PanGloss must not copy it. (PanGloss 0.16.0 briefly copied it; that is reverted.) A middle context is authorable in FieldWorks (the rule's `StrucChange` can hold a context between the switches).
+
+Until the fix lands PanGloss gives a parse hc.dll does not: `kita` -> `TIKA|kita`. That is an over-parse relative to the oracle, by design.
 
 ## C# site
 
@@ -15,8 +17,8 @@ This is plainly a C# defect (synthesis and analysis disagree about the same rule
 
 ## Rust site
 
-`pg-rules/src/metathesis.rs`, `build_analysis_pattern`.
+`pg-rules/src/metathesis.rs`, `build_analysis_pattern` (keeps every middle node except a boundary, which can never appear in the analysis match sequence).
 
 ## Verification
 
-C# replay on `hc.dll` (machine `4d9b454d`, `hc-conformance` self-check) of `conformance-staging/edge-cases/metathesis-middle-context`: `kita` has exactly one analysis (`KITA|kita`), `tika` none. Unit pin `pg-rules/tests/metathesis_gate.rs::metathesis_middle_context_is_not_unapplied_as_in_csharp`. No Machine issue filed yet; to file: "Analysis metathesis drops the middle context that synthesis keeps".
+C# replay on `hc.dll` (machine `4d9b454d`, `hc-conformance` self-check) of `conformance-staging/edge-cases/metathesis-middle-context`: `kita` has exactly one analysis (`KITA|kita`), `tika` none. The fixture now records the forward-synthesis answer (`# oracle-provenance: forward-synthesis`) and is listed in `rust/tools/oracle-conformance-known-divergences.json` as an exact reviewed mismatch. Unit pin `pg-rules/tests/metathesis_gate.rs::metathesis_middle_context_node_round_trips`.

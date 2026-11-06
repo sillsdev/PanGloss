@@ -6,4 +6,4 @@
 
 HCLoader names the context at `RightSwitchIndex` "r" and sets it as the engine's left switch; `XmlLanguageWriter` writes `leftSwitch="prule1_r"`, the node at index 2, as the output shows. Before this change the importer read `StrucChange` from the wrong XML child, got "", and guessed both switches as index 0; the compiler then refused the rule.
 
-A rule with a middle context, and a rule between featureless phonemes, are pinned by `conformance-staging/edge-cases/metathesis-middle-context` and `metathesis-featureless-phonemes` (issue #162, divergence 127).
+A rule with a middle context, and a rule between featureless phonemes, are pinned by `conformance-staging/edge-cases/metathesis-middle-context` and `metathesis-featureless-phonemes` (issue #162, divergence 127; hc.dll drops the middle context, sillsdev/machine#619, and PanGloss does not).
