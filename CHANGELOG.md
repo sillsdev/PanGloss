@@ -4,6 +4,13 @@ Release notes are authored, not generated; `rust/tools/release.ps1` refuses to t
 file has no section for.
 
 ## Unreleased
+
+## 0.16.1
+
+Released 2026-11-06.
+
+Affix capture state is bounded (#189, part 1): a word that used to exhaust memory now stops at the default 256 MiB ceiling with the new `MEMCAP` status. #189 is not fully fixed: some highly ambiguous words combining deletion subrules and reduplication copies still stop at the cap with no parses; hc.dll also grows without bound on the public synthetic repro.
+
 - FST construction can be selected as `surface-enum`, `factored` (typed not-implemented refusal), or ordered `auto` within TunedSurfaceProbed. Both compile routes share the dispatcher, configurable finite bounds, and attempt evidence. The health CLIs and streaming per-strategy differential expose compile outcomes, proposal recall, confirmed multiplicities, and incomplete words.
 
 - Affix capture state is bounded (#189, part 1). The matcher packs its registers and accounts the capture configurations it retains; a word whose retained state reaches the ceiling stops with the new `status` value `MEMCAP` (batch TSV and serve; `capped` is also true, and `MEMCAP` ranks below `TIMEOUT` and above `CAP`), where such a word used to run until memory ran out. The ceiling defaults to 256 MiB on every `Morpher`; `pangloss batch --capture-cap-mib <n>` sets it. It counts accounted register blocks and visited entries, not process memory, so real use can be a multiple of it. Consumers that switch on `status` must handle `MEMCAP`; the status vocabulary is documented in `docs/formats/batch-tsv.md` and `docs/formats/serve-protocol.md`. Adjacent plain single-use input copies in an affix process are also captured as one group when empty captures restore no material, so a stem is no longer enumerated once per internal split (fewer duplicate-stem results; the staged fixture `adjacent-nullable-copies` replays on hc.dll). The native FFI carries the memory-cap reason into its parse outcome, but its binary wire format and JSON envelope (shared with the wasm binding) still report a memory-capped word as `capped`; they have no MEMCAP field. `interfaces.batchTsv` stays 5 (a new `status` value, no layout change).
