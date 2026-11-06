@@ -44,6 +44,7 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 pub(crate) mod edge_index;
 mod edge_prefilter;
+mod merge_captures;
 
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
 
@@ -2413,6 +2414,14 @@ pub(crate) struct AnalysisLhs {
     captured: HashMap<String, usize>,
     /// part name -> (capture-group index, ctx) for a `ModifyFromInput`, underspecified on `GenerateShape`.
     modify: HashMap<String, (usize, SimpleContext)>,
+    /// Runs of adjacent plain copies folded into one capture group, keyed by their first part's name; see `merge_captures`.
+    merged: HashMap<String, MergedRun>,
+}
+
+/// Consecutive input parts captured by one group: `generate_shape` emits the group's nodes where the first part would go and nothing for the others.
+pub(crate) struct MergedRun {
+    group: String,
+    parts: Vec<String>,
 }
 
 /// The material an affix inserts, as the analysis LHS requires it, with its position among the copied parts.
@@ -2465,7 +2474,7 @@ pub(crate) fn build_analysis_lhs_for(
         .enumerate()
         .map(|(i, p)| (format!("p{i}"), p))
         .collect();
-    build_analysis_lhs(g, table, &parts, &allo.rhs)
+    build_analysis_lhs(g, table, &parts, &allo.rhs, false)
 }
 
 /// Strips boundary char-defs from a pattern (C# `DeepCloneExceptBoundaries`); a quantifier whose children all vanish is dropped too.
@@ -2527,6 +2536,7 @@ fn build_analysis_lhs(
     table: TableId,
     lhs_parts: &[(String, &Pattern)],
     rhs: &[OutputAction],
+    merge_adjacent_copies: bool,
 ) -> Result<AnalysisLhs, BridgeError> {
     // Same `StrRep` identity lane as `compile_parts`; inputs come from `segs_of` either way.
     let bridge = PatternBridge::new(g)
@@ -2544,8 +2554,40 @@ fn build_analysis_lhs(
         nodes: Vec::new(),
         captured: HashMap::default(),
         modify: HashMap::default(),
+        merged: HashMap::default(),
     };
-    for action in rhs {
+    let runs = if merge_adjacent_copies {
+        merge_captures::runs(g, table, lhs_parts, rhs)
+    } else {
+        Vec::new()
+    };
+    let mut action_index = 0;
+    while action_index < rhs.len() {
+        let action = &rhs[action_index];
+        if let Some(run) = runs.iter().find(|r| r.start == action_index) {
+            let mut children = Vec::new();
+            let mut parts = Vec::new();
+            for action in &rhs[run.start..run.start + run.len] {
+                let OutputAction::Copy(pr) = action else {
+                    unreachable!("a merged run holds only plain copies")
+                };
+                let name = part_name(pr);
+                let part = strip_boundaries(g, table, lookup[name.as_str()]);
+                children.extend(bridge.compile_pattern(&part)?.input.nodes);
+                parts.push(name);
+            }
+            let group = group_name(&parts[0], 0);
+            lhs.nodes.push(CompileNode::Group {
+                name: group.clone(),
+                children,
+            });
+            lhs.captured.insert(parts[0].clone(), 1);
+            lhs.merged
+                .insert(parts[0].clone(), MergedRun { group, parts });
+            action_index += run.len;
+            continue;
+        }
+        action_index += 1;
         match action {
             OutputAction::Copy(pr) => {
                 let name = part_name(pr);
@@ -2648,6 +2690,32 @@ fn generate_shape(
 ) -> Vec<OutNode> {
     let mut out = Vec::new();
     for (name, part) in lhs_parts {
+        if lhs.merged.values().any(|r| r.parts[1..].contains(name)) {
+            continue; // emitted with the first part of its run
+        }
+        if let Some(run) = lhs.merged.get(name) {
+            if let Some((s, e)) = fst.get_offsets(&run.group, &result.registers) {
+                for &p in &node_of[s as usize..e as usize] {
+                    out.push(OutNode {
+                        kind: shape.kind(p),
+                        char_def: shape.char_def(p),
+                        lanes: fit(g, shape.node_lanes(p)),
+                        optional: shape.flags(p).is_optional(),
+                        origin: Origin::Head(p - 1),
+                        cd_set: cd_set_of(shape, p),
+                    });
+                }
+            } else {
+                for part in run
+                    .parts
+                    .iter()
+                    .filter_map(|n| lhs_parts.iter().find(|(m, _)| m == n))
+                {
+                    untruncate(g, table, &mut out, part.1);
+                }
+            }
+            continue;
+        }
         let Some(&count) = lhs.captured.get(name) else {
             // Not captured: untruncate the part, materializing its segment constraints as optional beyond a quantifier's min.
             untruncate(g, table, &mut out, part);
@@ -2765,7 +2833,7 @@ pub(crate) fn build_ana_affix_lhs(
         .enumerate()
         .map(|(i, p)| (format!("p{i}"), p))
         .collect();
-    let lhs = build_analysis_lhs(g, table, &parts, &allo.rhs)?;
+    let lhs = build_analysis_lhs(g, table, &parts, &allo.rhs, true)?;
     let fst = CompileInput::new(lhs.nodes.clone())
         .deterministic(false)
         .compile_with_direction(Direction::LeftToRight);
@@ -3623,7 +3691,7 @@ fn build_ana_compound_lhs(
     sr: &CompoundingSubruleDef,
 ) -> Result<(Fst, AnalysisLhs), BridgeError> {
     let parts = ana_compound_parts(sr);
-    let lhs = build_analysis_lhs(g, table, &parts, &sr.rhs)?;
+    let lhs = build_analysis_lhs(g, table, &parts, &sr.rhs, false)?;
     let fst = CompileInput::new(lhs.nodes.clone())
         .deterministic(false)
         .compile_with_direction(Direction::LeftToRight);

@@ -303,7 +303,7 @@ fn has_segment(g: &Grammar, table: TableId, nodes: &[PatternNode]) -> bool {
 }
 
 /// The segment nodes `untruncate` writes for a part that was not captured; an unbounded quantifier, a segment string and an anchor write none.
-fn restored_segments(g: &Grammar, table: TableId, nodes: &[PatternNode]) -> u64 {
+pub(crate) fn restored_segments(g: &Grammar, table: TableId, nodes: &[PatternNode]) -> u64 {
     nodes
         .iter()
         .map(|n| match n {
@@ -322,7 +322,7 @@ fn restored_segments(g: &Grammar, table: TableId, nodes: &[PatternNode]) -> u64 
 }
 
 /// The fewest segments a successful match of the part must consume. A part matching none is captured as a null range, and `generate_shape` then untruncates it, which adds segments that are not copies.
-fn min_segments(g: &Grammar, table: TableId, part: &Pattern) -> u64 {
+pub(crate) fn min_segments(g: &Grammar, table: TableId, part: &Pattern) -> u64 {
     fn nodes_min(g: &Grammar, table: TableId, nodes: &[PatternNode]) -> u64 {
         nodes
             .iter()

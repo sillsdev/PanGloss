@@ -1,0 +1,24 @@
+# oracle-provenance: founding-oracle
+# C# hc replay and hc-conformance self-check; synthetic data only.
+language: AdjacentNullableCopies
+inspired_by: ["suffixation with adjacent nullable input parts"]
+sources: ["sillsdev/pangloss#189"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ttp
+    note: The suffix follows all adjacent copies.
+    parses:
+      - signature: "ROOT+SUFFIX|ttp"
+        rules: [suffix]
+  - word: tt
+    note: Bare-root control.
+    parses:
+      - signature: "ROOT|tt"
+        rules: []
+  - word: ttk
+    note: Invalid-segment control.
+    expect_skip: true
+  - word: ptt
+    note: The suffix cannot precede the root.
+    expect_fail: true

@@ -351,6 +351,17 @@ impl WordBudget {
         self
     }
 
+    /// Ceiling on capture state held at once while matching (`None` = unbounded); see `pg_fst::work::DEFAULT_RETAINED_CAP_BYTES`.
+    pub fn with_retained_cap(mut self, cap: Option<usize>) -> Self {
+        self.work = self.work.with_retained_cap(cap);
+        self
+    }
+
+    /// Whether the retained-capture ceiling, rather than the step cap, stopped the search. `capped()` is also true then.
+    pub fn capture_capped(&self) -> bool {
+        self.work.retained_capped()
+    }
+
     pub fn enter(&self) -> pg_fst::work::WorkScope {
         self.work.enter()
     }

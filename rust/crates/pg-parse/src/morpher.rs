@@ -59,6 +59,8 @@ pub struct Morpher<'g> {
     generation_cap: usize,
     /// `--word-timeout-ms`: independent wall-clock deadline alongside `work_cap`, needed because per-unit cost is not uniform.
     word_timeout: Option<Duration>,
+    /// Ceiling on matcher capture state per word, in estimated bytes; `None` is unbounded.
+    capture_cap: Option<usize>,
     /// Every matcher this grammar's rules need, compiled once and shared read-only across `--threads=N` workers.
     cache: RuleCache,
     /// Drops lexical-lookup alternatives whose trail cannot pass a stem-name or MPR gate; `None` runs every alternative through synthesis.
@@ -166,6 +168,8 @@ pub struct ParseOutcome {
     pub structured: Vec<WordAnalysis>,
     /// Whether any search phase exhausted the shared work budget (partial results possible).
     pub capped: bool,
+    /// Whether the capture-state ceiling (not the step cap) stopped the search; `capped` is also true then.
+    pub capture_capped: bool,
     /// The surface word did not segment (C# `InvalidShapeException` → batch status `SKIPPED`).
     pub invalid_shape: bool,
     /// Total work steps consumed by all search phases under the one work cap.
@@ -207,6 +211,7 @@ fn empty_outcome(invalid_shape: bool) -> ParseOutcome {
         analyses: Vec::new(),
         structured: Vec::new(),
         capped: false,
+        capture_capped: false,
         invalid_shape,
         work_steps: 0,
         timed_out: false,
@@ -458,6 +463,7 @@ impl<'g> Morpher<'g> {
             work_cap,
             generation_cap: work_cap,
             word_timeout: None,
+            capture_cap: Some(pg_fst::work::DEFAULT_RETAINED_CAP_BYTES),
             cache: RuleCache::build(g),
             lookup_replay: Some(crate::lookup_replay::LookupReplay::build(g)),
             max_stem_count: g.max_stem_count,
@@ -571,6 +577,12 @@ impl<'g> Morpher<'g> {
     /// Set the limit on one bounded generation run; without this call it equals the work cap given to `Self::new`.
     pub fn with_generation_cap(mut self, generation_cap: usize) -> Self {
         self.generation_cap = generation_cap;
+        self
+    }
+
+    /// Bound the capture state one word's affix matching may hold at once (estimated bytes; `None` = unbounded). A word that reaches it stops with `ParseOutcome::capture_capped`.
+    pub fn with_capture_cap(mut self, cap: Option<usize>) -> Self {
+        self.capture_cap = cap;
         self
     }
 
@@ -822,13 +834,15 @@ impl<'g> Morpher<'g> {
         let surface_stratum = StratumId((n - 1) as u8);
         let surface_table = &g.char_tables[g.strata[surface_stratum.0 as usize].table.0 as usize];
 
-        let budget =
-            pg_rules::stratum::WordBudget::new(self.work_cap).with_timeout(self.word_timeout);
+        let budget = pg_rules::stratum::WordBudget::new(self.work_cap)
+            .with_timeout(self.word_timeout)
+            .with_retained_cap(self.capture_cap);
         let _work_scope = budget.enter();
         for _ in word.chars() {
             if !budget.analysis_unit() {
                 let mut outcome = empty_outcome(false);
                 outcome.capped = budget.capped();
+                outcome.capture_capped = budget.capture_capped();
                 outcome.timed_out = budget.timed_out();
                 outcome.work_steps = budget.work_steps();
                 return outcome;
@@ -841,6 +855,7 @@ impl<'g> Morpher<'g> {
             Err(_) => {
                 let mut outcome = empty_outcome(true);
                 outcome.capped = budget.capped();
+                outcome.capture_capped = budget.capture_capped();
                 outcome.timed_out = budget.timed_out();
                 outcome.work_steps = budget.work_steps();
                 return outcome;
@@ -1188,6 +1203,7 @@ impl<'g> Morpher<'g> {
             analyses,
             structured,
             capped: budget.capped(),
+            capture_capped: budget.capture_capped(),
             invalid_shape: false,
             work_steps: budget.work_steps(),
             timed_out: budget.timed_out(),

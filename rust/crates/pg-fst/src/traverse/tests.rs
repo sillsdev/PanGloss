@@ -11,17 +11,17 @@ fn hash_of<T: Hash>(v: &T) -> u64 {
 /// `RegKey`'s Eq/Hash contract: content-equal keys in DIFFERENT allocations must be equal and must collide, since the `Rc::ptr_eq` fast path is only ever an accelerator for the same-allocation case.
 #[test]
 fn regkey_eq_and_hash_are_content_based() {
-    let a = RegKey(Rc::new(vec![Register::at(1, true), Register::unset()]));
-    let b = RegKey(Rc::new(vec![Register::at(1, true), Register::unset()])); // distinct alloc
+    let a = RegKey(Rc::from(vec![Packed::at(1, true), Packed::UNSET]));
+    let b = RegKey(Rc::from(vec![Packed::at(1, true), Packed::UNSET])); // distinct alloc
     let c = RegKey(Rc::clone(&a.0)); // same alloc (ptr_eq fast path)
-    let d = RegKey(Rc::new(vec![Register::at(2, true), Register::unset()]));
+    let d = RegKey(Rc::from(vec![Packed::at(2, true), Packed::UNSET]));
     assert!(a == b, "content-equal keys in different allocations");
     assert!(a == c, "shared-allocation keys");
     assert!(a != d, "different contents differ");
     assert_eq!(hash_of(&a), hash_of(&b), "equal keys must hash equal");
     assert_eq!(hash_of(&a), hash_of(&c));
-    // and RegKey's hash must equal the plain Vec<Register> hash it replaced (same visited-set behavior, representation aside).
-    assert_eq!(hash_of(&a), hash_of(&*a.0));
+    // Slice and vector keys must agree on their packed contents.
+    assert_eq!(hash_of(&a), hash_of(&a.0.to_vec()));
 }
 
 fn result(id: &str, registers: Vec<Register>, order: usize) -> FstResult {
@@ -70,4 +70,17 @@ fn distinct_resolves_many_results_by_result_eq() {
     }
     let kept: Vec<usize> = distinct(input).into_iter().map(|r| r.order).collect();
     assert_eq!(kept, (0..500).collect::<Vec<_>>());
+}
+
+#[test]
+fn packed_registers_round_trip_every_flag_and_offset_boundary() {
+    assert_eq!(Packed::UNSET.unpack(), Register::unset());
+    for offset in [0, 1, 4096, (1 << 30) - 1] {
+        for start in [false, true] {
+            assert_eq!(
+                Packed::at(offset, start).unpack(),
+                Register::at(offset, start)
+            );
+        }
+    }
 }

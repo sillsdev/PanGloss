@@ -274,3 +274,11 @@ refused. It is the `rewrite-default-epenthesis` grammar with `a` authoring both 
 the tuned-surface cell matches the epenthesis fixture's outcome and is presumed to be the same epenthesis proposal gap tracked in #87 (the missed word is not identified here; the #87 link is a presumption, not a finding).
 The containment ratchet stays at 22: the faithfulness gate passed unchanged, so no new failing
 pair appeared. FST behaviour is deferred; the cells are recorded as measured.
+
+## Adjacent nullable capture coverage
+
+The `adjacent-nullable-copies` staged fixture adds one `TunedSurfaceProbed` `oracle_exact` cell:
+148 -> 149. The other buckets remain 13 `compiles_but_misses`, 20 `refused`, and 0 `unmeasurable`.
+This is an inventory increase, not a changed verdict for an existing fixture. Its four word
+expectations were replayed on C#; the Rust capture-packing/folding tests separately bound retained
+state and work. The complete workspace run measured all cells before this ratchet update.

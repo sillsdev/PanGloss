@@ -14,7 +14,16 @@ struct State {
     capped: Cell<bool>,
     deadline: Cell<Option<Instant>>,
     timed_out: Cell<bool>,
+    /// Ceiling on capture state one search may hold at once, in estimated bytes (`None` = unbounded).
+    retained_cap: Cell<Option<usize>>,
+    retained: Cell<usize>,
+    retained_peak: Cell<usize>,
+    retained_capped: Cell<bool>,
 }
+
+/// Default ceiling on the capture state one word's search holds at once, as estimated by `WorkBudget::charge_retained`.
+/// This bounds the matcher's accounted register blocks and visited entries, not total process RSS or grammar storage.
+pub const DEFAULT_RETAINED_CAP_BYTES: usize = 256 * 1024 * 1024;
 
 /// Reservations between clock reads: a read costs about 90 instructions, and a timeout overshoots by at most this many units.
 const DEADLINE_POLL_INTERVAL: usize = 64;
@@ -31,7 +40,54 @@ impl WorkBudget {
             capped: Cell::new(false),
             deadline: Cell::new(None),
             timed_out: Cell::new(false),
+            retained_cap: Cell::new(Some(DEFAULT_RETAINED_CAP_BYTES)),
+            retained: Cell::new(0),
+            retained_peak: Cell::new(0),
+            retained_capped: Cell::new(false),
         }))
+    }
+
+    /// Replace the retained-capture ceiling (`None` = unbounded).
+    pub fn with_retained_cap(self, cap: Option<usize>) -> Self {
+        self.0.retained_cap.set(cap);
+        self
+    }
+
+    /// Reserve estimated live capture bytes. A failed reservation latches a memory stop as well as an incomplete search.
+    pub fn charge_retained(&self, bytes: usize) -> bool {
+        let total = self.0.retained.get().saturating_add(bytes);
+        if self.0.retained_cap.get().is_some_and(|cap| total > cap) {
+            self.0.retained_capped.set(true);
+            self.0.capped.set(true);
+            return false;
+        }
+        self.0.retained.set(total);
+        self.0
+            .retained_peak
+            .set(self.0.retained_peak.get().max(total));
+        true
+    }
+
+    /// Return `bytes` previously charged once the matcher drops that state.
+    pub fn release_retained(&self, bytes: usize) {
+        self.0
+            .retained
+            .set(self.0.retained.get().saturating_sub(bytes));
+    }
+
+    /// Capture bytes charged right now.
+    pub fn retained(&self) -> usize {
+        self.0.retained.get()
+    }
+
+    /// The most capture bytes this budget ever had charged at once.
+    pub fn retained_peak(&self) -> usize {
+        self.0.retained_peak.get()
+    }
+
+    /// Whether the retained-capture ceiling (not the step cap) stopped the search.
+    pub fn retained_capped(&self) -> bool {
+        self.0.retained_capped.get()
     }
 
     pub fn with_timeout(self, timeout: Option<Duration>) -> Self {
@@ -137,6 +193,25 @@ impl Drop for WorkScope {
 /// Charge the installed search budget; standalone operations have no allowance to consume.
 pub fn consume() -> bool {
     ACTIVE.with(|active| active.borrow().as_ref().is_none_or(WorkBudget::consume))
+}
+
+/// Charge capture state to the installed budget; standalone operations are unbounded.
+pub fn charge_retained(bytes: usize) -> bool {
+    ACTIVE.with(|active| {
+        active
+            .borrow()
+            .as_ref()
+            .is_none_or(|b| b.charge_retained(bytes))
+    })
+}
+
+/// Return capture state charged with `charge_retained`.
+pub fn release_retained(bytes: usize) {
+    ACTIVE.with(|active| {
+        if let Some(b) = active.borrow().as_ref() {
+            b.release_retained(bytes);
+        }
+    });
 }
 
 /// Poll the installed search budget without charging another unit.

@@ -63,6 +63,7 @@ mod tests {
             nodes,
             captured: HashMap::default(),
             modify: HashMap::default(),
+            merged: HashMap::default(),
         }
     }
     fn c(bits: u64) -> CompileNode {

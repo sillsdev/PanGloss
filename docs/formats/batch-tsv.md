@@ -30,7 +30,7 @@ idx  word  elapsed_ms  status  signature  [guessed]  [work_steps]  [cost]
 | `idx` | 0-based position of the word in `words.txt` (blank lines are skipped and not counted) |
 | `word` | the word, trimmed |
 | `elapsed_ms` | wall-clock milliseconds for this word: time on this computer, which varies with load and thread count |
-| `status` | `ok`, `CAP` (stopped at the work cap `--work-cap`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
+| `status` | `ok`, `CAP` (stopped at the work cap `--work-cap`), `MEMCAP` (stopped at the capture-state ceiling `--capture-cap-mib`, default 256 MiB; the signature is partial, like `CAP`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
 | `work_steps` | present only with `--work-columns`. The word's work: the total of work steps it reserved, across analysis, the inner matchers and confirmation. `--work-cap` bounds the analysis; confirmation may spend one sixteenth of the cap more (none under a cap of 16), so `work_steps` never exceeds the cap plus one sixteenth |

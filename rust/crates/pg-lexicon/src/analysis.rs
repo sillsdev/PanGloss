@@ -58,6 +58,8 @@ pub struct UnifiedAnalysis {
     pub analyses: Vec<(String, String)>,
     pub structured: Vec<WordAnalysis>,
     pub capped: bool,
+    /// The retained-capture ceiling (not the step cap) stopped the search; `capped` is also true then.
+    pub capture_capped: bool,
     pub invalid_shape: bool,
     pub timed_out: bool,
     pub guessed: bool,
@@ -161,6 +163,7 @@ impl SuppliedLexiconRuntime {
 
         let mut guessed = false;
         let mut capped = normal.capped;
+        let mut capture_capped = normal.capture_capped;
         let mut invalid_shape = normal.invalid_shape;
         let mut timed_out = normal.timed_out;
         if structured.is_empty() && !invalid_shape && guess_fallback {
@@ -174,6 +177,7 @@ impl SuppliedLexiconRuntime {
             }
             guessed = fallback.guessed;
             capped |= fallback.capped;
+            capture_capped |= fallback.capture_capped;
             invalid_shape |= fallback.invalid_shape;
             timed_out |= fallback.timed_out;
         }
@@ -181,6 +185,7 @@ impl SuppliedLexiconRuntime {
             analyses,
             structured,
             capped,
+            capture_capped,
             invalid_shape,
             timed_out,
             guessed,
