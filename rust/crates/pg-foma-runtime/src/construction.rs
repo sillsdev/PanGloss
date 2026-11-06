@@ -115,7 +115,7 @@ impl StructuralClosureLimits {
 }
 
 /// Operational limits, independent of the grammar's authored language bounds.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConstructionBounds {
     /// Optional additional logical-work cap. None preserves the surface constructor
@@ -127,22 +127,37 @@ pub struct ConstructionBounds {
     /// None resolves HC_STRUCTURAL_CLOSURE_BYTES_LIMIT (default 16 MiB retained charge).
     #[serde(default)]
     pub structural_bytes: Option<usize>,
-    pub closure_depth: usize,
-    pub compound_depth: usize,
+    /// None uses HC_COMPOSE_CHAIN_DEPTH_BUDGET, then the default closure depth.
+    #[serde(default)]
+    pub closure_depth: Option<usize>,
+    /// None uses HC_COMPOUND_CHAIN_DEPTH_BUDGET, then the compose cap, then 200.
+    #[serde(default)]
+    pub compound_depth: Option<usize>,
     /// None resolves the legacy HC_DERIV_CHAIN_DEPTH_BUDGET setting once per build.
     pub derivation_depth: Option<usize>,
 }
 
-impl Default for ConstructionBounds {
-    fn default() -> Self {
-        Self {
-            closure_work: None,
-            structural_work: None,
-            structural_bytes: None,
-            closure_depth: DEFAULT_CLOSURE_DEPTH,
-            compound_depth: DEFAULT_COMPOUND_DEPTH,
-            derivation_depth: None,
-        }
+impl ConstructionBounds {
+    /// Resolve once per build; explicit request values override the existing environment controls.
+    pub fn resolve_depths_from_env(&mut self) {
+        let general = if self.closure_depth.is_none() || self.compound_depth.is_none() {
+            crate::compose_budget::chain_depth_cap_from_env()
+        } else {
+            None
+        };
+        self.closure_depth = Some(
+            self.closure_depth
+                .or(general)
+                .unwrap_or(DEFAULT_CLOSURE_DEPTH),
+        );
+        self.compound_depth = Some(self.compound_depth.unwrap_or_else(|| {
+            std::env::var("HC_COMPOUND_CHAIN_DEPTH_BUDGET")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .map(crate::compose_budget::clamp_chain_depth_cap)
+                .or(general)
+                .unwrap_or(DEFAULT_COMPOUND_DEPTH)
+        }));
     }
 }
 
@@ -236,8 +251,8 @@ impl FstCompileConfig {
                     "--fst-closure-work" => self.bounds.closure_work = Some(limit),
                     "--fst-structural-work" => self.bounds.structural_work = Some(limit),
                     "--fst-structural-bytes" => self.bounds.structural_bytes = Some(limit),
-                    "--fst-closure-depth" => self.bounds.closure_depth = limit,
-                    "--fst-compound-depth" => self.bounds.compound_depth = limit,
+                    "--fst-closure-depth" => self.bounds.closure_depth = Some(limit),
+                    "--fst-compound-depth" => self.bounds.compound_depth = Some(limit),
                     "--fst-derivation-depth" => self.bounds.derivation_depth = Some(limit),
                     _ => unreachable!(),
                 }

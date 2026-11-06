@@ -1,13 +1,13 @@
 //! Compiles phonological rewrite and metathesis relations over the owning character table.
 //! Alpha branches and RTL reversal provide candidate relations that require confirmation.
-//! Widened repeated environments use optional rewriting so extra matches cannot remove a valid
-//! unchanged candidate. Unsupported rules are returned as skipped and the emitter reports them uncovered; no rule-level fallback compiles them.
+//! Permissive cascades widen alpha agreement and choose each rewrite site independently.
+//! Complete cascade compilation refuses unsupported rules; it never returns a skipped-rule net.
 
-use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
+use foma::constructions::{fsm_compose, fsm_ignore, fsm_symbol, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
-use foma::types::Fsm;
+use foma::types::{Fsm, OP_IGNORE_ALL};
 
 use std::collections::HashMap;
 
@@ -376,7 +376,11 @@ fn reversed_slots(slots: &[Slot]) -> Vec<Slot> {
         .collect()
 }
 
-/// Renders one complete branch's xre source text. Empty `lhs`/`rhs` render as `"[..]"`/`"0"`: foma's xre grammar requires a non-blank operand.
+// An unchanged insertion site uses a temporary ASCII symbol, disjoint from PUA grammar tokens.
+const INSERTION_SKIP_SYMBOL: &str = "@PG_OPTIONAL_INSERTION@";
+
+/// Renders one complete branch; optional material choices use obligatory replacement.
+#[allow(clippy::too_many_arguments)]
 fn render_branch_regex(
     alphabet: &SegAlphabet,
     lhs_slots: &[Slot],
@@ -384,6 +388,8 @@ fn render_branch_regex(
     left_slots: &[Slot],
     right_slots: &[Slot],
     asg: &AlphaAssignment,
+    optional_sites: bool,
+    context_mark: &str,
 ) -> String {
     let lhs_text = render_slots(alphabet, lhs_slots, asg);
     let lhs_text = if lhs_text.is_empty() {
@@ -392,40 +398,71 @@ fn render_branch_regex(
         lhs_text
     };
     let rhs_text = render_slots(alphabet, rhs_slots, asg);
-    let rhs_text = if rhs_text.is_empty() {
+    let mut rhs_text = if rhs_text.is_empty() {
         "0".to_string()
     } else {
         rhs_text
     };
     let has_left = !left_slots.is_empty();
     let has_right = !right_slots.is_empty();
-    // Optional sites preserve candidates across widened contexts and alternative alpha branches.
-    let arrow = if crate::lower::slots_require_optional_rewrite(lhs_slots)
+    let optional_sites = optional_sites
+        || crate::lower::slots_require_optional_rewrite(lhs_slots)
         || crate::lower::slots_require_optional_rewrite(rhs_slots)
         || crate::lower::slots_require_optional_rewrite(left_slots)
-        || crate::lower::slots_require_optional_rewrite(right_slots)
-    {
-        "(->)"
-    } else {
-        "->"
+        || crate::lower::slots_require_optional_rewrite(right_slots);
+    let insertion_choice = optional_sites && lhs_slots.is_empty();
+    if optional_sites {
+        // Explicit material choices preserve expansions that foma's (->) can lose.
+        let unchanged = if insertion_choice {
+            format!("\"{INSERTION_SKIP_SYMBOL}\"")
+        } else {
+            lhs_text.clone()
+        };
+        // A temporary marker avoids foma's empty relation for empty-to-empty insertion.
+        rhs_text = if insertion_choice && rhs_slots.is_empty() {
+            unchanged
+        } else {
+            format!("[{rhs_text} | {unchanged}]")
+        };
+    }
+    let context = |slots: &[Slot]| {
+        let text = render_slots(alphabet, slots, asg);
+        if insertion_choice && !slots.is_empty() {
+            format!("[{text} / \"{INSERTION_SKIP_SYMBOL}\"]")
+        } else {
+            text
+        }
     };
     if !has_left && !has_right {
-        format!("{lhs_text} {arrow} {rhs_text}")
+        format!("{lhs_text} -> {rhs_text}")
     } else {
-        let left_text = render_slots(alphabet, left_slots, asg);
-        let right_text = render_slots(alphabet, right_slots, asg);
+        let left_text = context(left_slots);
+        let right_text = context(right_slots);
         match (has_left, has_right) {
-            (true, true) => format!("{lhs_text} {arrow} {rhs_text} || {left_text} _ {right_text}"),
-            (true, false) => format!("{lhs_text} {arrow} {rhs_text} || {left_text} _"),
-            (false, true) => format!("{lhs_text} {arrow} {rhs_text} || _ {right_text}"),
+            (true, true) => {
+                format!("{lhs_text} -> {rhs_text} {context_mark} {left_text} _ {right_text}")
+            }
+            (true, false) => format!("{lhs_text} -> {rhs_text} {context_mark} {left_text} _"),
+            (false, true) => format!("{lhs_text} -> {rhs_text} {context_mark} _ {right_text}"),
             (false, false) => unreachable!("has_left || has_right guarded this branch"),
         }
     }
 }
 
-/// Parses rule text built from grammar data; text foma cannot parse is `None`, which callers report as a skipped rule.
+/// Rule text foma cannot parse yields no relation.
 fn parse_rule_regex(opts: &FomaOptions, regex: &str) -> Option<Fsm> {
-    fsm_parse_regex(opts, regex, None, None)
+    let net = fsm_parse_regex(opts, regex, None, None)?;
+    if foma::sigma::sigma_find(INSERTION_SKIP_SYMBOL, &net.sigma).is_none() {
+        return Some(net);
+    }
+    let cleanup = fsm_parse_regex(
+        opts,
+        &format!("\"{INSERTION_SKIP_SYMBOL}\" -> 0"),
+        None,
+        None,
+    )?;
+    // Erase only output markers; erasing input symbols would change the domain.
+    Some(fsm_compose(opts, net, cleanup))
 }
 
 /// Compiles one branch into a foma `Fsm`: `Dir::LeftToRight` renders the slots as given; `Dir::RightToLeft` unions that with `fsm_reverse` of the mirror rule's compile (LHS/RHS reversed, environments swapped-and-reversed).
@@ -441,9 +478,17 @@ fn compile_rtl_branch_net(
     right_slots: &[Slot],
     asg: &AlphaAssignment,
 ) -> Option<Fsm> {
-    let plain_regex =
-        render_branch_regex(alphabet, lhs_slots, rhs_slots, left_slots, right_slots, asg);
-    // A regex foma cannot parse is an unsupported construct: `None` skips the rule like any other unsupported shape.
+    let plain_regex = render_branch_regex(
+        alphabet,
+        lhs_slots,
+        rhs_slots,
+        left_slots,
+        right_slots,
+        asg,
+        false,
+        "||",
+    );
+    // Parsing must succeed before any relation is returned.
     let plain_net = parse_rule_regex(opts, &plain_regex)?;
     match dir {
         Dir::LeftToRight => Some(plain_net),
@@ -460,6 +505,8 @@ fn compile_rtl_branch_net(
                 &mirror_left,
                 &mirror_right,
                 asg,
+                false,
+                "||",
             );
             let mirror_net = parse_rule_regex(opts, &mirror_regex)?;
             let reversed_net = fsm_reverse(mirror_net);
@@ -468,18 +515,12 @@ fn compile_rtl_branch_net(
     }
 }
 
-// One subrule compiles to one or more xre replace-rule instances, composed (not unioned) via fsm_compose: alpha tuples are mutually exclusive by construction, so sequential composition is correct.
+// Characterization retains tuple composition; proposing relations use one optional batch.
 // Two rejected alternatives: docs/research/pg-foma-replace-design-notes.md, "Per-subrule composition: two rejected constructions".
 
-/// Compile one `RewriteRuleDef` (all its subrules, all their alpha tuples) into ONE foma `Fsm`
-/// (union of every subrule × tuple instance), and report the alpha-tuple expansion for every
-/// alpha-bearing subrule (empty if the rule uses no alpha variables). Returns `None` if any
-/// subrule's pattern needs an unsupported construct (module doc's scope list) — the CALLER
-/// decides whether to skip that rule (reported uncovered) or treat the whole compile as failed;
-/// this prototype's driver skips and reports.
-///
-/// Thin wrapper over `compile_rewrite_rule_subset` that includes every subrule (the pre-gating
-/// behavior, unchanged for every existing caller).
+/// Compile every subrule with tuple-bound alpha assignments for characterization.
+/// Unsupported patterns return `None`. Complete proposers use
+/// `compile_and_compose_rules_recall_safe` to defer agreement and applicability.
 pub fn compile_rewrite_rule(
     opts: &FomaOptions,
     g: &Grammar,
@@ -558,30 +599,48 @@ pub fn compile_rewrite_rule_subset(
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
-    compile_rewrite_rule_subset_inner(opts, g, rule, allowed, false)
+    compile_rewrite_rule_subset_inner(opts, g, rule, allowed, None).ok()
 }
 
-/// `gated_optional` keeps an identity alternative for every POS/MPR-gated subrule, so an earlier gated subrule cannot preempt a later one whose applicability only the confirm engine can decide.
+/// Permissive lowering leaves applicability and alpha agreement to HC at every site.
 fn compile_rewrite_rule_subset_inner(
     opts: &FomaOptions,
     g: &Grammar,
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
-    gated_optional: bool,
-) -> Option<(Fsm, Vec<TupleReport>)> {
+    bundles: Option<&crate::lower::IntermediateBundles>,
+) -> Result<(Fsm, Vec<TupleReport>), PhonologyLoweringError> {
+    let permissive = bundles.is_some();
+    let unsupported = || PhonologyLoweringError::UnsupportedRewrite(rule.xml_id.clone());
     if !is_fully_supported_shape(g, rule) || has_quantified_target(rule) {
-        return None;
+        return Err(unsupported());
     }
-    // Resolved once per rule, never an implicit table-zero default; `None` is treated like an unsupported construct, reported `skipped` by callers.
-    let table = owning_table(g, rule)?;
+    // Table identity comes from the owning stratum.
+    let table = owning_table(g, rule).ok_or_else(unsupported)?;
     // `owning_table_id` shares `owning_table`'s own stratum lookup, so it is guaranteed `Some` here too.
     let table_id = owning_table_id(g, rule)
         .expect("owning_table_id shares owning_table's own lookup, which just resolved Some");
     // Built once per rule rather than threaded from the outer cascade functions.
-    let alias_map = RepresentationAliasMap::build(g);
-    let render_alphabet = SegAlphabet::with_table_id(table, table_id, &alias_map);
+    let alias_map = (!permissive).then(|| RepresentationAliasMap::build(g));
+    let render_alphabet = if permissive {
+        SegAlphabet::new(table)
+    } else {
+        SegAlphabet::with_table_id(
+            table,
+            table_id,
+            alias_map.as_ref().expect("characterization alias map"),
+        )
+    };
     let mut net: Option<Fsm> = None;
     let mut reports: Vec<TupleReport> = Vec::new();
+    let mut permissive_branches = Vec::new();
+    let mirrored =
+        permissive && rule.mode == RewriteMode::Iterative && rule.dir == Dir::RightToLeft;
+    // RTL uses a mirrored batch, preserving its processed side without foma's lossy \\ construction.
+    let context_mark = match rule.mode {
+        RewriteMode::Iterative => "//",
+        RewriteMode::Simultaneous => "||",
+    };
 
     for (subrule_index, subrule) in rule.subrules.iter().enumerate() {
         if !allowed(subrule_index) {
@@ -591,21 +650,51 @@ fn compile_rewrite_rule_subset_inner(
         let mut next_occurrence = 0usize;
         // `crate::capability::rtl_reversal_construction_attempted` must pass this same scope value, or the capability predicate and this compiler could silently diverge on which rules are admitted.
         let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
-        let mut lhs_slots = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)?;
-        let mut rhs_slots = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)?;
+        let mut lower = |pattern: &pg_grammar::model::Pattern, scope| match bundles {
+            Some(bundles) => bundles.slots(g, pattern),
+            None => pattern_slots(g, table, pattern, &mut next_occurrence, scope),
+        };
+        let mut lhs_slots = lower(&rule.lhs, scope).ok_or_else(unsupported)?;
+        if permissive && rule.mode == RewriteMode::Simultaneous && lhs_slots.len() > 1 {
+            return Err(
+                PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(rule.xml_id.clone()),
+            );
+        }
+        if permissive && rule.mode == RewriteMode::Iterative && lhs_slots.is_empty() {
+            // Fed insertion can revisit a newly created gap; original-gap choices are incomplete.
+            return Err(PhonologyLoweringError::IterativeFedInsertionUnavailable(
+                rule.xml_id.clone(),
+            ));
+        }
+        if permissive && rule.mode == RewriteMode::Iterative && lhs_slots.len() > 1 {
+            return Err(PhonologyLoweringError::IterativeMultiTokenFocusUnavailable(
+                rule.xml_id.clone(),
+            ));
+        }
+        if permissive
+            && rule
+                .lhs
+                .nodes
+                .iter()
+                .any(|node| !matches!(node, PatternNode::CharDef(_) | PatternNode::Context(_)))
+        {
+            return Err(unsupported());
+        }
+        let mut rhs_slots = lower(&subrule.rhs, scope).ok_or_else(unsupported)?;
         let environment_scope = crate::lower::PatternLowerScope::RewriteEnvironment;
         let mut left_slots = match &subrule.left_env {
-            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, environment_scope)?,
+            Some(p) => lower(p, environment_scope).ok_or_else(unsupported)?,
             None => Vec::new(),
         };
         let mut right_slots = match &subrule.right_env {
-            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, environment_scope)?,
+            Some(p) => lower(p, environment_scope).ok_or_else(unsupported)?,
             None => Vec::new(),
         };
 
-        if [&lhs_slots, &rhs_slots, &left_slots, &right_slots]
-            .iter()
-            .any(|slots| crate::lower::slots_have_ambiguous_disagree(slots))
+        if !permissive
+            && [&lhs_slots, &rhs_slots, &left_slots, &right_slots]
+                .iter()
+                .any(|slots| crate::lower::slots_have_ambiguous_disagree(slots))
         {
             for slots in [
                 &mut lhs_slots,
@@ -615,6 +704,12 @@ fn compile_rewrite_rule_subset_inner(
             ] {
                 crate::lower::defer_ambiguous_alpha_agreement(slots, table);
             }
+        }
+
+        if mirrored {
+            lhs_slots = reversed_slots(&lhs_slots);
+            rhs_slots = reversed_slots(&rhs_slots);
+            (left_slots, right_slots) = (reversed_slots(&right_slots), reversed_slots(&left_slots));
         }
 
         let (assignments, report) = resolve_alpha_tuples(
@@ -630,6 +725,19 @@ fn compile_rewrite_rule_subset_inner(
 
         let mut subrule_net: Option<Fsm> = None;
         for asg in &assignments {
+            if permissive {
+                permissive_branches.push(render_branch_regex(
+                    &render_alphabet,
+                    &lhs_slots,
+                    &rhs_slots,
+                    &left_slots,
+                    &right_slots,
+                    asg,
+                    true,
+                    context_mark,
+                ));
+                continue;
+            }
             let branch_net = compile_rtl_branch_net(
                 opts,
                 &render_alphabet,
@@ -639,7 +747,8 @@ fn compile_rewrite_rule_subset_inner(
                 &left_slots,
                 &right_slots,
                 asg,
-            )?;
+            )
+            .ok_or_else(unsupported)?;
             subrule_net = Some(match subrule_net {
                 None => branch_net,
                 // Sequential composition, not union -- see the per-subrule composition note above this loop.
@@ -647,11 +756,6 @@ fn compile_rewrite_rule_subset_inner(
             });
         }
         if let Some(sub) = subrule_net {
-            let sub = if gated_optional && crate::gate::is_gated(g, subrule) {
-                fsm_union(opts, sub, fsm_universal())
-            } else {
-                sub
-            };
             net = Some(match net {
                 None => sub,
                 Some(prev) => fsm_compose(opts, prev, sub),
@@ -659,202 +763,127 @@ fn compile_rewrite_rule_subset_inner(
         }
     }
 
-    net.map(|n| (n, reports))
+    if permissive {
+        if permissive_branches.is_empty() {
+            return Err(unsupported());
+        }
+        let net =
+            parse_rule_regex(opts, &permissive_branches.join(" ,, ")).ok_or_else(unsupported)?;
+        let net = if mirrored { fsm_reverse(net) } else { net };
+        let boundaries = table
+            .iter()
+            .filter(|(_, definition)| {
+                definition.kind() == pg_grammar::chardef::CharDefKind::Boundary
+            })
+            .map(|(id, _)| fsm_symbol(&render_alphabet.token(id).to_string()))
+            .reduce(|left, right| fsm_union(opts, left, right));
+        // Ignore loops consume and copy boundaries; explicit boundary targets remain available.
+        let net = match boundaries {
+            Some(boundaries) => fsm_ignore(opts, net, boundaries, OP_IGNORE_ALL),
+            None => net,
+        };
+        Ok((net, reports))
+    } else {
+        net.map(|n| (n, reports)).ok_or_else(unsupported)
+    }
 }
 
-/// Compile every `Rewrite`-kind `PhonRuleDef` in `stratum_prules` order into individual foma
-/// nets and left-fold-compose them via `foma::constructions::fsm_compose` (stratum/document order = feeding order —
-/// prule4's assimilated output is prule5's own deletion-context input, verified by hand against
-/// `menulis`/`memukul`). `Metathesis`-kind rules and any
-/// `Rewrite` rule this module can't render are skipped, their `xml_id`s returned in `skipped` so
-/// the caller can report them (never silently dropped).
-///
-/// Returns `None` if there are zero compilable rules at all (the composition would be a no-op —
-/// callers should compose with an identity net instead of calling this).
-///
-/// Deliberately NOT given a final minimize call: adding one here would change the state and
-/// arc counts of the composed net (composing minimal nets is not itself guaranteed minimal), which
-/// callers that pin those counts rely on. Callers that want a
-/// minimal composed rule net should call
-/// `foma::minimize::fsm_minimize` themselves (every example driver already does, on the FULL
-/// `lexc .o. rules .o. cleanup` composition, not on this
-/// function's return value alone).
-pub fn compile_and_compose_rules(
-    opts: &FomaOptions,
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    prules_in_order: &[&PhonRuleDef],
-    skipped: &mut Vec<String>,
-    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Option<Fsm> {
-    compile_and_compose_rules_internal(
-        opts,
-        g,
-        alphabet,
-        prules_in_order,
-        skipped,
-        tuple_reports,
-        false,
-    )
+/// A cascade cannot be returned when any rule lacks the requested construction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhonologyLoweringError {
+    UnsupportedRewrite(String),
+    /// The fixed per-cascade feature-bundle closure bound was exceeded.
+    IntermediateBundleClosureUnavailable(String),
+    /// A single unambiguous inventory is required; multi-table grammars are not covered.
+    MultipleCascadeTablesUnavailable,
+    /// Overlapping multi-token targets lack a complete simultaneous proposing construction.
+    SimultaneousMultiTokenFocusUnavailable(String),
+    /// Identity alternatives consume overlapping multi-token foci; inclusion is unproven.
+    IterativeMultiTokenFocusUnavailable(String),
+    /// Original-gap insertion choices cannot include every iteratively fed insertion.
+    IterativeFedInsertionUnavailable(String),
+    /// The dedicated metathesis compiler's whole-word tuple union is not a per-site proposal.
+    PermissiveMetathesisUnavailable(String),
 }
 
-/// Compile the same ordered cascade for a propose-then-confirm caller, but preserve an identity
-/// alternative at EVERY rewrite, not only RTL ones. RTL's own construction is a known-approximate
-/// safe superset (the original reason this existed), but a `LeftToRight`/`Simultaneous` rule can
-/// lose recall the same way for a reason RTL doesn't have: `crate::lower::class_members`'s
-/// `Feature`-kind matching has no access to `UseDefaults`/`defaultSymbol` (that is a
-/// `pg_rules::rewrite`-confirm-only concept -- `pg_grammar::chardef`'s own `feature_lanes` default
-/// an unspecified lane to "matches anything", per `build_feature_lanes`'s doc), and a caller with
-/// gated subrules (`crate::gate::find_gated_subrules`) applies that gating per lexical-entry group
-/// before calling this file's OWN gated compiler -- this ungated cascade has no such group split at
-/// all, so every subrule here compiles as if it always licenses, regardless of the POS/MPR state
-/// the confirm engine would actually require. Both gaps have the identical shape RTL's own doc
-/// names: an obligatory FST rewrite whose LHS match is a superset of the truth removes the
-/// UNMUTATED candidate outright rather than merely adding a false one, which is a propose-stage
-/// recall loss a confirm-side check cannot recover from. Making every stage optional here defers
-/// the real decision to confirm exactly like RTL already does, and costs nothing more than RTL's
-/// own union already costs per rule.
+impl std::fmt::Display for PhonologyLoweringError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IntermediateBundleClosureUnavailable(rule) => write!(f, "intermediate bundle closure unavailable for {rule}: fixed 4096-bundle / 1 MiB charge bound or BMP PUA token domain"),
+            Self::MultipleCascadeTablesUnavailable => write!(f, "permissive cascade in a multi-table grammar is not implemented"),
+            Self::UnsupportedRewrite(rule) => write!(f, "cannot lower rewrite rule {rule}"),
+            Self::IterativeFedInsertionUnavailable(rule) => write!(f, "iterative empty-focus insertion has no complete proposing construction for {rule}"),
+            Self::IterativeMultiTokenFocusUnavailable(rule) => write!(f, "iterative multi-token focus has no complete proposing construction for {rule}"),
+            Self::SimultaneousMultiTokenFocusUnavailable(rule) => write!(
+                f,
+                "simultaneous multi-token focus has no complete proposing construction for {rule}"
+            ),
+            Self::PermissiveMetathesisUnavailable(rule) => write!(
+                f,
+                "per-site permissive metathesis is not implemented for {rule}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for PhonologyLoweringError {}
+
+/// Compile a complete proposing rewrite cascade, with optional rewriting at EACH site.
+/// Alpha agreement and POS/MPR/default applicability belong to HC confirmation. Material
+/// alternatives are shared within each replacement, so different sites can choose differently.
+/// Metathesis is unsupported by this proposing construction.
 pub fn compile_and_compose_rules_recall_safe(
     opts: &FomaOptions,
     g: &Grammar,
-    alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
-    skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Option<Fsm> {
-    compile_and_compose_rules_internal(
-        opts,
-        g,
-        alphabet,
-        prules_in_order,
-        skipped,
-        tuple_reports,
-        true,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn compile_and_compose_rules_internal(
-    opts: &FomaOptions,
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    prules_in_order: &[&PhonRuleDef],
-    skipped: &mut Vec<String>,
-    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-    optional_every_rule: bool,
-) -> Option<Fsm> {
-    let mut composed: Option<Fsm> = None;
+) -> Result<Fsm, PhonologyLoweringError> {
+    if !prules_in_order.is_empty() && g.char_tables.len() != 1 {
+        return Err(PhonologyLoweringError::MultipleCascadeTablesUnavailable);
+    }
+    let mut rewrites = Vec::new();
+    let mut table_id = None;
     for pr in prules_in_order {
-        let rule = match pr {
-            PhonRuleDef::Rewrite(rule) => rule,
-            PhonRuleDef::Metathesis(m) => {
-                // A shape left honestly unsupported falls through to the same `skipped` report every unsupported construct uses, never a silent wrong compile.
-                match compile_metathesis_rule(opts, g, alphabet, m) {
-                    Some(net) => {
-                        composed = Some(match composed {
-                            None => net,
-                            Some(prev) => fsm_compose(opts, prev, net),
-                        });
-                    }
-                    None => skipped.push(format!("{} (metathesis, unhandled)", m.xml_id)),
-                }
-                continue;
+        match pr {
+            PhonRuleDef::Rewrite(rule) => {
+                let owner = owning_table_id(g, rule).ok_or_else(|| {
+                    PhonologyLoweringError::UnsupportedRewrite(rule.xml_id.clone())
+                })?;
+                table_id = Some(owner);
+                rewrites.push(rule);
             }
-        };
-        // `is_fully_supported_shape` detects an unsupported RightToLeft/Simultaneous shape and reports it `skipped`, never a silent mis-map.
-        match compile_rewrite_rule_subset_inner(opts, g, rule, &|_| true, optional_every_rule) {
-            Some((net, reports)) => {
-                tuple_reports.push((rule.xml_id.clone(), reports));
-                let net = if optional_every_rule {
-                    fsm_union(opts, net, fsm_universal())
-                } else {
-                    net
-                };
-                composed = Some(match composed {
-                    None => net,
-                    Some(prev) => fsm_compose(opts, prev, net),
-                });
+            PhonRuleDef::Metathesis(rule) => {
+                return Err(PhonologyLoweringError::PermissiveMetathesisUnavailable(
+                    rule.xml_id.clone(),
+                ))
             }
-            None => skipped.push(rule.xml_id.clone()),
         }
     }
-    composed
-}
-
-/// Identical to `compile_and_compose_rules`, but for ONE GATING GROUP (`crate::gate`): for every
-/// `Rewrite`-kind rule at position `rule_pos` in `prules_in_order`, `subrule_ok(rule_pos, sub_idx)`
-/// decides whether that specific subrule is included for THIS group (module doc: a group is a set
-/// of lexical entries that agree on every gated subrule's applicability, so ungated subrules always
-/// pass `subrule_ok` unconditionally — only `crate::gate`'s own gated-subrule list ever returns
-/// `false`). A rule whose every subrule is filtered out for this group is skipped exactly like an
-/// unsupported-construct rule (absent from the group's cascade, i.e. identity for this group) —
-/// see `compile_rewrite_rule_subset`'s doc.
-///
-#[allow(clippy::too_many_arguments)]
-pub fn compile_and_compose_rules_gated(
-    opts: &FomaOptions,
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    prules_in_order: &[&PhonRuleDef],
-    subrule_ok: &dyn Fn(usize, usize) -> bool,
-    skipped: &mut Vec<String>,
-    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Option<Fsm> {
+    let Some(table_id) = table_id else {
+        return Ok(fsm_universal());
+    };
+    let bundles = crate::lower::IntermediateBundles::build(g, table_id, &rewrites)?;
     let mut composed: Option<Fsm> = None;
-    for (rule_pos, pr) in prules_in_order.iter().enumerate() {
-        let rule = match pr {
-            PhonRuleDef::Rewrite(rule) => rule,
-            PhonRuleDef::Metathesis(m) => {
-                // A `MetathesisRuleDef` carries no subrules, so gating does not apply -- every group compiles the same metathesis relation.
-                match compile_metathesis_rule(opts, g, alphabet, m) {
-                    Some(net) => {
-                        composed = Some(match composed {
-                            None => net,
-                            Some(prev) => fsm_compose(opts, prev, net),
-                        });
-                    }
-                    None => skipped.push(format!("{} (metathesis, unhandled)", m.xml_id)),
-                }
-                continue;
-            }
-        };
-        // Mode/dir detection lives in `compile_rewrite_rule_subset` (`is_fully_supported_shape`), so an unsupported shape is reported `skipped`, never silently mis-compiled.
-        let allowed = |sub_idx: usize| subrule_ok(rule_pos, sub_idx);
-        match compile_rewrite_rule_subset(opts, g, rule, &allowed) {
-            Some((net, reports)) => {
-                tuple_reports.push((rule.xml_id.clone(), reports));
-                composed = Some(match composed {
-                    None => net,
-                    Some(prev) => fsm_compose(opts, prev, net),
-                });
-            }
-            None => skipped.push(rule.xml_id.clone()),
-        }
+    let mut reports = Vec::new();
+    for rule in rewrites {
+        let (net, tuples) =
+            compile_rewrite_rule_subset_inner(opts, g, rule, &|_| true, Some(&bundles))?;
+        reports.push((rule.xml_id.clone(), tuples));
+        composed = Some(match composed {
+            None => net,
+            Some(prev) => fsm_compose(opts, prev, net),
+        });
     }
-    composed
+    let spelling = bundles.spelling(opts, g).ok_or_else(|| {
+        PhonologyLoweringError::UnsupportedRewrite("final bundle spelling".to_owned())
+    })?;
+    let net = fsm_compose(opts, composed.unwrap_or_else(fsm_universal), spelling);
+    tuple_reports.extend(reports);
+    Ok(net)
 }
 
-/// `true` iff `rule.mode` (and, for `Simultaneous`, `rule`'s own subrule shape against `g`) is a
-/// shape this file's compile functions claim fidelity for. `RewriteMode::Iterative` compiles under
-/// EITHER `Dir` (`Dir::LeftToRight` via the plain construction; `Dir::RightToLeft` via
-/// `compile_rtl_branch_net`'s reversal-plus-safety-net-union construction), unconditionally
-/// in-shape regardless of subrule content.
-///
-/// `RewriteMode::Simultaneous`: NOT
-/// wholesale in/out of shape the way `Iterative`/`RightToLeft` are -- admitted *unless* two of
-/// `rule`'s own subrules' environments can match at the same input position
-/// (`crate::capability::simultaneous_rule_admitted_for_compile`, the SAME `simultaneous.subrule-
-/// overlap` proof the capability GATE's own `SimultaneousSubruleOverlapPredicate` uses — one
-/// shared algorithm, two call sites, so the gate and this compiler can never disagree). When
-/// admitted, this file's EXISTING plain/iterative sequential-compose machinery
-/// (`compile_rewrite_rule_subset`'s own per-subrule `fsm_compose` fold, unchanged code) is used
-/// as-is: the admitted case's own defining property is that simultaneous application == sequential
-/// application at every position (no two subrules can ever contest the same focus), so reusing
-/// that machinery is not an approximation, it is the correct construction. A rule the predicate
-/// cannot prove non-overlapping for (or with a self-opaquing subrule, or an unsupported pattern
-/// node in a lowered span) stays OUTSIDE this shape -- `compile_rewrite_rule_subset` returns
-/// `None` for it exactly like any other unsupported construct, honest-unsupported, never a
-/// wrong compile.
+/// Accepted rewrite-rule shapes, sharing the simultaneous-overlap decision with capability checks.
+/// Pattern lowering can still refuse individual constructs within an accepted shape.
 pub fn is_fully_supported_shape(g: &Grammar, rule: &RewriteRuleDef) -> bool {
     match rule.mode {
         RewriteMode::Iterative => true,
@@ -990,26 +1019,10 @@ fn metathesis_mirror_switch_indices(n: usize, left_idx: usize, right_idx: usize)
 #[cfg(test)]
 mod metathesis_mirror_switch_index_remap_tests;
 
-/// Compiles one `MetathesisRuleDef` into the dedicated swap relation (module doc above), or
-/// `None` for a shape this change leaves honestly unsupported — the SAME "uncovered, caller
-/// reports it `skipped`" contract `compile_rewrite_rule_subset` already uses for an unsupported
-/// `RewriteRuleDef` pattern construct.
-///
-/// `Dir::LeftToRight` compiles via `compile_metathesis_swap_net` alone (byte-identical to what
-/// this function has always done for a grammar with no cross-table shared representation — no
-/// behavior change for any such `Dir::LeftToRight` rule).
-/// `Dir::RightToLeft` (module doc's
-/// own "`Dir::RightToLeft`" section above for the full construction/remap derivation) additionally
-/// mirrors the pattern via `reversed_slots`, remaps the two switch indices, compiles the mirror's
-/// own swap net, `fsm_reverse`s it, and unions that with the plain net — the SAME four moves
-/// `compile_rtl_branch_net` already makes for RTL rewrite rules.
-///
-/// Builds its own `RepresentationAliasMap`/owning `TableId` and threads them into every
-/// `compile_metathesis_swap_net` call (module doc's "Cross-table representation aliasing"
-/// section) — mirroring `compile_rewrite_rule_subset`'s own per-rule alias-map construction, so a
-/// `MetathesisRule` in a grammar whose tables share a normalized representation gets the SAME
-/// render-time recall fix a `RewriteRuleDef` already does.
-pub(crate) fn compile_metathesis_rule(
+/// Compile the dedicated metathesis characterization relation, or `None` for unsupported shapes.
+/// This whole-word relation requires confirmation and does not provide the per-site inclusion
+/// contract of `compile_and_compose_rules_recall_safe`.
+pub fn compile_metathesis_rule(
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -1071,3 +1084,6 @@ mod rtl_repeat_children_reversal_tests;
 
 #[cfg(test)]
 mod regex_rejection_tests;
+
+#[cfg(test)]
+mod permissive_tests;

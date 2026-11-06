@@ -42,11 +42,11 @@ impl Bucket {
     }
 }
 
-// Keep missing proposals distinct from typed refusals in both directions.
+// Named comparison preserves all 189 prior cells; #196 and this lane add seven cells.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 153,
+        oracle_exact: 159,
         compiles_but_misses: 14,
         refused: 24,
         unmeasurable: 0,
@@ -95,10 +95,22 @@ const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
     "staging:edge-cases/rewrite-default-narrow",
 ];
 
+const PER_SITE_ALPHA_FIXTURE: &str = "staging:edge-cases/per-site-alpha-rewrite";
+const PROPOSING_REVIEW_FIXTURES: &[&str] = &[
+    "staging:edge-cases/bounded-iterative-epenthesis",
+    "staging:edge-cases/permissive-multisegment-output",
+    "staging:edge-cases/rtl-expansion-context",
+    "staging:edge-cases/rtl-expansion-final-anchor",
+    "staging:edge-cases/unattested-intermediate-bundle",
+    "staging:edge-cases/unattested-intermediate-environments",
+];
+
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
     use EmissionStrategy::TunedSurfaceProbed;
     match (fixture, strategy) {
+        (PER_SITE_ALPHA_FIXTURE, TunedSurfaceProbed) => "refused",
+        (f, TunedSurfaceProbed) if PROPOSING_REVIEW_FIXTURES.contains(&f) => "oracle_exact",
         (f, TunedSurfaceProbed)
             if f == REWRITE_DEFAULT_EPENTHESIS || f == REWRITE_DEFAULT_FULL_SET =>
         {
@@ -191,13 +203,23 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         || row.label == BOUNDARY_NARROWING_FIXTURE
                         || row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         || row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        || row.label == PER_SITE_ALPHA_FIXTURE
+                        || PROPOSING_REVIEW_FIXTURES.contains(&row.label.as_str())
                         || row.label == COPY_AGREEMENT_FEATURELESS_REDUP
                         || REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str())
                         || PARTIAL_CLASS_DISAGREEMENT_FIXTURES
                             .iter()
                             .any(|fixture| row.label == *fixture)
                     {
-                        let f = if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
+                        let f = if row.label == PER_SITE_ALPHA_FIXTURE {
+                            PER_SITE_ALPHA_FIXTURE
+                        } else if PROPOSING_REVIEW_FIXTURES.contains(&row.label.as_str()) {
+                            PROPOSING_REVIEW_FIXTURES
+                                .iter()
+                                .copied()
+                                .find(|f| row.label == *f)
+                                .expect("review fixture checked above")
+                        } else if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
                             CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         } else if row.label == REALIZATIONAL_UNBOUNDED_FIXTURE {
                             REALIZATIONAL_UNBOUNDED_FIXTURE
@@ -279,7 +301,9 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        (7 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len() + REWRITE_DEFAULT_FIXTURES.len())
+        (8 + PROPOSING_REVIEW_FIXTURES.len()
+            + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len()
+            + REWRITE_DEFAULT_FIXTURES.len())
             * ALL_STRATEGIES.len(),
         "one of the pinned fixtures was not measured on every strategy -- has it been renamed, \
          removed, or excluded?"

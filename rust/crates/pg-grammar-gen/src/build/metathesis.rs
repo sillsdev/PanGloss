@@ -1,14 +1,6 @@
-//! `MetathesisRuleDef` HONEST-SKIP bail gate builder (pure test-writing -- `pg_foma::replace::
-//! compile_and_compose_rules_with_budget`'s own match on `pg_grammar::model::PhonRuleDef` already
-//! routes EVERY `PhonRuleDef::Metathesis` straight to `skipped.push(format!("{} (metathesis,
-//! unhandled)", m.xml_id))`, with no compile attempt at all -- this builder only needs a LOADABLE
-//! `<MetathesisRule>`, following `conformance/languages/metathesis-phase-isolation/grammar.xml`'s
-//! own `mrSimpleMeta` shape (the only real `<MetathesisRule>` fixture in this repo) exactly: two
-//! switch-tagged pattern nodes (`leftSwitch`/`rightSwitch` IDREFs into the rule's own
-//! `StructuralDescription/PhoneticTemplate/PhoneticSequence`), here plain `<Segment id=".."
-//! segment="..">` nodes (simpler than `metathesis-phase-isolation`'s natural-class-based switches, and
-//! equally DTD-legal per `pg_grammar::load::load_one_pattern_node`'s generic per-element `id`-
-//! attribute switch-tagging, which does not care which pattern-node kind carries the tag).
+//! Generate a loadable two-switch metathesis rule.
+//! The permissive phonology cascade explicitly refuses metathesis until it has a per-site
+//! construction; the dedicated metathesis characterization compiler is separate.
 
 use crate::build::tables::TableSpec;
 use crate::ids::IdMinter;

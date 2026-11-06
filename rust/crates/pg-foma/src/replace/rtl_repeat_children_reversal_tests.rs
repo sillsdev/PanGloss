@@ -34,6 +34,8 @@ fn isolated_reversed_env_net(
         &mirror_left,
         &mirror_right,
         asg,
+        false,
+        "||",
     );
     let mirror_net = fsm_parse_regex(opts, &mirror_regex, None, None)
         .unwrap_or_else(|| panic!("foma rejected mirror regex {mirror_regex:?}"));

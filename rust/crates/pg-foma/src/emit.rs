@@ -232,9 +232,6 @@ fn trace_emit_stage(stage: CompileStage, elapsed: std::time::Duration, allow_env
 /// not 2, is the engine-faithful bound).
 pub const DERIV_DEPTH_MIN: usize = 2;
 
-/// Caps compound-loop unrolling to keep generated lexicon size bounded.
-const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
-
 /// Largest derivation chain (levels) the emitter will unroll; deeper refuses with a typed reason.
 const DEFAULT_DERIV_CHAIN_DEPTH_BUDGET: usize = 200;
 
@@ -253,12 +250,11 @@ pub fn parse_deriv_chain_budget(raw: Option<&str>) -> Result<usize, String> {
         .map_err(|_| format!("HC_DERIV_CHAIN_DEPTH_BUDGET={v:?} is not a non-negative integer"))
 }
 
-/// `HC_COMPOUND_CHAIN_DEPTH_BUDGET`: see `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc.
+/// Shared configuration resolver for the legacy compound emitter entry point.
 fn compound_chain_depth_budget() -> usize {
-    std::env::var("HC_COMPOUND_CHAIN_DEPTH_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET)
+    let mut bounds = crate::construction::ConstructionBounds::default();
+    bounds.resolve_depths_from_env();
+    bounds.compound_depth.expect("resolved compound depth")
 }
 
 // --- Report types -----------------------------------------------------------------------------
@@ -1430,7 +1426,7 @@ fn filter_roots_by_license<'a>(
 ///
 /// Growth is LINEAR in `levels` (one more `{Pfx,Roots,Next}` triple per level, each sized by the
 /// license-gated non-head root count), never exponential in emitted TEXT size --
-/// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET`'s own doc is the containment for the one input that can
+/// `crate::construction::DEFAULT_COMPOUND_DEPTH` is the containment for the one input that can
 /// still make `levels` itself unreasonably large.
 ///
 /// Generic over the root record type `R` and the emitter-state type `C`, with the prefix hop and
@@ -1511,7 +1507,7 @@ pub(crate) fn build_compound_chain<R, C>(
     }
 }
 
-/// Checks `compound_extra_levels` against `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` before any chain lexc text is written, shared by both emitters so the discipline never drifts; `result_large_err` is deliberate, since the `Err` IS the full `EmitResult` refusal the caller returns verbatim.
+/// Checks `compound_extra_levels` against `crate::construction::DEFAULT_COMPOUND_DEPTH` before any chain lexc text is written, shared by both emitters so the discipline never drifts; `result_large_err` is deliberate, since the `Err` IS the full `EmitResult` refusal the caller returns verbatim.
 #[allow(clippy::result_large_err)]
 fn compound_chain_depth_and_budget_check(
     g: &Grammar,
@@ -1533,7 +1529,8 @@ fn compound_chain_depth_and_budget_check(
              max_depth of {compound_depth_bound} total stems across this grammar's CompoundingRule(s)) \
              exceeds this path's compound chain-depth budget (limit {limit}). This grammar's \
              self-feeding compounding recursion is deeper than this construction will unroll -- raise \
-             HC_COMPOUND_CHAIN_DEPTH_BUDGET only if you understand why this grammar's compounding \
+             --fst-compound-depth (or HC_COMPOUND_CHAIN_DEPTH_BUDGET when the request leaves that \
+             bound unset) only if you understand why this grammar's compounding \
              recursion is this deep, or fall back to another engine for this grammar. Never silently \
              truncated: an honest refusal, not a partial/unsound network."
         );
@@ -1573,7 +1570,7 @@ fn compound_extra_levels_checked_with_cap(
         Some(cap) => ComposeBudget {
             chain_depth_cap: Some(crate::compose_budget::clamp_chain_depth_cap(cap)),
         },
-        None => ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget()),
+        None => ComposeBudget::unbounded().with_chain_depth_cap(compound_chain_depth_budget()),
     };
     budget.check_chain_depth(
         compound_extra_levels,
@@ -3363,6 +3360,8 @@ struct SurfaceEmitStrategy {
     derivation: SurfaceDerivationPolicy,
     root_scope: SurfaceRootScopePolicy,
     structural_limits: Option<StructuralClosureLimits>,
+    /// An explicit snapshot keeps production controls independent of evidence collection.
+    preexpand_controls: Option<(ExploreMode, Option<usize>)>,
 }
 
 impl Default for SurfaceEmitStrategy {
@@ -3371,6 +3370,7 @@ impl Default for SurfaceEmitStrategy {
             derivation: SurfaceDerivationPolicy::ReifiedPlan,
             root_scope: SurfaceRootScopePolicy::AllRoots,
             structural_limits: None,
+            preexpand_controls: None,
         }
     }
 }
@@ -3487,15 +3487,19 @@ pub(crate) fn emit_configured_surface(
     let trace =
         crate::characterization::ClosureTrace::new(crate::characterization::ClosureTestLimits {
             work_cap: bounds.closure_work.unwrap_or(usize::MAX),
-            depth_cap: bounds.closure_depth,
+            depth_cap: bounds.closure_depth.expect("resolved closure depth"),
         })
-        .with_compound_depth_cap(bounds.compound_depth);
+        .with_compound_depth_cap(bounds.compound_depth.expect("resolved compound depth"));
     emit_with_budget_profiled_with_strategy_and_trace_limits(
         g,
         PrecisionConfig::Strip,
         Some(profile),
         SurfaceEmitStrategy {
             structural_limits: Some(structural_limits),
+            preexpand_controls: Some((
+                crate::morphotactics::explore_mode_from_env(),
+                crate::morphotactics::probe_cap_from_env(),
+            )),
             ..Default::default()
         },
         Some(&trace),
@@ -3593,17 +3597,17 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
 
     // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
     let morphotactic_index = crate::morphotactics::MorphotacticIndex::build(g);
-    // Traced attempts use the selected snapshot; untraced callers retain environment-driven exploration.
-    let explore_mode = if closure_trace.is_some() {
-        crate::morphotactics::ExploreMode::Pruned
-    } else {
-        crate::morphotactics::explore_mode_from_env()
-    };
-    let probe_cap = if closure_trace.is_some() {
-        None
-    } else {
-        crate::morphotactics::probe_cap_from_env()
-    };
+    // Characterization freezes its controls; production tracing retains the operator's settings.
+    let (explore_mode, probe_cap) = strategy.preexpand_controls.unwrap_or_else(|| {
+        if closure_trace.is_some() {
+            (ExploreMode::Pruned, None)
+        } else {
+            (
+                crate::morphotactics::explore_mode_from_env(),
+                crate::morphotactics::probe_cap_from_env(),
+            )
+        }
+    });
     let probe_counter = std::sync::atomic::AtomicUsize::new(0);
     let probe_budget = probe_cap.map(|cap| crate::morphotactics::ProbeBudget {
         cap,
