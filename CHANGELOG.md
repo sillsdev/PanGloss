@@ -3,6 +3,10 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+- A metathesis rule with a middle context keeps that context in its analysis pattern again (#162), so `kita` recovers root `tika` for `t i k -> k i t`. PanGloss 0.16.0 had copied hc.dll dropping it, which is a C# bug (sillsdev/machine#619); PanGloss now differs from hc.dll there until the fix lands (divergence 127), and the staged fixture `metathesis-middle-context` is a known oracle mismatch. The 0.16.0 featureless-phoneme matching fix stays.
+
 ## 0.16.0
 
 Released 2026-11-05.

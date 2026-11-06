@@ -17,6 +17,12 @@
       "note": "Existing deliberate-red provenance narrowed to the exact 2026-09-30 staged observation; see words.yaml and its forward derivation. Unrelated negative-control failures now gate."
     },
     {
+      "fixture": "edge-cases/metathesis-middle-context",
+      "kind": "forward-synthesis",
+      "reason": "1/2 word(s) mismatched: kita: expected [KITA|kita | TIKA|kita] got [KITA|kita]",
+      "note": "Divergence 127 / sillsdev/machine#619: hc.dll's AnalysisMetathesisRuleSpec drops the middle context, so it never recovers root tika from kita; PanGloss keeps it. Reason text measured 2026-11-05 with a Linux hc-conformance build (round16-conformance/master). Remove when machine#619 lands and the oracle pin moves."
+    },
+    {
       "fixture": "edge-cases/pos-scoped-deletion-blocks-metathesis",
       "kind": "forward-synthesis",
       "reason": "2/6 word(s) mismatched: nui: expected [NIU|nui] got []; mu+i: expected [MI+3SGU|mu+?i] got []",

@@ -88,7 +88,7 @@ fn metathesis_reversed_switch_tag_order_round_trips() {
     }
 }
 
-// A middle context node between the two switches is dropped from the rebuilt analysis pattern, as in C# (`AnalysisMetathesisRuleSpec`), so analysis requires the switches adjacent and never un-applies synthesis's own output (divergence 127).
+// Bug 2: a middle context node strictly between the two switches must not be dropped from the rebuilt analysis pattern, which would wrongly require the switches strictly adjacent. hc.dll does drop it (sillsdev/machine#619, a C# defect); PanGloss keeps the correct behaviour on purpose (divergence 127), so this test must keep passing when the oracle is fixed.
 
 fn middle_context_rule(g: &pg_grammar_model::model::Grammar) -> MetathesisRuleDef {
     MetathesisRuleDef {
@@ -108,7 +108,7 @@ fn middle_context_rule(g: &pg_grammar_model::model::Grammar) -> MetathesisRuleDe
 }
 
 #[test]
-fn metathesis_middle_context_is_not_unapplied_as_in_csharp() {
+fn metathesis_middle_context_node_round_trips() {
     let g = load_probe_grammar();
     let r = middle_context_rule(&g);
     let input = seg(&g, "tda"); // Q=t, M=d, P=a
@@ -122,27 +122,35 @@ fn metathesis_middle_context_is_not_unapplied_as_in_csharp() {
             char_def(&g, "char_d").0,
             char_def(&g, "char_t").0,
         ],
-        "synthesize swaps the two endpoints (t,a -> a,t); the middle 'd' keeps its own slot"
+        "synthesize swaps the two endpoints (t,a -> a,t); the middle 'd' keeps its own slot \
+         untouched (synthesis_reorder's own doc)"
     );
 
     let ana = pg_rules::metathesis::analyze(&g, &r, &synth[0]);
-    assert!(
-        ana.is_empty(),
-        "hc.dll drops the middle context from the analysis pattern, so the surface a,d,t has no \
-         adjacent switch pair and is not un-applied"
-    );
-
-    // Adjacent switches are all C#'s rebuilt pattern looks for.
-    let adjacent = seg(&g, "adt");
     assert_eq!(
-        pg_rules::metathesis::analyze(&g, &r, &adjacent).len(),
-        0,
-        "a,d,t has d between the switches"
-    );
-    let adjacent = seg(&g, "at");
-    assert_eq!(
-        pg_rules::metathesis::analyze(&g, &r, &adjacent).len(),
+        ana.len(),
         1,
-        "adjacent switches match the dropped-middle pattern"
+        "REGRESSION GUARD (bug 2 fixed): before the fix, build_analysis_pattern dropped the middle \
+         context node from its rebuilt search pattern (requiring the two switches strictly \
+         adjacent), so a real surface with the middle segment intact ('a','d','t') could never \
+         match -- this was always empty. See pg_foma::tests::phase_c_metathesis's own \
+         middle-context test (updated alongside this fix) for the FST-containment side of the same \
+         gap."
     );
+    let ana_lanes = lanes_of(&ana[0]);
+    assert_eq!(
+        char_defs(&ana[0])[1],
+        char_def(&g, "char_d").0,
+        "the middle node must be untouched by ana_union (only the two switch endpoints are unioned)"
+    );
+    let orig_lanes = lanes_of(&input);
+    for (i, (widened, orig)) in ana_lanes.iter().zip(&orig_lanes).enumerate() {
+        if i == 1 {
+            continue; // middle: exact-match already asserted above.
+        }
+        assert!(
+            pg_featstruct::flat_unifiable(widened, orig),
+            "widened {widened:?} at endpoint {i} must be a superset of the original {orig:?}"
+        );
+    }
 }

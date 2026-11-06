@@ -1,10 +1,11 @@
-# oracle-provenance: founding-oracle
-# Signatures transcribed from the C# founding oracle (hc-conformance self-check, sillsdev/machine 4d9b454d).
-# Pins hc.dll's behaviour for a metathesis rule with a middle context (t i k -> k i t). hc.dll
-# analyses kita only as root KITA: AnalysisMetathesisRuleSpec drops the middle context from the search
-# pattern (it keeps only the nodes before the first switch group and after the last), so the
-# reorder of root tika that synthesis produces is never found. That is arguably a C# defect; PanGloss
-# reproduces it and records the decision in docs/divergences/127.
+# oracle-provenance: forward-synthesis
+# (Forward-derived expectations; NOT recorded from hc.dll. hc.dll currently disagrees on kita.)
+# Rule t i k -> k i t with a middle context. Synthesis reorders root tika into kita, leaving the
+# i in its slot, so both roots KITA and TIKA surface as kita. The correct analysis of kita is
+# therefore both KITA (unchanged) and TIKA (reorder undone). hc.dll finds only KITA: its
+# AnalysisMetathesisRuleSpec drops the middle context from the search pattern (a C# defect, filed as
+# sillsdev/machine#619). PanGloss is correct and differs from hc.dll until that is fixed (divergence 127).
+# Remove the known-divergence entry when machine#619 lands and the oracle pin moves.
 language: MetathesisMiddleContext
 inspired_by: ["synthetic metathesis probe (not modeling any real language)"]
 sources:
@@ -15,10 +16,13 @@ fieldworks_producible: true
 words:
   - word: kita
     note: >-
-      Roots KITA and TIKA both surface as kita (TIKA by the rule, KITA unchanged). hc.dll finds only KITA.
+      Roots KITA and TIKA both surface as kita (TIKA by the rule, KITA unchanged). Forward
+      synthesis gives both analyses; hc.dll finds only KITA (machine#619).
     parses:
       - signature: "KITA|kita"
         rules: []
+      - signature: "TIKA|kita"
+        rules: [mt]
   - word: tika
     note: >-
       Root TIKA is always reordered, so tika is not a word.
