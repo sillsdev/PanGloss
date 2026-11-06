@@ -1158,3 +1158,33 @@ fn invalid_xml_is_reported_before_grammar_health_returns_failure() {
     assert_eq!(wire["diagnostics"][0]["code"], "grammar.compile.failed");
     assert_eq!(wire["diagnostics"][0]["level"], "error");
 }
+
+#[cfg(feature = "foma-tools")]
+#[test]
+fn fst_switch_and_auto_order_are_reachable_from_grammar_health() {
+    let scratch = tempfile::tempdir().unwrap();
+    let input = scratch.path().join("grammar.xml");
+    let output = scratch.path().join("report.json");
+    fs::write(
+        &input,
+        CLEAN_GRAMMAR_XML.replace(
+            "<LexicalEntry id=\"e1\">",
+            "<LexicalEntry id=\"e1\" partOfSpeech=\"posV\"> ",
+        ),
+    )
+    .unwrap();
+    run_grammar_health(&[
+        input.to_string_lossy().into_owned(),
+        output.to_string_lossy().into_owned(),
+        "--fst".into(),
+        "--fst-strategy=auto".into(),
+        "--fst-auto-order=factored,surface-enum".into(),
+    ])
+    .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+    let report = &value["fst"]["profile"]["construction"];
+    assert_eq!(report["selected"], "surface-enum");
+    assert_eq!(report["attempts"][0]["strategy"], "factored");
+    assert_eq!(report["attempts"][1]["strategy"], "surface-enum");
+}

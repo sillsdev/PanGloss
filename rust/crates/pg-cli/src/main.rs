@@ -425,8 +425,8 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
-         usage: pangloss fst-health <grammar> [<out.json>]\n\
-         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]\n\
+         usage: pangloss fst-health <grammar> [<out.json>] [--fst-strategy surface-enum|factored|auto]\n\
+         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--fst-strategy surface-enum|factored|auto] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
          usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
          usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{}\n\

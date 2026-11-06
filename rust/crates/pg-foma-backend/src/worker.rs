@@ -191,6 +191,8 @@ pub enum GrammarFormat {
 /// against, not this small request message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWorkerRequest {
+    #[serde(default)]
+    pub construction: pg_foma::construction::FstCompileConfig,
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
@@ -200,6 +202,11 @@ pub struct CompileWorkerRequest {
 }
 
 impl CompileWorkerRequest {
+    pub fn with_config(mut self, config: pg_foma::construction::FstCompileConfig) -> Self {
+        self.construction = config;
+        self
+    }
+
     /// A request for `grammar_path`/`grammar_format` and the remaining compile-time safety caps.
     ///
     /// Carried a `chain_depth_cap` until it was found to reach nothing: it became a `ComposeBudget`
@@ -209,6 +216,7 @@ impl CompileWorkerRequest {
     /// sender's frame still deserializes with the field ignored.
     pub fn new(grammar_path: impl Into<String>, grammar_format: GrammarFormat) -> Self {
         CompileWorkerRequest {
+            construction: Default::default(),
             protocol_version: WORKER_PROTOCOL_VERSION,
             grammar_path: grammar_path.into(),
             grammar_format,
@@ -233,6 +241,8 @@ pub struct CompileWorkerResult {
 pub enum CompileWorkerOutcome {
     /// The compile completed under budget, carrying the final state/arc counts and the real `HealthReport` from `crate::health_evaluator::evaluate`.
     Success {
+        #[serde(default)]
+        construction: pg_foma::construction::ConstructionReport,
         final_state_count: Option<i64>,
         final_arc_count: Option<i64>,
         uncovered_count: usize,
@@ -240,6 +250,8 @@ pub enum CompileWorkerOutcome {
     },
     /// Emission was unsupported/incomplete, or its lexc source failed to compile; never a usable artifact.
     CompileFailed {
+        #[serde(default)]
+        construction: pg_foma::construction::ConstructionReport,
         detail: String,
         health: HealthReport,
     },
@@ -310,7 +322,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     };
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::analyzer::new_proposer_with_profile(&grammar)
+        crate::analyzer::compile_proposer_with_config(&grammar, &request.construction)
     }));
 
     let (result, profile) = match compiled {
@@ -322,6 +334,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 boundary)"
                 .to_string();
             return CompileWorkerOutcome::CompileFailed {
+                construction: Default::default(),
                 health: build_process_failure_health(detail.clone()),
                 detail,
             };
@@ -343,6 +356,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 apply_budget_trips: &[],
             });
             CompileWorkerOutcome::Success {
+                construction: profile.construction,
                 final_state_count: profile.final_state_count,
                 final_arc_count: profile.final_arc_count,
                 uncovered_count: report.uncovered.len(),
@@ -352,10 +366,13 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
         Err(
             err @ (FomaError::LexcCompileFailed(_)
             | FomaError::Unsupported(_)
-            | FomaError::CapabilityRefused(_)),
+            | FomaError::CapabilityRefused(_)
+            | FomaError::ConstructionRefused(_)
+            | FomaError::StrategyNotImplemented(_)),
         ) => {
             let health = crate::health_evaluator::evaluate_foma_error(&err);
             CompileWorkerOutcome::CompileFailed {
+                construction: profile.construction,
                 detail: err.to_string(),
                 health,
             }
@@ -420,7 +437,7 @@ fn compile_selected_from_request(
             }
         };
         let private_request = match CompileAttempt::from_worker_wire(selected.attempt_id.clone()) {
-            Ok(request) => request,
+            Ok(private) => private.with_config(request.construction.clone()),
             Err(detail) => {
                 return WorkerChildOutput {
                     outcome: CompileWorkerOutcome::SelectedCompileFailed { detail },
