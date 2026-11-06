@@ -17,6 +17,7 @@ rustc-hash.workspace = true
 web-time.workspace = true
 
 [dev-dependencies]
+pg-conformance-fixtures.workspace = true
 pg-grammar.workspace = true
 
 [[test]]
