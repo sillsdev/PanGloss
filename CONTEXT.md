@@ -147,30 +147,46 @@ The recorded writing-system rules used to find word boundaries, with the identit
 source `.ldml` from which they were obtained.
 _Avoid_: Tokenizer guess, language detector
 
+**Segmentation alternative**:
+Another division of the same source span into one or more parts, alongside the primary
+FieldWorks-rule split. Each part retains its own analysis and language candidates.
+_Avoid_: Replacement profile, discarded split
+
 **FieldWorks-compatible segmentation**:
 The word boundaries produced by LibLCM WordMaker's writing-system-configured maximal-run rule,
 including its Unicode and numeric behavior. Existing FieldWorks segmentation remains authoritative
 for text already segmented in a FieldWorks project.
 _Avoid_: Machine Latin tokenization, universal tokenizer
 
-**Word occurrence**:
-One word at a particular span in source text, retaining its original surface and location.
-Repeated occurrences of the same form are distinct evidence-bearing occurrences.
-_Avoid_: Word type, assessment case (as a synonym)
+**Wordform**:
+A written word form considered independently of any particular place it occurs.
+Many occurrences can share one wordform; its spelling alone does not decide its language.
+_Avoid_: Token, occurrence (for the form)
+
+**Occurrence**:
+One instance of a wordform at a particular span in source text, retaining its original surface and
+location. Repeated occurrences of the same wordform are distinct evidence-bearing instances.
+_Avoid_: Token, wordform (for the instance), assessment case (as a synonym)
 
 **Vernacular parse**:
-The morphological analyses of a word occurrence under the language project's grammar, reported with
+The morphological analyses of an occurrence under the language project's grammar, reported with
 their completion state. They remain separate from contact-language dictionary and detection evidence.
 _Avoid_: Spelling verdict, foreign-word filter
 
+**Language pack**:
+A separable, data-only language resource supplying grammar analysis, spelling, or word evidence,
+with its own source, version, and licence identity. This general term includes grammar-backed
+PanGloss Language Packs and contact-language packs without prescribing a shared container format.
+_Avoid_: Executable plugin, grammar artifact only
+
 **Contact-language pack**:
-A separable, data-only resource for spelling and word evidence in a language encountered alongside
-the vernacular, using Hunspell dictionary/affix data or a small word list with explicit coverage.
+A language pack for spelling and word evidence in a language encountered alongside the vernacular,
+using Hunspell dictionary/affix data or a small word list with explicit coverage.
 It is distinct from a grammar-backed PanGloss Language Pack and retains its own source and licence identity.
 _Avoid_: Executable plugin, guaranteed full lexicon
 
 **Word evidence**:
-The attributed parser, dictionary, word-list, detection, and correction observations about a word
+The attributed parser, dictionary, word-list, detection, and correction observations about an
 occurrence. These observations can coexist without deciding its intended language or human spelling status.
 _Avoid_: Real-word verdict, approval
 
@@ -180,13 +196,13 @@ It permits uncertainty and does not assign exclusive language membership to an o
 _Avoid_: Language verdict, automatic exclusion
 
 **Language candidate**:
-A possible language for one word occurrence, carrying the evidence supporting that possibility and,
-where applicable, a misspelling flag and correction suggestions. Several candidates can coexist
-alongside the vernacular parse.
+A possible language for an occurrence or a part of a segmentation alternative, carrying its
+supporting evidence and, where applicable, a misspelling flag and correction suggestions.
+Several candidates can coexist alongside the vernacular parse.
 _Avoid_: Exclusive language label, confirmed language
 
 **Valid language word**:
-A word occurrence with a valid analysis or spelling acceptance in a named language under the
+An occurrence with a valid analysis or spelling acceptance in a named language under the
 identified grammar or pack. This is resource-relative evidence, not a human spelling judgement.
 _Avoid_: Approved word, universally correct spelling
 
@@ -197,15 +213,25 @@ counted separately from valid words.
 _Avoid_: Invalid vernacular word, automatic correction
 
 **Correction suggestion**:
-A proposed replacement spelling for a word occurrence, attributed to the language resource that
+A proposed replacement spelling for an occurrence, attributed to the language resource that
 suggested it. The original occurrence is preserved until a caller or person chooses a replacement.
 _Avoid_: Word prediction, intended spelling (as a fact)
 
 **Unknown word**:
-A word occurrence for which completed checks provide neither valid language-word evidence nor a
+An occurrence for which completed checks provide neither valid language-word evidence nor a
 misspelled language-word candidate from the resources checked. It is not a nonword verdict;
 unavailable, incomplete, or unattempted checks remain explicit.
 _Avoid_: Nonword, misspelled by default
+
+**Language ambiguity**:
+Evidence supporting more than one possible language for an occurrence or wordform, without an
+exclusive assignment. The candidates remain available with their analysis and segmentation evidence.
+_Avoid_: Wrong language, human uncertainty (as if it were a judgement)
+
+**No-analysis**:
+The absence of a valid language analysis among completed checks for an occurrence or wordform.
+Misspelling candidates remain separate evidence; incomplete or unattempted checks are not negative results.
+_Avoid_: Nonword, incomplete analysis
 
 **Construct disposition**:
 One of compiled, safely overapproximated, peeled outside the FST, confirm-only, or detected unsupported.
@@ -293,10 +319,10 @@ A single, self-contained, versioned, fingerprinted file containing the precompil
 _Avoid_: WASM grammar
 
 **PanGloss Language Pack**:
-The product-facing name for the `.pgpack` analysis artifact: a data-only runtime plugin containing
-the proposing FST, matching Rust-HermitCrab runtime data, configured compact diagnostic symbols,
-and package metadata. It cannot contain WASM modules, native libraries, scripts, or executable
-extensions. New engine behavior requires a PanGloss Runtime release.
+The grammar-backed language pack, specifically the `.pgpack` analysis artifact: a data-only runtime
+plugin containing the proposing FST, matching Rust-HermitCrab runtime data, configured compact
+diagnostic symbols, and package metadata. It cannot contain WASM modules, native libraries, scripts,
+or executable extensions. New engine behavior requires a PanGloss Runtime release.
 _Avoid_: Executable plugin, compiler bundle
 
 **Build report**:

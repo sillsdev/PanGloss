@@ -48,8 +48,9 @@ script without spaces remains a run rather than receiving inferred lexical bound
   Agreement with Machine cannot excuse disagreement with LibLCM in this mode. This segmentation
   reference does not replace C# HermitCrab as the founding oracle for morphological parsing.
 - Multiple contact-language packs must be possible without treating one writing system or one
-  Latin heuristic as proof of language membership. Pack-specific segmentation and alternative
-  parser inputs need further decisions; the open alternatives are recorded in ADR 0012.
+  Latin heuristic as proof of language membership. ADR 0012 records the segmentation alternatives,
+  per-part language candidates, and ordering alongside the primary FieldWorks-rule split; these
+  do not change the LibLCM parity contract for the primary segmentation.
 
 Decision basis: PanGloss-analyzer owner answers P1/P2 in `corpus-flow-decisions.md` (2026-11-07).
 Source research: `tokenizer-pangloss-rust.md`, which inspected LibLCM `d564a719`, FieldWorks
