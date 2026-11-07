@@ -54,8 +54,10 @@ People and callers retain the decision about intended language, spelling, and an
 Small word lists provide limited membership, frequency, or detection evidence; absence from a list
 is not spelling rejection. Hunspell acceptance is dictionary/affix evidence and does not fabricate
 a HermitCrab structured analysis identity. Pack availability, coverage, source, licence, and
-compatibility with the Rust engine must be explicit. Spellbook is a researched candidate, not a
-dependency selected by this ADR. The detector, list source, and model are also not selected here.
+compatibility with the Rust engine must be explicit. Spellbook is the approved pure-Rust Hunspell
+dependency behind a PanGloss Dictionary-pack interface. Callers use that interface for Dictionary
+pack checking, suggestions, and evidence; Spellbook-specific calls and types remain behind the boundary.
+The detector, list source, and model are not selected here.
 
 ## Segmentation and ordering
 
@@ -94,6 +96,16 @@ For example, if the reading without a surrounding `’` is analysed and the read
 misses, the occurrence is analysed without a failure or misspelling flag from the missed reading.
 The same rule applies when a joined hyphenated form is analysed but a split alternative misses,
 or vice versa when all parts of the split alternative are analysed.
+
+## Shared analyzer API
+
+One public Analyzer API takes text, a Segmentation profile, and loaded Dictionary packs and
+Language Packs, and returns the per-occurrence evidence and statistics specified here. CLI
+`analyze-text` JSON, WASM `analyzeText`, and `pg-ffi` callers all invoke this shared API; they do
+not independently implement segmentation, alternative handling, or language-evidence decisions.
+The contract supports a FieldWorks drop-in HermitCrab replacement and a stand-alone analyzer
+with the same semantics. The approved seams do not assert that the caller integrations are
+complete. Host storage remains separate from the stateless analysis operation.
 
 ## Core statistics and queryable results
 
@@ -135,8 +147,8 @@ reintroduce ignored alternative misses as errors or counts.
 Storage and query infrastructure belong to the host, such as Motif; this decision selects no
 PanGloss database, persistence format, or storage policy.
 
-Decision basis: the owner-direction and PanGloss-analyzer rounds 1 and 2, round 3 T9, and Q6′ in
-`corpus-flow-decisions.md` (2026-11-07), including the correction-suggestions addition and T1–T4.
+Decision basis: the owner-direction and PanGloss-analyzer rounds 1 and 2, round 3 T9, Q6′, and
+Spec seams in `corpus-flow-decisions.md` (2026-11-07), including the correction-suggestions addition and T1–T4.
 Research: `hunspell-pangloss.md`,
 `corpus-langid-small.md`, and `r-lang-id.md`. Their warnings about ambiguous forms, short-input
 detection, limited list coverage, and separate data licences inform this decision; earlier

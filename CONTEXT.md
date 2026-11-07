@@ -127,6 +127,12 @@ installers, and deployment UI.
 
 ## Language
 
+**Analyzer API**:
+The single PanGloss text-analysis contract taking source text, a Segmentation profile, and loaded
+Dictionary packs and Language Packs, and returning per-occurrence evidence and statistics.
+Embedded and stand-alone callers share its analysis semantics.
+_Avoid_: Host-specific analyzer, separate tokenizer per caller
+
 **Word prediction**:
 Proposals for completing a word or for a following word, using the available language resources
 and context. Prediction is distinct from correcting a misspelled occurrence or analyzing its morphology.

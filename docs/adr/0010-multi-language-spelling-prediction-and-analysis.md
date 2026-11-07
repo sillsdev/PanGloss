@@ -11,6 +11,12 @@ hosts. This replaces the parser-only product boundary; grammar analyses retain t
 correctness contracts and remain distinct from dictionary, language-detection, correction, and
 prediction evidence.
 
+One public Analyzer API accepts text, a Segmentation profile, and loaded Dictionary packs and
+Language Packs, and returns per-occurrence evidence and statistics. CLI `analyze-text` JSON,
+WASM `analyzeText`, and `pg-ffi` callers use this same API. This is the shared contract for PanGloss
+to plug into FieldWorks as a drop-in HermitCrab replacement or run as a stand-alone analyzer;
+it does not claim that the integrations are already implemented.
+
 ## Why
 
 Real text contains vernacular forms, contact-language words, shared forms, and misspellings.
@@ -33,13 +39,14 @@ and leave the portable parser unable to serve the full use case.
 - Word prediction is in scope, separately from correction suggestions and morphological analysis.
   A Hunspell dictionary alone is not a contextual prediction model. No predictor model is selected
   by this decision.
-- All deployment and packaging details are deferred: host bindings, Firefox/LibreOffice
-  integration, installation, distribution, pack containers, and loading policy need later
-  decisions. These targets describe product direction, not completed integrations.
+- The shared Analyzer API and its CLI, WASM, and `pg-ffi` caller seams are decided. Remaining
+  deployment and packaging details are deferred: Firefox/LibreOffice integration, installation,
+  distribution, pack containers, and loading policy need later decisions. These targets describe
+  product direction, not completed integrations.
 
 Decision basis: the owner-direction and PanGloss-analyzer sections, including the T9 pack-naming
-decision, of `corpus-flow-decisions.md` (2026-11-07), supported by `tokenizer-pangloss-rust.md` and
-`hunspell-pangloss.md`. Earlier parser-only recommendations in `r-lang-id.md` and
+and Spec seams decisions, of `corpus-flow-decisions.md` (2026-11-07), supported by
+`tokenizer-pangloss-rust.md` and `hunspell-pangloss.md`. Earlier parser-only recommendations in `r-lang-id.md` and
 `corpus-langid-small.md` are superseded on product ownership; their evidence-versus-judgement
 distinction remains applicable.
 
