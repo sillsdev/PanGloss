@@ -5,25 +5,32 @@ status: accepted
 # Return multi-language word evidence alongside the vernacular parse
 
 Owner decisions, 2026-11-07, including contact-language correction suggestions and analyzer round 2
-(T1–T4), which settles the previously open segmentation and reporting choices. PanGloss loads
-contact-language packs using Hunspell dictionary/affix data through a pure-Rust crate, supplemented
-by small word lists. Automatic language detection proposes languages;
-per-occurrence language candidates accompany the vernacular parse without becoming a linguistic
-or human spelling verdict.
+(T1–T4), which settles the segmentation and reporting choices, and T9, which settles pack naming
+and evidence sources. PanGloss loads Dictionary packs using Hunspell dictionary/affix data through
+a pure-Rust crate, supplemented by small word lists and an optional n-gram profile. Automatic
+language detection proposes languages; per-occurrence language candidates accompany the vernacular
+parse without becoming a linguistic or human spelling verdict.
 
 ## Decision
 
 Use **Wordform** for a written form and **Occurrence** for one instance in source text, rather than
 calling either a token. **Word-forming character**, **Segmentation profile**, **Segmentation
-alternative**, **Language pack**, and **Language candidate** have their definitions in `CONTEXT.md`.
-Language pack is the general term; the existing PanGloss Language Pack remains specifically the
-`.pgpack` grammar analysis artifact. No common pack container is selected here.
+alternative**, **Dictionary pack**, **PanGloss Language Pack**, and **Language candidate** have their
+definitions in `CONTEXT.md`. A Dictionary pack is the spelling and language-evidence bundle:
+Hunspell `.dic`/`.aff` data, a word list, and an optional n-gram profile. Language Pack retains only
+its `.pgpack` grammar analysis meaning; there is no Language Pack umbrella term.
+
+A contact language can also be analyzed by an additional PanGloss Language Pack loaded alongside
+the vernacular one, for example a supplied Tagalog/Filipino grammar. Language candidates can draw
+evidence from Dictionary packs or Language Packs. Dictionary acceptance and suggestions remain
+distinct from the morphological analyses a Language Pack returns, with each source identified.
+These names select neither a Dictionary pack container nor a deployment or loading policy.
 
 Keep parser analysis, dictionary acceptance, word-list evidence, language detection, and correction
 suggestions distinguishable and attributed to their source and version. Several languages can be
-candidates for the same occurrence. A valid vernacular parse remains visible when a contact pack
-also recognizes the form; a contact-language hit does not remove the occurrence from parsing or
-silently exclude it from grammar-coverage evidence.
+candidates for the same occurrence. A valid vernacular parse remains visible when a Dictionary
+pack or another Language Pack also recognizes the form; a contact-language hit does not remove the
+occurrence from parsing or silently exclude it from grammar-coverage evidence.
 
 Contact-language checking includes Hunspell correction suggestions such as `teh` -> `the`.
 Distinguish these observations:
@@ -52,8 +59,9 @@ dependency selected by this ADR. The detector, list source, and model are also n
 
 The primary segmentation is the FieldWorks-rule split from the writing system's segmentation
 profile. Also retain segmentation alternatives at word-forming apostrophes and hyphens and from
-partial language-pack matches. Thus both `l'homme` and `l'` + `homme`, and joined and split readings
-of rare hyphenated forms, are considered. A hyphen can join parts from different languages.
+partial matches in Dictionary packs or Language Packs. Thus both `l'homme` and `l'` + `homme`, and
+joined and split readings of rare hyphenated forms, are considered. A hyphen can join parts from
+different languages.
 
 Send every segmentation alternative to the parser as well as the primary split. Retain language
 candidates for each part, together with that part's parse and pack evidence. A partial pack match
@@ -73,8 +81,8 @@ segmentation's LibLCM parity contract remains unchanged.
 
 For each language code, report both the number of occurrences and the number of wordforms with
 a valid analysis in that language. Also report misspelled-`<language>`, ambiguous, and no-analysis
-counts, keeping occurrence and wordform counts distinct. Valid-word evidence can be a grammar
-analysis or language-pack spelling acceptance, with the evidence kind retained; dictionary
+counts, keeping occurrence and wordform counts distinct. Valid-word evidence can be a Language Pack
+grammar analysis or Dictionary pack spelling acceptance, with the evidence kind retained; dictionary
 acceptance does not become a morphological parse. Detection predictions or suggested corrections
 do not count as valid analyses of the original form. Count occurrences and wordforms, not the
 number of parser results or segmentation paths that support them.
@@ -90,15 +98,15 @@ on request rather than imposed as default summaries.
 
 Return the core per-occurrence analysis in a form the host can store and query without rerunning
 Hunspell. It includes the original wordform and source location, primary and alternative part
-relationships, per-part language candidates, valid-language evidence identified as grammar analysis
-or pack spelling acceptance, misspelling evidence and suggestions, ambiguity/no-analysis and
-completion states, and the identities of the resources used. Preserve enough source context or
-references for queries such as which wordforms were
-ambiguous, which were English-only, and which sentences contain occurrences of a wordform.
+relationships, per-part language candidates, valid-language evidence identified as Language Pack
+grammar analysis or Dictionary pack spelling acceptance, misspelling evidence and suggestions,
+ambiguity/no-analysis and completion states, and the identities of the resources used. Preserve
+enough source context or references for queries such as which wordforms were ambiguous, which were
+English-only, and which sentences contain occurrences of a wordform.
 Storage and query infrastructure belong to the host, such as Motif; this decision selects no
 PanGloss database, persistence format, or storage policy.
 
-Decision basis: the owner-direction and PanGloss-analyzer rounds 1 and 2 in
+Decision basis: the owner-direction and PanGloss-analyzer rounds 1 and 2 and round 3 T9 in
 `corpus-flow-decisions.md` (2026-11-07), including the correction-suggestions addition and T1–T4.
 Research: `hunspell-pangloss.md`,
 `corpus-langid-small.md`, and `r-lang-id.md`. Their warnings about ambiguous forms, short-input
