@@ -5,6 +5,12 @@ file has no section for.
 
 ## Unreleased
 
+## 0.16.2
+
+Released 2026-11-06.
+
+Rewrite-rule synthesis matches hc.dll in two more cases: subrules are tried in order at each site (#195), and ambiguous intermediate segments and bound alpha variables are checked by subsumption (#196). The FST phonology proposer gains an explicit inclusion contract: it either includes every HermitCrab output or refuses with a typed reason (#197). #189 part 2 (complete parses of the heaviest F2 nasal-assimilation words) does not ship: pinned hc.dll cannot parse those words either, so 0.16.1's `MEMCAP` status remains the behaviour.
+
 - Phonological rewrite synthesis now checks ambiguous intermediate segments and bound alpha variables against the full required feature set, matching hc.dll when later rules inspect generated segment classes. Analysis continues to use unification, and missing feature values retain their partial-grammar behavior.
 
 - Retain unspelled intermediate feature bundles in permissive FST phonology, with bounded atomic refusal and explicit construction coverage. Iterative empty-focus insertion now refuses atomically because fed insertions within an original gap are outside that construction; simultaneous insertion remains supported.
