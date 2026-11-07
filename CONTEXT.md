@@ -1,13 +1,16 @@
-# PanGloss Grammar Coverage
+# PanGloss
 
-This context defines the language used to describe HermitCrab compatibility, FST proposal coverage, and resource safety.
+PanGloss is a multi-language spell checker, word predictor, and word analyzer with the morphological
+parser at its core. This context defines its language for word evidence, segmentation, HermitCrab
+compatibility, FST proposal coverage, and resource safety. The widened purpose is recorded in
+`docs/adr/0010-multi-language-spelling-prediction-and-analysis.md`.
 
 ## The compiler, its backends, and the compatibility report
 
 Settled 2026-08-07. Terminology first, because it decides how the thing gets built.
 
-**Compiler.** PanGloss itself — the whole process that turns a HermitCrab grammar into an FST-backed
-analyzer. Singular. There is one compiler.
+**Compiler.** The whole grammar-compilation process within PanGloss that turns a HermitCrab grammar
+into an FST-backed analyzer. Singular. There is one compiler.
 
 **Backend.** One way the compiler can emit. Backends are not variations on a theme: they combine
 features in genuinely different ways, so they grow and fail differently on the same grammar. Exactly
@@ -123,6 +126,86 @@ is no initial evidence-bundle manifest. Callers own tests, baselines, history, r
 installers, and deployment UI.
 
 ## Language
+
+**Word prediction**:
+Proposals for completing a word or for a following word, using the available language resources
+and context. Prediction is distinct from correcting a misspelled occurrence or analyzing its morphology.
+_Avoid_: Hunspell suggestions (as a synonym), parser result
+
+**Writing system**:
+A language project's conventions for written text, including its configured word-forming characters.
+A writing system informs segmentation but does not by itself establish an occurrence's language.
+_Avoid_: Language (as a synonym), script (as the whole configuration)
+
+**Word-forming character**:
+A character that belongs inside a word under a writing system's segmentation rules, including the
+Unicode defaults, configured additions, and WordMaker's numeric rule.
+_Avoid_: Letter only, Latin word character
+
+**Segmentation profile**:
+The recorded writing-system rules used to find word boundaries, with the identity and hash of the
+source `.ldml` from which they were obtained.
+_Avoid_: Tokenizer guess, language detector
+
+**FieldWorks-compatible segmentation**:
+The word boundaries produced by LibLCM WordMaker's writing-system-configured maximal-run rule,
+including its Unicode and numeric behavior. Existing FieldWorks segmentation remains authoritative
+for text already segmented in a FieldWorks project.
+_Avoid_: Machine Latin tokenization, universal tokenizer
+
+**Word occurrence**:
+One word at a particular span in source text, retaining its original surface and location.
+Repeated occurrences of the same form are distinct evidence-bearing occurrences.
+_Avoid_: Word type, assessment case (as a synonym)
+
+**Vernacular parse**:
+The morphological analyses of a word occurrence under the language project's grammar, reported with
+their completion state. They remain separate from contact-language dictionary and detection evidence.
+_Avoid_: Spelling verdict, foreign-word filter
+
+**Contact-language pack**:
+A separable, data-only resource for spelling and word evidence in a language encountered alongside
+the vernacular, using Hunspell dictionary/affix data or a small word list with explicit coverage.
+It is distinct from a grammar-backed PanGloss Language Pack and retains its own source and licence identity.
+_Avoid_: Executable plugin, guaranteed full lexicon
+
+**Word evidence**:
+The attributed parser, dictionary, word-list, detection, and correction observations about a word
+occurrence. These observations can coexist without deciding its intended language or human spelling status.
+_Avoid_: Real-word verdict, approval
+
+**Language detection**:
+The proposal of one or more possible languages from text and available language resources.
+It permits uncertainty and does not assign exclusive language membership to an occurrence.
+_Avoid_: Language verdict, automatic exclusion
+
+**Language candidate**:
+A possible language for one word occurrence, carrying the evidence supporting that possibility and,
+where applicable, a misspelling flag and correction suggestions. Several candidates can coexist
+alongside the vernacular parse.
+_Avoid_: Exclusive language label, confirmed language
+
+**Valid language word**:
+A word occurrence with a valid analysis or spelling acceptance in a named language under the
+identified grammar or pack. This is resource-relative evidence, not a human spelling judgement.
+_Avoid_: Approved word, universally correct spelling
+
+**Misspelled language word**:
+A language candidate flagged as a possible misspelling in that language, carrying correction
+suggestions. It is distinct from valid language-word evidence and from an unknown word, and is
+counted separately from valid words.
+_Avoid_: Invalid vernacular word, automatic correction
+
+**Correction suggestion**:
+A proposed replacement spelling for a word occurrence, attributed to the language resource that
+suggested it. The original occurrence is preserved until a caller or person chooses a replacement.
+_Avoid_: Word prediction, intended spelling (as a fact)
+
+**Unknown word**:
+A word occurrence for which completed checks provide neither valid language-word evidence nor a
+misspelled language-word candidate from the resources checked. It is not a nonword verdict;
+unavailable, incomplete, or unattempted checks remain explicit.
+_Avoid_: Nonword, misspelled by default
 
 **Construct disposition**:
 One of compiled, safely overapproximated, peeled outside the FST, confirm-only, or detected unsupported.
