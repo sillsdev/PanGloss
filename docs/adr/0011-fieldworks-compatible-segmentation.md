@@ -23,6 +23,16 @@ ordinary text, even when not configured, so `16th` and numeric-only runs remain 
 caller supplies Chapter Number or Verse Number styles, preserve WordMaker's suppression of that
 numeric rule. Plain text does not acquire invented style information.
 
+A character can be both word-forming and punctuation without a contradiction. Under owner rule
+Q6′, a dual-role character such as `’` (U+2019) or a hyphen yields segmentation alternatives with
+and without it as word material. Keep the FieldWorks-rule split as primary and offer the other
+readings alongside it; this does not change the primary mode's LibLCM parity contract.
+
+An occurrence counts as analysed when its primary split or ANY segmentation alternative is
+analysed. Misses of the other alternatives are ignored: they contribute no failure, misspelling,
+or no-analysis count and produce no red flag. ADR 0012 applies this rule to per-part analysis,
+statistics, and returned occurrence outcomes.
+
 Text already segmented in a FieldWorks project keeps FieldWorks' segmentation. This decision does
 not replace LibLCM inside FieldWorks or ask a caller to resegment its stored words. For new text,
 preserve the original surface and source spans; parser-internal normalization must not rewrite the
@@ -52,7 +62,8 @@ script without spaces remains a run rather than receiving inferred lexical bound
   alternatives, per-part language candidates, and ordering alongside the primary FieldWorks-rule
   split; these do not change the LibLCM parity contract for the primary segmentation.
 
-Decision basis: PanGloss-analyzer owner answers P1/P2 in `corpus-flow-decisions.md` (2026-11-07).
+Decision basis: PanGloss-analyzer owner answers P1/P2 and the general Q6′ alternative-success rule
+in `corpus-flow-decisions.md` (2026-11-07).
 Source research: `tokenizer-pangloss-rust.md`, which inspected LibLCM `d564a719`, FieldWorks
 `936ae91fe`, and Machine `18cf242f`; its WordMaker references are
 `src/SIL.LCModel/DomainServices/ITextUtils.cs` and the writing-system definitions under
