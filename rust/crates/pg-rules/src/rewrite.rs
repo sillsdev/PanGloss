@@ -48,6 +48,7 @@ pub(crate) struct MutNode {
     pub(crate) explicit_full: Vec<u32>,
     /// Present full values created by a rewrite, rather than absent feature lanes.
     pub(crate) generated_full: Vec<u32>,
+    pub(crate) unresolved_variables: Vec<u32>,
     pub(crate) optional: bool,
     /// C# `Annotation.FeatureStruct[Deletion] == Deleted` (synthesis narrow marks then filters).
     pub(crate) deleted: bool,
@@ -161,6 +162,7 @@ impl MutShape {
                 lanes: s.node_lanes(i).to_vec(),
                 explicit_full: Vec::new(),
                 generated_full: s.generated_full_features(i).collect(),
+                unresolved_variables: s.unresolved_variable_features(i).collect(),
                 optional: s.flags(i).is_optional(),
                 deleted: false,
                 dirty: false,
@@ -224,6 +226,7 @@ impl MutShape {
                 _ => unreachable!(),
             }
             b.set_generated_full(i + 1, &n.generated_full);
+            b.set_unresolved_variables(i + 1, &n.unresolved_variables);
         }
         let mut shape = b.finish();
         // Segments that must be Optional: delete + reinsert with the OPTIONAL flag.
@@ -255,6 +258,7 @@ impl MutShape {
                     );
                 }
                 m.set_generated_full(idx, &n.generated_full);
+                m.set_unresolved_variables(idx, &n.unresolved_variables);
             }
             shape = m.freeze();
         }
@@ -1008,6 +1012,8 @@ fn apply_variable_bindings(
     for occ in vars {
         if let Some(&(bits, _, present)) = bindings.get(&occ.var) {
             let mask = full_mask(g, occ.feature);
+            node.unresolved_variables
+                .retain(|&f| f as usize != occ.feature);
             node.lanes[occ.feature] = if occ.plus { bits } else { mask & !bits };
             node.generated_full.retain(|&f| f as usize != occ.feature);
             if present && node.lanes[occ.feature] == mask {
@@ -1877,6 +1883,9 @@ fn apply_synthesis_site(
             };
             for (k, &node) in nodes.iter().enumerate() {
                 for &(f, bits) in &prepared.rhs_pins[k] {
+                    ms.nodes[node]
+                        .unresolved_variables
+                        .retain(|&feature| feature as usize != f);
                     ms.nodes[node].lanes[f] = bits;
                     ms.nodes[node]
                         .generated_full
@@ -3067,6 +3076,7 @@ fn ana_narrow_deletion(
     for (site_node, bindings) in sites.iter().rev() {
         let mut inserted = lhs_nodes.clone();
         for (node, vars) in inserted.iter_mut().zip(&lhs_vars) {
+            node.unresolved_variables = vars.iter().map(|occ| occ.feature as u32).collect();
             apply_variable_bindings(g, node, vars, bindings);
         }
         ms.nodes.splice(site_node + 1..site_node + 1, inserted);
@@ -3074,7 +3084,7 @@ fn ana_narrow_deletion(
     true
 }
 
-/// The non-empty-RHS branch: true narrowing unions Segment-typed LHS nodes into the captured RHS nodes and inserts the rest, boundaries included, as Optional leftovers without dirty marks; expansion keeps the all-Optional form. Matches apply descending because index-based nodes don't survive insertion.
+/// The non-empty-RHS branch zips LHS segments into captured RHS nodes, inserts LHS leftovers as Optional, and marks surplus RHS nodes Optional. Matches apply descending because index-based nodes do not survive insertion.
 #[allow(clippy::too_many_arguments)]
 fn ana_narrow_general(
     g: &Grammar,
@@ -3096,13 +3106,11 @@ fn ana_narrow_general(
         .iter()
         .map(|n| node_full_lanes(g, table, n))
         .collect();
-    let target_len = sr.rhs.nodes.len();
-    let union_narrowing = target_len > 0 && rule.lhs.nodes.len() > target_len;
     let lhs_template: Vec<MutNode> = rule
         .lhs
         .nodes
         .iter()
-        .map(|n| new_seg_node_dirty(g, table, n, true, !union_narrowing)) // true-narrowing leftovers are OPTIONAL but never dirty
+        .map(|n| new_seg_node_dirty(g, table, n, true, false)) // C# inserts optional leftovers without dirty marks
         .collect();
 
     // Analysis filter: Segment|Anchor (no boundaries), matching `ana_feature`/the deletion case.
@@ -3162,32 +3170,38 @@ fn ana_narrow_general(
         // Resolve RHS alpha-variable bindings onto the reconstructed LHS before unioning or inserting it.
         let mut resolved_lhs = lhs_template.clone();
         for (node, vars) in resolved_lhs.iter_mut().zip(&lhs_vars) {
+            node.unresolved_variables = vars.iter().map(|occ| occ.feature as u32).collect();
             apply_variable_bindings(g, node, vars, &bindings);
         }
 
-        if union_narrowing {
-            // A boundary unioned into a segment could never be consumed, so boundaries and surplus segments stay Optional leftovers in LHS order.
-            let mut target_segments = target_nodes.iter().copied();
-            let mut leftovers = Vec::new();
-            for lhs_node in resolved_lhs {
-                if lhs_node.kind == NodeKind::Segment {
-                    if let Some(target_node) = target_segments.next() {
-                        union_narrowing_node(g, table, &mut ms.nodes[target_node], &lhs_node);
-                        continue;
-                    }
+        let mut target_segments = target_nodes.iter().copied();
+        let mut leftovers = Vec::new();
+        let mut zipper = true;
+        for (index, lhs_node) in resolved_lhs.into_iter().enumerate() {
+            // C# stops the zipper at an unbound input variable.
+            let unresolved = lhs_vars
+                .get(index)
+                .is_some_and(|vars| vars.iter().any(|occ| !bindings.contains_key(&occ.var)));
+            // C# NarrowAnalysisRewriteRuleSpec.Unapply:67–88 leaves symbolic captures unconsumed.
+            if zipper && lhs_node.kind == NodeKind::Segment && !unresolved {
+                if let Some(target_node) = target_segments
+                    .clone()
+                    .next()
+                    .filter(|&node| ms.nodes[node].unresolved_variables.is_empty())
+                {
+                    target_segments.next();
+                    union_narrowing_node(g, table, &mut ms.nodes[target_node], &lhs_node);
+                    continue;
                 }
-                leftovers.push(lhs_node);
             }
-            let insert_at = *target_nodes.last().unwrap() + 1;
-            ms.nodes.splice(insert_at..insert_at, leftovers);
-        } else {
-            // Expansion keeps the prior all-optional representation unchanged.
-            let insert_at = *target_nodes.last().unwrap() + 1;
-            ms.nodes.splice(insert_at..insert_at, resolved_lhs);
-            for &n in &target_nodes {
-                ms.nodes[n].optional = true;
-            }
+            zipper = false;
+            leftovers.push(lhs_node);
         }
+        for target_node in target_segments {
+            ms.nodes[target_node].optional = true;
+        }
+        let insert_at = *target_nodes.last().unwrap() + 1;
+        ms.nodes.splice(insert_at..insert_at, leftovers);
     }
     true
 }
@@ -3551,6 +3565,7 @@ fn new_seg_node_dirty(
         lanes: node_full_lanes(g, table, node),
         explicit_full: explicit_full_of(table, char_def),
         generated_full: generated_full_of(g, table, node),
+        unresolved_variables: Vec::new(),
         optional,
         deleted: false,
         dirty,

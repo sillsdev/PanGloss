@@ -1796,3 +1796,22 @@ fn simultaneous_overlapping_narrow_matches_keep_original_node_references() {
         char_feature_lanes(&g, "char_a")
     );
 }
+
+#[test]
+fn expansion_cascade_preserves_symbolic_captured_output() {
+    let xml = include_str!(
+        "../../../../conformance-staging/edge-cases/cascade-symbolic-output/grammar.xml"
+    );
+    let grammar = pg_grammar::load(xml).unwrap();
+    let mut shape =
+        pg_rules::shape_feat::segment_with_features(&grammar, &grammar.char_tables[0], "uuuu")
+            .unwrap();
+    for def in grammar.prules.iter().rev() {
+        let pg_grammar_model::model::PhonRuleDef::Rewrite(rule) = def else {
+            panic!("rewrite")
+        };
+        let results = pg_rules::rewrite::analyze(&grammar, rule, &shape, None);
+        shape = results.into_iter().next().expect("rule applies");
+    }
+    assert_eq!(shape.len(), 12, "C# retains ten segments and two anchors");
+}

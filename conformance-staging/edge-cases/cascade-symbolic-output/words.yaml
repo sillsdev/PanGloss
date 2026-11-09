@@ -1,0 +1,12 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: cascade-symbolic-output
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: "uuuu"
+    note: Pinned C# cascade probe.
+    parses:
+      - signature: "R0|uuuu"
+        rules: ["rFirst", "rSecond"]
+      - signature: "R6|uuuu"
+        rules: ["rFirst", "rSecond"]

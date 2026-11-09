@@ -1,0 +1,21 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: SimultaneousOverlapExpansion
+inspired_by: ["simultaneous vowel expansion"]
+sources: ["bounded FST inclusion exploration; separate HC-Rust port observation"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: iiiaiii
+    note: "Pinned C# rejects the overlapping-match output that HC-Rust accepts as ROOT|iiiaiii."
+    expect_fail: true
+  - word: iiiiii
+    note: "Pinned C# also rejects the six-vowel candidate in this grammar."
+    expect_fail: true
+  - word: aaaa
+    note: "The simultaneous vowel expansion is obligatory."
+    expect_fail: true
+  - word: iii
+    note: "The short root confirms that ordinary expansion remains analyzable."
+    parses:
+      - signature: "SHORT|iii"
+        rules: [rExpand]

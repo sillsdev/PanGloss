@@ -1,0 +1,92 @@
+<?xml version='1.0' encoding='utf-8'?>
+<HermitCrabInput>
+  <Language>
+    <Name>PermissiveExpansion</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN">
+        <Name>n</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featBack">
+        <Name>back</Name>
+        <Symbols>
+          <Symbol id="bkPlus">+bk</Symbol>
+          <Symbol id="bkMinus">-bk</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featRound">
+        <Name>round</Name>
+        <Symbols>
+          <Symbol id="rdMinus">-rd</Symbol>
+          <Symbol id="rdPlus">+rd</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cI">
+          <Representations>
+            <Representation>i</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkMinus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cU">
+          <Representations>
+            <Representation>u</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdPlus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses><FeatureNaturalClass id="ncV"><Name>Any segment</Name></FeatureNaturalClass></NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="rExpand" multipleApplicationOrder="simultaneous">
+        <Name>Simultaneous aa to iii</Name>
+        <VariableFeatures><VariableFeature id="varBack" name="alpha" phonologicalFeature="featBack" /></VariableFeatures>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncV"><AlphaVariables><AlphaVariable variableFeature="varBack" /></AlphaVariables></SimpleContext><SimpleContext naturalClass="ncV"><AlphaVariables><AlphaVariable variableFeature="varBack" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence><Segment segment="cI" /><Segment segment="cI" /><Segment segment="cI" /></PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" phonologicalRules="rExpand">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eAu" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aAu">
+                <PhoneticShape>aaaa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>ROOT</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eShort" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aShort">
+                <PhoneticShape>aa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>SHORT</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

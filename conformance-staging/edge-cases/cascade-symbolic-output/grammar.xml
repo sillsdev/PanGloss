@@ -1,0 +1,220 @@
+<?xml version='1.0' encoding='utf-8'?>
+<HermitCrabInput>
+  <Language>
+    <Name>PermissiveExpansion</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN">
+        <Name>n</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featBack">
+        <Name>back</Name>
+        <Symbols>
+          <Symbol id="bkPlus">+bk</Symbol>
+          <Symbol id="bkMinus">-bk</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featRound">
+        <Name>round</Name>
+        <Symbols>
+          <Symbol id="rdMinus">-rd</Symbol>
+          <Symbol id="rdPlus">+rd</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cI">
+          <Representations>
+            <Representation>i</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkMinus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cU">
+          <Representations>
+            <Representation>u</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdPlus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses><FeatureNaturalClass id="ncV"><Name>Any segment</Name></FeatureNaturalClass></NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="rFirst" multipleApplicationOrder="simultaneous">
+        <Name>rFirst</Name>
+        <VariableFeatures><VariableFeature id="varBack" name="alpha" phonologicalFeature="featBack" /><VariableFeature id="varRound" name="beta" phonologicalFeature="featRound" /></VariableFeatures>
+        <PhoneticInput><PhoneticSequence><Segment segment="cA" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence><Segment segment="cI" /><Segment segment="cI" /></PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    <PhonologicalRule id="rSecond" multipleApplicationOrder="simultaneous">
+        <Name>rSecond</Name>
+        <VariableFeatures><VariableFeature id="varBack" name="alpha" phonologicalFeature="featBack" /><VariableFeature id="varRound" name="beta" phonologicalFeature="featRound" /></VariableFeatures>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncV"><AlphaVariables><AlphaVariable variableFeature="varBack" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence><Segment segment="cU" /><Segment segment="cU" /></PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" phonologicalRules="rFirst rSecond">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e0" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m0">
+                <PhoneticShape>a</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R0</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e1" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m1">
+                <PhoneticShape>aa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R1</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e2" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m2">
+                <PhoneticShape>aaa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R2</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e3" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m3">
+                <PhoneticShape>aaaa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R3</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e4" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m4">
+                <PhoneticShape>aaaaa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R4</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e5" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m5">
+                <PhoneticShape>aaaaaa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R5</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e6" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m6">
+                <PhoneticShape>ii</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R6</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e7" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m7">
+                <PhoneticShape>iii</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R7</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e8" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m8">
+                <PhoneticShape>iiii</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R8</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e9" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m9">
+                <PhoneticShape>ai</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R9</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e10" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m10">
+                <PhoneticShape>ia</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R10</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e11" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m11">
+                <PhoneticShape>aai</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R11</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e12" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m12">
+                <PhoneticShape>iaa</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R12</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e13" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m13">
+                <PhoneticShape>au</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R13</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e14" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="m14">
+                <PhoneticShape>uai</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>R14</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+          </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

@@ -205,6 +205,8 @@ pub struct Shape {
     cd_sets: Box<[CdSet]>,
     /// Sparse (node, feature) pairs for present full sets created by rewriting.
     generated_full: Box<[(u32, u32)]>,
+    /// Features retaining unresolved variables from analysis.
+    unresolved_variables: Box<[(u32, u32)]>,
 }
 
 impl Shape {
@@ -213,7 +215,8 @@ impl Shape {
         self.cd_sets.iter().fold(
             self.len()
                 .saturating_mul(3 + self.feat_width as usize)
-                .saturating_add(self.generated_full.len()),
+                .saturating_add(self.generated_full.len())
+                .saturating_add(self.unresolved_variables.len()),
             |total, set| match set {
                 CdSet::Members(bits) => total.saturating_add(bits.0.len()),
                 CdSet::Unrestricted => total,
@@ -245,6 +248,9 @@ impl Shape {
             ));
         let columns = columns.saturating_add(allocation(
             self.generated_full.len() * std::mem::size_of::<(u32, u32)>(),
+        ));
+        let columns = columns.saturating_add(allocation(
+            self.unresolved_variables.len() * std::mem::size_of::<(u32, u32)>(),
         ));
         self.cd_sets.iter().fold(columns, |total, set| match set {
             CdSet::Members(bits) if bits.0.spilled() => {
@@ -297,6 +303,13 @@ impl Shape {
     /// Feature indexes whose full values were produced by a rewrite on this node.
     pub fn generated_full_features(&self, i: usize) -> impl Iterator<Item = u32> + '_ {
         self.generated_full
+            .iter()
+            .filter_map(move |&(node, feature)| (node as usize == i).then_some(feature))
+    }
+
+    /// Feature indices whose symbolic values remain unresolved.
+    pub fn unresolved_variable_features(&self, i: usize) -> impl Iterator<Item = u32> + '_ {
+        self.unresolved_variables
             .iter()
             .filter_map(move |&(node, feature)| (node as usize == i).then_some(feature))
     }
@@ -356,6 +369,7 @@ pub struct ShapeBuilder {
     feat_lanes: Vec<u64>,
     cd_sets: Vec<CdSet>,
     generated_full: Vec<(u32, u32)>,
+    unresolved_variables: Vec<(u32, u32)>,
 }
 
 impl ShapeBuilder {
@@ -385,6 +399,7 @@ impl ShapeBuilder {
             feat_lanes: Vec::with_capacity((cap + 2) * w),
             cd_sets: Vec::with_capacity(cap + 2),
             generated_full: Vec::new(),
+            unresolved_variables: Vec::new(),
         };
         b.push(NodeKind::LeftAnchor, NO_CHAR_DEF, NodeFlags::EMPTY);
         b
@@ -401,6 +416,7 @@ impl ShapeBuilder {
             feat_lanes: src.feat_lanes.to_vec(),
             cd_sets: src.cd_sets.to_vec(),
             generated_full: src.generated_full.to_vec(),
+            unresolved_variables: src.unresolved_variables.to_vec(),
         }
     }
 
@@ -515,7 +531,11 @@ impl ShapeBuilder {
             index >= 1 && index < self.kinds.len(),
             "insert index must be interior (between the anchors)"
         );
-        for (node, _) in &mut self.generated_full {
+        for (node, _) in self
+            .generated_full
+            .iter_mut()
+            .chain(&mut self.unresolved_variables)
+        {
             if *node as usize >= index {
                 *node += 1;
             }
@@ -555,7 +575,13 @@ impl ShapeBuilder {
         );
         self.generated_full
             .retain(|(node, _)| *node as usize != index);
-        for (node, _) in &mut self.generated_full {
+        self.unresolved_variables
+            .retain(|(node, _)| *node as usize != index);
+        for (node, _) in self
+            .generated_full
+            .iter_mut()
+            .chain(&mut self.unresolved_variables)
+        {
             if *node as usize > index {
                 *node -= 1;
             }
@@ -579,6 +605,16 @@ impl ShapeBuilder {
         self.generated_full
             .extend(features.iter().map(|&f| (index as u32, f)));
         self.generated_full.sort_unstable();
+    }
+
+    /// Set unresolved symbolic feature indices for a node.
+    pub fn set_unresolved_variables(&mut self, index: usize, features: &[u32]) {
+        assert!(index < self.kinds.len());
+        self.unresolved_variables
+            .retain(|(node, _)| *node as usize != index);
+        self.unresolved_variables
+            .extend(features.iter().map(|&f| (index as u32, f)));
+        self.unresolved_variables.sort_unstable();
     }
 
     /// Feature-change: replace node `index`'s lanes with `lanes` (`lanes.len()` must be
@@ -637,6 +673,7 @@ impl ShapeBuilder {
             feat_lanes: self.feat_lanes.into_boxed_slice(),
             cd_sets: self.cd_sets.into_boxed_slice(),
             generated_full: self.generated_full.into_boxed_slice(),
+            unresolved_variables: self.unresolved_variables.into_boxed_slice(),
         }
     }
 }
