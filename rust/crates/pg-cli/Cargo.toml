@@ -36,6 +36,7 @@ required-features = ["examples"]
 
 [dependencies]
 pg-cost.workspace = true
+pg-analyzer = { path = "../pg-analyzer" }
 pg-parse.workspace = true
 pg-grammar.workspace = true
 pg-realize.workspace = true

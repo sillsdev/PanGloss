@@ -729,6 +729,8 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "pg-analyzer"
 version = "0.16.2"
 dependencies = [
+ "pg-grammar",
+ "pg-parse",
  "quick-xml",
  "serde",
  "serde_json",
@@ -754,6 +756,7 @@ dependencies = [
 name = "pg-cli"
 version = "0.16.2"
 dependencies = [
+ "pg-analyzer",
  "pg-assess",
  "pg-conformance-fixtures",
  "pg-cost",

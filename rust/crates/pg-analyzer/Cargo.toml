@@ -10,6 +10,10 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 quick-xml.workspace = true
+pg-parse.workspace = true
+
+[dev-dependencies]
+pg-grammar.workspace = true
 
 [lints]
 workspace = true
