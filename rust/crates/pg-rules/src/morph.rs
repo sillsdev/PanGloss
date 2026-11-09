@@ -945,7 +945,7 @@ fn cd_lanes(g: &Grammar, table: TableId, cd_raw: u32) -> Vec<u64> {
 }
 
 /// The `(feature, symbol-bits)` a `SimpleContext` pins; alpha-variable features are left unconstrained.
-fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64)> {
+pub fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64)> {
     let w = feat_width(g);
     let t = &g.char_tables[table.0 as usize];
     let nc = &g.natural_classes[ctx.nat_class.0 as usize];
