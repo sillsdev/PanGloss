@@ -38,6 +38,7 @@ fn run(
             xml: LDML,
         },
         packs: &packs,
+        dictionaries: &[],
         texts: &texts,
         options,
     })
@@ -208,6 +209,7 @@ fn result_round_trips_through_json_and_rejects_bad_requests() {
             xml: LDML,
         },
         packs: &packs,
+        dictionaries: &[],
         texts: &[],
         options: AnalyzeOptions::default(),
     })
@@ -240,6 +242,7 @@ fn run_joining(texts: &[(&str, &str)], options: AnalyzeOptions) -> TextAnalysis 
             xml: LDML_JOINING,
         },
         packs: &packs,
+        dictionaries: &[],
         texts: &texts,
         options,
     })
@@ -406,6 +409,7 @@ fn run_grammars(
             xml: ldml,
         },
         packs: &packs,
+        dictionaries: &[],
         texts: &texts,
         options,
     })

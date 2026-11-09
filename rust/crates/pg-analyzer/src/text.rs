@@ -1,6 +1,7 @@
 //! The analyzer entry point; the result format is `docs/text-analysis-format.md`.
 
 use crate::alternatives::DEFAULT_MAX_ALTERNATIVES;
+use crate::dictionary::DictionaryPack;
 use crate::occurrence::check_occurrence;
 use crate::statistics::{summarize, Statistics};
 use crate::{analyze, ProfileInput, SegmentationProfile, StyledRun};
@@ -35,11 +36,17 @@ pub struct AnalyzeOptions {
     pub max_alternatives: Option<usize>,
     /// Also enumerate alternatives when the primary split is already analysed.
     pub all_readings: bool,
+    /// Longest form (default 64 chars) searched for suggestions; longer is `SuggestionsCapped`.
+    pub max_suggestion_chars: Option<usize>,
 }
+
+/// Default for [`AnalyzeOptions::max_suggestion_chars`].
+pub const DEFAULT_MAX_SUGGESTION_CHARS: usize = 64;
 
 pub struct TextRequest<'a> {
     pub profile: ProfileInput<'a>,
     pub packs: &'a [LanguagePack<'a>],
+    pub dictionaries: &'a [DictionaryPack],
     pub texts: &'a [TextInput<'a>],
     pub options: AnalyzeOptions,
 }
@@ -49,6 +56,7 @@ pub struct TextRequest<'a> {
 pub enum ResourceKind {
     SegmentationProfile,
     LanguagePack,
+    DictionaryPack,
 }
 
 /// A resource that shaped the result, with enough identity to reproduce it.
@@ -60,6 +68,11 @@ pub struct ResourceIdentity {
     /// The language code of a Language Pack; absent for a Segmentation profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// Version and licence of a Dictionary pack; absent for other resources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub licence: Option<String>,
 }
 
 /// Half-open source range in each explicit unit.
@@ -75,6 +88,10 @@ pub struct Span {
 pub enum EvidenceKind {
     /// A HermitCrab structured analysis from a Language Pack grammar.
     LanguagePackAnalysis,
+    /// A Dictionary pack's Hunspell dictionary/affix acceptance. Never a parse.
+    DictionaryAcceptance,
+    /// Membership in a Dictionary pack's word list. Absence is no rejection.
+    WordListMembership,
 }
 
 /// Why a check did not finish its search.
@@ -87,6 +104,8 @@ pub enum LimitReason {
     InvalidShape,
     /// The Occurrence has more Segmentation alternatives than the request allows.
     AlternativesCapped,
+    /// A Dictionary pack did not search for suggestions: the form is over the length bound.
+    SuggestionsCapped,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -100,6 +119,8 @@ pub enum CheckStatus {
     Incomplete,
     /// The check was never run.
     Unattempted,
+    /// A Dictionary pack rejected the Wordform and offered suggestions. Not valid.
+    Misspelled,
 }
 
 /// One pack's evidence about one Occurrence.
@@ -114,6 +135,9 @@ pub struct PackCheck {
     pub analyses: usize,
     /// Limits that stopped the search; a valid check can still carry them.
     pub limits: Vec<LimitReason>,
+    /// Correction suggestions behind a misspelled status. They never replace the text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggestions: Vec<String>,
     /// Why an unattempted check never ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattempted_reason: Option<String>,
@@ -124,6 +148,8 @@ pub struct PackCheck {
 pub enum OccurrenceOutcome {
     /// At least one pack analysed it.
     Valid,
+    /// No reading is analysed, and a Dictionary pack rejected the primary split with suggestions.
+    Misspelled,
     /// Every check ran to completion and none analysed it.
     NoAnalysis,
     /// No pack analysed it and at least one search did not finish.
@@ -167,6 +193,9 @@ pub struct OccurrenceResult {
     pub outcome: OccurrenceOutcome,
     /// Language codes of the packs that analysed any analysed reading, in pack order.
     pub valid_languages: Vec<String>,
+    /// Dictionary languages that rejected the primary split with suggestions; never a valid one.
+    #[serde(default)]
+    pub misspelled_languages: Vec<String>,
     /// The primary reading's checks.
     pub checks: Vec<PackCheck>,
     /// Primary first, then alternatives with every part analysed, then the rest.
@@ -188,7 +217,7 @@ pub struct TextResult {
 pub struct TextAnalysis {
     pub schema: String,
     pub profile: SegmentationProfile,
-    /// The profile, then each pack in request order.
+    /// The profile, then each pack, then each Dictionary pack, in request order.
     pub resources: Vec<ResourceIdentity>,
     pub texts: Vec<TextResult>,
     pub corpus: Statistics,
@@ -220,6 +249,10 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         .options
         .max_alternatives
         .unwrap_or(DEFAULT_MAX_ALTERNATIVES);
+    let max_suggestion_chars = request
+        .options
+        .max_suggestion_chars
+        .unwrap_or(DEFAULT_MAX_SUGGESTION_CHARS);
     let mut results = Vec::new();
     for input in request.texts {
         let segmented = analyze(input.text, ProfileInput::Profile(&profile), input.styles)?;
@@ -237,10 +270,12 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
                 };
                 check_occurrence(
                     request.packs,
+                    request.dictionaries,
                     o,
                     attempt,
                     max_alternatives,
                     request.options.all_readings,
+                    max_suggestion_chars,
                 )
             })
             .collect();
@@ -255,12 +290,24 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         source_id: profile.source_id.clone(),
         source_sha256: profile.source_sha256.clone(),
         language: None,
+        version: None,
+        licence: None,
     }];
     resources.extend(request.packs.iter().map(|p| ResourceIdentity {
         kind: ResourceKind::LanguagePack,
         source_id: p.source_id.clone(),
         source_sha256: p.source_sha256.clone(),
         language: Some(p.language.clone()),
+        version: None,
+        licence: None,
+    }));
+    resources.extend(request.dictionaries.iter().map(|d| ResourceIdentity {
+        kind: ResourceKind::DictionaryPack,
+        source_id: d.identity.source_id.clone(),
+        source_sha256: d.identity.source_sha256.clone(),
+        language: Some(d.identity.language.clone()),
+        version: Some(d.identity.version.clone()),
+        licence: Some(d.identity.licence.clone()),
     }));
     let corpus = summarize(results.iter().flat_map(|t| t.occurrences.iter()));
     Ok(TextAnalysis {

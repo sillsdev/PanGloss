@@ -1,12 +1,14 @@
 #![forbid(unsafe_code)]
 
 mod alternatives;
+mod dictionary;
 mod occurrence;
 mod profile;
 mod statistics;
 mod text;
 mod unicode;
 
+pub use dictionary::{DictionaryIdentity, DictionaryPack};
 use serde::{Deserialize, Serialize};
 pub use statistics::{LanguageCounts, Pair, Statistics};
 pub use text::{

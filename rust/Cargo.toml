@@ -96,6 +96,7 @@ repository = "https://github.com/sillsdev/machine"
 # Shared dependency versions — pinned once here, referenced with `.workspace = true`.
 [workspace.dependencies]
 quick-xml = "0.37"
+spellbook = "0.4.2"
 unicode-normalization = "0.1"
 unicode-segmentation = "1"
 hashbrown = "0.15"
