@@ -10,8 +10,8 @@ use pg_grammar::{
 };
 
 /// Resource containment, not a representability or production-readiness verdict.
-const MAX_BUNDLES: usize = 4096;
-const MAX_RETAINED_CHARGE: usize = 1024 * 1024;
+const MAX_BUNDLES: usize = 65536;
+const MAX_RETAINED_CHARGE: usize = 100 * 1024 * 1024;
 
 pub(crate) struct IntermediateBundles {
     table: TableId,
@@ -325,27 +325,32 @@ mod tests {
             next_id: 0,
             charge: 0,
         };
-        for i in 0..MAX_BUNDLES {
-            closure
-                .push(CharDefId(i as u32), vec![i as u64], "bound")
-                .unwrap();
-        }
+        closure.rows = vec![(CharDefId(0), vec![0]); MAX_BUNDLES];
         assert_eq!(
-            closure.push(CharDefId(MAX_BUNDLES as u32), vec![42], "bound"),
+            closure.push(CharDefId(0), vec![42], "bound"),
             Err(PhonologyLoweringError::IntermediateBundleClosureUnavailable("bound".into()))
         );
         assert_eq!(closure.rows.len(), MAX_BUNDLES);
+        closure.rows.clear();
+        assert_eq!(
+            closure.push(CharDefId(0x1900), vec![42], "tokens"),
+            Err(PhonologyLoweringError::IntermediateBundleClosureUnavailable("tokens".into()))
+        );
+        assert!(closure.rows.is_empty());
         let mut bytes = IntermediateBundles {
             table: TableId(0),
             rows: Vec::new(),
             next_id: 0,
             charge: 0,
         };
+        bytes.charge = MAX_RETAINED_CHARGE - IntermediateBundles::row_charge(1);
+        bytes.push(CharDefId(0), vec![1], "bytes").unwrap();
+        assert_eq!(bytes.charge, MAX_RETAINED_CHARGE);
         assert_eq!(
-            bytes.push(CharDefId(0), vec![1; MAX_RETAINED_CHARGE / 8], "bytes"),
+            bytes.push(CharDefId(1), vec![1], "bytes"),
             Err(PhonologyLoweringError::IntermediateBundleClosureUnavailable("bytes".into()))
         );
-        assert!(bytes.rows.is_empty());
-        assert_eq!(bytes.charge, 0);
+        assert_eq!(bytes.rows.len(), 1);
+        assert_eq!(bytes.charge, MAX_RETAINED_CHARGE);
     }
 }

@@ -90,6 +90,8 @@ pattern scopes with one per-cascade bundle closure in the lowering owner.
 Reuse the shared RHS pin/full-lane computation. Preserve intermediate tokens
 through composition and spell only at the end. Fixed closure containment is
 4,096 rows / 1 MiB conservative charge, with typed atomic refusal, no cache.
+The charge was later raised to 100 MiB and the row limit to 65,536 under the
+2026-11-09 owner decision.
 The construction document states the inclusion invariant and refuses every
 uncovered construct, including iterative overlapping multi-token focus.
 Stage the two C#-verified review fixtures; leave the iiiaiii port bug unstaged.

@@ -1092,7 +1092,7 @@ fn intermediate_closure_exhaustion_refuses_the_whole_cascade_and_reports() {
         error,
         PhonologyLoweringError::IntermediateBundleClosureUnavailable(_)
     ));
-    assert!(error.to_string().contains("4096-bundle / 1 MiB"));
+    assert!(error.to_string().contains("65536-bundle / 100 MiB"));
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].0, "untouched");
 }

@@ -158,8 +158,7 @@ diagnostics or duplicate the matcher's admission decision. Target, environment,
 POS and MPR restrictions are ignored during closure, so the inventory is a
 conservative superset of reachable material. Alpha output lanes enumerate every
 subset of their feature mask, including negations and zero. Fresh-node rows also
-conservatively cover unspecified/default/full-valued material. No existing
-construction limit is increased.
+conservatively cover unspecified/default/full-valued material.
 
 Previously unattested rows get private PUA tokens after the table's IDs. Pattern
 lowering consults these rows directly for targets, material and environments;
@@ -170,12 +169,13 @@ Private tokens cannot escape its output. Unspellable rows have no spelling arc;
 they are not deleted into a spurious surface. Morpheme boundaries may be retained
 for further token composition or erased for surface spelling.
 
-**Resource containment:** at most 4,096 retained rows and a 1 MiB conservative
+**Resource containment:** at most 65,536 rows and a 100 MiB conservative
 charge (four times lane storage plus row headers). Alpha expansion work vectors
-obey the same count/charge bounds. The existing BMP PUA token domain must also
-fit. Exceeding any bound returns `IntermediateBundleClosureUnavailable(rule)`;
-there is no successful partial relation or report, override, cache, or raised
-production threshold. These bounds contain the closure, not total FST build RSS.
+obey the same count/charge bounds. Retained rows must also fit the existing BMP
+PUA token domain (at most 6,400 table IDs and private tokens combined). Exceeding
+any bound returns `IntermediateBundleClosureUnavailable(rule)`; there is no
+successful partial relation or report, override, or cache. These bounds contain
+the closure, not total FST build RSS.
 A multi-table grammar returns `MultipleCascadeTablesUnavailable`, even for one
 selected rule: the API cannot disambiguate a rule reused by different strata.
 An empty cascade remains identity. This is a representability scope refusal,
