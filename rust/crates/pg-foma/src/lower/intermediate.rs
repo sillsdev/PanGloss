@@ -1,7 +1,9 @@
 //! Per-cascade feature-bundle closure; private tokens retain material until final spelling.
 
+use std::collections::HashSet;
+
 use super::Slot;
-use crate::replace::{PhonologyLoweringError, SegAlphabet};
+use crate::replace::{BundleClosureEvidence, PhonologyLoweringError, SegAlphabet};
 use foma::{options::FomaOptions, regex::fsm_parse_regex, types::Fsm};
 use pg_grammar::{
     chardef::{CharDefId, CharDefKind, CharDefTable},
@@ -18,6 +20,31 @@ pub(crate) struct IntermediateBundles {
     rows: Vec<(CharDefId, Vec<u64>)>,
     next_id: u32,
     charge: usize,
+    pub(crate) evidence: BundleClosureEvidence,
+}
+
+/// One RHS node's effect on a row: authored pins, then any-value alpha lanes.
+struct RhsUpdate {
+    pins: Vec<(usize, u64)>,
+    alpha_lanes: Vec<usize>,
+    fresh: Vec<u64>,
+}
+
+impl RhsUpdate {
+    fn apply(&self, base: &[u64], type_lane: usize) -> Vec<u64> {
+        let mut row = base.to_vec();
+        for &(lane, bits) in &self.pins {
+            if lane < row.len() {
+                row[lane] = bits;
+            }
+        }
+        row[type_lane] = TYPE_SEGMENT_BITS;
+        // A zero lane is unconstrained in `compatible`: one row covers every binding, negation and absent value.
+        for &lane in &self.alpha_lanes {
+            row[lane] = 0;
+        }
+        row
+    }
 }
 
 impl IntermediateBundles {
@@ -35,91 +62,84 @@ impl IntermediateBundles {
             rows: Vec::new(),
             next_id: table.len() as u32,
             charge: 0,
+            evidence: BundleClosureEvidence::default(),
         };
         let first_rule = &rules[0].xml_id;
+        let mut interned = HashSet::new();
         for (id, definition) in table.iter() {
             if definition.kind() == CharDefKind::Segment {
+                interned.insert(definition.feature_lanes().to_vec());
                 result.push(id, definition.feature_lanes().to_vec(), first_rule)?;
             }
         }
+        result.evidence.attested_rows = result.rows.len();
+        let type_lane = g.phon_features.type_flat().0 as usize;
         for rule in rules {
-            // A fixpoint per rule conservatively also covers repeated site/subrule applications.
-            loop {
-                let previous_len = result.rows.len();
-                for subrule in &rule.subrules {
-                    for node in &subrule.rhs.nodes {
-                        if !matches!(node, PatternNode::CharDef(_) | PatternNode::Context(_)) {
-                            return Err(PhonologyLoweringError::UnsupportedRewrite(
-                                rule.xml_id.clone(),
-                            ));
-                        }
-                        if matches!(node, PatternNode::CharDef(id) if table.get(*id).kind() == CharDefKind::Boundary)
-                        {
-                            continue;
-                        }
-                        let pins = pg_rules::rewrite::node_pins(g, table, node);
-                        let mut bases: Vec<_> =
-                            result.rows.iter().map(|(_, row)| row.clone()).collect();
-                        // Expansion and epenthesis create a node instead of updating a target.
-                        bases.push(
-                            pg_rules::rewrite::node_full_lanes(g, table, node)
-                                [..g.phon_features.len()]
-                                .to_vec(),
-                        );
-                        for mut row in bases {
-                            for &(lane, bits) in &pins {
-                                if lane < row.len() {
-                                    row[lane] = bits;
-                                }
-                            }
-                            row[g.phon_features.type_flat().0 as usize] = TYPE_SEGMENT_BITS;
-                            let mut variants = vec![row];
-                            if let PatternNode::Context(context) = node {
-                                for var in &context.vars {
-                                    let mask = g.phon_features.mask(var.feature);
-                                    // Every possible binding/negation is included, including zero.
-                                    if mask.count_ones() > MAX_BUNDLES.ilog2() {
-                                        return Err(Self::unavailable(&rule.xml_id));
-                                    }
-                                    let mut next = Vec::new();
-                                    let mut bits = mask;
-                                    loop {
-                                        for row in &variants {
-                                            let mut row = row.clone();
-                                            row[var.feature.0 as usize] = bits;
-                                            if next.len() >= MAX_BUNDLES
-                                                || (next.len() + 1)
-                                                    .saturating_mul(Self::row_charge(row.len()))
-                                                    > MAX_RETAINED_CHARGE
-                                            {
-                                                return Err(Self::unavailable(&rule.xml_id));
-                                            }
-                                            next.push(row);
-                                        }
-                                        if bits == 0 {
-                                            break;
-                                        }
-                                        bits = (bits - 1) & mask;
-                                    }
-                                    variants = next;
-                                }
-                            }
-                            for row in variants {
-                                if !result.rows.iter().any(|(_, existing)| existing == &row) {
-                                    let id = CharDefId(result.next_id);
-                                    result.push(id, row, &rule.xml_id)?;
-                                    result.next_id += 1;
-                                }
-                            }
-                        }
-                    }
+            let updates = Self::rhs_updates(g, table, rule)?;
+            let mut retain = |result: &mut Self, row: Vec<u64>| {
+                if interned.insert(row.clone()) {
+                    let id = CharDefId(result.next_id);
+                    result.push(id, row, &rule.xml_id)?;
+                    result.next_id += 1;
                 }
-                if result.rows.len() == previous_len {
-                    break;
+                Ok(())
+            };
+            // Expansion and epenthesis create a node instead of updating a target.
+            for update in &updates {
+                result.evidence.transfer_visits += 1;
+                retain(&mut result, update.apply(&update.fresh, type_lane))?;
+            }
+            // Rows this rule appends are visited too, covering repeated site/subrule applications.
+            let mut next = 0;
+            while next < result.rows.len() {
+                let base = result.rows[next].1.clone();
+                next += 1;
+                for update in &updates {
+                    result.evidence.transfer_visits += 1;
+                    retain(&mut result, update.apply(&base, type_lane))?;
                 }
             }
+            result.evidence.widened_alpha_outputs +=
+                updates.iter().map(|update| update.alpha_lanes.len()).sum::<usize>();
         }
+        result.evidence.private_rows = result.rows.len() - result.evidence.attested_rows;
         Ok(result)
+    }
+
+    fn rhs_updates(
+        g: &Grammar,
+        table: &CharDefTable,
+        rule: &RewriteRuleDef,
+    ) -> Result<Vec<RhsUpdate>, PhonologyLoweringError> {
+        let mut updates = Vec::new();
+        for subrule in &rule.subrules {
+            for node in &subrule.rhs.nodes {
+                let alpha_lanes = match node {
+                    PatternNode::CharDef(id) if table.get(*id).kind() == CharDefKind::Boundary => {
+                        continue
+                    }
+                    PatternNode::CharDef(_) => Vec::new(),
+                    PatternNode::Context(context) => context
+                        .vars
+                        .iter()
+                        .map(|var| var.feature.0 as usize)
+                        .collect(),
+                    _ => {
+                        return Err(PhonologyLoweringError::UnsupportedRewrite(
+                            rule.xml_id.clone(),
+                        ))
+                    }
+                };
+                updates.push(RhsUpdate {
+                    pins: pg_rules::rewrite::node_pins(g, table, node),
+                    alpha_lanes,
+                    fresh: pg_rules::rewrite::node_full_lanes(g, table, node)
+                        [..g.phon_features.len()]
+                        .to_vec(),
+                });
+            }
+        }
+        Ok(updates)
     }
 
     fn row_charge(width: usize) -> usize {
@@ -324,6 +344,7 @@ mod tests {
             rows: Vec::new(),
             next_id: 0,
             charge: 0,
+            evidence: BundleClosureEvidence::default(),
         };
         closure.rows = vec![(CharDefId(0), vec![0]); MAX_BUNDLES];
         assert_eq!(
@@ -342,6 +363,7 @@ mod tests {
             rows: Vec::new(),
             next_id: 0,
             charge: 0,
+            evidence: BundleClosureEvidence::default(),
         };
         bytes.charge = MAX_RETAINED_CHARGE - IntermediateBundles::row_charge(1);
         bytes.push(CharDefId(0), vec![1], "bytes").unwrap();

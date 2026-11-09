@@ -4,6 +4,7 @@
 //! Complete cascade compilation refuses unsupported rules; it never returns a skipped-rule net.
 
 use foma::constructions::{fsm_compose, fsm_ignore, fsm_symbol, fsm_union, fsm_universal};
+use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
@@ -828,6 +829,38 @@ impl std::fmt::Display for PhonologyLoweringError {
 
 impl std::error::Error for PhonologyLoweringError {}
 
+/// What the closure did, counted where the rows are produced.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct BundleClosureEvidence {
+    pub attested_rows: usize,
+    pub private_rows: usize,
+    /// Row-by-update transfer visits, the closure's work measure.
+    pub transfer_visits: usize,
+    /// Alpha output lanes represented once as any value instead of one row per subset.
+    pub widened_alpha_outputs: usize,
+}
+
+/// One rule of a proposing cascade: its own relation and the cascade composed through it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CascadeRuleEvidence {
+    pub rule: String,
+    pub states: usize,
+    pub arcs: usize,
+    pub composed_states: usize,
+    pub composed_arcs: usize,
+}
+
+/// Sizes observed while building one proposing cascade, gathered where each structure is made.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct CascadeEvidence {
+    pub bundles: BundleClosureEvidence,
+    pub rules: Vec<CascadeRuleEvidence>,
+    pub spelling_states: usize,
+    pub spelling_arcs: usize,
+    pub states: usize,
+    pub arcs: usize,
+}
+
 /// Compile a complete proposing rewrite cascade, with optional rewriting at EACH site.
 /// Alpha agreement and POS/MPR/default applicability belong to HC confirmation. Material
 /// alternatives are shared within each replacement, so different sites can choose differently.
@@ -838,6 +871,17 @@ pub fn compile_and_compose_rules_recall_safe(
     prules_in_order: &[&PhonRuleDef],
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
 ) -> Result<Fsm, PhonologyLoweringError> {
+    compile_proposing_cascade(opts, g, prules_in_order, tuple_reports).map(|(net, _)| net)
+}
+
+/// `compile_and_compose_rules_recall_safe` with the sizes of every structure it built.
+/// The cascade is minimized after each composition, including final spelling.
+pub fn compile_proposing_cascade(
+    opts: &FomaOptions,
+    g: &Grammar,
+    prules_in_order: &[&PhonRuleDef],
+    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
+) -> Result<(Fsm, CascadeEvidence), PhonologyLoweringError> {
     if !prules_in_order.is_empty() && g.char_tables.len() != 1 {
         return Err(PhonologyLoweringError::MultipleCascadeTablesUnavailable);
     }
@@ -859,27 +903,46 @@ pub fn compile_and_compose_rules_recall_safe(
             }
         }
     }
+    let mut evidence = CascadeEvidence::default();
     let Some(table_id) = table_id else {
-        return Ok(fsm_universal());
+        return Ok((fsm_universal(), evidence));
     };
     let bundles = crate::lower::IntermediateBundles::build(g, table_id, &rewrites)?;
+    evidence.bundles = bundles.evidence.clone();
     let mut composed: Option<Fsm> = None;
     let mut reports = Vec::new();
     for rule in rewrites {
         let (net, tuples) =
             compile_rewrite_rule_subset_inner(opts, g, rule, &|_| true, Some(&bundles))?;
         reports.push((rule.xml_id.clone(), tuples));
-        composed = Some(match composed {
+        let net = fsm_minimize(opts, net);
+        let (states, arcs) = (net.statecount as usize, net.arccount as usize);
+        let next = match composed {
             None => net,
-            Some(prev) => fsm_compose(opts, prev, net),
+            Some(prev) => fsm_minimize(opts, fsm_compose(opts, prev, net)),
+        };
+        evidence.rules.push(CascadeRuleEvidence {
+            rule: rule.xml_id.clone(),
+            states,
+            arcs,
+            composed_states: next.statecount as usize,
+            composed_arcs: next.arccount as usize,
         });
+        composed = Some(next);
     }
     let spelling = bundles.spelling(opts, g).ok_or_else(|| {
         PhonologyLoweringError::UnsupportedRewrite("final bundle spelling".to_owned())
     })?;
-    let net = fsm_compose(opts, composed.unwrap_or_else(fsm_universal), spelling);
+    evidence.spelling_states = spelling.statecount as usize;
+    evidence.spelling_arcs = spelling.arccount as usize;
+    let net = fsm_minimize(
+        opts,
+        fsm_compose(opts, composed.unwrap_or_else(fsm_universal), spelling),
+    );
+    evidence.states = net.statecount as usize;
+    evidence.arcs = net.arccount as usize;
     tuple_reports.extend(reports);
-    Ok(net)
+    Ok((net, evidence))
 }
 
 /// Accepted rewrite-rule shapes, sharing the simultaneous-overlap decision with capability checks.
