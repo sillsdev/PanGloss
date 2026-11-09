@@ -377,3 +377,15 @@ fn analyze_word_can_analyze_returns_correct_analysis() {
         outcome.structured
     );
 }
+
+#[test]
+fn simultaneous_overlapping_expansion_keeps_csharp_synthesis() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "simultaneous-overlap-expansion");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let outcome =
+        morpher.generate_words_bounded(lex_entry_id(&grammar, "ROOT"), &[], FeatureStruct::EMPTY);
+    assert_eq!(outcome.stop_reason, None);
+    assert_eq!(outcome.surfaces, ["iiiaiii"]);
+}
