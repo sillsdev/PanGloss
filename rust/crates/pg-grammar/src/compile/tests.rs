@@ -2261,6 +2261,102 @@ fn empty_template_slot_reaches_one_linguist_warning() {
     assert!(grammar.templates.is_empty());
 }
 
+#[test]
+fn empty_required_template_slot_is_skipped_and_warned_once() {
+    let (mut snapshot, f) = fixture();
+    let empty_slot_guid = "slot-empty";
+    let slot = AffixSlot {
+        guid: empty_slot_guid.to_string(),
+        name: "SG".to_string(),
+        optional: false,
+    };
+    snapshot.morphology.parts_of_speech[0]
+        .affix_slots
+        .push(slot);
+    let template = &mut snapshot.morphology.parts_of_speech[0].affix_templates[0];
+    template.suffix_slots.insert(0, empty_slot_guid.to_string());
+    snapshot.morphology.parts_of_speech[0]
+        .affix_templates
+        .push(AffixTemplate {
+            guid: "tmpl-shared".to_string(),
+            name: "SharedTemplate".to_string(),
+            disabled: false,
+            prefix_slots: Vec::new(),
+            suffix_slots: vec![empty_slot_guid.to_string(), f.slot.clone()],
+            is_final: true,
+        });
+
+    let required =
+        super::compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let control = pg_parse::Morpher::new(&required.grammar, 10_000_000).parse_word("kuma");
+    assert!(!control.capped && !control.timed_out && !control.invalid_shape);
+    assert!(
+        control.analyses.is_empty(),
+        "the filled required slot must still bind"
+    );
+
+    snapshot.morphology.parts_of_speech[0].affix_slots[0].optional = true;
+    let output =
+        super::compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let grammar = output.grammar;
+    let warnings = output.warnings;
+    let slot_warnings: Vec<_> = warnings
+        .iter()
+        .filter(|warning| warning.code == super::issue_codes::TEMPLATE_SLOT_NO_RULES.wire())
+        .collect();
+    assert_eq!(
+        slot_warnings.len(),
+        1,
+        "the shared empty slot collapses to one linguist warning"
+    );
+    let warning = slot_warnings[0];
+    assert_eq!(
+        warning.message,
+        "Incomplete affix slot 'SG' in affix templates 'NounTemplate' and 'SharedTemplate': it has no loaded inflectional affixes, so parsing skips it."
+    );
+    let diagnostic = crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(warning);
+    assert_eq!(diagnostic.group_name, "Incomplete affix slot");
+    assert!(diagnostic
+        .explanation
+        .as_deref()
+        .is_some_and(|explanation| explanation.contains("parsing skips that slot")));
+    let slot_issues: Vec<_> = output
+        .issues
+        .iter()
+        .filter(|issue| issue.code == super::issue_codes::TEMPLATE_SLOT_NO_RULES)
+        .collect();
+    assert_eq!(
+        slot_issues.len(),
+        4,
+        "both template attachments must retain the shared slot identity"
+    );
+    assert!(slot_issues
+        .iter()
+        .all(|issue| issue.source.as_ref().is_some_and(|source| {
+            source.kind == pg_snapshot::FwClass::MoInflAffixSlot && source.id == empty_slot_guid
+        })));
+    assert!(slot_issues.iter().all(
+        |issue| issue.message == "Affix template slot 'SG' has no loaded inflectional affixes."
+    ));
+    assert_eq!(grammar.templates.len(), 2);
+    assert!(grammar
+        .templates
+        .iter()
+        .all(|template| template.slots.len() == 1 && template.slots[0].rules.len() == 1));
+
+    let morpher = pg_parse::Morpher::new(&grammar, 10_000_000);
+    for word in ["kuma", "kumata"] {
+        let outcome = morpher.parse_word(word);
+        assert!(!outcome.capped, "{word}: unexpected cap");
+        assert!(!outcome.timed_out, "{word}: unexpected timeout");
+        assert!(!outcome.invalid_shape, "{word}: unexpected invalid shape");
+        assert!(
+            !outcome.analyses.is_empty(),
+            "{word}: parsing must skip the empty required slot while retaining the filled slot"
+        );
+    }
+}
+
 /// `chardef::build`'s morph-boundary fallback (no authored `+` representation) must be recorded rejected. Default compounding is suppressed: it unconditionally segments a literal `"+"` (`compounding::plus_join`), an unrelated pre-existing assumption this test must not trip.
 #[test]
 fn missing_morph_boundary_marker_is_recorded_with_its_structured_warning() {
