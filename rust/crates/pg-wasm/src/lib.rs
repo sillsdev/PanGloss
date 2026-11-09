@@ -6,9 +6,8 @@
 //!
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
-use unicode_segmentation::UnicodeSegmentation;
 
 use pg_grammar::model::{Grammar, MorphRuleDef};
 use pg_parse::WordAnalysis;
@@ -158,7 +157,6 @@ pub struct PanGlossGrammar {
     runtime: pg_lexicon::SuppliedLexiconRuntime,
     realize_map: RealizeMap,
     realizer: TableRealizer,
-    orthographic_characters: BTreeSet<char>,
 }
 
 /// Every affix-morpheme `<Gloss>` string in `grammar` (`AffixProcess`/`Realizational` rules' own morpheme gloss, never lexical-entry root glosses); this is the vocabulary `pg_realize::infer_english` matches its English alias table against, where a root gloss like "house" would only ever add noise.
@@ -226,13 +224,11 @@ impl PanGlossGrammar {
         let realize_map = build_realize_map(&grammar, realize_toml.as_deref())?;
         let runtime = pg_lexicon::SuppliedLexiconRuntime::with_policy(grammar.clone(), xml, policy)
             .map_err(|e| js_err("initialize supplied lexicon", &e))?;
-        let orthographic_characters = grammar.orthographic_characters();
         Ok(PanGlossGrammar {
             grammar,
             runtime,
             realize_map,
             realizer,
-            orthographic_characters,
         })
     }
 
@@ -250,8 +246,16 @@ impl PanGlossGrammar {
     /// construction (it's only ever passed to the same `PanGlossGrammar` instance the caller got
     /// it from), so callers don't need to namespace it themselves.
     ///
+    /// `profile` is a serialized `pg-analyzer` segmentation profile; null or undefined uses
+    /// Unicode defaults with no configured additions. The old grammar-character heuristic is gone.
+    ///
     #[wasm_bindgen(js_name = analyzeText)]
-    pub fn analyze_text(&mut self, text: &str, cache: JsValue) -> Result<JsValue, JsValue> {
+    pub fn analyze_text(
+        &mut self,
+        text: &str,
+        cache: JsValue,
+        profile: JsValue,
+    ) -> Result<JsValue, JsValue> {
         let cache: HashMap<String, CachedWord> = if cache.is_undefined() || cache.is_null() {
             HashMap::new()
         } else {
@@ -261,7 +265,39 @@ impl PanGlossGrammar {
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
 
         let mut tokens: Vec<TokenOut> = Vec::new();
-        for piece in tokenize(text, &self.orthographic_characters) {
+        let default_profile = pg_analyzer::SegmentationProfile {
+            version: 1,
+            source_id: "default".into(),
+            source_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                .into(),
+            word_forming: vec![],
+        };
+        let supplied_profile: pg_analyzer::SegmentationProfile =
+            if profile.is_null() || profile.is_undefined() {
+                default_profile
+            } else {
+                serde_wasm_bindgen::from_value(profile)
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?
+            };
+        let result = pg_analyzer::analyze(
+            text,
+            pg_analyzer::ProfileInput::Profile(&supplied_profile),
+            &[],
+        )
+        .map_err(|e| JsValue::from_str(&e))?;
+        let mut pieces = Vec::new();
+        let mut previous = 0;
+        for word in &result.occurrences {
+            if previous < word.utf8[0] {
+                pieces.push(Piece::Other(&text[previous..word.utf8[0]]));
+            }
+            pieces.push(Piece::Word(&text[word.utf8[0]..word.utf8[1]]));
+            previous = word.utf8[1];
+        }
+        if previous < text.len() {
+            pieces.push(Piece::Other(&text[previous..]));
+        }
+        for piece in pieces {
             let token = match piece {
                 Piece::Other(s) => TokenOut {
                     kind: "other",
@@ -717,44 +753,6 @@ fn js_err(action: &str, e: &dyn std::fmt::Debug) -> JsValue {
 enum Piece<'a> {
     Word(&'a str),
     Other(&'a str),
-}
-
-/// Splits text into word and other runs, preserving exact grapheme and authored text boundaries.
-fn tokenize<'a>(text: &'a str, orthographic_characters: &BTreeSet<char>) -> Vec<Piece<'a>> {
-    let mut pieces = Vec::new();
-    let mut start = 0;
-    let mut in_word: Option<bool> = None;
-
-    for (i, grapheme) in text.grapheme_indices(true) {
-        let this_is_word = !grapheme.chars().any(|c| c.is_whitespace())
-            && grapheme
-                .chars()
-                .any(|c| c.is_alphabetic() || c == '\'' || orthographic_characters.contains(&c));
-        match in_word {
-            Some(cur) if cur == this_is_word => {}
-            Some(cur) => {
-                push_piece(&mut pieces, &text[start..i], cur);
-                start = i;
-                in_word = Some(this_is_word);
-            }
-            None => in_word = Some(this_is_word),
-        }
-    }
-    if let Some(cur) = in_word {
-        push_piece(&mut pieces, &text[start..], cur);
-    }
-    pieces
-}
-
-fn push_piece<'a>(pieces: &mut Vec<Piece<'a>>, s: &'a str, is_word: bool) {
-    if s.is_empty() {
-        return;
-    }
-    pieces.push(if is_word {
-        Piece::Word(s)
-    } else {
-        Piece::Other(s)
-    });
 }
 
 #[cfg(test)]

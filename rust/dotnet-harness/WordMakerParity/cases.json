@@ -1,0 +1,194 @@
+[
+  {
+    "name": "defaults",
+    "text": "don't mother-in-law Mr. 16th Ⅳ​漢字",
+    "ldml": "<ldml/>",
+    "additions": "",
+    "styles": []
+  },
+  {
+    "name": "configured",
+    "text": "don't l’homme mother-in-law",
+    "ldml": "<ldml><characters><exemplarCharacters>[\\u0027 \\- \\u2019]</exemplarCharacters></characters></ldml>",
+    "additions": "'-’",
+    "styles": []
+  },
+  {
+    "name": "unicode",
+    "text": "𐐀a é ˂ १२\tfoo\nbar z",
+    "ldml": "<ldml/>",
+    "additions": "",
+    "styles": []
+  },
+  {
+    "name": "styles",
+    "text": "abc 12x def 3 end",
+    "ldml": "<ldml/>",
+    "additions": "",
+    "styles": [
+      {
+        "start": 4,
+        "end": 7,
+        "style": "Verse Number"
+      },
+      {
+        "start": 12,
+        "end": 13,
+        "style": "Chapter Number"
+      }
+    ]
+  },
+  {
+    "name": "mixed-writing-systems",
+    "text": "a'b c'd",
+    "ldml": "<ldml/>",
+    "additions": "",
+    "styles": [
+      {
+        "start": 4,
+        "end": 7,
+        "style": "",
+        "profile": {
+          "version": 1,
+          "source_id": "mixed-second.ldml",
+          "source_sha256": "88378dbdfc82920ee1410689ee3a598f700eb954fa54eafb6f791ec0e71c6707",
+          "word_forming": [
+            "'"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "ldml-hex-range",
+    "text": "a-b",
+    "ldml": "<ldml><characters><exemplarCharacters>[\\x{002d} a - c]</exemplarCharacters></characters></ldml>",
+    "additions": "-abc",
+    "styles": []
+  },
+  {
+    "name": "unicode-14-boundary",
+    "text": "a𑼂b",
+    "ldml": "<ldml/>",
+    "additions": "",
+    "styles": []
+  },
+  {
+    "name": "styled-configured-punctuation",
+    "text": "a-b x-y",
+    "ldml": "<ldml><characters><exemplarCharacters>[\\x{002d}]</exemplarCharacters></characters></ldml>",
+    "additions": "-",
+    "styles": [
+      {
+        "start": 0,
+        "end": 3,
+        "style": "Chapter Number",
+        "profile": null
+      }
+    ]
+  },
+  {
+    "name": "literal-nbsp",
+    "text": "a b",
+    "ldml": "<ldml><characters><exemplarCharacters>[ ]</exemplarCharacters></characters></ldml>",
+    "additions": " ",
+    "styles": []
+  },
+  {
+    "name": "literal-lrm",
+    "text": "a‎b",
+    "ldml": "<ldml><characters><exemplarCharacters>[‎]</exemplarCharacters></characters></ldml>",
+    "additions": "",
+    "styles": []
+  },
+  {
+    "name": "string-pattern-space",
+    "text": "a-b c d",
+    "ldml": "<ldml><characters><exemplarCharacters>[{ -}]</exemplarCharacters></characters></ldml>",
+    "additions": "-",
+    "styles": []
+  },
+  {
+    "name": "alt-before-main",
+    "text": "a-b",
+    "ldml": "<ldml><characters><exemplarCharacters alt=\"proposed\">[\\u0027]</exemplarCharacters><exemplarCharacters>[\\-]</exemplarCharacters></characters></ldml>",
+    "additions": "-",
+    "styles": []
+  },
+  {
+    "name": "draft-only",
+    "text": "a-b",
+    "ldml": "<ldml><characters><exemplarCharacters draft=\"unconfirmed\">[\\-]</exemplarCharacters></characters></ldml>",
+    "additions": "",
+    "styles": []
+  },
+  {
+    "name": "two-run-profiles",
+    "text": "a'b c-d",
+    "ldml": "<ldml/>",
+    "additions": "",
+    "styles": [
+      {
+        "start": 0,
+        "end": 3,
+        "style": "",
+        "profile": {
+          "version": 1,
+          "source_id": "apostrophe",
+          "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "word_forming": [
+            "'"
+          ]
+        }
+      },
+      {
+        "start": 4,
+        "end": 7,
+        "style": "",
+        "profile": {
+          "version": 1,
+          "source_id": "hyphen",
+          "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "word_forming": [
+            "-"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "literal-colon",
+    "text": "a:b",
+    "ldml": "<ldml><characters><exemplarCharacters>[a:b]</exemplarCharacters></characters></ldml>",
+    "additions": ":ab",
+    "styles": []
+  },
+  {
+    "name": "trailing-hyphen-string",
+    "text": "x-y c",
+    "ldml": "<ldml><characters><exemplarCharacters>[{ch}-]</exemplarCharacters></characters></ldml>",
+    "additions": "-c",
+    "styles": []
+  },
+  {
+    "name": "trailing-hyphen-one-string",
+    "text": "x-y",
+    "ldml": "<ldml><characters><exemplarCharacters>[{a}-]</exemplarCharacters></characters></ldml>",
+    "additions": "-a",
+    "styles": []
+  },
+  {
+    "name": "escaped-colon",
+    "text": "a:b",
+    "ldml": "<ldml><characters><exemplarCharacters>[a\\:b]</exemplarCharacters></characters></ldml>",
+    "additions": ":ab",
+    "styles": []
+  },
+  {
+    "name": "string-colon",
+    "text": "abc",
+    "ldml": "<ldml><characters><exemplarCharacters>[{c:h}]</exemplarCharacters></characters></ldml>",
+    "additions": "c",
+    "styles": []
+  }
+]

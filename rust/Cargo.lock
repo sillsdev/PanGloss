@@ -726,6 +726,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "pg-analyzer"
+version = "0.16.2"
+dependencies = [
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "pg-assess"
 version = "0.16.2"
 dependencies = [
@@ -1111,6 +1121,7 @@ name = "pg-wasm"
 version = "0.16.2"
 dependencies = [
  "console_error_panic_hook",
+ "pg-analyzer",
  "pg-grammar",
  "pg-health",
  "pg-lexicon",
@@ -1121,7 +1132,6 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "thiserror",
- "unicode-segmentation",
  "wasm-bindgen",
  "web-time",
 ]

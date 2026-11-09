@@ -88,8 +88,11 @@ function checkWasmTokenization() {
   const runtime = new pkg.PanGlossGrammar(grammarXml, undefined);
   const wordTexts = ["é", "e\u0301", "!", "e\u0300", "b'b"];
   const whitespaceMark = " \u0301";
+  const profile = {version: 1, source_id: "smoke", source_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", word_forming: ["!", "'"]};
   const text = wordTexts.join(" ") + whitespaceMark;
-  const first = runtime.analyzeText(text, {});
+  const defaults = runtime.analyzeText("b'b !", {});
+  check("WASM default profile splits punctuation", canonical(defaults.tokens.map(t => t.text)) === canonical(["b", "'", "b", " !"]));
+  const first = runtime.analyzeText(text, {}, profile);
   const wordTokens = first.tokens.filter((token) => token.kind === "word");
   const tokenByText = new Map(wordTokens.map((token) => [token.text, token]));
   const owner = new Map(wordTexts.map((word) => [word, runtime.analyzeWord(word)]));
@@ -118,7 +121,7 @@ function checkWasmTokenization() {
     token.candidatesAccepted === outcome.structured.length;
 
   check("WASM authored NFC/NFD roots and punctuation parse through real bindings",
-    wordTokens.length === wordTexts.length &&
+    wordTokens.length === wordTexts.length + 1 &&
       wordTexts.every((word, index) => wordTokens[index].text === word) &&
       ["é", "e\u0301", "!"].every((word) => owner.get(word).structured.length > 0 &&
         !owner.get(word).invalidShape && tokenByText.get(word)?.analyses.length > 0),
@@ -152,20 +155,20 @@ function checkWasmTokenization() {
       tokenByText.get("b'b").analyses.length === 0,
     JSON.stringify(wordTokens.map(({text, kind, invalidShape}) => ({text, kind, invalidShape}))));
 
-  check("WASM whitespace plus a declared mark remains exact separator text",
-    first.tokens.some((token) => token.kind === "other" && token.text === whitespaceMark),
+  check("WASM standalone combining mark remains word material",
+    first.tokens.some((token) => token.kind === "word" && token.text === "\u0301"),
     JSON.stringify(first.tokens.map(({kind, text}) => ({kind, text}))));
 
   const rebuiltText = first.tokens.map((token) => token.text).join("");
   const exactCacheKeys = Object.keys(first.newCacheEntries).sort();
-  const expectedCacheKeys = [...wordTexts].sort();
-  const replay = runtime.analyzeText(text, first.newCacheEntries);
+  const expectedCacheKeys = [...wordTexts, "\u0301"].sort();
+  const replay = runtime.analyzeText(text, first.newCacheEntries, profile);
   const replayWords = replay.tokens.filter((token) => token.kind === "word");
   check("WASM authored text and exact surface cache identity are preserved",
     rebuiltText === text &&
       canonical(exactCacheKeys) === canonical(expectedCacheKeys) &&
-      replayWords.length === wordTexts.length &&
-      replayWords.every((token, index) => token.text === wordTexts[index] && token.fromCache) &&
+      replayWords.length === wordTexts.length + 1 &&
+      replayWords.every((token, index) => token.text === [...wordTexts, "\u0301"][index] && token.fromCache) &&
       Object.keys(replay.newCacheEntries).length === 0,
     JSON.stringify({rebuiltText, exactCacheKeys, replayWords: replayWords.map(({text, fromCache}) => ({text, fromCache}))}));
 }
