@@ -149,6 +149,14 @@ successors still fail atomically, leaving neither a partial cascade nor reports.
 
 ### Intermediate bundles and the inclusion contract
 
+[ADR 0013: FST complexity budget](../adr/0013-fst-complexity-budget.md) records the
+accepted next design: one conservative any-value representation per alpha output,
+bounded widening and minimization during composition, a sound first-pass candidate
+filter and identity merge, and per-word fallback governed by HC parser steps. It
+defines each stage's input size and bound and the corpus “% less work” metric. The
+subset enumeration and hard limits described below are the current implementation;
+the ADR does not claim that the replacement or its work savings are implemented.
+
 One `lower::IntermediateBundles` inventory lives for one complete cascade. It
 starts with the owning table's attested segment bundles, retaining their original
 token IDs. In rule order it closes under RHS feature updates to a fixpoint per
