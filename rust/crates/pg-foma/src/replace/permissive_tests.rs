@@ -96,18 +96,10 @@ fn matrix_relation(g: &Grammar, lhs: &str) -> Option<Fsm> {
             PhonologyLoweringError::IterativeFedInsertionUnavailable(rule.xml_id.clone())
         );
         None
-    } else if lhs.chars().count() > 1 {
-        let expected = match rule.mode {
-            RewriteMode::Simultaneous => {
-                PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(rule.xml_id.clone())
-            }
-            RewriteMode::Iterative => {
-                PhonologyLoweringError::IterativeMultiTokenFocusUnavailable(rule.xml_id.clone())
-            }
-        };
+    } else if lhs.chars().count() > 1 && rule.mode == RewriteMode::Simultaneous {
         assert_eq!(
             result.unwrap_err(),
-            expected,
+            PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(rule.xml_id.clone()),
             "unproven focus must refuse explicitly"
         );
         None
@@ -901,6 +893,10 @@ fn asymmetric_multisegment_contexts_preserve_order_and_independent_sites() {
                                 );
                             }
                         }
+                        // The block relation ignores environments, so only the site construction is exact here.
+                        if mode == RewriteMode::Iterative && lhs.chars().count() > 1 {
+                            continue;
+                        }
                         let wrong = match side {
                             0 => format!("ui{lhs}"),
                             1 => format!("{lhs}iu"),
@@ -1142,23 +1138,19 @@ fn a_multi_table_grammar_refuses_without_guessing_a_rule_owner() {
 }
 
 #[test]
-fn iterative_overlapping_focus_is_explicitly_refused_atomically() {
+fn iterative_overlapping_focus_uses_the_block_relation() {
     for dir in [Dir::LeftToRight, Dir::RightToLeft] {
         let g = literal_grammar(RewriteMode::Iterative, dir, "aa", "iii", "", "");
-        let mut reports = vec![("untouched".into(), Vec::new())];
-        assert!(matches!(
-            compile_and_compose_rules_recall_safe(
-                &FomaOptions::default(),
-                &g,
-                &[&g.prules[0]],
-                &mut reports
-            ),
-            Err(PhonologyLoweringError::IterativeMultiTokenFocusUnavailable(
-                _
-            ))
-        ));
+        let mut reports = Vec::new();
+        let (net, evidence) =
+            compile_proposing_cascade(&FomaOptions::default(), &g, &[&g.prules[0]], &mut reports)
+                .expect("block relation");
+        assert_eq!(evidence.rules[0].construction, RuleConstruction::Block);
         assert_eq!(reports.len(), 1);
-        assert_eq!(reports[0].0, "untouched");
+        let actual = outputs(&g, &net, "aaa");
+        for word in ["aaa", "iiia", "aiii"] {
+            assert!(actual.contains(&encoded(&g, word)), "{word}");
+        }
     }
 }
 

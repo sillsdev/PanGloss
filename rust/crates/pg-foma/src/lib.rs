@@ -23,6 +23,7 @@ pub mod backend_selection;
 /// Shared compiler classification predicates.
 pub mod capability;
 pub mod capability_gate;
+pub mod cascade_parts;
 pub mod characterization;
 pub use pg_foma_runtime::candidate_filter;
 #[cfg(feature = "test-support")]

@@ -66,7 +66,11 @@ fn main() -> Result<(), String> {
         );
         let outcome = match alone {
             Ok((_, evidence)) => {
-                serde_json::json!({ "states": evidence.states, "arcs": evidence.arcs, "rows": evidence.bundles.private_rows })
+                serde_json::json!({
+                    "states": evidence.states, "arcs": evidence.arcs, "rows": evidence.bundles.private_rows,
+                    "construction": evidence.rules[0].construction, "blocks": evidence.rules[0].blocks,
+                    "block_tuples": evidence.rules[0].block_tuples, "block_widened": evidence.rules[0].block_widened,
+                })
             }
             Err(error) => serde_json::json!({ "refusal": error.to_string() }),
         };

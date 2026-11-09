@@ -4,7 +4,6 @@
 //! Complete cascade compilation refuses unsupported rules; it never returns a skipped-rule net.
 
 use foma::constructions::{fsm_compose, fsm_ignore, fsm_symbol, fsm_union, fsm_universal};
-use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
@@ -21,6 +20,11 @@ use pg_grammar::model::{
 
 /// Private-Use-Area base codepoint every `CharDefId` is offset from; no in-scope grammar has enough char-defs to overflow the PUA block.
 const PUA_BASE: u32 = 0xE000;
+
+/// The single token standing for `cd` in every cascade structure.
+pub fn chardef_token(cd: CharDefId) -> char {
+    char::from_u32(PUA_BASE + cd.0).expect("char table too large for the PUA token scheme")
+}
 
 /// Cross-table representation aliasing: a normalized
 /// representation -> every `(TableId, CharDefId)` across the WHOLE grammar that spells it,
@@ -154,7 +158,7 @@ impl<'t> SegAlphabet<'t> {
     /// The single codepoint standing in for `cd` everywhere (lexc lower-tape text, rule regex
     /// atoms, encoded query words).
     pub fn token(&self, cd: CharDefId) -> char {
-        char::from_u32(PUA_BASE + cd.0).expect("char table too large for the PUA token scheme")
+        chardef_token(cd)
     }
 
     /// Every token that should stand for `cd` when RENDERING a pattern atom (a rule's LHS/RHS/
@@ -531,7 +535,7 @@ pub fn compile_rewrite_rule(
 }
 
 /// Whether the focus or any replacement is a quantified group. C# fails rule compilation on that position and FieldWorks authors focus and replacement as simple contexts (divergence 068), so it is refused permanently; quantifiers stay admitted in environments.
-fn has_quantified_target(rule: &RewriteRuleDef) -> bool {
+pub(crate) fn has_quantified_target(rule: &RewriteRuleDef) -> bool {
     let quantified = |nodes: &[PatternNode]| {
         nodes
             .iter()
@@ -604,7 +608,7 @@ pub fn compile_rewrite_rule_subset(
 }
 
 /// Permissive lowering leaves applicability and alpha agreement to HC at every site.
-fn compile_rewrite_rule_subset_inner(
+pub(crate) fn compile_rewrite_rule_subset_inner(
     opts: &FomaOptions,
     g: &Grammar,
     rule: &RewriteRuleDef,
@@ -834,18 +838,40 @@ impl std::error::Error for PhonologyLoweringError {}
 pub struct BundleClosureEvidence {
     pub attested_rows: usize,
     pub private_rows: usize,
+    /// Private rows that affix `Modify` and `InsertContext` outputs can create before phonology.
+    pub morphology_rows: usize,
+    /// Rows no attested segment is compatible with, which spell as nothing.
+    pub unspelled_rows: usize,
     /// Row-by-update transfer visits, the closure's work measure.
     pub transfer_visits: usize,
     /// Alpha output lanes represented once as any value instead of one row per subset.
     pub widened_alpha_outputs: usize,
 }
 
-/// One rule of a proposing cascade: its own relation and the cascade composed through it.
+/// Which construction produced a rule's relation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleConstruction {
+    /// Optional rewriting chosen independently at each site.
+    Site,
+    /// Optional rewriting of one focus occurrence at a time; environments and gates ignored.
+    Block,
+}
+
+/// One rule of a proposing cascade: its own relation and the cascade from it through the spelling.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CascadeRuleEvidence {
     pub rule: String,
+    pub construction: RuleConstruction,
+    /// Blocks in the relation; zero for the site construction.
+    pub blocks: usize,
+    /// Focus tuples run through synthesis; zero unless the block rows are exact.
+    pub block_tuples: usize,
+    /// The block rows are independent per position with any-value alpha lanes.
+    pub block_widened: bool,
     pub states: usize,
     pub arcs: usize,
+    /// Composed from this rule to the end of the cascade, spelling included.
     pub composed_states: usize,
     pub composed_arcs: usize,
 }
@@ -882,66 +908,12 @@ pub fn compile_proposing_cascade(
     prules_in_order: &[&PhonRuleDef],
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
 ) -> Result<(Fsm, CascadeEvidence), PhonologyLoweringError> {
-    if !prules_in_order.is_empty() && g.char_tables.len() != 1 {
-        return Err(PhonologyLoweringError::MultipleCascadeTablesUnavailable);
+    if prules_in_order.is_empty() {
+        return Ok((fsm_universal(), CascadeEvidence::default()));
     }
-    let mut rewrites = Vec::new();
-    let mut table_id = None;
-    for pr in prules_in_order {
-        match pr {
-            PhonRuleDef::Rewrite(rule) => {
-                let owner = owning_table_id(g, rule).ok_or_else(|| {
-                    PhonologyLoweringError::UnsupportedRewrite(rule.xml_id.clone())
-                })?;
-                table_id = Some(owner);
-                rewrites.push(rule);
-            }
-            PhonRuleDef::Metathesis(rule) => {
-                return Err(PhonologyLoweringError::PermissiveMetathesisUnavailable(
-                    rule.xml_id.clone(),
-                ))
-            }
-        }
-    }
-    let mut evidence = CascadeEvidence::default();
-    let Some(table_id) = table_id else {
-        return Ok((fsm_universal(), evidence));
-    };
-    let bundles = crate::lower::IntermediateBundles::build(g, table_id, &rewrites)?;
-    evidence.bundles = bundles.evidence.clone();
-    let mut composed: Option<Fsm> = None;
-    let mut reports = Vec::new();
-    for rule in rewrites {
-        let (net, tuples) =
-            compile_rewrite_rule_subset_inner(opts, g, rule, &|_| true, Some(&bundles))?;
-        reports.push((rule.xml_id.clone(), tuples));
-        let net = fsm_minimize(opts, net);
-        let (states, arcs) = (net.statecount as usize, net.arccount as usize);
-        let next = match composed {
-            None => net,
-            Some(prev) => fsm_minimize(opts, fsm_compose(opts, prev, net)),
-        };
-        evidence.rules.push(CascadeRuleEvidence {
-            rule: rule.xml_id.clone(),
-            states,
-            arcs,
-            composed_states: next.statecount as usize,
-            composed_arcs: next.arccount as usize,
-        });
-        composed = Some(next);
-    }
-    let spelling = bundles.spelling(opts, g).ok_or_else(|| {
-        PhonologyLoweringError::UnsupportedRewrite("final bundle spelling".to_owned())
-    })?;
-    evidence.spelling_states = spelling.statecount as usize;
-    evidence.spelling_arcs = spelling.arccount as usize;
-    let net = fsm_minimize(
-        opts,
-        fsm_compose(opts, composed.unwrap_or_else(fsm_universal), spelling),
-    );
-    evidence.states = net.statecount as usize;
-    evidence.arcs = net.arccount as usize;
-    tuple_reports.extend(reports);
+    let parts = crate::cascade_parts::CascadeParts::build(opts, g, prules_in_order)?;
+    let (net, evidence) = parts.compose(opts)?;
+    tuple_reports.extend(parts.reports);
     Ok((net, evidence))
 }
 
@@ -1150,3 +1122,6 @@ mod regex_rejection_tests;
 
 #[cfg(test)]
 mod permissive_tests;
+
+#[cfg(test)]
+mod block_tests;
