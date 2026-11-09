@@ -38,7 +38,7 @@ A check is one pack's evidence about one Occurrence: `resource` (index into `res
 Every `statistics` object has `total`, `valid`, `no_analysis`, `incomplete`, `unattempted` and `ambiguous`, each `{occurrences, wordforms}`, and `languages`, a map from language code to `{valid: {occurrences, wordforms}}`.
 
 - `occurrences` counts instances in the text; `wordforms` counts distinct exact surface strings. They are never added together.
-- `total`, `valid`, `no_analysis`, `incomplete` and `unattempted` partition the Occurrences. A Wordform is counted in a category when any of its Occurrences is, so Wordform counts overlap only when `--max-checked-occurrences` leaves some Occurrences of one Wordform unattempted.
+- `total`, `valid`, `no_analysis`, `incomplete` and `unattempted` partition the Occurrences. A Wordform is counted in a category when any of its Occurrences is, so Wordform counts overlap only when `--max-checked-occurrences` leaves some Occurrences of one Wordform unattempted, or when `--word-timeout-ms` (wall-clock) interrupts the search for only some Occurrences of one Wordform.
 - `languages[code].valid` counts Occurrences, and Wordforms, that the pack for `code` analysed. An Occurrence valid in several languages counts once in each.
 - `ambiguous` counts valid Occurrences with two or more valid languages.
 - Counts are of Occurrences and Wordforms, never of parser results.

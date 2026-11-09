@@ -139,6 +139,7 @@ regex = "1"
 # there is no system libsqlite3 to install or version-match across machines and worktrees.
 rusqlite = { version = "0.32", features = ["bundled"] }
 # internal crates
+pg-analyzer = { path = "crates/pg-analyzer" }
 pg-grammar = { path = "crates/pg-grammar" }
 pg-grammar-model = { path = "crates/pg-grammar-model" }
 pg-cost = { path = "crates/pg-cost" }
