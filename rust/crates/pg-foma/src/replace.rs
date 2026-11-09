@@ -809,7 +809,7 @@ pub enum PhonologyLoweringError {
 impl std::fmt::Display for PhonologyLoweringError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IntermediateBundleClosureUnavailable(rule) => write!(f, "intermediate bundle closure unavailable for {rule}: fixed 4096-bundle / 1 MiB charge bound or BMP PUA token domain"),
+            Self::IntermediateBundleClosureUnavailable(rule) => write!(f, "intermediate bundle closure unavailable for {rule}: fixed 65536-bundle / 100 MiB charge bound or BMP PUA token domain"),
             Self::MultipleCascadeTablesUnavailable => write!(f, "permissive cascade in a multi-table grammar is not implemented"),
             Self::UnsupportedRewrite(rule) => write!(f, "cannot lower rewrite rule {rule}"),
             Self::IterativeFedInsertionUnavailable(rule) => write!(f, "iterative empty-focus insertion has no complete proposing construction for {rule}"),

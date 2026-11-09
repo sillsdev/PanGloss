@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+- Raise the FST intermediate feature-bundle closure charge bound from 1 MiB to 100 MiB; the work-vector row limit rises from 4,096 to 65,536 for the measured Cebuano and Amharic grammars. The token-domain limit remains in force. Incomplete construction still refuses.
+
 ## 0.16.2
 
 Released 2026-11-06.
