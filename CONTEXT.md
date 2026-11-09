@@ -1,13 +1,16 @@
-# PanGloss Grammar Coverage
+# PanGloss
 
-This context defines the language used to describe HermitCrab compatibility, FST proposal coverage, and resource safety.
+PanGloss is a multi-language spell checker, word predictor, and word analyzer with the morphological
+parser at its core. This context defines its language for word evidence, segmentation, HermitCrab
+compatibility, FST proposal coverage, and resource safety. The widened purpose is recorded in
+`docs/adr/0010-multi-language-spelling-prediction-and-analysis.md`.
 
 ## The compiler, its backends, and the compatibility report
 
 Settled 2026-08-07. Terminology first, because it decides how the thing gets built.
 
-**Compiler.** PanGloss itself — the whole process that turns a HermitCrab grammar into an FST-backed
-analyzer. Singular. There is one compiler.
+**Compiler.** The whole grammar-compilation process within PanGloss that turns a HermitCrab grammar
+into an FST-backed analyzer. Singular. There is one compiler.
 
 **Backend.** One way the compiler can emit. Backends are not variations on a theme: they combine
 features in genuinely different ways, so they grow and fail differently on the same grammar. Exactly
@@ -124,6 +127,118 @@ installers, and deployment UI.
 
 ## Language
 
+**Analyzer API**:
+The single PanGloss text-analysis contract taking source text, a Segmentation profile, and loaded
+Dictionary packs and Language Packs, and returning per-occurrence evidence and statistics.
+Embedded and stand-alone callers share its analysis semantics.
+_Avoid_: Host-specific analyzer, separate tokenizer per caller
+
+**Word prediction**:
+Proposals for completing a word or for a following word, using the available language resources
+and context. Prediction is distinct from correcting a misspelled occurrence or analyzing its morphology.
+_Avoid_: Hunspell suggestions (as a synonym), parser result
+
+**Writing system**:
+A language project's conventions for written text, including its configured word-forming characters.
+A writing system informs segmentation but does not by itself establish an occurrence's language.
+_Avoid_: Language (as a synonym), script (as the whole configuration)
+
+**Word-forming character**:
+A character that belongs inside a word under a writing system's segmentation rules, including the
+Unicode defaults, configured additions, and WordMaker's numeric rule.
+_Avoid_: Letter only, Latin word character
+
+**Segmentation profile**:
+The recorded writing-system rules used to find word boundaries, with the identity and hash of the
+source `.ldml` from which they were obtained.
+_Avoid_: Tokenizer guess, language detector
+
+**Segmentation alternative**:
+Another division of the same source span into one or more parts, alongside the primary
+FieldWorks-rule split. Each part retains its own analysis and language candidates.
+_Avoid_: Replacement profile, discarded split
+
+**FieldWorks-compatible segmentation**:
+The word boundaries produced by LibLCM WordMaker's writing-system-configured maximal-run rule,
+including its Unicode and numeric behavior. Existing FieldWorks segmentation remains authoritative
+for text already segmented in a FieldWorks project.
+_Avoid_: Machine Latin tokenization, universal tokenizer
+
+**Wordform**:
+A written word form considered independently of any particular place it occurs.
+Many occurrences can share one wordform; its spelling alone does not decide its language.
+_Avoid_: Token, occurrence (for the form)
+
+**Occurrence**:
+One instance of a wordform at a particular span in source text, retaining its original surface and
+location. Repeated occurrences of the same wordform are distinct evidence-bearing instances.
+_Avoid_: Token, wordform (for the instance), assessment case (as a synonym)
+
+**Vernacular parse**:
+The morphological analyses of an occurrence under the language project's grammar, reported with
+their completion state. They remain separate from other Language Packs' analyses, Dictionary pack
+evidence, and language-detection hypotheses.
+_Avoid_: Spelling verdict, foreign-word filter
+
+**Dictionary pack**:
+A separable, data-only spelling and language-evidence bundle: Hunspell `.dic`/`.aff` data, word-list
+data, and an optional n-gram profile. It retains its own language, coverage, source, version, and
+licence identity, separately from a PanGloss Language Pack.
+_Avoid_: Contact-language pack, Language Pack, executable plugin
+
+**N-gram profile**:
+A language-specific summary of short-sequence frequencies used as language-detection evidence.
+It is optional data in a Dictionary pack, not a grammar or spelling verdict.
+_Avoid_: Grammar analysis, exclusive language label
+
+**Word evidence**:
+The attributed parser, dictionary, word-list, detection, and correction observations about an
+occurrence. These observations can coexist without deciding its intended language or human spelling status.
+_Avoid_: Real-word verdict, approval
+
+**Language detection**:
+The proposal of one or more possible languages from text and available language resources.
+It permits uncertainty and does not assign exclusive language membership to an occurrence.
+_Avoid_: Language verdict, automatic exclusion
+
+**Language candidate**:
+A possible language for an occurrence or a part of a segmentation alternative. Its evidence may
+come from Dictionary packs or Language Packs, alongside detection hypotheses, with any misspelling
+flag and correction suggestions retained.
+_Avoid_: Exclusive language label, confirmed language
+
+**Valid language word**:
+An occurrence with a valid analysis from a Language Pack or spelling acceptance from a Dictionary
+pack in a named language. This is resource-relative evidence, not a human spelling judgement.
+_Avoid_: Approved word, universally correct spelling
+
+**Misspelled language word**:
+A language candidate flagged as a possible misspelling in that language, carrying correction
+suggestions. It is distinct from valid language-word evidence and from an unknown word, and is
+counted separately from valid words.
+_Avoid_: Invalid vernacular word, automatic correction
+
+**Correction suggestion**:
+A proposed replacement spelling for an occurrence, attributed to the language resource that
+suggested it. The original occurrence is preserved until a caller or person chooses a replacement.
+_Avoid_: Word prediction, intended spelling (as a fact)
+
+**Unknown word**:
+An occurrence for which completed checks provide neither valid language-word evidence nor a
+misspelled language-word candidate from the resources checked. It is not a nonword verdict;
+unavailable, incomplete, or unattempted checks remain explicit.
+_Avoid_: Nonword, misspelled by default
+
+**Language ambiguity**:
+Evidence supporting more than one possible language for an occurrence or wordform, without an
+exclusive assignment. The candidates remain available with their analysis and segmentation evidence.
+_Avoid_: Wrong language, human uncertainty (as if it were a judgement)
+
+**No-analysis**:
+The absence of a valid language analysis among completed checks for an occurrence or wordform.
+Misspelling candidates remain separate evidence; incomplete or unattempted checks are not negative results.
+_Avoid_: Nonword, incomplete analysis
+
 **Construct disposition**:
 One of compiled, safely overapproximated, peeled outside the FST, confirm-only, or detected unsupported.
 _Avoid_: Done, covered
@@ -191,9 +306,9 @@ _Avoid_: One universal runtime, hidden compiler
 
 **PanGloss Runtime**:
 The inference distribution. Native Runtime is `pangloss-runtime`; WASM is another Runtime build.
-It loads Language Packs and performs analysis, spell checking, glossing, and supported packaged
-Rust-HermitCrab diagnostics. It physically excludes grammar/FST compilation. A process may load
-multiple packs as isolated immutable handles; every request names its handle and owns independent
+It loads Language Packs and Dictionary packs and performs analysis, spell checking, glossing, and
+supported packaged Rust-HermitCrab diagnostics. It physically excludes grammar/FST compilation.
+A process may load multiple packs as isolated immutable handles; every request names its handle and owns independent
 scratch, budget, trace, and cancellation state.
 _Avoid_: Lean SDK, browser compiler
 
@@ -210,11 +325,12 @@ A single, self-contained, versioned, fingerprinted file containing the precompil
 _Avoid_: WASM grammar
 
 **PanGloss Language Pack**:
-The product-facing name for the `.pgpack` analysis artifact: a data-only runtime plugin containing
-the proposing FST, matching Rust-HermitCrab runtime data, configured compact diagnostic symbols,
-and package metadata. It cannot contain WASM modules, native libraries, scripts, or executable
-extensions. New engine behavior requires a PanGloss Runtime release.
-_Avoid_: Executable plugin, compiler bundle
+The Language Pack is specifically the `.pgpack` grammar analysis artifact: a data-only runtime
+plugin containing the proposing FST, matching Rust-HermitCrab runtime data, configured compact
+diagnostic symbols, and package metadata. It cannot contain WASM modules, native libraries, scripts,
+or executable extensions. A Language Pack may supply the vernacular grammar or an additional
+contact-language grammar; new engine behavior requires a PanGloss Runtime release.
+_Avoid_: Dictionary pack, language-resource umbrella, executable plugin, compiler bundle
 
 **Build report**:
 An immutable artifact describing one compilation attempt: inputs, effective compiler budgets,
