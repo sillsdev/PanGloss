@@ -930,6 +930,7 @@ dependencies = [
 name = "pg-fst"
 version = "0.16.2"
 dependencies = [
+ "hashbrown 0.15.5",
  "pg-cost",
  "pg-featstruct",
  "pg-shape",

@@ -1,0 +1,116 @@
+<?xml version='1.0' encoding='utf-8'?>
+<HermitCrabInput>
+  <Language>
+    <Name>Repeated captures over optional deletion nodes</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN">
+        <Name>noun</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="nasal">
+        <Name>nasal</Name>
+        <Symbols>
+          <Symbol id="nasal_minus">minus</Symbol>
+          <Symbol id="nasal_plus">plus</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="f1">
+        <Name>f1</Name>
+        <Symbols>
+          <Symbol id="f1_minus">minus</Symbol>
+          <Symbol id="f1_plus">plus</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="n">
+          <Representations>
+            <Representation>n</Representation>
+          </Representations>
+          <FeatureValue feature="nasal" symbolValues="nasal_plus" />
+          <FeatureValue feature="f1" symbolValues="f1_minus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="m">
+          <Representations>
+            <Representation>m</Representation>
+          </Representations>
+          <FeatureValue feature="nasal" symbolValues="nasal_plus" />
+          <FeatureValue feature="f1" symbolValues="f1_plus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="t">
+          <Representations>
+            <Representation>t</Representation>
+          </Representations>
+          <FeatureValue feature="nasal" symbolValues="nasal_minus" />
+          <FeatureValue feature="f1" symbolValues="f1_minus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="p">
+          <Representations>
+            <Representation>p</Representation>
+          </Representations>
+          <FeatureValue feature="nasal" symbolValues="nasal_minus" />
+          <FeatureValue feature="f1" symbolValues="f1_plus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="nasals">
+        <Name>nasals</Name>
+        <FeatureValue feature="nasal" symbolValues="nasal_plus" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="stops">
+        <Name>stops</Name>
+        <FeatureValue feature="nasal" symbolValues="nasal_minus" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="any">
+        <Name>any</Name>
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="delete" multipleApplicationOrder="rightToLeftIterative">
+        <Name>Delete n</Name>
+        <PhoneticInput>
+          <PhoneticSequence>
+            <Segment segment="n" />
+          </PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput />
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" phonologicalRules="delete" morphologicalRules="suffix" morphologicalRuleOrder="unordered">
+        <Name>main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="root" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="rootAllo">
+                <PhoneticShape>nt</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>ROOT</MorphemeId>
+            <Gloss>synthetic</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="suffix" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>suffix</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="s1">
+                <MorphologicalInput><PhoneticSequence id="part0"><OptionalSegmentSequence min="0" max="1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence><PhoneticSequence id="part1"><OptionalSegmentSequence min="0" max="1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="part0" /><CopyFromInput index="part1" /><CopyFromInput index="part0" /><CopyFromInput index="part1" /><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>SUFFIX</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

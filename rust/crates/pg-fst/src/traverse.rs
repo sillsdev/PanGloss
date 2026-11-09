@@ -7,7 +7,7 @@ use std::rc::Rc;
 // std::time::Instant panics on wasm32-unknown-unknown; web-time is a drop-in replacement needed since the O2 profiling calls below are unconditional on every traversal.
 use web_time::Instant;
 
-use rustc_hash::{FxBuildHasher, FxHashSet};
+use rustc_hash::FxBuildHasher;
 
 use crate::fst::Fst;
 use crate::{Cmd, Direction, Register, CURRENT_POSITION};
@@ -167,7 +167,7 @@ impl FstResult {
 }
 
 /// A capture register in one `u32` (bit 0 `has`, bit 1 `start`, the rest the offset): half the bytes of `Register`, which is what the visited set keeps one block of per configuration. Equality is `Register` equality on every register the traversal can build (`unset` is the single zero value).
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 struct Packed(u32);
 
 impl Packed {
@@ -199,26 +199,8 @@ struct Inst {
     state: usize,
     ann_index: usize,
     registers: Rc<[Packed]>,
-}
-
-/// Visited-set key wrapper for the shared register scaffold of the nondeterministic traversal: semantically identical to the plain `Vec<Register>` key it replaces, but stores the instance's `Rc` instead of a second deep clone of the registers.
-/// See `docs/research/pg-fst-traverse-design-notes.md` for the `Eq`/`Hash` contract this must preserve.
-struct RegKey(Rc<[Packed]>);
-
-impl PartialEq for RegKey {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0) || self.0 == other.0
-    }
-}
-impl Eq for RegKey {}
-
-impl std::hash::Hash for RegKey {
-    #[inline]
-    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        // Hash contents so independently allocated equal register blocks deduplicate.
-        self.0.hash(h);
-    }
+    /// This instance's `Visited` record, the parent of the keys it spawns; `None` until the visited set has switched to its compact form.
+    record: Option<VisitedRecord>,
 }
 
 /// The registers of `rc` for writing: in place when this instance is their only owner, else a private copy first (the copy-on-write step `Rc::make_mut` did for `Rc<Vec<_>>`).
@@ -228,10 +210,6 @@ fn writable(rc: &mut Rc<[Packed]>) -> &mut [Packed] {
     }
     Rc::get_mut(rc).expect("a just-created Rc is unique")
 }
-
-/// Bytes of capture state the visited set keeps alive besides the registers themselves: the `(state, ann_index, key)` entry, its hash-table control byte, and the `Rc` counts.
-const VISITED_ENTRY_BYTES: usize =
-    std::mem::size_of::<(usize, usize, RegKey)>() + 1 + 2 * std::mem::size_of::<usize>();
 
 /// Capture state charged to the active work budget; returns whatever is still charged when the traversal ends, however it ends.
 struct RetainedCharge(usize);
@@ -249,6 +227,414 @@ impl RetainedCharge {
 impl Drop for RetainedCharge {
     fn drop(&mut self) {
         crate::work::release_retained(self.0);
+    }
+}
+
+/// The nondeterministic traversal's visited set (C# `traversed`): each key is a byte record holding only the registers that differ from its parent instance's record, with a full snapshot at least every `SNAPSHOT_HOPS` levels; equality reconstructs the stored registers exactly, so `insert` answers as a `HashSet` of `(state, ann_index, registers)` would.
+struct Visited {
+    slots: usize,
+    state_width: usize,
+    width: usize,
+    slot_width: usize,
+    chunks: Vec<Vec<u8>>,
+    /// Record locations, `chunk << 32 | byte offset`; the hash is re-derived from the record's stored 32-bit key hash.
+    table: hashbrown::HashTable<u64>,
+    /// `seen[slot] == generation` marks a slot already compared while walking one record chain.
+    seen: Vec<u32>,
+    generation: u32,
+    /// All ones; tests narrow it to force hash collisions, so equality is decided by the record walk.
+    hash_mask: u32,
+    charge: RetainedCharge,
+}
+
+/// Retained bytes below which the visited set stays a plain hash set of shared register blocks: small sets (the common case) are cheaper that way, and only a set that grows large switches to the compact records.
+const SMALL_SET_BYTES: usize = 1 << 20;
+
+/// Bytes of capture state the plain set keeps alive per entry besides the registers: the `(state, ann_index, key)` entry, its control byte, and the `Rc` counts.
+const SMALL_ENTRY_BYTES: usize =
+    std::mem::size_of::<(usize, usize, Rc<[Packed]>)>() + 1 + 2 * std::mem::size_of::<usize>();
+
+/// The nondeterministic traversal's visited set. It answers every `insert` exactly as a `HashSet` of `(state, ann_index, registers)` keys would in both forms; the switch from the plain set to `Visited` copies every key across, so no decision depends on when it happens.
+enum Seen {
+    Small {
+        set: HashSet<(usize, usize, RegKey), FxBuildHasher>,
+        charge: RetainedCharge,
+    },
+    Large(Visited),
+}
+
+/// Plain-set key: contents are hashed and compared, so independently allocated equal blocks deduplicate.
+struct RegKey(Rc<[Packed]>);
+
+impl PartialEq for RegKey {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
+impl Eq for RegKey {}
+
+impl std::hash::Hash for RegKey {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.0.hash(h);
+    }
+}
+
+/// Outcome of `Seen::insert`.
+enum Insert {
+    Present,
+    /// New and kept; the record is `Some` once the compact form is in use.
+    New(Option<VisitedRecord>),
+    /// Its storage passed the retained-capture ceiling.
+    Ceiling,
+}
+
+impl Seen {
+    fn new() -> Self {
+        Seen::Small {
+            set: HashSet::default(),
+            charge: RetainedCharge(0),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Seen::Small { set, .. } => set.len(),
+            Seen::Large(v) => v.len(),
+        }
+    }
+
+    fn insert(
+        &mut self,
+        inst: &Inst,
+        parent: Option<(VisitedRecord, &[Packed])>,
+        fst_states: usize,
+        n: usize,
+        slots: usize,
+    ) -> Insert {
+        match self {
+            Seen::Small { set, charge } => {
+                let key = (
+                    inst.state,
+                    inst.ann_index,
+                    RegKey(Rc::clone(&inst.registers)),
+                );
+                if !set.insert(key) {
+                    return Insert::Present;
+                }
+                if !charge.add(SMALL_ENTRY_BYTES + std::mem::size_of_val(&*inst.registers)) {
+                    return Insert::Ceiling;
+                }
+                if charge.0 >= SMALL_SET_BYTES {
+                    // Grown large: carry every key into the compact form (their order cannot matter) and release the plain set's charge.
+                    let mut visited = Visited::new(fst_states, n, slots);
+                    let old = std::mem::take(set);
+                    *charge = RetainedCharge(0);
+                    for (state, ann, key) in old {
+                        match visited.insert(state, ann, &key.0, None) {
+                            Some(Some(_)) => {}
+                            Some(None) => unreachable!("plain-set keys are distinct"),
+                            None => return Insert::Ceiling,
+                        }
+                    }
+                    *self = Seen::Large(visited);
+                }
+                Insert::New(None)
+            }
+            Seen::Large(v) => match v.insert(inst.state, inst.ann_index, &inst.registers, parent) {
+                Some(Some(r)) => Insert::New(Some(r)),
+                Some(None) => Insert::Present,
+                None => Insert::Ceiling,
+            },
+        }
+    }
+}
+
+/// Where a kept key's record is and how many diff records separate it from the nearest full snapshot.
+#[derive(Clone, Copy)]
+struct VisitedRecord {
+    loc: u64,
+    hops: u8,
+}
+
+/// Bound on diff records walked per comparison; a record this far from a snapshot is stored in full.
+const SNAPSHOT_HOPS: u8 = 8;
+const FULL: u64 = u64::MAX;
+const FIRST_CHUNK_BYTES: usize = 4 << 10;
+const MAX_CHUNK_BYTES: usize = 1 << 20;
+/// Hash-table bytes per unit of capacity: a `u64` slot and a control byte, at hashbrown's 7/8 maximum load.
+const TABLE_BYTES_PER_ENTRY: usize = (std::mem::size_of::<u64>() + 1) * 8 / 7 + 1;
+/// Record prefix: key hash, then (after state and position) the parent location.
+const HASH_BYTES: usize = 4;
+const PARENT_BYTES: usize = 8;
+
+/// Little-endian bytes needed to hold every value up to `max`.
+fn width_for(max: u64) -> usize {
+    match max {
+        0..=0xFF => 1,
+        0x100..=0xFFFF => 2,
+        0x1_0000..=0xFFFF_FFFF => 4,
+        _ => 8,
+    }
+}
+
+fn read_le(bytes: &[u8], at: usize, width: usize) -> u64 {
+    let mut buf = [0u8; 8];
+    buf[..width].copy_from_slice(&bytes[at..at + width]);
+    u64::from_le_bytes(buf)
+}
+
+fn key_hash(state: usize, ann_index: usize, registers: &[Packed]) -> u32 {
+    use std::hash::Hasher;
+    let mut h = rustc_hash::FxHasher::default();
+    h.write_usize(state);
+    h.write_usize(ann_index);
+    for r in registers {
+        h.write_u32(r.0);
+    }
+    let x = h.finish();
+    (x ^ (x >> 32)) as u32
+}
+
+/// Spreads a stored 32-bit key hash over the 64 bits hashbrown reads (bucket bits low, tag bits high).
+fn table_hash(h: u32) -> u64 {
+    u64::from(h).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+}
+
+impl Visited {
+    /// For keys whose state is below `state_count` and whose positions and register offsets are at most `n`.
+    fn new(state_count: usize, n: usize, slots: usize) -> Self {
+        Visited {
+            slots,
+            state_width: width_for(state_count.saturating_sub(1) as u64),
+            // Largest `Packed` over offsets `0..=n` (start and has bits set); `ann_index <= n` is smaller.
+            width: width_for(((n as u64) << 2) | 3),
+            slot_width: width_for(slots as u64),
+            chunks: Vec::new(),
+            table: hashbrown::HashTable::new(),
+            seen: vec![0; slots],
+            generation: 0,
+            hash_mask: u32::MAX,
+            charge: RetainedCharge(0),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    fn bytes_at(&self, loc: u64) -> &[u8] {
+        &self.chunks[(loc >> 32) as usize][(loc & 0xFFFF_FFFF) as usize..]
+    }
+
+    fn header(&self) -> usize {
+        HASH_BYTES + self.state_width + self.width
+    }
+
+    /// Appends one record (`None` when its storage passes the retained-capture ceiling).
+    fn push_record(
+        &mut self,
+        hash: u32,
+        state: usize,
+        ann_index: usize,
+        parent: u64,
+        body: impl FnOnce(&mut Vec<u8>),
+        len: usize,
+    ) -> Option<u64> {
+        let fits = self
+            .chunks
+            .last()
+            .is_some_and(|c| c.capacity() - c.len() >= len);
+        if !fits {
+            let bytes = match self.chunks.last() {
+                None => FIRST_CHUNK_BYTES,
+                Some(c) => (c.capacity() * 2).min(MAX_CHUNK_BYTES),
+            }
+            .max(len);
+            if !self.charge.add(bytes) {
+                return None;
+            }
+            self.chunks.push(Vec::with_capacity(bytes));
+        }
+        let chunk_index = self.chunks.len() - 1;
+        let (state_width, width) = (self.state_width, self.width);
+        // A caller violating the key bounds given to `Visited::new` must fail loudly, not truncate.
+        debug_assert!(
+            state_width >= 8 || (state as u64) >> (8 * state_width) == 0,
+            "state {state} exceeds the {state_width}-byte state width"
+        );
+        debug_assert!(
+            width >= 8 || (ann_index as u64) >> (8 * width) == 0,
+            "ann_index {ann_index} exceeds the {width}-byte width"
+        );
+        let chunk = &mut self.chunks[chunk_index];
+        let offset = chunk.len();
+        chunk.extend_from_slice(&hash.to_le_bytes());
+        chunk.extend_from_slice(&(state as u64).to_le_bytes()[..state_width]);
+        chunk.extend_from_slice(&(ann_index as u64).to_le_bytes()[..width]);
+        chunk.extend_from_slice(&parent.to_le_bytes());
+        body(chunk);
+        debug_assert_eq!(chunk.len() - offset, len);
+        Some(((chunk_index as u64) << 32) | offset as u64)
+    }
+
+    /// Stores `registers` in full outside the set, as the parent record of a seed.
+    #[cfg(test)]
+    fn root(&mut self, registers: &[Packed]) -> Option<VisitedRecord> {
+        let width = self.width;
+        let len = self.header() + PARENT_BYTES + self.slots * width;
+        let loc = self.push_record(
+            0,
+            0,
+            0,
+            FULL,
+            |c| {
+                for r in registers {
+                    c.extend_from_slice(&u64::from(r.0).to_le_bytes()[..width]);
+                }
+            },
+            len,
+        )?;
+        Some(VisitedRecord { loc, hops: 0 })
+    }
+
+    /// Whether the record at `loc` holds exactly this key: compares the header, then walks toward the snapshot, checking each slot at its nearest recorded value.
+    fn matches(
+        &mut self,
+        loc: u64,
+        hash: u32,
+        state: usize,
+        ann_index: usize,
+        registers: &[Packed],
+    ) -> bool {
+        let (sw, w, cw) = (self.state_width, self.width, self.slot_width);
+        let head = self.bytes_at(loc);
+        if read_le(head, 0, HASH_BYTES) != u64::from(hash)
+            || read_le(head, HASH_BYTES, sw) != state as u64
+            || read_le(head, HASH_BYTES + sw, w) != ann_index as u64
+        {
+            return false;
+        }
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.seen.fill(0);
+            self.generation = 1;
+        }
+        let generation = self.generation;
+        let header = self.header();
+        let mut at = loc;
+        loop {
+            let chunk = &self.chunks[(at >> 32) as usize];
+            let rec = &chunk[(at & 0xFFFF_FFFF) as usize..];
+            let parent = read_le(rec, header, PARENT_BYTES);
+            let body = header + PARENT_BYTES;
+            if parent == FULL {
+                return (0..self.slots).all(|slot| {
+                    self.seen[slot] == generation
+                        || read_le(rec, body + slot * w, w) == u64::from(registers[slot].0)
+                });
+            }
+            let count = read_le(rec, body, cw) as usize;
+            for i in 0..count {
+                let entry = body + cw + i * (cw + w);
+                let slot = read_le(rec, entry, cw) as usize;
+                if self.seen[slot] != generation {
+                    if read_le(rec, entry + cw, w) != u64::from(registers[slot].0) {
+                        return false;
+                    }
+                    self.seen[slot] = generation;
+                }
+            }
+            at = parent;
+        }
+    }
+
+    /// `Some(Some(record))` when the key is new (and is now kept), `Some(None)` when already present, `None` when its storage passes the retained-capture ceiling. `parent` must be the record of the instance whose registers are `parent_registers`.
+    fn insert(
+        &mut self,
+        state: usize,
+        ann_index: usize,
+        registers: &[Packed],
+        parent: Option<(VisitedRecord, &[Packed])>,
+    ) -> Option<Option<VisitedRecord>> {
+        let hash = key_hash(state, ann_index, registers) & self.hash_mask;
+        let mut candidates: smallvec::SmallVec<[u64; 4]> = smallvec::SmallVec::new();
+        for &loc in self.table.iter_hash(table_hash(hash)) {
+            candidates.push(loc);
+        }
+        for loc in candidates {
+            if self.matches(loc, hash, state, ann_index, registers) {
+                return Some(None);
+            }
+        }
+        let (w, cw) = (self.width, self.slot_width);
+        let full_len = self.slots * w;
+        // A key with no kept parent (spawned before the switch to this set) is stored in full.
+        let (parent, parent_registers, changed, diff_len) = match parent {
+            Some((p, pr)) => {
+                let changed = (0..self.slots).filter(|&i| registers[i] != pr[i]).count();
+                (p, pr, changed, cw + changed * (cw + w))
+            }
+            None => (
+                VisitedRecord {
+                    loc: FULL,
+                    hops: SNAPSHOT_HOPS,
+                },
+                registers,
+                0,
+                full_len,
+            ),
+        };
+        let full = parent.hops + 1 >= SNAPSHOT_HOPS || diff_len >= full_len;
+        let len = self.header() + PARENT_BYTES + if full { full_len } else { diff_len };
+        let loc = if full {
+            self.push_record(
+                hash,
+                state,
+                ann_index,
+                FULL,
+                |c| {
+                    for r in registers {
+                        c.extend_from_slice(&u64::from(r.0).to_le_bytes()[..w]);
+                    }
+                },
+                len,
+            )?
+        } else {
+            self.push_record(
+                hash,
+                state,
+                ann_index,
+                parent.loc,
+                |c| {
+                    c.extend_from_slice(&(changed as u64).to_le_bytes()[..cw]);
+                    for (i, (r, p)) in registers.iter().zip(parent_registers).enumerate() {
+                        if r != p {
+                            c.extend_from_slice(&(i as u64).to_le_bytes()[..cw]);
+                            c.extend_from_slice(&u64::from(r.0).to_le_bytes()[..w]);
+                        }
+                    }
+                },
+                len,
+            )?
+        };
+        let chunks = &self.chunks;
+        let rehash = |&l: &u64| {
+            let rec = &chunks[(l >> 32) as usize][(l & 0xFFFF_FFFF) as usize..];
+            table_hash(read_le(rec, 0, HASH_BYTES) as u32)
+        };
+        let before = self.table.capacity();
+        self.table.reserve(1, rehash);
+        let grown = self.table.capacity() - before;
+        self.table.insert_unique(table_hash(hash), loc, rehash);
+        if !self.charge.add(grown * TABLE_BYTES_PER_ENTRY) {
+            return None;
+        }
+        Some(Some(VisitedRecord {
+            loc,
+            hops: if full { 0 } else { parent.hops + 1 },
+        }))
     }
 }
 
@@ -533,6 +919,7 @@ impl<'f> Transduce<'f> {
                 state: self.fst.start() as usize,
                 ann_index: *ann_index,
                 registers: Rc::from(&*registers),
+                record: None,
             });
             init_anns.insert(*ann_index);
         }
@@ -592,10 +979,11 @@ impl<'f> Transduce<'f> {
             profile::record_det(__o2_det_start.elapsed().as_nanos());
         } else {
             let __o2_nondet_start = Instant::now();
-            // Same visited-set key as before: the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
-            let mut traversed: FxHashSet<(usize, usize, RegKey)> = FxHashSet::default();
-            let mut retained = RetainedCharge(0);
+            // Keyed on the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
             let n = self.n();
+            let fst_states = self.fst.states.len();
+            let slots = self.fst.register_count() as usize * 2;
+            let mut traversed = Seen::new();
             let min_hops = self.fst.min_hops_to_accept();
             while let Some(inst) = stack.pop() {
                 // See the deterministic branch's comment above: `Arc` is `Copy` and this slice borrows straight from the frozen `Fst`, so no per-pop clone is needed.
@@ -612,19 +1000,16 @@ impl<'f> Transduce<'f> {
                         if min_hops[arc.target as usize] > remaining {
                             continue;
                         }
-                        for new_inst in self.advance(inst.clone(), arc, false, &mut cur_results) {
-                            // Charge a full block even when shared: refcounts cannot tell whether another visited entry already paid for it.
-                            let register_bytes = std::mem::size_of_val(&*new_inst.registers);
-                            let key = (
-                                new_inst.state,
-                                new_inst.ann_index,
-                                RegKey(Rc::clone(&new_inst.registers)),
-                            );
-                            if traversed.insert(key) {
-                                if !retained.add(VISITED_ENTRY_BYTES + register_bytes) {
-                                    return Vec::new();
+                        for mut new_inst in self.advance(inst.clone(), arc, false, &mut cur_results)
+                        {
+                            let parent = inst.record.map(|r| (r, &*inst.registers));
+                            match traversed.insert(&new_inst, parent, fst_states, n, slots) {
+                                Insert::New(record) => {
+                                    new_inst.record = record;
+                                    stack.push(new_inst);
                                 }
-                                stack.push(new_inst);
+                                Insert::Present => {}
+                                Insert::Ceiling => return Vec::new(),
                             }
                         }
                     }

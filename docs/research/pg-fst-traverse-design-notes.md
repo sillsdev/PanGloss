@@ -55,27 +55,49 @@ not just when `HC_FST_PROFILE` is actually read (pg-wasm builds this crate for t
 ## `Inst`'s `Rc`-shared registers
 
 `registers` is copy-on-write shared (`Rc`): the nondeterministic traversal clones an instance once
-per matching arc plus once more for the visited-set key, but most arcs carry **no** register
+per matching arc, but most arcs carry **no** register
 commands (`cmd_lo == cmd_hi`), so eagerly deep-copying the `register_count * 2` scaffold on every
 clone dominated the confirm path (`nondet_max_traversed` reached 360K–542K on pathological Amharic
 words). Cloning an `Inst` is now an O(1) refcount bump; `Rc::make_mut` deep-copies lazily, only at
 the moment an arc's non-empty command range actually writes (see `Transduce::advance`). Purely a
 representation change: every observable value (register contents, results, ordering) is identical.
 
-## `RegKey`: the visited-set key's representation change
+## `Visited`: the visited set's representation
 
-Semantically identical to the plain `Vec<Register>` key it replaces (derived `Eq`/`Hash` over the
-register contents — the same key the C# reference uses, keeping every distinct
-`(state, ann_index, registers)` thread alive; do NOT collapse threads Pike-VM-style), but it stores
-the instance's `Rc` (a refcount bump) instead of a second deep clone of the registers.
+The set holds the same key as the C# reference: every distinct `(state, ann_index, registers)`
+configuration, keeping each thread alive (do NOT collapse threads Pike-VM-style). Only its storage
+differs. A long traversal keeps millions of keys (2,892,981 on the #189 public stress, whose
+records held 62 register slots each), so the set, not the results, is what grows.
 
-- **`Eq`**: `Rc::ptr_eq` fast path (same allocation ⇒ trivially content-equal), falling back to
-  full content equality. This is a pure optimization: it can never disagree with content equality,
-  because pointer-equal implies content-equal.
-- **`Hash`**: hashes the **content** (exactly what `Vec<Register>`'s derived `Hash` did). Hashing
-  the pointer instead would break the `Eq`/`Hash` consistency contract (content-equal keys in
-  different allocations must collide); the win here is eliminating the extra deep clone, not the
-  hashing.
+- **Small sets stay plain.** A set starts as a hash set of `(state, ann_index, Rc<[Packed]>)` keys
+  (`Seen::Small`), which is the cheapest form for the many words that visit few configurations.
+  When its charge passes `SMALL_SET_BYTES` (1 MiB) every key is copied into the compact form below
+  (`Seen::Large`); copied keys, and children of instances created before the switch, have no kept
+  parent and are stored in full. Both forms answer `insert` exactly as a `HashSet` would, so the
+  switch point changes only storage. Measured on Cebuano (4,985 words): +0.38% instructions
+  versus main, against +11.49% when every set used the compact form.
+- **Records, not allocations.** Each kept key is a byte record appended to chunks that never move;
+  the hash table holds only record locations. No key owns an allocation or keeps an `Rc` alive.
+- **Lossless widths.** State ids, positions and `Packed` registers are written at the narrowest
+  little-endian width that holds every value this traversal can produce (`(n << 2) | 3` for
+  registers). Within one traversal the widths are fixed, so the encoding is injective.
+- **Diffs against the parent.** Every non-seed instance comes from exactly one popped instance whose
+  key is already stored (seeds get a full root record outside the set). A new key stores only the
+  register slots that differ from that parent's registers, plus the parent's location; a key more
+  than `SNAPSHOT_HOPS` diffs from a full record, or whose diff would not be smaller, is stored in
+  full. A record's contents are therefore its own entries, then the nearest ancestor's entry for
+  every slot it does not list — exactly the registers the instance had.
+- **Equality.** A stored 32-bit hash of the full key and the state and position are compared
+  first; then the chain is walked (at most `SNAPSHOT_HOPS` records), comparing each slot at its
+  nearest recorded value. This decides full-content equality, never hash equality alone, so
+  `insert` answers exactly as a `HashSet` of the keys would, call for call. The traversal's pushes,
+  pops, results, order and work count are therefore unchanged.
+- **Accounting.** The retained-capture charge is the bytes actually allocated: each chunk before it
+  is allocated, and the hash table's capacity growth.
+
+`seen_answers_as_a_hash_set_across_the_switch` checks the same across the switch;
+`visited_answers_exactly_as_a_hash_set_of_keys` checks the `HashSet` equivalence differentially,
+including with hashes forced to collide so that the chain walk alone decides equality.
 
 ## `advance`'s command-execution borrow
 
