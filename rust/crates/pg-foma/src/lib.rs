@@ -16,6 +16,7 @@ mod peel_compile_tests;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
+pub mod admission;
 pub mod advice_catalog;
 pub mod analyzer;
 pub mod backend_selection;
