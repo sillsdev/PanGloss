@@ -22,6 +22,30 @@ the FST registers copied in `pg_fst::traverse`. The weights are constants in `pg
 per grammar, with a no-change control as the noise floor. Cost predicts direction; it does not
 replace that run, because a code change can change what a unit costs.
 
+### Where instructions are measured
+
+Instructions come from the CPU's hardware counters, so `rust/tools/instruction-compare.ps1` runs on
+Windows. WSL does not expose the counters. Callgrind in WSL counts simulated instructions; use it only
+as a provisional signal, never as the verdict.
+
+The script does not need an elevated shell. It starts and stops a trace through two scheduled tasks
+that hold the elevation:
+
+| Task (`\PanGloss\`) | Runs as | Action |
+|---|---|---|
+| `PanGloss PMC Start` | `johnm`, highest privileges | `wpr.exe -start "C:\ProgramData\PanGlossPmc\pg.wprp!PG" -filemode` |
+| `PanGloss PMC Stop` | `johnm`, highest privileges | `wpr.exe -stop "C:\ProgramData\PanGlossPmc\current.etl" -skipPdbGen` |
+
+`pg.wprp` records `InstructionsRetiredFixed`, `UnhaltedCoreCyclesFixed` and
+`UnhaltedReferenceCyclesFixed` on each context switch. The tasks and the profile are set up by hand
+and are not in this repository. To set them up again, an administrator registers the two tasks above
+and copies the profile into `C:\ProgramData\PanGlossPmc\`.
+
+If the script refuses with "trace carries no counter values on context switches", the tasks ran but
+Windows recorded no counter values. On 2026-11-09 this happened with virtualization-based security and
+memory integrity (HVCI) running, after a reboot on 2026-11-04. That cause is not confirmed. The fix
+needs an administrator, then a reboot. Until then, no instruction verdict is possible.
+
 ## Why the weights are fixed
 
 The weights follow the code more than the grammar, so a stored per-project weight earns nothing. A
