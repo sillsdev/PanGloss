@@ -63,7 +63,7 @@ pub(crate) fn summarize<'a>(results: impl IntoIterator<Item = &'a OccurrenceResu
                 .occurrences += 1;
             forms.languages.entry(language).or_default().insert(word);
         }
-        if item.valid_languages.len() > 1 {
+        if standalone_languages(item) > 1 {
             stats.ambiguous.occurrences += 1;
             forms.ambiguous.insert(word);
         }
@@ -80,4 +80,19 @@ pub(crate) fn summarize<'a>(results: impl IntoIterator<Item = &'a OccurrenceResu
         }
     }
     stats
+}
+
+/// Languages that analyse some reading by themselves; a mixed-language reading adds none.
+fn standalone_languages(item: &OccurrenceResult) -> usize {
+    item.valid_languages
+        .iter()
+        .filter(|language| {
+            item.readings.is_empty()
+                || item
+                    .readings
+                    .iter()
+                    .filter(|r| r.analysed)
+                    .any(|r| r.parts.iter().all(|p| p.valid_languages.contains(language)))
+        })
+        .count()
 }

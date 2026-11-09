@@ -4,7 +4,7 @@ use pg_analyzer::{AnalyzeOptions, LanguagePack, ProfileInput, TextInput, TextReq
 use pg_parse::Morpher;
 use std::time::Duration;
 
-const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] <text-file>...";
+const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...";
 
 fn flag_value<'a>(
     flag: &str,
@@ -48,6 +48,13 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
             options.max_checked_occurrences = Some(
                 v.parse()
                     .map_err(|_| "--max-checked-occurrences must be an integer")?,
+            );
+        } else if arg == "--all-readings" {
+            options.all_readings = true;
+        } else if let Some(v) = flag_value("--max-alternatives", arg, &mut it)? {
+            options.max_alternatives = Some(
+                v.parse()
+                    .map_err(|_| "--max-alternatives must be an integer")?,
             );
         } else {
             crate::reject_unknown_option("analyze-text", arg)?;
