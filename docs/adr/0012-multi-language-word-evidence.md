@@ -163,13 +163,16 @@ Terms: [CONTEXT.md](../../CONTEXT.md).
 The language-detection proposer (issue 206) uses no detector model and ships no data of its own. Its
 evidence is valid-word evidence from the loaded Language Packs and Dictionary packs, plus a
 character-trigram profile built when a Dictionary pack loads from that pack's own `.dic` stems and
-word list. The profile is a set of trigrams, a few hundred kilobytes at most for a full Hunspell
-dictionary, and is not stored anywhere.
+word list. The profile is a set of trigrams and is not stored anywhere. Its size is bounded by the
+alphabet (distinct trigrams, not stems): measured on LibreOffice `en_US.dic` (49,568 stems) it holds
+8,351 trigrams, and on `ru_RU.dic` (146,269 stems, Cyrillic) 11,428. At 12 bytes per trigram plus
+tree overhead (about 16 bytes, an estimate and not a measured RSS) that is roughly 0.13 MB and 0.18 MB.
+A script with a large syllabary or CJK repertoire would have a larger set; it was not measured.
 
 Licence: because the profile is derived at load time from data the caller supplied, no new licence
 applies. The pack's own licence, already recorded in its identity, covers it, and no third-party
 detector data (fastText `lid.176`, CLD3, GlotLID, wordfreq, the Google TF-IIF lists) is bundled,
-which avoids their CC BY-SA, unlicensed or size problems recorded in `corpus-langid-small.md`.
+which avoids their CC BY-SA, unlicensed or size problems.
 
 Rejected for now: a bundled per-language n-gram or word-frequency pack. It would add a licence
 decision per language and cannot cover languages with no Dictionary pack either. Revisit if a
@@ -177,4 +180,5 @@ language needs detection before it has a Dictionary pack.
 
 Behaviour: the proposer is a proposal, never a verdict. A language is proposed only when at least
 5 Occurrences are explained by it alone; shorter input and words shared by several languages stay
-ambiguous. Thresholds and the result fields are in `docs/text-analysis-format.md`.
+ambiguous. The thresholds (5 Occurrences, 80% trigram coverage, a 20-point lead, 4 characters) are
+untuned initial values, set against tiny fixtures and not yet checked on real text. Thresholds and the result fields are in `docs/text-analysis-format.md`.

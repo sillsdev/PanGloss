@@ -6,13 +6,13 @@ use crate::text::{CheckStatus, OccurrenceOutcome, OccurrenceResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// A language needs this many Occurrences that only it explains before it is proposed.
+/// Untuned initial value: Occurrences only one language explains before it is proposed.
 pub const MIN_DECISIVE_OCCURRENCES: usize = 5;
-/// Forms shorter than this many characters never receive n-gram evidence.
+/// Untuned initial value: shorter forms never receive n-gram evidence.
 pub const MIN_NGRAM_CHARS: usize = 4;
-/// Share of a form's trigrams a profile must contain to vouch for it, in percent.
+/// Untuned initial value: percent of a form's trigrams a profile must hold to vouch for it.
 pub const MIN_NGRAM_COVERAGE_PERCENT: usize = 80;
-/// Lead over the runner-up's coverage that makes the n-gram winner clear, in percent points.
+/// Untuned initial value: percent points of lead over the runner-up for a clear n-gram winner.
 pub const MIN_NGRAM_MARGIN_PERCENT: usize = 20;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]

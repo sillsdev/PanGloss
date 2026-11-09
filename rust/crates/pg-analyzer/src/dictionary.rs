@@ -51,11 +51,8 @@ impl DictionaryPack {
         let hunspell = Dictionary::new(aff, dic)
             .map_err(|e| format!("Dictionary pack {}: {e}", identity.source_id))?;
         let mut ngrams = NgramProfile::default();
-        for line in dic.lines().skip(1) {
-            let stem = line.split(['/', '\t', ' ']).next().unwrap_or("");
-            if !stem.is_empty() {
-                ngrams.add(stem);
-            }
+        for stem in dic_stems(dic) {
+            ngrams.add(&stem);
         }
         Ok(Self {
             identity,
@@ -101,5 +98,50 @@ impl DictionaryPack {
         } else {
             Verdict::Misspelled(found)
         }
+    }
+}
+
+/// Stems of a `.dic` body, tolerating a BOM, a missing count line and `\/` inside a stem.
+fn dic_stems(dic: &str) -> Vec<String> {
+    let dic = dic.strip_prefix('\u{feff}').unwrap_or(dic);
+    let mut lines = dic.lines().peekable();
+    if lines
+        .peek()
+        .is_some_and(|l| !l.trim().is_empty() && l.trim().bytes().all(|b| b.is_ascii_digit()))
+    {
+        lines.next();
+    }
+    lines
+        .filter_map(|line| {
+            let mut stem = String::new();
+            let mut chars = line.chars().peekable();
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' if chars.peek() == Some(&'/') => {
+                        stem.push('/');
+                        chars.next();
+                    }
+                    '/' | '\t' | ' ' => break,
+                    _ => stem.push(c),
+                }
+            }
+            (!stem.is_empty()).then_some(stem)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dic_stems;
+
+    #[test]
+    fn stems_survive_bom_escaped_slash_flags_and_morphology() {
+        let dic = "\u{feff}4\nthe/S\nand\\/or\ncat\tpo:noun\n\n";
+        assert_eq!(dic_stems(dic), ["the", "and/or", "cat"]);
+    }
+
+    #[test]
+    fn a_dic_without_a_count_line_keeps_its_first_stem() {
+        assert_eq!(dic_stems("the\nword\n"), ["the", "word"]);
     }
 }

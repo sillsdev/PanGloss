@@ -69,6 +69,8 @@ A proposal has `language`, `status`, and `occurrences`, `dictionary`, `shared` a
 - `occurrences` is `dictionary` plus `ngram`.
 - `status` is `proposed` when at least 5 Occurrences are explained by this language alone (valid only here, or n-gram winner); otherwise `ambiguous`. Short input, or words shared by several languages, therefore stays `ambiguous`, and the evidence is still shown.
 
-The n-gram profile is built when a Dictionary pack loads, from that pack's own `.dic` stems and word list, and kept as a set of trigrams in memory. Nothing else is bundled; see ADR 0012, "Addendum: language-detection data".
+The thresholds (5 Occurrences, 4 characters, 80% coverage, 20-point lead) are untuned initial values, set against tiny fixtures and not yet checked on real text; expect them to change. `detection` is an additive field, so the schema stays `v1`: consumers ignore fields they do not know.
+
+The n-gram profile is built when a Dictionary pack loads, from that pack's own `.dic` stems and word list, and kept as a set of trigrams in memory. Its size is bounded by the alphabet: 8,351 trigrams for a 49,568-stem English dictionary and 11,428 for a 146,269-stem Russian one, about 0.13 and 0.18 MB. Nothing else is bundled; see ADR 0012, "Addendum: language-detection data".
 
 Offsets are in the units named by their keys; callers never have to guess. The format is versioned: a consumer rejects an unknown `schema`.

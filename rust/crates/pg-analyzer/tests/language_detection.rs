@@ -123,3 +123,31 @@ fn no_dictionary_packs_means_no_proposals() {
     assert!(result.detection.proposals.is_empty());
     assert!(!result.detection.sufficient);
 }
+
+#[test]
+fn four_explained_occurrences_stay_ambiguous_and_five_are_proposed() {
+    let packs = [pack("en", EN), pack("es", ES)];
+    let four = run(&packs, "the water with that");
+    assert_eq!(
+        proposal(&four, "en").unwrap().status,
+        ProposalStatus::Ambiguous
+    );
+    let five = run(&packs, "the water with that hello");
+    assert_eq!(
+        proposal(&five, "en").unwrap().status,
+        ProposalStatus::Proposed
+    );
+}
+
+#[test]
+fn an_ngram_tie_between_languages_gives_no_evidence() {
+    let result = run(
+        &[pack("en", EN), pack("de", EN)],
+        "hellothere weatherthing motherwater otherthing waterthing",
+    );
+    assert!(
+        result.detection.proposals.is_empty(),
+        "{:?}",
+        result.detection
+    );
+}
