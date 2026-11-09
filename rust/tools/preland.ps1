@@ -278,6 +278,15 @@ $check = Invoke-PrelandPg -PgArgs @('-Mode', 'check')
 Add-Result 'clippy' $(if ($check.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "pg.ps1 -Mode check exit $($check.ExitCode)" (Get-SlotWaitSeconds $check.Lines)
 $compiles = ($check.ExitCode -eq 0)
 
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if ($compiles) {
+    $parity = Invoke-PrelandPg -PgArgs @('-Mode', 'test', '-Package', 'pg-analyzer', '-TestTarget', 'wordmaker_parity')
+    Add-Result 'wordmaker-parity' $(if ($parity.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "pinned reference and negative controls exit $($parity.ExitCode)"
+} else {
+    Add-Result 'wordmaker-parity' 'FAIL' 0 'not attempted: clippy failed'
+}
+
+
 # The scoreboard is one long test; once it is past cargo's build lock, the pangloss build overlaps it.
 $scoreboardRun = $null
 if ($scoreboardGate.Run -and $compiles -and -not $fixtureProblem) {

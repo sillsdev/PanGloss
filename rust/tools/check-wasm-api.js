@@ -13,7 +13,7 @@ const EXPECTED = {
   },
   PanGlossGrammar: {
     addSuppliedEntry: "addSuppliedEntry\\(request: any\\): any;",
-    analyzeText: "analyzeText\\(text: string, cache: any\\): any;",
+    analyzeText: "analyzeText\\(text: string, cache: any, profile: any\\): any;",
     analyzeWord: "analyzeWord\\(word: string\\): any;",
     classCatalog: "classCatalog\\(\\): any;",
     classificationMatrix: "classificationMatrix\\(request: any\\): any;",

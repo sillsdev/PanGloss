@@ -240,7 +240,7 @@ jobs:
     name: release gates (hygiene, rustdoc, conformance)
     needs: preflight
     if: ${{ inputs.include_release_gates && !failure() && !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: ${{ inputs.timeout_minutes }}
     env:
       PANGLOSS_CONFORMANCE_SCOPE: all
@@ -268,7 +268,27 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
+            8.0.x
             10.0.x
+      - name: Check out pinned LibLCM oracle source
+        uses: actions/checkout@v4
+        with:
+          repository: sillsdev/liblcm
+          ref: d564a719b1cce16c25ebea53a537393cb757f5d1
+          path: .tmp/wordmaker-liblcm
+      - name: Verify fresh WordMaker reference
+        env:
+          LIBLCM_REVISION: d564a719b1cce16c25ebea53a537393cb757f5d1
+          MACHINE_REVISION: 4d9b454d42a0da35e058641a65596339a79d115b
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          test "$(git -C machine rev-parse HEAD)" = "$MACHINE_REVISION"
+          sudo apt-get update
+          sudo apt-get install -y libicu70 icu-devtools
+          sudo mkdir -p /usr/lib/fieldworks/icu-bin /usr/lib/fieldworks/lib
+          sudo ln -s "$(command -v gennorm2)" /usr/lib/fieldworks/icu-bin/gennorm2
+          dotnet build rust/dotnet-harness/WordMakerParity/WordMakerParity.csproj -p:LibLcmRoot="$PWD/.tmp/wordmaker-liblcm" -p:MachineRoot="$PWD/machine" -p:DisableGitVersionTask=true
+          python3 rust/dotnet-harness/WordMakerParity/smoke.py rust/dotnet-harness/WordMakerParity/bin/Debug/net8.0/WordMakerParity.dll
       - name: conformance suite (the contract)
         run: |
           set +e
