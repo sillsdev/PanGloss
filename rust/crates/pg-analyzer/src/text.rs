@@ -1,6 +1,7 @@
 //! The analyzer entry point; the result format is `docs/text-analysis-format.md`.
 
 use crate::alternatives::DEFAULT_MAX_ALTERNATIVES;
+use crate::detect::{detect, Detection};
 use crate::dictionary::DictionaryPack;
 use crate::occurrence::check_occurrence;
 use crate::statistics::{summarize, Statistics};
@@ -211,6 +212,9 @@ pub struct TextResult {
     pub id: String,
     pub occurrences: Vec<OccurrenceResult>,
     pub statistics: Statistics,
+    /// Languages this text seems to contain: a proposal, not a verdict on any Occurrence.
+    #[serde(default)]
+    pub detection: Detection,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -221,6 +225,9 @@ pub struct TextAnalysis {
     pub resources: Vec<ResourceIdentity>,
     pub texts: Vec<TextResult>,
     pub corpus: Statistics,
+    /// Language detection over every text together.
+    #[serde(default)]
+    pub detection: Detection,
 }
 
 /// Segment every text, check each Occurrence against every pack, and count.
@@ -282,6 +289,7 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         results.push(TextResult {
             id: input.id.clone(),
             statistics: summarize(&occurrences),
+            detection: detect(&occurrences, request.dictionaries),
             occurrences,
         });
     }
@@ -310,12 +318,17 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         licence: Some(d.identity.licence.clone()),
     }));
     let corpus = summarize(results.iter().flat_map(|t| t.occurrences.iter()));
+    let detection = detect(
+        results.iter().flat_map(|t| t.occurrences.iter()),
+        request.dictionaries,
+    );
     Ok(TextAnalysis {
         schema: SCHEMA.into(),
         profile,
         resources,
         texts: results,
         corpus,
+        detection,
     })
 }
 

@@ -1,5 +1,6 @@
 //! Dictionary packs: Hunspell evidence behind a PanGloss interface; no Spellbook type escapes.
 
+use crate::detect::NgramProfile;
 use spellbook::Dictionary;
 use std::collections::BTreeSet;
 
@@ -18,6 +19,7 @@ pub struct DictionaryPack {
     pub(crate) identity: DictionaryIdentity,
     hunspell: Dictionary,
     word_list: BTreeSet<String>,
+    pub(crate) ngrams: NgramProfile,
 }
 
 /// What one pack says about one Wordform.
@@ -48,10 +50,18 @@ impl DictionaryPack {
         }
         let hunspell = Dictionary::new(aff, dic)
             .map_err(|e| format!("Dictionary pack {}: {e}", identity.source_id))?;
+        let mut ngrams = NgramProfile::default();
+        for line in dic.lines().skip(1) {
+            let stem = line.split(['/', '\t', ' ']).next().unwrap_or("");
+            if !stem.is_empty() {
+                ngrams.add(stem);
+            }
+        }
         Ok(Self {
             identity,
             hunspell,
             word_list: BTreeSet::new(),
+            ngrams,
         })
     }
 
@@ -61,7 +71,11 @@ impl DictionaryPack {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.word_list.extend(words.into_iter().map(Into::into));
+        for word in words {
+            let word: String = word.into();
+            self.ngrams.add(&word);
+            self.word_list.insert(word);
+        }
         self
     }
 

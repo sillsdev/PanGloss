@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod alternatives;
+mod detect;
 mod dictionary;
 mod occurrence;
 mod profile;
@@ -8,6 +9,10 @@ mod statistics;
 mod text;
 mod unicode;
 
+pub use detect::{
+    Detection, LanguageProposal, ProposalStatus, MIN_DECISIVE_OCCURRENCES, MIN_NGRAM_CHARS,
+    MIN_NGRAM_COVERAGE_PERCENT, MIN_NGRAM_MARGIN_PERCENT,
+};
 pub use dictionary::{DictionaryIdentity, DictionaryPack};
 use serde::{Deserialize, Serialize};
 pub use statistics::{LanguageCounts, Pair, Statistics};

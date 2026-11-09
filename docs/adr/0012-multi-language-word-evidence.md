@@ -157,3 +157,24 @@ recommendations to keep PanGloss parser-only or put the component in managed C# 
 Related: [widened purpose](0010-multi-language-spelling-prediction-and-analysis.md) and
 [FieldWorks-compatible segmentation](0011-fieldworks-compatible-segmentation.md).
 Terms: [CONTEXT.md](../../CONTEXT.md).
+
+## Addendum: language-detection data
+
+The language-detection proposer (issue 206) uses no detector model and ships no data of its own. Its
+evidence is valid-word evidence from the loaded Language Packs and Dictionary packs, plus a
+character-trigram profile built when a Dictionary pack loads from that pack's own `.dic` stems and
+word list. The profile is a set of trigrams, a few hundred kilobytes at most for a full Hunspell
+dictionary, and is not stored anywhere.
+
+Licence: because the profile is derived at load time from data the caller supplied, no new licence
+applies. The pack's own licence, already recorded in its identity, covers it, and no third-party
+detector data (fastText `lid.176`, CLD3, GlotLID, wordfreq, the Google TF-IIF lists) is bundled,
+which avoids their CC BY-SA, unlicensed or size problems recorded in `corpus-langid-small.md`.
+
+Rejected for now: a bundled per-language n-gram or word-frequency pack. It would add a licence
+decision per language and cannot cover languages with no Dictionary pack either. Revisit if a
+language needs detection before it has a Dictionary pack.
+
+Behaviour: the proposer is a proposal, never a verdict. A language is proposed only when at least
+5 Occurrences are explained by it alone; shorter input and words shared by several languages stay
+ambiguous. Thresholds and the result fields are in `docs/text-analysis-format.md`.

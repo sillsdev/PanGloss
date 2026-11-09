@@ -19,6 +19,7 @@ Each text file is one text, identified by its path. A pack is a grammar the `par
 | `resources` | The profile first, then each pack, then each Dictionary pack, in request order: `kind` (`segmentation_profile`, `language_pack`, `dictionary_pack`), `source_id`, `source_sha256` (a Dictionary pack hashes its `.aff`, `.dic` and word list), `language` for a pack, and `version` and `licence` for a Dictionary pack. |
 | `texts[]` | One per input text: `id`, `occurrences[]`, `statistics`. |
 | `corpus` | `statistics` over every text. |
+| `detection` | Language detection over every text together; see below. Each `texts[]` entry carries its own `detection`. |
 
 An Occurrence has `wordform` (the original text, never rewritten), `span` (`code_points`, `utf8` and `utf16`, each a half-open `[start, end]` in that unit), `outcome`, `valid_languages` (pack order, each language once), `misspelled_languages`, `checks[]` (the primary split's), `readings[]` and, when present, `limits`.
 
@@ -56,5 +57,18 @@ Every `statistics` object has `total`, `valid`, `misspelled`, `no_analysis`, `in
 - `ambiguous` counts valid Occurrences with two or more valid languages.
 - Counts are of Occurrences and Wordforms, never of parser results, parts or alternatives.
 - `texts[].statistics` covers one text and `corpus` covers all; Wordforms are distinct within the scope they sit in.
+
+## Language detection
+
+`detection` is a proposal of which languages a text contains, such as 231 English Occurrences meaning "turn on English". It is never a verdict on an Occurrence: `valid_languages` and `outcome` are untouched by it. It has `proposals[]` (most Occurrences first, then language code) and `sufficient` (true when at least one language is `proposed`).
+
+A proposal has `language`, `status`, and `occurrences`, `dictionary`, `shared` and `ngram`, each `{occurrences, wordforms}`.
+
+- `dictionary`: Occurrences valid in this language by a Language Pack or a Dictionary pack (Hunspell acceptance or word list). `shared` is the part of that also valid in another language.
+- `ngram`: Occurrences valid nowhere (outcome `no_analysis` or `misspelled`) of at least 4 characters, where this language's Dictionary pack covers at least 80% of the form's character trigrams and leads the next language by at least 20 points. A tie or a weak lead gives no evidence. A form that is unattempted or incomplete gives none either.
+- `occurrences` is `dictionary` plus `ngram`.
+- `status` is `proposed` when at least 5 Occurrences are explained by this language alone (valid only here, or n-gram winner); otherwise `ambiguous`. Short input, or words shared by several languages, therefore stays `ambiguous`, and the evidence is still shown.
+
+The n-gram profile is built when a Dictionary pack loads, from that pack's own `.dic` stems and word list, and kept as a set of trigrams in memory. Nothing else is bundled; see ADR 0012, "Addendum: language-detection data".
 
 Offsets are in the units named by their keys; callers never have to guess. The format is versioned: a consumer rejects an unknown `schema`.

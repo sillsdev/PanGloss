@@ -191,3 +191,45 @@ fn cli_loads_a_dictionary_pack_and_reports_misspelling_with_suggestions() {
     assert_eq!(identity.version.as_deref(), Some("1.0"));
     assert_eq!(identity.source_sha256.len(), 64);
 }
+
+#[test]
+fn cli_prints_language_proposals_and_keeps_short_input_ambiguous() {
+    let dir = scratch("detect");
+    let ldml = dir.join("qaa.ldml");
+    std::fs::write(&ldml, LDML).unwrap();
+    std::fs::write(dir.join("en.aff"), "SET UTF-8\n").unwrap();
+    std::fs::write(
+        dir.join("en.dic"),
+        "6\nthe\nwater\nwith\nthat\nthing\nhello\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("en.pgdict.json"),
+        r#"{"version":"1.0","licence":"MIT"}"#,
+    )
+    .unwrap();
+    let long = dir.join("long.txt");
+    let short = dir.join("short.txt");
+    std::fs::write(&long, "the water with that thing hello the").unwrap();
+    std::fs::write(&short, "the water").unwrap();
+    let dictionary = format!("en={}", dir.join("en").display());
+    let output = cli(&[
+        "--profile".as_ref(),
+        ldml.as_os_str(),
+        "--dictionary".as_ref(),
+        dictionary.as_ref(),
+        long.as_os_str(),
+        short.as_os_str(),
+    ]);
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let status = |text: usize| json["texts"][text]["detection"]["proposals"][0]["status"].clone();
+    assert_eq!(status(0), "proposed");
+    assert_eq!(
+        json["texts"][0]["detection"]["proposals"][0]["occurrences"]["occurrences"],
+        7
+    );
+    assert_eq!(status(1), "ambiguous");
+    assert_eq!(json["texts"][1]["detection"]["sufficient"], false);
+    assert_eq!(json["detection"]["proposals"][0]["language"], "en");
+}
