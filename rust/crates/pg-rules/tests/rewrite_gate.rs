@@ -1799,10 +1799,9 @@ fn simultaneous_overlapping_narrow_matches_keep_original_node_references() {
 
 #[test]
 fn expansion_cascade_preserves_symbolic_captured_output() {
-    let xml = include_str!(
-        "../../../../conformance-staging/edge-cases/cascade-symbolic-output/grammar.xml"
-    );
-    let grammar = pg_grammar::load(xml).unwrap();
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cascade-symbolic-output")
+        .load_grammar_xml();
+    let grammar = pg_grammar::load(&xml).unwrap();
     let mut shape =
         pg_rules::shape_feat::segment_with_features(&grammar, &grammar.char_tables[0], "uuuu")
             .unwrap();
