@@ -28,6 +28,8 @@ pub enum AdmissionRefusal {
     CompoundingEditsStem(String),
     Cascade(PhonologyLoweringError),
     Construction(String),
+    /// Every rule is admitted for every word, so a net would add nothing; carries the affix rule count.
+    NoUsablePiece(usize),
     Containment {
         structure: String,
         size: usize,
@@ -43,6 +45,7 @@ impl AdmissionRefusal {
             Self::CompoundingEditsStem(rule) => format!("compounding-edits-stem:{rule}"),
             Self::Cascade(error) => format!("cascade:{error:?}"),
             Self::Construction(why) => format!("construction:{why}"),
+            Self::NoUsablePiece(n) => format!("no-usable-piece:{n}"),
             Self::Containment { structure, size } => format!("containment:{structure}:{size}"),
         }
     }

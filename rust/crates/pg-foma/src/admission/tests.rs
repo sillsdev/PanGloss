@@ -493,3 +493,21 @@ fn the_allowance_returns_none() {
     assert!(admitted.is_none());
     assert_eq!(raw, 1);
 }
+
+#[test]
+fn a_decomposed_letter_in_the_word_reaches_the_suffix_rule() {
+    let g = load(&spec("cafés", vec![suffix(0, "s")], &["café"]));
+    let analysed = assert_same_analyses(&g, &["café", "cafés", "cafe"]);
+    assert_eq!(analysed, vec!["café", "cafés"]);
+    let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
+    assert!(admission.admit("cafés", 4096).expect("allowance")[0]);
+}
+
+#[test]
+fn a_mark_segment_after_a_letter_segment_reaches_the_suffix_rule() {
+    let g = load(&spec("pan\u{301}s", vec![suffix(0, "s")], &["pa\u{301}n"]));
+    let analysed = assert_same_analyses(&g, &["pa\u{301}n", "pa\u{301}ns"]);
+    assert_eq!(analysed.len(), 2, "{analysed:?}");
+    let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
+    assert!(admission.admit("pa\u{301}ns", 4096).expect("allowance")[0]);
+}

@@ -11,6 +11,7 @@ use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::structures::fsm_empty_string;
 use foma::types::Fsm;
+use foma::utf8::is_combining;
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use std::collections::HashMap;
@@ -45,9 +46,27 @@ fn symbols_union(opts: &FomaOptions, symbols: impl IntoIterator<Item = String>) 
     union_all(opts, symbols.into_iter().map(|s| fsm_symbol(&s)).collect())
 }
 
-fn text_net(opts: &FomaOptions, text: &str) -> Fsm {
-    text.chars()
-        .map(|c| fsm_symbol(&c.to_string()))
+fn is_mark(c: char) -> bool {
+    let mut buf = [0u8; 4];
+    is_combining(c.encode_utf8(&mut buf).as_bytes()) != 0
+}
+
+/// Lower-side symbols of a spelling: each base character with the combining marks that follow it.
+fn spelling_symbols(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for c in text.chars() {
+        match out.last_mut() {
+            Some(last) if is_mark(c) => last.push(c),
+            _ => out.push(c.to_string()),
+        }
+    }
+    out
+}
+
+fn symbols_net(opts: &FomaOptions, symbols: &[String]) -> Fsm {
+    symbols
+        .iter()
+        .map(|s| fsm_symbol(s))
         .reduce(|left, right| fsm_concat(opts, left, right))
         .unwrap_or_else(fsm_empty_string)
 }
@@ -125,24 +144,61 @@ fn identity_cascade(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
         .unwrap_or_else(fsm_empty_string)
 }
 
-/// Segment tokens become their NFD spellings; the cascade has already removed boundary tokens.
+/// Segment tokens become their NFD spellings, with a mark segment after a segment read as the one symbol foma's apply merges them into.
 fn orthography(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
     let alphabet = SegAlphabet::new(table);
-    let mut arcs = Vec::new();
-    for (id, def) in table.iter() {
-        if def.kind() != CharDefKind::Segment {
-            continue;
-        }
-        let spellings: Vec<Fsm> = def
-            .representations_nfd()
-            .iter()
-            .map(|rep| text_net(opts, rep))
-            .collect();
-        let Some(spelled) = union_all(opts, spellings) else {
+    let reps: Vec<(char, Vec<String>)> = table
+        .iter()
+        .filter(|(_, def)| def.kind() == CharDefKind::Segment)
+        .flat_map(|(id, def)| {
+            let token = alphabet.token(id);
+            def.representations_nfd()
+                .iter()
+                .map(move |rep| (token, spelling_symbols(rep)))
+        })
+        .collect();
+    let marks: Vec<&(char, Vec<String>)> = reps
+        .iter()
+        .filter(|(_, syms)| {
+            syms.first()
+                .and_then(|s| s.chars().next())
+                .is_some_and(is_mark)
+        })
+        .collect();
+    let mut arcs: Vec<Fsm> = Vec::new();
+    let relate = |tokens: &str, lower: &[String]| {
+        let upper: Vec<String> = tokens.chars().map(String::from).collect();
+        fsm_cross_product(opts, symbols_net(opts, &upper), symbols_net(opts, lower))
+    };
+    for (token, syms) in &reps {
+        arcs.push(relate(&token.to_string(), syms));
+        let Some((last, head)) = syms.split_last() else {
             continue;
         };
-        let token = fsm_symbol(&alphabet.token(id).to_string());
-        arcs.push(fsm_cross_product(opts, token, spelled));
+        for (mark, mark_syms) in &marks {
+            let Some((lead, rest)) = mark_syms.split_first() else {
+                continue;
+            };
+            let merged = |tail: &str| -> Vec<String> {
+                let mut lower = head.to_vec();
+                lower.push(format!("{last}{tail}"));
+                lower.extend(rest.iter().cloned());
+                lower
+            };
+            arcs.push(relate(&format!("{token}{mark}"), &merged(lead)));
+            if !rest.is_empty() {
+                continue;
+            }
+            for (second, second_syms) in &marks {
+                let Some((second_lead, second_rest)) = second_syms.split_first() else {
+                    continue;
+                };
+                let mut lower = head.to_vec();
+                lower.push(format!("{last}{lead}{second_lead}"));
+                lower.extend(second_rest.iter().cloned());
+                arcs.push(relate(&format!("{token}{mark}{second}"), &lower));
+            }
+        }
     }
     union_all(opts, arcs)
         .map(|net| fsm_kleene_star(opts, net))
@@ -291,9 +347,7 @@ pub(super) fn machine(
     let items: Vec<String> = plan.pieces.iter().map(|p| p.grammar_item.clone()).collect();
     let Some((acceptor, tags, free)) = compile_tagged(opts, plan, &mut tag_of, &tokens, meter)
     else {
-        return Err(AdmissionRefusal::Construction(
-            "no rule has a usable piece".into(),
-        ));
+        return Err(AdmissionRefusal::NoUsablePiece(plan.counts.affix_rules));
     };
     evidence.acceptor = size(&acceptor);
     meter.observe("tagged acceptor", evidence.acceptor, &items)?;
