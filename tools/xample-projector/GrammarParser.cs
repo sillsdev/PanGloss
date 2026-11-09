@@ -211,8 +211,11 @@ namespace XampleProjector
 						RefuseIfInactive(se, $"Slot \"{slotName}\"");
 						RegisterId(seenIds, slotName, "Slot");
 						var ruleIds = SplitIds((string)se.Attribute("morphologicalRules"));
-						if (ruleIds.Count == 0)
-							throw new GrammarAuthorException($"Slot \"{slotName}\": morphologicalRules is required but empty");
+						// A slot without rules has no rule to read its direction from; the author-only
+						// direction attribute names it.
+						var slotDirection = (string)se.Attribute("direction");
+						if (ruleIds.Count == 0 && slotDirection != "prefix" && slotDirection != "suffix")
+							throw new GrammarAuthorException($"Slot \"{slotName}\": a slot with no morphologicalRules requires direction=\"prefix\" or \"suffix\"");
 						foreach (var rid in ruleIds)
 						{
 							if (!rules.ContainsKey(rid))
@@ -223,12 +226,16 @@ namespace XampleProjector
 						}
 						// A slot has exactly one of PrefixSlotsRS/SuffixSlotsRS to be added to.
 						var directions = ruleIds.Select(rid => rules[rid].Subrules[0].IsPrefix).Distinct().ToList();
-						if (directions.Count != 1)
+						if (directions.Count > 1)
 							throw new GrammarAuthorException($"Slot \"{slotName}\" mixes prefix and suffix rules (unsupported)");
+						var slotIsPrefix = directions.Count == 1 ? directions[0] : slotDirection == "prefix";
+						if (directions.Count == 1 && slotDirection != null && (slotDirection == "prefix") != slotIsPrefix)
+							throw new GrammarAuthorException($"Slot \"{slotName}\": direction=\"{slotDirection}\" contradicts its rules");
 						slots.Add(new SlotModel
 						{
 							Name = slotName,
 							Optional = (string)se.Attribute("optional") == "true",
+							IsPrefix = slotIsPrefix,
 							RuleIds = ruleIds,
 						});
 					}

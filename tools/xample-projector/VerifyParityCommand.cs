@@ -385,7 +385,7 @@ namespace XampleProjector
 			foreach (var template in grammar.AffixTemplates)
 			{
 				var lcmTemplate = (IMoInflAffixTemplate)Resolve(template.Name, "MoInflAffixTemplate");
-				bool SlotIsPrefix(SlotModel slot) => grammar.MorphologicalRules[slot.RuleIds[0]].Subrules[0].IsPrefix;
+				bool SlotIsPrefix(SlotModel slot) => slot.IsPrefix;
 
 				var expectedPrefixOrder = template.Slots.Where(SlotIsPrefix).Select(s => guidMap[s.Name]).ToList();
 				var actualPrefixOrder = lcmTemplate.PrefixSlotsRS.Select(s => s.Guid).ToList();
