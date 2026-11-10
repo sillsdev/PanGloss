@@ -1,5 +1,6 @@
 //! Dictionary packs: Hunspell evidence behind a PanGloss interface; no Spellbook type escapes.
 
+use crate::detect::NgramProfile;
 use spellbook::Dictionary;
 use std::collections::BTreeSet;
 
@@ -18,6 +19,7 @@ pub struct DictionaryPack {
     pub(crate) identity: DictionaryIdentity,
     hunspell: Dictionary,
     word_list: BTreeSet<String>,
+    pub(crate) ngrams: NgramProfile,
 }
 
 /// What one pack says about one Wordform.
@@ -48,10 +50,15 @@ impl DictionaryPack {
         }
         let hunspell = Dictionary::new(aff, dic)
             .map_err(|e| format!("Dictionary pack {}: {e}", identity.source_id))?;
+        let mut ngrams = NgramProfile::default();
+        for stem in dic_stems(dic) {
+            ngrams.add(&stem);
+        }
         Ok(Self {
             identity,
             hunspell,
             word_list: BTreeSet::new(),
+            ngrams,
         })
     }
 
@@ -61,7 +68,11 @@ impl DictionaryPack {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.word_list.extend(words.into_iter().map(Into::into));
+        for word in words {
+            let word: String = word.into();
+            self.ngrams.add(&word);
+            self.word_list.insert(word);
+        }
         self
     }
 
@@ -87,5 +98,50 @@ impl DictionaryPack {
         } else {
             Verdict::Misspelled(found)
         }
+    }
+}
+
+/// Stems of a `.dic` body, tolerating a BOM, a missing count line and `\/` inside a stem.
+fn dic_stems(dic: &str) -> Vec<String> {
+    let dic = dic.strip_prefix('\u{feff}').unwrap_or(dic);
+    let mut lines = dic.lines().peekable();
+    if lines
+        .peek()
+        .is_some_and(|l| !l.trim().is_empty() && l.trim().bytes().all(|b| b.is_ascii_digit()))
+    {
+        lines.next();
+    }
+    lines
+        .filter_map(|line| {
+            let mut stem = String::new();
+            let mut chars = line.chars().peekable();
+            while let Some(c) = chars.next() {
+                match c {
+                    '\\' if chars.peek() == Some(&'/') => {
+                        stem.push('/');
+                        chars.next();
+                    }
+                    '/' | '\t' | ' ' => break,
+                    _ => stem.push(c),
+                }
+            }
+            (!stem.is_empty()).then_some(stem)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dic_stems;
+
+    #[test]
+    fn stems_survive_bom_escaped_slash_flags_and_morphology() {
+        let dic = "\u{feff}4\nthe/S\nand\\/or\ncat\tpo:noun\n\n";
+        assert_eq!(dic_stems(dic), ["the", "and/or", "cat"]);
+    }
+
+    #[test]
+    fn a_dic_without_a_count_line_keeps_its_first_stem() {
+        assert_eq!(dic_stems("the\nword\n"), ["the", "word"]);
     }
 }
