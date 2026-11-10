@@ -95,7 +95,9 @@ impl RootSearchCache {
         let idx = stratum.0 as usize;
         if self.tables[idx].is_none() {
             // Allow for bucket rounding, control bytes and allocator overhead.
-            let table_bytes = SLOTS * 4 * (std::mem::size_of::<(Shape, Entry)>() + 1) + 4096;
+            let table_bytes =
+                SLOTS * 4 * (pg_shape::INLINE_COLUMNS_BYTES + std::mem::size_of::<Entry>() + 1)
+                    + 4096;
             if self
                 .bytes
                 .saturating_add(table_bytes)
