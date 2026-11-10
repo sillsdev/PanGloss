@@ -6,6 +6,9 @@ mod piece;
 mod plan;
 #[cfg(test)]
 mod tests;
+pub mod tiled;
+#[cfg(test)]
+mod tiled_tests;
 
 use crate::lower::{pattern_slots, PatternLowerScope, Slot};
 use crate::replace::{PhonologyLoweringError, SegAlphabet};
@@ -25,6 +28,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub use plan::plan_admission;
+pub use tiled::{build_tiled, TileCounts, Tiled, TiledEvidence};
 
 /// Whether a token can match the one-node pattern; anything unclear answers yes.
 pub fn class_test(g: &Grammar) -> impl Fn(&PatternNode, char) -> bool + '_ {

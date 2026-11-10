@@ -205,7 +205,7 @@ impl NetView {
     }
 
     /// Nodes are `state * 2 + seen`, where `seen` says the tag has been read on the upper side.
-    fn close(&self, tag: i32, seed: Vec<usize>, mark: &mut [bool]) -> Vec<usize> {
+    fn close(&self, tag: Option<i32>, seed: Vec<usize>, mark: &mut [bool]) -> Vec<usize> {
         let mut set = Vec::new();
         let mut stack = seed;
         while let Some(node) = stack.pop() {
@@ -232,8 +232,18 @@ impl NetView {
 
     /// The deterministic acceptor of the lower side of the paths whose upper side is exactly `tag`.
     pub(super) fn rule(&self, tag: i32, bound: usize) -> RuleOutcome {
+        self.table(Some(tag), bound)
+    }
+
+    /// The deterministic acceptor of the lower side of every path of an acceptor net, whose arcs carry no tag.
+    pub(super) fn language(&self, bound: usize) -> RuleOutcome {
+        self.table(None, bound)
+    }
+
+    fn table(&self, tag: Option<i32>, bound: usize) -> RuleOutcome {
         let mut mark = vec![false; self.arcs.len() * 2];
-        let start_seed = self.starts.iter().map(|s| s * 2).collect();
+        let seen_at_start = usize::from(tag.is_none());
+        let start_seed = self.starts.iter().map(|s| s * 2 + seen_at_start).collect();
         let start = self.close(tag, start_seed, &mut mark);
         let mut ids: HashMap<Vec<usize>, u32> = HashMap::new();
         let mut sets: Vec<Vec<usize>> = Vec::new();
@@ -383,7 +393,10 @@ impl NetView {
 }
 
 /// The `seen` flag after an arc's upper symbol, or `None` when the arc leaves the paths whose upper side is exactly the tag.
-fn upper_step(upper: i32, tag: i32, seen: usize) -> Option<usize> {
+fn upper_step(upper: i32, tag: Option<i32>, seen: usize) -> Option<usize> {
+    let Some(tag) = tag else {
+        return Some(seen);
+    };
     if upper == EPSILON {
         return Some(seen);
     }

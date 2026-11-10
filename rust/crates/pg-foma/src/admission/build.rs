@@ -31,7 +31,7 @@ pub(super) fn size(net: &Fsm) -> Size {
     }
 }
 
-fn union_all(opts: &FomaOptions, mut nets: Vec<Fsm>) -> Option<Fsm> {
+pub(super) fn union_all(opts: &FomaOptions, mut nets: Vec<Fsm>) -> Option<Fsm> {
     while nets.len() > 1 {
         let mut next = Vec::with_capacity(nets.len() / 2 + 1);
         let mut iter = nets.into_iter();
@@ -46,7 +46,10 @@ fn union_all(opts: &FomaOptions, mut nets: Vec<Fsm>) -> Option<Fsm> {
     nets.pop()
 }
 
-fn symbols_union(opts: &FomaOptions, symbols: impl IntoIterator<Item = String>) -> Option<Fsm> {
+pub(super) fn symbols_union(
+    opts: &FomaOptions,
+    symbols: impl IntoIterator<Item = String>,
+) -> Option<Fsm> {
     union_all(opts, symbols.into_iter().map(|s| fsm_symbol(&s)).collect())
 }
 
@@ -122,7 +125,7 @@ fn tokens_of(table: &CharDefTable, kind: CharDefKind) -> Vec<char> {
 }
 
 /// Segment tokens copy through and boundary tokens vanish.
-fn identity_cascade(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
+pub(super) fn identity_cascade(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
     let segments = symbols_union(
         opts,
         tokens_of(table, CharDefKind::Segment)
@@ -143,7 +146,7 @@ fn identity_cascade(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
 }
 
 /// Segment tokens become their NFD spellings, with a mark segment after a segment read as the one symbol foma's apply merges them into.
-fn orthography(opts: &FomaOptions, table: &CharDefTable) -> (Fsm, Vec<String>) {
+pub(super) fn orthography(opts: &FomaOptions, table: &CharDefTable) -> (Fsm, Vec<String>) {
     let alphabet = SegAlphabet::new(table);
     let reps: Vec<(char, Vec<String>)> = table
         .iter()
@@ -234,7 +237,7 @@ fn compose_min(
 const LARGE_STACK_BYTES: usize = 1 << 30;
 
 // Minimizing and composing large nets drops linked structures hundreds of thousands deep, so the build runs on its own stack.
-fn on_large_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+pub(super) fn on_large_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(LARGE_STACK_BYTES)
@@ -371,6 +374,29 @@ fn pad(opts: &FomaOptions, inner: Fsm, symbols: &[String]) -> Fsm {
         .unwrap_or_else(fsm_empty_string);
     let around = fsm_cross_product(opts, fsm_empty_string(), any);
     fsm_concat(opts, fsm_concat(opts, around.clone(), inner), around)
+}
+
+/// The segment tokens and the boundary tokens of the cascade alphabet.
+pub(super) fn token_sets(g: &Grammar, parts: Option<&CascadeParts>) -> (Vec<char>, Vec<char>) {
+    let table = &g.char_tables[0];
+    match parts {
+        Some(parts) => {
+            let tokens = &parts.tokens;
+            let segments = tokens
+                .attested_segments
+                .iter()
+                .chain(&tokens.private_segments)
+                .copied()
+                .collect();
+            (segments, tokens.boundaries.to_vec())
+        }
+        None => (
+            tokens_of(table, CharDefKind::Segment).into_iter().collect(),
+            tokens_of(table, CharDefKind::Boundary)
+                .into_iter()
+                .collect(),
+        ),
+    }
 }
 
 pub(super) fn token_alphabet(g: &Grammar, parts: Option<&CascadeParts>) -> Vec<char> {

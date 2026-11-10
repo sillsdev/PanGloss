@@ -8,10 +8,10 @@ use foma::types::Sides;
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
 use pg_rules::stratum::RuleRef;
 
-const ANY: &str = r#"<OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>"#;
-const ANY_ONE: &str = r#"<OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>"#;
+pub(super) const ANY: &str = r#"<OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>"#;
+pub(super) const ANY_ONE: &str = r#"<OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>"#;
 
-fn input(parts: &[&str]) -> String {
+pub(super) fn input(parts: &[&str]) -> String {
     let parts: String = parts
         .iter()
         .enumerate()
@@ -20,15 +20,15 @@ fn input(parts: &[&str]) -> String {
     format!("<MorphologicalInput>{parts}</MorphologicalInput>")
 }
 
-fn copy(i: usize) -> String {
+pub(super) fn copy(i: usize) -> String {
     format!(r#"<CopyFromInput index="p{i}" />"#)
 }
 
-fn insert(text: &str) -> String {
+pub(super) fn insert(text: &str) -> String {
     format!("<InsertSegments><PhoneticShape>{text}</PhoneticShape></InsertSegments>")
 }
 
-fn rule(id: usize, parts: &[&str], output: &[String]) -> String {
+pub(super) fn rule(id: usize, parts: &[&str], output: &[String]) -> String {
     format!(
         r#"<MorphologicalRule id="mr{id}" requiredPartsOfSpeech="posV"><Name>r{id}</Name><MorphemeId>m{id}</MorphemeId><MorphologicalSubrules>
         <MorphologicalSubrule id="sub{id}">{}<MorphologicalOutput>{}</MorphologicalOutput></MorphologicalSubrule>
@@ -38,25 +38,25 @@ fn rule(id: usize, parts: &[&str], output: &[String]) -> String {
     )
 }
 
-fn suffix(id: usize, text: &str) -> String {
+pub(super) fn suffix(id: usize, text: &str) -> String {
     rule(id, &[ANY_ONE], &[copy(0), insert(text)])
 }
 
-fn prefix(id: usize, text: &str) -> String {
+pub(super) fn prefix(id: usize, text: &str) -> String {
     rule(id, &[ANY_ONE], &[insert(text), copy(0)])
 }
 
-struct Spec<'a> {
-    segments: &'a str,
-    boundary: bool,
-    rules: Vec<String>,
-    roots: &'a [&'a str],
-    prules: &'a str,
-    prule_ids: &'a str,
-    classes: &'a str,
+pub(super) struct Spec<'a> {
+    pub(super) segments: &'a str,
+    pub(super) boundary: bool,
+    pub(super) rules: Vec<String>,
+    pub(super) roots: &'a [&'a str],
+    pub(super) prules: &'a str,
+    pub(super) prule_ids: &'a str,
+    pub(super) classes: &'a str,
 }
 
-fn grammar_xml(spec: &Spec) -> String {
+pub(super) fn grammar_xml(spec: &Spec) -> String {
     let featured = !spec.prules.is_empty();
     let segments: String = spec.segments.chars().map(|c| {
         let value = if featured { format!(r#"<FeatureValue feature="fId" symbolValues="v{c}" />"#) } else { String::new() };
@@ -103,7 +103,7 @@ fn grammar_xml(spec: &Spec) -> String {
     )
 }
 
-fn spec<'a>(segments: &'a str, rules: Vec<String>, roots: &'a [&'a str]) -> Spec<'a> {
+pub(super) fn spec<'a>(segments: &'a str, rules: Vec<String>, roots: &'a [&'a str]) -> Spec<'a> {
     Spec {
         segments,
         boundary: false,
@@ -115,7 +115,7 @@ fn spec<'a>(segments: &'a str, rules: Vec<String>, roots: &'a [&'a str]) -> Spec
     }
 }
 
-fn load(spec: &Spec) -> Grammar {
+pub(super) fn load(spec: &Spec) -> Grammar {
     let xml = grammar_xml(spec);
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
@@ -249,12 +249,12 @@ fn short_suffix_under_truncation_is_free() {
     assert!(plan_of(&g).free[0], "no plain token is left");
 }
 
-const CLASS_X: &str =
+pub(super) const CLASS_X: &str =
     r#"<SegmentNaturalClass id="ncX"><Name>X</Name><Segment segment="cx" /></SegmentNaturalClass>"#;
-const CTX_X: &str = r#"<SimpleContext naturalClass="ncX" />"#;
-const CTX_ANY: &str = r#"<SimpleContext naturalClass="ncAny" />"#;
+pub(super) const CTX_X: &str = r#"<SimpleContext naturalClass="ncX" />"#;
+pub(super) const CTX_ANY: &str = r#"<SimpleContext naturalClass="ncAny" />"#;
 
-fn truncate_last(id: usize) -> String {
+pub(super) fn truncate_last(id: usize) -> String {
     rule(id, &[ANY_ONE, CTX_ANY], &[copy(0)])
 }
 
@@ -367,7 +367,7 @@ fn boundary_in_a_literal_is_optional_only_where_a_part_edge_reaches_it() {
     );
 }
 
-fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
+pub(super) fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
     let mut keys: Vec<_> = outcome
         .structured
         .iter()
@@ -377,7 +377,7 @@ fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
     keys
 }
 
-fn restricted(morpher: &Morpher, word: &str, admitted: &[bool]) -> ParseOutcome {
+pub(super) fn restricted(morpher: &Morpher, word: &str, admitted: &[bool]) -> ParseOutcome {
     let rule = |rule: RuleRef| match rule {
         RuleRef::Stratum(_) | RuleRef::Template(_) => true,
         RuleRef::MRule(id) => admitted[id.0 as usize],
@@ -386,7 +386,7 @@ fn restricted(morpher: &Morpher, word: &str, admitted: &[bool]) -> ParseOutcome 
 }
 
 /// The word, its substrings, and its single-character deletions, replacements and insertions.
-fn variants(word: &str) -> Vec<String> {
+pub(super) fn variants(word: &str) -> Vec<String> {
     let chars: Vec<char> = word.chars().collect();
     let mut out = vec![word.to_owned()];
     for from in 0..=chars.len() {
@@ -498,7 +498,7 @@ fn infix_circumfix_and_truncation_end_to_end() {
     assert!(analysed.len() >= 4, "{analysed:?}");
 }
 
-const ASSIMILATION: &str = r#"<PhonologicalRuleDefinitions><PhonologicalRule id="pr1"><Name>n to m after p</Name>
+pub(super) const ASSIMILATION: &str = r#"<PhonologicalRuleDefinitions><PhonologicalRule id="pr1"><Name>n to m after p</Name>
   <PhoneticInput><PhoneticSequence><Segment segment="cn" /></PhoneticSequence></PhoneticInput>
   <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="cm" /></PhoneticSequence></PhoneticOutput>
   <Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cp" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment>
@@ -526,7 +526,7 @@ fn phonology_that_changes_an_affix_literal_keeps_the_analysis() {
 }
 
 /// Adds a stratum after the phonological one holding the given rules.
-fn with_late_stratum(xml: String, ids: &[usize], rules: &[String]) -> Grammar {
+pub(super) fn with_late_stratum(xml: String, ids: &[usize], rules: &[String]) -> Grammar {
     let listed: Vec<String> = ids.iter().map(|i| format!("mr{i}")).collect();
     let xml = xml.replace(
         "</Strata>",
@@ -539,7 +539,11 @@ fn with_late_stratum(xml: String, ids: &[usize], rules: &[String]) -> Grammar {
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 
-fn assimilation_spec<'a>(segments: &'a str, rules: Vec<String>, roots: &'a [&'a str]) -> Spec<'a> {
+pub(super) fn assimilation_spec<'a>(
+    segments: &'a str,
+    rules: Vec<String>,
+    roots: &'a [&'a str],
+) -> Spec<'a> {
     Spec {
         prules: ASSIMILATION,
         prule_ids: "pr1",

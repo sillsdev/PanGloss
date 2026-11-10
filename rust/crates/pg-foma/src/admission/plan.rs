@@ -142,7 +142,7 @@ fn node_span(table: &CharDefTable, node: &PatternNode) -> Span {
     }
 }
 
-fn nodes_span(table: &CharDefTable, nodes: &[PatternNode]) -> Span {
+pub(super) fn nodes_span(table: &CharDefTable, nodes: &[PatternNode]) -> Span {
     nodes
         .iter()
         .fold(Span::ZERO, |acc, node| acc.plus(node_span(table, node)))
@@ -175,7 +175,7 @@ fn action_span(action: &OutputAction, parts: &[Span]) -> Span {
     }
 }
 
-fn tokens(alphabet: &SegAlphabet, shape: &pg_shape::Shape) -> Option<Vec<Tok>> {
+pub(super) fn tokens(alphabet: &SegAlphabet, shape: &pg_shape::Shape) -> Option<Vec<Tok>> {
     if !SegAlphabet::shape_is_tokenizable(shape) {
         return None;
     }
@@ -207,7 +207,7 @@ fn suffix_max(parts: &[Span]) -> Vec<Max> {
 }
 
 /// The index where the RHS copies every part once, in order, as one run.
-fn intact_start(rhs: &[OutputAction], parts: usize) -> Option<usize> {
+pub(super) fn intact_start(rhs: &[OutputAction], parts: usize) -> Option<usize> {
     if parts == 0 || rhs.len() < parts {
         return None;
     }
@@ -436,11 +436,11 @@ fn root_floor(g: &Grammar) -> usize {
 }
 
 /// Which rules sit in the strata up to the phonological one (inner) and after it (outer).
-struct Regions {
-    inner: Vec<bool>,
-    outer: Vec<bool>,
+pub(super) struct Regions {
+    pub inner: Vec<bool>,
+    pub outer: Vec<bool>,
     /// Applications of each rule inside the inner strata.
-    inner_uses: Vec<usize>,
+    pub inner_uses: Vec<usize>,
 }
 
 fn stratum_rules(g: &Grammar, stratum: &pg_grammar::model::StratumDef) -> Vec<MRuleId> {
@@ -452,7 +452,7 @@ fn stratum_rules(g: &Grammar, stratum: &pg_grammar::model::StratumDef) -> Vec<MR
     stratum.mrules.iter().copied().chain(slotted).collect()
 }
 
-fn regions(g: &Grammar) -> Regions {
+pub(super) fn regions(g: &Grammar) -> Regions {
     let at = g
         .strata
         .iter()
