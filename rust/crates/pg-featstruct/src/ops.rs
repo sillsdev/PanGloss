@@ -144,7 +144,7 @@ fn value_is_unifiable(a: &FeatureValue, b: &FeatureValue) -> bool {
 pub fn unify(a: &FeatureStruct, b: &FeatureStruct) -> Option<FeatureStruct> {
     let ae = a.entries();
     let be = b.entries();
-    let mut builder = FeatureStructBuilder::new();
+    let mut builder = FeatureStructBuilder::with_capacity(ae.len() + be.len());
     let (mut i, mut j) = (0usize, 0usize);
     loop {
         match (ae.get(i), be.get(j)) {
@@ -252,7 +252,7 @@ fn value_subsumes(a: &FeatureValue, b: &FeatureValue) -> bool {
 pub fn priority_union(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
     let ae = a.entries();
     let be = b.entries();
-    let mut builder = FeatureStructBuilder::new();
+    let mut builder = FeatureStructBuilder::with_capacity(ae.len() + be.len());
     let (mut i, mut j) = (0usize, 0usize);
     loop {
         match (ae.get(i), be.get(j)) {
@@ -334,7 +334,7 @@ pub fn add(
 ) -> FeatureStruct {
     let ae = a.entries();
     let be = b.entries();
-    let mut builder = FeatureStructBuilder::new();
+    let mut builder = FeatureStructBuilder::with_capacity(ae.len() + be.len());
     let (mut i, mut j) = (0usize, 0usize);
     loop {
         match (ae.get(i), be.get(j)) {
@@ -441,7 +441,7 @@ pub fn union(
 ) -> FeatureStruct {
     let ae = a.entries();
     let be = b.entries();
-    let mut builder = FeatureStructBuilder::new();
+    let mut builder = FeatureStructBuilder::with_capacity(ae.len().min(be.len()));
     let (mut i, mut j) = (0usize, 0usize);
     while i < ae.len() && j < be.len() {
         match ae[i].0.cmp(&be[j].0) {
@@ -495,7 +495,7 @@ fn union_value(
 /// `remainder`) and `pg-rules::word::Word::expand_alternatives` (`Word.cs:517-518`'s realizational-
 /// FS diff).
 pub fn subtract(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
-    let mut builder = FeatureStructBuilder::new();
+    let mut builder = FeatureStructBuilder::with_capacity(a.entries().len());
     for (feat, aval) in a.entries() {
         match b.get(*feat) {
             None => {
@@ -540,7 +540,7 @@ pub fn subtract(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
 pub fn remove_paths(a: &FeatureStruct, paths: &FeatureStruct) -> FeatureStruct {
     let ae = a.entries();
     let pe = paths.entries();
-    let mut builder = FeatureStructBuilder::new();
+    let mut builder = FeatureStructBuilder::with_capacity(ae.len());
     let (mut i, mut j) = (0usize, 0usize);
     while i < ae.len() && j < pe.len() {
         match ae[i].0.cmp(&pe[j].0) {
