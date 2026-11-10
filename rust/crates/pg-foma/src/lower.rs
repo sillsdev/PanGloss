@@ -17,8 +17,10 @@ use pg_grammar::model::{Grammar, NaturalClassKind, Pattern, PatternNode, TableId
 use crate::replace::SegAlphabet;
 
 mod block;
+mod insertion;
 mod intermediate;
 pub(crate) use block::{compile_block, is_block_rule, pair_filter};
+pub(crate) use insertion::{compile_fed_insertion, render_branch, replacement_rows};
 pub(crate) use intermediate::IntermediateBundles;
 
 /// Resolves exact class membership while leaving alpha-bound feature lanes for tuple binding.

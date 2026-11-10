@@ -100,11 +100,16 @@ Boundary ignore loops consume and copy optional markers across pattern matches;
 they introduce no output-only boundary loop.
 POS/MPR applicability and feature defaults are confirmed by HC.
 
-Iterative empty focus returns `IterativeFedInsertionUnavailable` for every
-direction and environment. One insertion per original gap cannot model fed
-insertion into the same gap (for example `∅ -> a / # a? _ e`: `e -> ae -> aae`).
-No nonfeeding exception is claimed. Simultaneous insertion tests each original
-input gap and remains supported.
+Iterative empty focus compiles as a widened relation. Synthesis inserts after a gap's node and
+continues from the node it inserted, so one gap can take several insertions, each landing inside
+the block of the first (for example `∅ -> a / # a? _ e`: `e -> ae -> aae`). The net places a
+marked block at any gap, built from the first node of the replacement with any replacement row
+allowed after every node, then keeps the block only where its subrule's environment holds at the
+block's first node: the left environment on the output so far, the right one on the input with
+every other block skipped. Later insertions in the block carry no environment, a superset of what
+synthesis makes. A right-to-left rule places the replacement reversed, as synthesis does. Rules
+whose replacement is not a plain row union return `IterativeFedInsertionUnavailable`. Simultaneous
+insertion tests each original input gap and remains supported.
 
 Quantified/grouped/anchored focus or replacement and other unsupported shapes
 return a typed refusal. A simultaneous focus of several tokens returns

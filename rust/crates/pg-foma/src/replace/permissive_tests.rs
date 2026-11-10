@@ -91,10 +91,8 @@ fn matrix_relation(g: &Grammar, lhs: &str) -> Option<Fsm> {
     };
     let result = relation(g, &[0]);
     if lhs.is_empty() && rule.mode == RewriteMode::Iterative {
-        assert_eq!(
-            result.unwrap_err(),
-            PhonologyLoweringError::IterativeFedInsertionUnavailable(rule.xml_id.clone())
-        );
+        // Fed insertion makes the relation infinite, so it is checked by inclusion in `insertion_tests`, not enumerated.
+        result.expect("iterative empty-focus insertion has a proposing construction");
         None
     } else if lhs.chars().count() > 1 && rule.mode == RewriteMode::Simultaneous {
         assert_eq!(
@@ -1178,42 +1176,68 @@ fn an_empty_class_is_not_an_epenthesis_center() {
 }
 
 #[test]
-fn bounded_iterative_epenthesis_refuses_instead_of_losing_fed_output() {
+fn bounded_iterative_epenthesis_keeps_the_fed_output() {
     let g = fixture("bounded-iterative-epenthesis");
     // Forward e -> ae -> aae is independently confirmed by pinned C#.
     let mut reports = vec![("retained".to_owned(), Vec::new())];
-    let result = compile_and_compose_rules_recall_safe(
+    let net = compile_and_compose_rules_recall_safe(
         &FomaOptions::default(),
         &g,
         &[&g.prules[0]],
         &mut reports,
-    );
-    assert_eq!(
-        result.unwrap_err(),
-        PhonologyLoweringError::IterativeFedInsertionUnavailable("rInsert".to_owned())
-    );
-    assert_eq!(reports.len(), 1);
-    assert_eq!(reports[0].0, "retained");
-    assert!(reports[0].1.is_empty());
+    )
+    .expect("fed insertion has a proposing construction");
+    assert_eq!(reports.len(), 2);
+    for word in ["e", "ae", "aae"] {
+        assert!(
+            super::insertion_tests::relates(&net, &encoded(&g, "e"), &encoded(&g, word)),
+            "{word}"
+        );
+    }
 }
 
 #[test]
-fn iterative_empty_focus_refuses_in_both_directions_with_any_environment() {
+fn iterative_empty_focus_inserts_in_both_directions_with_any_environment() {
     for dir in [Dir::LeftToRight, Dir::RightToLeft] {
-        for (rhs, left, right) in [
-            ("i", "", ""),
-            ("ai", "a", ""),
-            ("ia", "", "a"),
-            ("", "a", "a"),
+        // Right-to-left synthesis places the replacement reversed.
+        let reversed = dir == Dir::RightToLeft;
+        for (rhs, left, right, input, inserted) in [
+            ("i", "", "", "a", Some("ia")),
+            (
+                "ai",
+                "a",
+                "",
+                "a",
+                Some(if reversed { "aia" } else { "aai" }),
+            ),
+            (
+                "ia",
+                "",
+                "a",
+                "a",
+                Some(if reversed { "aia" } else { "iaa" }),
+            ),
+            ("", "a", "a", "aa", None),
         ] {
             let g = literal_grammar(RewriteMode::Iterative, dir, "", rhs, left, right);
-            assert!(matrix_relation(&g, "").is_none());
+            let net = relation(&g, &[0]).expect("insertion has a proposing construction");
+            let relates = |output: &str| {
+                super::insertion_tests::relates(&net, &encoded(&g, input), &encoded(&g, output))
+            };
+            assert!(relates(input), "{dir:?} {rhs}: identity");
+            match inserted {
+                Some(word) => assert!(relates(word), "{dir:?} 0->{rhs}/{left}_{right}: {word}"),
+                None => assert!(
+                    !relates("iaa"),
+                    "{dir:?}: an empty replacement inserts nothing"
+                ),
+            }
         }
     }
 }
 
 #[test]
-fn an_iterative_insertion_successor_cannot_publish_a_partial_cascade() {
+fn an_iterative_insertion_successor_joins_the_cascade() {
     for dir in [Dir::LeftToRight, Dir::RightToLeft] {
         let mut g = literal_grammar(RewriteMode::Iterative, dir, "", "i", "", "");
         let mut first = literal_grammar(RewriteMode::Iterative, dir, "i", "i", "", "")
@@ -1227,23 +1251,19 @@ fn an_iterative_insertion_successor_cannot_publish_a_partial_cascade() {
         g.prules.insert(0, first);
         g.strata[0].prules.push(pg_grammar::model::PRuleId(1));
         assert!(relation(&g, &[0]).is_ok());
-        let PhonRuleDef::Rewrite(successor) = &g.prules[1] else {
-            unreachable!()
-        };
-        let mut reports = vec![("retained".to_owned(), Vec::new())];
-        let error = compile_and_compose_rules_recall_safe(
+        let mut reports = Vec::new();
+        let net = compile_and_compose_rules_recall_safe(
             &FomaOptions::default(),
             &g,
             &[&g.prules[0], &g.prules[1]],
             &mut reports,
         )
-        .unwrap_err();
-        assert_eq!(
-            error,
-            PhonologyLoweringError::IterativeFedInsertionUnavailable(successor.xml_id.clone())
-        );
-        assert_eq!(reports.len(), 1);
-        assert_eq!(reports[0].0, "retained");
-        assert!(reports[0].1.is_empty());
+        .expect("a cascade with an iterative insertion compiles");
+        assert_eq!(reports.len(), 2);
+        assert!(super::insertion_tests::relates(
+            &net,
+            &encoded(&g, "a"),
+            &encoded(&g, "iia")
+        ));
     }
 }

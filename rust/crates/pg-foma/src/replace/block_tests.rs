@@ -4,12 +4,12 @@ use crate::cascade_parts::CascadeParts;
 use foma::apply::apply_init;
 use std::collections::BTreeSet;
 
-const HEAD: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+pub(super) const HEAD: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
 <HermitCrabInput><Language><Name>Block</Name>
 <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>"#;
 
-fn segment_xml(id: &str, rep: &str, values: &[(&str, &str)]) -> String {
+pub(super) fn segment_xml(id: &str, rep: &str, values: &[(&str, &str)]) -> String {
     let values: String = values
         .iter()
         .map(|(feature, symbol)| {
@@ -21,7 +21,7 @@ fn segment_xml(id: &str, rep: &str, values: &[(&str, &str)]) -> String {
     )
 }
 
-fn feature_xml(id: &str, symbols: &[&str]) -> String {
+pub(super) fn feature_xml(id: &str, symbols: &[&str]) -> String {
     let symbols: String = symbols
         .iter()
         .map(|symbol| format!(r#"<Symbol id="{symbol}">{symbol}</Symbol>"#))
@@ -31,7 +31,7 @@ fn feature_xml(id: &str, symbols: &[&str]) -> String {
     )
 }
 
-fn class_xml(id: &str, values: &[(&str, &str)]) -> String {
+pub(super) fn class_xml(id: &str, values: &[(&str, &str)]) -> String {
     let values: String = values
         .iter()
         .map(|(feature, symbol)| {
@@ -133,13 +133,13 @@ fn fusion_grammar() -> Grammar {
     pg_grammar::load(&xml).expect("synthetic grammar loads")
 }
 
-fn cascade(g: &Grammar, positions: &[usize]) -> (Fsm, CascadeEvidence) {
+pub(super) fn cascade(g: &Grammar, positions: &[usize]) -> (Fsm, CascadeEvidence) {
     let rules: Vec<_> = positions.iter().map(|i| &g.prules[*i]).collect();
     compile_proposing_cascade(&FomaOptions::default(), g, &rules, &mut Vec::new())
         .expect("block cascade compiles")
 }
 
-fn encoded(g: &Grammar, text: &str) -> Option<String> {
+pub(super) fn encoded(g: &Grammar, text: &str) -> Option<String> {
     let table = &g.char_tables[0];
     let shape = pg_grammar::segment::segment(table, text).ok()?;
     Some(SegAlphabet::new(table).encode_shape(&shape))
@@ -189,7 +189,7 @@ fn lane_shape(g: &Grammar, input: &str) -> Option<pg_shape::Shape> {
     Some(builder.finish())
 }
 
-fn hc_output(g: &Grammar, rule: usize, input: &str) -> Option<String> {
+pub(super) fn hc_output(g: &Grammar, rule: usize, input: &str) -> Option<String> {
     let PhonRuleDef::Rewrite(rule) = &g.prules[rule] else {
         panic!("rewrite")
     };
@@ -409,7 +409,7 @@ fn a_single_node_rule_maps_each_row_only_to_itself_or_its_synthesis_output() {
     }
 }
 
-fn seq(contexts: &str) -> String {
+pub(super) fn seq(contexts: &str) -> String {
     format!("<PhoneticTemplate><PhoneticSequence>{contexts}</PhoneticSequence></PhoneticTemplate>")
 }
 

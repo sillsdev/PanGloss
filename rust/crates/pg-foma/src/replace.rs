@@ -649,6 +649,17 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
         RewriteMode::Simultaneous => "||",
     };
 
+    // An iterative empty focus keeps the environment only for the first insertion into a gap.
+    let fed_rows = match bundles {
+        Some(bundles) if rule.mode == RewriteMode::Iterative && rule.lhs.nodes.is_empty() => Some(
+            crate::lower::replacement_rows(g, bundles, rule).ok_or_else(|| {
+                PhonologyLoweringError::IterativeFedInsertionUnavailable(rule.xml_id.clone())
+            })?,
+        ),
+        _ => None,
+    };
+    let mut fed_branches = Vec::new();
+
     for (subrule_index, subrule) in rule.subrules.iter().enumerate() {
         if !allowed(subrule_index) {
             continue;
@@ -666,12 +677,6 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
             return Err(
                 PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(rule.xml_id.clone()),
             );
-        }
-        if permissive && rule.mode == RewriteMode::Iterative && lhs_slots.is_empty() {
-            // Fed insertion can revisit a newly created gap; original-gap choices are incomplete.
-            return Err(PhonologyLoweringError::IterativeFedInsertionUnavailable(
-                rule.xml_id.clone(),
-            ));
         }
         if permissive && rule.mode == RewriteMode::Iterative && lhs_slots.len() > 1 {
             return Err(PhonologyLoweringError::IterativeMultiTokenFocusUnavailable(
@@ -732,6 +737,23 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
 
         let mut subrule_net: Option<Fsm> = None;
         for asg in &assignments {
+            if let (true, Some(rows)) = (permissive, &fed_rows) {
+                // Right-to-left synthesis places the replacement reversed, which the mirror's reversal restores only from the authored order.
+                let placed = if mirrored {
+                    reversed_slots(&rhs_slots)
+                } else {
+                    rhs_slots.clone()
+                };
+                fed_branches.push(crate::lower::render_branch(
+                    &render_alphabet,
+                    rows,
+                    &placed,
+                    &left_slots,
+                    &right_slots,
+                    asg,
+                ));
+                continue;
+            }
             if permissive {
                 permissive_branches.push(render_branch_regex(
                     &render_alphabet,
@@ -771,12 +793,6 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
     }
 
     if permissive {
-        if permissive_branches.is_empty() {
-            return Err(unsupported());
-        }
-        let net =
-            parse_rule_regex(opts, &permissive_branches.join(" ,, ")).ok_or_else(unsupported)?;
-        let net = if mirrored { fsm_reverse(net) } else { net };
         let boundaries = table
             .iter()
             .filter(|(_, definition)| {
@@ -784,6 +800,23 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
             })
             .map(|(id, _)| fsm_symbol(&render_alphabet.token(id).to_string()))
             .reduce(|left, right| fsm_union(opts, left, right));
+        if let Some(rows) = &fed_rows {
+            let net = crate::lower::compile_fed_insertion(
+                opts,
+                &render_alphabet,
+                rows,
+                &fed_branches,
+                boundaries,
+            )
+            .ok_or_else(unsupported)?;
+            return Ok((if mirrored { fsm_reverse(net) } else { net }, reports));
+        }
+        if permissive_branches.is_empty() {
+            return Err(unsupported());
+        }
+        let net =
+            parse_rule_regex(opts, &permissive_branches.join(" ,, ")).ok_or_else(unsupported)?;
+        let net = if mirrored { fsm_reverse(net) } else { net };
         // Ignore loops consume and copy boundaries; explicit boundary targets remain available.
         let net = match boundaries {
             Some(boundaries) => fsm_ignore(opts, net, boundaries, OP_IGNORE_ALL),
@@ -1135,3 +1168,6 @@ mod permissive_tests;
 
 #[cfg(test)]
 mod block_tests;
+
+#[cfg(test)]
+mod insertion_tests;
