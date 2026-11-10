@@ -375,8 +375,7 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                     );
                 }
                 ImportWarningCode::TemplateSlotNoRules => {
-                    warning.message =
-                        format!("Affix template slot '{name}' has no loaded inflectional affixes.");
+                    warning.message = template_slot_no_rules_message(snapshot, source, &name);
                 }
                 ImportWarningCode::NullAffixMprUnresolved => {
                     warning.message = format!(
@@ -433,6 +432,59 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
         }
     }
     warning
+}
+
+fn template_slot_no_rules_message(
+    snapshot: &Snapshot,
+    source: &pg_snapshot::SourceRef,
+    slot_name: &str,
+) -> String {
+    fn collect_names<'a>(
+        parts: &'a [pg_snapshot::morphology::PartOfSpeech],
+        slot_id: &str,
+        names: &mut Vec<&'a str>,
+    ) {
+        for pos in parts {
+            for template in &pos.affix_templates {
+                if !template.disabled
+                    && template
+                        .prefix_slots
+                        .iter()
+                        .chain(&template.suffix_slots)
+                        .any(|slot_guid| slot_guid == slot_id)
+                {
+                    names.push(&template.name);
+                }
+            }
+            collect_names(&pos.children, slot_id, names);
+        }
+    }
+    let mut template_names = Vec::new();
+    collect_names(
+        &snapshot.morphology.parts_of_speech,
+        &source.id,
+        &mut template_names,
+    );
+    template_names.sort_unstable();
+    template_names.dedup();
+
+    let templates = match template_names.as_slice() {
+        [] => "an affix template".to_owned(),
+        [one] => format!("affix template '{one}'"),
+        [first, second] => format!("affix templates '{first}' and '{second}'"),
+        many => format!(
+            "affix templates {} and '{last}'",
+            many[..many.len() - 1]
+                .iter()
+                .map(|name| format!("'{name}'"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            last = many[many.len() - 1]
+        ),
+    };
+    format!(
+        "Incomplete affix slot '{slot_name}' in {templates}: it has no loaded inflectional affixes, so parsing skips it."
+    )
 }
 
 pub(super) fn source_for_key(

@@ -536,8 +536,8 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             Some(PARSER_HELP),
         ),
         TemplateSlotNoRules => advice(
-            "Affix template slot has no rules",
-            "No usable inflectional affix was loaded for this template slot.",
+            "Incomplete affix slot",
+            "No inflectional affixes were loaded for the named slot in its affix template, so parsing skips that slot.",
             "In Grammar > Category Edit > Affix Templates, right-click the intended slot and choose Add inflectional affix(es) to that slot. Select an appropriate existing affix only if the slot is unintentionally empty. If affixes are already assigned, resolve their individual loading findings; check Grammatical Info. > Category and Slots in Lexicon > Lexicon Edit.",
             &[("posEdit", "Affix Templates"), ("posEdit", "Affix Slots")],
             Some(PARSER_HELP),
