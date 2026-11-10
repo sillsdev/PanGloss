@@ -103,7 +103,8 @@ Nothing enforces these. They are here because they change what a careful agent d
   words and was read as "the corpus".*
 - **Every algorithm improvement gets a before/after instruction comparison**, per grammar, with a
   no-change control as the noise floor: `pwsh -NoProfile -File rust/tools/instruction-compare.ps1`.
-  Wall time and `work_steps` do not decide it.
+  Wall time and `work_steps` do not decide it. A new Windows machine needs
+  `rust/tools/pmc-setup.ps1` first (`docs/design/parse-cost.md`).
 - **Conformance grammars use synthetic data only** — invented lexemes, never real-language data, and
   no language named outside a comment.
 

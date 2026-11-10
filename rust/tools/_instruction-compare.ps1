@@ -70,8 +70,26 @@ function Assert-PmcTasksPresent {
     param([string[]]$Found = @(), [string[]]$Required = @('PanGloss PMC Start', 'PanGloss PMC Stop'), [string]$TaskPath = '\PanGloss\')
     $missing = @($Required | Where-Object { $Found -notcontains $_ })
     if ($missing.Count -gt 0) {
-        throw "PMC scheduled task(s) absent under ${TaskPath}: $($missing -join ', '). Without them no instruction count exists; they are set up per the PMC tasks note, and this tool will not fall back to wall time or work_steps."
+        throw "PMC scheduled task(s) absent under ${TaskPath}: $($missing -join ', '). Without them no instruction count exists; an administrator installs them with rust/tools/pmc-setup.ps1 -Install, and this tool will not fall back to wall time or work_steps."
     }
+}
+
+function Invoke-PmcTask {
+    # Runs one PMC scheduled task and waits for it to finish; throws on a nonzero result or a timeout.
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][int]$TimeoutSec, [string]$TaskPath = '\PanGloss\')
+    $before = (Get-ScheduledTaskInfo -TaskPath $TaskPath -TaskName $Name).LastRunTime
+    Start-ScheduledTask -TaskPath $TaskPath -TaskName $Name
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $state = (Get-ScheduledTask -TaskPath $TaskPath -TaskName $Name).State
+        $info = Get-ScheduledTaskInfo -TaskPath $TaskPath -TaskName $Name
+        if ($state -ne 'Running' -and $info.LastRunTime -gt $before) {
+            if ($info.LastTaskResult -ne 0) { throw "$Name failed: result 0x$('{0:X}' -f $info.LastTaskResult)" }
+            return
+        }
+    }
+    throw "$Name did not finish within $TimeoutSec s"
 }
 
 function Assert-TraceIntact {

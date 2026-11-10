@@ -33,18 +33,35 @@ that hold the elevation:
 
 | Task (`\PanGloss\`) | Runs as | Action |
 |---|---|---|
-| `PanGloss PMC Start` | `johnm`, highest privileges | `wpr.exe -start "C:\ProgramData\PanGlossPmc\pg.wprp!PG" -filemode` |
-| `PanGloss PMC Stop` | `johnm`, highest privileges | `wpr.exe -stop "C:\ProgramData\PanGlossPmc\current.etl" -skipPdbGen` |
+| `PanGloss PMC Start` | the measuring user, highest privileges | `wpr.exe -start "C:\ProgramData\PanGlossPmc\pg.wprp!PG" -filemode` |
+| `PanGloss PMC Stop` | the measuring user, highest privileges | `wpr.exe -stop "C:\ProgramData\PanGlossPmc\current.etl" -skipPdbGen` |
 
-`pg.wprp` records `InstructionsRetiredFixed`, `UnhaltedCoreCyclesFixed` and
-`UnhaltedReferenceCyclesFixed` on each context switch. The tasks and the profile are set up by hand
-and are not in this repository. To set them up again, an administrator registers the two tasks above
-and copies the profile into `C:\ProgramData\PanGlossPmc\`.
+The profile, `rust/tools/instruction-compare/pg.wprp`, records `InstructionsRetiredFixed`,
+`UnhaltedCoreCyclesFixed` and `UnhaltedReferenceCyclesFixed` on each context switch.
 
-If the script refuses with "trace carries no counter values on context switches", the tasks ran but
+#### Setting up a machine
+
+`rust/tools/pmc-setup.ps1` installs and checks all of this. Run it from your own unelevated shell. The steps
+that need an administrator ask for elevation once and register the tasks for you, not for the
+administrator account:
+
+```powershell
+pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install -DisableMemoryIntegrity   # one UAC prompt
+# reboot
+pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify                            # must print VERIFIED
+```
+
+With no switch it reports what is missing and exits 1 until the machine is ready. `-Verify` takes a
+real trace of a short busy process and refuses unless the trace counted instructions for it. A ready
+report is not proof; only `-Verify` is. Then run a binary against itself with
+`instruction-compare.ps1`: that control must read NO-GO, not refuse.
+
+If either script refuses with "trace carries no counter values on context switches", the tasks ran but
 Windows recorded no counter values. On 2026-11-09 this happened with virtualization-based security and
-memory integrity (HVCI) running, after a reboot on 2026-11-04. That cause is not confirmed. The fix
-needs an administrator, then a reboot. Until then, no instruction verdict is possible.
+memory integrity (HVCI) running, after a reboot on 2026-11-04. That cause is not confirmed, so
+`-DisableMemoryIntegrity` is a trial: `-Verify` after the reboot settles it. Memory integrity set by
+group policy cannot be turned off this way, and the script refuses to try. Until `-Verify` passes, no
+instruction verdict is possible.
 
 ## Why the weights are fixed
 
