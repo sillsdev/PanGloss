@@ -641,18 +641,19 @@ impl Visited {
 /// The traversal driver.
 pub struct Transduce<'f> {
     fst: &'f Fst,
-    segs: Vec<Segment>,
+    segs: std::borrow::Cow<'f, [Segment]>,
     dir: Direction,
     start_anchor: bool,
     end_anchor: bool,
 }
 
 impl<'f> Transduce<'f> {
-    pub fn new(fst: &'f Fst, segs: Vec<Segment>) -> Self {
+    /// `segs` may be owned or borrowed from a caller that keeps them: a borrow saves copying every lane vector per traversal.
+    pub fn new(fst: &'f Fst, segs: impl Into<std::borrow::Cow<'f, [Segment]>>) -> Self {
         Transduce {
             fst,
             dir: fst.direction(),
-            segs,
+            segs: segs.into(),
             start_anchor: false,
             end_anchor: false,
         }
@@ -660,7 +661,7 @@ impl<'f> Transduce<'f> {
 
     /// Convenience constructor from raw lane vectors (no optional segments).
     pub fn from_lanes(fst: &'f Fst, segs: Vec<Vec<u64>>) -> Self {
-        Transduce::new(fst, segs.into_iter().map(Segment::new).collect())
+        Transduce::new(fst, segs.into_iter().map(Segment::new).collect::<Vec<_>>())
     }
 
     pub fn anchored(mut self, start: bool, end: bool) -> Self {

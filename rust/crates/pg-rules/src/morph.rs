@@ -1042,6 +1042,18 @@ pub(crate) fn segs_of(
     let wide_strrep = id_width
         .is_none()
         .then(|| StrRepMatcher::identity(g, &g.char_tables[table.0 as usize]));
+    // The lane row's final length, so the identity lanes appended below never regrow the vector.
+    let row_capacity = match (id_width, wide_strrep) {
+        (Some(w), _) => w + 1,
+        (None, Some(strrep)) => strrep.lane_count(),
+        (None, None) => 0,
+    }
+    .max(shape.feat_width() as usize);
+    let row = |i: usize| -> Vec<u64> {
+        let mut lanes = Vec::with_capacity(row_capacity);
+        lanes.extend_from_slice(shape.node_lanes(i));
+        lanes
+    };
     let with_id = |i: usize, mut lanes: Vec<u64>| -> Vec<u64> {
         if let Some(w) = id_width {
             // Only reached on ≤64-def tables, so a `Singleton` shift can never overflow.
@@ -1072,7 +1084,7 @@ pub(crate) fn segs_of(
     for i in 0..shape.len() {
         match shape.kind(i) {
             NodeKind::Segment => {
-                let lanes = with_id(i, shape.node_lanes(i).to_vec());
+                let lanes = with_id(i, row(i));
                 segs.push(if shape.flags(i).is_optional() {
                     Segment::optional(lanes)
                 } else {
@@ -1081,7 +1093,7 @@ pub(crate) fn segs_of(
                 node_of.push(i);
             }
             NodeKind::Boundary if include_boundaries => {
-                segs.push(Segment::optional(with_id(i, shape.node_lanes(i).to_vec())));
+                segs.push(Segment::optional(with_id(i, row(i))));
                 node_of.push(i);
             }
             _ => {}
@@ -2349,7 +2361,7 @@ fn synth_process_allomorph(
     names: &[String],
     passed: &[u16],
 ) -> Option<Word> {
-    let result = Transduce::new(fst, segs.to_vec())
+    let result = Transduce::new(fst, segs)
         .anchored(true, true)
         .first_match()?;
     let ranges = part_ranges(fst, names, &result);
@@ -3094,12 +3106,8 @@ fn ana_allomorph_matches(
     carry: impl Fn(&mut Word),
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let parts: Vec<(String, &Pattern)> = allo
-        .lhs
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (format!("p{i}"), p))
-        .collect();
+    // Named once, and only for an allomorph that matches at all: most never do.
+    let mut parts: Option<Vec<(String, &Pattern)>> = None;
     let mut allo_out: Vec<Word> = Vec::new();
     let repeated_parts = (prune_disagreeing_copies && has_repeated_part_action_group(&allo.rhs))
         .then(|| repeated_part_action_groups(&allo.rhs));
@@ -3107,9 +3115,7 @@ fn ana_allomorph_matches(
     let compare_characters = g.char_tables[table.0 as usize]
         .unif_closure_rows()
         .is_none();
-    let matches = Transduce::new(fst, segs.to_vec())
-        .anchored(true, true)
-        .all_matches();
+    let matches = Transduce::new(fst, segs).anchored(true, true).all_matches();
     for result in matches {
         if !pg_fst::work::consume() {
             return Vec::new();
@@ -3127,7 +3133,14 @@ fn ana_allomorph_matches(
         }) {
             continue;
         }
-        let out = generate_shape(g, table, &parts, lhs, fst, &result, node_of, &word.shape);
+        let parts = parts.get_or_insert_with(|| {
+            allo.lhs
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (format!("p{i}"), p))
+                .collect()
+        });
+        let out = generate_shape(g, table, parts, lhs, fst, &result, node_of, &word.shape);
         let mut w = word.clone();
         w.shape = freeze_out(g, &out);
         carry(&mut w);
@@ -3649,11 +3662,11 @@ fn synth_compound_subrule(
     nh_fst: &Fst,
     nh_names: &[String],
 ) -> Result<Word, FailureReason> {
-    let head_res = Transduce::new(head_fst, head_segs.to_vec())
+    let head_res = Transduce::new(head_fst, head_segs)
         .anchored(true, true)
         .first_match()
         .ok_or(FailureReason::HeadPattern)?;
-    let nh_res = Transduce::new(nh_fst, nh_segs.to_vec())
+    let nh_res = Transduce::new(nh_fst, nh_segs)
         .anchored(true, true)
         .first_match()
         .ok_or(FailureReason::NonHeadPattern)?;
@@ -3873,10 +3886,7 @@ fn ana_compound_subrule(
         .map(|(n, p)| (n.clone(), *p))
         .collect();
     let mut sr_out: Vec<Word> = Vec::new();
-    for result in Transduce::new(fst, segs.to_vec())
-        .anchored(true, true)
-        .all_matches()
-    {
+    for result in Transduce::new(fst, segs).anchored(true, true).all_matches() {
         if !pg_fst::work::consume() {
             return Vec::new();
         }
