@@ -14,6 +14,21 @@ use std::time::Instant;
 
 const DEFAULT_WORK_CAP: usize = 2_000_000;
 
+// `--capture-cap-mib N|unbounded`, as the byte ceiling `Morpher::with_capture_cap` takes.
+fn parse_capture_cap(value: &str) -> Result<Option<usize>, String> {
+    if value == "unbounded" {
+        return Ok(None);
+    }
+    value
+        .parse::<usize>()
+        .ok()
+        .and_then(|mib| mib.checked_mul(1024 * 1024))
+        .map(Some)
+        .ok_or_else(|| {
+            format!("invalid --capture-cap-mib: {value} (expected MiB or \"unbounded\")")
+        })
+}
+
 fn load(path: &str) -> Result<Grammar, String> {
     match Path::new(path)
         .extension()
@@ -106,6 +121,7 @@ fn oracle_roots(
 fn main() -> Result<(), String> {
     let mut args: Vec<String> = Vec::new();
     let mut work_cap = DEFAULT_WORK_CAP;
+    let mut capture_cap: Option<Option<usize>> = None;
     let mut with_oracle = false;
     let mut raw = std::env::args().skip(1);
     while let Some(arg) = raw.next() {
@@ -117,14 +133,24 @@ fn main() -> Result<(), String> {
                     .ok_or("--work-cap needs a number")?
             }
             "--oracle-roots" => with_oracle = true,
+            "--capture-cap-mib" => {
+                capture_cap = Some(parse_capture_cap(
+                    &raw.next().ok_or("--capture-cap-mib needs a value")?,
+                )?)
+            }
             _ => args.push(arg),
         }
     }
     let (source, words_path, output, limit) = match args.as_slice() {
         [a, b, c, d] => (a, b, c, d),
-        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--oracle-roots]".into()),
+        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--capture-cap-mib N|unbounded] [--oracle-roots]".into()),
     };
     let limit: usize = limit.parse().map_err(|_| "max-words must be a number")?;
+    let capture_cap_bytes = match capture_cap {
+        None => serde_json::json!("default"),
+        Some(None) => serde_json::json!("unbounded"),
+        Some(Some(bytes)) => serde_json::json!(bytes),
+    };
     let g = load(source)?;
     let started = Instant::now();
     let built = build_rule_admission(&FomaOptions::default(), &g);
@@ -132,10 +158,10 @@ fn main() -> Result<(), String> {
     let header = match &built {
         Ok(admission) => serde_json::json!({
             "evidence": admission.evidence(), "warnings": admission.warnings(),
-            "refusal": null, "build_ms": build_ms, "work_cap": work_cap,
+            "refusal": null, "build_ms": build_ms, "work_cap": work_cap, "capture_cap_bytes": capture_cap_bytes,
         }),
         Err(refusal) => serde_json::json!({
-            "evidence": null, "warnings": [], "refusal": refusal.reason(), "build_ms": build_ms, "work_cap": work_cap,
+            "evidence": null, "warnings": [], "refusal": refusal.reason(), "build_ms": build_ms, "work_cap": work_cap, "capture_cap_bytes": capture_cap_bytes,
         }),
     };
     println!("{header}");
@@ -143,7 +169,10 @@ fn main() -> Result<(), String> {
         return Ok(());
     };
     let free_count = admission.free().iter().filter(|f| **f).count();
-    let morpher = Morpher::new(&g, work_cap);
+    let mut morpher = Morpher::new(&g, work_cap);
+    if let Some(cap) = capture_cap {
+        morpher = morpher.with_capture_cap(cap);
+    }
     let owners = build_morpheme_owners(&g);
     let words = fs::read_to_string(words_path).map_err(|error| error.to_string())?;
     let mut out = fs::File::create(output).map_err(|error| error.to_string())?;
@@ -166,10 +195,10 @@ fn main() -> Result<(), String> {
         let superset = signature(&plain).iter().all(|key| kept.contains(key));
         let row = serde_json::json!({
             "word": word, "plain_steps": plain.work_steps, "analyses": plain.structured.len(),
-            "capped": plain.capped, "admitted": count,
+            "capped": plain.capped, "capture_capped": plain.capture_capped, "admitted": count,
             "spotted": count.saturating_sub(free_count),
             "fallback": false, "confirm_steps": confirm.work_steps, "fallback_steps": 0,
-            "same": same, "superset": superset, "confirm_capped": confirm.capped,
+            "same": same, "superset": superset, "confirm_capped": confirm.capped, "confirm_capture_capped": confirm.capture_capped,
             "oracle_root_steps": oracle.as_ref().map(|o| o.work_steps),
             "oracle_root_same": oracle.as_ref().map(|o| signature(o) == signature(&plain)),
         });

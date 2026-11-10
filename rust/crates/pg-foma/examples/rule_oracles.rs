@@ -12,6 +12,21 @@ use std::path::Path;
 
 const DEFAULT_WORK_CAP: usize = 2_000_000;
 
+// `--capture-cap-mib N|unbounded`, as the byte ceiling `Morpher::with_capture_cap` takes.
+fn parse_capture_cap(value: &str) -> Result<Option<usize>, String> {
+    if value == "unbounded" {
+        return Ok(None);
+    }
+    value
+        .parse::<usize>()
+        .ok()
+        .and_then(|mib| mib.checked_mul(1024 * 1024))
+        .map(Some)
+        .ok_or_else(|| {
+            format!("invalid --capture-cap-mib: {value} (expected MiB or \"unbounded\")")
+        })
+}
+
 fn load(path: &str) -> Result<Grammar, String> {
     match Path::new(path)
         .extension()
@@ -79,6 +94,7 @@ fn free_reason(rule: &MorphRuleDef) -> String {
 fn main() -> Result<(), String> {
     let mut args: Vec<String> = Vec::new();
     let mut work_cap = DEFAULT_WORK_CAP;
+    let mut capture_cap: Option<Option<usize>> = None;
     let mut per_rule = false;
     let mut raw = std::env::args().skip(1);
     while let Some(arg) = raw.next() {
@@ -90,11 +106,16 @@ fn main() -> Result<(), String> {
                     .ok_or("--work-cap needs a number")?
             }
             "--per-rule" => per_rule = true,
+            "--capture-cap-mib" => {
+                capture_cap = Some(parse_capture_cap(
+                    &raw.next().ok_or("--capture-cap-mib needs a value")?,
+                )?)
+            }
             _ => args.push(arg),
         }
     }
     let [source, words_path, output, limit] = args.as_slice() else {
-        return Err("usage: rule_oracles <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--per-rule]".into());
+        return Err("usage: rule_oracles <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--capture-cap-mib N|unbounded] [--per-rule]".into());
     };
     let limit: usize = limit.parse().map_err(|_| "max-words must be a number")?;
     let g = load(source)?;
@@ -124,7 +145,10 @@ fn main() -> Result<(), String> {
             "work_cap": work_cap,
         })
     );
-    let morpher = Morpher::new(&g, work_cap);
+    let mut morpher = Morpher::new(&g, work_cap);
+    if let Some(cap) = capture_cap {
+        morpher = morpher.with_capture_cap(cap);
+    }
     let owners = build_morpheme_owners(&g);
     let words = fs::read_to_string(words_path).map_err(|error| error.to_string())?;
     let mut out = fs::File::create(output).map_err(|error| error.to_string())?;
@@ -176,9 +200,9 @@ fn main() -> Result<(), String> {
                 }
             }
         }
-        let cell = |o: &ParseOutcome| serde_json::json!({"steps": o.work_steps, "same": signature(o) == truth, "capped": o.capped});
+        let cell = |o: &ParseOutcome| serde_json::json!({"steps": o.work_steps, "same": signature(o) == truth, "capped": o.capped, "capture_capped": o.capture_capped});
         let row = serde_json::json!({
-            "word": word, "analyses": truth.len(), "capped": plain.capped,
+            "word": word, "analyses": truth.len(), "capped": plain.capped, "capture_capped": plain.capture_capped,
             "plain": plain.work_steps, "a": cell(&a), "o": cell(&o), "of": cell(&of), "os": cell(&os),
             "true_rules": used.len(), "unused_free": unused_free.len(),
             "admitted": today.iter().filter(|x| **x).count(),
