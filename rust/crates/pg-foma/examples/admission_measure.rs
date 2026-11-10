@@ -1,15 +1,18 @@
 //! Measures how much parser work the rule-admission transducer saves on one grammar's words.
 use foma::options::FomaOptions;
 use pg_foma::admission::build_rule_admission;
-use pg_grammar::model::Grammar;
+use pg_foma::admission::RuleAdmission;
+use pg_foma_runtime::confirm::{build_morpheme_owners, MorphemeOwner};
+use pg_grammar::model::{Grammar, LexEntryId};
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
 use pg_rules::stratum::RuleRef;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
-const WORK_CAP: usize = 2_000_000;
+const DEFAULT_WORK_CAP: usize = 2_000_000;
 
 fn load(path: &str) -> Result<Grammar, String> {
     match Path::new(path)
@@ -45,11 +48,93 @@ fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
     keys
 }
 
+// The four stages are separate non-inlined functions so a callgrind run can attribute instructions to each.
+#[inline(never)]
+fn stage_plain(morpher: &Morpher, word: &str) -> ParseOutcome {
+    morpher.parse_word_selected(word, &ParseOptions::default(), None, None)
+}
+
+#[inline(never)]
+fn stage_filter(
+    admission: &RuleAdmission,
+    word: &str,
+    allowance: usize,
+) -> (Option<Vec<bool>>, usize) {
+    let admitted = admission.admit_counted(word, allowance);
+    std::hint::black_box(&admitted);
+    admitted
+}
+
+#[inline(never)]
+fn stage_confirm(morpher: &Morpher, word: &str, set: &[bool]) -> ParseOutcome {
+    let filter = |rule: RuleRef| match rule {
+        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
+        RuleRef::MRule(id) => set[id.0 as usize],
+    };
+    morpher.parse_word_selected(word, &ParseOptions::default(), None, Some(&filter))
+}
+
+#[inline(never)]
+fn stage_fallback(morpher: &Morpher, word: &str) -> ParseOutcome {
+    // The black_box keeps the linker from folding this body into stage_plain.
+    let outcome = morpher.parse_word_selected(word, &ParseOptions::default(), None, None);
+    std::hint::black_box(&outcome);
+    outcome
+}
+
+// A callgrind run dumps its counts on entering this marker, once after each stage, while collection is off.
+#[inline(never)]
+fn stage_mark() {
+    std::hint::black_box(0u8);
+}
+
+// One more restricted parse: admitted rules plus exactly the lexical entries of the plain analyses.
+fn oracle_roots(
+    morpher: &Morpher,
+    owners: &[Option<MorphemeOwner>],
+    word: &str,
+    set: &[bool],
+    plain: &ParseOutcome,
+) -> ParseOutcome {
+    let entries: BTreeSet<u32> = plain
+        .structured
+        .iter()
+        .flat_map(|analysis| analysis.morpheme_ids.iter())
+        .filter_map(
+            |&morpheme| match owners.get(morpheme as usize).copied().flatten() {
+                Some(MorphemeOwner::LexEntry(LexEntryId(id))) => Some(id),
+                _ => None,
+            },
+        )
+        .collect();
+    let lex = |entry: LexEntryId| entries.contains(&entry.0);
+    let rule = |rule: RuleRef| match rule {
+        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
+        RuleRef::MRule(id) => set[id.0 as usize],
+    };
+    morpher.parse_word_selected(word, &ParseOptions::default(), Some(&lex), Some(&rule))
+}
+
 fn main() -> Result<(), String> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = Vec::new();
+    let mut work_cap = DEFAULT_WORK_CAP;
+    let mut with_oracle = false;
+    let mut raw = std::env::args().skip(1);
+    while let Some(arg) = raw.next() {
+        match arg.as_str() {
+            "--work-cap" => {
+                work_cap = raw
+                    .next()
+                    .and_then(|text| text.parse().ok())
+                    .ok_or("--work-cap needs a number")?
+            }
+            "--oracle-roots" => with_oracle = true,
+            _ => args.push(arg),
+        }
+    }
     let (source, words_path, output, limit) = match args.as_slice() {
         [a, b, c, d] | [a, b, c, d, _] => (a, b, c, d),
-        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [path-allowance=4096]".into()),
+        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [path-allowance=4096] [--work-cap N] [--oracle-roots]".into()),
     };
     let limit: usize = limit.parse().map_err(|_| "max-words must be a number")?;
     let allowance: usize = match args.get(4) {
@@ -65,10 +150,10 @@ fn main() -> Result<(), String> {
     let header = match &built {
         Ok(admission) => serde_json::json!({
             "evidence": admission.evidence(), "warnings": admission.warnings(),
-            "refusal": null, "build_ms": build_ms,
+            "refusal": null, "build_ms": build_ms, "work_cap": work_cap,
         }),
         Err(refusal) => serde_json::json!({
-            "evidence": null, "warnings": [], "refusal": refusal.reason(), "build_ms": build_ms,
+            "evidence": null, "warnings": [], "refusal": refusal.reason(), "build_ms": build_ms, "work_cap": work_cap,
         }),
     };
     println!("{header}");
@@ -77,7 +162,8 @@ fn main() -> Result<(), String> {
     };
     let free: Vec<bool> = admission.plan().free.clone();
     let free_count = free.iter().filter(|f| **f).count();
-    let morpher = Morpher::new(&g, WORK_CAP);
+    let morpher = Morpher::new(&g, work_cap);
+    let owners = build_morpheme_owners(&g);
     let words = fs::read_to_string(words_path).map_err(|error| error.to_string())?;
     let mut out = fs::File::create(output).map_err(|error| error.to_string())?;
     for word in words
@@ -86,23 +172,23 @@ fn main() -> Result<(), String> {
         .filter(|word| !word.is_empty())
         .take(limit)
     {
-        let plain = morpher.parse_word_selected(word, &ParseOptions::default(), None, None);
-        let (admitted, raw_paths) = admission.admit_counted(word, allowance);
-        let (confirm, fallback, count) = match &admitted {
-            Some(set) => {
-                let filter = |rule: RuleRef| match rule {
-                    RuleRef::Stratum(_) | RuleRef::Template(_) => true,
-                    RuleRef::MRule(id) => set[id.0 as usize],
-                };
-                let narrowed = morpher.parse_word_selected(
-                    word,
-                    &ParseOptions::default(),
-                    None,
-                    Some(&filter),
-                );
-                (Some(narrowed), false, set.iter().filter(|a| **a).count())
-            }
-            None => (None, true, g.mrules.len()),
+        let plain = stage_plain(&morpher, word);
+        stage_mark();
+        let (admitted, raw_paths) = stage_filter(&admission, word, allowance);
+        stage_mark();
+        let (confirm, fallback_parse, count) = match &admitted {
+            Some(set) => (
+                Some(stage_confirm(&morpher, word, set)),
+                None,
+                set.iter().filter(|a| **a).count(),
+            ),
+            None => (None, Some(stage_fallback(&morpher, word)), g.mrules.len()),
+        };
+        stage_mark();
+        let fallback = fallback_parse.is_some();
+        let oracle = match (&admitted, with_oracle) {
+            (Some(set), true) => Some(oracle_roots(&morpher, &owners, word, set, &plain)),
+            _ => None,
         };
         let same = confirm
             .as_ref()
@@ -117,8 +203,10 @@ fn main() -> Result<(), String> {
             "capped": plain.capped, "admitted": count,
             "spotted": if fallback { 0 } else { count.saturating_sub(free_count) },
             "raw_paths": raw_paths, "fallback": fallback, "confirm_steps": confirm_steps,
-            "fallback_steps": if fallback { plain.work_steps } else { 0 }, "same": same,
-            "superset": superset,
+            "fallback_steps": fallback_parse.as_ref().map_or(0, |o| o.work_steps),
+            "same": same, "superset": superset, "confirm_capped": confirm.as_ref().is_some_and(|o| o.capped),
+            "oracle_root_steps": oracle.as_ref().map(|o| o.work_steps),
+            "oracle_root_same": oracle.as_ref().map(|o| signature(o) == signature(&plain)),
         });
         writeln!(out, "{row}").map_err(|error| error.to_string())?;
     }
