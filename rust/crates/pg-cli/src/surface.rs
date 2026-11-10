@@ -264,6 +264,16 @@ const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
         takes_value: true,
         summary: "check at most N Occurrences over all texts; the rest are reported unattempted",
     },
+    FlagSpec {
+        name: "--max-alternatives",
+        takes_value: true,
+        summary: "Segmentation alternatives kept per Occurrence (default: 16); more is reported incomplete",
+    },
+    FlagSpec {
+        name: "--all-readings",
+        takes_value: false,
+        summary: "also enumerate alternatives for an Occurrence whose primary split is already analysed",
+    },
 ];
 
 const BATCH_FLAGS: &[FlagSpec] = &[

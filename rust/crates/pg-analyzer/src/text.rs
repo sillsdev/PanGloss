@@ -1,8 +1,10 @@
 //! The analyzer entry point; the result format is `docs/text-analysis-format.md`.
 
+use crate::alternatives::DEFAULT_MAX_ALTERNATIVES;
+use crate::occurrence::check_occurrence;
 use crate::statistics::{summarize, Statistics};
 use crate::{analyze, ProfileInput, SegmentationProfile, StyledRun};
-use pg_parse::{Morpher, ParseOptions, ParseOutcome};
+use pg_parse::Morpher;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -29,6 +31,10 @@ pub struct TextInput<'a> {
 pub struct AnalyzeOptions {
     /// Occurrences past this count, over all texts, are reported unattempted.
     pub max_checked_occurrences: Option<usize>,
+    /// Alternatives kept per Occurrence (default 16); past it, `LimitReason::AlternativesCapped`.
+    pub max_alternatives: Option<usize>,
+    /// Also enumerate alternatives when the primary split is already analysed.
+    pub all_readings: bool,
 }
 
 pub struct TextRequest<'a> {
@@ -79,6 +85,8 @@ pub enum LimitReason {
     CaptureCapped,
     TimedOut,
     InvalidShape,
+    /// The Occurrence has more Segmentation alternatives than the request allows.
+    AlternativesCapped,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -124,14 +132,49 @@ pub enum OccurrenceOutcome {
     Unattempted,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingKind {
+    /// The FieldWorks-rule split.
+    Primary,
+    /// A Segmentation alternative.
+    Alternative,
+}
+
+/// One part of a reading: a piece of the Occurrence and every pack's evidence about it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Part {
+    pub wordform: String,
+    /// Source span in the same units as the Occurrence's.
+    pub span: Span,
+    pub valid_languages: Vec<String>,
+    pub checks: Vec<PackCheck>,
+}
+
+/// One division of the Occurrence's source span.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Reading {
+    pub kind: ReadingKind,
+    pub parts: Vec<Part>,
+    /// The primary reading when a pack analysed it; an alternative when every part is analysed.
+    pub analysed: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OccurrenceResult {
     pub wordform: String,
     pub span: Span,
     pub outcome: OccurrenceOutcome,
-    /// Language codes of the packs that analysed it, in pack order.
+    /// Language codes of the packs that analysed any analysed reading, in pack order.
     pub valid_languages: Vec<String>,
+    /// The primary reading's checks.
     pub checks: Vec<PackCheck>,
+    /// Primary first, then alternatives with every part analysed, then the rest.
+    #[serde(default)]
+    pub readings: Vec<Reading>,
+    /// Occurrence-level limits; pack limits sit on their checks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limits: Vec<LimitReason>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -173,6 +216,10 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
     // Resolve the profile once so LDML is read once and every text shares one identity.
     let profile = analyze("", clone_input(&request.profile), &[])?.profile;
     let mut remaining = request.options.max_checked_occurrences;
+    let max_alternatives = request
+        .options
+        .max_alternatives
+        .unwrap_or(DEFAULT_MAX_ALTERNATIVES);
     let mut results = Vec::new();
     for input in request.texts {
         let segmented = analyze(input.text, ProfileInput::Profile(&profile), input.styles)?;
@@ -188,7 +235,13 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
                     }
                     None => true,
                 };
-                check_occurrence(request.packs, o, attempt)
+                check_occurrence(
+                    request.packs,
+                    o,
+                    attempt,
+                    max_alternatives,
+                    request.options.all_readings,
+                )
             })
             .collect();
         results.push(TextResult {
@@ -225,90 +278,4 @@ fn clone_input<'a>(input: &ProfileInput<'a>) -> ProfileInput<'a> {
         ProfileInput::Json(json) => ProfileInput::Json(json),
         ProfileInput::Profile(p) => ProfileInput::Profile(p),
     }
-}
-
-fn check_occurrence(
-    packs: &[LanguagePack<'_>],
-    occurrence: crate::Occurrence,
-    attempt: bool,
-) -> OccurrenceResult {
-    let checks: Vec<PackCheck> = packs
-        .iter()
-        .enumerate()
-        .map(|(index, pack)| {
-            if attempt {
-                run_check(index + 1, pack, &occurrence.text)
-            } else {
-                PackCheck {
-                    resource: index + 1,
-                    language: pack.language.clone(),
-                    evidence_kind: EvidenceKind::LanguagePackAnalysis,
-                    status: CheckStatus::Unattempted,
-                    analyses: 0,
-                    limits: Vec::new(),
-                    unattempted_reason: Some("occurrence_limit".into()),
-                }
-            }
-        })
-        .collect();
-    let valid_languages: Vec<String> = checks
-        .iter()
-        .filter(|c| c.status == CheckStatus::Valid)
-        .map(|c| c.language.clone())
-        .collect();
-    let any = |status| checks.iter().any(|c| c.status == status);
-    let outcome = if !valid_languages.is_empty() {
-        OccurrenceOutcome::Valid
-    } else if checks.is_empty() || any(CheckStatus::Unattempted) {
-        OccurrenceOutcome::Unattempted
-    } else if any(CheckStatus::Incomplete) {
-        OccurrenceOutcome::Incomplete
-    } else {
-        OccurrenceOutcome::NoAnalysis
-    };
-    OccurrenceResult {
-        wordform: occurrence.text,
-        span: Span {
-            code_points: occurrence.code_points,
-            utf8: occurrence.utf8,
-            utf16: occurrence.utf16,
-        },
-        outcome,
-        valid_languages,
-        checks,
-    }
-}
-
-fn run_check(resource: usize, pack: &LanguagePack<'_>, word: &str) -> PackCheck {
-    let outcome = pack.morpher.parse_word_opts(word, &ParseOptions::default());
-    let limits = limits(&outcome);
-    let analyses = outcome.structured.len();
-    let status = if analyses > 0 {
-        CheckStatus::Valid
-    } else if limits.is_empty() {
-        CheckStatus::NoAnalysis
-    } else {
-        CheckStatus::Incomplete
-    };
-    PackCheck {
-        resource,
-        language: pack.language.clone(),
-        evidence_kind: EvidenceKind::LanguagePackAnalysis,
-        status,
-        analyses,
-        limits,
-        unattempted_reason: None,
-    }
-}
-
-fn limits(outcome: &ParseOutcome) -> Vec<LimitReason> {
-    [
-        (outcome.capped, LimitReason::Capped),
-        (outcome.capture_capped, LimitReason::CaptureCapped),
-        (outcome.timed_out, LimitReason::TimedOut),
-        (outcome.invalid_shape, LimitReason::InvalidShape),
-    ]
-    .into_iter()
-    .filter_map(|(present, reason)| present.then_some(reason))
-    .collect()
 }

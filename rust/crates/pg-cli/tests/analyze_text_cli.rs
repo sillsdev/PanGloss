@@ -108,3 +108,41 @@ fn cli_refuses_missing_profile_and_unknown_flags() {
     let unknown = cli(&["--nope".as_ref()]);
     assert!(String::from_utf8_lossy(&unknown.stderr).contains("unknown option"));
 }
+
+#[test]
+fn cli_max_alternatives_caps_a_hyphenated_occurrence_as_incomplete() {
+    let dir = scratch("alternatives");
+    let ldml = dir.join("qaa.ldml");
+    let text = dir.join("t.txt");
+    std::fs::write(
+        &ldml,
+        "<ldml><characters><exemplarCharacters>[a-z \\-]</exemplarCharacters></characters></ldml>",
+    )
+    .unwrap();
+    std::fs::write(&text, "kib-vem-kib").unwrap();
+    let pack = format!("xx={}", data("trace-family.xml").display());
+    let run = |extra: &[&str]| {
+        let mut args: Vec<&std::ffi::OsStr> = vec![
+            "--profile".as_ref(),
+            ldml.as_os_str(),
+            "--pack".as_ref(),
+            pack.as_ref(),
+        ];
+        args.extend(extra.iter().map(|a| std::ffi::OsStr::new(*a)));
+        args.push(text.as_os_str());
+        let output = cli(&args);
+        assert!(output.status.success());
+        serde_json::from_slice::<TextAnalysis>(&output.stdout).unwrap()
+    };
+    let capped = run(&["--max-alternatives", "1"]);
+    assert_eq!(capped.corpus.incomplete.occurrences, 1);
+    assert_eq!(
+        capped.texts[0].occurrences[0].limits,
+        [pg_analyzer::LimitReason::AlternativesCapped]
+    );
+    assert_eq!(run(&[]).corpus.valid.occurrences, 1);
+    let zero = run(&["--max-alternatives", "0"]);
+    assert_eq!(zero.texts[0].occurrences[0].readings.len(), 1);
+    assert_eq!(zero.corpus.incomplete.occurrences, 1);
+    assert_eq!(run(&["--all-readings"]).corpus.valid.occurrences, 1);
+}
