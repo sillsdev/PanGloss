@@ -6,17 +6,40 @@ mod plan;
 #[cfg(test)]
 mod tests;
 
-use crate::replace::{CascadeEvidence, PhonologyLoweringError};
+use crate::lower::{pattern_slots, PatternLowerScope, Slot};
+use crate::replace::{CascadeEvidence, PhonologyLoweringError, SegAlphabet};
 use foma::apply::apply_init;
 use foma::io::fsm_write_binary;
 use foma::options::FomaOptions;
 use foma::structures::fsm_sort_arcs;
 use foma::types::ApplyHandle;
-use pg_grammar::model::{Grammar, MRuleId};
+use pg_grammar::model::{Grammar, MRuleId, Pattern, PatternNode};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 pub use plan::plan_admission;
+
+/// Whether a token can match the one-node pattern; anything unclear answers yes.
+pub fn class_test(g: &Grammar) -> impl Fn(&PatternNode, char) -> bool + '_ {
+    move |node, ch| {
+        let Some(table) = g.char_tables.first() else {
+            return true;
+        };
+        let alphabet = SegAlphabet::new(table);
+        let pattern = Pattern {
+            nodes: vec![node.clone()],
+        };
+        let scope = PatternLowerScope::RewriteRuleCompile;
+        let slots = pattern_slots(g, table, &pattern, &mut 0, scope);
+        match slots.as_deref() {
+            Some([Slot::Fixed(id)]) => alphabet.token(*id) == ch,
+            Some([Slot::Union(members)]) => {
+                members.is_empty() || members.iter().any(|id| alphabet.token(*id) == ch)
+            }
+            _ => true,
+        }
+    }
+}
 
 /// Why no admission net can be built for a grammar; the caller then uses the plain parse.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +93,8 @@ pub struct PlanCounts {
     pub edges: usize,
     pub literals: usize,
     pub unusable_literals: usize,
-    pub deletion_bound: Option<usize>,
+    pub deletion_left: Option<usize>,
+    pub deletion_right: Option<usize>,
     pub root_floor: usize,
 }
 
@@ -125,7 +149,7 @@ pub fn build_rule_admission(
     g: &Grammar,
 ) -> Result<RuleAdmission, AdmissionRefusal> {
     check_strata(g)?;
-    let plan = plan_admission(g, &|_, _| true)?;
+    let plan = plan_admission(g, &class_test(g))?;
     let mut evidence = AdmissionEvidence {
         plan: plan.counts.clone(),
         ..AdmissionEvidence::default()

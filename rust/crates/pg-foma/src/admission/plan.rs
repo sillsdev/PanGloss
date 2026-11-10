@@ -93,13 +93,16 @@ pub(super) struct Model {
     pub cuts: Vec<Cut>,
     pub zones: Vec<Zone>,
     pub edges: Vec<Edge>,
-    pub deletion: Max,
+    pub deletion_left: Max,
+    pub deletion_right: Max,
     pub root_floor: usize,
 }
 
 struct SubruleShape {
     literals: Vec<Literal>,
-    deleted: Max,
+    /// Deleted segments that can lower left depths, and right depths.
+    deleted_left: Max,
+    deleted_right: Max,
 }
 
 fn node_span(table: &CharDefTable, node: &PatternNode) -> Span {
@@ -320,12 +323,14 @@ fn analyse_subrule(
     if intact.is_some() {
         return SubruleShape {
             literals,
-            deleted: Some(0),
+            deleted_left: Some(0),
+            deleted_right: Some(0),
         };
     }
     let pos = embed(&allo.rhs, parts.len());
     let matched: Vec<usize> = pos.iter().flatten().copied().collect();
     let mut deleted = Some(0);
+    let (mut all_at_right, mut all_at_left) = (true, true);
     for (i, span) in parts.iter().enumerate() {
         if span.max == Some(0) {
             continue;
@@ -336,6 +341,8 @@ fn analyse_subrule(
         }
         if pos[i].is_none() {
             deleted = add(deleted, span.max);
+            all_at_right &= after_sums[i + 1] == Some(0);
+            all_at_left &= before_sums[i] == Some(0);
         }
         let extent = |outer: Max| add(outer, span.max).map(|v| v.saturating_sub(1));
         model.zones.push(Zone {
@@ -363,7 +370,11 @@ fn analyse_subrule(
             material: merge_lits(items),
         });
     }
-    SubruleShape { literals, deleted }
+    SubruleShape {
+        literals,
+        deleted_left: if all_at_right { Some(0) } else { deleted },
+        deleted_right: if all_at_left { Some(0) } else { deleted },
+    }
 }
 
 fn compounding_edges(
@@ -427,6 +438,15 @@ fn occurrences(g: &Grammar, id: MRuleId) -> usize {
     (listed + slotted).max(1)
 }
 
+/// Adds one rule's widest deletion times its applications to a side total; unbounded stays unbounded.
+fn accumulate(total: Max, widest: Max, applications: usize) -> Max {
+    match widest {
+        Some(0) => total,
+        Some(w) => add(total, Some(w.saturating_mul(applications))),
+        None => None,
+    }
+}
+
 /// Analyses every morphological rule and renders one piece per subrule where a usable literal exists.
 pub fn plan_admission(
     g: &Grammar,
@@ -442,7 +462,7 @@ pub fn plan_admission(
         ..Model::default()
     };
     let mut shapes: Vec<(usize, Vec<SubruleShape>)> = Vec::new();
-    let mut deletion = Some(0usize);
+    let (mut deletion_left, mut deletion_right) = (Some(0usize), Some(0usize));
     for (index, rule) in g.mrules.iter().enumerate() {
         let id = MRuleId(index as u32);
         let Some(allomorphs) = rule.affix_allomorphs() else {
@@ -455,18 +475,18 @@ pub fn plan_admission(
             .iter()
             .map(|allo| analyse_subrule(table, &alphabet, allo, &mut model))
             .collect();
-        let widest = subrules
-            .iter()
-            .try_fold(0usize, |acc, s| s.deleted.map(|b| acc.max(b)));
         let applications = rule.max_apps() as usize * occurrences(g, id);
-        deletion = match widest {
-            Some(0) => deletion,
-            Some(w) => add(deletion, Some(w.saturating_mul(applications))),
-            None => None,
+        let widest = |side: fn(&SubruleShape) -> Max| {
+            subrules
+                .iter()
+                .try_fold(0usize, |acc, s| side(s).map(|b| acc.max(b)))
         };
+        deletion_left = accumulate(deletion_left, widest(|s| s.deleted_left), applications);
+        deletion_right = accumulate(deletion_right, widest(|s| s.deleted_right), applications);
         shapes.push((index, subrules));
     }
-    model.deletion = deletion;
+    model.deletion_left = deletion_left;
+    model.deletion_right = deletion_right;
     let ctx = Ctx::new(&model, table, matches);
     let mut free = vec![true; g.mrules.len()];
     let mut pieces = Vec::new();
@@ -475,7 +495,8 @@ pub fn plan_admission(
         cuts: model.cuts.len(),
         zones: model.zones.len(),
         edges: model.edges.len(),
-        deletion_bound: model.deletion,
+        deletion_left: model.deletion_left,
+        deletion_right: model.deletion_right,
         root_floor: model.root_floor,
         ..PlanCounts::default()
     };

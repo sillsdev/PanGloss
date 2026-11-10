@@ -51,6 +51,7 @@ struct Spec<'a> {
     roots: &'a [&'a str],
     prules: &'a str,
     prule_ids: &'a str,
+    classes: &'a str,
 }
 
 fn grammar_xml(spec: &Spec) -> String {
@@ -89,10 +90,11 @@ fn grammar_xml(spec: &Spec) -> String {
         r#"<HermitCrabInput><Language><Name>Admission</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       {features}<CharacterDefinitionTable id="t"><Name>Main</Name><SegmentDefinitions>{segments}</SegmentDefinitions>{boundary}</CharacterDefinitionTable>
-      <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+      <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>{}</NaturalClasses>
       {}
       <Strata><Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="{}"{prule_attr}><Name>Main</Name>
       <MorphologicalRuleDefinitions>{}</MorphologicalRuleDefinitions><LexicalEntries>{roots}</LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#,
+        spec.classes,
         spec.prules,
         rule_ids.join(" "),
         spec.rules.concat()
@@ -107,6 +109,7 @@ fn spec<'a>(segments: &'a str, rules: Vec<String>, roots: &'a [&'a str]) -> Spec
         roots,
         prules: "",
         prule_ids: "",
+        classes: "",
     }
 }
 
@@ -116,7 +119,7 @@ fn load(spec: &Spec) -> Grammar {
 }
 
 fn plan_of(g: &Grammar) -> AdmissionPlan {
-    plan_admission(g, &|_, _| true).expect("plan")
+    plan_admission(g, &super::class_test(g)).expect("plan")
 }
 
 /// Token string for letters of the grammar's table, with `+` for the boundary.
@@ -242,6 +245,92 @@ fn short_suffix_under_truncation_is_free() {
     );
     let g = load(&spec("taqn", vec![suffix(0, "ta"), truncate], &["qn"]));
     assert!(plan_of(&g).free[0], "no plain token is left");
+}
+
+const CLASS_X: &str =
+    r#"<SegmentNaturalClass id="ncX"><Name>X</Name><Segment segment="cx" /></SegmentNaturalClass>"#;
+const CTX_X: &str = r#"<SimpleContext naturalClass="ncX" />"#;
+const CTX_ANY: &str = r#"<SimpleContext naturalClass="ncAny" />"#;
+
+fn truncate_last(id: usize) -> String {
+    rule(id, &[ANY_ONE, CTX_ANY], &[copy(0)])
+}
+
+fn truncate_first_x(id: usize) -> String {
+    rule(id, &[CTX_X, ANY_ONE], &[copy(1)])
+}
+
+#[test]
+fn a_truncation_of_another_class_leaves_the_suffix_usable() {
+    let rules = vec![suffix(0, "s"), truncate_first_x(1)];
+    let g = load(&Spec {
+        classes: CLASS_X,
+        ..spec("sxq", rules, &["q"])
+    });
+    let plan = plan_of(&g);
+    assert!(!plan.free[0], "the zone only holds x");
+    assert!(piece_accepts(&g, &plan, 0, "s"));
+}
+
+#[test]
+fn an_unclear_class_still_frees_the_suffix() {
+    let g = load(&Spec {
+        classes: CLASS_X,
+        ..spec("sxq", vec![suffix(0, "s"), truncate_first_x(1)], &["q"])
+    });
+    let plan = plan_admission(&g, &|_, _| true).expect("plan");
+    assert!(plan.free[0], "{:?}", plan.counts);
+}
+
+#[test]
+fn deletion_is_bounded_by_the_side_it_reaches() {
+    let rules = vec![suffix(0, "tak"), truncate_last(1), truncate_first_x(2)];
+    let g = load(&Spec {
+        classes: CLASS_X,
+        ..spec("takxq", rules, &["q"])
+    });
+    let plan = plan_of(&g);
+    assert_eq!(plan.counts.deletion_left, Some(1));
+    assert_eq!(plan.counts.deletion_right, Some(1));
+    assert!(!plan.free[0]);
+    assert!(piece_accepts(&g, &plan, 0, "t"), "the tail may be deleted");
+    assert!(!piece_accepts(&g, &plan, 0, "ak"), "the head stays");
+}
+
+#[test]
+fn a_literal_after_a_copied_part_gets_a_gap_at_the_junction() {
+    let infix = rule(
+        1,
+        &[ANY, CTX_ANY, ANY],
+        &[copy(0), copy(1), copy(1), insert("ta"), copy(2)],
+    );
+    let g = load(&spec("kuqta", vec![prefix(0, "kuu"), infix], &["q"]));
+    let plan = plan_of(&g);
+    assert!(piece_accepts(&g, &plan, 0, "kuu"));
+    assert!(
+        piece_accepts(&g, &plan, 0, "kqqtatauu"),
+        "the material can land between its copied part and its literal"
+    );
+}
+
+#[test]
+fn a_copied_part_a_truncation_can_reach_is_not_bounded() {
+    let tail = rule(
+        1,
+        &[ANY, CTX_ANY, CTX_ANY],
+        &[copy(0), copy(1), insert("ta"), copy(1), copy(2)],
+    );
+    let truncate = rule(2, &[ANY_ONE, CTX_ANY, CTX_ANY, CTX_ANY], &[copy(0)]);
+    let g = load(&spec(
+        "kuqta",
+        vec![prefix(0, "kuuuuuu"), tail, truncate],
+        &["q"],
+    ));
+    let plan = plan_of(&g);
+    assert!(piece_accepts(&g, &plan, 0, "kuuuuuu"));
+    let regex = &plan.pieces[0].regex;
+    let widened = format!("{} ( ? ) ?* ]*", tokens(&g, "t"));
+    assert!(regex.contains(&widened), "{regex}");
 }
 
 #[test]

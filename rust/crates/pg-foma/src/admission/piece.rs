@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 const MAX_NESTING: usize = 3;
 const MAX_GAP_CHARS: usize = 4000;
+const MAX_WILD_SCAN: usize = 64;
 
 pub(super) struct Ctx<'a> {
     model: &'a Model,
@@ -35,10 +36,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn reaches(&self, left_depth: usize, right_depth: usize, left: Max, right: Max) -> bool {
-        let (dl, dr) = match self.model.deletion {
-            Some(d) => (left_depth.saturating_sub(d), right_depth.saturating_sub(d)),
-            None => (0, 0),
-        };
+        let lowered = |depth: usize, deleted: Max| deleted.map_or(0, |d| depth.saturating_sub(d));
+        let dl = lowered(left_depth, self.model.deletion_left);
+        let dr = lowered(right_depth, self.model.deletion_right);
         left.is_none_or(|b| dl <= b) && right.is_none_or(|b| dr <= b)
     }
 
@@ -47,6 +47,38 @@ impl<'a> Ctx<'a> {
             self.reaches(dl, dr, z.left, z.right)
                 && z.node.as_ref().is_none_or(|node| (self.matches)(node, ch))
         })
+    }
+
+    fn zone_reaches(&self, dl: usize, dr: usize) -> bool {
+        self.model
+            .zones
+            .iter()
+            .any(|z| self.reaches(dl, dr, z.left, z.right))
+    }
+
+    fn cut_reaches(&self, dl: usize, dr: usize) -> bool {
+        self.model
+            .cuts
+            .iter()
+            .any(|c| self.reaches(dl, dr, c.left, c.right))
+    }
+
+    /// A bounded wild stays bounded only if no later edit can shorten or lengthen it.
+    fn wild_touched(
+        &self,
+        min: usize,
+        max: Max,
+        (x, y, q): (usize, usize, usize),
+        k: usize,
+    ) -> bool {
+        if max.is_some_and(|m| m > MAX_WILD_SCAN) {
+            return true;
+        }
+        let after = y + q.saturating_sub(k + min);
+        let segments = max.unwrap_or(min + 1);
+        let zone =
+            (0..segments).any(|j| self.zone_reaches(x + k + j, after + min.saturating_sub(j + 1)));
+        zone || (0..=segments).any(|j| self.cut_reaches(x + k + j, after + min.saturating_sub(j)))
     }
 
     fn edge_hit(&self, dl: usize, dr: usize) -> bool {
@@ -181,10 +213,17 @@ impl<'a> Ctx<'a> {
             .sum();
         let mut parts = Vec::new();
         let mut k = 0;
-        for item in seq {
+        for (i, item) in seq.iter().enumerate() {
+            if i > 0 {
+                parts.extend(self.gap(x + k, y + q.saturating_sub(k), level));
+            }
             match item {
                 Mat::Wild { min, max } => {
-                    parts.push(self.wild(*min, *max));
+                    let touched = *max != Some(0) && self.wild_touched(*min, *max, (x, y, q), k);
+                    parts.push(match touched {
+                        true => "?*".to_owned(),
+                        false => self.wild(*min, *max),
+                    });
                     k += min;
                 }
                 Mat::Lit(toks) => {
