@@ -132,7 +132,8 @@ impl<'a> Ctx<'a> {
             return None;
         }
         let total: usize = materials.iter().map(String::len).sum();
-        if total > MAX_GAP_CHARS {
+        // A star over material with several free gaps determinizes badly, so it widens to any text.
+        if total > MAX_GAP_CHARS || materials.iter().any(|m| m.matches("?*").count() > 1) {
             return Some("?*".to_owned());
         }
         Some(format!(
@@ -244,4 +245,18 @@ pub(super) fn render_literal(ctx: &Ctx, lit: &Literal) -> Option<(String, usize)
     let mut plain = 0;
     let text = ctx.sequence(&[Mat::Lit(toks)], (lit.before, lit.after), 0, &mut plain);
     (plain > 0).then_some((text, plain))
+}
+
+/// An undamaged literal with its boundary tokens optional, and its count of segments.
+pub(super) fn render_exact(lit: &Literal) -> Option<(String, usize)> {
+    let toks = lit.toks.as_ref()?;
+    let plain = toks.iter().filter(|t| t.segment).count();
+    let text: Vec<String> = toks
+        .iter()
+        .map(|t| match t.segment {
+            true => t.ch.to_string(),
+            false => format!("( {} )", t.ch),
+        })
+        .collect();
+    (plain > 0).then(|| (text.join(" "), plain))
 }

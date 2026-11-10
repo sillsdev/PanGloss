@@ -377,27 +377,35 @@ fn analyse_subrule(
     }
 }
 
+/// A compounding subrule must copy both members whole.
+fn compounding_copies_whole(
+    rule: &pg_grammar::model::CompoundingRuleDef,
+) -> Result<(), AdmissionRefusal> {
+    for sub in &rule.subrules {
+        let run = |parts: &[Pattern], make: fn(u16) -> PartRef| -> bool {
+            parts.is_empty()
+                || sub.rhs.windows(parts.len()).any(|w| {
+                    w.iter()
+                        .enumerate()
+                        .all(|(i, a)| *a == OutputAction::Copy(make(i as u16)))
+                })
+        };
+        if !run(&sub.head_lhs, PartRef::Head) || !run(&sub.non_head_lhs, PartRef::NonHead) {
+            return Err(AdmissionRefusal::CompoundingEditsStem(
+                rule.name.clone().unwrap_or_else(|| rule.xml_id.clone()),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn compounding_edges(
     rule: &pg_grammar::model::CompoundingRuleDef,
     table: &CharDefTable,
     model: &mut Model,
 ) -> Result<(), AdmissionRefusal> {
+    compounding_copies_whole(rule)?;
     for sub in &rule.subrules {
-        let run = |parts: &[Pattern], make: fn(u16) -> PartRef| -> Result<(), AdmissionRefusal> {
-            let copied = parts.is_empty()
-                || sub.rhs.windows(parts.len()).any(|w| {
-                    w.iter()
-                        .enumerate()
-                        .all(|(i, a)| *a == OutputAction::Copy(make(i as u16)))
-                });
-            copied.then_some(()).ok_or_else(|| {
-                AdmissionRefusal::CompoundingEditsStem(
-                    rule.name.clone().unwrap_or_else(|| rule.xml_id.clone()),
-                )
-            })
-        };
-        run(&sub.head_lhs, PartRef::Head)?;
-        run(&sub.non_head_lhs, PartRef::NonHead)?;
         for lhs in [&sub.head_lhs, &sub.non_head_lhs] {
             let parts: Vec<Span> = lhs.iter().map(|p| nodes_span(table, &p.nodes)).collect();
             let (before, after) = (prefix_max(&parts), suffix_max(&parts));
@@ -427,15 +435,47 @@ fn root_floor(g: &Grammar) -> usize {
         .unwrap_or(0)
 }
 
-fn occurrences(g: &Grammar, id: MRuleId) -> usize {
-    let listed = g.strata.iter().filter(|s| s.mrules.contains(&id)).count();
-    let slotted = g
+/// Which rules sit in the strata up to the phonological one (inner) and after it (outer).
+struct Regions {
+    inner: Vec<bool>,
+    outer: Vec<bool>,
+    /// Applications of each rule inside the inner strata.
+    inner_uses: Vec<usize>,
+}
+
+fn stratum_rules(g: &Grammar, stratum: &pg_grammar::model::StratumDef) -> Vec<MRuleId> {
+    let slotted = stratum
         .templates
         .iter()
-        .flat_map(|t| &t.slots)
-        .filter(|slot| slot.rules.contains(&id))
-        .count();
-    (listed + slotted).max(1)
+        .flat_map(|t| &g.templates[t.0 as usize].slots)
+        .flat_map(|slot| slot.rules.iter().copied());
+    stratum.mrules.iter().copied().chain(slotted).collect()
+}
+
+fn regions(g: &Grammar) -> Regions {
+    let at = g
+        .strata
+        .iter()
+        .position(|s| !s.prules.is_empty())
+        .unwrap_or(g.strata.len());
+    let n = g.mrules.len();
+    let (mut inner_uses, mut outer) = (vec![0usize; n], vec![false; n]);
+    let mut listed = vec![false; n];
+    for (i, stratum) in g.strata.iter().enumerate() {
+        for id in stratum_rules(g, stratum) {
+            listed[id.0 as usize] = true;
+            match i <= at {
+                true => inner_uses[id.0 as usize] += 1,
+                false => outer[id.0 as usize] = true,
+            }
+        }
+    }
+    let inner = (0..n).map(|i| inner_uses[i] > 0 || !listed[i]).collect();
+    Regions {
+        inner,
+        outer,
+        inner_uses,
+    }
 }
 
 /// Adds one rule's widest deletion times its applications to a side total; unbounded stays unbounded.
@@ -445,6 +485,66 @@ fn accumulate(total: Max, widest: Max, applications: usize) -> Max {
         Some(w) => add(total, Some(w.saturating_mul(applications))),
         None => None,
     }
+}
+
+/// A subrule that copies each input part once, in order, and otherwise only inserts segments.
+fn is_intact(allo: &AffixAllomorphDef) -> bool {
+    let inserts = |run: &[OutputAction]| {
+        run.iter()
+            .all(|a| matches!(a, OutputAction::InsertSegments { .. }))
+    };
+    match intact_start(&allo.rhs, allo.lhs.len()) {
+        Some(start) => inserts(&allo.rhs[..start]) && inserts(&allo.rhs[start + allo.lhs.len()..]),
+        None => allo.lhs.is_empty() && inserts(&allo.rhs),
+    }
+}
+
+/// An outer rule's pieces are its literals with no damage to model; `Err` when a subrule edits its input.
+fn outer_regexes(
+    alphabet: &SegAlphabet,
+    allomorphs: &[AffixAllomorphDef],
+) -> Result<Option<Vec<String>>, ()> {
+    if !allomorphs.iter().all(is_intact) {
+        return Err(());
+    }
+    let mut chosen = Vec::new();
+    for allo in allomorphs {
+        let mins = vec![0; allo.rhs.len()];
+        let best = literals_of(alphabet, &allo.rhs, &mins)
+            .iter()
+            .filter_map(piece::render_exact)
+            .max_by_key(|(_, plain)| *plain);
+        match best {
+            Some((regex, _)) => chosen.push(regex),
+            None => return Ok(None),
+        }
+    }
+    Ok((!chosen.is_empty()).then_some(chosen))
+}
+
+/// The best literal of every subrule rendered under the damage model; `None` when any subrule has no usable literal.
+fn inner_regexes(
+    ctx: &Ctx,
+    subrules: &[SubruleShape],
+    counts: &mut PlanCounts,
+) -> Option<Vec<String>> {
+    let mut chosen = Vec::new();
+    for subrule in subrules {
+        counts.literals += subrule.literals.len();
+        let best = subrule
+            .literals
+            .iter()
+            .filter_map(|lit| {
+                let rendered = piece::render_literal(ctx, lit);
+                if rendered.is_none() {
+                    counts.unusable_literals += 1;
+                }
+                rendered
+            })
+            .max_by_key(|(_, plain)| *plain);
+        chosen.push(best?.0);
+    }
+    (!chosen.is_empty()).then_some(chosen)
 }
 
 /// Analyses every morphological rule and renders one piece per subrule where a usable literal exists.
@@ -457,25 +557,40 @@ pub fn plan_admission(
     }
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
+    let region = regions(g);
     let mut model = Model {
         root_floor: root_floor(g),
         ..Model::default()
     };
     let mut shapes: Vec<(usize, Vec<SubruleShape>)> = Vec::new();
+    let mut outer: Vec<Option<Vec<String>>> = vec![None; g.mrules.len()];
     let (mut deletion_left, mut deletion_right) = (Some(0usize), Some(0usize));
     for (index, rule) in g.mrules.iter().enumerate() {
-        let id = MRuleId(index as u32);
         let Some(allomorphs) = rule.affix_allomorphs() else {
             if let MorphRuleDef::Compounding(compound) = rule {
-                compounding_edges(compound, table, &mut model)?;
+                match region.inner[index] {
+                    true => compounding_edges(compound, table, &mut model)?,
+                    false => compounding_copies_whole(compound)?,
+                }
             }
             continue;
         };
+        if region.outer[index] {
+            outer[index] = outer_regexes(&alphabet, allomorphs).map_err(|()| {
+                AdmissionRefusal::StratumLayout(format!(
+                    "a rule after the phonological stratum edits its input: {}",
+                    rule_item(g, rule)
+                ))
+            })?;
+        }
+        if !region.inner[index] {
+            continue;
+        }
         let subrules: Vec<SubruleShape> = allomorphs
             .iter()
             .map(|allo| analyse_subrule(table, &alphabet, allo, &mut model))
             .collect();
-        let applications = rule.max_apps() as usize * occurrences(g, id);
+        let applications = rule.max_apps() as usize * region.inner_uses[index].max(1);
         let widest = |side: fn(&SubruleShape) -> Max| {
             subrules
                 .iter()
@@ -488,8 +603,6 @@ pub fn plan_admission(
     model.deletion_left = deletion_left;
     model.deletion_right = deletion_right;
     let ctx = Ctx::new(&model, table, matches);
-    let mut free = vec![true; g.mrules.len()];
-    let mut pieces = Vec::new();
     let mut counts = PlanCounts {
         rules: g.mrules.len(),
         cuts: model.cuts.len(),
@@ -498,51 +611,51 @@ pub fn plan_admission(
         deletion_left: model.deletion_left,
         deletion_right: model.deletion_right,
         root_floor: model.root_floor,
+        outer_rules: region.outer.iter().filter(|o| **o).count(),
         ..PlanCounts::default()
     };
+    let mut inner: Vec<Option<Vec<String>>> = vec![None; g.mrules.len()];
     for (index, subrules) in &shapes {
-        let MorphRuleDef::AffixProcess(rule) = &g.mrules[*index] else {
+        if matches!(g.mrules[*index], MorphRuleDef::AffixProcess(_)) {
+            inner[*index] = inner_regexes(&ctx, subrules, &mut counts);
+        }
+    }
+    let (mut free, mut pieces, mut outer_pieces) =
+        (vec![true; g.mrules.len()], Vec::new(), Vec::new());
+    for (index, rule) in g.mrules.iter().enumerate() {
+        if matches!(rule, MorphRuleDef::AffixProcess(_)) {
+            counts.affix_rules += 1;
+        }
+        let usable = (!region.inner[index] || inner[index].is_some())
+            && (!region.outer[index] || outer[index].is_some())
+            && rule.affix_allomorphs().is_some();
+        if !usable {
             continue;
+        }
+        free[index] = false;
+        let make = |regexes: Vec<String>| {
+            regexes.into_iter().map(move |regex| Piece {
+                rule: MRuleId(index as u32),
+                regex,
+                grammar_item: rule_item(g, rule),
+            })
         };
-        counts.affix_rules += 1;
-        let item = g.morphemes[rule.morpheme.0 as usize].xml_key.clone();
-        let mut chosen = Vec::new();
-        for subrule in subrules {
-            counts.literals += subrule.literals.len();
-            let best = subrule
-                .literals
-                .iter()
-                .filter_map(|lit| {
-                    let rendered = piece::render_literal(&ctx, lit);
-                    if rendered.is_none() {
-                        counts.unusable_literals += 1;
-                    }
-                    rendered
-                })
-                .max_by_key(|(_, plain)| *plain);
-            match best {
-                Some((regex, _)) => chosen.push(regex),
-                None => {
-                    chosen.clear();
-                    break;
-                }
-            }
-        }
-        if chosen.is_empty() || chosen.len() != subrules.len() {
-            continue;
-        }
-        free[*index] = false;
-        pieces.extend(chosen.into_iter().map(|regex| Piece {
-            rule: MRuleId(*index as u32),
-            regex,
-            grammar_item: item.clone(),
-        }));
+        pieces.extend(inner[index].take().into_iter().flat_map(&make));
+        outer_pieces.extend(outer[index].take().into_iter().flat_map(&make));
     }
     counts.free = free.iter().filter(|f| **f).count();
     counts.pieces = pieces.len();
+    counts.outer_pieces = outer_pieces.len();
     Ok(AdmissionPlan {
         free,
         pieces,
+        outer_pieces,
         counts,
     })
+}
+
+fn rule_item(g: &Grammar, rule: &MorphRuleDef) -> String {
+    rule.morpheme()
+        .map(|m| g.morphemes[m.0 as usize].xml_key.clone())
+        .unwrap_or_default()
 }

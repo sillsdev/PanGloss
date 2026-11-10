@@ -1,4 +1,5 @@
 use super::*;
+use crate::cascade_parts::CascadeParts;
 use crate::replace::SegAlphabet;
 use foma::constructions::fsm_symbol_occurs;
 use foma::regex::fsm_parse_regex;
@@ -483,21 +484,56 @@ fn phonology_that_changes_an_affix_literal_keeps_the_analysis() {
     assert!(!admitted[1], "{admitted:?} {:?}", admission.plan().free);
 }
 
-#[test]
-fn morphology_after_the_phonological_stratum_is_refused() {
-    let xml = grammar_xml(&Spec {
-        prules: ASSIMILATION,
-        prule_ids: "pr1",
-        ..spec("pmnat", vec![suffix(0, "na")], &["tap"])
-    })
-    .replace(
+/// Adds a stratum after the phonological one holding the given rules.
+fn with_late_stratum(xml: String, ids: &[usize], rules: &[String]) -> Grammar {
+    let listed: Vec<String> = ids.iter().map(|i| format!("mr{i}")).collect();
+    let xml = xml.replace(
         "</Strata>",
         &format!(
-            r#"<Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="mr9"><Name>Late</Name><MorphologicalRuleDefinitions>{}</MorphologicalRuleDefinitions></Stratum></Strata>"#,
-            suffix(9, "ta")
+            r#"<Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="{}"><Name>Late</Name><MorphologicalRuleDefinitions>{}</MorphologicalRuleDefinitions></Stratum></Strata>"#,
+            listed.join(" "),
+            rules.concat()
         ),
     );
-    let g = pg_grammar::load(&xml).expect("loads");
+    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+}
+
+fn assimilation_spec<'a>(segments: &'a str, rules: Vec<String>, roots: &'a [&'a str]) -> Spec<'a> {
+    Spec {
+        prules: ASSIMILATION,
+        prule_ids: "pr1",
+        ..spec(segments, rules, roots)
+    }
+}
+
+#[test]
+fn an_enclitic_after_the_phonological_stratum_keeps_every_analysis() {
+    let xml = grammar_xml(&assimilation_spec(
+        "pmnatku",
+        vec![suffix(0, "na")],
+        &["tap", "tat"],
+    ));
+    let g = with_late_stratum(xml, &[9], &[suffix(9, "ku")]);
+    let words = [
+        "tap", "tapma", "tapku", "tapmaku", "tatna", "tatnaku", "tatku", "tapnaku", "kutap",
+    ];
+    let analysed = assert_same_analyses(&g, &words);
+    for word in ["tapma", "tapku", "tapmaku", "tatnaku"] {
+        assert!(analysed.contains(&word.to_owned()), "{word} {analysed:?}");
+    }
+    let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
+    assert_eq!(admission.plan().counts.outer_rules, 1);
+    assert_eq!(admission.admit("tapku", 4096).unwrap(), vec![false, true]);
+    assert_eq!(admission.admit("tapma", 4096).unwrap(), vec![true, false]);
+    assert_eq!(admission.admit("tapmaku", 4096).unwrap(), vec![true, true]);
+    assert_eq!(admission.admit("tap", 4096).unwrap(), vec![false, false]);
+}
+
+#[test]
+fn an_outer_rule_that_edits_its_input_is_refused() {
+    let xml = grammar_xml(&assimilation_spec("pmnat", vec![suffix(0, "na")], &["tap"]));
+    let truncate = rule(9, &[ANY_ONE, CTX_ANY], &[copy(0)]);
+    let g = with_late_stratum(xml, &[9], &[truncate]);
     let refusal = build_rule_admission(&FomaOptions::default(), &g)
         .err()
         .expect("refused");
@@ -507,23 +543,61 @@ fn morphology_after_the_phonological_stratum_is_refused() {
     );
 }
 
+const FEATURE_V: &str = r#"<SymbolicFeature id="fV"><Name>v</Name><Symbols><Symbol id="vA">a</Symbol><Symbol id="vB">b</Symbol></Symbols></SymbolicFeature>"#;
+const CLASS_B: &str = r#"<FeatureNaturalClass id="ncB"><Name>B</Name><FeatureValue feature="fV" symbolValues="vB" /></FeatureNaturalClass>"#;
+
+#[test]
+fn a_segment_that_morphology_creates_still_admits_the_suffix() {
+    let context =
+        r#"<InsertSimpleContext><SimpleContext naturalClass="ncB" /></InsertSimpleContext>"#;
+    let creates = rule(1, &[ANY_ONE], &[copy(0), context.to_owned()]);
+    let xml = grammar_xml(&Spec {
+        classes: CLASS_B,
+        ..assimilation_spec("pmnat", vec![suffix(0, "na"), creates], &["tap"])
+    })
+    .replace(
+        "</PhonologicalFeatureSystem>",
+        &format!("{FEATURE_V}</PhonologicalFeatureSystem>"),
+    );
+    let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"));
+    let analysed = assert_same_analyses(&g, &["tap", "tapna", "tapmna", "tappma", "tapmma"]);
+    assert!(analysed.contains(&"tapmna".to_owned()), "{analysed:?}");
+    let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
+    assert!(admission.plan().free[1]);
+    assert!(admission.admit("tapmna", 4096).unwrap()[0]);
+}
+
+#[test]
+fn the_token_alphabet_holds_the_rows_morphology_creates() {
+    let context =
+        r#"<InsertSimpleContext><SimpleContext naturalClass="ncB" /></InsertSimpleContext>"#;
+    let creates = rule(1, &[ANY_ONE], &[copy(0), context.to_owned()]);
+    let xml = grammar_xml(&Spec {
+        classes: CLASS_B,
+        ..assimilation_spec("pmnat", vec![suffix(0, "na"), creates], &["tap"])
+    })
+    .replace(
+        "</PhonologicalFeatureSystem>",
+        &format!("{FEATURE_V}</PhonologicalFeatureSystem>"),
+    );
+    let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"));
+    let prules = build::ordered_prules(&g);
+    let parts = CascadeParts::build(&FomaOptions::default(), &g, &prules).expect("parts");
+    assert!(!parts.tokens.private_segments.is_empty());
+    let alphabet = build::token_alphabet(&g, Some(&parts));
+    for token in &parts.tokens.private_segments {
+        assert!(alphabet.contains(token));
+    }
+}
+
 fn machine_net(g: &Grammar) -> foma::types::Fsm {
     let opts = FomaOptions::default();
     let plan = plan_of(g);
     let mut evidence = AdmissionEvidence::default();
     let mut meter = build::Meter::default();
-    let machine = build::machine(&opts, g, &plan, &mut evidence, &mut meter).expect("machine");
-    let (cascade, items) = build::cascade(&opts, g, &mut evidence, &mut meter).expect("cascade");
-    build::finish(
-        &opts,
-        g,
-        machine.net,
-        cascade,
-        &items,
-        &mut evidence,
-        &mut meter,
-    )
-    .expect("finish")
+    build::build_net(&opts, g, &plan, &mut evidence, &mut meter)
+        .expect("net")
+        .net
 }
 
 #[test]

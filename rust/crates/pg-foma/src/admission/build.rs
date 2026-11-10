@@ -1,10 +1,13 @@
 //! Builds the admission transducer: tagged acceptor, composed with the phonology cascade and orthography.
 
-use super::{AdmissionEvidence, AdmissionPlan, AdmissionRefusal, Composition, Size};
-use crate::replace::{self, SegAlphabet};
+use super::{
+    AdmissionEvidence, AdmissionPlan, AdmissionRefusal, Composition, Piece, RulePartSize, Size,
+};
+use crate::cascade_parts::CascadeParts;
+use crate::replace::SegAlphabet;
 use foma::constructions::{
     fsm_compose, fsm_concat, fsm_count, fsm_cross_product, fsm_intersect, fsm_kleene_star,
-    fsm_symbol, fsm_union, fsm_universal,
+    fsm_symbol, fsm_union,
 };
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
@@ -14,7 +17,8 @@ use foma::types::Fsm;
 use foma::utf8::is_combining;
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::{Grammar, PhonRuleDef};
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 
 const WARN_BOUND: usize = 1_000_000;
 const REFUSE_BOUND: usize = 50_000_000;
@@ -108,12 +112,6 @@ impl Meter {
     }
 }
 
-pub(super) struct Machine {
-    pub net: Fsm,
-    pub tags: HashMap<String, usize>,
-    pub free: Vec<bool>,
-}
-
 fn tokens_of(table: &CharDefTable, kind: CharDefKind) -> Vec<char> {
     let alphabet = SegAlphabet::new(table);
     table
@@ -145,7 +143,7 @@ fn identity_cascade(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
 }
 
 /// Segment tokens become their NFD spellings, with a mark segment after a segment read as the one symbol foma's apply merges them into.
-fn orthography(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
+fn orthography(opts: &FomaOptions, table: &CharDefTable) -> (Fsm, Vec<String>) {
     let alphabet = SegAlphabet::new(table);
     let reps: Vec<(char, Vec<String>)> = table
         .iter()
@@ -166,7 +164,9 @@ fn orthography(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
         })
         .collect();
     let mut arcs: Vec<Fsm> = Vec::new();
+    let lowers: RefCell<BTreeSet<String>> = RefCell::new(BTreeSet::new());
     let relate = |tokens: &str, lower: &[String]| {
+        lowers.borrow_mut().extend(lower.iter().cloned());
         let upper: Vec<String> = tokens.chars().map(String::from).collect();
         fsm_cross_product(opts, symbols_net(opts, &upper), symbols_net(opts, lower))
     };
@@ -200,43 +200,10 @@ fn orthography(opts: &FomaOptions, table: &CharDefTable) -> Fsm {
             }
         }
     }
-    union_all(opts, arcs)
+    let net = union_all(opts, arcs)
         .map(|net| fsm_kleene_star(opts, net))
-        .unwrap_or_else(fsm_empty_string)
-}
-
-pub(super) fn cascade(
-    opts: &FomaOptions,
-    g: &Grammar,
-    evidence: &mut AdmissionEvidence,
-    meter: &mut Meter,
-) -> Result<(Fsm, Vec<String>), AdmissionRefusal> {
-    let rules: Vec<&PhonRuleDef> = g
-        .strata
-        .iter()
-        .flat_map(|stratum| &stratum.prules)
-        .map(|id| &g.prules[id.0 as usize])
-        .collect();
-    let items: Vec<String> = rules
-        .iter()
-        .map(|rule| match rule {
-            PhonRuleDef::Rewrite(r) => r.xml_id.clone(),
-            PhonRuleDef::Metathesis(r) => r.xml_id.clone(),
-        })
-        .collect();
-    let net = if rules.is_empty() {
-        let mut net = identity_cascade(opts, &g.char_tables[0]);
-        fsm_count(&mut net);
-        net
-    } else {
-        let (net, detail) = replace::compile_proposing_cascade(opts, g, &rules, &mut Vec::new())
-            .map_err(AdmissionRefusal::Cascade)?;
-        evidence.cascade_detail = Some(detail);
-        net
-    };
-    evidence.cascade = size(&net);
-    meter.observe("cascade", evidence.cascade, &items)?;
-    Ok((net, items))
+        .unwrap_or_else(fsm_empty_string);
+    (net, lowers.into_inner().into_iter().collect())
 }
 
 fn compose_min(
@@ -247,6 +214,7 @@ fn compose_min(
     evidence: &mut AdmissionEvidence,
     meter: &mut Meter,
 ) -> Result<Fsm, AdmissionRefusal> {
+    let started = std::time::Instant::now();
     let mut raw = fsm_compose(opts, left, right);
     fsm_count(&mut raw);
     let before = size(&raw);
@@ -258,42 +226,53 @@ fn compose_min(
         structure: structure.to_owned(),
         before,
         after,
+        ms: started.elapsed().as_millis() as u64,
     });
     Ok(net)
 }
 
-/// `?* [ piece TAG | .. ] ?*` restricted to one tag per string, as an acceptor.
+const LARGE_STACK_BYTES: usize = 1 << 30;
+
+// Minimizing and composing large nets drops linked structures hundreds of thousands deep, so the build runs on its own stack.
+fn on_large_stack<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(LARGE_STACK_BYTES)
+            .spawn_scoped(scope, work)
+            .expect("spawn the large-stack thread")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
+
+/// `?* [ piece TAG | .. ] ?*` restricted to one tag per string, as an acceptor; `None` when no piece has a tag.
 fn tagged_acceptor(
     opts: &FomaOptions,
-    plan: &AdmissionPlan,
+    pieces: &[Piece],
     tag_of: &HashMap<usize, String>,
     tokens: &Fsm,
-    tags: &Fsm,
-) -> Result<Fsm, String> {
+) -> Result<Option<Fsm>, String> {
     let mut alternatives = Vec::new();
-    for piece in &plan.pieces {
+    for piece in pieces {
         let Some(tag) = tag_of.get(&(piece.rule.0 as usize)) else {
             continue;
         };
         let Some(net) = fsm_parse_regex(opts, &piece.regex, None, None) else {
             return Err(piece.grammar_item.clone());
         };
-        alternatives.push(fsm_concat(opts, net, fsm_symbol(tag)));
+        let text = fsm_kleene_star(opts, tokens.clone());
+        let around = fsm_concat(opts, text.clone(), fsm_concat(opts, net, text.clone()));
+        let strings = fsm_intersect(opts, around, text);
+        alternatives.push(fsm_cross_product(opts, fsm_symbol(tag), strings));
     }
-    let Some(any_piece) = union_all(opts, alternatives) else {
-        return Err("no pieces".to_owned());
-    };
-    let around = fsm_concat(
-        opts,
-        fsm_universal(),
-        fsm_concat(opts, any_piece, fsm_universal()),
-    );
-    let one_tag = fsm_concat(
-        opts,
-        fsm_kleene_star(opts, tokens.clone()),
-        fsm_concat(opts, tags.clone(), fsm_kleene_star(opts, tokens.clone())),
-    );
-    Ok(fsm_minimize(opts, fsm_intersect(opts, around, one_tag)))
+    Ok(union_all(opts, alternatives))
+}
+
+/// The acceptors of the inner and outer regions, the tag alphabet and the free flags.
+struct Tagged {
+    inner: Option<Fsm>,
+    outer: Option<Fsm>,
+    free: Vec<bool>,
 }
 
 /// Pieces whose regex does not compile make their rule free instead of failing the build.
@@ -303,18 +282,21 @@ fn compile_tagged(
     tag_of: &mut HashMap<usize, String>,
     tokens: &Fsm,
     meter: &mut Meter,
-) -> Option<(Fsm, Fsm, Vec<bool>)> {
+) -> Option<Tagged> {
     let mut free = plan.free.clone();
     loop {
-        let tags = symbols_union(opts, tag_of.values().cloned())?;
-        match tagged_acceptor(opts, plan, tag_of, tokens, &tags) {
-            Ok(net) => return Some((net, tags, free)),
-            Err(item) if item == "no pieces" => return None,
+        let compiled = tagged_acceptor(opts, &plan.pieces, tag_of, tokens).and_then(|inner| {
+            tagged_acceptor(opts, &plan.outer_pieces, tag_of, tokens).map(|outer| (inner, outer))
+        });
+        match compiled {
+            Ok((None, None)) => return None,
+            Ok((inner, outer)) => return Some(Tagged { inner, outer, free }),
             Err(item) => {
                 meter.warnings.push(format!(
                     "piece for {item} did not compile; the rule is admitted for every word."
                 ));
-                for piece in plan.pieces.iter().filter(|p| p.grammar_item == item) {
+                let both = plan.pieces.iter().chain(&plan.outer_pieces);
+                for piece in both.filter(|p| p.grammar_item == item) {
                     tag_of.remove(&(piece.rule.0 as usize));
                     free[piece.rule.0 as usize] = true;
                 }
@@ -323,113 +305,227 @@ fn compile_tagged(
     }
 }
 
-pub(super) fn machine(
+/// The lookup net, its tag-to-rule map and the free rules.
+pub(super) struct Built {
+    pub net: Fsm,
+    pub tags: HashMap<String, usize>,
+    pub free: Vec<bool>,
+}
+
+pub(super) fn ordered_prules(g: &Grammar) -> Vec<&PhonRuleDef> {
+    g.strata
+        .iter()
+        .flat_map(|stratum| &stratum.prules)
+        .map(|id| &g.prules[id.0 as usize])
+        .collect()
+}
+
+/// Everything the composition steps share.
+struct Steps<'a> {
+    opts: &'a FomaOptions,
+    items: Vec<String>,
+    evidence: &'a mut AdmissionEvidence,
+    meter: &'a mut Meter,
+}
+
+impl Steps<'_> {
+    fn compose(&mut self, structure: &str, left: Fsm, right: Fsm) -> Result<Fsm, AdmissionRefusal> {
+        compose_min(
+            self.opts,
+            structure,
+            (left, right),
+            &self.items,
+            self.evidence,
+            self.meter,
+        )
+    }
+
+    fn minimize(&mut self, structure: &str, net: Fsm) -> Result<Fsm, AdmissionRefusal> {
+        let started = std::time::Instant::now();
+        let mut raw = net;
+        fsm_count(&mut raw);
+        let before = size(&raw);
+        self.meter.observe(
+            &format!("{structure} before minimizing"),
+            before,
+            &self.items,
+        )?;
+        let net = fsm_minimize(self.opts, raw);
+        let after = size(&net);
+        self.meter
+            .observe(&format!("{structure} minimized"), after, &self.items)?;
+        self.evidence.compositions.push(Composition {
+            structure: structure.to_owned(),
+            before,
+            after,
+            ms: started.elapsed().as_millis() as u64,
+        });
+        Ok(net)
+    }
+}
+
+/// Any text may surround the inner net's lower side.
+fn pad(opts: &FomaOptions, inner: Fsm, symbols: &[String]) -> Fsm {
+    let any = symbols_union(opts, symbols.iter().cloned())
+        .map(|net| fsm_kleene_star(opts, net))
+        .unwrap_or_else(fsm_empty_string);
+    let around = fsm_cross_product(opts, fsm_empty_string(), any);
+    fsm_concat(opts, fsm_concat(opts, around.clone(), inner), around)
+}
+
+pub(super) fn token_alphabet(g: &Grammar, parts: Option<&CascadeParts>) -> Vec<char> {
+    let table = &g.char_tables[0];
+    match parts {
+        Some(parts) => {
+            let tokens = &parts.tokens;
+            [
+                &tokens.attested_segments,
+                &tokens.private_segments,
+                &tokens.boundaries,
+            ]
+            .into_iter()
+            .flatten()
+            .copied()
+            .collect()
+        }
+        None => tokens_of(table, CharDefKind::Segment)
+            .into_iter()
+            .chain(tokens_of(table, CharDefKind::Boundary))
+            .collect(),
+    }
+}
+
+fn rule_part_sizes(parts: &CascadeParts) -> Vec<RulePartSize> {
+    parts
+        .rules
+        .iter()
+        .map(|part| RulePartSize {
+            rule: part.rule.clone(),
+            construction: format!("{:?}", part.construction),
+            size: size(&part.net),
+            blocks: part.blocks,
+            block_tuples: part.block_tuples,
+            block_widened: part.block_widened,
+        })
+        .collect()
+}
+
+/// Builds the admission net: the inner region folded through the rules one at a time, the outer region through the spelling only.
+pub(super) fn build_net(
     opts: &FomaOptions,
     g: &Grammar,
     plan: &AdmissionPlan,
     evidence: &mut AdmissionEvidence,
     meter: &mut Meter,
-) -> Result<Machine, AdmissionRefusal> {
-    let table = &g.char_tables[0];
+) -> Result<Built, AdmissionRefusal> {
+    on_large_stack(|| build_on_this_stack(opts, g, plan, evidence, meter))
+}
+
+fn build_on_this_stack(
+    opts: &FomaOptions,
+    g: &Grammar,
+    plan: &AdmissionPlan,
+    evidence: &mut AdmissionEvidence,
+    meter: &mut Meter,
+) -> Result<Built, AdmissionRefusal> {
+    let prules = ordered_prules(g);
+    // Without phonological rules the table alone is a safe alphabet, so a failed build falls back to it.
+    let parts = match CascadeParts::build(opts, g, &prules) {
+        Ok(parts) => Some(parts),
+        Err(_) if prules.is_empty() => None,
+        Err(error) => return Err(AdmissionRefusal::Cascade(error)),
+    };
+    evidence.rule_parts = parts.as_ref().map(rule_part_sizes).unwrap_or_default();
+    let items: Vec<String> = plan
+        .pieces
+        .iter()
+        .chain(&plan.outer_pieces)
+        .map(|p| p.grammar_item.clone())
+        .collect();
+    for part in &evidence.rule_parts {
+        meter.observe(&format!("rule {}", part.rule), part.size, &items)?;
+    }
+    let tokens = symbols_union(
+        opts,
+        token_alphabet(g, parts.as_ref())
+            .into_iter()
+            .map(String::from),
+    )
+    .ok_or_else(|| AdmissionRefusal::Construction("the character table is empty".into()))?;
     let mut tag_of: HashMap<usize, String> = plan
         .pieces
         .iter()
+        .chain(&plan.outer_pieces)
         .map(|p| {
             let rule = p.rule.0 as usize;
             (rule, format!("<A:{rule}>"))
         })
         .collect();
-    let all_tokens = tokens_of(table, CharDefKind::Segment)
-        .into_iter()
-        .chain(tokens_of(table, CharDefKind::Boundary));
-    let tokens = symbols_union(opts, all_tokens.map(String::from))
-        .ok_or_else(|| AdmissionRefusal::Construction("the character table is empty".into()))?;
-    let items: Vec<String> = plan.pieces.iter().map(|p| p.grammar_item.clone()).collect();
-    let Some((acceptor, tags, free)) = compile_tagged(opts, plan, &mut tag_of, &tokens, meter)
-    else {
+    let Some(tagged) = compile_tagged(opts, plan, &mut tag_of, &tokens, meter) else {
         return Err(AdmissionRefusal::NoUsablePiece(plan.counts.affix_rules));
     };
-    evidence.acceptor = size(&acceptor);
+    evidence.acceptor = tagged.inner.as_ref().map(size).unwrap_or_default();
+    evidence.outer_acceptor = tagged.outer.as_ref().map(size).unwrap_or_default();
     meter.observe("tagged acceptor", evidence.acceptor, &items)?;
-    let tags_up = fsm_kleene_star(
+    meter.observe("outer tagged acceptor", evidence.outer_acceptor, &items)?;
+    let (spelled, lower_symbols) = orthography(opts, &g.char_tables[0]);
+    let (spelling, rules) = match parts {
+        Some(parts) => (Some(parts.spelling), parts.rules),
+        None => (None, Vec::new()),
+    };
+    let mut steps = Steps {
         opts,
-        union_all(
-            opts,
-            vec![
-                fsm_cross_product(opts, fsm_empty_string(), tokens.clone()),
-                tags.clone(),
-            ],
-        )
-        .expect("two alternatives"),
-    );
-    let tags_down = fsm_kleene_star(
-        opts,
-        union_all(
-            opts,
-            vec![
-                tokens.clone(),
-                fsm_cross_product(opts, tags.clone(), fsm_empty_string()),
-            ],
-        )
-        .expect("two alternatives"),
-    );
-    let upper = compose_min(
-        opts,
-        "tagged acceptor lifted to tag-only upper side",
-        (tags_up, acceptor),
-        &items,
+        items,
         evidence,
         meter,
-    )?;
-    let net = compose_min(
-        opts,
-        "tag-to-tokens transducer",
-        (upper, tags_down),
-        &items,
-        evidence,
-        meter,
-    )?;
+    };
+    let inner = match tagged.inner {
+        None => None,
+        Some(acceptor) => {
+            let mut net = acceptor;
+            if spelling.is_none() {
+                net = steps.compose("cascade", net, identity_cascade(opts, &g.char_tables[0]))?;
+            }
+            for part in rules {
+                net = steps.compose(&part.rule, net, part.net)?;
+            }
+            if let Some(spelling) = &spelling {
+                net = steps.compose("spelling", net, spelling.clone())?;
+            }
+            Some(steps.compose("orthography", net, spelled.clone())?)
+        }
+    };
+    let outer = match tagged.outer {
+        None => None,
+        Some(acceptor) => {
+            let mut net = acceptor;
+            if let Some(spelling) = spelling {
+                net = steps.compose("outer spelling", net, spelling)?;
+            }
+            Some(steps.compose("outer orthography", net, spelled)?)
+        }
+    };
+    let net = match (inner, outer) {
+        (Some(inner), None) => inner,
+        (None, Some(outer)) => outer,
+        (Some(inner), Some(outer)) => {
+            let padded = steps.minimize("padded inner", pad(opts, inner, &lower_symbols))?;
+            let both = fsm_union(opts, padded, outer);
+            steps.minimize("inner and outer union", both)?
+        }
+        (None, None) => return Err(AdmissionRefusal::NoUsablePiece(plan.counts.affix_rules)),
+    };
+    steps.evidence.final_net = size(&net);
     let by_text = tag_of
         .iter()
         .map(|(rule, text)| (text.clone(), *rule))
         .collect();
-    Ok(Machine {
+    Ok(Built {
         net,
         tags: by_text,
-        free,
+        free: tagged.free,
     })
 }
-
-pub(super) fn finish(
-    opts: &FomaOptions,
-    g: &Grammar,
-    tagged: Fsm,
-    cascade: Fsm,
-    items: &[String],
-    evidence: &mut AdmissionEvidence,
-    meter: &mut Meter,
-) -> Result<Fsm, AdmissionRefusal> {
-    let through = compose_min(
-        opts,
-        "tagged transducer composed with the cascade",
-        (tagged, cascade),
-        items,
-        evidence,
-        meter,
-    )?;
-    let spelling = orthography(opts, &g.char_tables[0]);
-    let net = compose_min(
-        opts,
-        "composition with the orthography",
-        (through, spelling),
-        items,
-        evidence,
-        meter,
-    )?;
-    evidence.final_net = size(&net);
-    Ok(net)
-}
-
 pub(super) struct CountingWriter(pub usize);
 
 impl std::io::Write for CountingWriter {

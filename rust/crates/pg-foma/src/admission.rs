@@ -7,7 +7,7 @@ mod plan;
 mod tests;
 
 use crate::lower::{pattern_slots, PatternLowerScope, Slot};
-use crate::replace::{CascadeEvidence, PhonologyLoweringError, SegAlphabet};
+use crate::replace::{PhonologyLoweringError, SegAlphabet};
 use foma::apply::apply_init;
 use foma::io::fsm_write_binary;
 use foma::options::FomaOptions;
@@ -45,7 +45,7 @@ pub fn class_test(g: &Grammar) -> impl Fn(&PatternNode, char) -> bool + '_ {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdmissionRefusal {
     CharacterTables(usize),
-    /// More than one stratum has phonological rules, or a later stratum has morphological rules or templates.
+    /// More than one stratum has phonological rules, or a rule after the phonological stratum edits its input.
     StratumLayout(String),
     /// A compounding rule cuts or deletes stem material.
     CompoundingEditsStem(String),
@@ -96,6 +96,8 @@ pub struct PlanCounts {
     pub deletion_left: Option<usize>,
     pub deletion_right: Option<usize>,
     pub root_floor: usize,
+    pub outer_rules: usize,
+    pub outer_pieces: usize,
 }
 
 /// The pure result of grammar analysis: which rules are free and the piece of every other rule.
@@ -103,6 +105,8 @@ pub struct PlanCounts {
 pub struct AdmissionPlan {
     pub free: Vec<bool>,
     pub pieces: Vec<Piece>,
+    /// Pieces of rules in strata after the phonological one; their literals reach the surface unchanged.
+    pub outer_pieces: Vec<Piece>,
     pub counts: PlanCounts,
 }
 
@@ -114,10 +118,21 @@ pub struct Size {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+pub struct RulePartSize {
+    pub rule: String,
+    pub construction: String,
+    pub size: Size,
+    pub blocks: usize,
+    pub block_tuples: usize,
+    pub block_widened: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Composition {
     pub structure: String,
     pub before: Size,
     pub after: Size,
+    pub ms: u64,
 }
 
 /// Sizes observed while building one admission net, gathered where each structure is made.
@@ -125,9 +140,9 @@ pub struct Composition {
 pub struct AdmissionEvidence {
     pub plan: PlanCounts,
     pub acceptor: Size,
-    pub cascade: Size,
-    #[serde(skip)]
-    pub cascade_detail: Option<CascadeEvidence>,
+    pub outer_acceptor: Size,
+    /// Each phonological rule's own relation, in cascade order.
+    pub rule_parts: Vec<RulePartSize>,
     pub compositions: Vec<Composition>,
     pub final_net: Size,
     pub final_bytes: usize,
@@ -155,17 +170,8 @@ pub fn build_rule_admission(
         ..AdmissionEvidence::default()
     };
     let mut meter = build::Meter::default();
-    let machine = build::machine(opts, g, &plan, &mut evidence, &mut meter)?;
-    let (cascade, items) = build::cascade(opts, g, &mut evidence, &mut meter)?;
-    let mut net = build::finish(
-        opts,
-        g,
-        machine.net,
-        cascade,
-        &items,
-        &mut evidence,
-        &mut meter,
-    )?;
+    let built = build::build_net(opts, g, &plan, &mut evidence, &mut meter)?;
+    let mut net = built.net;
     let mut counter = build::CountingWriter(0);
     fsm_write_binary(&net, &mut counter)
         .map_err(|e| AdmissionRefusal::Construction(e.to_string()))?;
@@ -173,15 +179,15 @@ pub fn build_rule_admission(
     fsm_sort_arcs(&mut net, 2);
     Ok(RuleAdmission {
         handle: Mutex::new(apply_init(&net)),
-        tags: machine.tags,
-        free: machine.free,
+        tags: built.tags,
+        free: built.free,
         plan,
         evidence,
         warnings: meter.warnings,
     })
 }
 
-/// Synthesis runs a stratum's morphological rules before its phonology, so only rules at or before the phonological stratum are covered.
+/// Rules after the phonological stratum are covered by the plan when they are intact; more than one phonological stratum is out of the model.
 fn check_strata(g: &Grammar) -> Result<(), AdmissionRefusal> {
     if g.char_tables.len() != 1 {
         return Err(AdmissionRefusal::CharacterTables(g.char_tables.len()));
@@ -192,17 +198,6 @@ fn check_strata(g: &Grammar) -> Result<(), AdmissionRefusal> {
     if phonological.len() > 1 {
         return Err(AdmissionRefusal::StratumLayout(
             "more than one stratum has phonological rules".into(),
-        ));
-    }
-    let Some(&at) = phonological.first() else {
-        return Ok(());
-    };
-    let later = g.strata[at + 1..]
-        .iter()
-        .any(|s| !s.mrules.is_empty() || !s.templates.is_empty());
-    if later {
-        return Err(AdmissionRefusal::StratumLayout(
-            "a stratum after the phonological one has morphological rules or templates".into(),
         ));
     }
     Ok(())
