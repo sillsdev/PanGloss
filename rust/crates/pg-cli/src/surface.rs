@@ -66,6 +66,13 @@ fn dispatch(
     }
 }
 
+fn dispatch_analyze_text(args: &[String]) -> ExitCode {
+    dispatch(
+        "analyze-text",
+        args,
+        crate::analyze_text_cmd::run_analyze_text,
+    )
+}
 fn dispatch_batch(args: &[String]) -> ExitCode {
     dispatch("batch", args, crate::run_batch)
 }
@@ -230,6 +237,34 @@ pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
         }
     }
 }
+
+const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--profile",
+        takes_value: true,
+        summary: "the Segmentation profile: a writing-system .ldml or a JSON profile (required)",
+    },
+    FlagSpec {
+        name: "--pack",
+        takes_value: true,
+        summary: "<language>=<grammar>: a Language Pack to check every Occurrence against; repeatable, one per language",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "N or \"unbounded\"; the work steps one word may spend in each pack (default: 5000000000)",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "wall-clock deadline per word and pack; a search it stops is reported incomplete",
+    },
+    FlagSpec {
+        name: "--max-checked-occurrences",
+        takes_value: true,
+        summary: "check at most N Occurrences over all texts; the rest are reported unattempted",
+    },
+];
 
 const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
@@ -694,6 +729,14 @@ const COST_CALIBRATE_FLAGS: &[FlagSpec] = &[
 ];
 
 pub(crate) const COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: "analyze-text",
+        summary: "Segment text files and report per-Occurrence Language Pack evidence and per-text and corpus counts as JSON (docs/text-analysis-format.md).",
+        hidden: false,
+        positionals: &["text-file..."],
+        flags: ANALYZE_TEXT_FLAGS,
+        handler: dispatch_analyze_text,
+    },
     CommandSpec {
         name: "batch",
         summary: "Parse every word in a word list against a grammar and write a batch TSV.",

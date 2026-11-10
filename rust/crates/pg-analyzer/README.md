@@ -5,3 +5,7 @@
 The LDML reader accepts main exemplar character sets containing literal characters, scalar escapes (`u`, `U`, and braced `x`), whitespace-delimited ranges, and strings (whose first scalar is the override, as in LibLCM). It rejects unsupported UnicodeSet operations rather than silently dropping them. JSON profiles contain `version`, `source_id`, `source_sha256`, and `word_forming`. A caller without LDML can round-trip the profile returned by an LDML analysis. The hash is over the original UTF-8 LDML bytes.
 
 The WordMaker differential harness and its reference limitations are documented in `rust/dotnet-harness/WordMakerParity/README.md`.
+
+# Text analysis
+
+`analyze_text` segments one or more texts, checks every Occurrence against each loaded Language Pack and counts the outcomes. Its result format is `docs/text-analysis-format.md`; `pangloss analyze-text` prints it.

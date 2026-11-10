@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pg-grammar.workspace = true
-pg-analyzer = { path = "../pg-analyzer" }
+pg-analyzer.workspace = true
 pg-parse.workspace = true
 pg-realize.workspace = true
 pg-lexicon.workspace = true
