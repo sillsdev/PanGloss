@@ -1462,6 +1462,46 @@ finally {
 	Remove-Item -Path $alloCoOccurTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- Empty required slot probe: a slot with no affix rules authors (direction names its list) and
+#     HCLoader drops it, so the loaded language keeps only the filled slot. ---
+$emptySlotGrammar = Join-Path $root 'testdata\empty-required-slot-probe.grammar.xml'
+$emptySlotTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-empty-slot-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $emptySlotTempRoot -Force | Out-Null
+try {
+	$emptySlotOutDir = Join-Path $emptySlotTempRoot 'author'
+	New-Item -ItemType Directory -Path $emptySlotOutDir -Force | Out-Null
+	& $exePath author --grammar $emptySlotGrammar --out-dir $emptySlotOutDir --name EmptySlot
+	if ($LASTEXITCODE -ne 0) { throw "Empty required slot probe: 'author' failed (exit $LASTEXITCODE)." }
+	$emptySlotResponse = Get-Content (Join-Path $emptySlotOutDir 'author-response.json') -Raw | ConvertFrom-Json
+	if ($emptySlotResponse.authored.MoInflAffixSlot -ne 2) { throw "Empty required slot probe: expected 2 MoInflAffixSlot, got '$($emptySlotResponse.authored.MoInflAffixSlot)'." }
+	$emptySlotFwdata = Join-Path $emptySlotOutDir 'EmptySlot\EmptySlot.fwdata'
+	$emptySlotGuid = $emptySlotResponse.guidMap.slotEmptyRequired
+	$emptySlotText = Get-Content $emptySlotFwdata -Raw
+	if ($emptySlotText -notmatch "(?s)<PrefixSlots>\s*<objsur guid=""$emptySlotGuid""") { throw 'Empty required slot probe: the empty slot is not in PrefixSlotsRS.' }
+	if ($emptySlotText -notmatch "(?s)<rt class=""MoInflAffixSlot"" guid=""$emptySlotGuid""[^>]*>(?:(?!</rt>).)*?<Optional val=""False""") { throw 'Empty required slot probe: the empty slot is not required.' }
+	$emptySlotProjected = Join-Path $emptySlotTempRoot 'projected'
+	New-Item -ItemType Directory -Path $emptySlotProjected -Force | Out-Null
+	& $exePath project --project $emptySlotFwdata --out-dir $emptySlotProjected --database EmptySlot
+	if ($LASTEXITCODE -ne 0) { throw "Empty required slot probe: 'project' failed (exit $LASTEXITCODE)." }
+	$emptySlotHcXml = Join-Path $emptySlotProjected 'EmptySlot.hc.xml'
+	$emptySlotHcSlots = @(([xml](Get-Content $emptySlotHcXml -Raw)).SelectNodes('//AffixTemplate/Slot'))
+	if ($emptySlotHcSlots.Count -ne 1 -or $emptySlotHcSlots[0].SelectSingleNode('Name').InnerText -ne 'slotSuffix') { throw "Empty required slot probe: expected HCLoader to keep only slotSuffix, got $($emptySlotHcSlots.Count) slot(s)." }
+	$emptySlotWords = Join-Path $emptySlotTempRoot 'words.txt'
+	Set-Content -LiteralPath $emptySlotWords -Value @('monu', 'monua', 'amonu') -Encoding utf8
+	$emptySlotParse = Join-Path $emptySlotTempRoot 'parse-hc.json'
+	& $exePath parse-hc --project $emptySlotFwdata --hc-xml $emptySlotHcXml --words $emptySlotWords --out $emptySlotParse
+	if ($LASTEXITCODE -ne 0) { throw "Empty required slot probe: 'parse-hc' failed (exit $LASTEXITCODE)." }
+	$emptySlotCapture = Get-Content $emptySlotParse -Raw | ConvertFrom-Json
+	$emptySlotMorphCounts = @($emptySlotCapture.words | ForEach-Object { if ($_.analyses.Count -eq 1) { $_.analyses[0].morphemes.Count } else { -$_.analyses.Count } })
+	if (($emptySlotMorphCounts -join ',') -ne '1,2,0' -or -not (($emptySlotCapture.words | Where-Object { -not $_.projectionAgrees }).Count -eq 0)) {
+		throw "Empty required slot probe: expected monu=1 morph, monua=2 morphs, amonu=0 analyses with agreeing projections, got $($emptySlotMorphCounts -join ',')."
+	}
+	Write-Host 'Empty required slot probe OK: the zero-rule required slot authors, HCLoader drops it, and the empty slot does not block parses.'
+}
+finally {
+	Remove-Item -Path $emptySlotTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 if (-not (Test-Path $pilotGrammar)) {
 	Write-Host "SKIPPED (author/verify-parity live tests): conformance suite fixture not found at $pilotGrammar"
 	exit 0

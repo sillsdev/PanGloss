@@ -701,7 +701,7 @@ namespace XampleProjector
 				foreach (var slot in template.Slots)
 				{
 					var ruleIds = slot.RuleIds;
-					var isPrefix = grammar.MorphologicalRules[ruleIds[0]].Subrules[0].IsPrefix;
+					var isPrefix = slot.IsPrefix;
 
 					var lcmSlot = slotFactory.Create();
 					pos.AffixSlotsOC.Add(lcmSlot);

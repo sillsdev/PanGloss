@@ -55,6 +55,7 @@ namespace XampleProjector
 	{
 		internal string Name { get; set; }
 		internal bool Optional { get; set; }
+		internal bool IsPrefix { get; set; }
 		internal IReadOnlyList<string> RuleIds { get; set; } = System.Array.Empty<string>();
 	}
 

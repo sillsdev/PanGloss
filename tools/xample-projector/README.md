@@ -358,6 +358,7 @@ Supported:
   SET an MPR feature (only `MoDerivAffMsa`'s `ToProdRestrictRC` can, and derivational rules are out of
   scope here). A `MorphologicalRule` not referenced by any slot is refused (derivational back-out is
   a later expansion), and so is `requiredPartsOfSpeech != outputPartOfSpeech` on a slot rule.
+- A `Slot` with no `morphologicalRules` is authored when it carries the author-only `direction="prefix"|"suffix"` attribute (the DTD has none; it never reaches a fixture's `grammar.xml`). HCLoader drops such a slot, so `project` omits it (`testdata/empty-required-slot-probe.grammar.xml`).
 - `AffixTemplate` -> `IMoInflAffixTemplate`; each `Slot` -> `IMoInflAffixSlot` in
   `pos.AffixSlotsOC`, added to `PrefixSlotsRS` if every referenced rule is a prefix, `SuffixSlotsRS`
   if every one is a suffix (mixed -> refused). See "Slot ordering" below for insertion order.
