@@ -455,12 +455,24 @@ fn featureless_grammar() -> Grammar {
             r#"<Segment segment="ck" />"#,
             &environment(&ctx("ncV"), ""),
         ),
+        rule(
+            "rExp",
+            r#"<Segment segment="ct" />"#,
+            r#"<Segment segment="ct" /><Segment segment="ci" />"#,
+            "",
+        ),
+        rule(
+            "rCon",
+            &(ctx("ncC") + &ctx("ncV")),
+            r#"<Segment segment="ck" />"#,
+            "",
+        ),
     ];
     let xml = format!(
         r#"{HEAD}<CharacterDefinitionTable id="tbl"><Name>Main</Name><SegmentDefinitions>{segments}</SegmentDefinitions></CharacterDefinitionTable>
 <NaturalClasses>{}{}</NaturalClasses>
 <PhonologicalRuleDefinitions>{}</PhonologicalRuleDefinitions>
-<Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="rSyn rTK"><Name>Main</Name><LexicalEntries>
+<Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="rSyn rTK rExp rCon"><Name>Main</Name><LexicalEntries>
 <LexicalEntry id="e1" partOfSpeech="posN"><Allomorphs><Allomorph id="a1"><PhoneticShape>pi</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R</MorphemeId></LexicalEntry>
 </LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#,
         class("ncC", &["p", "t", "k"]),
@@ -504,4 +516,35 @@ fn the_oracle_rewrites_a_featured_focus_it_matches() {
     let rewritten = hc_output(&g, 3, "pi").unwrap();
     assert_ne!(Some(rewritten.clone()), encoded(&g, "pi"));
     assert_eq!(Some(rewritten), encoded(&g, "ti"));
+}
+
+fn keeps_every_synthesis_output(rule: usize, words: &[&str]) {
+    let g = featureless_grammar();
+    let (net, _) = cascade(&g, &[rule]);
+    for word in words {
+        assert!(
+            down(&net, &encoded(&g, word).unwrap()).contains(&hc_output(&g, rule, word).unwrap()),
+            "rule {rule}: {word}"
+        );
+    }
+}
+
+#[test]
+fn without_features_an_expansion_keeps_every_synthesis_output() {
+    keeps_every_synthesis_output(2, &["t", "pt", "tit"]);
+}
+
+#[test]
+fn without_features_a_simultaneous_contraction_is_refused_rather_than_filtered() {
+    let g = featureless_grammar();
+    let result = compile_proposing_cascade(
+        &FomaOptions::default(),
+        &g,
+        &[&g.prules[3]],
+        &mut Vec::new(),
+    );
+    assert!(matches!(
+        result,
+        Err(PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(_))
+    ));
 }

@@ -85,13 +85,16 @@ pub(crate) fn is_pair_rule(g: &Grammar, rule: &RewriteRuleDef) -> bool {
         })
 }
 
-/// Identity on every token plus each focus row to the rows synthesis makes of it; `None` unless the rule's pairs are known.
+/// Identity on every token plus each focus row to the rows synthesis makes of it; `None` unless the rule is a pair rule whose pairs are known.
 pub(crate) fn pair_filter(
     opts: &FomaOptions,
     g: &Grammar,
     bundles: &IntermediateBundles,
     rule: &RewriteRuleDef,
 ) -> Result<Option<Fsm>, PhonologyLoweringError> {
+    if !is_pair_rule(g, rule) {
+        return Ok(None);
+    }
     let token = |id: CharDefId| chardef_token(id);
     let mut pairs: Vec<(CharDefId, Option<CharDefId>)> = Vec::new();
     if g.phon_features.is_empty() {
