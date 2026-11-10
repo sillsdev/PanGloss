@@ -1644,8 +1644,7 @@ pub(crate) fn ana_syn_fs(
 ) -> Option<FeatureStruct> {
     let req_fs = g.fs_interner.get(req);
     let out_fs = g.fs_interner.get(out);
-    let check = priority_union(req_fs, out_fs);
-    if !is_unifiable(&check, &word.syn_fs) {
+    if !pg_featstruct::is_unifiable_with_priority_union(req_fs, out_fs, &word.syn_fs) {
         return None;
     }
     let stem = pg_featstruct::remove_paths(&word.syn_fs, out_fs);
@@ -3109,8 +3108,10 @@ fn ana_allomorph_matches(
     // Named once, and only for an allomorph that matches at all: most never do.
     let mut parts: Option<Vec<(String, &Pattern)>> = None;
     let mut allo_out: Vec<Word> = Vec::new();
-    let repeated_parts = (prune_disagreeing_copies && has_repeated_part_action_group(&allo.rhs))
-        .then(|| repeated_part_action_groups(&allo.rhs));
+    let check_repeated_parts =
+        prune_disagreeing_copies && has_repeated_part_action_group(&allo.rhs);
+    // Grouped on the first match only: an allomorph whose FST never matches never needs them.
+    let mut repeated_parts: Option<HashMap<u16, Vec<usize>>> = None;
     // Featureless grammar: no static unifiability closure (see `CharDefTable::unif_closure`), so character identity decides.
     let compare_characters = g.char_tables[table.0 as usize]
         .unif_closure_rows()
@@ -3120,8 +3121,10 @@ fn ana_allomorph_matches(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if repeated_parts.as_ref().is_some_and(|groups| {
-            copy_agreement_refuses_match(
+        if check_repeated_parts {
+            let groups =
+                repeated_parts.get_or_insert_with(|| repeated_part_action_groups(&allo.rhs));
+            if copy_agreement_refuses_match(
                 compare_characters,
                 &word.shape,
                 node_of,
@@ -3129,9 +3132,9 @@ fn ana_allomorph_matches(
                 &result,
                 &allo.rhs,
                 groups,
-            )
-        }) {
-            continue;
+            ) {
+                continue;
+            }
         }
         let parts = parts.get_or_insert_with(|| {
             allo.lhs

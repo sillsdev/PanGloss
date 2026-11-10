@@ -137,6 +137,62 @@ fn value_is_unifiable(a: &FeatureValue, b: &FeatureValue) -> bool {
     }
 }
 
+/// `is_unifiable(&priority_union(a, b), c)` without building the union: walks the two operands' features together with `c`'s, so the answer is identical but nothing is allocated.
+pub fn is_unifiable_with_priority_union(
+    a: &FeatureStruct,
+    b: &FeatureStruct,
+    c: &FeatureStruct,
+) -> bool {
+    let ae = a.entries();
+    let be = b.entries();
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < ae.len() || j < be.len() {
+        // The union's entry for this feature: `b` wins unless both are nested structs, which recurse.
+        let (feat, from_a, from_b) = match (ae.get(i), be.get(j)) {
+            (Some((fa, va)), Some((fb, vb))) => match fa.cmp(fb) {
+                Ordering::Less => {
+                    i += 1;
+                    (*fa, Some(va), None)
+                }
+                Ordering::Greater => {
+                    j += 1;
+                    (*fb, None, Some(vb))
+                }
+                Ordering::Equal => {
+                    i += 1;
+                    j += 1;
+                    (*fa, Some(va), Some(vb))
+                }
+            },
+            (Some((fa, va)), None) => {
+                i += 1;
+                (*fa, Some(va), None)
+            }
+            (None, Some((fb, vb))) => {
+                j += 1;
+                (*fb, None, Some(vb))
+            }
+            (None, None) => break,
+        };
+        let Some(cv) = c.get(feat) else { continue };
+        let ok = match (from_a, from_b) {
+            (Some(FeatureValue::Complex(ca)), Some(FeatureValue::Complex(cb))) => match cv {
+                FeatureValue::Complex(cc) => is_unifiable_with_priority_union(ca, cb, cc),
+                FeatureValue::Symbolic(_) => {
+                    value_is_unifiable(&FeatureValue::Complex(FeatureStruct::EMPTY), cv)
+                }
+            },
+            (_, Some(vb)) => value_is_unifiable(vb, cv),
+            (Some(va), None) => value_is_unifiable(va, cv),
+            (None, None) => true,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
 /// Port of `FeatureStruct.NondestructiveUnify` (`FeatureStruct.cs:1010-1068`) for the
 /// tree/no-variable subset. `Some(fs)` with `fs` holding the union of both sides' features
 /// (common features recursively unified), or `None` if any common feature fails to unify
