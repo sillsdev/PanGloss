@@ -11,7 +11,7 @@ pub enum BlockNode {
     Boundary(CharDefId),
 }
 
-/// The nodes `subrule` leaves where its focus matched `focus` (no environment or gate; a full-set alpha lane returns as zero), or `None` when synthesis would not rewrite.
+/// The nodes `subrule` leaves where its focus matched `focus` (no environment or gate; an alpha lane left at its full set, or one only an environment can bind, returns as zero), or `None` when synthesis would not rewrite.
 pub fn focus_outputs(
     g: &Grammar,
     table_id: TableId,
@@ -48,6 +48,9 @@ pub fn focus_outputs(
         strrep: None,
         identity: None,
     };
+    let environment =
+        rule.subrules[subrule].left_env.is_some() || rule.subrules[subrule].right_env.is_some();
+    let focus_bound: Vec<u16> = rule_vars_bound_by(&bindings, &prepared.rhs_vars);
     let site = SynthesisSite {
         nodes: (0..focus.len()).collect(),
         subrule,
@@ -68,7 +71,9 @@ pub fn focus_outputs(
                 }
                 let mut row = node.lanes[..lanes].to_vec();
                 for occ in vars {
-                    if row[occ.feature] == full_mask(g, occ.feature) {
+                    if row[occ.feature] == full_mask(g, occ.feature)
+                        || (environment && !focus_bound.contains(&occ.var))
+                    {
                         row[occ.feature] = 0;
                     }
                 }
@@ -114,4 +119,14 @@ fn focus_node(table: &CharDefTable, width: usize, node: &BlockNode) -> MutNode {
         deleted: false,
         dirty: false,
     }
+}
+
+/// The output variables the focus itself binds; any other is bound by an environment, so its value is any value.
+fn rule_vars_bound_by(bindings: &Bindings, rhs_vars: &[Vec<VarOccur>]) -> Vec<u16> {
+    rhs_vars
+        .iter()
+        .flatten()
+        .map(|occ| occ.var)
+        .filter(|var| bindings.contains_key(var))
+        .collect()
 }

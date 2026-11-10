@@ -416,17 +416,6 @@ fn a_segment_class_output_keeps_the_lanes_it_does_not_pin() {
     rule.subrules[0].rhs.nodes = vec![PatternNode::Context(context)];
     rule.subrules[0].left_env = None;
     let net = relation(&g, &[0]).unwrap();
-    eprintln!(
-        "DBG2 {:?}",
-        outputs(&g, &net, "ii")
-            .iter()
-            .map(|o| o
-                .chars()
-                .map(|c| format!("{:x}", c as u32 - 0xe000))
-                .collect::<Vec<_>>()
-                .join(","))
-            .collect::<Vec<_>>()
-    );
     // i/y/a span both values of each lane, so the class pins nothing and synthesis keeps the row.
     let actual = outputs(&g, &net, "ii");
     assert_eq!(actual, BTreeSet::from([encoded(&g, "ii")]));

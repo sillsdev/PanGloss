@@ -103,6 +103,14 @@ fn fusion_grammar() -> Grammar {
             &context("ncG", &["vA", "vB"]),
         ),
         rule_xml("rPin", &context("ncC", &[]), &context("ncB2", &[])),
+        rule_xml("rAssim", &context("ncC", &[]), &context("ncC", &["vA"]))
+            .replace(
+                "</PhonologicalSubrule>",
+                &format!(
+                    "<Environment><RightEnvironment>{}</RightEnvironment></Environment></PhonologicalSubrule>",
+                    seq(&context("ncC", &["vA"]))
+                ),
+            ),
     ];
     let xml = format!(
         r#"{HEAD}<PhonologicalFeatureSystem>{}{}{}</PhonologicalFeatureSystem>
@@ -110,7 +118,7 @@ fn fusion_grammar() -> Grammar {
 <BoundaryDefinitions><BoundaryDefinition id="cplus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions></CharacterDefinitionTable>
 <NaturalClasses>{}{}{}{}</NaturalClasses>
 <PhonologicalRuleDefinitions>{}</PhonologicalRuleDefinitions>
-<Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="rFuse rFeat rBound rPin"><Name>Main</Name><LexicalEntries>
+<Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="rFuse rFeat rBound rPin rAssim"><Name>Main</Name><LexicalEntries>
 <LexicalEntry id="e1" partOfSpeech="posN"><Allomorphs><Allomorph id="a1"><PhoneticShape>pi</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R</MorphemeId></LexicalEntry>
 </LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#,
         feature_xml("fk", &["kC", "kV", "kG"]),
@@ -547,4 +555,30 @@ fn without_features_a_simultaneous_contraction_is_refused_rather_than_filtered()
         result,
         Err(PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(_))
     ));
+}
+
+#[test]
+fn an_alpha_bound_only_by_the_environment_keeps_every_synthesis_output() {
+    let g = fusion_grammar();
+    let (net, _) = cascade(&g, &[4]);
+    let alphabet = ["p", "t", "k", "s", "i"];
+    let mut words = Vec::new();
+    for a in alphabet {
+        for b in alphabet {
+            words.push(format!("{a}{b}"));
+            for c in alphabet {
+                words.push(format!("{a}{b}{c}"));
+            }
+        }
+    }
+    let mut changed = 0;
+    for word in &words {
+        let expected = hc_output(&g, 4, word).unwrap();
+        changed += usize::from(Some(&expected) != encoded(&g, word).as_ref());
+        assert!(
+            down(&net, &encoded(&g, word).unwrap()).contains(&expected),
+            "{word}"
+        );
+    }
+    assert!(changed > 0, "the rule rewrites some word");
 }
