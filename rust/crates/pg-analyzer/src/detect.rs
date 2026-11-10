@@ -2,7 +2,7 @@
 
 use crate::dictionary::DictionaryPack;
 use crate::statistics::Pair;
-use crate::text::{CheckStatus, OccurrenceOutcome, OccurrenceResult};
+use crate::text::{OccurrenceOutcome, OccurrenceResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -118,12 +118,7 @@ pub(crate) fn detect<'a>(
     let mut tallies: BTreeMap<String, Tally<'a>> = BTreeMap::new();
     for item in occurrences {
         let word = item.wordform.as_str();
-        let languages: BTreeSet<&str> = item
-            .checks
-            .iter()
-            .filter(|c| c.status == CheckStatus::Valid)
-            .map(|c| c.language.as_str())
-            .collect();
+        let languages: BTreeSet<&str> = item.valid_languages.iter().map(String::as_str).collect();
         if !languages.is_empty() {
             for language in &languages {
                 let tally = tallies.entry((*language).to_owned()).or_default();

@@ -2,7 +2,7 @@
 
 use pg_analyzer::{
     analyze_text, AnalyzeOptions, DictionaryIdentity, DictionaryPack, LanguageProposal,
-    ProfileInput, ProposalStatus, TextAnalysis, TextInput, TextRequest,
+    OccurrenceOutcome, ProfileInput, ProposalStatus, TextAnalysis, TextInput, TextRequest,
 };
 
 const LDML: &str =
@@ -29,6 +29,10 @@ fn pack(language: &str, words: &str) -> DictionaryPack {
 }
 
 fn run(dictionaries: &[DictionaryPack], text: &str) -> TextAnalysis {
+    run_with(dictionaries, text, AnalyzeOptions::default())
+}
+
+fn run_with(dictionaries: &[DictionaryPack], text: &str, options: AnalyzeOptions) -> TextAnalysis {
     let texts = [TextInput {
         id: "t".into(),
         text,
@@ -42,7 +46,7 @@ fn run(dictionaries: &[DictionaryPack], text: &str) -> TextAnalysis {
         packs: &[],
         dictionaries,
         texts: &texts,
-        options: AnalyzeOptions::default(),
+        options,
     })
     .unwrap()
 }
@@ -150,4 +154,108 @@ fn an_ngram_tie_between_languages_gives_no_evidence() {
         "{:?}",
         result.detection
     );
+}
+
+#[test]
+fn an_occurrence_valid_only_through_an_alternative_reading_still_votes() {
+    let joining =
+        "<ldml><characters><exemplarCharacters>[a-z \\-]</exemplarCharacters></characters></ldml>";
+    let dictionaries = [pack("en", "the\nwater\nhello\nthing")];
+    let text = "the-water hello-thing the-thing water-hello hello-water";
+    let texts = [TextInput {
+        id: "t".into(),
+        text,
+        styles: &[],
+    }];
+    let result = analyze_text(&TextRequest {
+        profile: ProfileInput::Ldml {
+            identity: "qaa.ldml",
+            xml: joining,
+        },
+        packs: &[],
+        dictionaries: &dictionaries,
+        texts: &texts,
+        options: AnalyzeOptions::default(),
+    })
+    .unwrap();
+    let first = &result.texts[0].occurrences[0];
+    assert_eq!(
+        first.wordform, "the-water",
+        "the primary split joins at the hyphen"
+    );
+    assert_eq!(
+        first.valid_languages,
+        ["en"],
+        "valid through the split reading"
+    );
+    let en = proposal(&result, "en").expect("the alternative readings vote");
+    assert_eq!(en.dictionary.occurrences, 5);
+    assert_eq!(en.status, ProposalStatus::Proposed);
+}
+
+#[test]
+fn a_misspelled_occurrence_still_casts_an_ngram_vote_for_its_language() {
+    let result = run(
+        &[pack("en", EN), pack("es", ES)],
+        "wather wather wather wather wather",
+    );
+    let outcomes: Vec<_> = result.texts[0]
+        .occurrences
+        .iter()
+        .map(|o| o.outcome)
+        .collect();
+    assert!(
+        outcomes.iter().all(|o| *o == OccurrenceOutcome::Misspelled),
+        "{outcomes:?}"
+    );
+    let en = proposal(&result, "en").expect("a misspelling is still evidence of its language");
+    assert_eq!(en.ngram.occurrences, 5);
+    assert_eq!(en.dictionary.occurrences, 0);
+    assert_eq!(en.status, ProposalStatus::Proposed);
+}
+
+#[test]
+fn incomplete_occurrences_cast_no_ngram_vote() {
+    let text = "hellothere weatherthing motherwater otherthing waterthing";
+    let packs = [pack("en", EN), pack("es", ES)];
+    let finished = run(&packs, text);
+    assert_eq!(
+        proposal(&finished, "en").unwrap().ngram.occurrences,
+        5,
+        "the control votes"
+    );
+    let capped = run_with(
+        &packs,
+        text,
+        AnalyzeOptions {
+            max_suggestion_chars: Some(2),
+            ..AnalyzeOptions::default()
+        },
+    );
+    assert!(capped.texts[0]
+        .occurrences
+        .iter()
+        .all(|o| o.outcome == OccurrenceOutcome::Incomplete));
+    assert!(
+        capped.detection.proposals.is_empty(),
+        "{:?}",
+        capped.detection
+    );
+}
+
+#[test]
+fn unattempted_occurrences_cast_no_ngram_vote() {
+    let result = run_with(
+        &[pack("en", EN), pack("es", ES)],
+        "hellothere weatherthing motherwater otherthing waterthing",
+        AnalyzeOptions {
+            max_checked_occurrences: Some(0),
+            ..AnalyzeOptions::default()
+        },
+    );
+    assert!(result.texts[0]
+        .occurrences
+        .iter()
+        .all(|o| o.outcome == OccurrenceOutcome::Unattempted));
+    assert!(result.detection.proposals.is_empty());
 }

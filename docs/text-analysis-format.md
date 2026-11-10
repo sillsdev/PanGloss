@@ -65,7 +65,7 @@ Every `statistics` object has `total`, `valid`, `misspelled`, `no_analysis`, `in
 A proposal has `language`, `status`, and `occurrences`, `dictionary`, `shared` and `ngram`, each `{occurrences, wordforms}`.
 
 - `dictionary`: Occurrences valid in this language by a Language Pack or a Dictionary pack (Hunspell acceptance or word list). `shared` is the part of that also valid in another language.
-- `ngram`: Occurrences valid nowhere (outcome `no_analysis` or `misspelled`) of at least 4 characters, where this language's Dictionary pack covers at least 80% of the form's character trigrams and leads the next language by at least 20 points. A tie or a weak lead gives no evidence. A form that is unattempted or incomplete gives none either.
+- `ngram`: Occurrences valid nowhere (outcome `no_analysis` or `misspelled`; a misspelled word is still evidence of its language, while `incomplete` and `unattempted` Occurrences have no finished verdict and cast no vote) of at least 4 characters, where this language's Dictionary pack covers at least 80% of the form's character trigrams and leads the next language by at least 20 points. A tie or a weak lead gives no evidence. The profile holds stems only, with no affix expansion, so an affixed form is covered only through its stem's trigrams.
 - `occurrences` is `dictionary` plus `ngram`.
 - `status` is `proposed` when at least 5 Occurrences are explained by this language alone (valid only here, or n-gram winner); otherwise `ambiguous`. Short input, or words shared by several languages, therefore stays `ambiguous`, and the evidence is still shown.
 

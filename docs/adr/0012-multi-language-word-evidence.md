@@ -178,6 +178,8 @@ Rejected for now: a bundled per-language n-gram or word-frequency pack. It would
 decision per language and cannot cover languages with no Dictionary pack either. Revisit if a
 language needs detection before it has a Dictionary pack.
 
+N-gram votes come only from Occurrences whose checks finished with no valid evidence (no analysis, or misspelled, since a misspelled word is still evidence of its language); incomplete and unattempted Occurrences cast none because their verdict is not final.
+
 Behaviour: the proposer is a proposal, never a verdict. A language is proposed only when at least
 5 Occurrences are explained by it alone; shorter input and words shared by several languages stay
 ambiguous. The thresholds (5 Occurrences, 80% trigram coverage, a 20-point lead, 4 characters) are
