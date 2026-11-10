@@ -367,6 +367,37 @@ a sign that there may be a better representation, such as widening, factoring or
 filtering.”, and the action taken (the build continued). Above 50,000,000 the build
 returns `Containment`. `AdmissionEvidence` holds the sizes of every structure.
 
+### Tiled acceptor
+
+`pg_foma::admission::build_tiled(opts, grammar, &admission)` builds one acceptor per
+grammar for the surface words that affix pieces around a lexical root can spell: the
+language of `outer-left* cascade(inner-left* root inner-right*) outer-right*`,
+projected to the surface side and held as a table. The pieces are the edge affixes
+(prefix, suffix, circumfix, null), whole-stem reduplication and compounding as
+`(left* root right*)+`, and edits modelled as windows at a stem edge (one unbounded
+part copied once). `Tiled::rejects(word, admitted, options)` says the word has no
+analysis. Like the filter, it is a library API exercised by tests and by the examples
+`admission_measure --tiled` and `admission_conformance --tiled`; the production FST
+strategy does not select it yet.
+
+**Contract.** A rejection is sound only when all of these hold: the parse does not
+guess roots (`ParseOptions::guess_root` is false); the lexicon is the grammar's own,
+with no supplied-root overlay; `admitted` comes from the `RuleAdmission` the acceptor
+was built with; and no rule outside the model (infix, partial reduplication,
+truncation of stem material, modification of stem segments) is admitted for the word.
+`Tiled::applies` checks the first, third and fourth conditions; the caller owns the
+second. A rejected word skips the restricted confirm parse.
+
+The acceptor needs a rule admission to build; where admission refuses (`NoUsablePiece`),
+there is no acceptor.
+
+**Inactive.** Nothing is rejected, and `inactive_reason()` names the cause, when a rule
+outside the model is admitted for every word, the rule admission was built for another
+grammar, the cascade or a construction step refuses, the build passes a size bound
+(4,000,000 states plus arcs of any intermediate, 2,000,000 table states), or the
+language is empty or accepts every text. When edit zones do not settle within 8 rounds
+they widen to any text, which keeps the acceptor sound and makes it looser.
+
 ## Stage-0 differential
 
 Build/run the `grammar_pass` example through `rust/tools/pg.ps1`:
