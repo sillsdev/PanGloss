@@ -1,7 +1,7 @@
 //! Checks over the conformance suite that the admitted restricted parse keeps every analysis of the plain parse.
 use foma::options::FomaOptions;
 use pg_conformance_fixtures::{FixtureRef, Root, WordEntry};
-use pg_foma::admission::{build_rule_admission, RuleAdmission};
+use pg_foma::admission::{build_rule_admission, build_tiled, RuleAdmission};
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
 use pg_rules::stratum::RuleRef;
 use std::fs;
@@ -31,6 +31,17 @@ struct Tally {
     /// Texts compared between the tables and foma's apply, and those where they differed.
     compared: usize,
     table_differences: Vec<String>,
+    tiled: TiledTally,
+}
+
+/// The tiled acceptor over the words of one grammar: where it applied, what it rejected, and any rejected word that has an analysis.
+#[derive(Default)]
+struct TiledTally {
+    active: bool,
+    off: Option<String>,
+    applied: usize,
+    rejected: usize,
+    violations: Vec<String>,
 }
 
 /// The word and edits of it, each checked against foma's apply on the whole net.
@@ -60,7 +71,7 @@ fn run(
     settings: &pg_conformance_fixtures::MorpherSettings,
     words: &[WordEntry],
     label: &str,
-    tally: &mut Tally,
+    (tally, with_tiled): (&mut Tally, bool),
 ) -> Result<Option<String>, String> {
     let mut g = pg_grammar::load(&fixture.load_grammar_xml()).map_err(|e| format!("load:{e}"))?;
     settings.apply_to(&mut g);
@@ -68,10 +79,16 @@ fn run(
         Ok(admission) => admission,
         Err(refusal) => return Ok(Some(refusal.reason())),
     };
+    let tiled = with_tiled.then(|| build_tiled(&FomaOptions::default(), &g, &admission));
+    if let Some(tiled) = &tiled {
+        tally.tiled.active |= tiled.active();
+        tally.tiled.off = tiled.inactive_reason().map(str::to_owned);
+    }
     let morpher = Morpher::new(&g, WORK_CAP);
+    let options = ParseOptions::default();
     for entry in words {
         let word = entry.word.as_str();
-        let plain = morpher.parse_word_selected(word, &ParseOptions::default(), None, None);
+        let plain = morpher.parse_word_selected(word, &options, None, None);
         tally.words += 1;
         tally.plain_steps += plain.work_steps as u64;
         let admitted = admission.admit(word);
@@ -80,9 +97,17 @@ fn run(
             RuleRef::Stratum(_) | RuleRef::Template(_) => true,
             RuleRef::MRule(id) => admitted[id.0 as usize],
         };
-        let narrowed =
-            morpher.parse_word_selected(word, &ParseOptions::default(), None, Some(&filter));
+        let narrowed = morpher.parse_word_selected(word, &options, None, Some(&filter));
         tally.confirm_steps += narrowed.work_steps as u64;
+        if let Some(tiled) = &tiled {
+            let applies = tiled.applies(&admitted, &options);
+            let rejected = tiled.rejects(word, &admitted, &options);
+            tally.tiled.applied += usize::from(applies);
+            tally.tiled.rejected += usize::from(rejected);
+            if rejected && !plain.structured.is_empty() {
+                tally.tiled.violations.push(format!("{label}{word}"));
+            }
+        }
         if plain.capped || narrowed.capped {
             tally.capped += 1;
             continue;
@@ -119,13 +144,16 @@ fn fixtures(suite: &Path) -> Vec<FixtureRef> {
 
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let with_tiled = args.iter().any(|arg| arg == "--tiled");
+    let args: Vec<String> = args.into_iter().filter(|arg| arg != "--tiled").collect();
     let [suite, output] = args.as_slice() else {
-        return Err("usage: admission_conformance <suite-root> <out.jsonl>".into());
+        return Err("usage: admission_conformance <suite-root> <out.jsonl> [--tiled]".into());
     };
     let mut out = fs::File::create(output).map_err(|e| e.to_string())?;
     std::panic::set_hook(Box::new(|_| {}));
     let (mut built, mut refused, mut skipped, mut bad, mut panicked, mut differing) =
         (0, 0, 0, 0, 0, 0);
+    let (mut tiled_active, mut tiled_applied, mut tiled_rejected, mut tiled_bad) = (0, 0, 0, 0);
     for fixture in fixtures(Path::new(suite)) {
         let spec = catch_unwind(AssertUnwindSafe(|| fixture.load_words_yaml()));
         let Ok(spec) = spec else {
@@ -138,7 +166,13 @@ fn main() -> Result<(), String> {
         }
         let mut tally = Tally::default();
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let base = run(&fixture, &spec.morpher, &spec.words, "", &mut tally)?;
+            let base = run(
+                &fixture,
+                &spec.morpher,
+                &spec.words,
+                "",
+                (&mut tally, with_tiled),
+            )?;
             if base.is_some() {
                 return Ok(base);
             }
@@ -149,7 +183,7 @@ fn main() -> Result<(), String> {
                     &variant.morpher,
                     &variant.words,
                     &label,
-                    &mut tally,
+                    (&mut tally, with_tiled),
                 )?;
             }
             Ok::<_, String>(None)
@@ -169,17 +203,33 @@ fn main() -> Result<(), String> {
         }
         bad += tally.mismatches.len();
         differing += tally.table_differences.len();
-        let row = serde_json::json!({
+        tiled_active += usize::from(tally.tiled.active);
+        tiled_applied += tally.tiled.applied;
+        tiled_rejected += tally.tiled.rejected;
+        tiled_bad += tally.tiled.violations.len();
+        let mut row = serde_json::json!({
             "fixture": fixture.label(), "refused": refusal, "error": error,
             "words": tally.words, "mismatches": tally.mismatches, "capped": tally.capped,
             "plain_steps": tally.plain_steps,
             "confirm_steps": tally.confirm_steps, "compared": tally.compared,
             "table_differences": tally.table_differences,
         });
+        if with_tiled {
+            row["tiled"] = serde_json::json!({
+                "active": tally.tiled.active, "inactive_reason": tally.tiled.off,
+                "applied": tally.tiled.applied, "rejected": tally.tiled.rejected,
+                "rejected_with_analysis": tally.tiled.violations,
+            });
+        }
         writeln!(out, "{row}").map_err(|e| e.to_string())?;
     }
     println!(
         "built {built} refused {refused} skipped-expect-crash {skipped} panicked {panicked} mismatches {bad} table-differences {differing}"
     );
+    if with_tiled {
+        println!(
+            "tiled: active on {tiled_active} applied to {tiled_applied} words rejected {tiled_rejected} rejected-with-analysis {tiled_bad}"
+        );
+    }
     Ok(())
 }

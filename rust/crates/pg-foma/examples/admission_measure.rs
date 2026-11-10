@@ -1,7 +1,6 @@
 //! Measures how much parser work the rule-admission transducer saves on one grammar's words.
 use foma::options::FomaOptions;
-use pg_foma::admission::build_rule_admission;
-use pg_foma::admission::RuleAdmission;
+use pg_foma::admission::{build_rule_admission, build_tiled, RuleAdmission, Tiled};
 use pg_foma_runtime::confirm::{build_morpheme_owners, MorphemeOwner};
 use pg_grammar::model::{Grammar, LexEntryId};
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
@@ -63,10 +62,10 @@ fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
     keys
 }
 
-// The three stages are separate non-inlined functions so a callgrind run can attribute instructions to each.
+// The stages are separate non-inlined functions so a callgrind run can attribute instructions to each.
 #[inline(never)]
-fn stage_plain(morpher: &Morpher, word: &str) -> ParseOutcome {
-    morpher.parse_word_selected(word, &ParseOptions::default(), None, None)
+fn stage_plain(morpher: &Morpher, word: &str, options: &ParseOptions) -> ParseOutcome {
+    morpher.parse_word_selected(word, options, None, None)
 }
 
 #[inline(never)]
@@ -76,13 +75,24 @@ fn stage_filter(admission: &RuleAdmission, word: &str) -> Vec<bool> {
     admitted
 }
 
+// The tiled acceptor's whole per-word cost: the applicability check and one table walk.
 #[inline(never)]
-fn stage_confirm(morpher: &Morpher, word: &str, set: &[bool]) -> ParseOutcome {
+fn stage_tiled(tiled: &Tiled, word: &str, set: &[bool], options: &ParseOptions) -> bool {
+    std::hint::black_box(tiled.rejects(word, set, options))
+}
+
+#[inline(never)]
+fn stage_confirm(
+    morpher: &Morpher,
+    word: &str,
+    set: &[bool],
+    options: &ParseOptions,
+) -> ParseOutcome {
     let filter = |rule: RuleRef| match rule {
         RuleRef::Stratum(_) | RuleRef::Template(_) => true,
         RuleRef::MRule(id) => set[id.0 as usize],
     };
-    morpher.parse_word_selected(word, &ParseOptions::default(), None, Some(&filter))
+    morpher.parse_word_selected(word, options, None, Some(&filter))
 }
 
 // A callgrind run dumps its counts on entering this marker, once after each stage, while collection is off.
@@ -98,6 +108,7 @@ fn oracle_roots(
     word: &str,
     set: &[bool],
     plain: &ParseOutcome,
+    options: &ParseOptions,
 ) -> ParseOutcome {
     let entries: BTreeSet<u32> = plain
         .structured
@@ -115,7 +126,7 @@ fn oracle_roots(
         RuleRef::Stratum(_) | RuleRef::Template(_) => true,
         RuleRef::MRule(id) => set[id.0 as usize],
     };
-    morpher.parse_word_selected(word, &ParseOptions::default(), Some(&lex), Some(&rule))
+    morpher.parse_word_selected(word, options, Some(&lex), Some(&rule))
 }
 
 fn main() -> Result<(), String> {
@@ -123,6 +134,7 @@ fn main() -> Result<(), String> {
     let mut work_cap = DEFAULT_WORK_CAP;
     let mut capture_cap: Option<Option<usize>> = None;
     let mut with_oracle = false;
+    let (mut with_tiled, mut guess_roots) = (false, false);
     let mut raw = std::env::args().skip(1);
     while let Some(arg) = raw.next() {
         match arg.as_str() {
@@ -138,12 +150,14 @@ fn main() -> Result<(), String> {
                     &raw.next().ok_or("--capture-cap-mib needs a value")?,
                 )?)
             }
+            "--tiled" => with_tiled = true,
+            "--guess-roots" => guess_roots = true,
             _ => args.push(arg),
         }
     }
     let (source, words_path, output, limit) = match args.as_slice() {
         [a, b, c, d] => (a, b, c, d),
-        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--capture-cap-mib N|unbounded] [--oracle-roots]".into()),
+        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--capture-cap-mib N|unbounded] [--oracle-roots] [--tiled] [--guess-roots]".into()),
     };
     let limit: usize = limit.parse().map_err(|_| "max-words must be a number")?;
     let capture_cap_bytes = match capture_cap {
@@ -155,7 +169,7 @@ fn main() -> Result<(), String> {
     let started = Instant::now();
     let built = build_rule_admission(&FomaOptions::default(), &g);
     let build_ms = started.elapsed().as_millis() as u64;
-    let header = match &built {
+    let mut header = match &built {
         Ok(admission) => serde_json::json!({
             "evidence": admission.evidence(), "warnings": admission.warnings(),
             "refusal": null, "build_ms": build_ms, "work_cap": work_cap, "capture_cap_bytes": capture_cap_bytes,
@@ -164,10 +178,24 @@ fn main() -> Result<(), String> {
             "evidence": null, "warnings": [], "refusal": refusal.reason(), "build_ms": build_ms, "work_cap": work_cap, "capture_cap_bytes": capture_cap_bytes,
         }),
     };
+    let tiled = match (&built, with_tiled) {
+        (Ok(admission), true) => {
+            let started = Instant::now();
+            let tiled = build_tiled(&FomaOptions::default(), &g, admission);
+            header["tiled"] = serde_json::json!({
+                "active": tiled.active(), "inactive_reason": tiled.inactive_reason(),
+                "evidence": tiled.evidence(), "warnings": tiled.warnings(),
+                "build_ms": started.elapsed().as_millis() as u64, "guess_roots": guess_roots,
+            });
+            Some(tiled)
+        }
+        _ => None,
+    };
     println!("{header}");
     let Ok(admission) = built else {
         return Ok(());
     };
+    let options = ParseOptions::default().with_guess_root(guess_roots);
     let free_count = admission.free().iter().filter(|f| **f).count();
     let mut morpher = Morpher::new(&g, work_cap);
     if let Some(cap) = capture_cap {
@@ -182,26 +210,43 @@ fn main() -> Result<(), String> {
         .filter(|word| !word.is_empty())
         .take(limit)
     {
-        let plain = stage_plain(&morpher, word);
+        let plain = stage_plain(&morpher, word, &options);
         stage_mark();
         let admitted = stage_filter(&admission, word);
         stage_mark();
-        let confirm = stage_confirm(&morpher, word, &admitted);
+        let rejected = match &tiled {
+            Some(tiled) => {
+                let rejected = stage_tiled(tiled, word, &admitted, &options);
+                stage_mark();
+                rejected
+            }
+            None => false,
+        };
+        // A word the tiled acceptor rejects has no confirm parse: its confirm work is zero and it keeps no analysis.
+        let confirm = (!rejected).then(|| stage_confirm(&morpher, word, &admitted, &options));
         stage_mark();
         let count = admitted.iter().filter(|a| **a).count();
-        let oracle = with_oracle.then(|| oracle_roots(&morpher, &owners, word, &admitted, &plain));
-        let same = signature(&confirm) == signature(&plain);
-        let kept = signature(&confirm);
+        let oracle =
+            with_oracle.then(|| oracle_roots(&morpher, &owners, word, &admitted, &plain, &options));
+        let kept = confirm.as_ref().map(signature).unwrap_or_default();
+        let same = kept == signature(&plain);
         let superset = signature(&plain).iter().all(|key| kept.contains(key));
-        let row = serde_json::json!({
+        let mut row = serde_json::json!({
             "word": word, "plain_steps": plain.work_steps, "analyses": plain.structured.len(),
             "capped": plain.capped, "capture_capped": plain.capture_capped, "admitted": count,
             "spotted": count.saturating_sub(free_count),
-            "fallback": false, "confirm_steps": confirm.work_steps, "fallback_steps": 0,
-            "same": same, "superset": superset, "confirm_capped": confirm.capped, "confirm_capture_capped": confirm.capture_capped,
+            "fallback": false, "confirm_steps": confirm.as_ref().map_or(0, |c| c.work_steps),
+            "fallback_steps": 0, "same": same, "superset": superset,
+            "confirm_capped": confirm.as_ref().is_some_and(|c| c.capped),
+            "confirm_capture_capped": confirm.as_ref().is_some_and(|c| c.capture_capped),
             "oracle_root_steps": oracle.as_ref().map(|o| o.work_steps),
             "oracle_root_same": oracle.as_ref().map(|o| signature(o) == signature(&plain)),
         });
+        if let Some(tiled) = &tiled {
+            row["tiled_applies"] = tiled.applies(&admitted, &options).into();
+            row["tiled_rejected"] = rejected.into();
+            row["tiled_walk"] = tiled.walk_length(word).into();
+        }
         writeln!(out, "{row}").map_err(|error| error.to_string())?;
     }
     Ok(())
