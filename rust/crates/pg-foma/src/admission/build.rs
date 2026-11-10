@@ -505,11 +505,17 @@ fn build_on_this_stack(
             Some(steps.compose("outer orthography", net, spelled)?)
         }
     };
+    // Outer rules, even free ones, may add text around what the inner net reads.
+    let inner = match inner {
+        Some(net) if plan.counts.outer_rules > 0 => {
+            Some(steps.minimize("padded inner", pad(opts, net, &lower_symbols))?)
+        }
+        other => other,
+    };
     let net = match (inner, outer) {
         (Some(inner), None) => inner,
         (None, Some(outer)) => outer,
-        (Some(inner), Some(outer)) => {
-            let padded = steps.minimize("padded inner", pad(opts, inner, &lower_symbols))?;
+        (Some(padded), Some(outer)) => {
             let both = fsm_union(opts, padded, outer);
             steps.minimize("inner and outer union", both)?
         }
