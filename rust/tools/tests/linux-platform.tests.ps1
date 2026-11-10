@@ -643,7 +643,7 @@ $script:BuildSlotMutexPrefix = $Prefix
 $slot = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 1 -TimeoutSeconds 5
 if ($null -eq $slot) { exit 2 }
 Set-Content -LiteralPath $ReadyPath -Value 'held' -NoNewline
-Start-Sleep -Seconds 30
+Start-Sleep -Seconds 120
 Exit-ResourceSlot -Slot $slot
 '@
         Set-Content -LiteralPath $probeScript -Encoding utf8 -Value @'
@@ -662,16 +662,17 @@ exit 1
         try {
             $holder = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $holderOut `
                 -ArgumentList @('-NoProfile', '-File', $holderScript, $commonPath, $toolRoot, $prefix, $readyPath)
-            foreach ($attempt in 1..100) {
+            # A cold pwsh start plus adapter import takes seconds on a loaded host; poll for the marker up to a generous deadline.
+            $readyDeadline = [DateTime]::UtcNow.AddSeconds(90)
+            while (-not (Test-Path -LiteralPath $readyPath) -and [DateTime]::UtcNow -lt $readyDeadline) {
                 Start-Sleep -Milliseconds 50
-                if (Test-Path -LiteralPath $readyPath) { break }
                 if ($holder.HasExited) { throw "slot holder exited early: $(Get-Content -LiteralPath $holderOut -Raw)" }
             }
             Assert-True (Test-Path -LiteralPath $readyPath) 'child process never reported its held slot'
 
             $probe = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $probeOut `
                 -ArgumentList @('-NoProfile', '-File', $probeScript, $commonPath, $toolRoot, $prefix)
-            $probe.WaitForExit(10000) | Out-Null
+            $probe.WaitForExit(60000) | Out-Null
             Assert-True $probe.HasExited "the probe must return within its slot timeout (output: $(if (Test-Path $probeOut) { Get-Content -LiteralPath $probeOut -Raw } else { '<none>' }))"
             Assert-Equal 0 $probe.ExitCode 'an independent process must be denied while the holder owns the slot'
             Assert-True ((Get-Content -LiteralPath $probeOut -Raw) -match '(?m)^DENIED\s*$') 'the probe must report denial after the shared wait diagnostic'
@@ -685,7 +686,7 @@ exit 1
         $probe = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $probeOut `
             -ArgumentList @('-NoProfile', '-File', $probeScript, $commonPath, $toolRoot, $prefix)
         try {
-            $probe.WaitForExit(10000) | Out-Null
+            $probe.WaitForExit(60000) | Out-Null
             Assert-True $probe.HasExited 'the released-slot probe must return'
             Assert-Equal 1 $probe.ExitCode 'a released cross-process slot must be acquirable'
             Assert-True ((Get-Content -LiteralPath $probeOut -Raw) -match '(?m)^ACQUIRED\s*$') 'the released probe must report acquisition after the shared wait diagnostic'
