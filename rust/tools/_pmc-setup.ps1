@@ -33,9 +33,7 @@ function Get-PmcTaskProblems {
 }
 
 function Get-MemoryIntegrityState {
-    # $Running: Win32_DeviceGuard.SecurityServicesRunning (2 is memory integrity, HVCI).
-    # $Configured: the Enabled value under ...\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity, or $null when absent.
-    # $PolicyEnabled: the HypervisorEnforcedCodeIntegrity value under the DeviceGuard policy key, or $null when absent.
+    # Running is Win32_DeviceGuard.SecurityServicesRunning, where 2 is memory integrity; the others are registry values or $null.
     param([int[]]$Running = @(), $Configured = $null, $PolicyEnabled = $null)
     $isRunning = $Running -contains 2
     $policyOn = ($null -ne $PolicyEnabled) -and ([int]$PolicyEnabled -ne 0)

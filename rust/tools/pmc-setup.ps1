@@ -9,9 +9,9 @@
 
   With no switch: reports what is in place and exits 0 when the machine is ready, 1 when it is not. No elevation.
   -Install                  copies pg.wprp to C:\ProgramData\PanGlossPmc and registers the two tasks for -User.
-  -DisableMemoryIntegrity   turns memory integrity (HVCI) off; it takes effect after a reboot. On 2026-11-09 a
-                            trace taken with it running carried no counter values. That cause is not confirmed;
-                            -Verify after the reboot is what settles it.
+  -DisableMemoryIntegrity   turns memory integrity (HVCI) off; it takes effect after a reboot. It is the suspected
+                            cause of traces with no counter values (docs/design/parse-cost.md); -Verify after the
+                            reboot is what settles it.
   -Verify                   takes a real trace of a short busy process and refuses unless it carries counter
                             values for that process. No elevation. Run it after any reboot that changed the setup.
   -Install and -DisableMemoryIntegrity need an administrator. From an unelevated shell the script asks for
