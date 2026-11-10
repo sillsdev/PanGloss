@@ -17,7 +17,8 @@
   -Install and -DisableMemoryIntegrity need an administrator. From an unelevated shell the script asks for
   elevation once (one UAC prompt), runs the elevated steps, and passes -User through so the tasks belong to you.
 
-  Exit codes: 0 ready (or the step succeeded); 1 not ready; 2 a step failed.
+  Exit codes: 0 ready (or the step succeeded); 1 not ready; 2 a step failed; 3 ready once the pending reboot
+  turns memory integrity off.
 
   .EXAMPLE
   pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install -DisableMemoryIntegrity   # then reboot
@@ -69,7 +70,8 @@ function Invoke-ElevatedSteps {
     if ($DisableMemoryIntegrity) { $argList += '-DisableMemoryIntegrity' }
     Write-Host "pmc-setup: asking for elevation to run: $($argList[3..($argList.Count - 1)] -join ' ')"
     $proc = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argList -Verb RunAs -Wait -PassThru
-    if ($proc.ExitCode -ne 0) { Write-Host "pmc-setup: the elevated run exited $($proc.ExitCode)"; exit 2 }
+    if ($proc.ExitCode -notin 0, 3) { Write-Host "pmc-setup: the elevated run exited $($proc.ExitCode)"; exit 2 }
+    Write-Host 'pmc-setup: the elevated steps succeeded'
 }
 
 function Install-PmcPath {
@@ -156,4 +158,4 @@ Write-Host "pmc-setup: memory integrity is $($mi.Summary)"
 if ($mi.Running) { $ready = $false }
 if ($mi.RebootPending) { Write-Host 'pmc-setup: reboot for the memory integrity change to take effect' }
 if ($ready) { Write-Host 'pmc-setup: ready; prove it with -Verify, which takes a real trace' } else { Write-Host 'pmc-setup: NOT READY' }
-exit $(if ($ready) { 0 } else { 1 })
+exit $(if ($ready) { 0 } elseif ($problems.Count -eq 0 -and $mi.RebootPending -and -not $mi.OnAfterReboot) { 3 } else { 1 })
