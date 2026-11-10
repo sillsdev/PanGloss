@@ -164,11 +164,28 @@ fn shape_tokens(g: &Grammar, shape: &pg_shape::Shape) -> String {
         .collect()
 }
 
+/// The input as the parser hands it to synthesis: every node carries its character definition's feature lanes.
+fn lane_shape(g: &Grammar, input: &str) -> Option<pg_shape::Shape> {
+    let table = &g.char_tables[0];
+    let plain = pg_grammar::segment::segment(table, input).ok()?;
+    let width = g.phon_features.len() as u32 + 1;
+    let mut builder = pg_shape::ShapeBuilder::with_features_capacity(width, plain.len());
+    for (_, kind, cd, _) in plain.interior() {
+        let lanes = table.get(CharDefId(cd)).matching_lanes();
+        match kind {
+            pg_shape::NodeKind::Segment => builder.push_segment_with_lanes(cd, &lanes),
+            pg_shape::NodeKind::Boundary => builder.push_boundary_with_lanes(cd, &lanes),
+            _ => {}
+        }
+    }
+    Some(builder.finish())
+}
+
 fn hc_output(g: &Grammar, rule: usize, input: &str) -> Option<String> {
     let PhonRuleDef::Rewrite(rule) = &g.prules[rule] else {
         panic!("rewrite")
     };
-    let shape = pg_grammar::segment::segment(&g.char_tables[0], input).ok()?;
+    let shape = lane_shape(g, input)?;
     Some(
         match pg_rules::rewrite::synthesize(g, rule, &shape).first() {
             Some(output) => shape_tokens(g, output),
@@ -479,4 +496,12 @@ fn without_features_a_rule_relates_only_the_spellings_it_names() {
             "rule {rule}: {word}"
         );
     }
+}
+
+#[test]
+fn the_oracle_rewrites_a_featured_focus_it_matches() {
+    let g = fusion_grammar();
+    let rewritten = hc_output(&g, 3, "pi").unwrap();
+    assert_ne!(Some(rewritten.clone()), encoded(&g, "pi"));
+    assert_eq!(Some(rewritten), encoded(&g, "ti"));
 }

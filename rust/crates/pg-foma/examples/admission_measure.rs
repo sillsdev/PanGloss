@@ -107,6 +107,10 @@ fn main() -> Result<(), String> {
         let same = confirm
             .as_ref()
             .is_none_or(|narrowed| signature(narrowed) == signature(&plain));
+        let superset = confirm.as_ref().is_none_or(|narrowed| {
+            let kept = signature(narrowed);
+            signature(&plain).iter().all(|key| kept.contains(key))
+        });
         let confirm_steps = confirm.as_ref().map_or(0, |o| o.work_steps);
         let row = serde_json::json!({
             "word": word, "plain_steps": plain.work_steps, "analyses": plain.structured.len(),
@@ -114,6 +118,7 @@ fn main() -> Result<(), String> {
             "spotted": if fallback { 0 } else { count.saturating_sub(free_count) },
             "raw_paths": raw_paths, "fallback": fallback, "confirm_steps": confirm_steps,
             "fallback_steps": if fallback { plain.work_steps } else { 0 }, "same": same,
+            "superset": superset,
         });
         writeln!(out, "{row}").map_err(|error| error.to_string())?;
     }
