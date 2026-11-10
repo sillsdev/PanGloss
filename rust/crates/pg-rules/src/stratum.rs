@@ -2040,6 +2040,25 @@ fn guided_synth(
     outs
 }
 
+/// The ascending indices in `rules` that `guided_synth` could confirm `w` with: the trail's pending rule, or any compounding rule for an unspecified slot.
+fn trail_positions(g: &Grammar, rules: &[MRuleId], w: &Word) -> Vec<usize> {
+    let Some(pending) = usize::try_from(w.mrule_app_index)
+        .ok()
+        .and_then(|idx| w.mrule_apps.get(idx))
+    else {
+        return Vec::new();
+    };
+    rules
+        .iter()
+        .enumerate()
+        .filter(|&(_, &id)| match *pending {
+            Some(cur) => cur == id,
+            None => matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)),
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// The stratum whose `mrules` list or affix-template slots contain `id`; a linear scan is fine since only a few final candidates use it.
 fn owning_stratum(g: &Grammar, id: MRuleId) -> Option<StratumId> {
     for (si, sd) in g.strata.iter().enumerate() {
@@ -2403,10 +2422,19 @@ fn synth_apply_mrules(
         crate::stats::Direction::Synthesis,
     );
     let n = rules.len();
+    // Only the rule the trail expects next can confirm a word, so only its position is attempted.
+    let positions = |w: &Word| trail_positions(g, &rules, w);
     // Synthesis mrules are in declaration order — no reverse, unlike analysis.
     let cascade_out = match sd.mrule_order {
-        MorphRuleOrder::Linear => casc.linear(n, input.clone(), &apply_rule, &key),
-        MorphRuleOrder::Unordered => casc.combination(n, input.clone(), &apply_rule, &key),
+        MorphRuleOrder::Linear => casc.linear_at(input.clone(), &positions, &apply_rule, &key),
+        MorphRuleOrder::Unordered => casc.combination_at(
+            n,
+            input.clone(),
+            &positions,
+            &|_, _, _| (),
+            &|i, w, &()| apply_rule(i, w),
+            &key,
+        ),
     };
     let mut result = Vec::new();
     for w in cascade_out.words {
