@@ -102,6 +102,7 @@ fn fusion_grammar() -> Grammar {
                 + &context("ncV", &["vB"])),
             &context("ncG", &["vA", "vB"]),
         ),
+        rule_xml("rPin", &context("ncC", &[]), &context("ncB2", &[])),
     ];
     let xml = format!(
         r#"{HEAD}<PhonologicalFeatureSystem>{}{}{}</PhonologicalFeatureSystem>
@@ -109,7 +110,7 @@ fn fusion_grammar() -> Grammar {
 <BoundaryDefinitions><BoundaryDefinition id="cplus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions></CharacterDefinitionTable>
 <NaturalClasses>{}{}{}{}</NaturalClasses>
 <PhonologicalRuleDefinitions>{}</PhonologicalRuleDefinitions>
-<Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="rFuse rFeat rBound"><Name>Main</Name><LexicalEntries>
+<Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="rFuse rFeat rBound rPin"><Name>Main</Name><LexicalEntries>
 <LexicalEntry id="e1" partOfSpeech="posN"><Allomorphs><Allomorph id="a1"><PhoneticShape>pi</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R</MorphemeId></LexicalEntry>
 </LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#,
         feature_xml("fk", &["kC", "kV", "kG"]),
@@ -290,7 +291,7 @@ fn widening_grammar(lanes: usize) -> Grammar {
         class_xml("ncX", &[("fk", "kX")]),
         class_xml("ncY", &[("fk", "kY")]),
         context("ncX", &vars),
-        context("ncY", &vars),
+        context("ncY", &vars) + &context("ncY", &vars),
     );
     pg_grammar::load(&xml).expect("widening grammar loads")
 }
@@ -301,7 +302,7 @@ fn several_alpha_output_lanes_do_not_multiply_private_rows() {
         .map(|lanes| {
             let g = widening_grammar(lanes);
             let (_, evidence) = cascade(&g, &[0]);
-            assert_eq!(evidence.bundles.widened_alpha_outputs, lanes);
+            assert_eq!(evidence.bundles.widened_alpha_outputs, 2 * lanes);
             evidence.bundles.private_rows
         })
         .collect();
@@ -362,4 +363,120 @@ fn morphology_can_create_a_bundle_no_character_has() {
     let (_, evidence) = parts.compose(&FomaOptions::default()).unwrap();
     assert_eq!(evidence.bundles.morphology_rows, 2);
     assert_eq!(evidence.bundles.unspelled_rows, 1);
+}
+
+#[test]
+fn a_single_node_rule_maps_each_row_only_to_itself_or_its_synthesis_output() {
+    let g = fusion_grammar();
+    let (net, evidence) = cascade(&g, &[3]);
+    assert_eq!(evidence.rules[0].construction, RuleConstruction::Site);
+    for (word, other) in [("p", "t"), ("t", "t"), ("k", "s"), ("s", "s"), ("i", "i")] {
+        let input = encoded(&g, word).unwrap();
+        let expected = BTreeSet::from([input.clone(), encoded(&g, other).unwrap()]);
+        assert_eq!(down(&net, &input), expected, "{word}");
+        assert!(expected.contains(&hc_output(&g, 3, word).unwrap()));
+    }
+    for word in ["pi", "kk", "pip", "ksi"] {
+        let input = encoded(&g, word).unwrap();
+        let outputs = down(&net, &input);
+        assert!(outputs.contains(&hc_output(&g, 3, word).unwrap()), "{word}");
+        assert!(outputs.len() <= 1 << word.len(), "{word}: {outputs:?}");
+    }
+}
+
+fn seq(contexts: &str) -> String {
+    format!("<PhoneticTemplate><PhoneticSequence>{contexts}</PhoneticSequence></PhoneticTemplate>")
+}
+
+/// Segments without features, a syncope between consonants and a `t` to `k` change after a vowel.
+fn featureless_grammar() -> Grammar {
+    let segments: String = ["p", "t", "k", "i", "e"]
+        .iter()
+        .map(|rep| segment_xml(&format!("c{rep}"), rep, &[]))
+        .collect();
+    let class = |id: &str, members: &[&str]| {
+        let members: String = members
+            .iter()
+            .map(|rep| format!(r#"<Segment segment="c{rep}" />"#))
+            .collect();
+        format!(
+            r#"<SegmentNaturalClass id="{id}"><Name>{id}</Name>{members}</SegmentNaturalClass>"#
+        )
+    };
+    let ctx = |class: &str| format!(r#"<SimpleContext naturalClass="{class}" />"#);
+    let environment = |left: &str, right: &str| {
+        let left = if left.is_empty() {
+            String::new()
+        } else {
+            format!("<LeftEnvironment>{}</LeftEnvironment>", seq(left))
+        };
+        let right = if right.is_empty() {
+            String::new()
+        } else {
+            format!("<RightEnvironment>{}</RightEnvironment>", seq(right))
+        };
+        format!("<Environment>{left}{right}</Environment>")
+    };
+    let rule = |id: &str, lhs: &str, rhs: &str, env: &str| {
+        format!(
+            r#"<PhonologicalRule id="{id}" multipleApplicationOrder="simultaneous"><Name>{id}</Name>
+<PhoneticInput><PhoneticSequence>{lhs}</PhoneticSequence></PhoneticInput>
+<PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence>{rhs}</PhoneticSequence></PhoneticOutput>{env}</PhonologicalSubrule></PhonologicalSubrules>
+</PhonologicalRule>"#
+        )
+    };
+    let rules = [
+        rule(
+            "rSyn",
+            &ctx("ncV"),
+            "",
+            &environment(&ctx("ncC"), &ctx("ncC")),
+        ),
+        rule(
+            "rTK",
+            r#"<Segment segment="ct" />"#,
+            r#"<Segment segment="ck" />"#,
+            &environment(&ctx("ncV"), ""),
+        ),
+    ];
+    let xml = format!(
+        r#"{HEAD}<CharacterDefinitionTable id="tbl"><Name>Main</Name><SegmentDefinitions>{segments}</SegmentDefinitions></CharacterDefinitionTable>
+<NaturalClasses>{}{}</NaturalClasses>
+<PhonologicalRuleDefinitions>{}</PhonologicalRuleDefinitions>
+<Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="rSyn rTK"><Name>Main</Name><LexicalEntries>
+<LexicalEntry id="e1" partOfSpeech="posN"><Allomorphs><Allomorph id="a1"><PhoneticShape>pi</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R</MorphemeId></LexicalEntry>
+</LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#,
+        class("ncC", &["p", "t", "k"]),
+        class("ncV", &["i", "e"]),
+        rules.concat(),
+    );
+    pg_grammar::load(&xml).expect("featureless grammar loads")
+}
+
+#[test]
+fn without_features_a_rule_relates_only_the_spellings_it_names() {
+    let g = featureless_grammar();
+    let outputs = |rule: usize, word: &str| {
+        let (net, evidence) = cascade(&g, &[rule]);
+        assert_eq!(evidence.rules[0].construction, RuleConstruction::Site);
+        down(&net, &encoded(&g, word).unwrap())
+    };
+    let set = |words: &[&str]| -> BTreeSet<String> {
+        words
+            .iter()
+            .map(|word| encoded(&g, word).unwrap())
+            .collect()
+    };
+    assert_eq!(outputs(0, "pip"), set(&["pip", "pp"]));
+    assert_eq!(outputs(0, "pie"), set(&["pie"]));
+    assert_eq!(outputs(0, "kek"), set(&["kek", "kk"]));
+    assert_eq!(outputs(1, "it"), set(&["it", "ik"]));
+    assert_eq!(outputs(1, "pt"), set(&["pt"]));
+    assert_eq!(outputs(1, "ek"), set(&["ek"]));
+    for (rule, word) in [(0, "pip"), (0, "tet"), (1, "et"), (1, "it")] {
+        assert!(
+            outputs(rule, word).contains(&hc_output(&g, rule, word).unwrap()),
+            "rule {rule}: {word}"
+        );
+    }
 }

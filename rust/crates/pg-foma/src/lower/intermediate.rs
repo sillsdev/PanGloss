@@ -1,6 +1,6 @@
 //! Per-cascade feature-bundle closure; private tokens retain material until final spelling.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::block::{self, BlockPlan};
 use super::Slot;
@@ -10,7 +10,8 @@ use pg_grammar::{
     chardef::{CharDefId, CharDefKind, CharDefTable},
     featsys::TYPE_SEGMENT_BITS,
     model::{
-        Grammar, MorphRuleDef, OutputAction, Pattern, PatternNode, RewriteRuleDef, TableId,
+        Grammar, MorphRuleDef, NaturalClassKind, OutputAction, Pattern, PatternNode, RewriteRuleDef,
+        TableId,
     },
 };
 
@@ -88,7 +89,7 @@ impl IntermediateBundles {
         let type_lane = g.phon_features.type_flat().0 as usize;
         result.seed_morphology(g, table_id, first_rule)?;
         for rule in rules {
-            if block::is_block_rule(g, rule) {
+            if block::is_block_rule(g, rule) || block::is_pair_rule(g, rule) {
                 let plan = block::close_rule(&mut result, g, table_id, rule)?;
                 let exact = matches!(plan, BlockPlan::Exact { .. });
                 result.blocks.insert(rule.xml_id.clone(), plan);
@@ -339,6 +340,9 @@ impl IntermediateBundles {
         node: &PatternNode,
         limit: usize,
     ) -> Vec<usize> {
+        if let Some(rows) = self.spelled_rows(g, source, node, limit) {
+            return rows;
+        }
         let mut lanes = pg_rules::rewrite::node_full_lanes(g, source, node);
         if let PatternNode::Context(context) = node {
             for var in &context.vars {
@@ -348,6 +352,48 @@ impl IntermediateBundles {
         (0..limit)
             .filter(|&row| compatible(&self.rows[row].1, &lanes[..self.rows[row].1.len()]))
             .collect()
+    }
+
+    /// Without features synthesis matches a segment by its spelling, so a literal or segment-list node stands for the rows sharing a spelling with it; `None` elsewhere.
+    fn spelled_rows(
+        &self,
+        g: &Grammar,
+        source: &CharDefTable,
+        node: &PatternNode,
+        limit: usize,
+    ) -> Option<Vec<usize>> {
+        if !g.phon_features.is_empty() {
+            return None;
+        }
+        let members: &[CharDefId] = match node {
+            PatternNode::CharDef(id) => std::slice::from_ref(id),
+            PatternNode::Context(context) => {
+                match &g.natural_classes[context.nat_class.0 as usize].kind {
+                    NaturalClassKind::Segments(members) => members,
+                    NaturalClassKind::Feature(_) => return None,
+                }
+            }
+            _ => return None,
+        };
+        let spellings: HashSet<&str> = members
+            .iter()
+            .flat_map(|id| source.get(*id).representations_nfd())
+            .map(String::as_str)
+            .collect();
+        let table = &g.char_tables[self.table.0 as usize];
+        Some(
+            (0..limit)
+                .filter(|&row| {
+                    let id = self.rows[row].0;
+                    (id.0 as usize) < table.len()
+                        && table
+                            .get(id)
+                            .representations_nfd()
+                            .iter()
+                            .any(|spelling| spellings.contains(spelling.as_str()))
+                })
+                .collect(),
+        )
     }
 
     /// Every boundary char-def of the owning table.

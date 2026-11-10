@@ -251,8 +251,22 @@ fn mixed_alpha_environment_sites_keep_independent_identity_choices() {
     }
 }
 
+/// The one-site outputs synthesis gives `word`, as token strings.
+fn synthesized(g: &Grammar, word: &str) -> Vec<String> {
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("rewrite fixture")
+    };
+    let table = &g.char_tables[0];
+    let shape = pg_grammar::segment::segment(table, word).unwrap();
+    let alphabet = SegAlphabet::new(table);
+    pg_rules::rewrite::synthesize(g, rule, &shape)
+        .iter()
+        .map(|output| alphabet.encode_shape(output))
+        .collect()
+}
+
 #[test]
-fn material_alpha_outputs_can_differ_between_sites() {
+fn an_unbound_alpha_output_relates_each_row_only_to_what_synthesis_makes_of_it() {
     let mut g = fixture("overridden-alpha-plain-ltr-left");
     let rule = rewrite(&mut g, 0);
     let material = rule.lhs.clone();
@@ -261,11 +275,9 @@ fn material_alpha_outputs_can_differ_between_sites() {
     rule.subrules[0].left_env = None;
     let net = relation(&g, &[0]).unwrap();
     let actual = outputs(&g, &net, "ii");
-    for left in ["i", "y", "a", "u"] {
-        for right in ["i", "y", "a", "u"] {
-            let word = format!("{left}{right}");
-            assert!(actual.contains(&encoded(&g, &word)), "missing {word}");
-        }
+    assert_eq!(actual, BTreeSet::from([encoded(&g, "ii")]));
+    for expected in synthesized(&g, "ii") {
+        assert!(actual.contains(&expected));
     }
 }
 
@@ -384,7 +396,7 @@ fn unsupported_later_rule_cannot_return_an_earlier_partial_cascade() {
 }
 
 #[test]
-fn material_segment_classes_include_compatible_feature_combinations() {
+fn a_segment_class_output_keeps_the_lanes_it_does_not_pin() {
     let mut g = fixture("overridden-alpha-plain-ltr-left");
     let partial = pg_grammar::model::NatClassId(
         g.natural_classes
@@ -404,8 +416,23 @@ fn material_segment_classes_include_compatible_feature_combinations() {
     rule.subrules[0].rhs.nodes = vec![PatternNode::Context(context)];
     rule.subrules[0].left_env = None;
     let net = relation(&g, &[0]).unwrap();
-    // i/y/a span both feature values in each lane; u is a compatible material combination.
-    assert!(outputs(&g, &net, "ii").contains(&encoded(&g, "uu")));
+    eprintln!(
+        "DBG2 {:?}",
+        outputs(&g, &net, "ii")
+            .iter()
+            .map(|o| o
+                .chars()
+                .map(|c| format!("{:x}", c as u32 - 0xe000))
+                .collect::<Vec<_>>()
+                .join(","))
+            .collect::<Vec<_>>()
+    );
+    // i/y/a span both values of each lane, so the class pins nothing and synthesis keeps the row.
+    let actual = outputs(&g, &net, "ii");
+    assert_eq!(actual, BTreeSet::from([encoded(&g, "ii")]));
+    for expected in synthesized(&g, "ii") {
+        assert!(actual.contains(&expected));
+    }
 }
 
 #[test]
@@ -1072,7 +1099,7 @@ fn intermediate_closure_exhaustion_refuses_the_whole_cascade_and_reports() {
         .map(|i| format!("<FeatureValue feature='f{i}' symbolValues='m{i}'/>"))
         .collect();
     let classes: String = (0..13).map(|i| format!("<FeatureNaturalClass id='n{i}'><Name>class {i}</Name><FeatureValue feature='f{i}' symbolValues='p{i}'/></FeatureNaturalClass>")).collect();
-    let rules: String = (0..13).map(|i| format!("<PhonologicalRule id='r{i}' multipleApplicationOrder='leftToRightIterative'><Name>rule {i}</Name><PhoneticInput><PhoneticSequence><Segment segment='cA'/></PhoneticSequence></PhoneticInput><PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass='n{i}'/></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules></PhonologicalRule>")).collect();
+    let rules: String = (0..13).map(|i| format!("<PhonologicalRule id='r{i}' multipleApplicationOrder='leftToRightIterative'><Name>rule {i}</Name><PhoneticInput><PhoneticSequence><Segment segment='cA'/></PhoneticSequence></PhoneticInput><PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass='n{i}'/><SimpleContext naturalClass='n{i}'/></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules></PhonologicalRule>")).collect();
     let order = (0..13)
         .map(|i| format!("r{i}"))
         .collect::<Vec<_>>()

@@ -3,7 +3,9 @@
 //! Permissive cascades widen alpha agreement and choose each rewrite site independently.
 //! Complete cascade compilation refuses unsupported rules; it never returns a skipped-rule net.
 
-use foma::constructions::{fsm_compose, fsm_ignore, fsm_symbol, fsm_union, fsm_universal};
+use foma::constructions::{
+    fsm_compose, fsm_ignore, fsm_intersect, fsm_symbol, fsm_union, fsm_universal,
+};
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
@@ -785,6 +787,14 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
         // Ignore loops consume and copy boundaries; explicit boundary targets remain available.
         let net = match boundaries {
             Some(boundaries) => fsm_ignore(opts, net, boundaries, OP_IGNORE_ALL),
+            None => net,
+        };
+        // Foma's class-to-class replacement relates every focus row to every output row; synthesis relates each row to its own.
+        let net = match bundles {
+            Some(bundles) => match crate::lower::pair_filter(opts, g, bundles, rule)? {
+                Some(filter) => fsm_intersect(opts, net, filter),
+                None => net,
+            },
             None => net,
         };
         Ok((net, reports))

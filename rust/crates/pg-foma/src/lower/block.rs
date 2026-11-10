@@ -12,7 +12,7 @@ use pg_rules::rewrite::{focus_outputs, BlockNode};
 
 use super::IntermediateBundles;
 use crate::replace::{
-    has_quantified_target, is_fully_supported_shape, PhonologyLoweringError, SegAlphabet,
+    chardef_token, has_quantified_target, is_fully_supported_shape, PhonologyLoweringError, SegAlphabet,
 };
 
 /// Resource containment: focus tuples enumerated per rule before the any-value widening is used.
@@ -58,6 +58,89 @@ pub(crate) fn is_block_rule(g: &Grammar, rule: &RewriteRuleDef) -> bool {
             .subrules
             .iter()
             .all(|subrule| simple(&subrule.rhs.nodes))
+}
+
+/// Whether the site construction's one-node focus can be limited to the rows synthesis makes of each focus row.
+pub(crate) fn is_pair_rule(g: &Grammar, rule: &RewriteRuleDef) -> bool {
+    let Some(table_id) = crate::replace::owning_table_id(g, rule) else {
+        return false;
+    };
+    let table = &g.char_tables[table_id.0 as usize];
+    let focus_is_segment = match rule.lhs.nodes.as_slice() {
+        [PatternNode::Context(_)] => true,
+        [PatternNode::CharDef(id)] => table.get(*id).kind() != CharDefKind::Boundary,
+        _ => false,
+    };
+    focus_is_segment
+        && !is_block_rule(g, rule)
+        && !rule.subrules.is_empty()
+        && !has_quantified_target(rule)
+        && rule.subrules.iter().all(|subrule| {
+            subrule.rhs.nodes.len() <= 1
+                && subrule
+                    .rhs
+                    .nodes
+                    .iter()
+                    .all(|node| matches!(node, PatternNode::CharDef(_) | PatternNode::Context(_)))
+        })
+}
+
+/// Identity on every token plus each focus row to the rows synthesis makes of it; `None` unless the rule's pairs are known.
+pub(crate) fn pair_filter(
+    opts: &FomaOptions,
+    g: &Grammar,
+    bundles: &IntermediateBundles,
+    rule: &RewriteRuleDef,
+) -> Result<Option<Fsm>, PhonologyLoweringError> {
+    let token = |id: CharDefId| chardef_token(id);
+    let mut pairs: Vec<(CharDefId, Option<CharDefId>)> = Vec::new();
+    if g.phon_features.is_empty() {
+        // Without features synthesis relates the focus spellings to the replacement spellings.
+        let Some(from) = rule.lhs.nodes.first().and_then(|node| bundles.node_members(g, node))
+        else {
+            return Ok(None);
+        };
+        for subrule in &rule.subrules {
+            let to: Vec<Option<CharDefId>> = match subrule.rhs.nodes.first() {
+                None => vec![None],
+                Some(node) => match bundles.node_members(g, node) {
+                    Some(members) => members.into_iter().map(Some).collect(),
+                    None => return Ok(None),
+                },
+            };
+            for from in &from {
+                pairs.extend(to.iter().map(|to| (*from, *to)));
+            }
+        }
+    } else if let Some(BlockPlan::Exact { blocks, .. }) = bundles.blocks.get(&rule.xml_id) {
+        for block in blocks {
+            if let Some(Some(from)) = block.focus.first() {
+                pairs.push((*from, block.output.first().copied()));
+            }
+        }
+    } else {
+        return Ok(None);
+    }
+    let (attested, private) = bundles.row_ids();
+    let mut alternatives: Vec<String> = attested
+        .iter()
+        .chain(&private)
+        .chain(&bundles.boundary_ids(g))
+        .map(|id| token(*id).to_string())
+        .collect();
+    let mut seen = HashSet::new();
+    for (from, to) in pairs {
+        if to == Some(from) || !seen.insert((from, to)) {
+            continue;
+        }
+        alternatives.push(match to {
+            Some(to) => format!("{}:{}", token(from), token(to)),
+            None => format!("{}:0", token(from)),
+        });
+    }
+    fsm_parse_regex(opts, &format!("[{}]*", alternatives.join(" | ")), None, None)
+        .map(Some)
+        .ok_or_else(|| PhonologyLoweringError::UnsupportedRewrite(rule.xml_id.clone()))
 }
 
 /// Interns the rows `rule`'s focus tuples produce, to a fixpoint; `Widened` leaves the generic update to the caller.

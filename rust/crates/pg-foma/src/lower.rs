@@ -18,7 +18,7 @@ use crate::replace::SegAlphabet;
 
 mod block;
 mod intermediate;
-pub(crate) use block::{compile_block, is_block_rule};
+pub(crate) use block::{compile_block, is_block_rule, pair_filter};
 pub(crate) use intermediate::IntermediateBundles;
 
 /// Resolves exact class membership while leaving alpha-bound feature lanes for tuple binding.
