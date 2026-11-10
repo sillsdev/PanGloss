@@ -86,12 +86,13 @@ Test-Case 'absent PMC tasks are refused by name' {
 }
 
 Test-Case 'a trace that lost events, lacks counters, has gaps, or missed a pid is refused' {
-    $good = [PSCustomObject]@{ rc = 0; events_lost = 0; buffers_lost = 0; switches = 10; counters = 3; gaps_on_target = 0; callback_errors = 0; instructions = [PSCustomObject]@{ '41' = 5e6 } }
+    $good = [PSCustomObject]@{ rc = 0; events_lost = 0; buffers_lost = 0; switches = 10; counters = 1; gaps_on_target = 0; callback_errors = 0; instructions = [PSCustomObject]@{ '41' = 5e6 } }
     Assert-TraceIntact -Report $good -Pids @(41)
     foreach ($case in @(
             @{ Field = 'events_lost'; Value = 2; Match = 'lost events' },
             @{ Field = 'buffers_lost'; Value = 1; Match = 'lost events' },
             @{ Field = 'switches'; Value = 0; Match = 'no counter values' },
+            @{ Field = 'counters'; Value = 2; Match = 'records 2 counters' },
             @{ Field = 'gaps_on_target'; Value = 1; Match = 'gap' },
             @{ Field = 'callback_errors'; Value = 4; Match = 'failed to process' },
             @{ Field = 'rc'; Value = 5; Match = 'unreadable' })) {

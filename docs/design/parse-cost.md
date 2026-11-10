@@ -36,8 +36,13 @@ that hold the elevation:
 | `PanGloss PMC Start` | the measuring user, highest privileges | `wpr.exe -start "C:\ProgramData\PanGlossPmc\pg.wprp!PG" -filemode` |
 | `PanGloss PMC Stop` | the measuring user, highest privileges | `wpr.exe -stop "C:\ProgramData\PanGlossPmc\current.etl" -skipPdbGen` |
 
-The profile, `rust/tools/instruction-compare/pg.wprp`, records `InstructionsRetiredFixed`,
-`UnhaltedCoreCyclesFixed` and `UnhaltedReferenceCyclesFixed` on each context switch.
+The profile, `rust/tools/instruction-compare/pg.wprp`, records `InstructionRetired` alone on each
+context switch, using a programmable counter. It records one counter because the reader takes the first
+value of each event: with `TotalCycles` added, a binary compared with itself read 837M against 1,777M
+instructions on the same grammar. It does not use the fixed counters
+(`InstructionsRetiredFixed` and the like): something else on the machine can hold them, and on the
+first machine set up something did (see below). The profile is `Strict="true"`, so WPR refuses to
+start when it cannot claim a counter. Without that, WPR silently records a trace with no counter values.
 
 #### Setting up a machine
 
@@ -46,9 +51,8 @@ that need an administrator ask for elevation once and register the tasks for you
 administrator account:
 
 ```powershell
-pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install -DisableMemoryIntegrity   # one UAC prompt
-# reboot
-pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify                            # must print VERIFIED
+pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install   # one UAC prompt
+pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify    # must print VERIFIED
 ```
 
 With no switch it reports what is missing and exits 1 until the machine is ready. `-Verify` takes a
@@ -56,12 +60,20 @@ real trace of a short busy process and refuses unless the trace counted instruct
 report is not proof; only `-Verify` is. Then run a binary against itself with
 `instruction-compare.ps1`: that control must read NO-GO, not refuse.
 
-If either script refuses with "trace carries no counter values on context switches", the tasks ran but
-Windows recorded no counter values. On 2026-11-09 this happened with virtualization-based security and
-memory integrity (HVCI) running, after a reboot on 2026-11-04. That cause is not confirmed, so
-`-DisableMemoryIntegrity` is a trial: `-Verify` after the reboot settles it. Memory integrity set by
-group policy cannot be turned off this way, and the script refuses to try. Until `-Verify` passes, no
-instruction verdict is possible.
+If either script refuses because the PMC Start task failed, or with "trace carries no counter values on
+context switches", Windows recorded no counter values, and no instruction verdict is possible until
+`-Verify` passes. To see why, run `wpr -start "C:\ProgramData\PanGlossPmc\pg.wprp!PG" -filemode` in
+an elevated shell, then `wpr -cancel`. "The requested resource is in use" (0x800700AA) means another
+component holds the counters the profile names.
+
+On 2026-11-10 the first machine set up (an i7-12700 running Windows 11, Defender, and the hypervisor
+for WSL2) failed this way. It had been recording traces with no counter values because the profile
+named the fixed counters and was not strict. A strict profile with the fixed instruction counter
+failed with 0x800700AA, while `InstructionRetired` and `TotalCycles` recorded. The holder was not
+identified. Microsoft Defender is reported to claim the fixed counters on Intel Core CPUs. Turning
+memory integrity (HVCI) off first made no difference, so it was not the cause.
+`-DisableMemoryIntegrity` remains for a machine where `-Verify` shows otherwise. Memory integrity set
+by group policy cannot be turned off this way, and the script refuses to try.
 
 ## Why the weights are fixed
 

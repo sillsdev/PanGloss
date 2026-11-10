@@ -3,25 +3,25 @@
   Sets up, checks and proves the Windows hardware-counter (PMC) path that instruction-compare.ps1 measures with.
 
   .DESCRIPTION
-  instruction-compare.ps1 counts retired instructions from a WPR trace that records the CPU's fixed counters on
+  instruction-compare.ps1 counts retired instructions from a WPR trace that records the CPU's counters on
   every context switch. wpr.exe needs elevation, so two scheduled tasks under \PanGloss\ hold it and the
   comparison itself runs unelevated. This script is the one place that installs them.
 
   With no switch: reports what is in place and exits 0 when the machine is ready, 1 when it is not. No elevation.
   -Install                  copies pg.wprp to C:\ProgramData\PanGlossPmc and registers the two tasks for -User.
-  -DisableMemoryIntegrity   turns memory integrity (HVCI) off; it takes effect after a reboot. It is the suspected
-                            cause of traces with no counter values (docs/design/parse-cost.md); -Verify after the
-                            reboot is what settles it.
+  -DisableMemoryIntegrity   turns memory integrity (HVCI) off; it takes effect after a reboot. Not needed on the
+                            first machine set up (docs/design/parse-cost.md); use it only if -Verify fails and
+                            memory integrity is the remaining suspect.
   -Verify                   takes a real trace of a short busy process and refuses unless it carries counter
                             values for that process. No elevation. Run it after any reboot that changed the setup.
   -Install and -DisableMemoryIntegrity need an administrator. From an unelevated shell the script asks for
   elevation once (one UAC prompt), runs the elevated steps, and passes -User through so the tasks belong to you.
 
   Exit codes: 0 ready (or the step succeeded); 1 not ready; 2 a step failed; 3 ready once the pending reboot
-  turns memory integrity off.
+  applies a memory integrity change.
 
   .EXAMPLE
-  pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install -DisableMemoryIntegrity   # then reboot
+  pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install
   pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify
 #>
 [CmdletBinding()]
@@ -155,7 +155,6 @@ foreach ($p in $problems) { Write-Host "pmc-setup: $p"; $ready = $false }
 if ($problems.Count -eq 0) { Write-Host 'pmc-setup: profile and tasks are in place' }
 $mi = Get-MemoryIntegrity
 Write-Host "pmc-setup: memory integrity is $($mi.Summary)"
-if ($mi.Running) { $ready = $false }
-if ($mi.RebootPending) { Write-Host 'pmc-setup: reboot for the memory integrity change to take effect' }
+if ($mi.RebootPending) { Write-Host 'pmc-setup: reboot for the memory integrity change to take effect'; $ready = $false }
 if ($ready) { Write-Host 'pmc-setup: ready; prove it with -Verify, which takes a real trace' } else { Write-Host 'pmc-setup: NOT READY' }
-exit $(if ($ready) { 0 } elseif ($problems.Count -eq 0 -and $mi.RebootPending -and -not $mi.OnAfterReboot) { 3 } else { 1 })
+exit $(if ($ready) { 0 } elseif ($problems.Count -eq 0 -and $mi.RebootPending) { 3 } else { 1 })

@@ -12,11 +12,9 @@
         <Keyword Value="CSwitch"/>
       </Keywords>
     </SystemProvider>
-    <HardwareCounter Id="HC">
+    <HardwareCounter Id="HC" Base="" Strict="true">
       <Counters>
-        <Counter Value="InstructionsRetiredFixed"/>
-        <Counter Value="UnhaltedCoreCyclesFixed"/>
-        <Counter Value="UnhaltedReferenceCyclesFixed"/>
+        <Counter Value="InstructionRetired"/>
       </Counters>
       <Events>
         <Event Value="CSwitch"/>

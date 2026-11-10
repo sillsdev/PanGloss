@@ -101,6 +101,7 @@ function Assert-TraceIntact {
     }
     if ($Report.callback_errors -gt 0) { throw "$($Report.callback_errors) trace event(s) failed to process; the counts would be short by an unknown amount" }
     if ($Report.switches -le 0 -or $Report.counters -lt 1) { throw 'trace carries no counter values on context switches; the PMC tasks did not record hardware counters' }
+    if ($Report.counters -ne 1) { throw "trace records $($Report.counters) counters per switch; the reader takes only the first, which need not be InstructionRetired. pg.wprp must name exactly one counter" }
     if ($Report.gaps_on_target -gt 0) { throw "$($Report.gaps_on_target) context-switch gap(s) touched a measured process; its instruction count is incomplete" }
     foreach ($p in $Pids) {
         if ([double]$Report.instructions."$p" -le 0) { throw "no instructions attributed to measured pid $p; the trace missed the process" }
