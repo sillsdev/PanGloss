@@ -265,7 +265,7 @@ pub fn render_match(table: &CharDefTable, matched: &[GuessNode]) -> String {
             false,
         );
         if let Some(first) = reps.into_iter().next() {
-            out.push_str(&first);
+            out.push_str(first);
         }
     }
     out
