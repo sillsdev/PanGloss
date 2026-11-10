@@ -109,6 +109,7 @@ fn focus_node(table: &CharDefTable, width: usize, node: &BlockNode) -> MutNode {
         lanes,
         explicit_full,
         generated_full: Vec::new(),
+        unresolved_variables: Vec::new(),
         optional: false,
         deleted: false,
         dirty: false,
