@@ -42,11 +42,11 @@ impl Bucket {
     }
 }
 
-// Named comparison preserves all 189 prior cells; #196 and this lane add seven cells. #199's conformance-staging/edge-cases/cascade-symbolic-output fixture adds three oracle-exact cells (159 -> 162); deliberate update per the reconciliation note.
+// Named comparison preserves all 189 prior cells; #196 and this lane add seven cells. #199's conformance-staging/edge-cases/cascade-symbolic-output fixture adds three oracle-exact cells (159 -> 162); the #189 nullable-copy-partition fixtures add six more; deliberate update per the reconciliation note.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 162,
+        oracle_exact: 168,
         compiles_but_misses: 14,
         refused: 24,
         unmeasurable: 0,

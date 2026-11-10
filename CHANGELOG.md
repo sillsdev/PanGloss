@@ -8,6 +8,8 @@ file has no section for.
 - Add the analyzer entry point `pg_analyzer::analyze_text` and `pangloss analyze-text`: text, a Segmentation profile and Language Pack grammars in; per-Occurrence evidence (valid, no analysis, incomplete including capped, timed out and invalid shape, or unattempted) with resource identities, and Occurrence and Wordform counts per text and per corpus out as `pangloss-text-analysis/v1` JSON (`docs/text-analysis-format.md`). The parser is unchanged.
 - Raise the FST intermediate feature-bundle closure charge bound from 1 MiB to 100 MiB; the work-vector row limit rises from 4,096 to 65,536 for the measured Cebuano and Amharic grammars. The token-domain limit remains in force. Incomplete construction still refuses.
 
+- The affix matcher's visited set stores each capture configuration as a compact record holding only the registers that differ from the configuration it came from, instead of a separate register block per entry (#189). Parses, their order and parser work are unchanged; the public repeated-copy stress now completes within the default 256 MiB capture ceiling (185 MiB peak RSS, previously `MEMCAP` at 290 MiB, and 939 MiB when uncapped).
+
 ## 0.16.2
 
 Released 2026-11-06.

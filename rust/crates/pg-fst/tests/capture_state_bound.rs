@@ -30,8 +30,12 @@ fn adjacent_captures() -> pg_fst::Fst {
 }
 
 fn run(budget: &WorkBudget, fst: &pg_fst::Fst) -> usize {
+    run_segments(budget, fst, SEGMENTS)
+}
+
+fn run_segments(budget: &WorkBudget, fst: &pg_fst::Fst, segments: usize) -> usize {
     let _scope = budget.enter();
-    Transduce::new(fst, vec![Segment::new(vec![1]); SEGMENTS])
+    Transduce::new(fst, vec![Segment::new(vec![1]); segments])
         .anchored(true, true)
         .all_matches()
         .len()
@@ -108,4 +112,21 @@ fn a_ceiling_above_the_peak_changes_nothing() {
     assert_eq!(run(&roomy, &fst), expected);
     assert!(!roomy.retained_capped());
     assert_eq!(roomy.used(), unbounded.used());
+}
+
+/// Once the visited set is large it switches to compact records that share their parents' registers: the whole set costs less than one full packed register block per completed split. (Small sets keep the plain hash set, which costs a block each.)
+#[test]
+fn large_visited_sets_cost_less_than_a_register_block_per_split() {
+    let fst = adjacent_captures();
+    let block = fst.register_count() as usize * 2 * std::mem::size_of::<u32>();
+    let segments = 14;
+    let splits = 8568; // C(14 - 1 + 5, 5)
+    let budget = WorkBudget::new(usize::MAX / 2).with_retained_cap(None);
+    assert_eq!(run_segments(&budget, &fst, segments), splits);
+    assert!(
+        budget.retained_peak() < splits * block,
+        "peak {} bytes, {} per split; a full block is {block}",
+        budget.retained_peak(),
+        budget.retained_peak() / splits
+    );
 }
