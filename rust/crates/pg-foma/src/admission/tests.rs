@@ -1,6 +1,7 @@
 use super::*;
 use crate::cascade_parts::CascadeParts;
 use crate::replace::SegAlphabet;
+use acceptor::RuleOutcome;
 use foma::constructions::fsm_symbol_occurs;
 use foma::regex::fsm_parse_regex;
 use foma::types::Sides;
@@ -732,4 +733,23 @@ fn a_mark_segment_after_a_letter_segment_reaches_the_suffix_rule() {
     assert_eq!(analysed.len(), 2, "{analysed:?}");
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
     assert!(admission.admit("pa\u{301}ns")[0]);
+}
+
+#[test]
+fn a_rule_past_the_state_bound_is_reported_not_tabled() {
+    let g = load(&spec(
+        "kaqtnu",
+        vec![prefix(0, "ka"), suffix(1, "nu")],
+        &["qt"],
+    ));
+    let net = machine_net(&g);
+    let view = acceptor::NetView::new(&net);
+    let tag = net
+        .sigma
+        .iter()
+        .find(|s| s.symbol == "<A:0>")
+        .expect("tag")
+        .number;
+    assert!(matches!(view.rule(tag, 1), RuleOutcome::TooBig(1)));
+    assert!(matches!(view.rule(tag, 1000), RuleOutcome::Table(_)));
 }
