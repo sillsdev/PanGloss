@@ -14,16 +14,23 @@ use crate::{Cmd, Direction, Register, CURRENT_POSITION};
 pub mod profile {
     use super::Cell;
 
-    /// Timing is read only when a host asks for diagnostics (`reset` is that ask), so otherwise no clock is read per traversal.
-    static ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
     pub(super) fn start() -> Option<web_time::Instant> {
-        ENABLED
-            .load(std::sync::atomic::Ordering::Relaxed)
-            .then(web_time::Instant::now)
+        ENABLED.with(|e| e.get()).then(web_time::Instant::now)
+    }
+
+    /// Ask for timing on the current thread (the counters below are per thread too), after `reset`. Without it no clock is read per traversal.
+    pub fn enable() {
+        ENABLED.with(|e| e.set(true));
+    }
+
+    /// Whether timing is being read on the current thread.
+    pub fn enabled() -> bool {
+        ENABLED.with(|e| e.get())
     }
 
     thread_local! {
+        /// Timing is read only when a host asks for diagnostics via `enable`, so otherwise no clock is read per traversal.
+        static ENABLED: Cell<bool> = const { Cell::new(false) };
         static RUN_CALLS: Cell<u64> = const { Cell::new(0) };
         static RUN_NANOS: Cell<u128> = const { Cell::new(0) };
         static RUN_MAX_NANOS: Cell<u128> = const { Cell::new(0) };
@@ -98,9 +105,9 @@ pub mod profile {
         )
     }
 
-    /// Clear traversal counters on the current thread before measuring another word.
+    /// Clear traversal counters on the current thread and turn timing off; call `enable` after it to measure the next word.
     pub fn reset() {
-        ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+        ENABLED.with(|e| e.set(false));
         RUN_CALLS.with(|c| c.set(0));
         RUN_NANOS.with(|c| c.set(0));
         RUN_MAX_NANOS.with(|c| c.set(0));

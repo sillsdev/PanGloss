@@ -210,3 +210,19 @@ fn packed_registers_round_trip_every_flag_and_offset_boundary() {
         }
     }
 }
+
+/// `reset` returns the timing gate to off (and clears the counters); only `enable` turns it on, so a host or test that measured once does not leave every later traversal paying for clock reads.
+#[test]
+fn profile_reset_turns_timing_off() {
+    assert!(!profile::enabled(), "off until asked");
+    assert!(profile::start().is_none());
+    profile::enable();
+    assert!(profile::enabled());
+    assert!(profile::start().is_some());
+    profile::record_run(5);
+    assert_eq!(profile::snapshot().0, 1);
+    profile::reset();
+    assert!(!profile::enabled(), "reset restores the off state");
+    assert!(profile::start().is_none());
+    assert_eq!(profile::snapshot().0, 0, "reset clears counters");
+}

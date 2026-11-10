@@ -1243,6 +1243,7 @@ fn per_word_diagnostics_requested() -> bool {
 /// Reset per-word thread-local diagnostic counters before the next parse.
 fn reset_per_word_diagnostics() {
     pg_fst::profile::reset();
+    pg_fst::profile::enable();
     pg_rules::morph::dedup_profile::reset();
     pg_rules::stratum::frontier_profile::reset();
     pg_rules::word_stats::reset();
