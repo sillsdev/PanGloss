@@ -318,8 +318,9 @@ their multiplicity are the restricted parse's result; over-admission costs HC wo
 never an analysis. The examples compare the restricted and plain parses word by word.
 
 **Free rules** are always admitted: compounding and realizational rules, an affix rule
-with a subrule that leaves no usable literal, and a rule whose piece does not compile
-(a warning names it).
+with a subrule that leaves no usable literal, a rule whose piece does not compile
+(a warning names it), a rule whose table accepts every text, and a rule whose table
+passes the state bound (see **Net**).
 
 **Plan.** `plan_admission` renders one piece per affix subrule: a regular expression
 over tokens for its best literal. It then loosens the piece wherever a later rule
@@ -335,9 +336,26 @@ each rule net in cascade order, the spelling and the orthography (every NFD
 representation of each segment token, with a combining mark after a segment read as
 foma's apply merges them), minimizing and recording evidence after each. The alphabet
 is the cascade parts' token inventory, so private bundle tokens are in it.
-`admit(word, path_allowance)` applies the net upward on the NFD word, adds the tags it
-reads to the free rules, and returns `None` when the net yields more raw paths than
-the allowance.
+
+**Tables.** The final net is not applied per word. `build_rule_admission` sorts its arcs
+and reads out one deterministic acceptor per rule tag (`admission/acceptor.rs`): the
+lower side of the paths whose upper side is exactly that tag, determinized by subset
+construction, minimized, with the symbols compressed into classes. A tag with no path
+gets no table and its rule is never admitted. A tag whose language is every text frees
+its rule. A rule whose determinization passes `RULE_STATE_BOUND` (20,000 determinized
+states) is also freed, with a warning in the shape of the Budget paragraph whose action
+is "the rule is always admitted", and its item is listed in `evidence().tables.bounded`.
+`admit(word)` splits the NFD word into net symbols the way foma's apply does (longest
+symbol first, a combining mark after a symbol making it the any-symbol token), starts
+from the free rules, and sets each tabled rule by one pass of its table over the tokens;
+it returns the admitted flag per rule and never fails. `evidence().tables` holds, for
+the tabled rules, their count, the counts that are `always`, `never` and `bounded`, the
+largest and the summed table size (states, arcs, bytes) and the build time.
+`admit_with_foma(word, path_allowance)` applies the whole net upward instead and is
+compiled only for tests and the `developer-tools` feature; it returns `None` past the
+allowance. `admission_conformance` compares `admit` with `admit_with_foma` on each
+fixture word and on edits of it (a deleted, replaced or marked character, a prefix and a
+suffix), and reports any difference as `table-differences`.
 
 **Strata.** Strata up to and including the one with phonological rules are inner;
 later strata are outer. Outer rules must leave their input intact (affix rules that
@@ -359,12 +377,14 @@ plainly, and no partial net is returned. `reason()` gives a stable string.
 | `NoUsablePiece(n)` | No affix rule has a usable piece, so every rule would be admitted. |
 | `Containment { structure, size }` | A structure exceeds the containment bound below. |
 
-**Budget.** Each structure, before and after minimizing, is measured in states plus
-arcs. Above 1,000,000 the build records a warning in the shape of
+**Budget.** Each structure (every rule's relation, the tagged acceptors, each folded
+net before and after minimizing, and the sum of the table sizes) is measured in states
+plus arcs. Above 1,000,000 the build records a warning in the shape of
 [ADR 0013](../adr/0013-fst-complexity-budget.md#warn-on-representation-size-and-preserve-the-backstop):
 the structure, its size and bound, the grammar items driving it, the sentence “This is
 a sign that there may be a better representation, such as widening, factoring or
-filtering.”, and the action taken (the build continued). Above 50,000,000 the build
+filtering.”, and the action taken (the build continued, or the rule is admitted for every
+word). Above 50,000,000 the build
 returns `Containment`. `AdmissionEvidence` holds the sizes of every structure.
 
 ### Tiled acceptor
