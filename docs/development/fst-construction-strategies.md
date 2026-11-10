@@ -66,9 +66,10 @@ Use the same options with `grammar_pass`, `fst-health`, or `grammar-health --fst
 
 `fst-health` remains characterization-only until a construction option is supplied.
 `grammar-health --fst` includes the construction report alongside authoring checks.
-A readiness finding does not bypass the selected construction attempt. This stage
-preserves existing representability refusals, including alpha environments;
-per-site permissive alpha lowering belongs to the next construction stage.
+A readiness finding does not bypass the selected construction attempt. The
+production constructions keep their representability refusals, including alpha
+environments. The permissive phonology relation below lowers alpha environments and
+outputs per site on its own; no production construction selects it.
 
 ## Permissive phonology relation
 
@@ -79,15 +80,16 @@ reports. The unused cascade variants were removed; both lab cascade consumers us
 this typed proposing API.
 
 Every matching site independently rewrites or retains its material. Alpha
-agreement is deferred to HC, and output classes include compatible feature
-combinations. All subrules share one replacement batch. Each obligatory site
+agreement is deferred to HC; each alpha output is one any-value lane (see the
+inclusion contract below). All subrules share one replacement batch. Each obligatory site
 chooses between the replacement material and unchanged material; foma's native
 `(->)` loses ordinary expansions such as `a -> ai`. For simultaneous epenthesis, an unchanged
 site emits a temporary symbol, transparent to contexts and erased from the output
 after the batch. This avoids an empty-to-empty insertion center, which foma cannot
 represent with an epsilon alternative. Direct tests cover expansions before and
-after the target, multi-segment replacements, contractions, deletion and insertion, in both directions and modes; unproven
-overlapping targets and iterative empty focus assert typed refusals. Iterative contexts use the
+after the target, multi-segment replacements, contractions, deletion and insertion, in both directions and modes; iterative
+empty focus asserts a typed refusal. Iterative multi-token foci and the overlapping
+one-token simultaneous foci take the block relation below. Iterative contexts use the
 processed side. RTL batches mirror all operands and swap the environments, compile
 with LTR processed contexts, then reverse both tapes of the complete relation.
 This preserves RTL feeding while avoiding foma's lossy `\\` construction with
@@ -105,9 +107,11 @@ No nonfeeding exception is claimed. Simultaneous insertion tests each original
 input gap and remains supported.
 
 Quantified/grouped/anchored focus or replacement and other unsupported shapes
-return a typed refusal. Focus spanning multiple tokens returns
-`SimultaneousMultiTokenFocusUnavailable` or `IterativeMultiTokenFocusUnavailable`:
-identity alternatives can consume overlapping matches, so inclusion is unproven.
+return a typed refusal. A simultaneous focus of several tokens returns
+`SimultaneousMultiTokenFocusUnavailable`, and an iterative focus of several tokens
+that is not made of plain characters and classes returns
+`IterativeMultiTokenFocusUnavailable`: identity alternatives can consume overlapping
+matches, so inclusion is unproven.
 These decisions use the actual lowered focus in the proposing owner and change
 neither characterization nor production surface enumeration. Any refusal rejects
 the entire cascade, leaving tuple reports untouched.
@@ -116,8 +120,8 @@ proposing cascade explicitly refuses metathesis: it has no per-site permissive
 construction. It cannot silently skip that rule. No partial-stem capability or
 new memoization is added.
 
-This relation is the phonology component for subsequent morphology composition.
-`surface-enum` still uses its existing HC surface probing and alpha refusal;
+This relation is the phonology component for subsequent morphology composition (see
+“Rule admission”). `surface-enum` still uses its existing HC surface probing and alpha refusal;
 `factored` remains unimplemented. Direct relation coverage does not claim that
 those production constructions now compile additional grammars. The same public
 stage-0 differential measures that separately.
@@ -150,39 +154,47 @@ successors still fail atomically, leaving neither a partial cascade nor reports.
 ### Intermediate bundles and the inclusion contract
 
 [ADR 0013: FST complexity budget](../adr/0013-fst-complexity-budget.md) records the
-accepted next design: one conservative any-value representation per alpha output,
-bounded widening and minimization during composition, a sound first-pass candidate
-filter and identity merge, and per-word fallback governed by HC parser steps. It
-defines each stage's input size and bound and the corpus “% less work” metric. The
-subset enumeration and hard limits described below are the current implementation;
-the ADR does not claim that the replacement or its work savings are implemented.
+design: one conservative any-value representation per alpha output, bounded widening
+and minimization during composition, a sound first-pass candidate filter and identity
+merge, and per-word fallback governed by HC parser steps. It defines each stage's
+input size and bound and the corpus “% less work” metric. The cascade implements the
+any-value alpha lane and minimization after each composition; the identity merge and
+the per-word fallback are not part of it.
 
 One `lower::IntermediateBundles` inventory lives for one complete cascade. It
 starts with the owning table's attested segment bundles, retaining their original
-token IDs. In rule order it closes under RHS feature updates to a fixpoint per
-rule. `pg_rules::rewrite::{node_pins,node_full_lanes}` supplies the shared priority
+token IDs. Affix `Modify` and `InsertContext` outputs, in affix and compounding
+rules, can create bundles before any phonology runs, so the closure is seeded with the
+rows they can create, closed under repeated modification. In rule order it then
+closes under RHS feature updates to a fixpoint per rule.
+`pg_rules::rewrite::{node_pins,node_full_lanes}` supplies the shared priority
 union constraints and fresh-node constraints; this owner does not infer them from
 diagnostics or duplicate the matcher's admission decision. Target, environment,
 POS and MPR restrictions are ignored during closure, so the inventory is a
-conservative superset of reachable material. Alpha output lanes enumerate every
-subset of their feature mask, including negations and zero. Fresh-node rows also
-conservatively cover unspecified/default/full-valued material.
+conservative superset of reachable material. An alpha output gets one any-value
+lane: the lane is zero, which matching treats as unconstrained, so one row covers
+every binding, negation and absent value, and the row count does not depend on the
+width of the feature mask
+(`several_alpha_output_lanes_do_not_multiply_private_rows`). Fresh-node rows also
+conservatively cover unspecified/default/full-valued material. Rules with a block
+relation or a one-segment pair net intern the rows their focus tuples produce
+instead (see below).
 
-Previously unattested rows get private PUA tokens after the table's IDs. Pattern
+Unattested rows get private PUA tokens after the table's IDs. Pattern
 lowering consults these rows directly for targets, material and environments;
 it never projects a row back to a spelled phoneme between rules. All compatible
-material tokens remain alternatives at each site. Only after composing the last
+material tokens remain alternatives at each site. Only after the last
 rule does a spelling relation map retained rows to compatible attested tokens.
-Private tokens cannot escape its output. Unspellable rows have no spelling arc;
-they are not deleted into a spurious surface. Morpheme boundaries may be retained
-for further token composition or erased for surface spelling.
+Private tokens cannot escape its output. A row that no attested segment is
+compatible with spells as nothing, as in HC's final surface test. In a grammar
+without phonological features a row spells only as itself. Morpheme boundaries may
+be retained for further token composition or erased for surface spelling.
 
 **Resource containment:** at most 65,536 rows and a 100 MiB conservative
-charge (four times lane storage plus row headers). Alpha expansion work vectors
-obey the same count/charge bounds. Retained rows must also fit the existing BMP
-PUA token domain (at most 6,400 table IDs and private tokens combined). Exceeding
-any bound returns `IntermediateBundleClosureUnavailable(rule)`; there is no
-successful partial relation or report, override, or cache. These bounds contain
+charge (four times lane storage plus row headers). Retained rows must also fit the
+existing BMP PUA token domain (at most 6,400 table IDs and private tokens combined).
+Exceeding any bound returns `IntermediateBundleClosureUnavailable(rule)`; there is
+no successful partial relation or report, override, or cache. These bounds contain
 the closure, not total FST build RSS.
 A multi-table grammar returns `MultipleCascadeTablesUnavailable`, even for one
 selected rule: the API cannot disambiguate a rule reused by different strata.
@@ -193,7 +205,8 @@ not a new production admission policy.
 or a less constrained row containing all its feature values. Attested input has
 an equal row. Updating a represented row with RHS pins is closed in the inventory;
 for fresh material, the fresh-node row is included. Full/default/absent lanes may
-widen the representation, and alpha lanes include every possible binding. Thus
+widen the representation, and the any-value alpha lane includes every possible
+binding. Thus
 feature-only material can retain a jointly back-and-rounded intermediate even
 when no phoneme spells it. Every valid target/environment match is in the
 compatible token set: non-alpha constraints use the shared pins, alpha lanes are
@@ -203,9 +216,9 @@ Spelling by compatibility includes every HC-spellable output of a represented ro
 The resulting extra proposals require HC confirmation.
 
 For each supported HC traversal, choose the actual branch/material at changed
-sites and the original token at skipped sites. An iterative focus consumes exactly
-one token; a simultaneous focus consumes zero or one token,
-so a skipped widened match cannot consume a later overlapping segment target.
+sites and the original token at skipped sites. In the per-site construction an
+iterative focus consumes exactly one token; a simultaneous focus consumes zero or one
+token, so a skipped widened match cannot consume a later overlapping segment target.
 Obligatory replacement with explicit material-or-unchanged alternatives includes
 these choices; native `(->)` is never used. The parallel subrule batch includes
 all authored subrule alternatives. Iterative LTR contexts see the processed left
@@ -225,7 +238,9 @@ matches cross HC's optional boundary markers without creating output-only loops.
 Defaults and POS/MPR restrictions only remove choices at HC confirmation.
 
 This argument covers both modes and directions within the existing shared shape
-admission decision. It excludes iterative empty focus, multi-token focus, quantified/grouped/anchored
+admission decision, plus the block relation for the foci below. It excludes iterative
+empty focus, a simultaneous focus of several tokens, a multi-token focus of
+anything but plain characters and classes, quantified/grouped/anchored
 focus or material, metathesis, and multi-table grammars: each is typed
 refused, never silently skipped. `every_pattern_kind_is_included_or_refused_at_its_actual_compile_seam`
 exhaustively classifies the five `PatternNode` variants in each position and
@@ -233,6 +248,119 @@ both modes/directions against the real compiler. Dedicated tests cover the other
 refusals, closure exhaustion, empty cascades, feature-only intermediates,
 spelling and unchanged report state. The finite operand matrices are regression
 evidence for this construction contract, not an independent universal proof.
+
+### Block relation
+
+An iterative focus of several tokens, and a one-token simultaneous focus the shape
+check rejects because matches can overlap, lower to `[ ? | block ]*` instead of the
+per-site construction. Identity passes at every token, and each block rewrites one
+focus occurrence; boundary tokens between focus nodes are transparent. The
+relation ignores environments and applicability gates, so a block may apply wherever
+its focus matches, and any occurrence may also pass unchanged. A focus qualifies when
+every focus and replacement node is a plain character or class and no target is
+quantified.
+
+A block's output comes from HC's own synthesis
+(`pg_rules::rewrite::focus_outputs`, which rewrites a focus tuple without its
+environment or gate), run once per focus tuple of retained rows. The tuple walk
+interns each output row, so the closure is seeded with rows the rule creates,
+and repeats until no row is new. It enumerates tuples only while the product of the
+focus slot sizes is at most 65,536. Past that bound, and in a grammar without
+phonological features, positions are independent and alpha outputs are any value:
+the rule widens instead of refusing. When focus and output
+have equal length the block rewrites in place; otherwise the first replacement node
+rides on the last target's arc and the others follow it. Block inclusion is tested
+against `pg_rules::rewrite::synthesize` on every string up to length four, for
+left-to-right rules.
+
+### Focus rows and synthesis outputs
+
+A Site rule net relates a focus row only to itself or to what synthesis makes of it.
+Foma's class-to-class replacement relates every focus row to every output row, so
+the net is intersected with identity plus the focus-to-output pairs. With
+phonological features the pairs are the exact synthesis outputs of each focus row,
+from the tuple walk above. In a grammar without phonological features a literal or
+segment-list node stands for the rows sharing its spelling, because synthesis
+matches a featureless segment by spelling, and the pairs are the focus spellings
+crossed with the replacement spellings. The pairs are known for a one-segment focus
+whose subrules each have at most one replacement node; other Site rules keep the
+class-to-class relation.
+
+### Cascade parts
+
+`CascadeParts::build` returns the cascade before composition: each rule's
+minimized net (`RulePart`, with its construction `Site` or `Block`), the spelling
+relation, the token inventory (`UpperTokens`: attested segments, private segments,
+boundaries) and the tuple reports. `CascadeParts::compose` folds the nets from the
+spelling back through the last rule to the first, minimizing after each composition,
+so every intermediate relation's output stays on the attested alphabet. Build and
+compose run on a thread with a 1 GiB stack, because foma drops deep chains
+recursively. `compile_proposing_cascade` is `build` followed by `compose`; rule
+admission uses the parts directly.
+
+## Rule admission
+
+`pg_foma::admission::build_rule_admission(opts, grammar)` builds a transducer from a
+surface word to the affix rules that could take part in an analysis of it. It is a
+library API exercised by tests and by the examples `admission_measure` and
+`admission_conformance`; the production FST strategy does not select it yet.
+
+**Contract.** The admitted set is a superset of the affix rules used by any analysis
+HC returns for the word. HC then confirms with one restricted parse
+(`Morpher::parse_word_selected`): every stratum and template stays on, a morphological
+rule runs only if it is admitted, and no lexicon filter applies. The analyses and
+their multiplicity are the restricted parse's result; over-admission costs HC work,
+never an analysis. The examples compare the restricted and plain parses word by word.
+
+**Free rules** are always admitted: compounding and realizational rules, an affix rule
+with a subrule that leaves no usable literal, and a rule whose piece does not compile
+(a warning names it).
+
+**Plan.** `plan_admission` renders one piece per affix subrule: a regular expression
+over tokens for its best literal. It then loosens the piece wherever a later rule
+application could damage the literal, by testing whether the damaging item can reach
+the literal's position counted in segments from both stem edges. Cuts insert material
+inside it, zones delete or modify its segments, and part edges drop its boundary
+tokens. Loosening makes a token optional, a boundary optional, or a gap material.
+The deletion capacity of the whole grammar is counted per stem side.
+
+**Net.** Each piece is `tokens* piece tokens*` crossed with the rule's tag, one small
+machine per rule, joined as a union on the tag arc. The tag net is then folded through
+each rule net in cascade order, the spelling and the orthography (every NFD
+representation of each segment token, with a combining mark after a segment read as
+foma's apply merges them), minimizing and recording evidence after each. The alphabet
+is the cascade parts' token inventory, so private bundle tokens are in it.
+`admit(word, path_allowance)` applies the net upward on the NFD word, adds the tags it
+reads to the free rules, and returns `None` when the net yields more raw paths than
+the allowance.
+
+**Strata.** Strata up to and including the one with phonological rules are inner;
+later strata are outer. Outer rules must leave their input intact (affix rules that
+copy each part once, in order, and only insert segments; compounding that copies both
+members whole). Outer pieces are exact literals, boundaries optional, folded through
+the spelling and orthography only; with outer rules the inner net is padded with
+text on its lower side and unioned with the outer net.
+
+**Refusals.** `AdmissionRefusal` says why no net exists; the caller then parses
+plainly, and no partial net is returned. `reason()` gives a stable string.
+
+| Variant | Meaning |
+|---|---|
+| `CharacterTables(n)` | The grammar has more than one character table. |
+| `StratumLayout(why)` | More than one stratum has phonological rules, or an outer rule edits its input. |
+| `CompoundingEditsStem(rule)` | A compounding rule cuts or deletes stem material. |
+| `Cascade(error)` | The proposing cascade refuses a phonological rule. |
+| `Construction(why)` | A structure could not be built or measured. |
+| `NoUsablePiece(n)` | No affix rule has a usable piece, so every rule would be admitted. |
+| `Containment { structure, size }` | A structure exceeds the containment bound below. |
+
+**Budget.** Each structure, before and after minimizing, is measured in states plus
+arcs. Above 1,000,000 the build records a warning in the shape of
+[ADR 0013](../adr/0013-fst-complexity-budget.md#warn-on-representation-size-and-preserve-the-backstop):
+the structure, its size and bound, the grammar items driving it, the sentence “This is
+a sign that there may be a better representation, such as widening, factoring or
+filtering.”, and the action taken (the build continued). Above 50,000,000 the build
+returns `Containment`. `AdmissionEvidence` holds the sizes of every structure.
 
 ## Stage-0 differential
 
