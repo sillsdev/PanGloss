@@ -48,19 +48,15 @@ fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
     keys
 }
 
-// The four stages are separate non-inlined functions so a callgrind run can attribute instructions to each.
+// The three stages are separate non-inlined functions so a callgrind run can attribute instructions to each.
 #[inline(never)]
 fn stage_plain(morpher: &Morpher, word: &str) -> ParseOutcome {
     morpher.parse_word_selected(word, &ParseOptions::default(), None, None)
 }
 
 #[inline(never)]
-fn stage_filter(
-    admission: &RuleAdmission,
-    word: &str,
-    allowance: usize,
-) -> (Option<Vec<bool>>, usize) {
-    let admitted = admission.admit_counted(word, allowance);
+fn stage_filter(admission: &RuleAdmission, word: &str) -> Vec<bool> {
+    let admitted = admission.admit(word);
     std::hint::black_box(&admitted);
     admitted
 }
@@ -72,14 +68,6 @@ fn stage_confirm(morpher: &Morpher, word: &str, set: &[bool]) -> ParseOutcome {
         RuleRef::MRule(id) => set[id.0 as usize],
     };
     morpher.parse_word_selected(word, &ParseOptions::default(), None, Some(&filter))
-}
-
-#[inline(never)]
-fn stage_fallback(morpher: &Morpher, word: &str) -> ParseOutcome {
-    // The black_box keeps the linker from folding this body into stage_plain.
-    let outcome = morpher.parse_word_selected(word, &ParseOptions::default(), None, None);
-    std::hint::black_box(&outcome);
-    outcome
 }
 
 // A callgrind run dumps its counts on entering this marker, once after each stage, while collection is off.
@@ -133,16 +121,10 @@ fn main() -> Result<(), String> {
         }
     }
     let (source, words_path, output, limit) = match args.as_slice() {
-        [a, b, c, d] | [a, b, c, d, _] => (a, b, c, d),
-        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [path-allowance=4096] [--work-cap N] [--oracle-roots]".into()),
+        [a, b, c, d] => (a, b, c, d),
+        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--oracle-roots]".into()),
     };
     let limit: usize = limit.parse().map_err(|_| "max-words must be a number")?;
-    let allowance: usize = match args.get(4) {
-        Some(text) => text
-            .parse()
-            .map_err(|_| "path-allowance must be a number")?,
-        None => 4096,
-    };
     let g = load(source)?;
     let started = Instant::now();
     let built = build_rule_admission(&FomaOptions::default(), &g);
@@ -160,8 +142,7 @@ fn main() -> Result<(), String> {
     let Ok(admission) = built else {
         return Ok(());
     };
-    let free: Vec<bool> = admission.plan().free.clone();
-    let free_count = free.iter().filter(|f| **f).count();
+    let free_count = admission.free().iter().filter(|f| **f).count();
     let morpher = Morpher::new(&g, work_cap);
     let owners = build_morpheme_owners(&g);
     let words = fs::read_to_string(words_path).map_err(|error| error.to_string())?;
@@ -174,37 +155,21 @@ fn main() -> Result<(), String> {
     {
         let plain = stage_plain(&morpher, word);
         stage_mark();
-        let (admitted, raw_paths) = stage_filter(&admission, word, allowance);
+        let admitted = stage_filter(&admission, word);
         stage_mark();
-        let (confirm, fallback_parse, count) = match &admitted {
-            Some(set) => (
-                Some(stage_confirm(&morpher, word, set)),
-                None,
-                set.iter().filter(|a| **a).count(),
-            ),
-            None => (None, Some(stage_fallback(&morpher, word)), g.mrules.len()),
-        };
+        let confirm = stage_confirm(&morpher, word, &admitted);
         stage_mark();
-        let fallback = fallback_parse.is_some();
-        let oracle = match (&admitted, with_oracle) {
-            (Some(set), true) => Some(oracle_roots(&morpher, &owners, word, set, &plain)),
-            _ => None,
-        };
-        let same = confirm
-            .as_ref()
-            .is_none_or(|narrowed| signature(narrowed) == signature(&plain));
-        let superset = confirm.as_ref().is_none_or(|narrowed| {
-            let kept = signature(narrowed);
-            signature(&plain).iter().all(|key| kept.contains(key))
-        });
-        let confirm_steps = confirm.as_ref().map_or(0, |o| o.work_steps);
+        let count = admitted.iter().filter(|a| **a).count();
+        let oracle = with_oracle.then(|| oracle_roots(&morpher, &owners, word, &admitted, &plain));
+        let same = signature(&confirm) == signature(&plain);
+        let kept = signature(&confirm);
+        let superset = signature(&plain).iter().all(|key| kept.contains(key));
         let row = serde_json::json!({
             "word": word, "plain_steps": plain.work_steps, "analyses": plain.structured.len(),
             "capped": plain.capped, "admitted": count,
-            "spotted": if fallback { 0 } else { count.saturating_sub(free_count) },
-            "raw_paths": raw_paths, "fallback": fallback, "confirm_steps": confirm_steps,
-            "fallback_steps": fallback_parse.as_ref().map_or(0, |o| o.work_steps),
-            "same": same, "superset": superset, "confirm_capped": confirm.as_ref().is_some_and(|o| o.capped),
+            "spotted": count.saturating_sub(free_count),
+            "fallback": false, "confirm_steps": confirm.work_steps, "fallback_steps": 0,
+            "same": same, "superset": superset, "confirm_capped": confirm.capped,
             "oracle_root_steps": oracle.as_ref().map(|o| o.work_steps),
             "oracle_root_same": oracle.as_ref().map(|o| signature(o) == signature(&plain)),
         });

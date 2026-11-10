@@ -1,5 +1,6 @@
 //! Rule admission: a transducer from a surface word to the affix rules that could take part in an analysis.
 
+mod acceptor;
 mod build;
 mod piece;
 mod plan;
@@ -8,13 +9,19 @@ mod tests;
 
 use crate::lower::{pattern_slots, PatternLowerScope, Slot};
 use crate::replace::{PhonologyLoweringError, SegAlphabet};
-use foma::apply::apply_init;
+use acceptor::{NetView, RuleOutcome, RuleTable, Tokenizer};
 use foma::io::fsm_write_binary;
 use foma::options::FomaOptions;
 use foma::structures::fsm_sort_arcs;
-use foma::types::ApplyHandle;
 use pg_grammar::model::{Grammar, MRuleId, Pattern, PatternNode};
+
+pub use acceptor::TableSize;
+#[cfg(any(test, feature = "developer-tools"))]
+use foma::apply::apply_init;
+#[cfg(any(test, feature = "developer-tools"))]
+use foma::types::ApplyHandle;
 use std::collections::HashMap;
+#[cfg(any(test, feature = "developer-tools"))]
 use std::sync::Mutex;
 
 pub use plan::plan_admission;
@@ -146,11 +153,32 @@ pub struct AdmissionEvidence {
     pub compositions: Vec<Composition>,
     pub final_net: Size,
     pub final_bytes: usize,
+    pub tables: TableEvidence,
+}
+
+/// The per-rule deterministic acceptors that answer admission.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct TableEvidence {
+    /// Rules answered by a table.
+    pub rules: usize,
+    /// Rules whose acceptor accepts every text.
+    pub always: usize,
+    /// Rules whose acceptor accepts no text.
+    pub never: usize,
+    /// Rules freed because determinizing exceeded the per-rule bound.
+    pub bounded: Vec<String>,
+    pub max: TableSize,
+    pub sum: TableSize,
+    pub ms: u64,
 }
 
 /// The admitted-rule lookup for one grammar.
 pub struct RuleAdmission {
-    handle: Mutex<Box<ApplyHandle>>,
+    tokenizer: Tokenizer,
+    tables: Vec<(usize, RuleTable)>,
+    #[cfg(any(test, feature = "developer-tools"))]
+    reference: Mutex<Box<ApplyHandle>>,
+    #[cfg(any(test, feature = "developer-tools"))]
     tags: HashMap<String, usize>,
     plan: AdmissionPlan,
     free: Vec<bool>,
@@ -171,20 +199,110 @@ pub fn build_rule_admission(
     };
     let mut meter = build::Meter::default();
     let built = build::build_net(opts, g, &plan, &mut evidence, &mut meter)?;
-    let mut net = built.net;
+    let build::Built {
+        mut net,
+        tags,
+        free,
+    } = built;
     let mut counter = build::CountingWriter(0);
     fsm_write_binary(&net, &mut counter)
         .map_err(|e| AdmissionRefusal::Construction(e.to_string()))?;
     evidence.final_bytes = counter.0;
     fsm_sort_arcs(&mut net, 2);
+    let tables = build_tables(&net, (&tags, free), &plan, &mut evidence, &mut meter)?;
     Ok(RuleAdmission {
-        handle: Mutex::new(apply_init(&net)),
-        tags: built.tags,
-        free: built.free,
+        tokenizer: Tokenizer::new(&net),
+        tables: tables.tables,
+        #[cfg(any(test, feature = "developer-tools"))]
+        reference: Mutex::new(apply_init(&net)),
+        #[cfg(any(test, feature = "developer-tools"))]
+        tags,
+        free: tables.free,
         plan,
         evidence,
         warnings: meter.warnings,
     })
+}
+
+/// Largest determinized acceptor, in states, that one rule may have before the rule is admitted for every word.
+const RULE_STATE_BOUND: usize = 20_000;
+
+struct Tables {
+    tables: Vec<(usize, RuleTable)>,
+    free: Vec<bool>,
+}
+
+/// Turns the final net into one table per tagged rule; a rule that cannot be tabled is freed with a warning.
+fn build_tables(
+    net: &foma::types::Fsm,
+    (tags, free): (&HashMap<String, usize>, Vec<bool>),
+    plan: &AdmissionPlan,
+    evidence: &mut AdmissionEvidence,
+    meter: &mut build::Meter,
+) -> Result<Tables, AdmissionRefusal> {
+    let started = std::time::Instant::now();
+    let view = NetView::new(net);
+    let mut free = free;
+    let mut tables = Vec::new();
+    let mut sum = TableSize::default();
+    let mut max = TableSize::default();
+    let items: Vec<String> = plan
+        .pieces
+        .iter()
+        .chain(&plan.outer_pieces)
+        .map(|p| p.grammar_item.clone())
+        .collect();
+    let mut tags: Vec<(&String, &usize)> = tags.iter().collect();
+    tags.sort_by_key(|(_, rule)| **rule);
+    for (text, &rule) in tags {
+        let Some(tag) = net.sigma.iter().find(|s| s.symbol == text.as_str()) else {
+            evidence.tables.never += 1;
+            continue;
+        };
+        match view.rule(tag.number, RULE_STATE_BOUND) {
+            RuleOutcome::Never => evidence.tables.never += 1,
+            RuleOutcome::Always => {
+                evidence.tables.always += 1;
+                free[rule] = true;
+            }
+            RuleOutcome::TooBig(states) => {
+                let item = piece_item(plan, rule);
+                meter.warnings.push(format!(
+                    "rule acceptor for {item}: observed {states} states + arcs, bound {RULE_STATE_BOUND}; grammar items: {item}. This is a sign that there may be a better representation, such as widening, factoring or filtering. Action: the rule is always admitted."
+                ));
+                evidence.tables.bounded.push(item);
+                free[rule] = true;
+            }
+            RuleOutcome::Table(table) => {
+                let size = table.size();
+                sum.states += size.states;
+                sum.arcs += size.arcs;
+                sum.bytes += size.bytes;
+                if size.bytes > max.bytes {
+                    max = size;
+                }
+                tables.push((rule, table));
+            }
+        }
+    }
+    evidence.tables.rules = tables.len();
+    evidence.tables.max = max;
+    evidence.tables.sum = sum;
+    evidence.tables.ms = started.elapsed().as_millis() as u64;
+    let total = Size {
+        states: sum.states,
+        arcs: sum.arcs,
+    };
+    meter.observe("rule acceptor tables", total, &items)?;
+    Ok(Tables { tables, free })
+}
+
+fn piece_item(plan: &AdmissionPlan, rule: usize) -> String {
+    let both = plan.pieces.iter().chain(&plan.outer_pieces);
+    both.filter(|p| p.rule.0 as usize == rule)
+        .map(|p| p.grammar_item.clone())
+        .next()
+        .unwrap_or_else(|| format!("rule {rule}"))
 }
 
 /// Rules after the phonological stratum are covered by the plan when they are intact; more than one phonological stratum is out of the model.
@@ -204,26 +322,37 @@ fn check_strata(g: &Grammar) -> Result<(), AdmissionRefusal> {
 }
 
 impl RuleAdmission {
-    /// Admitted rules for `word`, or `None` when more than `path_allowance` analyses of the net would be needed.
-    pub fn admit(&self, word: &str, path_allowance: usize) -> Option<Vec<bool>> {
-        self.admit_counted(word, path_allowance).0
+    /// Admitted rules for `word`: one pass of each rule's table over the word's NFD symbols.
+    pub fn admit(&self, word: &str) -> Vec<bool> {
+        let tokens = self.tokenizer.tokens(&pg_grammar::nfd::nfd(word));
+        let mut admitted = self.free.clone();
+        for (rule, table) in &self.tables {
+            admitted[*rule] = table.accepts(&tokens);
+        }
+        admitted
     }
 
-    /// `admit` plus the raw number of net paths read, capped one past the allowance.
-    pub fn admit_counted(&self, word: &str, path_allowance: usize) -> (Option<Vec<bool>>, usize) {
+    /// The admitted rules read through foma's apply on the whole net, for checking the tables against it.
+    #[cfg(any(test, feature = "developer-tools"))]
+    pub fn admit_with_foma(&self, word: &str, path_allowance: usize) -> Option<Vec<bool>> {
         let mut admitted = self.free.clone();
         let mut raw = 0;
-        let mut handle = self.handle.lock().unwrap_or_else(|e| e.into_inner());
+        let mut handle = self.reference.lock().unwrap_or_else(|e| e.into_inner());
         for tag in handle.up(&pg_grammar::nfd::nfd(word)) {
             raw += 1;
             if raw > path_allowance {
-                return (None, raw);
+                return None;
             }
             if let Some(rule) = self.tags.get(&tag) {
                 admitted[*rule] = true;
             }
         }
-        (Some(admitted), raw)
+        Some(admitted)
+    }
+
+    /// Rules admitted for every word.
+    pub fn free(&self) -> &[bool] {
+        &self.free
     }
 
     pub fn evidence(&self) -> &AdmissionEvidence {

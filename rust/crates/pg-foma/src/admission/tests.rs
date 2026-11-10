@@ -384,14 +384,54 @@ fn restricted(morpher: &Morpher, word: &str, admitted: &[bool]) -> ParseOutcome 
     morpher.parse_word_selected(word, &ParseOptions::default(), None, Some(&rule))
 }
 
+/// The word, its substrings, and its single-character deletions, replacements and insertions.
+fn variants(word: &str) -> Vec<String> {
+    let chars: Vec<char> = word.chars().collect();
+    let mut out = vec![word.to_owned()];
+    for from in 0..=chars.len() {
+        for to in from..=chars.len() {
+            out.push(chars[from..to].iter().collect());
+        }
+    }
+    for at in 0..chars.len() {
+        for edit in ["", "z", "\u{301}"] {
+            let mut copy = chars.clone();
+            copy.remove(at);
+            let mut text: String = copy[..at].iter().collect();
+            text.push_str(edit);
+            text.extend(&copy[at..]);
+            out.push(text);
+        }
+    }
+    for edit in ["z", "\u{301}"] {
+        out.push(format!("{word}{edit}"));
+        out.push(format!("{edit}{word}"));
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The tables return exactly what foma's apply on the whole net returns.
+fn assert_tables_match_foma(admission: &RuleAdmission, words: &[String]) {
+    for word in words {
+        let foma = admission
+            .admit_with_foma(word, usize::MAX)
+            .expect("no allowance");
+        assert_eq!(admission.admit(word), foma, "word {word:?}");
+    }
+}
+
 /// Every word keeps its analyses; returns the words that have any.
 fn assert_same_analyses(g: &Grammar, words: &[&str]) -> Vec<String> {
     let admission = build_rule_admission(&FomaOptions::default(), g).expect("admission builds");
+    let all: Vec<String> = words.iter().flat_map(|w| variants(w)).collect();
+    assert_tables_match_foma(&admission, &all);
     let morpher = Morpher::new(g, 2_000_000);
     let mut analysed = Vec::new();
     for word in words {
         let plain = morpher.parse_word_selected(word, &ParseOptions::default(), None, None);
-        let admitted = admission.admit(word, 4096).expect("within allowance");
+        let admitted = admission.admit(word);
         let narrowed = restricted(&morpher, word, &admitted);
         assert_eq!(signature(&plain), signature(&narrowed), "word {word}");
         if !plain.structured.is_empty() {
@@ -417,9 +457,9 @@ fn an_absent_literal_is_not_admitted() {
     let rules = vec![prefix(0, "ka"), suffix(1, "ta"), suffix(2, "nu")];
     let g = load(&spec("kaqtnu", rules, &["qt"]));
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
-    let admitted = admission.admit("kaqt", 4096).expect("allowance");
+    let admitted = admission.admit("kaqt");
     assert_eq!(admitted, vec![true, false, false]);
-    let admitted = admission.admit("qtnu", 4096).expect("allowance");
+    let admitted = admission.admit("qtnu");
     assert_eq!(admitted, vec![false, false, true]);
 }
 
@@ -479,7 +519,7 @@ fn phonology_that_changes_an_affix_literal_keeps_the_analysis() {
     );
     assert!(analysed.contains(&"tapma".to_owned()), "{analysed:?}");
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
-    let admitted = admission.admit("tapma", 4096).expect("allowance");
+    let admitted = admission.admit("tapma");
     assert!(admitted[0], "the changed literal still admits its rule");
     assert!(!admitted[1], "{admitted:?} {:?}", admission.plan().free);
 }
@@ -523,10 +563,10 @@ fn an_enclitic_after_the_phonological_stratum_keeps_every_analysis() {
     }
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
     assert_eq!(admission.plan().counts.outer_rules, 1);
-    assert_eq!(admission.admit("tapku", 4096).unwrap(), vec![false, true]);
-    assert_eq!(admission.admit("tapma", 4096).unwrap(), vec![true, false]);
-    assert_eq!(admission.admit("tapmaku", 4096).unwrap(), vec![true, true]);
-    assert_eq!(admission.admit("tap", 4096).unwrap(), vec![false, false]);
+    assert_eq!(admission.admit("tapku"), vec![false, true]);
+    assert_eq!(admission.admit("tapma"), vec![true, false]);
+    assert_eq!(admission.admit("tapmaku"), vec![true, true]);
+    assert_eq!(admission.admit("tap"), vec![false, false]);
 }
 
 #[test]
@@ -564,7 +604,7 @@ fn a_segment_that_morphology_creates_still_admits_the_suffix() {
     assert!(analysed.contains(&"tapmna".to_owned()), "{analysed:?}");
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
     assert!(admission.plan().free[1]);
-    assert!(admission.admit("tapmna", 4096).unwrap()[0]);
+    assert!(admission.admit("tapmna")[0]);
 }
 
 #[test]
@@ -623,7 +663,7 @@ fn upper_side_is_one_tag_and_lower_side_has_no_tag() {
         );
     }
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
-    let mut handle = admission.handle.lock().unwrap();
+    let mut handle = admission.reference.lock().unwrap();
     for word in ["kaqt", "qtnu", "kaqtnu"] {
         let uppers: Vec<String> = handle.up(word).collect();
         assert!(!uppers.is_empty(), "{word}");
@@ -643,18 +683,37 @@ fn tokens_known_only_to_the_stem_pass_through_a_question_mark_position() {
     );
     let g = load(&spec("takqn", vec![suffix(0, "tak"), truncate], &["qnq"]));
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
-    assert!(admission.admit("qnqtn", 4096).expect("allowance")[0]);
-    assert!(admission.admit("qnqtak", 4096).expect("allowance")[0]);
-    assert!(!admission.admit("qnqq", 4096).expect("allowance")[0]);
+    assert!(admission.admit("qnqtn")[0]);
+    assert!(admission.admit("qnqtak")[0]);
+    assert!(!admission.admit("qnqq")[0]);
 }
 
 #[test]
-fn the_allowance_returns_none() {
+fn the_foma_reference_returns_none_past_its_allowance() {
     let g = load(&spec("kaqt", vec![prefix(0, "ka")], &["qt"]));
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
-    let (admitted, raw) = admission.admit_counted("kaqt", 0);
-    assert!(admitted.is_none());
-    assert_eq!(raw, 1);
+    assert!(admission.admit_with_foma("kaqt", 0).is_none());
+    assert_eq!(admission.admit_with_foma("kaqt", 4096), Some(vec![true]));
+}
+
+#[test]
+fn tables_match_foma_on_every_short_text_over_the_alphabet() {
+    let rules = vec![prefix(0, "ka"), suffix(1, "ta"), suffix(2, "nu")];
+    let g = load(&spec("kaqtnu", rules, &["qt"]));
+    let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
+    let letters: Vec<char> = "kaqtnuz\u{301}".chars().collect();
+    let mut words = vec![String::new()];
+    let mut frontier = words.clone();
+    for _ in 0..4 {
+        frontier = frontier
+            .iter()
+            .flat_map(|w| letters.iter().map(move |c| format!("{w}{c}")))
+            .collect();
+        words.extend(frontier.iter().cloned());
+    }
+    assert_tables_match_foma(&admission, &words);
+    let tables = &admission.evidence().tables;
+    assert_eq!(tables.rules, 3, "{tables:?}");
 }
 
 #[test]
@@ -663,7 +722,7 @@ fn a_decomposed_letter_in_the_word_reaches_the_suffix_rule() {
     let analysed = assert_same_analyses(&g, &["café", "cafés", "cafe"]);
     assert_eq!(analysed, vec!["café", "cafés"]);
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
-    assert!(admission.admit("cafés", 4096).expect("allowance")[0]);
+    assert!(admission.admit("cafés")[0]);
 }
 
 #[test]
@@ -672,5 +731,5 @@ fn a_mark_segment_after_a_letter_segment_reaches_the_suffix_rule() {
     let analysed = assert_same_analyses(&g, &["pa\u{301}n", "pa\u{301}ns"]);
     assert_eq!(analysed.len(), 2, "{analysed:?}");
     let admission = build_rule_admission(&FomaOptions::default(), &g).expect("builds");
-    assert!(admission.admit("pa\u{301}ns", 4096).expect("allowance")[0]);
+    assert!(admission.admit("pa\u{301}ns")[0]);
 }

@@ -1,7 +1,7 @@
 //! Checks over the conformance suite that the admitted restricted parse keeps every analysis of the plain parse.
 use foma::options::FomaOptions;
 use pg_conformance_fixtures::{FixtureRef, Root, WordEntry};
-use pg_foma::admission::build_rule_admission;
+use pg_foma::admission::{build_rule_admission, RuleAdmission};
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
 use pg_rules::stratum::RuleRef;
 use std::fs;
@@ -10,7 +10,6 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 const WORK_CAP: usize = 2_000_000;
-const PATH_ALLOWANCE: usize = 4096;
 
 fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
     let mut keys: Vec<_> = outcome
@@ -26,10 +25,34 @@ fn signature(outcome: &ParseOutcome) -> Vec<(Vec<u32>, i32)> {
 struct Tally {
     words: usize,
     capped: usize,
-    fallbacks: usize,
     mismatches: Vec<String>,
     plain_steps: u64,
     confirm_steps: u64,
+    /// Texts compared between the tables and foma's apply, and those where they differed.
+    compared: usize,
+    table_differences: Vec<String>,
+}
+
+/// The word and edits of it, each checked against foma's apply on the whole net.
+fn compare_with_foma(admission: &RuleAdmission, word: &str, tally: &mut Tally) {
+    let chars: Vec<char> = pg_grammar::nfd::nfd(word).chars().collect();
+    let mut texts = vec![word.to_owned()];
+    for at in 0..chars.len() {
+        for edit in ["", "z", "\u{301}"] {
+            let mut text: String = chars[..at].iter().collect();
+            text.push_str(edit);
+            text.extend(&chars[at + 1..]);
+            texts.push(text);
+        }
+        texts.push(chars[at..].iter().collect());
+        texts.push(chars[..=at].iter().collect());
+    }
+    for text in texts {
+        tally.compared += 1;
+        if admission.admit_with_foma(&text, usize::MAX) != Some(admission.admit(&text)) {
+            tally.table_differences.push(text);
+        }
+    }
 }
 
 fn run(
@@ -51,10 +74,8 @@ fn run(
         let plain = morpher.parse_word_selected(word, &ParseOptions::default(), None, None);
         tally.words += 1;
         tally.plain_steps += plain.work_steps as u64;
-        let Some(admitted) = admission.admit(word, PATH_ALLOWANCE) else {
-            tally.fallbacks += 1;
-            continue;
-        };
+        let admitted = admission.admit(word);
+        compare_with_foma(&admission, word, tally);
         let filter = |rule: RuleRef| match rule {
             RuleRef::Stratum(_) | RuleRef::Template(_) => true,
             RuleRef::MRule(id) => admitted[id.0 as usize],
@@ -103,7 +124,8 @@ fn main() -> Result<(), String> {
     };
     let mut out = fs::File::create(output).map_err(|e| e.to_string())?;
     std::panic::set_hook(Box::new(|_| {}));
-    let (mut built, mut refused, mut skipped, mut bad, mut panicked) = (0, 0, 0, 0, 0);
+    let (mut built, mut refused, mut skipped, mut bad, mut panicked, mut differing) =
+        (0, 0, 0, 0, 0, 0);
     for fixture in fixtures(Path::new(suite)) {
         let spec = catch_unwind(AssertUnwindSafe(|| fixture.load_words_yaml()));
         let Ok(spec) = spec else {
@@ -146,16 +168,18 @@ fn main() -> Result<(), String> {
             _ => {}
         }
         bad += tally.mismatches.len();
+        differing += tally.table_differences.len();
         let row = serde_json::json!({
             "fixture": fixture.label(), "refused": refusal, "error": error,
             "words": tally.words, "mismatches": tally.mismatches, "capped": tally.capped,
-            "fallbacks": tally.fallbacks, "plain_steps": tally.plain_steps,
-            "confirm_steps": tally.confirm_steps,
+            "plain_steps": tally.plain_steps,
+            "confirm_steps": tally.confirm_steps, "compared": tally.compared,
+            "table_differences": tally.table_differences,
         });
         writeln!(out, "{row}").map_err(|e| e.to_string())?;
     }
     println!(
-        "built {built} refused {refused} skipped-expect-crash {skipped} panicked {panicked} mismatches {bad}"
+        "built {built} refused {refused} skipped-expect-crash {skipped} panicked {panicked} mismatches {bad} table-differences {differing}"
     );
     Ok(())
 }
