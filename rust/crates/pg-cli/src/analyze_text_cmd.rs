@@ -1,10 +1,13 @@
 //! `analyze-text`: prints `pg_analyzer::analyze_text` as JSON; format in `docs/text-analysis-format.md`.
 
-use pg_analyzer::{AnalyzeOptions, LanguagePack, ProfileInput, TextInput, TextRequest};
+use pg_analyzer::{
+    AnalyzeOptions, DictionaryIdentity, DictionaryPack, LanguagePack, ProfileInput, TextInput,
+    TextRequest,
+};
 use pg_parse::Morpher;
 use std::time::Duration;
 
-const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...";
+const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--dictionary <language>=<prefix> ...] [--max-suggestion-chars N] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...";
 
 fn flag_value<'a>(
     flag: &str,
@@ -23,6 +26,7 @@ fn flag_value<'a>(
 pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
     let mut profile_path = None;
     let mut pack_args: Vec<(String, String)> = Vec::new();
+    let mut dictionary_args: Vec<(String, String)> = Vec::new();
     let mut work_cap = crate::DEFAULT_WORK_CAP;
     let mut timeout = None;
     let mut options = AnalyzeOptions::default();
@@ -37,6 +41,17 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
                 .filter(|(l, p)| !l.is_empty() && !p.is_empty())
                 .ok_or(format!("--pack expects <language>=<grammar>, got {v}"))?;
             pack_args.push((language.into(), path.into()));
+        } else if let Some(v) = flag_value("--dictionary", arg, &mut it)? {
+            let (language, prefix) = v
+                .split_once('=')
+                .filter(|(l, p)| !l.is_empty() && !p.is_empty())
+                .ok_or(format!("--dictionary expects <language>=<prefix>, got {v}"))?;
+            dictionary_args.push((language.into(), prefix.into()));
+        } else if let Some(v) = flag_value("--max-suggestion-chars", arg, &mut it)? {
+            options.max_suggestion_chars = Some(
+                v.parse()
+                    .map_err(|_| "--max-suggestion-chars must be an integer")?,
+            );
         } else if let Some(v) = flag_value("--work-cap", arg, &mut it)? {
             work_cap = crate::parse_work_cap(v)?;
         } else if let Some(v) = flag_value("--word-timeout-ms", arg, &mut it)? {
@@ -108,6 +123,11 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
         })
         .collect();
 
+    let dictionaries = dictionary_args
+        .iter()
+        .map(|(language, prefix)| load_dictionary(language, prefix))
+        .collect::<Result<Vec<_>, _>>()?;
+
     let contents: Vec<String> = text_paths
         .iter()
         .map(|p| std::fs::read_to_string(p).map_err(|e| format!("read {p}: {e}")))
@@ -125,10 +145,61 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
     let result = pg_analyzer::analyze_text(&TextRequest {
         profile,
         packs: &packs,
+        dictionaries: &dictionaries,
         texts: &texts,
         options,
     })?;
     let json = serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?;
     println!("{json}");
     Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DictionaryManifest {
+    version: String,
+    licence: String,
+    /// A newline-separated word list, relative to the manifest.
+    #[serde(default)]
+    word_list: Option<String>,
+}
+
+/// Loads `<prefix>.aff`, `.dic` and `.pgdict.json`; the identity hash covers all pack bytes.
+fn load_dictionary(language: &str, prefix: &str) -> Result<DictionaryPack, String> {
+    let read = |path: &str| std::fs::read(path).map_err(|e| format!("read {path}: {e}"));
+    let text = |bytes: Vec<u8>, path: &str| {
+        String::from_utf8(bytes).map_err(|_| format!("{path} is not UTF-8"))
+    };
+    let (aff_path, dic_path) = (format!("{prefix}.aff"), format!("{prefix}.dic"));
+    let manifest_path = format!("{prefix}.pgdict.json");
+    let manifest: DictionaryManifest = serde_json::from_slice(&read(&manifest_path)?)
+        .map_err(|e| format!("{manifest_path}: {e}"))?;
+    let (aff, dic) = (read(&aff_path)?, read(&dic_path)?);
+    let mut hashed = [aff.as_slice(), dic.as_slice()].concat();
+    let mut words = Vec::new();
+    if let Some(name) = &manifest.word_list {
+        let list_path = std::path::Path::new(&manifest_path)
+            .with_file_name(name)
+            .display()
+            .to_string();
+        let list = read(&list_path)?;
+        hashed.extend_from_slice(&list);
+        words = text(list, &list_path)?
+            .lines()
+            .map(str::trim)
+            .filter(|w| !w.is_empty())
+            .map(str::to_owned)
+            .collect();
+    }
+    let identity = DictionaryIdentity {
+        language: language.into(),
+        source_id: prefix.into(),
+        source_sha256: crate::stats_manifest::sha256_hex(&hashed),
+        version: manifest.version,
+        licence: manifest.licence,
+    };
+    Ok(
+        DictionaryPack::new(identity, &text(aff, &aff_path)?, &text(dic, &dic_path)?)?
+            .with_word_list(words),
+    )
 }

@@ -88,6 +88,7 @@ fn cli_json_equals_the_serialised_library_result() {
             xml: &ldml_text,
         },
         packs: &packs,
+        dictionaries: &[],
         texts: &texts,
         options: AnalyzeOptions::default(),
     })
@@ -145,4 +146,48 @@ fn cli_max_alternatives_caps_a_hyphenated_occurrence_as_incomplete() {
     assert_eq!(zero.texts[0].occurrences[0].readings.len(), 1);
     assert_eq!(zero.corpus.incomplete.occurrences, 1);
     assert_eq!(run(&["--all-readings"]).corpus.valid.occurrences, 1);
+}
+
+#[test]
+fn cli_loads_a_dictionary_pack_and_reports_misspelling_with_suggestions() {
+    let dir = scratch("dictionary");
+    let ldml = dir.join("qaa.ldml");
+    let text = dir.join("t.txt");
+    std::fs::write(&ldml, LDML).unwrap();
+    std::fs::write(&text, "teh the zork").unwrap();
+    std::fs::write(
+        dir.join("en.aff"),
+        "SET UTF-8\nTRY esianrtolcdugmphbyfvkwzx\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("en.dic"), "2\nthe\nword\n").unwrap();
+    std::fs::write(dir.join("en.words"), "zork\n").unwrap();
+    std::fs::write(
+        dir.join("en.pgdict.json"),
+        r#"{"version":"1.0","licence":"MIT","word_list":"en.words"}"#,
+    )
+    .unwrap();
+    let dictionary = format!("en={}", dir.join("en").display());
+    let output = cli(&[
+        "--profile".as_ref(),
+        ldml.as_os_str(),
+        "--dictionary".as_ref(),
+        dictionary.as_ref(),
+        text.as_os_str(),
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: TextAnalysis = serde_json::from_slice(&output.stdout).unwrap();
+    let o = &result.texts[0].occurrences;
+    assert_eq!(o[0].misspelled_languages, ["en"]);
+    assert!(o[0].checks[0].suggestions.contains(&"the".to_owned()));
+    assert_eq!(o[1].valid_languages, ["en"]);
+    assert_eq!(o[2].valid_languages, ["en"], "word list");
+    let identity = &result.resources[1];
+    assert_eq!(identity.licence.as_deref(), Some("MIT"));
+    assert_eq!(identity.version.as_deref(), Some("1.0"));
+    assert_eq!(identity.source_sha256.len(), 64);
 }
