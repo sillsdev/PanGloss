@@ -135,8 +135,27 @@ impl<'a> Cascade<'a> {
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
     {
+        self.linear_at(input, &|_| 0..rule_count, apply_rule, key)
+    }
+
+    /// `linear` where `positions` names, per input, the ascending rule indices worth attempting; the rest are never attempted or charged.
+    pub fn linear_at<T, K, A, F, C, I>(
+        &self,
+        input: T,
+        positions: &C,
+        apply_rule: &A,
+        key: &F,
+    ) -> CascadeOutput<T>
+    where
+        T: Clone,
+        K: Hash + Eq,
+        A: Fn(usize, &T) -> Vec<T>,
+        F: Fn(&T) -> K,
+        C: Fn(&T) -> I,
+        I: IntoIterator<Item = usize>,
+    {
         let mut acc = Acc::new();
-        self.linear_rec(rule_count, &input, 0, apply_rule, key, &mut acc);
+        self.linear_rec(&input, 0, positions, apply_rule, key, &mut acc);
         CascadeOutput {
             words: acc.items,
             capped: acc.capped,
@@ -145,11 +164,11 @@ impl<'a> Cascade<'a> {
 
     /// `LinearRuleCascade.ApplyRules` -- returns `true` iff no rule applied at or after `rule_index`.
     #[allow(clippy::too_many_arguments)]
-    fn linear_rec<T, K, A, F>(
+    fn linear_rec<T, K, A, F, C, I>(
         &self,
-        rule_count: usize,
         input: &T,
         rule_index: usize,
+        positions: &C,
         apply_rule: &A,
         key: &F,
         acc: &mut Acc<T, K>,
@@ -159,8 +178,10 @@ impl<'a> Cascade<'a> {
         K: Hash + Eq,
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
+        C: Fn(&T) -> I,
+        I: IntoIterator<Item = usize>,
     {
-        for i in rule_index..rule_count {
+        for i in positions(input).into_iter().filter(|&i| i >= rule_index) {
             if acc.steps >= self.cap || !self.consume_attempt(i) {
                 acc.capped = true;
                 return false;
@@ -172,7 +193,7 @@ impl<'a> Cascade<'a> {
                 // avoid infinite loop (LinearRuleCascade.cs:40)
                 if !self.multi_app || key(input) != key(&result) {
                     let next = if self.multi_app { i } else { i + 1 };
-                    if self.linear_rec(rule_count, &result, next, apply_rule, key, acc) {
+                    if self.linear_rec(&result, next, positions, apply_rule, key, acc) {
                         acc.add(key(&result), result);
                     }
                 } else {
@@ -285,13 +306,49 @@ impl<'a> Cascade<'a> {
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
     {
-        self.combination_prepared(
+        self.combination_at(
             rule_count,
             input,
+            &|_| 0..rule_count,
             &|_, _, _| (),
             &|i, w, &()| apply_rule(i, w),
             key,
         )
+    }
+
+    /// `combination_prepared` where `positions` names, per input, the rule indices worth attempting (ascending); the rest are never attempted or charged.
+    pub fn combination_at<T, K, P, A, F, B, C, I>(
+        &self,
+        rule_count: usize,
+        input: T,
+        positions: &C,
+        prepare: &B,
+        apply_rule: &A,
+        key: &F,
+    ) -> CascadeOutput<T>
+    where
+        T: Clone,
+        K: Hash + Eq,
+        A: Fn(usize, &T, &P) -> Vec<T>,
+        F: Fn(&T) -> K,
+        B: Fn(&T, usize, Option<&[bool]>) -> P,
+        C: Fn(&T) -> I,
+        I: IntoIterator<Item = usize>,
+    {
+        let mut acc = Acc::new();
+        // C#: `!MultipleApplication ? new HashSet<int>() : null`.
+        let applied: Option<Vec<bool>> = if self.multi_app {
+            None
+        } else {
+            Some(vec![false; rule_count])
+        };
+        self.combination_rec(
+            &input, applied, positions, prepare, apply_rule, key, &mut acc,
+        );
+        CascadeOutput {
+            words: acc.items,
+            capped: acc.capped,
+        }
     }
 
     pub fn combination_prepared<T, K, P, A, F, B>(
@@ -309,28 +366,22 @@ impl<'a> Cascade<'a> {
         F: Fn(&T) -> K,
         B: Fn(&T, usize, Option<&[bool]>) -> P,
     {
-        let mut acc = Acc::new();
-        // C#: `!MultipleApplication ? new HashSet<int>() : null`.
-        let applied: Option<Vec<bool>> = if self.multi_app {
-            None
-        } else {
-            Some(vec![false; rule_count])
-        };
-        self.combination_rec(
-            rule_count, &input, applied, prepare, apply_rule, key, &mut acc,
-        );
-        CascadeOutput {
-            words: acc.items,
-            capped: acc.capped,
-        }
+        self.combination_at(
+            rule_count,
+            input,
+            &|_| 0..rule_count,
+            prepare,
+            apply_rule,
+            key,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn combination_rec<T, K, P, A, F, B>(
+    fn combination_rec<T, K, P, A, F, B, C, I>(
         &self,
-        rule_count: usize,
         input: &T,
         applied: Option<Vec<bool>>,
+        positions: &C,
         prepare: &B,
         apply_rule: &A,
         key: &F,
@@ -341,9 +392,11 @@ impl<'a> Cascade<'a> {
         A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,
         B: Fn(&T, usize, Option<&[bool]>) -> P,
+        C: Fn(&T) -> I,
+        I: IntoIterator<Item = usize>,
     {
         let prepared = prepare(input, 0, applied.as_deref());
-        for i in 0..rule_count {
+        for i in positions(input) {
             if applied.as_ref().is_none_or(|a| !a[i]) {
                 if acc.steps >= self.cap || !self.consume_attempt(i) {
                     acc.capped = true;
@@ -359,7 +412,7 @@ impl<'a> Cascade<'a> {
                             a2
                         });
                         self.combination_rec(
-                            rule_count, &result, next, prepare, apply_rule, key, acc,
+                            &result, next, positions, prepare, apply_rule, key, acc,
                         );
                     }
                     acc.add(key(&result), result);

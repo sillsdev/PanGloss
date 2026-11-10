@@ -638,6 +638,8 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
     /// The mrule/template selector, or `None` to admit every rule. See `RuleFilter`.
     rule_filter: Option<RuleFilter<'r>>,
+    /// Per `MRuleId`, whether the selector admits it, decided once at construction; `None` when no selector restricts the parse.
+    admitted_mrules: Option<Vec<bool>>,
     /// The compile-once FST cache; `None` recompiles per call. See `analyze_stratum_filtered` for why the fallback is still needed.
     cache: Option<&'c RuleCache>,
     /// The gated `--stats` collector, or `None` when stats collection is off; see `crate::stats`.
@@ -652,6 +654,15 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     slot_trie: std::cell::OnceCell<SlotTrie>,
     /// The look-ahead tables when there is no `RuleCache` to hold them.
     fallback_material: std::cell::OnceCell<Vec<RequiredSlotMaterial>>,
+}
+
+/// Per `MRuleId`, whether `rule_filter` admits it; `None` for no selector.
+fn admitted_mrule_flags(g: &Grammar, rule_filter: Option<RuleFilter>) -> Option<Vec<bool>> {
+    rule_filter.map(|f| {
+        (0..g.mrules.len())
+            .map(|i| f(RuleRef::MRule(MRuleId(i as u32))))
+            .collect()
+    })
 }
 
 /// Templates' slots in walk order (last first), sharing a node only while every walked slot is identical.
@@ -756,7 +767,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         parent: TraceHandle,
     ) -> Self {
         let stratum = &g.strata[stratum_id.0 as usize];
-        let reversed_mrules: Vec<MRuleId> = stratum.mrules.iter().rev().copied().collect();
+        let admitted_mrules = admitted_mrule_flags(g, rule_filter);
+        // A selector-excluded rule is neither attempted nor charged by the cascade.
+        let reversed_mrules: Vec<MRuleId> = stratum
+            .mrules
+            .iter()
+            .rev()
+            .copied()
+            .filter(|id| admitted_mrules.as_ref().is_none_or(|a| a[id.0 as usize]))
+            .collect();
         StratumAnalyzer {
             g,
             stratum_id,
@@ -767,6 +786,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             budget,
             non_head_root_filter,
             rule_filter,
+            admitted_mrules,
             cache,
             stats,
             policy,
@@ -780,7 +800,19 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     /// Rule admission — `true` when no filter was supplied, matching C#'s `rule => true` default.
     #[inline]
     fn rule_admitted(&self, r: RuleRef) -> bool {
-        self.rule_filter.is_none_or(|f| f(r))
+        match (r, &self.admitted_mrules) {
+            (RuleRef::MRule(id), Some(admitted)) => admitted[id.0 as usize],
+            _ => self.rule_filter.is_none_or(|f| f(r)),
+        }
+    }
+
+    /// True when the selector excludes every rule of a non-empty `slot`, so its batch can produce nothing.
+    fn slot_fully_excluded(&self, slot: &SlotDef) -> bool {
+        !slot.rules.is_empty()
+            && self
+                .admitted_mrules
+                .as_ref()
+                .is_some_and(|a| !slot.rules.iter().any(|id| a[id.0 as usize]))
     }
 
     /// The order-independent state key for `w` (`AnalyzerConfig::merge_equivalent`'s fold key), with each rule's count saturated at its `max_apps` -- the only reader compares `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate, `AnalysisStateKey.cs:14-34` -- deliberate divergence).
@@ -1202,6 +1234,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return false;
         }
         let tmpl = &self.g.templates[tid.0 as usize];
+        // A required slot whose rules are all excluded leaves the template no path to an output; tracing keeps the walk for its events.
+        if !self.trace.is_tracing()
+            && tmpl
+                .slots
+                .iter()
+                .any(|slot| !slot_optional(slot) && self.slot_fully_excluded(slot))
+        {
+            return false;
+        }
         // In mixed strata, reject final templates before required-FS admission and slot walking.
         if self.policy.enforce
             && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
@@ -1281,10 +1322,17 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             if served == 0 {
                 continue;
             }
+            let slot = trie.slot(self.g, child);
+            if self.slot_fully_excluded(slot) {
+                // The batch would be empty; an optional slot is passed over, a required one ends the path.
+                if slot_optional(slot) {
+                    self.walk_slot_trie(trie, child, w, walk, fired, false);
+                }
+                continue;
+            }
             if !pg_fst::work::consume() {
                 break;
             }
-            let slot = trie.slot(self.g, child);
             if served > 1 {
                 if let Some(stats) = self.stats {
                     stats.record_shared_slot_batch(
@@ -1416,15 +1464,21 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<(Word, MRuleId)> {
         let mut seen: HashMap<WordKey, usize> = HashMap::default();
         let mut out: Vec<(Word, MRuleId)> = Vec::new();
+        let rules: Vec<MRuleId> = slot
+            .rules
+            .iter()
+            .copied()
+            .filter(|&id| self.rule_admitted(RuleRef::MRule(id)))
+            .collect();
         if let Some(stats) = self.stats {
             stats.record_slot_batch(
                 self.stratum_id,
                 crate::stats::Direction::Analysis,
-                slot.rules.len() as u64,
+                rules.len() as u64,
             );
         }
-        let candidates = self.edge_candidates(in_word, slot.rules.iter().copied());
-        for &rid in &slot.rules {
+        let candidates = self.edge_candidates(in_word, rules.iter().copied());
+        for &rid in &rules {
             for w in self.apply_one_mrule(
                 rid,
                 in_word,
@@ -2202,10 +2256,13 @@ pub fn synthesize_stratum_traced_with_policy(
         trace.begin_apply_stratum(node_parent, stratum, &input);
     }
 
+    let admitted = admitted_mrule_flags(g, rule_filter);
+    let admitted = admitted.as_deref();
     let mut candidates = synth_apply_mrules(
         g,
         stratum,
         sd,
+        admitted,
         &input,
         cache,
         stats,
@@ -2218,6 +2275,7 @@ pub fn synthesize_stratum_traced_with_policy(
         g,
         stratum,
         sd,
+        admitted,
         &input,
         cache,
         stats,
@@ -2297,6 +2355,7 @@ fn synth_apply_mrules(
     g: &Grammar,
     stratum: StratumId,
     sd: &pg_grammar_model::model::StratumDef,
+    admitted: Option<&[bool]>,
     input: &Word,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
@@ -2309,6 +2368,17 @@ fn synth_apply_mrules(
         return Vec::new();
     }
     let key = |w: &Word| w.dedup_key();
+    // A selector-excluded rule never matches a trail; only a compounding rule can match an unspecified slot, so it stays.
+    let rules: Vec<MRuleId> = sd
+        .mrules
+        .iter()
+        .copied()
+        .filter(|id| {
+            admitted.is_none_or(|a| {
+                a[id.0 as usize] || matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_))
+            })
+        })
+        .collect();
     let apply_rule = |i: usize, w: &Word| -> Vec<Word> {
         if budget.synthesis_over_budget() {
             return Vec::new();
@@ -2316,7 +2386,7 @@ fn synth_apply_mrules(
         guided_synth(
             g,
             stratum,
-            sd.mrules[i],
+            rules[i],
             w,
             cache,
             stats,
@@ -2329,10 +2399,10 @@ fn synth_apply_mrules(
     let casc = Cascade::new(true, usize::MAX).with_rule_work_owner(
         stats,
         stratum,
-        &sd.mrules,
+        &rules,
         crate::stats::Direction::Synthesis,
     );
-    let n = sd.mrules.len();
+    let n = rules.len();
     // Synthesis mrules are in declaration order — no reverse, unlike analysis.
     let cascade_out = match sd.mrule_order {
         MorphRuleOrder::Linear => casc.linear(n, input.clone(), &apply_rule, &key),
@@ -2348,7 +2418,7 @@ fn synth_apply_mrules(
             result.push(w);
         } else {
             result.extend(synth_apply_templates(
-                g, stratum, sd, &w, cache, stats, trace, parent, budget, policy,
+                g, stratum, sd, admitted, &w, cache, stats, trace, parent, budget, policy,
             ));
         }
     }
@@ -2416,6 +2486,7 @@ fn synth_apply_templates(
     g: &Grammar,
     stratum: StratumId,
     sd: &pg_grammar_model::model::StratumDef,
+    admitted: Option<&[bool]>,
     input: &Word,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
@@ -2485,7 +2556,7 @@ fn synth_apply_templates(
                 }
                 if t.dedup_key() != in_key {
                     for m in synth_apply_mrules(
-                        g, stratum, sd, &t, cache, stats, trace, parent, budget, policy,
+                        g, stratum, sd, admitted, &t, cache, stats, trace, parent, budget, policy,
                     ) {
                         out.insert(m);
                     }
