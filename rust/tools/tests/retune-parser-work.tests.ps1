@@ -280,11 +280,11 @@ Test-Case 'a held-out grammar with too few scored words is refused by name, thou
 }
 
 Test-Case 'count totals cover only the words both builds counted' {
-    $before = @(New-Rows 'g' $current 4); $after = @(New-Rows 'g' $current 4 0.5 | Select-Object -Skip 1)
+    $before = @(New-Rows 'g' $current 4 | Select-Object -First 3); $after = @(New-Rows 'g' $current 4 0.5 | Select-Object -Skip 1)
     $tot = Get-CountTotals -Before $before -After $after
-    Assert-Equal 3 $tot.Words
-    Assert-Equal ((2700 + 3400 + 4100)) $tot.Before[0]
-    Assert-Equal ((2700 + 3400 + 4100) * 0.5) $tot.After[0]
+    Assert-Equal 2 $tot.Words
+    Assert-Equal (2700 + 3400) $tot.Before[0]
+    Assert-Equal ((2700 + 3400) * 0.5) $tot.After[0]
 }
 
 # One grammar's change: the After counts are the Before counts with bytes cut by `$ByteCut`, and the instructions follow `$Truth`.
