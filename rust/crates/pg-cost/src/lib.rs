@@ -13,11 +13,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub mod calibrate;
 
 /// Instructions per work unit.
-pub const WORK_WEIGHT: u64 = 676;
+pub const WORK_WEIGHT: u64 = 113;
 /// Instructions per requested byte.
 pub const BYTE_WEIGHT: u64 = 2;
 /// Instructions per FST register copied.
-pub const REGISTER_WEIGHT: u64 = 268;
+pub const REGISTER_WEIGHT: u64 = 45;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
