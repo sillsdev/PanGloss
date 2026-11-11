@@ -4,8 +4,6 @@
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::rc::Rc;
-// std::time::Instant panics on wasm32-unknown-unknown; web-time is a drop-in replacement needed since the O2 profiling calls below are unconditional on every traversal.
-use web_time::Instant;
 
 use rustc_hash::FxBuildHasher;
 
@@ -16,7 +14,23 @@ use crate::{Cmd, Direction, Register, CURRENT_POSITION};
 pub mod profile {
     use super::Cell;
 
+    pub(super) fn start() -> Option<web_time::Instant> {
+        ENABLED.with(|e| e.get()).then(web_time::Instant::now)
+    }
+
+    /// Ask for timing on the current thread (the counters below are per thread too), after `reset`. Without it no clock is read per traversal.
+    pub fn enable() {
+        ENABLED.with(|e| e.set(true));
+    }
+
+    /// Whether timing is being read on the current thread.
+    pub fn enabled() -> bool {
+        ENABLED.with(|e| e.get())
+    }
+
     thread_local! {
+        /// Timing is read only when a host asks for diagnostics via `enable`, so otherwise no clock is read per traversal.
+        static ENABLED: Cell<bool> = const { Cell::new(false) };
         static RUN_CALLS: Cell<u64> = const { Cell::new(0) };
         static RUN_NANOS: Cell<u128> = const { Cell::new(0) };
         static RUN_MAX_NANOS: Cell<u128> = const { Cell::new(0) };
@@ -91,8 +105,9 @@ pub mod profile {
         )
     }
 
-    /// Clear traversal counters on the current thread before measuring another word.
+    /// Clear traversal counters on the current thread and turn timing off; call `enable` after it to measure the next word.
     pub fn reset() {
+        ENABLED.with(|e| e.set(false));
         RUN_CALLS.with(|c| c.set(0));
         RUN_NANOS.with(|c| c.set(0));
         RUN_MAX_NANOS.with(|c| c.set(0));
@@ -229,6 +244,9 @@ impl Drop for RetainedCharge {
         crate::work::release_retained(self.0);
     }
 }
+
+/// Start positions already seeded in one `run`; a cheap hash, since nothing here needs the standard hasher's flooding resistance.
+type InitAnns = HashSet<usize, FxBuildHasher>;
 
 /// The nondeterministic traversal's visited set (C# `traversed`): each key is a byte record holding only the registers that differ from its parent instance's record, with a full snapshot at least every `SNAPSHOT_HOPS` levels; equality reconstructs the stored registers exactly, so `insert` answers as a `HashSet` of `(state, ann_index, registers)` would.
 struct Visited {
@@ -641,18 +659,19 @@ impl Visited {
 /// The traversal driver.
 pub struct Transduce<'f> {
     fst: &'f Fst,
-    segs: Vec<Segment>,
+    segs: std::borrow::Cow<'f, [Segment]>,
     dir: Direction,
     start_anchor: bool,
     end_anchor: bool,
 }
 
 impl<'f> Transduce<'f> {
-    pub fn new(fst: &'f Fst, segs: Vec<Segment>) -> Self {
+    /// `segs` may be owned or borrowed from a caller that keeps them: a borrow saves copying every lane vector per traversal.
+    pub fn new(fst: &'f Fst, segs: impl Into<std::borrow::Cow<'f, [Segment]>>) -> Self {
         Transduce {
             fst,
             dir: fst.direction(),
-            segs,
+            segs: segs.into(),
             start_anchor: false,
             end_anchor: false,
         }
@@ -660,7 +679,7 @@ impl<'f> Transduce<'f> {
 
     /// Convenience constructor from raw lane vectors (no optional segments).
     pub fn from_lanes(fst: &'f Fst, segs: Vec<Vec<u64>>) -> Self {
-        Transduce::new(fst, segs.into_iter().map(Segment::new).collect())
+        Transduce::new(fst, segs.into_iter().map(Segment::new).collect::<Vec<_>>())
     }
 
     pub fn anchored(mut self, start: bool, end: bool) -> Self {
@@ -892,7 +911,7 @@ impl<'f> Transduce<'f> {
         ann_index: &mut usize,
         registers: &mut [Packed],
         cmds: &[Cmd],
-        init_anns: &mut HashSet<usize>,
+        init_anns: &mut InitAnns,
     ) -> Vec<Inst> {
         if !crate::work::consume() {
             return Vec::new();
@@ -929,7 +948,7 @@ impl<'f> Transduce<'f> {
 
     fn check_accepting_start_state(
         &self,
-        init_anns: &HashSet<usize>,
+        init_anns: &InitAnns,
         registers: &[Packed],
         cur_results: &mut Vec<FstResult>,
     ) {
@@ -949,7 +968,7 @@ impl<'f> Transduce<'f> {
         ann_index: &mut usize,
         init_registers: &mut [Packed],
         cmds: &[Cmd],
-        init_anns: &mut HashSet<usize>,
+        init_anns: &mut InitAnns,
     ) -> Vec<FstResult> {
         let deterministic = self.fst.is_deterministic();
         let seeds = self.initialize(ann_index, init_registers, cmds, init_anns);
@@ -957,7 +976,7 @@ impl<'f> Transduce<'f> {
         let mut cur_results: Vec<FstResult> = Vec::new();
 
         if deterministic {
-            let __o2_det_start = Instant::now();
+            let __o2_det_start = profile::start();
             while let Some(inst) = stack.pop() {
                 // `Arc` is `Copy` and `state_arcs` borrows straight from the frozen `Fst`'s CSR pool, so the slice is iterated in place instead of cloned into a fresh `Vec` every pop.
                 let arcs = self.state_arcs(inst.state);
@@ -976,9 +995,11 @@ impl<'f> Transduce<'f> {
                 }
                 let _ = advanced;
             }
-            profile::record_det(__o2_det_start.elapsed().as_nanos());
+            if let Some(start) = __o2_det_start {
+                profile::record_det(start.elapsed().as_nanos());
+            }
         } else {
-            let __o2_nondet_start = Instant::now();
+            let __o2_nondet_start = profile::start();
             // Keyed on the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
             let n = self.n();
             let fst_states = self.fst.states.len();
@@ -1015,7 +1036,9 @@ impl<'f> Transduce<'f> {
                     }
                 }
             }
-            profile::record_nondet(__o2_nondet_start.elapsed().as_nanos(), traversed.len());
+            if let Some(start) = __o2_nondet_start {
+                profile::record_nondet(start.elapsed().as_nanos(), traversed.len());
+            }
         }
 
         self.check_accepting_start_state(init_anns, init_registers, &mut cur_results);
@@ -1025,9 +1048,11 @@ impl<'f> Transduce<'f> {
     // --- Transduce (Fst.cs:304-414) -----------------------------------------------------------
 
     fn run(&self, all_matches: bool) -> Vec<FstResult> {
-        let __o2_start = Instant::now();
+        let __o2_start = profile::start();
         let __o2_result = self.run_inner(all_matches);
-        profile::record_run(__o2_start.elapsed().as_nanos());
+        if let Some(start) = __o2_start {
+            profile::record_run(start.elapsed().as_nanos());
+        }
         __o2_result
     }
 
@@ -1037,7 +1062,7 @@ impl<'f> Transduce<'f> {
         }
         let reg_slots = self.fst.register_count() as usize * 2;
         let mut result_list: Vec<FstResult> = Vec::new();
-        let mut init_anns: HashSet<usize> = HashSet::new();
+        let mut init_anns = InitAnns::default();
         let mut ann_index = 0usize;
 
         while ann_index < self.n() {
@@ -1076,13 +1101,12 @@ impl<'f> Transduce<'f> {
         }
 
         if all_matches {
-            let __o2_distinct_start = Instant::now();
+            let __o2_distinct_start = profile::start();
             let __o2_distinct_input_len = result_list.len();
             let __o2_distinct_result = distinct(result_list);
-            profile::record_distinct(
-                __o2_distinct_start.elapsed().as_nanos(),
-                __o2_distinct_input_len,
-            );
+            if let Some(start) = __o2_distinct_start {
+                profile::record_distinct(start.elapsed().as_nanos(), __o2_distinct_input_len);
+            }
             __o2_distinct_result
         } else {
             result_list

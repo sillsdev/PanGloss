@@ -835,7 +835,8 @@ impl WordByteBreakdown {
 /// bound (see the work-cap contract).
 pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
     let mut b = WordByteBreakdown {
-        base: std::mem::size_of::<Word>(),
+        base: std::mem::size_of::<Word>() - std::mem::size_of::<Shape>()
+            + pg_shape::INLINE_COLUMNS_BYTES,
         shape: estimate_shape_bytes(&w.shape),
         syn_fs: estimate_fs_bytes(&w.syn_fs),
         real_fs: estimate_fs_bytes(&w.real_fs),

@@ -415,3 +415,49 @@ fn alpha_output_keeps_absent_and_generated_full_values_distinct() {
         );
     }
 }
+
+fn env_with_defaults(defaults: Vec<(usize, u64, u64)>) -> EnvFst {
+    EnvFst {
+        fst: pg_fst::CompileInput::new(Vec::new()).compile_with_direction(Direction::LeftToRight),
+        anchor_start: false,
+        anchor_end: false,
+        only_anchor: false,
+        node_vars: Vec::new(),
+        group_names: Vec::new(),
+        agreement: None,
+        binding_nodes: None,
+        defaults,
+        synthesis: false,
+    }
+}
+
+/// `env_input` borrows the caller's segments when the environment has no `UseDefaults` features, and otherwise returns an owned copy where a lane equal to its feature's full mask becomes the default unless the segment authored it explicitly; the caller's segments are never touched.
+#[test]
+fn env_input_borrows_without_defaults_and_copies_with_them() {
+    let segs = vec![
+        Segment::new(vec![0b11, 0b1]),
+        Segment::new(vec![0b01, 0b1]),
+        {
+            let mut s = Segment::new(vec![0b11, 0b1]);
+            s.explicit_full = vec![0];
+            s
+        },
+    ];
+
+    let plain = env_with_defaults(Vec::new());
+    let borrowed = env_input(&plain, &segs);
+    assert!(matches!(borrowed, std::borrow::Cow::Borrowed(_)));
+    assert!(std::ptr::eq(borrowed.as_ptr(), segs.as_ptr()), "no copy");
+
+    let with_defaults = env_with_defaults(vec![(0, 0b11, 0b10)]);
+    let owned = env_input(&with_defaults, &segs);
+    assert!(matches!(owned, std::borrow::Cow::Owned(_)));
+    assert_eq!(owned[0].lanes, vec![0b10, 0b1], "full mask defaulted");
+    assert_eq!(owned[1].lanes, vec![0b01, 0b1], "not the full mask: kept");
+    assert_eq!(owned[2].lanes, vec![0b11, 0b1], "explicit full: kept");
+    assert_eq!(
+        segs[0].lanes,
+        vec![0b11, 0b1],
+        "caller's segments untouched"
+    );
+}

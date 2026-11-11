@@ -497,7 +497,7 @@ pub(crate) fn all_spans(fst: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
     if segs.is_empty() {
         return Vec::new();
     }
-    let results = Transduce::new(fst, segs.to_vec()).all_matches();
+    let results = Transduce::new(fst, segs).all_matches();
     let mut spans: Vec<(usize, usize)> = results
         .iter()
         .filter_map(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers))
@@ -511,7 +511,7 @@ pub(crate) fn all_spans(fst: &Fst, segs: &[Segment]) -> Vec<(usize, usize)> {
 /// Finds each target row's real segment position despite Optional skips.
 fn grouped_target_positions(target: &Fst, names: &[String], segs: &[Segment]) -> Vec<Vec<usize>> {
     let rtl = target.direction() == Direction::RightToLeft;
-    let mut rows: Vec<_> = Transduce::new(target, segs.to_vec())
+    let mut rows: Vec<_> = Transduce::new(target, segs)
         .all_matches()
         .iter()
         .map(|r| {
@@ -700,7 +700,10 @@ fn compile_env_impl(
     })
 }
 
-fn env_input(env: &EnvFst, segs: &[Segment]) -> Vec<Segment> {
+fn env_input<'a>(env: &EnvFst, segs: &'a [Segment]) -> std::borrow::Cow<'a, [Segment]> {
+    if env.defaults.is_empty() {
+        return std::borrow::Cow::Borrowed(segs);
+    }
     let mut input = segs.to_vec();
     for segment in &mut input {
         for &(feature, mask, default) in &env.defaults {
@@ -711,7 +714,7 @@ fn env_input(env: &EnvFst, segs: &[Segment]) -> Vec<Segment> {
             }
         }
     }
-    input
+    std::borrow::Cow::Owned(input)
 }
 
 /// C# `DeepCloneExceptBoundaries`: drops nodes denoting a literal boundary char-def, recursing into quantifiers; a pre-segmented `Segments` node could embed a boundary too, but that shape only occurs on allomorphs, which take the unstripped `compile_env` path instead.
@@ -2899,7 +2902,7 @@ fn ana_feature(
         let mut acted = false;
 
         // `filter_map` fails open on an unresolved group offset; sort+dedup gives a stable ascending order, then `rtl` reverses it to descending when this target compiles `RightToLeft` — the same direction-first scan order `ordered_spans` gives its `(s, e)`-tuple callers.
-        let mut candidates: Vec<Vec<usize>> = Transduce::new(target, segs.clone())
+        let mut candidates: Vec<Vec<usize>> = Transduce::new(target, &segs)
             .all_matches()
             .iter()
             .filter_map(|r| {

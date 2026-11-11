@@ -37,6 +37,8 @@
 //! later split the notion of "unconstrained" between `u64::MAX` and `full_mask(count)`.
 #![forbid(unsafe_code)]
 
+use std::sync::Arc;
+
 use pg_featstruct::Interner;
 use smallvec::SmallVec;
 
@@ -189,10 +191,17 @@ impl NodeFlags {
     }
 }
 
-/// A frozen phonetic shape: parallel SoA columns, bracketed by anchor nodes. Cheap to clone as an
-/// interned `ShapeId`; direct `Clone` here is a column copy (used only by the builder).
+/// A frozen phonetic shape: parallel SoA columns, bracketed by anchor nodes. The columns are immutable once
+/// frozen (every edit goes through [`ShapeBuilder::from_shape`] and a fresh freeze), so `Clone` shares them
+/// through one reference count instead of copying each column.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct Shape {
+    data: Arc<ShapeData>,
+}
+
+#[derive(PartialEq, Eq, Hash, Debug, Default)]
+#[doc(hidden)]
+pub struct ShapeData {
     kinds: Box<[NodeKind]>,
     /// Index into the grammar's character-definition table, or `NO_CHAR_DEF` for anchors.
     char_defs: Box<[u32]>,
@@ -207,6 +216,22 @@ pub struct Shape {
     generated_full: Box<[(u32, u32)]>,
     /// Features retaining unresolved variables from analysis.
     unresolved_variables: Box<[(u32, u32)]>,
+}
+
+/// What a `Shape` weighed while it held its seven columns inline. Byte-budget arithmetic (the root cache's table sizing, `Word` capture estimates) keeps using this figure so eviction, cache hits and capture ceilings do not move now that a `Shape` is one shared pointer.
+pub const INLINE_COLUMNS_BYTES: usize = 120;
+
+const _: () = assert!(std::mem::size_of::<Shape>() == std::mem::size_of::<usize>());
+// The columns now live behind the pointer in `ShapeData`; on 64-bit targets the figure above is exactly their inline size (wasm32 pointers are half as wide, so it only holds there), so adding or widening a column fails the build here instead of silently shifting the budgets.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<ShapeData>() == INLINE_COLUMNS_BYTES);
+
+impl std::ops::Deref for Shape {
+    type Target = ShapeData;
+    #[inline]
+    fn deref(&self) -> &ShapeData {
+        &self.data
+    }
 }
 
 impl Shape {
@@ -666,14 +691,16 @@ impl ShapeBuilder {
         );
         debug_assert_eq!(self.cd_sets.len(), self.kinds.len());
         Shape {
-            kinds: self.kinds.into_boxed_slice(),
-            char_defs: self.char_defs.into_boxed_slice(),
-            flags: self.flags.into_boxed_slice(),
-            feat_width: self.feat_width,
-            feat_lanes: self.feat_lanes.into_boxed_slice(),
-            cd_sets: self.cd_sets.into_boxed_slice(),
-            generated_full: self.generated_full.into_boxed_slice(),
-            unresolved_variables: self.unresolved_variables.into_boxed_slice(),
+            data: Arc::new(ShapeData {
+                kinds: self.kinds.into_boxed_slice(),
+                char_defs: self.char_defs.into_boxed_slice(),
+                flags: self.flags.into_boxed_slice(),
+                feat_width: self.feat_width,
+                feat_lanes: self.feat_lanes.into_boxed_slice(),
+                cd_sets: self.cd_sets.into_boxed_slice(),
+                generated_full: self.generated_full.into_boxed_slice(),
+                unresolved_variables: self.unresolved_variables.into_boxed_slice(),
+            }),
         }
     }
 }

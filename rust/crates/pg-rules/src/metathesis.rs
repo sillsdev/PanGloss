@@ -227,7 +227,7 @@ fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Ca
         return Vec::new();
     }
     let fst = &pattern.fst;
-    let results = Transduce::new(fst, segs.to_vec())
+    let results = Transduce::new(fst, segs)
         .anchored(pattern.anchor_start, pattern.anchor_end)
         .all_matches();
     let mut out: Vec<(usize, usize, usize, usize, usize, usize)> = results

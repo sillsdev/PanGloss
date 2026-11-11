@@ -556,3 +556,49 @@ fn remove_paths_feature_absent_from_a_is_noop() {
     let paths = fs(&[(FA, sym(0b111))]);
     assert_eq!(remove_paths(&a, &paths), a);
 }
+
+/// A small deterministic generator of nested structures (features 0..4, symbolic bit sets 1..7, depth up to 2), for the fused check below.
+fn next_random(seed: &mut u64) -> u32 {
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    (*seed >> 33) as u32
+}
+
+fn generated(seed: &mut u64, depth: u32) -> FeatureStruct {
+    let mut builder = FeatureStructBuilder::new();
+    for feat in 0..4u16 {
+        if next_random(seed).is_multiple_of(2) {
+            continue;
+        }
+        // A feature is globally symbolic or complex: odd ids nest.
+        if feat % 2 == 1 && depth > 0 {
+            builder.add(
+                FeatId(feat),
+                FeatureValue::Complex(generated(seed, depth - 1)),
+            );
+        } else if feat % 2 == 0 {
+            builder.add(FeatId(feat), sym(u64::from(next_random(seed) % 7 + 1)));
+        }
+    }
+    builder.build()
+}
+
+#[test]
+fn is_unifiable_with_priority_union_matches_building_the_union() {
+    let mut seed = 7u64;
+    let mut unifiable = 0;
+    for _ in 0..4000 {
+        let a = generated(&mut seed, 2);
+        let b = generated(&mut seed, 2);
+        let c = generated(&mut seed, 2);
+        let expected = is_unifiable(&priority_union(&a, &b), &c);
+        assert_eq!(
+            is_unifiable_with_priority_union(&a, &b, &c),
+            expected,
+            "a={a:?} b={b:?} c={c:?}"
+        );
+        unifiable += usize::from(expected);
+    }
+    assert!(unifiable > 200 && unifiable < 3800, "{unifiable}");
+}

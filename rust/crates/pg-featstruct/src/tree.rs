@@ -124,7 +124,19 @@ impl FeatureStructBuilder {
         Self::default()
     }
 
+    /// A builder that will hold up to `entries` features without regrowing.
+    pub fn with_capacity(entries: usize) -> Self {
+        FeatureStructBuilder {
+            entries: Vec::with_capacity(entries),
+        }
+    }
+
     pub fn add(&mut self, feat: FeatId, value: FeatureValue) -> &mut Self {
+        // The merge-walks in `crate::ops` add in ascending order: append without searching.
+        if self.entries.last().is_none_or(|(last, _)| *last < feat) {
+            self.entries.push((feat, value));
+            return self;
+        }
         match self.entries.binary_search_by_key(&feat, |(f, _)| *f) {
             Ok(i) => self.entries[i].1 = value,
             Err(i) => self.entries.insert(i, (feat, value)),

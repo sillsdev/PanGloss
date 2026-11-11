@@ -754,3 +754,36 @@ fn a_complete_optional_match_keeps_its_captures_and_order() {
         assert!(!budget.capped());
     }
 }
+
+/// The result order for an accepting start state (`a*`) is fixed by the final stable sort, not by the hash-set order the start annotations are visited in.
+#[test]
+fn accepting_start_state_result_order_is_pinned() {
+    let nodes = vec![CompileNode::Quantifier {
+        min: 0,
+        max: None,
+        children: vec![CompileNode::Constraint(sym(A))],
+    }];
+    for det in [true, false] {
+        let fst = CompileInput::new(nodes.clone())
+            .deterministic(det)
+            .compile();
+        for len in [3usize, 8, 40] {
+            let results = Transduce::new(&fst, input(&vec![B; len])).all_matches();
+            let spans: Vec<_> = results
+                .iter()
+                .map(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers))
+                .collect();
+            // Each start position sorts its own results (later annotation first) and `distinct` keeps the first occurrence, so the first sighting of each start fixes an ascending order.
+            let next_anns: Vec<i32> = results.iter().map(|r| r.next_ann).collect();
+            let expected: Vec<i32> = (0..len as i32).collect();
+            assert_eq!(next_anns, expected, "det={det} len={len}: pinned order");
+            // Same run again gives the identical sequence.
+            let again: Vec<_> = Transduce::new(&fst, input(&vec![B; len]))
+                .all_matches()
+                .iter()
+                .map(|r| fst.get_offsets(ENTIRE_MATCH, &r.registers))
+                .collect();
+            assert_eq!(spans, again);
+        }
+    }
+}

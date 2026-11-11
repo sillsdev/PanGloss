@@ -261,3 +261,37 @@ fn frozen_build_mutate_freeze_columns_round_trip() {
         ]
     );
 }
+
+/// A `Shape` clone shares one allocation, and editing goes through `ShapeBuilder::from_shape` into a fresh shape, so the original (and every other clone) is unchanged and equality stays by content.
+#[test]
+fn cloned_shape_edit_leaves_original_unchanged() {
+    let original = build_cvc();
+    let clone = original.clone();
+    assert_eq!(original, clone);
+
+    let mut b = ShapeBuilder::from_shape(&clone);
+    b.delete(2);
+    let edited = b.freeze();
+
+    assert_ne!(edited, original);
+    assert_eq!(original, clone, "the clone is untouched too");
+    assert_eq!(original.len(), 5, "two anchors plus three segments");
+    assert_eq!(original.char_def(1), 10);
+    assert_eq!(original.char_def(2), 11);
+    assert_eq!(original.char_def(3), 10);
+    assert_eq!(edited.len(), 4, "the edit landed in the new shape");
+    assert_eq!(edited.char_def(2), 10);
+    // Rebuilding the same content is equal and hashes alike.
+    let rebuilt = ShapeBuilder::from_shape(&original).freeze();
+    assert_eq!(rebuilt, original);
+}
+
+/// The budget constant is the size of the seven inline columns plus `feat_width` (64-bit layout; wasm32 pointers are narrower).
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn inline_columns_bytes_matches_the_column_layout() {
+    use std::mem::size_of;
+    assert_eq!(INLINE_COLUMNS_BYTES, size_of::<ShapeData>());
+    let by_hand = 7 * size_of::<Box<[u8]>>() + size_of::<u32>();
+    assert_eq!(INLINE_COLUMNS_BYTES, by_hand.next_multiple_of(8));
+}

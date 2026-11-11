@@ -179,6 +179,11 @@ impl StrRepMatcher {
         }
     }
 
+    /// The lane count of a fully constrained identity row: the feature lanes then one lane per 63 character ids.
+    pub(crate) fn lane_count(self) -> usize {
+        self.width + self.count.div_ceil(63)
+    }
+
     /// The chunk index and member bits for each chunk that holds a member of `members`.
     pub(crate) fn chunks_of(self, members: impl Iterator<Item = u32>) -> Vec<(usize, u64)> {
         let mut chunks: Vec<(usize, u64)> = Vec::new();

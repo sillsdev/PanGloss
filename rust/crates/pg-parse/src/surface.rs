@@ -58,7 +58,12 @@ fn kind_matches(node: NodeKind, cd: &CharDef) -> bool {
 }
 
 /// The representations of every char-def whose feature struct unifies with the node at `i` (C# `CharacterDefinitionTable.GetMatchingStrReps`). `nfd = true` selects NFD-normalized representations (for `is_match`); `false` the as-authored ones (for `to_regex_display`). Order = table document order, then representation order within a char-def. Delegates to `matching_reps_for_node`, the node-view-generalized core.
-fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -> Vec<String> {
+fn matching_str_reps<'t>(
+    table: &'t CharDefTable,
+    shape: &Shape,
+    i: usize,
+    nfd: bool,
+) -> Vec<&'t str> {
     let node_kind = shape.kind(i);
     // Boundaries carry no phonological features and would trivially unify with every boundary char-def, so the Rust `StrRep` analog is the node's own `char_def`: a boundary renders exactly its authored representation (`+` -> `+?`).
     if node_kind == NodeKind::Boundary {
@@ -93,24 +98,25 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
 /// concrete-singleton identity (a boundary's own representation, or a segment's own char-def);
 /// `char_def == NO_CHAR_DEF` defers to `cd_set` (`CdSet::Unrestricted`/`Members`), mirroring
 /// `Shape::node_cd_set`'s convention and `root_trie.rs::edge_matches`'s same shape of predicate.
-pub(crate) fn matching_reps_for_node(
-    table: &CharDefTable,
+pub(crate) fn matching_reps_for_node<'t>(
+    table: &'t CharDefTable,
     kind: NodeKind,
     char_def: u32,
     cd_set: &pg_shape::CdSet,
     lanes: &[u64],
     nfd: bool,
-) -> Vec<String> {
-    let reps_of = |cd: &CharDef| -> Vec<String> {
-        if nfd {
-            cd.representations_nfd().to_vec()
+) -> Vec<&'t str> {
+    let reps_of = |cd: &'t CharDef| -> std::iter::Map<std::slice::Iter<'t, String>, fn(&'t String) -> &'t str> {
+        let reps = if nfd {
+            cd.representations_nfd()
         } else {
-            cd.representations().to_vec()
-        }
+            cd.representations()
+        };
+        reps.iter().map(String::as_str as fn(&'t String) -> &'t str)
     };
     if kind == NodeKind::Boundary {
         if char_def != NO_CHAR_DEF && (char_def as usize) < table.len() {
-            return reps_of(table.get(CharDefId(char_def)));
+            return reps_of(table.get(CharDefId(char_def))).collect();
         }
         return Vec::new();
     }
@@ -198,7 +204,7 @@ pub fn to_plain_string(table: &CharDefTable, shape: &Shape, include_boundaries: 
         }
         // C# takes GetMatchingStrReps(node).FirstOrDefault(), the single first representation, not the full alternation to_regex_display brackets.
         if let Some(first) = matching_str_reps(table, shape, i, false).into_iter().next() {
-            sb.push_str(&first);
+            sb.push_str(first);
         }
     }
     sb
@@ -236,7 +242,7 @@ pub(crate) fn to_diagnostic_string(
 pub fn is_match(table: &CharDefTable, shape: &Shape, word: &str) -> bool {
     let input: String = word.nfd().collect();
     // Per-node candidate representations + optionality; nodes with zero matching reps contribute the empty string in the C# regex, modelled by dropping them here.
-    let mut nodes: Vec<(Vec<String>, bool)> = Vec::new();
+    let mut nodes: Vec<(Vec<&str>, bool)> = Vec::with_capacity(shape.len());
     for i in 0..shape.len() {
         let kind = shape.kind(i);
         if kind != NodeKind::Segment && kind != NodeKind::Boundary {
@@ -252,7 +258,7 @@ pub fn is_match(table: &CharDefTable, shape: &Shape, word: &str) -> bool {
 }
 
 /// Backtracking anchored match of `input[ipos..]` against `nodes[npos..]`.
-fn match_nodes(input: &[u8], nodes: &[(Vec<String>, bool)], ipos: usize, npos: usize) -> bool {
+fn match_nodes(input: &[u8], nodes: &[(Vec<&str>, bool)], ipos: usize, npos: usize) -> bool {
     if !pg_fst::work::consume() {
         return false;
     }
