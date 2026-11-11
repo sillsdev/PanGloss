@@ -22,6 +22,59 @@ the FST registers copied in `pg_fst::traverse`. The weights are constants in `pg
 per grammar, with a no-change control as the noise floor. Cost predicts direction; it does not
 replace that run, because a code change can change what a unit costs.
 
+### Where instructions are measured
+
+Instructions come from the CPU's hardware counters, so `rust/tools/instruction-compare.ps1` runs on
+Windows. WSL does not expose the counters. Callgrind in WSL counts simulated instructions; use it only
+as a provisional signal, never as the verdict.
+
+The script does not need an elevated shell. It starts and stops a trace through two scheduled tasks
+that hold the elevation:
+
+| Task (`\PanGloss\`) | Runs as | Action |
+|---|---|---|
+| `PanGloss PMC Start` | the measuring user, highest privileges | `wpr.exe -start "C:\ProgramData\PanGlossPmc\pg.wprp!PG" -filemode` |
+| `PanGloss PMC Stop` | the measuring user, highest privileges | `wpr.exe -stop "C:\ProgramData\PanGlossPmc\current.etl" -skipPdbGen` |
+
+The profile, `rust/tools/instruction-compare/pg.wprp`, records `InstructionRetired` alone on each
+context switch, using a programmable counter. It records one counter because the reader takes the first
+value of each event: with `TotalCycles` added, a binary compared with itself read 837M against 1,777M
+instructions on the same grammar. It does not use the fixed counters
+(`InstructionsRetiredFixed` and the like): something else on the machine can hold them, and on the
+first machine set up something did (see below). The profile is `Strict="true"`, so WPR refuses to
+start when it cannot claim a counter. Without that, WPR silently records a trace with no counter values.
+
+#### Setting up a machine
+
+`rust/tools/pmc-setup.ps1` installs and checks all of this. Run it from your own unelevated shell. The steps
+that need an administrator ask for elevation once and register the tasks for you, not for the
+administrator account:
+
+```powershell
+pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install   # one UAC prompt
+pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify    # must print VERIFIED
+```
+
+With no switch it reports what is missing and exits 1 until the machine is ready. `-Verify` takes a
+real trace of a short busy process and refuses unless the trace counted instructions for it. A ready
+report is not proof; only `-Verify` is. Then run a binary against itself with
+`instruction-compare.ps1`: that control must read NO-GO, not refuse.
+
+If either script refuses because the PMC Start task failed, or with "trace carries no counter values on
+context switches", Windows recorded no counter values, and no instruction verdict is possible until
+`-Verify` passes. To see why, run `wpr -start "C:\ProgramData\PanGlossPmc\pg.wprp!PG" -filemode` in
+an elevated shell, then `wpr -cancel`. "The requested resource is in use" (0x800700AA) means another
+component holds the counters the profile names.
+
+On 2026-11-10 the first machine set up (an i7-12700 running Windows 11, Defender, and the hypervisor
+for WSL2) failed this way. It had been recording traces with no counter values because the profile
+named the fixed counters and was not strict. A strict profile with the fixed instruction counter
+failed with 0x800700AA, while `InstructionRetired` and `TotalCycles` recorded. The holder was not
+identified. Microsoft Defender is reported to claim the fixed counters on Intel Core CPUs. Turning
+memory integrity (HVCI) off first made no difference, so it was not the cause.
+`-DisableMemoryIntegrity` remains for a machine where `-Verify` shows otherwise. Memory integrity set
+by group policy cannot be turned off this way, and the script refuses to try.
+
 ## Why the weights are fixed
 
 The weights follow the code more than the grammar, so a stored per-project weight earns nothing. A

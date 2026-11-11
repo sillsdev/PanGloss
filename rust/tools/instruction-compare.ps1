@@ -44,21 +44,6 @@ param(
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_instruction-compare.ps1"
 
-function Invoke-PmcTask([string]$Name, [int]$TimeoutSec) {
-    $before = (Get-ScheduledTaskInfo -TaskPath $PmcTaskPath -TaskName $Name).LastRunTime
-    Start-ScheduledTask -TaskPath $PmcTaskPath -TaskName $Name
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    while ((Get-Date) -lt $deadline) {
-        Start-Sleep -Milliseconds 500
-        $state = (Get-ScheduledTask -TaskPath $PmcTaskPath -TaskName $Name).State
-        $info = Get-ScheduledTaskInfo -TaskPath $PmcTaskPath -TaskName $Name
-        if ($state -ne 'Running' -and $info.LastRunTime -gt $before) {
-            if ($info.LastTaskResult -ne 0) { throw "$Name failed: result 0x$('{0:X}' -f $info.LastTaskResult)" }
-            return
-        }
-    }
-    throw "$Name did not finish within $TimeoutSec s"
-}
 
 function Start-BatchRun([string]$Exe, [string]$Grammar, [string]$WordList, [string]$OutTsv, [string]$ErrFile, [string]$OutFile, [string]$Tool, [string[]]$ToolArgs) {
     $batch = @('batch', $Grammar, $WordList, $OutTsv, '--threads', '1') + $BatchArgs
@@ -151,11 +136,11 @@ try {
         $startAttempted = $false; $runError = $null; $stopError = $null
         try {
             $startAttempted = $true
-            Invoke-PmcTask 'PanGloss PMC Start' 60
+            Invoke-PmcTask 'PanGloss PMC Start' 60 -TaskPath $PmcTaskPath
             foreach ($job in $jobs) { & $runJobs $job $launch }
         } catch { $runError = $_ }
         if ($startAttempted) {
-            try { Invoke-PmcTask 'PanGloss PMC Stop' 900 } catch { $stopError = $_ }
+            try { Invoke-PmcTask 'PanGloss PMC Stop' 900 -TaskPath $PmcTaskPath } catch { $stopError = $_ }
         }
         if ($runError -and $stopError) { throw "$($runError.Exception.Message); additionally the PMC Stop task failed: $($stopError.Exception.Message)" }
         if ($runError) { throw $runError }
