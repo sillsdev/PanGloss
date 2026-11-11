@@ -3,7 +3,7 @@
 Parse cost is a deterministic estimate of a word's instructions:
 
 ```
-cost = work_steps × 676 + bytes allocated × 2 + registers copied × 268
+cost = work_steps × 113 + bytes allocated × 2 + registers copied × 45
 ```
 
 `work_steps` counts budget reservations. Bytes are requested from the allocator, and registers are
@@ -27,17 +27,22 @@ replace that run, because a code change can change what a unit costs.
 The weights follow the code more than the grammar, so a stored per-project weight earns nothing. A
 code change can move them, which is what `cost-calibrate` is for.
 
-Evidence for 676 / 2 / 268, from 6 historic change pairs across 5 grammars (30 rows, 6113 words kept
-because their status was `ok` on both sides, 0 work-count mismatches against the stored runs):
+Evidence for 113 / 2 / 45, a rescale of the earlier 676 / 2 / 268 shape after #232 and #234. The old weights
+over-predicted instructions about 2x (the 2026-11-02 proof run on a pre-#228, pre-#232 build already showed
+93% median error; pg-cost was last set 2026-11-01). The work and register terms are collinear in the
+samples, so the split is not refitted: one factor, 0.167, scales both, chosen to minimise the median level error
+on the 779-word fit set (indonesian, aweti, amharic, mbugwe, sena; words that parse ok and cost under 20M
+instructions). The byte weight stays 2 because an integer cannot scale to 0.33. Median / worst level error:
 
-- When cost moved by 2% or more, its direction matched instructions 17 of 17 times; at 5% or more,
-  10 of 10.
-- Pearson r 0.978, median error 0.46 points, worst 9.51 points. `work_steps` alone: direction 16 of
-  17, r 0.908, worst 16.67 points.
-- These weights came from the same grammars they are scored on, so this is in-sample.
-  Leave-one-grammar-out fits ranged work 311-700, bytes 2.09-2.55, registers 259-385, with scale
-  0.98-1.14 against the built-in weights. 676 / 2 / 268 tied 500 / 2 / 330 on direction and had the
-  lower median and worst error.
+| | fit set | held out (Swahili + Cebuano, 723 words) |
+|---|---|---|
+| 676 / 2 / 268 | 175.50% / 290.26% | 86.09% / 194.38% |
+| 113 / 2 / 45 | 4.45% / 32.04% | 16.14% / 41.30% |
+
+- Free fits are unstable: 40 words per grammar gave 58 / 2 / 61, 779 words gave 177 / 2 / 14 and did not settle in 20
+  rounds. Work and register cannot be separated with these words, so the shape is kept.
+- Follow-up: refit the split once FST-heavy words decorrelate the work and register terms.
+- Earlier evidence (6 change pairs, r 0.978) described the previous parser and no longer applies.
 
 Limits:
 
