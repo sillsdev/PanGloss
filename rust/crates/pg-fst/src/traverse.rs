@@ -663,6 +663,15 @@ pub struct Transduce<'f> {
     dir: Direction,
     start_anchor: bool,
     end_anchor: bool,
+    interchange: Option<Interchange>,
+}
+
+/// The caller's tiling-canonicalisation contract; see `Transduce::interchangeable_runs`.
+struct Interchange {
+    /// Exclusive end of each segment's run of interchangeable optional segments, else 0.
+    run_end: Vec<u32>,
+    /// Per arc index: whether the arc may canonicalise a run.
+    arc_ok: Vec<bool>,
 }
 
 impl<'f> Transduce<'f> {
@@ -674,6 +683,7 @@ impl<'f> Transduce<'f> {
             segs: segs.into(),
             start_anchor: false,
             end_anchor: false,
+            interchange: None,
         }
     }
 
@@ -688,8 +698,35 @@ impl<'f> Transduce<'f> {
         self
     }
 
+    /// Enumerate only canonical tilings of runs of interchangeable optional segments; the proof and the `run_end`/`arc_ok` contract are in `docs/divergences/130-optional-run-canonical-tilings.md`.
+    pub fn interchangeable_runs(mut self, run_end: Vec<u32>, arc_ok: Vec<bool>) -> Self {
+        if self.dir == Direction::LeftToRight && run_end.len() == self.segs.len() {
+            self.interchange = Some(Interchange { run_end, arc_ok });
+        }
+        self
+    }
+
+    /// The end of the run holding `index` when the arc is `ok`, else 0.
+    #[inline]
+    fn run_guard(&self, index: usize, arc_index: usize) -> u32 {
+        match &self.interchange {
+            Some(x) if x.arc_ok[arc_index] => x.run_end[index],
+            _ => 0,
+        }
+    }
+
     fn n(&self) -> usize {
         self.segs.len()
+    }
+
+    /// `counts[i]`: the segments at traversal index `i` or later that cannot be skipped (`counts[n] == 0`).
+    fn required_suffix_counts(&self) -> Vec<u32> {
+        let n = self.n();
+        let mut counts = vec![0u32; n + 1];
+        for i in (0..n).rev() {
+            counts[i] = counts[i + 1] + u32::from(!self.seg(i).optional);
+        }
+        counts
     }
 
     // --- offset helpers (linear model, direction-aware) ---------------------------------------
@@ -836,6 +873,7 @@ impl<'f> Transduce<'f> {
         &self,
         mut inst: Inst,
         arc: &crate::fst::Arc,
+        guard: u32,
         optional: bool,
         cur_results: &mut Vec<FstResult>,
     ) -> Vec<Inst> {
@@ -857,7 +895,12 @@ impl<'f> Transduce<'f> {
             if self.seg(next_index).optional {
                 let mut ti = inst.clone(); // O(1): registers shared, deep-copied only on write
                 ti.ann_index = next_index;
-                out.extend(self.advance(ti, arc, true, cur_results));
+                out.extend(self.advance(ti, arc, guard, true, cur_results));
+            }
+
+            // A skip that stops inside the run the consumed node belongs to is a non-canonical tiling.
+            if optional && (next_index as u32) < guard {
+                return out;
             }
 
             if !arc_cmds.is_empty() {
@@ -981,12 +1024,15 @@ impl<'f> Transduce<'f> {
                 // `Arc` is `Copy` and `state_arcs` borrows straight from the frozen `Fst`'s CSR pool, so the slice is iterated in place instead of cloned into a fresh `Vec` every pop.
                 let arcs = self.state_arcs(inst.state);
                 let mut advanced = false;
-                for arc in arcs {
+                let arc_base = self.fst.states[inst.state].arc_lo as usize;
+                for (arc_offset, arc) in arcs.iter().enumerate() {
+                    let arc_index = arc_base + arc_offset;
                     if !crate::work::consume() {
                         return Vec::new();
                     }
                     if self.check_input_match(arc, inst.ann_index) {
-                        for ni in self.advance(inst, arc, false, &mut cur_results) {
+                        let guard = self.run_guard(inst.ann_index, arc_index);
+                        for ni in self.advance(inst, arc, guard, false, &mut cur_results) {
                             stack.push(ni);
                         }
                         advanced = true;
@@ -1006,10 +1052,17 @@ impl<'f> Transduce<'f> {
             let slots = self.fst.register_count() as usize * 2;
             let mut traversed = Seen::new();
             let min_hops = self.fst.min_hops_to_accept();
+            // Under an end anchor every required segment still ahead costs one more arc.
+            let max_hops = self.fst.max_hops_to_accept();
+            let required_after = (self.end_anchor
+                && max_hops[self.fst.start() as usize] != u32::MAX)
+                .then(|| self.required_suffix_counts());
             while let Some(inst) = stack.pop() {
                 // See the deterministic branch's comment above: `Arc` is `Copy` and this slice borrows straight from the frozen `Fst`, so no per-pop clone is needed.
                 let arcs = self.state_arcs(inst.state);
-                for arc in arcs {
+                let arc_base = self.fst.states[inst.state].arc_lo as usize;
+                for (arc_offset, arc) in arcs.iter().enumerate() {
+                    let arc_index = arc_base + arc_offset;
                     if !crate::work::consume() {
                         return Vec::new();
                     }
@@ -1021,7 +1074,14 @@ impl<'f> Transduce<'f> {
                         if min_hops[arc.target as usize] > remaining {
                             continue;
                         }
-                        for mut new_inst in self.advance(inst.clone(), arc, false, &mut cur_results)
+                        if let Some(required) = &required_after {
+                            if required[inst.ann_index + 1] > max_hops[arc.target as usize] {
+                                continue;
+                            }
+                        }
+                        let guard = self.run_guard(inst.ann_index, arc_index);
+                        for mut new_inst in
+                            self.advance(inst.clone(), arc, guard, false, &mut cur_results)
                         {
                             let parent = inst.record.map(|r| (r, &*inst.registers));
                             match traversed.insert(&new_inst, parent, fst_states, n, slots) {

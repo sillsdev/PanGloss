@@ -45,6 +45,7 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 pub(crate) mod edge_index;
 mod edge_prefilter;
 mod merge_captures;
+mod optional_runs;
 
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
 
@@ -3116,7 +3117,12 @@ fn ana_allomorph_matches(
     let compare_characters = g.char_tables[table.0 as usize]
         .unif_closure_rows()
         .is_none();
-    let matches = Transduce::new(fst, segs).anchored(true, true).all_matches();
+    let mut transduce = Transduce::new(fst, segs).anchored(true, true);
+    if let Some(plan) = optional_runs::plan(g, table, (&word.shape, segs, node_of), allo, lhs, fst)
+    {
+        transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
+    }
+    let matches = transduce.all_matches();
     for result in matches {
         if !pg_fst::work::consume() {
             return Vec::new();

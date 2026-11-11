@@ -22,6 +22,7 @@ See `README.md` for the full status table and the kind definitions.
 | `HCLoader.cs` (`LoadExoCompoundingRule`, `LoadEndoCompoundingRule`) | 125 |
 | `HCLoader.cs` (`LoadPatternNode`, `LoadRewriteRule`) | 126 |
 | `AnalysisMorphologicalTransform.cs` (`AddCapturedPartNodes`); `HermitCrabExtensions.cs` (`AntiFeatureStruct`) | 128 |
+| `TraversalMethodBase.Advance`; `Fst.Transduce` (all matches) | 130 |
 | `SynthesisRewriteRule` (`MatchingMethod.Subsumption`); `FeatureStruct.cs` (`SubsumesImpl`) | 129 |
 
 ## By Rust module
@@ -43,6 +44,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-rules/src/rewrite.rs` (`width_matches`) | 020 |
 | `pg-rules/src/rewrite.rs` (`pattern_defaults_ok`, synthesis target and environment matching) | 129 |
 | `pg-rules/src/morph.rs` (`generate_shape`, `ModifyFromInput` undo) | 128 |
+| `pg-rules/src/morph/optional_runs.rs`; `pg-fst/src/traverse.rs` (`interchangeable_runs`) | 130 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
 
@@ -59,6 +61,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 076 |
 | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` | 024 |
 | `pg-parse/tests/featureless_modify_from_input.rs`; staged `featureless-modify-from-input` | 128 |
+| `pg-rules/tests/optional_run_tilings.rs`; `pg-fst/src/traverse/tests.rs` | 130 |
 | `pg-parse/tests/csharp_port_rewrite.rs` (`unspecified_feature_satisfies_a_minus_*`); `pg-rules/tests/rewrite_gate.rs`; staged `unspecified-feature-minus-environment`, `unspecified-feature-minus-target` | 129 |
 
 ## Provisional-definition seams
