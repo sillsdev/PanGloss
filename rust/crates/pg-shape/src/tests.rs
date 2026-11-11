@@ -286,8 +286,9 @@ fn cloned_shape_edit_leaves_original_unchanged() {
     assert_eq!(rebuilt, original);
 }
 
-/// The budget constant is the size of the seven inline columns plus `feat_width`.
+/// The budget constant is the size of the seven inline columns plus `feat_width` (64-bit layout; wasm32 pointers are narrower).
 #[test]
+#[cfg(target_pointer_width = "64")]
 fn inline_columns_bytes_matches_the_column_layout() {
     use std::mem::size_of;
     assert_eq!(INLINE_COLUMNS_BYTES, size_of::<ShapeData>());

@@ -222,7 +222,8 @@ pub struct ShapeData {
 pub const INLINE_COLUMNS_BYTES: usize = 120;
 
 const _: () = assert!(std::mem::size_of::<Shape>() == std::mem::size_of::<usize>());
-// The columns now live behind the pointer in `ShapeData`; the figure above is exactly their inline size, so adding or widening a column fails the build here instead of silently shifting the budgets.
+// The columns now live behind the pointer in `ShapeData`; on 64-bit targets the figure above is exactly their inline size (wasm32 pointers are half as wide, so it only holds there), so adding or widening a column fails the build here instead of silently shifting the budgets.
+#[cfg(target_pointer_width = "64")]
 const _: () = assert!(std::mem::size_of::<ShapeData>() == INLINE_COLUMNS_BYTES);
 
 impl std::ops::Deref for Shape {
