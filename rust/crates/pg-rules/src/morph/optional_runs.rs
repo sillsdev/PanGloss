@@ -117,3 +117,135 @@ fn nodes_identical(shape: &Shape, p: usize, q: usize) -> bool {
             .generated_full_features(p)
             .eq(shape.generated_full_features(q))
 }
+
+#[cfg(test)]
+mod tests {
+    use pg_shape::{CdBits, CdSet, NodeFlags, ShapeBuilder};
+
+    use super::*;
+
+    const LANES: [u64; 1] = [0b11];
+
+    /// Two adjacent optional segment nodes; `tweak` changes only the second.
+    fn pair(tweak: impl FnOnce(&mut ShapeBuilder)) -> Shape {
+        let mut b = ShapeBuilder::with_features(1);
+        for _ in 0..2 {
+            b.push_segment_with_lanes(7, &LANES);
+            b.set_last_flags(NodeFlags::OPTIONAL);
+        }
+        tweak(&mut b);
+        b.finish()
+    }
+
+    fn segments(n: usize) -> Vec<Segment> {
+        (0..n).map(|_| Segment::optional(LANES.to_vec())).collect()
+    }
+
+    fn ends(shape: &Shape, segs: &[Segment]) -> Option<Vec<u32>> {
+        let node_of: Vec<usize> = (1..=segs.len()).collect();
+        run_ends(shape, segs, &node_of)
+    }
+
+    #[test]
+    fn equal_adjacent_optional_nodes_form_one_run() {
+        let mut b = ShapeBuilder::with_features(1);
+        b.push_segment_with_lanes(3, &LANES);
+        for _ in 0..3 {
+            b.push_segment_with_lanes(7, &LANES);
+            b.set_last_flags(NodeFlags::OPTIONAL);
+        }
+        let shape = b.finish();
+        let mut segs = segments(4);
+        segs[0].optional = false;
+        assert_eq!(ends(&shape, &segs), Some(vec![0, 4, 4, 4]));
+    }
+
+    #[test]
+    fn a_run_may_start_at_the_first_segment() {
+        let shape = pair(|_| {});
+        assert_eq!(ends(&shape, &segments(2)), Some(vec![2, 2]));
+    }
+
+    #[test]
+    fn nodes_differing_in_one_shape_column_are_not_a_run() {
+        let differing: Vec<(&str, Shape)> = vec![
+            ("char_def", {
+                let mut b = ShapeBuilder::with_features(1);
+                b.push_segment_with_lanes(7, &LANES);
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.push_segment_with_lanes(8, &LANES);
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.finish()
+            }),
+            ("lanes", {
+                let mut b = ShapeBuilder::with_features(1);
+                b.push_segment_with_lanes(7, &LANES);
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.push_segment_with_lanes(7, &[0b01]);
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.finish()
+            }),
+            ("kind", {
+                let mut b = ShapeBuilder::with_features(1);
+                b.push_segment_with_lanes(7, &LANES);
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.push_boundary_with_lanes(7, &LANES);
+                b.finish()
+            }),
+            ("flags", {
+                let mut b = ShapeBuilder::with_features(1);
+                b.push_segment_with_lanes(7, &LANES);
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.push_segment_with_lanes(7, &LANES);
+                b.finish()
+            }),
+            ("cd_set", {
+                let mut b = ShapeBuilder::with_features(1);
+                b.push_segment_with_lanes_and_set(&LANES, CdSet::Unrestricted);
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.push_segment_with_lanes_and_set(&LANES, CdSet::Members(CdBits::from_ids([1])));
+                b.set_last_flags(NodeFlags::OPTIONAL);
+                b.finish()
+            }),
+            ("generated_full", pair(|b| b.set_generated_full(2, &[0]))),
+            (
+                "unresolved_variables",
+                pair(|b| b.set_unresolved_variables(2, &[0])),
+            ),
+        ];
+        for (column, shape) in differing {
+            assert_eq!(ends(&shape, &segments(2)), None, "{column}");
+        }
+    }
+
+    #[test]
+    fn segments_differing_in_one_matcher_column_are_not_a_run() {
+        let shape = pair(|_| {});
+        let mut lanes = segments(2);
+        lanes[1].lanes = vec![0b01];
+        let mut full = segments(2);
+        full[1].explicit_full = vec![0];
+        let mut required = segments(2);
+        required[1].optional = false;
+        for (column, segs) in [
+            ("lanes", lanes),
+            ("explicit_full", full),
+            ("optional", required),
+        ] {
+            assert_eq!(ends(&shape, &segs), None, "{column}");
+        }
+    }
+
+    #[test]
+    fn nodes_not_adjacent_in_the_shape_are_not_a_run() {
+        let shape = pair(|_| {});
+        assert_eq!(run_ends(&shape, &segments(2), &[1, 3]), None);
+    }
+
+    #[test]
+    fn parse_group_reads_part_and_copy() {
+        assert_eq!(parse_group("p3_0"), Some((3, 0)));
+        assert_eq!(parse_group("p12_2"), Some((12, 2)));
+        assert_eq!(parse_group("g1"), None);
+    }
+}

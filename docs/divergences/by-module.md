@@ -22,8 +22,8 @@ See `README.md` for the full status table and the kind definitions.
 | `HCLoader.cs` (`LoadExoCompoundingRule`, `LoadEndoCompoundingRule`) | 125 |
 | `HCLoader.cs` (`LoadPatternNode`, `LoadRewriteRule`) | 126 |
 | `AnalysisMorphologicalTransform.cs` (`AddCapturedPartNodes`); `HermitCrabExtensions.cs` (`AntiFeatureStruct`) | 128 |
-| `TraversalMethodBase.Advance`; `Fst.Transduce` (all matches) | 130 |
 | `SynthesisRewriteRule` (`MatchingMethod.Subsumption`); `FeatureStruct.cs` (`SubsumesImpl`) | 129 |
+| `TraversalMethodBase.Advance`; `Fst.Transduce` (all matches) | 130 |
 
 ## By Rust module
 
@@ -61,8 +61,8 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-parse/src/surface/tests.rs::literal_surface_matching_preserves_provisional_and_featureless_wildcards`; `pg-cli/tests/inferred_segment_engine_parity_gate.rs` | 076 |
 | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` | 024 |
 | `pg-parse/tests/featureless_modify_from_input.rs`; staged `featureless-modify-from-input` | 128 |
-| `pg-rules/tests/optional_run_tilings.rs`; `pg-fst/src/traverse/tests.rs` | 130 |
 | `pg-parse/tests/csharp_port_rewrite.rs` (`unspecified_feature_satisfies_a_minus_*`); `pg-rules/tests/rewrite_gate.rs`; staged `unspecified-feature-minus-environment`, `unspecified-feature-minus-target` | 129 |
+| `pg-parse/tests/optional_run_tilings.rs`; `pg-fst/tests/canonical_tilings.rs`; `pg-fst/tests/feasibility_prune.rs`; `pg-rules/src/morph/optional_runs.rs` (unit tests) | 130 |
 
 ## Provisional-definition seams
 

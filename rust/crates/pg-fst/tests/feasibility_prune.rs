@@ -137,3 +137,65 @@ fn a_looping_pattern_is_never_pruned() {
         .all_matches();
     assert_eq!(matches.len(), 1);
 }
+
+/// Alternation: the longest path is the maximum over the branches, and the matches equal those of the expanded sequences.
+#[test]
+fn an_alternation_is_bounded_by_its_longest_branch() {
+    let g = |name: &str, bit: u64| CompileNode::Group {
+        name: name.to_string(),
+        children: vec![CompileNode::Constraint(vec![bit])],
+    };
+    let nodes = vec![
+        g("a0", A),
+        CompileNode::Alternation(vec![
+            vec![g("s1", B)],
+            vec![g("l1", B), g("l2", A), g("l3", B)],
+        ]),
+        g("a2", A),
+    ];
+    let fst = CompileInput::new(nodes).deterministic(false).compile();
+    let count = |segments: &[(u64, bool)]| -> (usize, usize) {
+        let input: Vec<Segment> = segments
+            .iter()
+            .map(|&(bit, optional)| {
+                if optional {
+                    Segment::optional(vec![bit])
+                } else {
+                    Segment::new(vec![bit])
+                }
+            })
+            .collect();
+        let budget = pg_fst::work::WorkBudget::new(usize::MAX / 2);
+        let _scope = budget.enter();
+        let n = Transduce::new(&fst, input)
+            .anchored(true, true)
+            .all_matches()
+            .len();
+        (n, budget.used())
+    };
+    let short = [A, B, A];
+    let long = [A, B, A, B, A];
+    for pad in 0..5 {
+        let mut segments = vec![(A, false), (B, true)];
+        segments.extend(std::iter::repeat_n((A, true), pad));
+        segments.extend([(B, true), (A, false)]);
+        let plain: Vec<(u64, bool)> = segments.clone();
+        let want = reference_spans(&short, &plain).len() + reference_spans(&long, &plain).len();
+        assert_eq!(count(&segments).0, want, "pad {pad}");
+    }
+    // Six required segments exceed the longest branch (5): refused up front.
+    let surplus = [
+        (A, false),
+        (B, false),
+        (A, false),
+        (B, false),
+        (A, false),
+        (A, false),
+    ];
+    let (n, used) = count(&surplus);
+    assert_eq!(n, 0);
+    assert!(used <= 10, "work {used}");
+    // Five required segments take the long branch exactly.
+    let exact = [(A, false), (B, false), (A, false), (B, false), (A, false)];
+    assert_eq!(count(&exact).0, 1);
+}

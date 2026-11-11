@@ -14,6 +14,12 @@ PanGloss enumerates one match per tiling class instead, and adds a second, indep
 
 `TraversalMethodBase.Advance` (a skip instance per optional annotation, no feasibility look-ahead) and `Fst.Transduce` with `allMatches`; `AnalysisMorphologicalTransform` consumes every match.
 
+## Scope of the two prunes
+
+Prune B (tilings) is confined to `ana_allomorph_matches`: it is set only there, only for left-to-right traversal, and never for phonological or metathesis matching or synthesis.
+
+Prune A (feasibility) is general: it applies to every end-anchored nondeterministic traversal, including the rewrite-rule and metathesis environment matchers (`rewrite.rs`, `metathesis.rs`), not only affix matches. It is result-neutral there for the same reason as here: it refuses only an arc from which no thread can reach an accepting state. The bound depends only on the arc's target and the next input index, so skipping the visited-set insertion for a refused instance loses nothing.
+
 ## Rust site
 
 `pg-fst/src/traverse.rs` (`Transduce::interchangeable_runs`, the `guard` argument of `advance`, `required_suffix_counts`), `pg-fst/src/optimize.rs` (`max_hops_to_accept`), `pg-fst/src/fst.rs` (`arc_group_events`), and `pg-rules/src/morph/optional_runs.rs` (the plan built in `ana_allomorph_matches`).
@@ -28,6 +34,12 @@ Prune B (tilings). A node skipped after a consumed node is folded into the group
 - Both groups still contain a consumed optional node, so both are undecidable to the copy-agreement test in both matches, and that test reads no other span.
 - Nodes count as one run only when every value either reader looks at is equal (kind, character definition, lanes, flags, character-definition set, unresolved-variable and generated-full feature sets), and they are adjacent in both the segment list and the shape.
 - The traversal keeps the match with no skipped node inside the run, which it visits first (fewer skips first, depth first), so the first member of each duplicate class in result order is kept and `RemoveDuplicates` keeps the same analysis. Merged runs and modified parts are excluded.
+
+## Landing order: dependency on the copy-agreement test
+
+The argument for prune B uses `copy_agreement_refuses_match` as it is on main: a copy whose span contains an optional node is undecidable and the match is kept. The branch for sillsdev/PanGloss#235 replaces that with an alignment check, after which a copy containing run nodes is decidable and its verdict depends on span length. Then two matches that differ only in where a run straddling the X|Y boundary is split can get different verdicts (a second copy of X's part that agrees only with the longer span accepts one and refuses the other), and the canonical tiling could be refused while a pruned tiling would have been accepted.
+
+Constraint: this change lands first; the #235 fix must then make the tiling choice and the copy alignment agree (for example by enumerating the split of a run that straddles two capture groups instead of fixing it), with a test for a run straddling the X|Y boundary. `pg-fst/tests/canonical_tilings.rs` pins the present behaviour: the kept tiling is the one with a single run node in the left group.
 
 ## Verification
 

@@ -23,3 +23,13 @@ fn canonical_tilings_keep_the_empty_result_and_cut_the_work() {
     assert!(analyses.is_empty(), "{analyses:?}");
     assert!(work < 10_000, "work {work}");
 }
+
+#[test]
+fn longer_runs_of_restored_vowels_keep_the_empty_result_and_cut_the_work() {
+    // 167,200 and 858,997 steps before the change.
+    for word in ["ttuu", "thhaa"] {
+        let (analyses, work) = parse(word);
+        assert!(analyses.is_empty(), "{word}: {analyses:?}");
+        assert!(work < 10_000, "{word}: work {work}");
+    }
+}
