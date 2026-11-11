@@ -34,10 +34,9 @@ pub fn focus_outputs(
         .map(|node| focus_node(table, width, node))
         .collect();
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
-    let targets: Vec<&MutNode> = nodes.iter().collect();
     let bindings = bind_target_nodes(
         g,
-        &targets,
+        |k| &nodes[k],
         &lhs_vars,
         true,
         dir_of(rule) == Direction::RightToLeft,

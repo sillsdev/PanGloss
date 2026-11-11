@@ -890,9 +890,9 @@ fn rewrite_variable_bits(g: &Grammar, occ: &VarOccur, node: &MutNode) -> u64 {
 }
 
 /// Bind the focus nodes' alpha variables in match order (reversed for a right-to-left rule); `None` when a bound variable is violated.
-fn bind_target_nodes(
+fn bind_target_nodes<'a>(
     g: &Grammar,
-    targets: &[&MutNode],
+    target: impl Fn(usize) -> &'a MutNode,
     lhs_vars: &[Vec<VarOccur>],
     synthesis: bool,
     reverse_target: bool,
@@ -905,7 +905,7 @@ fn bind_target_nodes(
             i
         }
     }) {
-        let node = targets[k];
+        let node = target(k);
         for occ in &lhs_vars[k] {
             let bits = rewrite_variable_bits(g, occ, node);
             let permissive_full = bits == full_mask(g, occ.feature)
@@ -937,8 +937,8 @@ fn resolve_bindings(
     reverse_target: bool,
 ) -> Option<Bindings> {
     // (1) target nodes, in match order.
-    let targets: Vec<&MutNode> = target_nodes.iter().map(|&node| &ms.nodes[node]).collect();
-    let mut bindings = bind_target_nodes(g, &targets, lhs_vars, synthesis, reverse_target)?;
+    let target = |k: usize| &ms.nodes[target_nodes[k]];
+    let mut bindings = bind_target_nodes(g, target, lhs_vars, synthesis, reverse_target)?;
 
     if let Some(env) = left {
         if let Some(nodes) = &env.binding_nodes {
