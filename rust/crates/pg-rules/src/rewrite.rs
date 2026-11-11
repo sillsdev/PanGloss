@@ -889,6 +889,35 @@ fn rewrite_variable_bits(g: &Grammar, occ: &VarOccur, node: &MutNode) -> u64 {
     }
 }
 
+/// Bind the focus nodes' alpha variables in match order (reversed for a right-to-left rule); `None` when a bound variable is violated.
+fn bind_target_nodes<'a>(
+    g: &Grammar,
+    target: impl Fn(usize) -> &'a MutNode,
+    lhs_vars: &[Vec<VarOccur>],
+    synthesis: bool,
+    reverse_target: bool,
+) -> Option<Bindings> {
+    let mut bindings: Bindings = HashMap::default();
+    for k in (0..lhs_vars.len()).map(|i| {
+        if reverse_target {
+            lhs_vars.len() - 1 - i
+        } else {
+            i
+        }
+    }) {
+        let node = target(k);
+        for occ in &lhs_vars[k] {
+            let bits = rewrite_variable_bits(g, occ, node);
+            let permissive_full = bits == full_mask(g, occ.feature)
+                && !node.generated_full.contains(&(occ.feature as u32));
+            if !bind_or_check(g, &mut bindings, occ, bits, synthesis, permissive_full) {
+                return None;
+            }
+        }
+    }
+    Some(bindings)
+}
+
 /// Resolve alpha-variable bindings for a candidate in C#'s `MatchSubrule` order (target, then left env, then right env); `None` means a bound variable was violated and the candidate must be rejected.
 #[allow(clippy::too_many_arguments)]
 fn resolve_bindings(
@@ -907,35 +936,9 @@ fn resolve_bindings(
     synthesis: bool,
     reverse_target: bool,
 ) -> Option<Bindings> {
-    let mut bindings: Bindings = HashMap::default();
-
     // (1) target nodes, in match order.
-    for k in (0..lhs_vars.len()).map(|i| {
-        if reverse_target {
-            lhs_vars.len() - 1 - i
-        } else {
-            i
-        }
-    }) {
-        let occs = &lhs_vars[k];
-        let node = target_nodes[k];
-        for occ in occs {
-            let bits = rewrite_variable_bits(g, occ, &ms.nodes[node]);
-            if !bind_or_check(
-                g,
-                &mut bindings,
-                occ,
-                bits,
-                synthesis,
-                bits == full_mask(g, occ.feature)
-                    && !ms.nodes[node]
-                        .generated_full
-                        .contains(&(occ.feature as u32)),
-            ) {
-                return None;
-            }
-        }
-    }
+    let target = |k: usize| &ms.nodes[target_nodes[k]];
+    let mut bindings = bind_target_nodes(g, target, lhs_vars, synthesis, reverse_target)?;
 
     if let Some(env) = left {
         if let Some(nodes) = &env.binding_nodes {
@@ -1615,6 +1618,48 @@ struct PreparedSynthesisSubrule {
     rhs_nodes: Vec<MutNode>,
 }
 
+/// The per-subrule data `apply_synthesis_site` reads, shared by the site loop and the block application.
+fn prepare_synthesis_subrule(
+    g: &Grammar,
+    table: &CharDefTable,
+    rule: &RewriteRuleDef,
+    index: usize,
+) -> PreparedSynthesisSubrule {
+    let sr = &rule.subrules[index];
+    let kind = classify(rule, sr);
+    PreparedSynthesisSubrule {
+        index,
+        kind,
+        rhs_vars: pattern_var_occurrences(&sr.rhs),
+        rhs_pins: if kind == Kind::Feature {
+            sr.rhs
+                .nodes
+                .iter()
+                .map(|n| node_pins(g, table, n))
+                .collect()
+        } else {
+            Vec::new()
+        },
+        rhs_nodes: if kind == Kind::Feature {
+            Vec::new()
+        } else {
+            sr.rhs
+                .nodes
+                .iter()
+                .map(|n| {
+                    new_seg_node_dirty(
+                        g,
+                        table,
+                        n,
+                        false,
+                        kind == Kind::Narrow || rule.mode == RewriteMode::Iterative,
+                    )
+                })
+                .collect()
+        },
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn synthesize_sites(
     g: &Grammar,
@@ -1635,38 +1680,7 @@ fn synthesize_sites(
             reason.unwrap_or(FailureReason::Pattern),
         ));
         if reason.is_none() {
-            let kind = classify(rule, sr);
-            eligible.push(PreparedSynthesisSubrule {
-                index,
-                kind,
-                rhs_vars: pattern_var_occurrences(&sr.rhs),
-                rhs_pins: if kind == Kind::Feature {
-                    sr.rhs
-                        .nodes
-                        .iter()
-                        .map(|n| node_pins(g, table, n))
-                        .collect()
-                } else {
-                    Vec::new()
-                },
-                rhs_nodes: if kind == Kind::Feature {
-                    Vec::new()
-                } else {
-                    sr.rhs
-                        .nodes
-                        .iter()
-                        .map(|n| {
-                            new_seg_node_dirty(
-                                g,
-                                table,
-                                n,
-                                false,
-                                kind == Kind::Narrow || rule.mode == RewriteMode::Iterative,
-                            )
-                        })
-                        .collect()
-                },
-            });
+            eligible.push(prepare_synthesis_subrule(g, table, rule, index));
         }
     }
     if eligible.is_empty() {
@@ -3762,6 +3776,9 @@ pub(crate) fn probe_synthesize_stratum(
 /// Regression pins for `compile_lane_fst_grouped`'s per-row `Group` capture: it recovers each row's REAL matched position across an interposed Optional non-matching segment, and WHICH tag half (start vs end) is reliable flips with compile direction, matching `ana_feature`'s `recover_pos` assumption.
 #[cfg(test)]
 mod group_probe_diag;
+
+mod block;
+pub use block::{focus_outputs, BlockNode};
 
 #[cfg(test)]
 #[path = "rewrite_synthesis_tests.rs"]

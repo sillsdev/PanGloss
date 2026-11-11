@@ -3,7 +3,9 @@
 //! Permissive cascades widen alpha agreement and choose each rewrite site independently.
 //! Complete cascade compilation refuses unsupported rules; it never returns a skipped-rule net.
 
-use foma::constructions::{fsm_compose, fsm_ignore, fsm_symbol, fsm_union, fsm_universal};
+use foma::constructions::{
+    fsm_compose, fsm_ignore, fsm_intersect, fsm_symbol, fsm_union, fsm_universal,
+};
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
@@ -20,6 +22,11 @@ use pg_grammar::model::{
 
 /// Private-Use-Area base codepoint every `CharDefId` is offset from; no in-scope grammar has enough char-defs to overflow the PUA block.
 const PUA_BASE: u32 = 0xE000;
+
+/// The single token standing for `cd` in every cascade structure.
+pub fn chardef_token(cd: CharDefId) -> char {
+    char::from_u32(PUA_BASE + cd.0).expect("char table too large for the PUA token scheme")
+}
 
 /// Cross-table representation aliasing: a normalized
 /// representation -> every `(TableId, CharDefId)` across the WHOLE grammar that spells it,
@@ -153,7 +160,7 @@ impl<'t> SegAlphabet<'t> {
     /// The single codepoint standing in for `cd` everywhere (lexc lower-tape text, rule regex
     /// atoms, encoded query words).
     pub fn token(&self, cd: CharDefId) -> char {
-        char::from_u32(PUA_BASE + cd.0).expect("char table too large for the PUA token scheme")
+        chardef_token(cd)
     }
 
     /// Every token that should stand for `cd` when RENDERING a pattern atom (a rule's LHS/RHS/
@@ -530,7 +537,7 @@ pub fn compile_rewrite_rule(
 }
 
 /// Whether the focus or any replacement is a quantified group. C# fails rule compilation on that position and FieldWorks authors focus and replacement as simple contexts (divergence 068), so it is refused permanently; quantifiers stay admitted in environments.
-fn has_quantified_target(rule: &RewriteRuleDef) -> bool {
+pub(crate) fn has_quantified_target(rule: &RewriteRuleDef) -> bool {
     let quantified = |nodes: &[PatternNode]| {
         nodes
             .iter()
@@ -603,7 +610,7 @@ pub fn compile_rewrite_rule_subset(
 }
 
 /// Permissive lowering leaves applicability and alpha agreement to HC at every site.
-fn compile_rewrite_rule_subset_inner(
+pub(crate) fn compile_rewrite_rule_subset_inner(
     opts: &FomaOptions,
     g: &Grammar,
     rule: &RewriteRuleDef,
@@ -642,6 +649,17 @@ fn compile_rewrite_rule_subset_inner(
         RewriteMode::Simultaneous => "||",
     };
 
+    // An iterative empty focus keeps the environment only for the first insertion into a gap.
+    let fed_rows = match bundles {
+        Some(bundles) if rule.mode == RewriteMode::Iterative && rule.lhs.nodes.is_empty() => Some(
+            crate::lower::replacement_rows(g, bundles, rule).ok_or_else(|| {
+                PhonologyLoweringError::IterativeFedInsertionUnavailable(rule.xml_id.clone())
+            })?,
+        ),
+        _ => None,
+    };
+    let mut fed_branches = Vec::new();
+
     for (subrule_index, subrule) in rule.subrules.iter().enumerate() {
         if !allowed(subrule_index) {
             continue;
@@ -659,12 +677,6 @@ fn compile_rewrite_rule_subset_inner(
             return Err(
                 PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(rule.xml_id.clone()),
             );
-        }
-        if permissive && rule.mode == RewriteMode::Iterative && lhs_slots.is_empty() {
-            // Fed insertion can revisit a newly created gap; original-gap choices are incomplete.
-            return Err(PhonologyLoweringError::IterativeFedInsertionUnavailable(
-                rule.xml_id.clone(),
-            ));
         }
         if permissive && rule.mode == RewriteMode::Iterative && lhs_slots.len() > 1 {
             return Err(PhonologyLoweringError::IterativeMultiTokenFocusUnavailable(
@@ -725,6 +737,23 @@ fn compile_rewrite_rule_subset_inner(
 
         let mut subrule_net: Option<Fsm> = None;
         for asg in &assignments {
+            if let (true, Some(rows)) = (permissive, &fed_rows) {
+                // Right-to-left synthesis places the replacement reversed, which the mirror's reversal restores only from the authored order.
+                let placed = if mirrored {
+                    reversed_slots(&rhs_slots)
+                } else {
+                    rhs_slots.clone()
+                };
+                fed_branches.push(crate::lower::render_branch(
+                    &render_alphabet,
+                    rows,
+                    &placed,
+                    &left_slots,
+                    &right_slots,
+                    asg,
+                ));
+                continue;
+            }
             if permissive {
                 permissive_branches.push(render_branch_regex(
                     &render_alphabet,
@@ -764,12 +793,6 @@ fn compile_rewrite_rule_subset_inner(
     }
 
     if permissive {
-        if permissive_branches.is_empty() {
-            return Err(unsupported());
-        }
-        let net =
-            parse_rule_regex(opts, &permissive_branches.join(" ,, ")).ok_or_else(unsupported)?;
-        let net = if mirrored { fsm_reverse(net) } else { net };
         let boundaries = table
             .iter()
             .filter(|(_, definition)| {
@@ -777,9 +800,34 @@ fn compile_rewrite_rule_subset_inner(
             })
             .map(|(id, _)| fsm_symbol(&render_alphabet.token(id).to_string()))
             .reduce(|left, right| fsm_union(opts, left, right));
+        if let Some(rows) = &fed_rows {
+            let net = crate::lower::compile_fed_insertion(
+                opts,
+                &render_alphabet,
+                rows,
+                &fed_branches,
+                boundaries,
+            )
+            .ok_or_else(unsupported)?;
+            return Ok((if mirrored { fsm_reverse(net) } else { net }, reports));
+        }
+        if permissive_branches.is_empty() {
+            return Err(unsupported());
+        }
+        let net =
+            parse_rule_regex(opts, &permissive_branches.join(" ,, ")).ok_or_else(unsupported)?;
+        let net = if mirrored { fsm_reverse(net) } else { net };
         // Ignore loops consume and copy boundaries; explicit boundary targets remain available.
         let net = match boundaries {
             Some(boundaries) => fsm_ignore(opts, net, boundaries, OP_IGNORE_ALL),
+            None => net,
+        };
+        // Foma's class-to-class replacement relates every focus row to every output row; synthesis relates each row to its own.
+        let net = match bundles {
+            Some(bundles) => match crate::lower::pair_filter(opts, g, bundles, rule)? {
+                Some(filter) => fsm_intersect(opts, net, filter),
+                None => net,
+            },
             None => net,
         };
         Ok((net, reports))
@@ -828,6 +876,60 @@ impl std::fmt::Display for PhonologyLoweringError {
 
 impl std::error::Error for PhonologyLoweringError {}
 
+/// What the closure did, counted where the rows are produced.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct BundleClosureEvidence {
+    pub attested_rows: usize,
+    pub private_rows: usize,
+    /// Private rows that affix `Modify` and `InsertContext` outputs can create before phonology.
+    pub morphology_rows: usize,
+    /// Rows no attested segment is compatible with, which spell as nothing.
+    pub unspelled_rows: usize,
+    /// Row-by-update transfer visits, the closure's work measure.
+    pub transfer_visits: usize,
+    /// Alpha output lanes represented once as any value instead of one row per subset.
+    pub widened_alpha_outputs: usize,
+}
+
+/// Which construction produced a rule's relation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleConstruction {
+    /// Optional rewriting chosen independently at each site.
+    Site,
+    /// Optional rewriting of one focus occurrence at a time; environments and gates ignored.
+    Block,
+}
+
+/// One rule of a proposing cascade: its own relation and the cascade from it through the spelling.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CascadeRuleEvidence {
+    pub rule: String,
+    pub construction: RuleConstruction,
+    /// Blocks in the relation; zero for the site construction.
+    pub blocks: usize,
+    /// Focus tuples run through synthesis; zero unless the block rows are exact.
+    pub block_tuples: usize,
+    /// The block rows are independent per position with any-value alpha lanes.
+    pub block_widened: bool,
+    pub states: usize,
+    pub arcs: usize,
+    /// Composed from this rule to the end of the cascade, spelling included.
+    pub composed_states: usize,
+    pub composed_arcs: usize,
+}
+
+/// Sizes observed while building one proposing cascade, gathered where each structure is made.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct CascadeEvidence {
+    pub bundles: BundleClosureEvidence,
+    pub rules: Vec<CascadeRuleEvidence>,
+    pub spelling_states: usize,
+    pub spelling_arcs: usize,
+    pub states: usize,
+    pub arcs: usize,
+}
+
 /// Compile a complete proposing rewrite cascade, with optional rewriting at EACH site.
 /// Alpha agreement and POS/MPR/default applicability belong to HC confirmation. Material
 /// alternatives are shared within each replacement, so different sites can choose differently.
@@ -838,48 +940,24 @@ pub fn compile_and_compose_rules_recall_safe(
     prules_in_order: &[&PhonRuleDef],
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
 ) -> Result<Fsm, PhonologyLoweringError> {
-    if !prules_in_order.is_empty() && g.char_tables.len() != 1 {
-        return Err(PhonologyLoweringError::MultipleCascadeTablesUnavailable);
+    compile_proposing_cascade(opts, g, prules_in_order, tuple_reports).map(|(net, _)| net)
+}
+
+/// `compile_and_compose_rules_recall_safe` with the sizes of every structure it built.
+/// The cascade is minimized after each composition, including final spelling.
+pub fn compile_proposing_cascade(
+    opts: &FomaOptions,
+    g: &Grammar,
+    prules_in_order: &[&PhonRuleDef],
+    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
+) -> Result<(Fsm, CascadeEvidence), PhonologyLoweringError> {
+    if prules_in_order.is_empty() {
+        return Ok((fsm_universal(), CascadeEvidence::default()));
     }
-    let mut rewrites = Vec::new();
-    let mut table_id = None;
-    for pr in prules_in_order {
-        match pr {
-            PhonRuleDef::Rewrite(rule) => {
-                let owner = owning_table_id(g, rule).ok_or_else(|| {
-                    PhonologyLoweringError::UnsupportedRewrite(rule.xml_id.clone())
-                })?;
-                table_id = Some(owner);
-                rewrites.push(rule);
-            }
-            PhonRuleDef::Metathesis(rule) => {
-                return Err(PhonologyLoweringError::PermissiveMetathesisUnavailable(
-                    rule.xml_id.clone(),
-                ))
-            }
-        }
-    }
-    let Some(table_id) = table_id else {
-        return Ok(fsm_universal());
-    };
-    let bundles = crate::lower::IntermediateBundles::build(g, table_id, &rewrites)?;
-    let mut composed: Option<Fsm> = None;
-    let mut reports = Vec::new();
-    for rule in rewrites {
-        let (net, tuples) =
-            compile_rewrite_rule_subset_inner(opts, g, rule, &|_| true, Some(&bundles))?;
-        reports.push((rule.xml_id.clone(), tuples));
-        composed = Some(match composed {
-            None => net,
-            Some(prev) => fsm_compose(opts, prev, net),
-        });
-    }
-    let spelling = bundles.spelling(opts, g).ok_or_else(|| {
-        PhonologyLoweringError::UnsupportedRewrite("final bundle spelling".to_owned())
-    })?;
-    let net = fsm_compose(opts, composed.unwrap_or_else(fsm_universal), spelling);
-    tuple_reports.extend(reports);
-    Ok(net)
+    let parts = crate::cascade_parts::CascadeParts::build(opts, g, prules_in_order)?;
+    let (net, evidence) = parts.compose(opts)?;
+    tuple_reports.extend(parts.reports);
+    Ok((net, evidence))
 }
 
 /// Accepted rewrite-rule shapes, sharing the simultaneous-overlap decision with capability checks.
@@ -1087,3 +1165,9 @@ mod regex_rejection_tests;
 
 #[cfg(test)]
 mod permissive_tests;
+
+#[cfg(test)]
+mod block_tests;
+
+#[cfg(test)]
+mod insertion_tests;

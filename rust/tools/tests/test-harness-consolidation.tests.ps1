@@ -110,7 +110,7 @@ $crateSpecs = @(
             'final_template_pruning_gate.rs', 'final_template_partial_root_gate.rs', 'required_slot_shadow_gate.rs',
             'lexical_pattern_trie_exclusion_gate.rs', 'loader_n3_pattern_shapes_gate.rs',
             'merge_msas_conformance.rs', 'merged_analyses_fs_generalization.rs', 'perf_cold_warm_probe.rs',
-            'reduplication_gate.rs', 'root_trie_gate.rs', 'stats_collector_gate.rs',
+            'reduplication_gate.rs', 'restricted_parse_gate.rs', 'root_trie_gate.rs', 'stats_collector_gate.rs',
             'supplied_overlay.rs', 'template_analysis_conformance.rs', 'trace_gate.rs',
             'trace_phon_gate.rs', 'trace_rule_sequence_gate.rs', 'truncate_morphotactic_identity.rs',
             'word_timeout_gate.rs',

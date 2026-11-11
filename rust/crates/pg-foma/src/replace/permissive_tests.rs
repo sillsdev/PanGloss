@@ -91,23 +91,13 @@ fn matrix_relation(g: &Grammar, lhs: &str) -> Option<Fsm> {
     };
     let result = relation(g, &[0]);
     if lhs.is_empty() && rule.mode == RewriteMode::Iterative {
-        assert_eq!(
-            result.unwrap_err(),
-            PhonologyLoweringError::IterativeFedInsertionUnavailable(rule.xml_id.clone())
-        );
+        // Fed insertion makes the relation infinite, so it is checked by inclusion in `insertion_tests`, not enumerated.
+        result.expect("iterative empty-focus insertion has a proposing construction");
         None
-    } else if lhs.chars().count() > 1 {
-        let expected = match rule.mode {
-            RewriteMode::Simultaneous => {
-                PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(rule.xml_id.clone())
-            }
-            RewriteMode::Iterative => {
-                PhonologyLoweringError::IterativeMultiTokenFocusUnavailable(rule.xml_id.clone())
-            }
-        };
+    } else if lhs.chars().count() > 1 && rule.mode == RewriteMode::Simultaneous {
         assert_eq!(
             result.unwrap_err(),
-            expected,
+            PhonologyLoweringError::SimultaneousMultiTokenFocusUnavailable(rule.xml_id.clone()),
             "unproven focus must refuse explicitly"
         );
         None
@@ -259,8 +249,22 @@ fn mixed_alpha_environment_sites_keep_independent_identity_choices() {
     }
 }
 
+/// The one-site outputs synthesis gives `word`, as token strings.
+fn synthesized(g: &Grammar, word: &str) -> Vec<String> {
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("rewrite fixture")
+    };
+    let table = &g.char_tables[0];
+    let shape = pg_grammar::segment::segment(table, word).unwrap();
+    let alphabet = SegAlphabet::new(table);
+    pg_rules::rewrite::synthesize(g, rule, &shape)
+        .iter()
+        .map(|output| alphabet.encode_shape(output))
+        .collect()
+}
+
 #[test]
-fn material_alpha_outputs_can_differ_between_sites() {
+fn an_unbound_alpha_output_relates_each_row_only_to_what_synthesis_makes_of_it() {
     let mut g = fixture("overridden-alpha-plain-ltr-left");
     let rule = rewrite(&mut g, 0);
     let material = rule.lhs.clone();
@@ -269,11 +273,9 @@ fn material_alpha_outputs_can_differ_between_sites() {
     rule.subrules[0].left_env = None;
     let net = relation(&g, &[0]).unwrap();
     let actual = outputs(&g, &net, "ii");
-    for left in ["i", "y", "a", "u"] {
-        for right in ["i", "y", "a", "u"] {
-            let word = format!("{left}{right}");
-            assert!(actual.contains(&encoded(&g, &word)), "missing {word}");
-        }
+    assert_eq!(actual, BTreeSet::from([encoded(&g, "ii")]));
+    for expected in synthesized(&g, "ii") {
+        assert!(actual.contains(&expected));
     }
 }
 
@@ -392,7 +394,7 @@ fn unsupported_later_rule_cannot_return_an_earlier_partial_cascade() {
 }
 
 #[test]
-fn material_segment_classes_include_compatible_feature_combinations() {
+fn a_segment_class_output_keeps_the_lanes_it_does_not_pin() {
     let mut g = fixture("overridden-alpha-plain-ltr-left");
     let partial = pg_grammar::model::NatClassId(
         g.natural_classes
@@ -412,8 +414,12 @@ fn material_segment_classes_include_compatible_feature_combinations() {
     rule.subrules[0].rhs.nodes = vec![PatternNode::Context(context)];
     rule.subrules[0].left_env = None;
     let net = relation(&g, &[0]).unwrap();
-    // i/y/a span both feature values in each lane; u is a compatible material combination.
-    assert!(outputs(&g, &net, "ii").contains(&encoded(&g, "uu")));
+    // i/y/a span both values of each lane, so the class pins nothing and synthesis keeps the row.
+    let actual = outputs(&g, &net, "ii");
+    assert_eq!(actual, BTreeSet::from([encoded(&g, "ii")]));
+    for expected in synthesized(&g, "ii") {
+        assert!(actual.contains(&expected));
+    }
 }
 
 #[test]
@@ -901,6 +907,10 @@ fn asymmetric_multisegment_contexts_preserve_order_and_independent_sites() {
                                 );
                             }
                         }
+                        // The block relation ignores environments, so only the site construction is exact here.
+                        if mode == RewriteMode::Iterative && lhs.chars().count() > 1 {
+                            continue;
+                        }
                         let wrong = match side {
                             0 => format!("ui{lhs}"),
                             1 => format!("{lhs}iu"),
@@ -1076,7 +1086,7 @@ fn intermediate_closure_exhaustion_refuses_the_whole_cascade_and_reports() {
         .map(|i| format!("<FeatureValue feature='f{i}' symbolValues='m{i}'/>"))
         .collect();
     let classes: String = (0..13).map(|i| format!("<FeatureNaturalClass id='n{i}'><Name>class {i}</Name><FeatureValue feature='f{i}' symbolValues='p{i}'/></FeatureNaturalClass>")).collect();
-    let rules: String = (0..13).map(|i| format!("<PhonologicalRule id='r{i}' multipleApplicationOrder='leftToRightIterative'><Name>rule {i}</Name><PhoneticInput><PhoneticSequence><Segment segment='cA'/></PhoneticSequence></PhoneticInput><PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass='n{i}'/></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules></PhonologicalRule>")).collect();
+    let rules: String = (0..13).map(|i| format!("<PhonologicalRule id='r{i}' multipleApplicationOrder='leftToRightIterative'><Name>rule {i}</Name><PhoneticInput><PhoneticSequence><Segment segment='cA'/></PhoneticSequence></PhoneticInput><PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass='n{i}'/><SimpleContext naturalClass='n{i}'/></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules></PhonologicalRule>")).collect();
     let order = (0..13)
         .map(|i| format!("r{i}"))
         .collect::<Vec<_>>()
@@ -1142,23 +1152,19 @@ fn a_multi_table_grammar_refuses_without_guessing_a_rule_owner() {
 }
 
 #[test]
-fn iterative_overlapping_focus_is_explicitly_refused_atomically() {
+fn iterative_overlapping_focus_uses_the_block_relation() {
     for dir in [Dir::LeftToRight, Dir::RightToLeft] {
         let g = literal_grammar(RewriteMode::Iterative, dir, "aa", "iii", "", "");
-        let mut reports = vec![("untouched".into(), Vec::new())];
-        assert!(matches!(
-            compile_and_compose_rules_recall_safe(
-                &FomaOptions::default(),
-                &g,
-                &[&g.prules[0]],
-                &mut reports
-            ),
-            Err(PhonologyLoweringError::IterativeMultiTokenFocusUnavailable(
-                _
-            ))
-        ));
+        let mut reports = Vec::new();
+        let (net, evidence) =
+            compile_proposing_cascade(&FomaOptions::default(), &g, &[&g.prules[0]], &mut reports)
+                .expect("block relation");
+        assert_eq!(evidence.rules[0].construction, RuleConstruction::Block);
         assert_eq!(reports.len(), 1);
-        assert_eq!(reports[0].0, "untouched");
+        let actual = outputs(&g, &net, "aaa");
+        for word in ["aaa", "iiia", "aiii"] {
+            assert!(actual.contains(&encoded(&g, word)), "{word}");
+        }
     }
 }
 
@@ -1170,42 +1176,68 @@ fn an_empty_class_is_not_an_epenthesis_center() {
 }
 
 #[test]
-fn bounded_iterative_epenthesis_refuses_instead_of_losing_fed_output() {
+fn bounded_iterative_epenthesis_keeps_the_fed_output() {
     let g = fixture("bounded-iterative-epenthesis");
     // Forward e -> ae -> aae is independently confirmed by pinned C#.
     let mut reports = vec![("retained".to_owned(), Vec::new())];
-    let result = compile_and_compose_rules_recall_safe(
+    let net = compile_and_compose_rules_recall_safe(
         &FomaOptions::default(),
         &g,
         &[&g.prules[0]],
         &mut reports,
-    );
-    assert_eq!(
-        result.unwrap_err(),
-        PhonologyLoweringError::IterativeFedInsertionUnavailable("rInsert".to_owned())
-    );
-    assert_eq!(reports.len(), 1);
-    assert_eq!(reports[0].0, "retained");
-    assert!(reports[0].1.is_empty());
+    )
+    .expect("fed insertion has a proposing construction");
+    assert_eq!(reports.len(), 2);
+    for word in ["e", "ae", "aae"] {
+        assert!(
+            super::insertion_tests::relates(&net, &encoded(&g, "e"), &encoded(&g, word)),
+            "{word}"
+        );
+    }
 }
 
 #[test]
-fn iterative_empty_focus_refuses_in_both_directions_with_any_environment() {
+fn iterative_empty_focus_inserts_in_both_directions_with_any_environment() {
     for dir in [Dir::LeftToRight, Dir::RightToLeft] {
-        for (rhs, left, right) in [
-            ("i", "", ""),
-            ("ai", "a", ""),
-            ("ia", "", "a"),
-            ("", "a", "a"),
+        // Right-to-left synthesis places the replacement reversed.
+        let reversed = dir == Dir::RightToLeft;
+        for (rhs, left, right, input, inserted) in [
+            ("i", "", "", "a", Some("ia")),
+            (
+                "ai",
+                "a",
+                "",
+                "a",
+                Some(if reversed { "aia" } else { "aai" }),
+            ),
+            (
+                "ia",
+                "",
+                "a",
+                "a",
+                Some(if reversed { "aia" } else { "iaa" }),
+            ),
+            ("", "a", "a", "aa", None),
         ] {
             let g = literal_grammar(RewriteMode::Iterative, dir, "", rhs, left, right);
-            assert!(matrix_relation(&g, "").is_none());
+            let net = relation(&g, &[0]).expect("insertion has a proposing construction");
+            let relates = |output: &str| {
+                super::insertion_tests::relates(&net, &encoded(&g, input), &encoded(&g, output))
+            };
+            assert!(relates(input), "{dir:?} {rhs}: identity");
+            match inserted {
+                Some(word) => assert!(relates(word), "{dir:?} 0->{rhs}/{left}_{right}: {word}"),
+                None => assert!(
+                    !relates("iaa"),
+                    "{dir:?}: an empty replacement inserts nothing"
+                ),
+            }
         }
     }
 }
 
 #[test]
-fn an_iterative_insertion_successor_cannot_publish_a_partial_cascade() {
+fn an_iterative_insertion_successor_joins_the_cascade() {
     for dir in [Dir::LeftToRight, Dir::RightToLeft] {
         let mut g = literal_grammar(RewriteMode::Iterative, dir, "", "i", "", "");
         let mut first = literal_grammar(RewriteMode::Iterative, dir, "i", "i", "", "")
@@ -1219,23 +1251,19 @@ fn an_iterative_insertion_successor_cannot_publish_a_partial_cascade() {
         g.prules.insert(0, first);
         g.strata[0].prules.push(pg_grammar::model::PRuleId(1));
         assert!(relation(&g, &[0]).is_ok());
-        let PhonRuleDef::Rewrite(successor) = &g.prules[1] else {
-            unreachable!()
-        };
-        let mut reports = vec![("retained".to_owned(), Vec::new())];
-        let error = compile_and_compose_rules_recall_safe(
+        let mut reports = Vec::new();
+        let net = compile_and_compose_rules_recall_safe(
             &FomaOptions::default(),
             &g,
             &[&g.prules[0], &g.prules[1]],
             &mut reports,
         )
-        .unwrap_err();
-        assert_eq!(
-            error,
-            PhonologyLoweringError::IterativeFedInsertionUnavailable(successor.xml_id.clone())
-        );
-        assert_eq!(reports.len(), 1);
-        assert_eq!(reports[0].0, "retained");
-        assert!(reports[0].1.is_empty());
+        .expect("a cascade with an iterative insertion compiles");
+        assert_eq!(reports.len(), 2);
+        assert!(super::insertion_tests::relates(
+            &net,
+            &encoded(&g, "a"),
+            &encoded(&g, "iia")
+        ));
     }
 }

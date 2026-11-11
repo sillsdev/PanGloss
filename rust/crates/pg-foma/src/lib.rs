@@ -16,12 +16,14 @@ mod peel_compile_tests;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
+pub mod admission;
 pub mod advice_catalog;
 pub mod analyzer;
 pub mod backend_selection;
 /// Shared compiler classification predicates.
 pub mod capability;
 pub mod capability_gate;
+pub mod cascade_parts;
 pub mod characterization;
 pub use pg_foma_runtime::candidate_filter;
 #[cfg(feature = "test-support")]

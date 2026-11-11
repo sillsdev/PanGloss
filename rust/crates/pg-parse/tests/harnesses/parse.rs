@@ -65,6 +65,8 @@ mod phonology_gate;
 mod reduplication_gate;
 #[path = "../required_slot_shadow_gate.rs"]
 mod required_slot_shadow_gate;
+#[path = "../restricted_parse_gate.rs"]
+mod restricted_parse_gate;
 #[path = "../root_trie_gate.rs"]
 mod root_trie_gate;
 #[path = "../stats_collector_gate.rs"]
