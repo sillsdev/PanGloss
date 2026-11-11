@@ -274,18 +274,11 @@ fn two_abstract_nodes_agree_exactly_when_their_members_intersect() {
     assert_eq!(kept(&g, disjoint), (1, 0));
 }
 
-/// An optional node in a copy is an unapplied deletion: undecidable, so it keeps the match even though its spelling disagrees with the other copy. C#'s alignment check would refuse this one, but PanGloss's capture enumeration differs from C#'s for optional nodes, so refusing here loses real parses (divergence 049, fixture `nullable-copy-partition-ltr`).
-#[test]
-fn an_optional_copy_node_keeps_the_match() {
-    let g = featureless_grammar();
-    let shape = shape_of(&g, "pasapa");
-    let char_def = shape.char_def(3);
-    assert_ne!(
-        char_def,
-        shape.char_def(1),
-        "the optional node must disagree in spelling with the first copy"
-    );
-    let lanes = shape.node_lanes(3).to_vec();
+/// Rebuilds `pasapa` with node 3 (the second copy's consonant) optional, spelled like node `like`.
+fn with_optional_second_consonant(g: &Grammar, like: usize) -> Shape {
+    let shape = shape_of(g, "pasapa");
+    let char_def = shape.char_def(like);
+    let lanes = shape.node_lanes(like).to_vec();
     let mut builder = ShapeBuilder::from_shape(&shape);
     builder.delete(3);
     builder.insert(
@@ -295,7 +288,38 @@ fn an_optional_copy_node_keeps_the_match() {
         NodeFlags(NodeFlags::OPTIONAL),
         &lanes,
     );
-    assert_eq!(kept(&g, builder.freeze()), (1, 1));
+    builder.freeze()
+}
+
+/// A copy made only of an optional node can be an empty capture in C# (the matcher skips optional nodes at a group's edge), and C# keeps a match with an empty capture, so the split stays whatever the node's spelling (divergence 049).
+#[test]
+fn a_copy_of_only_an_optional_node_keeps_the_match() {
+    let g = featureless_grammar();
+    let shape = with_optional_second_consonant(&g, 3);
+    assert_ne!(shape.char_def(3), shape.char_def(1));
+    assert_eq!(kept(&g, shape), (1, 1));
+    assert_eq!(kept(&g, with_optional_second_consonant(&g, 1)), (1, 1));
+}
+
+/// `tasitasi` with the second copy's `a` made an optional `u`: the copies `tasi` and `tu?si` cannot line up (`u?` may be passed over or stand for a node of the other copy, and no node of the other copy is a `u`), so only the true split is at stake and it is refused; the empty-copy splits are refused too.
+#[test]
+fn an_optional_node_that_cannot_stand_for_its_partner_refuses_the_split() {
+    let g = copy_grammar_with(false, DOUBLE_RULE);
+    let shape = shape_of(&g, "tasitasi");
+    let char_def = shape_of(&g, "tusi").char_def(2);
+    let lanes = shape.node_lanes(6).to_vec();
+    let mut builder = ShapeBuilder::from_shape(&shape);
+    builder.delete(6);
+    builder.insert(
+        6,
+        NodeKind::Segment,
+        char_def,
+        NodeFlags(NodeFlags::OPTIONAL),
+        &lanes,
+    );
+    let (off, on) = kept(&g, builder.freeze());
+    assert!(off >= 1, "unpruned proposes the split: {off}");
+    assert_eq!(on, 0, "the copies cannot line up");
 }
 
 /// Parses are the same with pruning on and off; only wasted analysis candidates go.

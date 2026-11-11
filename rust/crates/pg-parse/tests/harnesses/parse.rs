@@ -23,6 +23,8 @@ mod clitic_template_state_gate;
 mod conformance_fixtures_gate;
 #[path = "../copy_agreement_featureless.rs"]
 mod copy_agreement_featureless;
+#[path = "../copy_alignment_optional.rs"]
+mod copy_alignment_optional;
 #[path = "../cross_table_metathesis_surface_match_gate.rs"]
 mod cross_table_metathesis_surface_match_gate;
 #[path = "../disjunctive_recheck_gate.rs"]

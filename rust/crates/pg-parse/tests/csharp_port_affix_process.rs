@@ -121,9 +121,9 @@ fn unifiable_distinct_segments_survive_copy_agreement_pruning() {
     assert_eq!(analyze_copy_shape(&g, shape, true).len(), 1);
 }
 
-/// A copy with an optional node, including a leading one at the word start, is never pruned.
+/// A copy with an optional node, including a leading one at the word start, is aligned (an optional node may be passed over or stand for a node of the other copy): the true split `p?a|pa` stays, and so does the split whose first copy is only the optional node (C# may read it as an empty capture); the other empty-copy split goes (divergence 049).
 #[test]
-fn optional_left_prefix_keeps_copy_agreement_undecidable() {
+fn optional_left_prefix_keeps_the_aligned_split() {
     let g = copy_rule_grammar();
     let shape = pg_rules::shape_feat::segment_with_features(&g, &g.char_tables[0], "papa")
         .expect("copy-agreement input should segment");
@@ -143,7 +143,12 @@ fn optional_left_prefix_keeps_copy_agreement_undecidable() {
 
     let outputs_off = analyze_copy_shape(&g, shape.clone(), false);
     let outputs_on = analyze_copy_shape(&g, shape, true);
-    assert_eq!(outputs_on.len(), outputs_off.len());
+    assert_eq!(outputs_off.len(), 3);
+    assert_eq!(
+        outputs_on.len(),
+        2,
+        "the aligned split, and the split whose first copy is only the optional node, which C# keeps"
+    );
 }
 
 /// Asserts `outcome`'s identity multiset equals `expected`, order-insensitive but duplicate-sensitive.

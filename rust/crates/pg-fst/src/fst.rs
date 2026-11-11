@@ -171,6 +171,14 @@ impl Fst {
         self.groups.iter().find(|(n, _)| n == name).map(|&(_, t)| t)
     }
 
+    /// Where an empty group was entered: the one offset its start and end registers share, or `None` when the group was never entered or holds a non-empty capture.
+    pub fn empty_capture_offset(&self, name: &str, registers: &[crate::Register]) -> Option<i32> {
+        let tag = self.group_tag(name)? as usize;
+        let start_val = registers[tag * 2];
+        let end_val = registers[(tag + 1) * 2 + 1];
+        (start_val.has && end_val.has && start_val.value_eq(&end_val)).then_some(start_val.offset)
+    }
+
     /// C# `Fst.GetOffsets`: the captured `(start, end)` of a group from a result's registers, or `None` if unset/empty.
     pub fn get_offsets(&self, name: &str, registers: &[crate::Register]) -> Option<(i32, i32)> {
         let tag = self.group_tag(name)? as usize;

@@ -3023,74 +3023,170 @@ fn copy_agreement_refuses_match(
         let name = format!("p{part}");
         let mut copies: Vec<Vec<usize>> = Vec::with_capacity(occurrences.len());
         let mut undecidable = false;
+        let mut ranges: Vec<Option<(usize, usize)>> = Vec::with_capacity(occurrences.len());
         for capture_idx in 0..occurrences.len() {
-            // `get_offsets` returns `None` for an empty capture (every group of this rule always participates). C# then keeps the match as undecidable (`GroupCapture.Success` is false); here an empty capture is a zero-length copy (divergence 049).
-            let Some((start, end)) =
-                fst.get_offsets(&group_name(&name, capture_idx), &result.registers)
-            else {
-                copies.push(Vec::new());
-                continue;
-            };
-            if start < 0 || end < 0 || end as usize > node_of.len() {
-                undecidable = true;
-                break;
+            match copy_node_range(fst, &name, capture_idx, result, shape, node_of) {
+                Ok(range) => ranges.push(range),
+                Err(()) => {
+                    undecidable = true;
+                    break;
+                }
             }
-            if start >= end {
-                copies.push(Vec::new());
-                continue;
+        }
+        if !undecidable {
+            // An empty group the matcher left unplaced sits against its neighbour in the output; the same is true of no optional node in the word, where nothing can be absorbed.
+            for k in 0..ranges.len() {
+                if ranges[k].is_some() {
+                    continue;
+                }
+                let after_previous = k > 0 && occurrences[k - 1] + 1 == occurrences[k];
+                let before_next = k + 1 < ranges.len() && occurrences[k] + 1 == occurrences[k + 1];
+                ranges[k] = match (after_previous, before_next) {
+                    (true, _) if ranges[k - 1].is_some() => ranges[k - 1].map(|(_, hi)| (hi, hi)),
+                    (_, true) if ranges[k + 1].is_some() => ranges[k + 1].map(|(lo, _)| (lo, lo)),
+                    _ if (0..shape.len()).all(|n| !shape.flags(n).is_optional()) => Some((0, 0)),
+                    _ => {
+                        undecidable = true;
+                        break;
+                    }
+                };
             }
-            let copied_segments = node_of[start as usize..end as usize].to_vec();
-            let first = copied_segments[0];
-            let last = copied_segments[copied_segments.len() - 1];
-            if last >= shape.len() {
-                undecidable = true;
-                break;
+        }
+        if !undecidable {
+            for range in ranges.iter().flatten() {
+                match copy_with_boundary_optionals(shape, *range) {
+                    Some(nodes) => copies.push(nodes),
+                    None => {
+                        undecidable = true;
+                        break;
+                    }
+                }
             }
-
-            // Like `copy_part`, count a leading optional run that reaches the word start as part of the copy.
-            let mut optional_prefix_start = first;
-            while optional_prefix_start > 1 && shape.flags(optional_prefix_start - 1).is_optional()
-            {
-                optional_prefix_start -= 1;
-            }
-            let capture_start = if optional_prefix_start == 1 {
-                optional_prefix_start
-            } else {
-                first
-            };
-            // A copy holding an unapplied deletion is undecidable: see divergence 049 for why C#'s optional-segment alignment is not applied here.
-            if (capture_start..=last).any(|node| shape.flags(node).is_optional()) {
-                undecidable = true;
-                break;
-            }
-            copies.push(copied_segments);
         }
         if undecidable {
             continue;
         }
 
+        // C# skips optional nodes at a group's edge, so a copy made only of optional nodes can be an empty capture there, and an empty capture keeps the match (`GroupCapture.Success` is false). Such a part is never refused here.
+        if copies
+            .iter()
+            .any(|nodes| !nodes.is_empty() && nodes.iter().all(|&n| shape.flags(n).is_optional()))
+        {
+            continue;
+        }
+
+        let agree = |a: usize, b: usize| {
+            flat_unifiable(shape.node_lanes(a), shape.node_lanes(b))
+                && (!compare_characters
+                    || identities_may_agree(shape.node_cd_set(a), shape.node_cd_set(b)))
+        };
         for left in 0..copies.len() {
             for right in (left + 1)..copies.len() {
-                if copies[left].len() != copies[right].len() {
+                if !copies_can_align(shape, &copies[left], &copies[right], &agree) {
                     return true;
-                }
-                for (&left_node, &right_node) in copies[left].iter().zip(&copies[right]) {
-                    if !flat_unifiable(shape.node_lanes(left_node), shape.node_lanes(right_node)) {
-                        return true;
-                    }
-                    if compare_characters
-                        && !identities_may_agree(
-                            shape.node_cd_set(left_node),
-                            shape.node_cd_set(right_node),
-                        )
-                    {
-                        return true;
-                    }
                 }
             }
         }
     }
     false
+}
+
+/// The shape nodes a capture covers, as the half-open node interval `[lo, hi)`; an empty capture is the empty interval at its position. `Ok(None)` is an empty capture the matcher left no position for; `Err` is a capture that cannot be read.
+fn copy_node_range(
+    fst: &Fst,
+    name: &str,
+    capture_idx: usize,
+    result: &FstResult,
+    shape: &Shape,
+    node_of: &[usize],
+) -> Result<Option<(usize, usize)>, ()> {
+    let group = group_name(name, capture_idx);
+    if let Some((start, end)) = fst.get_offsets(&group, &result.registers) {
+        if start < 0 || end < 0 || end as usize > node_of.len() || start >= end {
+            return Err(());
+        }
+        let first = node_of[start as usize];
+        let last = node_of[end as usize - 1];
+        if last >= shape.len() {
+            return Err(());
+        }
+        return Ok(Some((first, last + 1)));
+    }
+    // An empty capture: both register halves hold the same offset when the group was entered.
+    let Some(at) = fst.empty_capture_offset(&group, &result.registers) else {
+        return Ok(None);
+    };
+    if at < 0 || at as usize > node_of.len() {
+        return Err(());
+    }
+    let at = at as usize;
+    let node = if at == node_of.len() {
+        node_of.last().map_or(shape.len(), |&n| n + 1)
+    } else {
+        node_of[at]
+    };
+    Ok(Some((node, node)))
+}
+
+/// A copy as the segment nodes C# `TryGetSegmentCopies` would see under any partition of the optional nodes next to its boundaries: the nodes of `[lo, hi)` plus the unbroken runs of optional nodes just before `lo` and just after `hi`, since the capture enumeration may have given those to the neighbouring copy (divergence 049). `None` when an optional node that is not a segment lies in that span, which C# never reports as disagreeing.
+fn copy_with_boundary_optionals(shape: &Shape, (lo, hi): (usize, usize)) -> Option<Vec<usize>> {
+    let mut start = lo;
+    while start > 1 && shape.flags(start - 1).is_optional() {
+        start -= 1;
+    }
+    let mut end = hi;
+    while end + 1 < shape.len() && shape.flags(end).is_optional() {
+        end += 1;
+    }
+    let mut nodes = Vec::with_capacity(end - start);
+    for node in start..end {
+        if shape.kind(node) == NodeKind::Segment {
+            nodes.push(node);
+        } else if shape.flags(node).is_optional() {
+            return None;
+        }
+    }
+    Some(nodes)
+}
+
+/// C# `CanAlign`: without optional nodes the copies must have equal length and agree position by position; with them an optional node is passed over, or absorbs a node of the other copy and stays available.
+fn copies_can_align(
+    shape: &Shape,
+    first: &[usize],
+    second: &[usize],
+    agree: &impl Fn(usize, usize) -> bool,
+) -> bool {
+    let optional = |n: usize| shape.flags(n).is_optional();
+    if !first.iter().chain(second).any(|&n| optional(n)) {
+        return first.len() == second.len() && first.iter().zip(second).all(|(&a, &b)| agree(a, b));
+    }
+    let mut reachable = vec![vec![false; second.len() + 1]; first.len() + 1];
+    reachable[0][0] = true;
+    for i in 0..=first.len() {
+        for j in 0..=second.len() {
+            if !reachable[i][j] {
+                continue;
+            }
+            let first_optional = i < first.len() && optional(first[i]);
+            let second_optional = j < second.len() && optional(second[j]);
+            if first_optional {
+                reachable[i + 1][j] = true;
+            }
+            if second_optional {
+                reachable[i][j + 1] = true;
+            }
+            if i < first.len() && j < second.len() && agree(first[i], second[j]) {
+                reachable[i + 1][j + 1] = true;
+                if first_optional {
+                    reachable[i][j + 1] = true;
+                }
+                if second_optional {
+                    reachable[i + 1][j] = true;
+                }
+            }
+        }
+    }
+    reachable[first.len()][second.len()]
 }
 
 /// One allomorph's analysis-side match, `GenerateShape`, and dedup; `carry` writes whichever feature structure the rule kind propagates, and the dedup scope resets per allomorph, never shared across the rule.
