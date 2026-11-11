@@ -757,3 +757,21 @@ fn a_rule_past_the_state_bound_is_reported_not_tabled() {
     assert!(matches!(view.rule(tag, 1), RuleOutcome::TooBig(1)));
     assert!(matches!(view.rule(tag, 1000), RuleOutcome::Table(_)));
 }
+
+#[test]
+fn a_symbol_number_past_sixteen_bits_is_refused() {
+    let g = load(&spec(
+        "kaqtnu",
+        vec![prefix(0, "ka"), suffix(1, "nu")],
+        &["qt"],
+    ));
+    let mut net = machine_net(&g);
+    acceptor::check_token_range(&net).expect("the symbols fit");
+    net.sigma.push(foma::types::Sigma {
+        number: 70_000,
+        symbol: "zz".into(),
+    });
+    let refusal = acceptor::check_token_range(&net).expect_err("refused");
+    assert!(matches!(refusal, AdmissionRefusal::Construction(_)));
+    assert!(refusal.reason().contains("70000"), "{}", refusal.reason());
+}

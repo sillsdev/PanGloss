@@ -1,5 +1,6 @@
 //! One small deterministic acceptor per rule tag, read out of the final admission net as a plain table.
 
+use super::AdmissionRefusal;
 use foma::types::{Fsm, EPSILON, IDENTITY};
 use foma::utf8::is_combining;
 use std::collections::{BTreeMap, HashMap};
@@ -7,6 +8,17 @@ use std::collections::{BTreeMap, HashMap};
 /// The token of a character no net symbol matches, and of a symbol followed by combining marks.
 const OTHER: u16 = IDENTITY as u16;
 const DEAD: u32 = u32::MAX;
+
+/// Refuses a net whose symbol numbers do not fit the 16-bit tokens the tables and the tokenizer read.
+pub(super) fn check_token_range(net: &Fsm) -> Result<(), AdmissionRefusal> {
+    let widest = net.sigma.iter().map(|s| s.number).max().unwrap_or(0);
+    match usize::try_from(widest) {
+        Ok(number) if number <= usize::from(u16::MAX) => Ok(()),
+        _ => Err(AdmissionRefusal::Construction(format!(
+            "symbol number {widest} does not fit a 16-bit token"
+        ))),
+    }
+}
 
 struct TrieNode {
     symbol: u16,

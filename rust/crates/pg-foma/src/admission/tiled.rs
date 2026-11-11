@@ -5,7 +5,7 @@ mod image;
 mod pieces;
 mod roots;
 
-use super::acceptor::{NetView, RuleOutcome, RuleTable, TableSize, Tokenizer};
+use super::acceptor::{check_token_range, NetView, RuleOutcome, RuleTable, TableSize, Tokenizer};
 use super::build::{self, Meter};
 use super::{AdmissionRefusal, Composition, RuleAdmission, Size};
 use crate::cascade_parts::CascadeParts;
@@ -232,6 +232,10 @@ impl Tiled {
         let Language { mut net, warnings } = language;
         evidence.final_net = build::size(&net);
         fsm_sort_arcs(&mut net, 2);
+        if let Err(refusal) = check_token_range(&net) {
+            evidence.off = Some(format!("build refused: {}", refusal.reason()));
+            return;
+        }
         let view = NetView::new(&net);
         self.tokenizer = Some(Tokenizer::new(&net));
         self.warnings = warnings;

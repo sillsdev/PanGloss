@@ -215,6 +215,7 @@ pub fn build_rule_admission(
         .map_err(|e| AdmissionRefusal::Construction(e.to_string()))?;
     evidence.final_bytes = counter.0;
     fsm_sort_arcs(&mut net, 2);
+    acceptor::check_token_range(&net)?;
     let tables = build_tables(&net, (&tags, free), &plan, &mut evidence, &mut meter)?;
     Ok(RuleAdmission {
         tokenizer: Tokenizer::new(&net),
