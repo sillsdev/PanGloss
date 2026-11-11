@@ -16,11 +16,12 @@ change the working budgets. A finished FST can reasonably be up to about 50 MB; 
 it as small as reasonably possible by minimizing, widening and factoring before growth.
 
 The [intermediate-bundle inclusion contract](../development/fst-construction-strategies.md#intermediate-bundles-and-the-inclusion-contract)
-retains feature-only material between phonological rules. In
-`rust/crates/pg-foma/src/lower/intermediate.rs`, alpha output lanes currently enumerate
+retains feature-only material between phonological rules. When this decision was
+taken, alpha output lanes in `rust/crates/pg-foma/src/lower/intermediate.rs` enumerated
 every subset of their feature mask, including zero and negated bindings: `2^k` choices
-for `k` bits, multiplied across alpha outputs. Raising limits cannot fix that shape.
-The cascade owner is `rust/crates/pg-foma/src/replace.rs`.
+for `k` bits, multiplied across alpha outputs. Raising limits could not fix that shape.
+The lanes are now single any-value lanes, as decided below, and both cascades measured
+here build. The cascade owner is `rust/crates/pg-foma/src/replace.rs`.
 
 The 2026-11-09 lane measurements behind main commit `6223110b` (#212) show:
 
@@ -29,12 +30,13 @@ The 2026-11-09 lane measurements behind main commit `6223110b` (#212) show:
 | Cebuano export | `prule16` | 262,144 rows | 243,269,632 bytes | 65,537 |
 | Amharic XML | `prule6` | 262,144 rows | 226,492,416 bytes | 65,537 |
 
-Both refuse under the new 100 MiB / 65,536-row bounds, before allocating the next
-complete vector; these alpha expansions grow eightfold per step in the measured case.
+Both refused under the then-new 100 MiB / 65,536-row bounds, before allocating the next
+complete vector; these alpha expansions grew eightfold per step in the measured case.
 The separate BMP PUA domain still allows only 6,400 table IDs and private tokens
 combined. These are component measurements, not completed morphology construction,
-corpus savings, or semantic parity evidence. The experiment record is
-`pg-fst-report.md` and `pg-fst-measure-65536.log` in the production workspace's `lanes/`.
+corpus savings, or semantic parity evidence. The experiment record
+(`pg-fst-report.md` and `pg-fst-measure-65536.log`) is kept in the production
+workspace's `lanes/`, outside this repository.
 The safe application fallback remains plain HC-Rust: correct, with less acceleration.
 
 Classify the decisions under the
@@ -127,7 +129,7 @@ grammars are assessed by the structures they actually require.
 | Final machine size | Serialized finished FST bytes | About 50 MB expected; minimize, widen and factor to keep it as small as reasonably possible | Warn on observed/projected excess with size, expectation and contributors; it is not a failure threshold |
 | Apply and peel | Traversed paths, decoded identity units and peel transitions | Existing finite path/candidate/depth limits, plus B expected total charged query entries; no product of individually capped collections | Abandon acceleration for this word and plain-parse it |
 | First-pass filter and identity merge | All candidate, sequence, witness and checked-restriction units for this word | Linear in these units, not pairwise in candidates; B expected charged units; candidate allowance initially at most 1,023 merged identities | On unknown facts retain; on word-budget exhaustion plain-parse the word |
-| HC confirmation | Sum of actual HC parser steps across all confirmation groups | One shared per-word allowance S, never S per candidate; at most 1,023 merged identities; measured target at most 25% of a plain parse | Stop inside the current HC call; discard partial acceleration output and plain-parse the word |
+| HC confirmation | Sum of actual HC parser steps across all confirmation groups | One restricted parse per word under the plain parse's own work cap; an identity-candidate stage, if one is ever added, shares one per-word allowance and at most 1,023 merged identities; every stage is admitted by the net-cost rule below | Stop inside the current HC call; discard partial acceleration output and plain-parse the word |
 
 For inventory work, “entry” includes lane storage and transfer visits; a million
 wide rows is not a million scalar entries. Keep the existing conservative byte charge
@@ -167,25 +169,41 @@ occurrence i, record:
 - `F_i`: steps of the plain fallback parse, zero when acceleration completes.
 - `A_i = C_i + F_i`: HC work actually spent by the accelerated routing policy.
 
-Record raw paths, candidates before/after filter/merge, filter work, apply work,
-confirmation groups, route/reason and completion status alongside these numbers.
-Filter/apply counters have different units; report them separately, not as HC steps.
+Record the admitted rules, filter work, confirmation groups, route/reason and
+completion status alongside these numbers. Work steps count HC work only. A filter's
+own cost is not an HC step; it is measured in retired instructions, the one unit the
+filter and the parser share (see the net-cost rule below).
 Do not divide confirmation work by candidates or report milliseconds as savings.
 The forbidden example, 1,000 candidates each costing 5% of a plain parse, is
 `C_i / P_i = 50`, or **50 times** the plain work, regardless of candidate yield.
 
-“Well below” initially means `C_i <= floor(P_i / 4)` on completed accelerated
-measurement rows. Calibrate the finite grammar-wide allowance
-`S = floor(min(P_i > 0) / 4)` from the frozen representative and worst-word corpus;
-record it as immutable acceleration configuration, not a word-result cache. If S
-is zero or no complete calibration is available, use plain parsing by default.
-A completed zero-step reference is reported separately and must not hide positive
-confirmation cost. A zero-step/zero-step comparison has no ratio.
+**Net-cost rule (owner, 2026-11-10).** “We can't always do 75% but we should use
+filters as long as it is easier (faster) to filter than to have HC check it.” A
+filter stage stays for a grammar only while it removes more HC work than it costs:
+with `I_plain`, `I_filter`, `I_confirm` and `I_fallback` the retired instructions of
+the plain parse, of the stage's own per-word work, of the restricted or confirming
+parse and of any fallback parse, summed over the frozen corpus, the stage is admitted
+when `I_filter + I_confirm + I_fallback < I_plain`, and the report gives
+**net % less = `100 * (1 - (I_filter + I_confirm + I_fallback) / I_plain)`**.
+Stages are judged one at a time, each against the pipeline without it, and per
+grammar: a stage that pays on one grammar and not on another is switched on for the
+first only. Report the per-word distribution as well (share of words where the
+stage comes out ahead, and the net figure by plain-work quartile), because a corpus
+total can hide a stage that loses on most words. This rule replaces the earlier
+fixed target of a quarter of the plain parse and its calibrated allowance S.
 
-Production does not run an extra plain reference parse to discover P_i. It enforces
-S inside a shared per-word HC work budget, plus the candidate allowance, and falls
-back once on exhaustion. The plain parse keeps its own existing finite limits and
-completion semantics; it is not a retry with increased limits. Never return just
+Instructions are counted with callgrind, collecting only inside the stage functions
+of the measurement example, so that start-up and construction are excluded; the
+example `admission_measure` is the reference harness. Work steps remain the unit
+for HC work and for “% less work”; instructions are the unit whenever a filter's own
+cost is part of the comparison. A completed zero-work reference is reported
+separately and has no ratio.
+
+Production does not run an extra plain reference parse to discover P_i. Rule
+admission runs one restricted parse under the plain parse's own work cap and falls
+back to the plain parse only on a typed refusal. The plain parse keeps its own
+existing finite limits and completion semantics; it is not a retry with increased
+limits. Never return just
 the confirmed subset or union it with fallback output and double multiplicities.
 This is routing to a complete parser, distinct from killing a word on low yield in
 [ADR 0003](0003-apply-time-containment.md).
@@ -195,9 +213,10 @@ including every occurrence and fallback, not the mean of word percentages. Publi
 `100 * (1 - sum(C_i) / sum(P_i))` only as a separately labelled confirmation-only
 diagnostic. Zero denominator means undefined. Missing/capped/errored rows preclude
 a complete savings or parity claim; retain them in coverage counts. Check maxima
-and the per-word ratio as well as totals. A grammar with no positive actual savings,
-or an accelerated completed row above the 25% target, runs without the FST until
-a new configuration passes. A correct completed but uneconomic FST is readiness
+and the per-word ratio as well as totals. Report it beside the oracle ceiling
+measured on the same build: the work of a restricted parse that is given exactly
+the rules of the true analyses. A grammar or stage with no positive net saving runs
+without that stage until a new configuration passes. A correct completed but uneconomic FST is readiness
 evidence, not `CannotRepresent`; contained developer experiments remain available.
 
 ### Warn on representation size and preserve the backstop
@@ -206,8 +225,8 @@ Every structure covered by the budget table, including the serialized final mach
 projected size **exceeds its stated expectation**: bundle rows/lane storage, transfer
 worklists, rule/intermediate/connected states+arcs, temporary composition work,
 apply paths, per-word candidates/witnesses and confirmation steps. B is the general
-structural expectation; the table's smaller effective dimensions and the measured
-25% confirmation/plain-step target also remain explicit. Input counts of rules,
+structural expectation; the table's smaller effective dimensions and the net-cost
+rule also remain explicit. Input counts of rules,
 phonemes and environments never trigger a warning by themselves.
 
 Name the structure, observed/projected size and expected bound, plus the grammar
@@ -220,14 +239,78 @@ requesting 262,144 bundle rows should identify its alpha outputs and the effecti
 row expectation, even when a backstop prevents retaining that many rows.
 
 Measure relative confirmation warnings only when the independent plain-step
-denominator is available; production can report an exceeded absolute S with its
-calibration provenance, without fabricating an unseen word's P_i. Attribute costs
+denominator is available; production reports the route taken and never fabricates an
+unseen word's P_i. Attribute costs
 to actual confirmation groups and their contributing candidate grammar items.
 Widening must be observable by fire counts and before/after work/size, not just a
 message. Gather provenance from the operation producing the entries; do not add
 exhaustive scans or expensive checks to generate warnings. Warnings remain advisory;
 independent hard controls widen/fallback/refuse as specified above. Existing hard
 bounds remain last-resort backstops; no automatic bound escalation.
+
+### Amendment, 2026-11-10: filter shape is rule admission
+
+**Shape.** The filter in front of HC is *rule admission*, not identity candidates. For a surface word it gives a
+superset of the affix rules that can take part in any analysis; HC then runs one restricted parse that attempts
+only those rules, with every stratum, template and the whole lexicon still on. The answer comes from one
+determinised table per rule (the surface image of `any* piece any*` through the phonological cascade), so a word
+costs one table walk per rule. A rule with no usable surface piece is admitted for every word; a typed refusal
+means the word is parsed plainly. The inclusion contract is unchanged: the filter may over-admit and must never
+exclude a rule of a true analysis; the restricted parse returns exactly the plain parse's analyses with their
+multiplicity.
+
+**Why not identity candidates** ("Filter and merge before confirmation" above). Measured on the reference
+grammar: the restricted parse already reaches few leaves, so proposing roots or whole identities there removes
+at most 0.2 points of work, and whole-identity shapes for Cebuano need 10.9 times the B = 1,000,000 structure
+budget. That section, and the budget rows "Apply and peel" and "First-pass filter and identity merge", now
+apply only if an identity-candidate stage is added later; none is planned.
+
+**Second stage, per grammar.** A *tiled acceptor* rejects a word outright before the restricted parse when no
+tiling of affix pieces around a lexicon root can spell it and no rule outside its model is admitted. It is one
+more table walk per word. It is valid only without root guessing and it switches itself off where its model does
+not hold. By the net-cost rule it is on for Tamil, Sena, Swahili, Indonesian and the Cebuano reference grammar
+and off elsewhere.
+
+**Measured (2026-11-11, nine grammars, main with #232, retired instructions, filter cost counted).**
+
+| Grammar | Net % less, rule admission | Net % less, with the tiled stage | % less work (steps), admission / with tiled | Oracle ceiling, % less work |
+|---|---:|---:|---:|---:|
+| Cebuano fwdata (reference) | 18.5 | 19.7 | 21.4 / 24.3 | 64.3 |
+| Cebuano export | 32.0 | stage off | 35.0 | 94.1 |
+| Amharic | 3.9 | stage off | 6.2 | 72.1 |
+| Aweti | 5.0 | stage off | 6.0 | 99.4 |
+| Indonesian | 3.5 | 6.0 | 5.2 / 8.0 | 36.7 |
+| Mbugwe | 13.6 | stage off | 12.8 | 93.0 |
+| Sena | 3.8 | 8.3 | 4.2 / 11.6 | 69.2 |
+| Swahili | 15.3 | 16.1 | 18.1 / 20.8 | 69.4 |
+| Tamil | 25.4 | 74.2 | 35.3 / 90.0 | 42.5 (rule oracle; the tiled stage is not a rule filter and passes it) |
+
+No analysis was lost on any word of any grammar or conformance fixture. The filter's own cost is at most 1.2%
+of the plain parse, the tiled stage's at most 0.45%. The structures are small: the per-rule tables total 75 to
+2,811 states per grammar (largest 294 KB), the tiled table at most 1,967 states (at most 330 KB); the
+largest intermediate while building the tiled table was 433,849 states plus arcs, inside B.
+
+**Budget rows that apply to rule admission.** Grammar facts and indexes; alpha lowering; intermediate inventory;
+rule lowering and cascade composition (each per-rule piece is folded through the cascade and minimized after each
+step; a rule whose determinised table passes 20,000 states is admitted for every word, with the standard
+warning); final machine size (tables, far below 50 MB); HC confirmation (one restricted parse under the plain
+work cap).
+
+**What the ceiling says.** A perfect rule filter would save 37% to 99%. Rule admission reaches 5% to 79% of
+that. The gap is in rules with no surface piece (null affixes, reduplication, affixes of one segment that
+another rule deletes or modifies) and in words with no analysis; four further mechanisms aimed at it were built
+or measured and did not clear the rule (root reachability inside the search, exact treatment of always-applied
+iterative rules, conditions for free rules, edge anchoring). They are recorded in the lane report with their
+numbers and are not part of this decision.
+
+**Prior art.** Compiling lexicon and rules into one transducer (Karttunen, Kaplan and Zaenen 1992; Karttunen
+1994; the Divvun, GiellaLT and HFST family) removes the need for a filter by removing the parser. A cheap
+necessary condition in front of an exact matcher is standard for regular expressions (Cox 2012; RE2; Hyperscan,
+NSDI 2019), a regular superset of a stronger grammar goes back to Pereira and Wright 1991, and rule filters and
+quick checks in front of unification parsing to Kiefer et al. 1999 and Matsuzaki et al. 2007. No source was
+found for a sound per-rule superset of a rewrite cascade's output used to restrict an un-application parser, nor
+for a morphological prefilter judged by net cost with its own cost counted; confidence moderate (several
+searches were not run).
 
 ## Consequences/Open points
 
@@ -237,18 +320,15 @@ Stage 1 completion alone is not its success criterion. The existing production
 `surface-enum` path and unimplemented `factored` strategy do not gain capability
 merely because this phonology component changes.
 
-The 1M, 1,023-candidate and 25% choices above resolve the initial operational
-values for the owner's approximate ceiling, candidate cap and “well below” target.
-Calibration may lower effective limits. Raising them needs fresh two-sided work,
-recall and containment evidence, not a desire to make a benchmark finish.
+The 1M and 1,023-candidate choices above resolve the initial operational values for
+the owner's approximate ceiling and candidate cap. Calibration may lower effective
+limits. Raising them needs fresh two-sided work, recall and containment evidence,
+not a desire to make a benchmark finish.
 
-An absolute S cannot guarantee a ratio to an unseen word's unknown P_i. Obtaining
-that denominator by parsing every word plainly would itself spend the work being
-saved. The initial policy therefore makes the 25% ratio a measured admission gate
-and S a runtime containment guarantee, and does not claim a universal per-word
-speedup. Newly measured regressions disable the grammar's accelerator; no adaptive
-word cache is introduced. A stronger online relative guarantee needs an independently
-proved lower bound on plain work; no such bound is established by these measurements.
+The net-cost rule is a measured admission gate per grammar and per stage. It does
+not claim a per-word speedup for an unseen word: obtaining that word's plain cost
+would itself spend the work being saved. Newly measured regressions disable the
+stage for the grammar; no adaptive word cache is introduced.
 
 Native foma operation accounting and the bounded universal phonology relation still
 require implementation and proof. If either cannot act, it must name the unavailable
