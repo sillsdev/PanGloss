@@ -569,9 +569,12 @@ impl ShapeBuilder {
         self.char_defs.insert(index, char_def);
         self.flags.insert(index, flags);
         let w = self.feat_width as usize;
-        for (k, &v) in lanes.iter().enumerate() {
-            self.feat_lanes.insert(index * w + k, v);
-        }
+        // One tail shift for the whole row, not one per lane.
+        let at = index * w;
+        let old = self.feat_lanes.len();
+        self.feat_lanes.resize(old + w, 0);
+        self.feat_lanes.copy_within(at..old, at + w);
+        self.feat_lanes[at..at + w].copy_from_slice(lanes);
         self.cd_sets.insert(index, CdSet::Unrestricted);
     }
 
@@ -615,10 +618,11 @@ impl ShapeBuilder {
         self.char_defs.remove(index);
         self.flags.remove(index);
         let w = self.feat_width as usize;
-        // Draining from the tail forward keeps the remaining indices valid across removals.
-        for k in (0..w).rev() {
-            self.feat_lanes.remove(index * w + k);
-        }
+        // One tail shift for the whole row, not one per lane.
+        let at = index * w;
+        let old = self.feat_lanes.len();
+        self.feat_lanes.copy_within(at + w..old, at);
+        self.feat_lanes.truncate(old - w);
         self.cd_sets.remove(index);
     }
 

@@ -295,3 +295,48 @@ fn inline_columns_bytes_matches_the_column_layout() {
     let by_hand = 7 * size_of::<Box<[u8]>>() + size_of::<u32>();
     assert_eq!(INLINE_COLUMNS_BYTES, by_hand.next_multiple_of(8));
 }
+
+/// Lane values distinct per node and per lane.
+fn lane_row(tag: u64, w: usize) -> Vec<u64> {
+    (0..w as u64).map(|k| tag * 1000 + k + 1).collect()
+}
+
+fn assert_lanes_match(b: &ShapeBuilder, model: &[Vec<u64>]) {
+    assert_eq!(b.len(), model.len());
+    for (i, row) in model.iter().enumerate() {
+        assert_eq!(b.node_lanes(i), row.as_slice(), "lane row {i} out of place");
+    }
+}
+
+#[test]
+fn insert_and_delete_keep_feature_lanes_aligned_at_start_middle_and_end() {
+    for w in [2usize, 3, 5] {
+        let mut seed = ShapeBuilder::with_features(w as u32);
+        for tag in 1..=4u64 {
+            seed.push_segment(tag as u32);
+            seed.modify(tag as usize, &lane_row(tag, w));
+        }
+        // Anchors, then the four interior rows, then the right anchor.
+        let mut b = ShapeBuilder::from_shape(&seed.finish());
+        let mut model: Vec<Vec<u64>> = (0..b.len()).map(|i| b.node_lanes(i).to_vec()).collect();
+        assert_eq!(model.len(), 6);
+        assert_lanes_match(&b, &model);
+
+        // Insert before the first interior node, mid-way, and before the right anchor.
+        for (at, next) in [(Some(1usize), 10u64), (Some(3), 11), (None, 12)] {
+            let index = at.unwrap_or(b.len() - 1);
+            let row = lane_row(next, w);
+            b.insert(index, NodeKind::Segment, 7, NodeFlags::EMPTY, &row);
+            model.insert(index, row);
+            assert_lanes_match(&b, &model);
+        }
+
+        // Delete the first interior node, a middle one, and the last interior node.
+        for at in [Some(1usize), Some(model.len() / 2 - 1), None] {
+            let index = at.unwrap_or(model.len() - 2);
+            b.delete(index);
+            model.remove(index);
+            assert_lanes_match(&b, &model);
+        }
+    }
+}
