@@ -8,6 +8,8 @@ mod plan;
 mod tests;
 pub mod tiled;
 #[cfg(test)]
+mod tiled_construct_tests;
+#[cfg(test)]
 mod tiled_tests;
 
 use crate::lower::{pattern_slots, PatternLowerScope, Slot};

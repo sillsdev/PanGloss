@@ -5,29 +5,29 @@ use super::tiled::{build_within, Limits};
 use super::*;
 use pg_parse::{Morpher, ParseOptions};
 
-fn no_guess() -> ParseOptions {
+pub(super) fn no_guess() -> ParseOptions {
     ParseOptions::default()
 }
 
-struct Setup {
-    admission: RuleAdmission,
-    tiled: Tiled,
+pub(super) struct Setup {
+    pub(super) admission: RuleAdmission,
+    pub(super) tiled: Tiled,
 }
 
-fn setup(g: &Grammar) -> Setup {
+pub(super) fn setup(g: &Grammar) -> Setup {
     let admission = build_rule_admission(&FomaOptions::default(), g).expect("admission builds");
     let tiled = build_tiled(&FomaOptions::default(), g, &admission);
     Setup { admission, tiled }
 }
 
-fn has_analysis(morpher: &Morpher, word: &str) -> bool {
+pub(super) fn has_analysis(morpher: &Morpher, word: &str) -> bool {
     let outcome = morpher.parse_word_selected(word, &no_guess(), None, None);
     assert!(!outcome.capped, "{word} hit the work cap");
     !signature(&outcome).is_empty()
 }
 
 /// Every word and its edits: a rejected one must have no analysis. Returns the rejected words and the analysed ones.
-fn sweep(
+pub(super) fn sweep(
     g: &Grammar,
     tiled: &Tiled,
     admission: &RuleAdmission,
