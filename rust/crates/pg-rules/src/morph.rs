@@ -3023,24 +3023,24 @@ fn copy_agreement_refuses_match(
         let mut copies: Vec<Vec<usize>> = Vec::with_capacity(occurrences.len());
         let mut undecidable = false;
         for capture_idx in 0..occurrences.len() {
+            // `get_offsets` returns `None` for an empty capture (every group of this rule always participates). C# then keeps the match as undecidable (`GroupCapture.Success` is false); here an empty capture is a zero-length copy (divergence 049).
             let Some((start, end)) =
                 fst.get_offsets(&group_name(&name, capture_idx), &result.registers)
             else {
-                undecidable = true;
-                break;
+                copies.push(Vec::new());
+                continue;
             };
-            if start < 0 || end < 0 || start >= end || end as usize > node_of.len() {
+            if start < 0 || end < 0 || end as usize > node_of.len() {
                 undecidable = true;
                 break;
             }
+            if start >= end {
+                copies.push(Vec::new());
+                continue;
+            }
             let copied_segments = node_of[start as usize..end as usize].to_vec();
-            let Some(&first) = copied_segments.first() else {
-                undecidable = true;
-                break;
-            };
-            let last = *copied_segments
-                .last()
-                .expect("first segment implies a last segment");
+            let first = copied_segments[0];
+            let last = copied_segments[copied_segments.len() - 1];
             if last >= shape.len() {
                 undecidable = true;
                 break;
@@ -3057,6 +3057,7 @@ fn copy_agreement_refuses_match(
             } else {
                 first
             };
+            // A copy holding an unapplied deletion is undecidable: see divergence 049 for why C#'s optional-segment alignment is not applied here.
             if (capture_start..=last).any(|node| shape.flags(node).is_optional()) {
                 undecidable = true;
                 break;
