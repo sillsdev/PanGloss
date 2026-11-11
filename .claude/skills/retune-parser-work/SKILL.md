@@ -4,14 +4,14 @@ description: >-
   Use after a change to the parser gets a GO from instruction-compare, to test whether the parser-work
   weights in pg-cost (work, bytes allocated, FST registers copied) still describe the code and, if a refit
   is better on held-out grammars, to propose it. Trigger on "retune the cost weights", "recalibrate parser
-  work", "did this speedup move the weights", "676 / 2 / 268". Skip it for any change that does not reach
+  work", "did this speedup move the weights", "113 / 2 / 45". Skip it for any change that does not reach
   the parser, including pangloss facts. It never retunes work_steps, which is the cap.
 ---
 
 # Retune the parser-work weights
 
 Parser work (named cost in the commands and `pg-cost`) = a x work_steps + b x bytes allocated + c x FST registers copied, in instructions, with a, b, c
-fixed at 676, 2 and 268 in `rust/crates/pg-cost/src/lib.rs`. A parser change can move what one unit costs,
+fixed at 113, 2 and 45 in `rust/crates/pg-cost/src/lib.rs`. A parser change can move what one unit costs,
 and then the weights drift. It is report-only: no cap, deadline or parse decision reads it, so changing
 its weights cannot change a parse. `work_steps` is the cap and is never retuned here: retuning it could
 change a parse, and that is a separate, output-affecting change.

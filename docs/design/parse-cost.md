@@ -98,31 +98,36 @@ by group policy cannot be turned off this way, and the script refuses to try.
 The weights follow the code more than the grammar, so a stored per-project weight earns nothing. A
 code change can move them, which is what `cost-calibrate` is for.
 
-Evidence for 113 / 2 / 45, a rescale of the earlier 676 / 2 / 268 shape after #232 and #234. The old weights
-over-predicted instructions about 2x (the 2026-11-02 proof run on a pre-#228, pre-#232 build already showed
-93% median error; pg-cost was last set 2026-11-01). The work and register terms are collinear in the
-samples, so the split is not refitted: one factor, 0.167, scales both, chosen to minimise the median level error
-on the 779-word fit set (indonesian, aweti, amharic, mbugwe, sena; words that parse ok and cost under 20M
-instructions). The byte weight stays 2 because an integer cannot scale to 0.33. Median / worst level error:
+Cost is an index. It is read only as a ratio of two totals, so it is judged on its shape and on how well
+it predicts a change, never on its level against instructions.
 
-| | fit set | held out (Swahili + Cebuano, 723 words) |
-|---|---|---|
-| 676 / 2 / 268 | 175.50% / 290.26% | 86.09% / 194.38% |
-| 113 / 2 / 45 | 4.45% / 32.04% | 16.14% / 41.30% |
+113 / 2 / 45 (#233) replaced 676 / 2 / 268. Work and registers keep their ratio, scaled by about a sixth; bytes
+stay at 2, so bytes carry a larger share of cost than before. Evidence, from two change pairs over seven
+grammars (callgrind in WSL; change of each grammar's total, error in percentage points):
 
-- Free fits are unstable: 40 words per grammar gave 58 / 2 / 61, 779 words gave 177 / 2 / 14 and did not settle in 20
-  rounds. Work and register cannot be separated with these words, so the shape is kept.
-- Follow-up: refit the split once FST-heavy words decorrelate the work and register terms.
-- Earlier evidence (6 change pairs, r 0.978) described the previous parser and no longer applies.
+| Pair | Weights | Sign right | Mean / worst error | Per-word direction (moved 2% or more) |
+|---|---|---|---|---|
+| #232: bytes -17% to -44%, registers unchanged | 676 / 2 / 268 | 7 of 7 | 5.35 / 11.37 | 430 of 430 for every set (Swahili and Cebuano only) |
+| | 113 / 2 / 45 | 7 of 7 | 5.32 / 11.49 | |
+| `HC_RSL=off`: work falls, registers rise | 676 / 2 / 268 | 4 of 4 | 0.78 / 2.67 | 535 of 593 (all seven) |
+| | 113 / 2 / 45 | 4 of 4 | 0.28 / 0.63 | 569 of 593 |
+| | `work_steps` alone | 2 of 4 | 4.29 / 13.55 | 317 of 593 |
+
+- On #232 the two sets tie: 676 / 2 / 268 predicts too small a cut on all seven grammars, 113 / 2 / 45 too large
+  a cut on six. Per-word direction says nothing there, because every word moved the same way.
+- `HC_RSL=off` is the pair that separates them, and the only one that splits work from registers. Its best
+  ratios are 116 / 2 / 42; the tied fits below give 101 to 111 / 2 / 40 to 44.
+- Two pairs is thin, and both are callgrind. A standing set of pairs, including grammar edits, is #240.
 
 Limits:
 
-- Magnitude is rough. A real -45% read about -55%; a real -9% read -3%.
-- Changes under 2% are not resolved: a real +1.15% read -0.71%.
+- Magnitude is rough. On #232 a real -27.7% read -39.2% and a real -17.1% read -14.8%.
+- Changes under 2% are not resolved: on `HC_RSL=off` a real +0.42% read +1.04% and a real -0.14% read 0.00%.
 - Cost only sees changes in how much counted work happens. A constant-factor change, such as a
   cheaper hash per register copied, leaves the counts identical and reads as no change. Instruction
   comparison (`rust/tools/instruction-compare.ps1`) remains the required measure for algorithm
   changes; cost is the quick grammar-author signal.
+
 ## Cost is a report
 
 No cap, deadline or parse decision reads cost, so it cannot change a parse. Measurement stays off
@@ -188,7 +193,7 @@ carry a term only if leaving it out makes the fit at least a tenth worse. Per-wo
 registers copied rise and fall together, so real word lists do not split them. Measured on main with #232 and
 #234:
 
-| Fit words | Free fit (work / byte / register) | Fit without work | Fit without registers | Work and registers at their current ratio |
+| Fit words | Free fit (work / byte / register) | Fit without work | Fit without registers | Work and registers at 676 : 268, which 113 : 45 keeps |
 |---|---|---|---|---|
 | 199 (40 per grammar) | 58.2 / 2.27 / 60.7 | x1.01 worse | x1.08 worse | 111.1 / 2.25 / 44.0 |
 | 779 | 177.0 / 2.22 / 13.6 | x1.06 worse | x1.00 worse | 100.9 / 2.26 / 40.0 |
