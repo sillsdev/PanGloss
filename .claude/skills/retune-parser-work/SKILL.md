@@ -61,21 +61,25 @@ cost cannot see it; the weights then move only if the refit says so.
    Valgrind runs at 30 to 200 times native speed and a large grammar's start-up dominates, so keep each list
    to fast words (under about 0.3 s native). Options:
    - `-Words N` (8 to 400, default 40): words per grammar. Start-up dominates the run time, so more words add little time and more evidence.
-   - `-MaxFitRounds N` (default 20): the most fits it chains before it calls the fit unsettled.
    - `-SkipSideReports`: skip the memory and cache part, the last third of the run.
    - `-NoChangeCheck`: proves the tool on a same-build pair; it is capped at KEEP and never exits 0.
    - `-PairResult` / `-ControlResult`: read saved instruction-compare output; only grammar file names are checked against the manifest.
-5. Read the exit code. 0 is ACCEPT. Its reason names the direction evidence: "direction no worse" with
-   8 or more rows, "direction weak" with fewer, and "direction unmeasured (0 rows)" when the change left the
-   counts equal, so only the level error discriminated; read the printed scale-free error and shape note to
-   see whether the shape improved or the weights only rescaled. 10 is KEEP: stop, and record the numbers in
-   the PR; it also covers a fit that did not settle and every `-NoChangeCheck` run. 3 is REFUSED: a failed
-   control, a status change, a missing file or a held-out grammar with under 8 scored words; fix the
-   measurement, never the rule. 2 means it could not start.
-6. One fit moves a weight at most x0.75-1.5, so the tool continues the fit from its own result until it settles
-   and prints the first fit, the number of fits and the settled weights. A fit that did not settle is KEEP and
-   never a candidate. A weight pinned at 1 (the lowest) means the fit wants it lower than an integer can say.
-7. Memory, simulated cache misses and CPU time print beside the result. They are never in the fit or the
+5. Read the exit code. 0 is ACCEPT: direction no worse, the predicted change of grammar totals no worse, and a
+   better shape on the held-out set. Its reason names the evidence: "direction no worse" with 8 or more rows,
+   "direction weak" with fewer, "direction unmeasured (0 rows)" and "change of grammar totals unmeasured" when
+   the change left the counts equal, so only the shape discriminated. 10 is KEEP: stop, and record the numbers
+   in the PR; it also covers a fit whose words do not carry the byte term and every `-NoChangeCheck` run. 3 is
+   REFUSED: a failed control, a status change, a missing file or a held-out grammar with under 8 scored words;
+   fix the measurement, never the rule. 2 means it could not start.
+6. The fit is exact and solved once. Read its three lines: the free fit, the fit with work and registers at
+   their current ratio, and how much worse the fit is with each term left out. When leaving out work or
+   registers costs under a tenth, the words cannot split the two and the candidate is the tied fit; that is
+   the usual case, because work and registers copied rise and fall together across words. A weight at 1 (the
+   lowest) means the fit wants it lower than an integer can say.
+7. The level line is report-only. Cost is read only as a ratio of two totals, so one factor on all three
+   weights changes no verdict, and the level differs by 1.5 to 2 times between callgrind and the Windows
+   counters (`docs/design/parse-cost.md`). Do not retune to fix the level alone.
+8. Memory, simulated cache misses and CPU time print beside the result. They are never in the fit or the
    decision; read them to see whether the change traded memory for instructions.
 
 ## Applying accepted weights
@@ -96,16 +100,20 @@ Costs from different PanGloss versions are never compared, so a weight change ne
 - Whether to retune at all when the change moved only constant factors: the fit can find a drift that the
   change did not cause.
 - Whether a candidate that moves a weight by more than a quarter is credible, given the integer resolution
-  of the byte weight (2 steps to 1 or 3). The tool prints a warning for each such move. A proof run on the
-  default five-plus-two grammars with 40 words each moved work from 676 to 55 (x0.08): a result from
-  40-word samples is not adoptable evidence, and its per-grammar fits spread about x2.
+  of the byte weight (2 steps to 1 or 3). The tool prints a warning for each such move. A result from
+  40-word samples is not adoptable evidence.
 - The held-out set. Changing it changes what ACCEPT means.
-- Whether to fold the measured instructions-per-cost-unit into the weights. The tool does; the fit itself
-  removes it.
+- Whether the change of grammar totals is evidence enough. One pair gives one result per grammar, and a pair
+  that only cuts allocation says nothing about work against registers. A switch in one binary that moves
+  them apart (`HC_RSL=off`) is the pair that does.
+- Whether to change the level. The candidate carries the level of the callgrind fit; nothing reads it.
 - Whether a KEEP with a large gap in the candidate warrants a second look at the grammars.
 
 ## Limits
 
 Direction uses words whose instructions moved at least 2%; with a no-change pair or a constant-factor change
-there are none, and only the level error can move the decision (a no-change pair is capped at KEEP). Valgrind counts are compared only against Valgrind counts, with
+there are none, no grammar total moves either, and only the shape can move the decision (a no-change pair is
+capped at KEEP). The weights are fitted to callgrind in WSL, which the design calls provisional; the Windows
+counters read 1.5 to 2 times as many instructions for the same parse, and no per-word Windows count exists to
+fit against. Valgrind counts are compared only against Valgrind counts, with
 `std` hash keys pinned. The tool runs on Linux and WSL only; `perf stat` does not work under WSL.

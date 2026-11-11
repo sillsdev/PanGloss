@@ -332,6 +332,49 @@ mod calibrate {
     }
 
     #[test]
+    fn fit_counts_prints_the_exact_fit_and_what_leaving_each_term_out_costs() {
+        let counts = scratch("calibrate-fit-counts").join("counts.tsv");
+        let rows: String = (1..=12u64)
+            .map(|i| {
+                let (work, bytes, registers) = (
+                    2000 + i * 700,
+                    90_000 + (i * i * 913) % 400_000,
+                    500 + (i * 311) % 3000,
+                );
+                let instructions = work * 200 + bytes * 2 + registers * 100;
+                format!("{i}\t{work}\t{bytes}\t{registers}\t{instructions}\n")
+            })
+            .collect();
+        std::fs::write(&counts, rows).unwrap();
+        let output = pangloss(&["cost-calibrate", "--fit-counts", counts.to_str().unwrap()]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let fit: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let number = |value: &Value| value.as_f64().unwrap();
+        assert_eq!(fit["words"], 12);
+        assert!((number(&fit["free"]["work"]) - 200.0).abs() < 1e-3, "{fit}");
+        assert!((number(&fit["free"]["byte"]) - 2.0).abs() < 1e-6, "{fit}");
+        assert!(
+            (number(&fit["free"]["register"]) - 100.0).abs() < 1e-3,
+            "{fit}"
+        );
+        assert!(number(&fit["free"]["error"]) < 1e-6, "{fit}");
+        for term in ["work", "byte", "register"] {
+            assert!(number(&fit["errorWithout"][term]) > 0.005, "{term}: {fit}");
+        }
+        let current = number(&fit["current"]["work"]) / number(&fit["current"]["register"]);
+        let tied = number(&fit["tied"]["work"]) / number(&fit["tied"]["register"]);
+        assert!((tied - current).abs() < 1e-9, "{fit}");
+        assert!(
+            number(&fit["tied"]["error"]) >= number(&fit["free"]["error"]),
+            "{fit}"
+        );
+        assert!(fit["workRegisterTradeoff"].is_number(), "{fit}");
+    }
+    #[test]
     fn parse_only_prints_one_status_row_per_word_and_counts_nothing() {
         let words = scratch("calibrate-parse-only").join("words.txt");
         std::fs::write(&words, WORDS).unwrap();

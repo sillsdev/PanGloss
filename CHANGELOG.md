@@ -18,6 +18,7 @@ file has no section for.
 - Raise the FST intermediate feature-bundle closure charge bound from 1 MiB to 100 MiB; the work-vector row limit rises from 4,096 to 65,536 for the measured Cebuano and Amharic grammars. The token-domain limit remains in force. Incomplete construction still refuses.
 
 - The affix matcher's visited set stores each capture configuration as a compact record holding only the registers that differ from the configuration it came from, instead of a separate register block per entry (#189). Parses, their order and parser work are unchanged; the public repeated-copy stress now completes within the default 256 MiB capture ceiling (185 MiB peak RSS, previously `MEMCAP` at 290 MiB, and 939 MiB when uncapped).
+- `rust/tools/retune-parser-work.ps1` no longer accepts a refit for fixing the level alone. Cost is read only as a ratio, so the tool now decides on the shape (per-word error with the level divided out), on the change of each grammar's total that the weights predict against the measured one, and on per-word direction; the level is printed. The developer-only `cost-calibrate --fit-counts` solves the fit exactly in one step, reports how much worse the fit is with work, bytes or registers left out, and gives the fit with work and registers at their current ratio, which the tool proposes when the words cannot split the two. `--weights` and `-MaxFitRounds` are removed with the chained fit. The weights are unchanged.
 
 ## 0.16.2
 

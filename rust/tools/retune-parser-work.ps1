@@ -21,14 +21,18 @@
                the manifest only by grammar file names and count, so the builds and word samples behind them are trusted.
     b. refit   per-word instructions (Valgrind callgrind, std hash keys pinned) on the After build for the fit set, then
                `pangloss cost-calibrate --targets ... --counts-out` per grammar and `cost-calibrate --fit-counts` over all of them.
-               The fit moves each weight at most x0.75-1.5 per run, so it is continued from its own result (the counts do not
-               depend on the weights) until it settles; -MaxFitRounds caps that, and a fit that does not settle is KEEP, never ACCEPT.
-    c. test    old and new weights scored on the held-out set: direction, Pearson r, median error and worst error, plus a
-               scale-free median error (report-only) that shows whether the shape improved or the weights only rescaled.
-    d. decide  ACCEPT only if the fit settled, direction is no worse, median error is lower and worst error is no worse on the
-               held-out set; otherwise KEEP; REFUSED when a measurement cannot be trusted or a held-out grammar has fewer than 8
-               words at 1000 work units. A real pair with no direction rows can ACCEPT on level error, and says "direction
-               unmeasured (0 rows)". A weight that moves by more than a quarter prints a warning.
+               The fit is exact least squares on relative error, solved once. It also reports how much worse the fit is with
+               work, bytes or registers left out. When the words cannot split work from registers (leaving either out costs
+               under 10%), the candidate keeps their current ratio and refits their sum against bytes.
+    c. test    old and new weights scored two ways. On the held-out set, per word: direction, Pearson r and the scale-free
+               error (the shape; the median predicted/measured ratio is divided out). On every grammar: the change of the
+               grammar's total that the weights predict from the Before and After counts, against the change instruction-compare
+               measured. The level (predicted against measured instructions) is printed and decides nothing, because cost is
+               only ever compared as a ratio and a uniform rescale changes no comparison.
+    d. decide  ACCEPT only if direction is no worse, the predicted change of grammar totals is no worse (sign, and mean error
+               within 0.5 points) and the shape is better on the held-out set; otherwise KEEP; REFUSED when a measurement cannot
+               be trusted or a held-out grammar has fewer than 8 words at 1000 work units. A weight that moves by more than a
+               quarter prints a warning.
     e. report  peak memory, Valgrind simulated cache misses (--cache-sim=yes, load-independent) and CPU time (best-effort,
                moved by load) per side. They are printed beside the result and are never in the fit or the decision.
   -NoChangeCheck is for proving the tool: Before and After must be the same build, the pair is its own control, no GO is
@@ -62,7 +66,6 @@ param(
     [switch]$NoChangeCheck,
     [switch]$SkipSideReports,
     [string]$SaveDir,
-    [ValidateRange(2, 50)][int]$MaxFitRounds = 20,
     [string]$Pattern = '*cost_calibrate::parse_one'
 )
 $ErrorActionPreference = 'Stop'
@@ -125,6 +128,17 @@ function Measure-Grammar($Exe, $Entry, [string]$Tag) {
     if ($problems.Count -gt 0) { Stop-Refused ($problems -join '; ') }
     if ($saved) { Copy-Item -LiteralPath $counts -Destination $saved -Force }
     return $rows
+}
+
+# Counts alone, with no instruction run: `--counts-out` writes a row only for a word that has a target, so every word gets a placeholder.
+function Measure-Counts($Exe, $Entry, [string]$Tag) {
+    $sample = $script:Sample[$Entry.Name]
+    $targets = Join-Path $script:Work "$Tag.placeholder.tsv"
+    [IO.File]::WriteAllLines($targets, [string[]]@(0..($sample.Count - 1) | ForEach-Object { "$_`t1" }))
+    $counts = Join-Path $script:Work "$Tag.counts.tsv"
+    $null = Invoke-Tool $Exe @('cost-calibrate', $Entry.Grammar, $sample.Path, '--words', "$($sample.Count)", '--targets', $targets, '--counts-out', $counts) (Join-Path $script:Work "$Tag.cc.err") (Join-Path $script:Work "$Tag.cc.out")
+    if (-not (Test-Path -LiteralPath $counts)) { Stop-Refused "grammar '$($Entry.Name)': cost-calibrate wrote no counts for the $Tag run (stderr withheld)" }
+    return @(Read-CountsFile $counts)
 }
 
 function Invoke-InstructionCompare([string]$BeforeExe, [string]$AfterExe, [string]$Label) {
@@ -211,49 +225,38 @@ try {
     if ($problems.Count -gt 0) { Stop-Refused ($problems -join '; ') }
 
     # b. refit
-    $fitFiles = @()
+    $fitFiles = @(); $afterRows = @{}
     foreach ($e in @($Entries | Where-Object Set -eq 'fit')) {
         Write-Stage "refit: measuring fit grammar $($e.Name) on the After build"
-        $null = Measure-Grammar $After $e "fit-$($e.Name)"
+        $afterRows[$e.Name] = @(Measure-Grammar $After $e "fit-$($e.Name)")
         $fitFiles += (Join-Path $work "fit-$($e.Name).counts.tsv")
     }
     $fitErr = Join-Path $work 'fit.err'
-    $fitOnce = { param([double[]]$Start, [string[]]$Files)
-        $ec = Invoke-Tool $After (@('cost-calibrate', '--fit-counts', '--weights', ($Start -join ',')) + $Files) $fitErr (Join-Path $work 'fit.out')
-        if ($ec -ne 0) { Stop-Refused "the pooled fit refused: $((Get-Content -LiteralPath $fitErr -Raw).Trim())" }
+    $fitExact = { param([string[]]$Files, [bool]$MayRefuse)
+        $ec = Invoke-Tool $After (@('cost-calibrate', '--fit-counts') + $Files) $fitErr (Join-Path $work 'fit.out')
+        if ($ec -ne 0) { if ($MayRefuse) { return $null }; Stop-Refused "the pooled fit refused: $((Get-Content -LiteralPath $fitErr -Raw).Trim())" }
         (Get-Content -LiteralPath (Join-Path $work 'fit.out') -Raw) | ConvertFrom-Json }
-    $cur = [double[]]@(676, 2, 268)
-    $fit = & $fitOnce $cur $fitFiles
+    $fit = & $fitExact $fitFiles $false
+    if ($null -eq $fit.free -or $null -eq $fit.tied -or $null -eq $fit.errorWithout) { Stop-Refused "$([IO.Path]::GetFileName($After)) printed no exact fit for --fit-counts: build After from a tree whose cost-calibrate solves the fit exactly" }
     $cur = [double[]]@($fit.current.work, $fit.current.byte, $fit.current.register)
-    $sug = [double[]]@($fit.suggested.work, $fit.suggested.byte, $fit.suggested.register)
-    $atBound = @(0..2 | Where-Object { $r = $sug[$_] / $cur[$_]; [Math]::Abs($r - 0.75) -lt 0.001 -or [Math]::Abs($r - 1.5) -lt 0.001 } | ForEach-Object { 'work', 'byte', 'register' | Select-Object -Index $_ })
-    Write-Host "refit over $($fit.words) fit words:"
-    Write-Host ("  first fit, bounded to x0.75-1.5 per weight: work {0:0.000}  byte {1:0.000}  register {2:0.000}   speed {3:0.000} instructions per cost unit" -f ($sug[0] / $cur[0]), ($sug[1] / $cur[1]), ($sug[2] / $cur[2]), $fit.speed)
-    if ($atBound.Count -gt 0) { Write-Host "  at the bound: $($atBound -join ', ')" }
-    # The counts do not depend on the weights, so a fit that hit its bound is continued from its own result until it settles.
-    $w = [double[]]@(($sug[0] * $fit.speed), ($sug[1] * $fit.speed), ($sug[2] * $fit.speed))
-    $rounds = 1; $settled = $false
-    while ($rounds -lt $MaxFitRounds) {
-        $next = & $fitOnce $w $fitFiles
-        $rounds++
-        $factors = [double[]]@(($next.suggested.work / $next.current.work), ($next.suggested.byte / $next.current.byte), ($next.suggested.register / $next.current.register))
-        $w = [double[]]@(($next.suggested.work * $next.speed), ($next.suggested.byte * $next.speed), ($next.suggested.register * $next.speed))
-        if (Test-FitSettled -Factors $factors -Speed $next.speed) { $settled = $true; break }
-    }
-    $cand = ConvertTo-CandidateWeights -Suggested $w -Speed 1.0
-    Write-Host ("  continued from its own result: {0} after {1} fit(s); unrounded {2:0.##} / {3:0.##} / {4:0.##}" -f $(if ($settled) { 'settled' } else { 'did NOT settle' }), $rounds, $w[0], $w[1], $w[2])
-    Write-Host "  candidate weights (rounded, at least 1): $(Format-Weights $cand)   current: $(Format-Weights $cur)"
-    if (-not $settled) { Write-Host "  the fit did not settle in $MaxFitRounds rounds; the candidate is not a fixed point, so the decision is KEEP" }
+    $reading = Get-FitReading $fit
+    Write-Host "refit over $($fit.words) fit words (exact least squares on relative error, solved once):"
+    Write-Host ("  free fit   work {0:0.##}  byte {1:0.##}  register {2:0.##}   error {3:0.00}%" -f $fit.free.work, $fit.free.byte, $fit.free.register, (100 * $fit.free.error))
+    Write-Host ("  tied fit   work {0:0.##}  byte {1:0.##}  register {2:0.##}   error {3:0.00}%   (work and registers at their current ratio)" -f $fit.tied.work, $fit.tied.byte, $fit.tied.register, (100 * $fit.tied.error))
+    Write-Host "  $($reading.Left)"
+    Write-Host "  $($reading.Note)"
     $spread = @()
-    foreach ($e in @($Entries | Where-Object Set -eq 'fit')) {
-        $f = Join-Path $work "fit-$($e.Name).counts.tsv"
-        $one = & $fitOnce $w @($f)
-        $spread += , ([double[]]@(($one.suggested.work * $one.speed), ($one.suggested.byte * $one.speed), ($one.suggested.register * $one.speed)))
+    foreach ($f in $fitFiles) {
+        $one = & $fitExact @($f) $true
+        if ($one) { $spread += , ([double[]]@($one.free.work, $one.free.byte, $one.free.register)) }
     }
     if ($spread.Count -gt 1) {
         $rng = { param($i) $v = @($spread | ForEach-Object { $_[$i] }); '{0:0.#}-{1:0.#}' -f ($v | Measure-Object -Minimum).Minimum, ($v | Measure-Object -Maximum).Maximum }
-        Write-Host "  each fit grammar alone, one bounded step from the candidate: work $(& $rng 0)  byte $(& $rng 1)  register $(& $rng 2)"
+        Write-Host "  free fit of each fit grammar alone ($($spread.Count) of $($fitFiles.Count) have enough words): work $(& $rng 0)  byte $(& $rng 1)  register $(& $rng 2)"
     }
+    $noCandidate = if ($reading.Kind -eq 'none') { $reading.Note } else { $null }
+    $cand = if ($noCandidate) { $cur } else { ConvertTo-CandidateWeights -Weights $reading.Weights }
+    if (-not $noCandidate) { Write-Host "  candidate weights ($($reading.Kind) fit, rounded, at least 1): $(Format-Weights $cand)   current: $(Format-Weights $cur)" }
 
     # c. test
     $heldAfter = @(); $heldBefore = @()
@@ -267,18 +270,43 @@ try {
     }
     $old = Get-WeightScore -After $heldAfter -Before $heldBefore -Weights $cur
     $new = Get-WeightScore -After $heldAfter -Before $heldBefore -Weights $cand
-    Write-Host "held-out scores over $($old.Words) words of $(@($Entries | Where-Object Set -eq 'heldout').Count) grammar(s) (level error is predicted against measured instructions per word on the After build):"
+    Write-Host "held-out scores over $($old.Words) words of $(@($Entries | Where-Object Set -eq 'heldout').Count) grammar(s) (shape is the scale-free error per word on the After build; level error is report-only):"
     foreach ($row in @(@('old', $cur, $old), @('new', $cand, $new))) {
-        Write-Host ("  {0}  {1,-14} direction {2} of {3}   r level {4}  r change {5}   median error {6}   worst error {7}   scale-free median {8} worst {9} (report-only)" -f $row[0], (Format-Weights $row[1]), $row[2].DirectionMatches, $row[2].DirectionRows, (Format-R $row[2].PearsonLevel), (Format-R $row[2].PearsonChange), (Format-Pct $row[2].MedianError), (Format-Pct $row[2].WorstError), (Format-Pct $row[2].ScaleFreeMedianError), (Format-Pct $row[2].ScaleFreeWorstError))
+        Write-Host ("  {0}  {1,-14} direction {2} of {3}   r level {4}  r change {5}   shape: scale-free median {6} worst {7}   level error median {8} worst {9} (report-only)" -f $row[0], (Format-Weights $row[1]), $row[2].DirectionMatches, $row[2].DirectionRows, (Format-R $row[2].PearsonLevel), (Format-R $row[2].PearsonChange), (Format-Pct $row[2].ScaleFreeMedianError), (Format-Pct $row[2].ScaleFreeWorstError), (Format-Pct $row[2].MedianError), (Format-Pct $row[2].WorstError))
+    }
+    $oldChange = $null; $newChange = $null
+    if (-not $sameBuild) {
+        $changes = @()
+        for ($i = 0; $i -lt $Entries.Count; $i++) {
+            $e = $Entries[$i]
+            if ($e.Set -eq 'fit') {
+                Write-Stage "test: counting fit grammar $($e.Name) on the Before build"
+                $a = $afterRows[$e.Name]; $b = Measure-Counts $Before $e "fit-before-$($e.Name)"
+            } else {
+                $a = @($heldAfter | Where-Object Grammar -eq $e.Name); $b = @($heldBefore | Where-Object Grammar -eq $e.Name)
+            }
+            $tot = Get-CountTotals -Before $b -After $a
+            if ($tot.Words -ne @($a).Count -or $tot.Words -ne @($b).Count) { Stop-Refused "grammar '$($e.Name)': the builds counted different words (a status change between Before and After)" }
+            $changes += [PSCustomObject]@{ Grammar = $e.Name; MeasuredPercent = [double]$pair[$i].DeltaPercent; Before = $tot.Before; After = $tot.After }
+        }
+        $oldChange = Get-ChangeScore -Changes $changes -Weights $cur
+        $newChange = Get-ChangeScore -Changes $changes -Weights $cand
+        Write-Host "change of each grammar's total (measured by instruction-compare; predicted from the Before and After counts):"
+        for ($i = 0; $i -lt $changes.Count; $i++) {
+            Write-Host ("  {0,-14} measured {1,7:+0.00;-0.00;0.00}%   old {2,7:+0.00;-0.00;0.00}%   new {3,7:+0.00;-0.00;0.00}%" -f $changes[$i].Grammar, $changes[$i].MeasuredPercent, $oldChange.ByGrammar[$i].Predicted, $newChange.ByGrammar[$i].Predicted)
+        }
+        foreach ($row in @(@('old', $cur, $oldChange), @('new', $cand, $newChange))) {
+            Write-Host ("  {0}  {1,-14} sign {2} of {3} grammar(s) that moved   mean error {4:0.00} points   worst {5:0.00} points" -f $row[0], (Format-Weights $row[1]), $row[2].Matches, $row[2].Rows, $row[2].MeanError, $row[2].WorstError)
+        }
     }
 
     # d. decide
     $heldNames = @($Entries | Where-Object Set -eq 'heldout' | ForEach-Object Name)
-    $decision = Get-RetuneDecision -Old $old -New $new -OldWeights $cur -NewWeights $cand -Settled $settled -ProofRun ([bool]$NoChangeCheck) -HeldOutNames $heldNames
+    $decision = Get-RetuneDecision -Old $old -New $new -OldChange $oldChange -NewChange $newChange -OldWeights $cur -NewWeights $cand -ProofRun ([bool]$NoChangeCheck) -HeldOutNames $heldNames -NoCandidate $noCandidate
     if ($decision.Verdict -eq 'REFUSED') { Stop-Refused $decision.Reason }
     Write-Host ''
     Write-Host "DECISION $($decision.Verdict): $($decision.Reason)"
-    if ($decision.Shape) { Write-Host "  $($decision.Shape)" }
+    if ($decision.Level) { Write-Host "  $($decision.Level)" }
     Write-Host "  candidate weights (work / byte / register), not applied: $(Format-Weights $cand); the owner decides, then edits pg-cost"
     $moves = @(Get-WeightMoves -Current $cur -Candidate $cand)
     foreach ($move in $moves) { Write-Host "  WARNING: large move, $move" -ForegroundColor Yellow }
