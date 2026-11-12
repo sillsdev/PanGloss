@@ -2,9 +2,9 @@
 
 use super::{AdmissionRefusal, Size};
 use foma::constructions::{
-    fsm_compose, fsm_concat, fsm_count, fsm_cross_product, fsm_equivalent, fsm_ignore,
-    fsm_intersect, fsm_kleene_plus, fsm_kleene_star, fsm_optionality, fsm_quotient_left,
-    fsm_quotient_right, fsm_symbol, fsm_union,
+    fsm_compose, fsm_count, fsm_cross_product, fsm_equivalent, fsm_ignore, fsm_intersect,
+    fsm_kleene_plus, fsm_kleene_star, fsm_optionality, fsm_quotient_left, fsm_quotient_right,
+    fsm_symbol, fsm_union,
 };
 use foma::determinize::fsm_determinize;
 use foma::extract::fsm_lower;
@@ -186,8 +186,9 @@ impl Meter {
         self.binary(left, right, |l, r| fsm_union(opts, l, r))
     }
 
+    /// Concatenation, minimal without foma's determinized net of the two joined.
     pub(crate) fn concat(&self, opts: &FomaOptions, left: Fsm, right: Fsm) -> Fsm {
-        self.binary(left, right, |l, r| fsm_concat(opts, l, r))
+        self.binary(left, right, |l, r| super::subset::concat(opts, l, r))
     }
 
     pub(crate) fn intersect(&self, opts: &FomaOptions, left: Fsm, right: Fsm) -> Fsm {
@@ -236,18 +237,27 @@ impl Meter {
     }
 
     /// Minimization, counting the determinized net it works on, which can be far larger than the net it starts from or ends with.
+    ///
+    /// The determinized net is held in the compact tables of [`super::subset`], not as a foma net.
     pub(crate) fn minimize(&self, opts: &FomaOptions, net: Fsm) -> Fsm {
-        self.unary(net, |n| {
+        self.unary(net, |mut n| {
             if n.is_deterministic == Tern::Yes {
                 return fsm_minimize(opts, n);
             }
-            let mut determinized = fsm_determinize(n);
-            fsm_count(&mut determinized);
-            self.spend(weight(&determinized));
-            match self.allows(0) {
-                true => fsm_minimize(opts, determinized),
-                false => fsm_empty_set(),
+            let plain = |n: Fsm| {
+                let mut determinized = fsm_determinize(n);
+                fsm_count(&mut determinized);
+                self.spend(weight(&determinized));
+                match self.allows(0) {
+                    true => fsm_minimize(opts, determinized),
+                    false => fsm_empty_set(),
+                }
+            };
+            if !opts.minimal {
+                return plain(n);
             }
+            fsm_count(&mut n);
+            super::subset::minimize(self, n, plain)
         })
     }
 
