@@ -1,4 +1,4 @@
-"""Totals retired instructions per process id from a PMC-on-context-switch ETL; prints one JSON object, never names a thread or word.
+"""Totals retired instructions per process id, and per thread in creation order, from a PMC-on-context-switch ETL; prints one JSON object, never names a thread or word.
 
 usage: instruction_compare_etl.py <trace.etl> <pid> [<pid> ...]
 """
@@ -62,6 +62,8 @@ def totals(path, pids):
     instructions = {p: 0 for p in pids}
     state = {"switches": 0, "gaps_on_target": 0, "counters": 0, "callback_errors": 0}
     target_tids = set()
+    thread_order = {p: [] for p in pids}
+    thread_instructions = {}
 
     def on_event(record):
         try:
@@ -79,6 +81,9 @@ def totals(path, pids):
             tid_pid[tid] = pid
             if pid in wanted:
                 target_tids.add(tid)
+                if (pid, tid) not in thread_instructions:
+                    thread_order[pid].append(tid)
+                    thread_instructions[(pid, tid)] = 0
             return
         if h.Opcode != CSWITCH_OPCODE:
             return
@@ -105,6 +110,7 @@ def totals(path, pids):
         pid = tid_pid.get(old)
         if pid in wanted:
             instructions[pid] += counters[0] - prev_counters[0]
+            thread_instructions[(pid, old)] = thread_instructions.get((pid, old), 0) + counters[0] - prev_counters[0]
 
     adv = C.windll.advapi32
     adv.OpenTraceW.restype = C.c_uint64
@@ -132,6 +138,7 @@ def totals(path, pids):
         "callback_errors": state["callback_errors"],
         "threads": {str(p): sum(1 for t in target_tids if tid_pid.get(t) == p) for p in pids},
         "instructions": {str(p): v for p, v in instructions.items()},
+        "thread_instructions": {str(p): [thread_instructions[(p, t)] for t in thread_order[p]] for p in pids},
     }
 
 

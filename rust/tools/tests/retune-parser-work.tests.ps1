@@ -369,20 +369,20 @@ $goText = @(
     '',
     'grammar #1 (one-hc.xml), 40 words, status/signature differences: 0 between sides, 0 between repeats',
     '  instructions before         1 | 1   mean 1',
-    '  change -6.50%   noise from repeats and empty runs 0.01%   threshold 0.50%',
+    '  change -6.50%   95% CI [-6.60%, -6.40%]   df 7.8   minimum effect 0.50%',
     '  VERDICT GO',
     '',
     'grammar #2 (two-hc.xml), 40 words, status/signature differences: 0 between sides, 0 between repeats',
-    '  change +0.00%   noise from repeats and empty runs 0.00%   threshold 0.50%',
-    '  VERDICT NO-GO (within noise)')
-$noGoText = @($goText | ForEach-Object { $_ -replace 'VERDICT GO', 'VERDICT NO-GO (within noise)' })
+    '  change +0.00%   95% CI [-0.10%, +0.10%]   df 7.9   minimum effect 0.50%',
+    '  VERDICT NO-GO (no change)')
+$noGoText = @($goText | ForEach-Object { $_ -replace 'VERDICT GO', 'VERDICT NO-GO (no change)' })
 
 Test-Case 'instruction-compare output is read per grammar with verdict, change and differences, and no word text is in it' {
     $r = @(Read-CompareResult $goText)
     Assert-Equal 2 $r.Count
     Assert-Equal 'GO' $r[0].Verdict
     Assert-Equal -6.5 $r[0].DeltaPercent
-    Assert-Equal 'NO-GO (within noise)' $r[1].Verdict
+    Assert-Equal 'NO-GO (no change)' $r[1].Verdict
     $refused = @(Read-CompareResult @('grammar #1 (a.xml), 40 words, status/signature differences: 2 between sides, 1 between repeats', '  VERDICT REFUSED: 3 word(s) differ'))
     Assert-Equal 'REFUSED' $refused[0].Verdict
     Assert-Equal 3 $refused[0].Differ
@@ -412,6 +412,15 @@ Test-Case 'a saved comparison that names other grammar files than the manifest i
     $why = @(Get-VerifyProblems -Pair $pair -Control $ctl -Grammars 2 -GrammarFiles @('one-hc.xml', 'other.xml')) -join ';'
     Assert-True ($why -match "comparison names grammar #2 as 'two-hc.xml' but the manifest has 'other.xml'") $why
     Assert-True ($why -match 'control names grammar #2') $why
+}
+
+Test-Case 'an INCONCLUSIVE control passes the instrument check; a regression fails it' {
+    $pair = @(Read-CompareResult $goText)
+    $unsure = @(Read-CompareResult @($noGoText | ForEach-Object { $_ -replace 'VERDICT NO-GO \(no change\)', 'VERDICT INCONCLUSIVE' }))
+    Assert-Equal 'INCONCLUSIVE' $unsure[1].Verdict
+    Assert-Equal 0 @(Get-VerifyProblems -Pair $pair -Control $unsure -Grammars 2).Count
+    $worse = @(Read-CompareResult @($noGoText | ForEach-Object { $_ -replace 'VERDICT NO-GO \(no change\)', 'VERDICT NO-GO (regression)' }))
+    Assert-True ((@(Get-VerifyProblems -Pair $pair -Control $worse -Grammars 2) -join ';') -match "control read 'NO-GO \(regression\)'")
 }
 
 Test-Case 'a no-change pair is its own control, needs no GO, and refuses if it reads GO' {

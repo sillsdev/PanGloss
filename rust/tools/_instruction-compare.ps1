@@ -25,45 +25,116 @@ function Compare-BatchSignatures {
     return [PSCustomObject]@{ Words = @($keys).Count; Differ = $differ }
 }
 
-function Get-SpreadPercent {
-    # (max - min) / mean of repeated measurements, in percent.
-    param([Parameter(Mandatory)][double[]]$Values)
-    $mean = ($Values | Measure-Object -Average).Average
-    if ($mean -le 0) { return [double]::PositiveInfinity }
-    $range = ($Values | Measure-Object -Maximum).Maximum - ($Values | Measure-Object -Minimum).Minimum
-    return 100.0 * $range / $mean
+function Get-NetInstructions {
+    # Each round's full run minus the same round's empty-list run on that side, so start-up noise stays in the per-round spread the test sees.
+    param([Parameter(Mandatory)][double[]]$Full, [Parameter(Mandatory)][double[]]$Empty)
+    if ($Full.Count -ne $Empty.Count) { throw "each round needs one empty-list run per full run ($($Full.Count) full, $($Empty.Count) empty)" }
+    return [double[]]@(for ($i = 0; $i -lt $Full.Count; $i++) { $Full[$i] - $Empty[$i] })
 }
 
-function Get-NetInstructions {
-    # Each full run minus the mean of the empty-word-list runs, which is the grammar-load cost.
-    param([Parameter(Mandatory)][double[]]$Full, [Parameter(Mandatory)][double[]]$Empty)
-    $startup = ($Empty | Measure-Object -Average).Average
-    return [double[]]@($Full | ForEach-Object { $_ - $startup })
+function Get-LogGamma {
+    # Lanczos approximation (g = 7, n = 9), accurate to about 15 digits for x > 0.
+    param([Parameter(Mandatory)][double]$X)
+    $c = @(0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059,
+        12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7)
+    if ($X -lt 0.5) { return [Math]::Log([Math]::PI / [Math]::Abs([Math]::Sin([Math]::PI * $X))) - (Get-LogGamma (1.0 - $X)) }
+    $x1 = $X - 1.0
+    $sum = $c[0]
+    for ($i = 1; $i -lt 9; $i++) { $sum += $c[$i] / ($x1 + $i) }
+    $tt = $x1 + 7.5
+    return 0.5 * [Math]::Log(2 * [Math]::PI) + ($x1 + 0.5) * [Math]::Log($tt) - $tt + [Math]::Log($sum)
+}
+
+function Get-RegularizedBeta {
+    # I_x(a, b) by Lentz's continued fraction, using the symmetry I_x(a,b) = 1 - I_(1-x)(b,a) where the fraction converges slowly.
+    param([Parameter(Mandatory)][double]$X, [Parameter(Mandatory)][double]$A, [Parameter(Mandatory)][double]$B)
+    if ($X -le 0) { return 0.0 }
+    if ($X -ge 1) { return 1.0 }
+    if ($X -gt ($A + 1.0) / ($A + $B + 2.0)) { return 1.0 - (Get-RegularizedBeta (1.0 - $X) $B $A) }
+    $front = [Math]::Exp((Get-LogGamma ($A + $B)) - (Get-LogGamma $A) - (Get-LogGamma $B) + $A * [Math]::Log($X) + $B * [Math]::Log(1.0 - $X)) / $A
+    $tiny = 1e-300
+    $f = 1.0; $cc = 1.0; $d = 0.0
+    for ($i = 0; $i -le 400; $i++) {
+        $m = [Math]::Floor($i / 2)
+        if ($i -eq 0) { $num = 1.0 }
+        elseif ($i % 2 -eq 0) { $num = ($m * ($B - $m) * $X) / (($A + 2.0 * $m - 1.0) * ($A + 2.0 * $m)) }
+        else { $num = - (($A + $m) * ($A + $B + $m) * $X) / (($A + 2.0 * $m) * ($A + 2.0 * $m + 1.0)) }
+        $d = 1.0 + $num * $d
+        if ([Math]::Abs($d) -lt $tiny) { $d = $tiny }
+        $d = 1.0 / $d
+        $cc = 1.0 + $num / $cc
+        if ([Math]::Abs($cc) -lt $tiny) { $cc = $tiny }
+        $step = $cc * $d
+        $f *= $step
+        if ([Math]::Abs(1.0 - $step) -lt 1e-14) { return $front * ($f - 1.0) }
+    }
+    throw "the incomplete beta function did not converge (x=$X, a=$A, b=$B)"
+}
+
+function Get-StudentTCritical {
+    # Two-sided critical t for degrees of freedom $Df (fractional allowed): the t whose two tails together hold 1 - Confidence.
+    param([Parameter(Mandatory)][double]$Df, [double]$Confidence = 0.95)
+    if ($Df -le 0 -or [double]::IsNaN($Df)) { throw "degrees of freedom must be positive (got $Df)" }
+    $alpha = 1.0 - $Confidence
+    $lo = 0.0; $hi = 1.0
+    while ((Get-RegularizedBeta ($Df / ($Df + $hi * $hi)) ($Df / 2.0) 0.5) -gt $alpha) { $hi *= 2.0; if ($hi -gt 1e7) { throw "no critical t below 1e7 for df $Df" } }
+    for ($i = 0; $i -lt 200 -and ($hi - $lo) -gt 1e-12 * $hi; $i++) {
+        $mid = ($lo + $hi) / 2.0
+        if ((Get-RegularizedBeta ($Df / ($Df + $mid * $mid)) ($Df / 2.0) 0.5) -gt $alpha) { $lo = $mid } else { $hi = $mid }
+    }
+    return ($lo + $hi) / 2.0
+}
+
+function Get-WelchInterval {
+    # Welch's t interval for mean(After) - mean(Before), in percent of mean(Before); before is treated as the fixed reference level.
+    param([Parameter(Mandatory)][double[]]$Before, [Parameter(Mandatory)][double[]]$After, [double]$Confidence = 0.95)
+    $nb = $Before.Count; $na = $After.Count
+    if ($nb -lt 2 -or $na -lt 2) { throw 'each side needs at least 2 values for a variance' }
+    $mb = ($Before | Measure-Object -Average).Average
+    $ma = ($After | Measure-Object -Average).Average
+    $vb = (($Before | ForEach-Object { ($_ - $mb) * ($_ - $mb) } | Measure-Object -Sum).Sum) / ($nb - 1)
+    $va = (($After | ForEach-Object { ($_ - $ma) * ($_ - $ma) } | Measure-Object -Sum).Sum) / ($na - 1)
+    $sb = $vb / $nb; $sa = $va / $na
+    $se = [Math]::Sqrt($sb + $sa)
+    # Both sides without spread (pinned callgrind repeats): the difference is exact, so the interval is a point and df is unbounded.
+    if ($se -eq 0) { $df = [double]::PositiveInfinity; $tc = 0.0 }
+    else {
+        $df = ($sb + $sa) * ($sb + $sa) / ($sb * $sb / ($nb - 1) + $sa * $sa / ($na - 1))
+        $tc = Get-StudentTCritical -Df $df -Confidence $Confidence
+    }
+    $scale = 100.0 / $mb
+    $delta = ($ma - $mb) * $scale
+    $half = $tc * $se * $scale
+    return [PSCustomObject]@{ DeltaPercent = $delta; LowPercent = $delta - $half; HighPercent = $delta + $half; Df = $df; TCritical = $tc; StdErrPercent = $se * $scale }
+}
+
+function Get-VerdictFromInterval {
+    # GO and regression need the interval to exclude zero and the point change to reach the minimum effect; no change needs the whole interval inside it.
+    param([Parameter(Mandatory)][double]$DeltaPercent, [Parameter(Mandatory)][double]$LowPercent, [Parameter(Mandatory)][double]$HighPercent, [double]$MinPercent = 0.5)
+    if ($HighPercent -lt 0 -and $DeltaPercent -le -$MinPercent) { return 'GO' }
+    if ($LowPercent -gt 0 -and $DeltaPercent -ge $MinPercent) { return 'NO-GO (regression)' }
+    if ($LowPercent -gt -$MinPercent -and $HighPercent -lt $MinPercent) { return 'NO-GO (no change)' }
+    return 'INCONCLUSIVE'
 }
 
 function Get-InstructionVerdict {
+    # $BeforeNet / $AfterNet are per-round parse counts (full minus that round's empty run); see Get-NetInstructions.
     param(
         [Parameter(Mandatory)][double[]]$BeforeNet,
         [Parameter(Mandatory)][double[]]$AfterNet,
         [Parameter(Mandatory)][int]$DifferingWords,
-        [double]$NoiseMultiple = 2.0,
         [double]$MinPercent = 0.5,
-        [double]$EmptySpreadInstructions = 0.0,
+        [double]$Confidence = 0.95,
         [string]$Problem = ''
     )
-    $refuse = { param($why) [PSCustomObject]@{ Refused = $true; Reason = $why; Verdict = 'REFUSED'; DeltaPercent = $null; NoisePercent = $null; ThresholdPercent = $null } }
+    $refuse = { param($why) [PSCustomObject]@{ Refused = $true; Reason = $why; Verdict = 'REFUSED'; DeltaPercent = $null; LowPercent = $null; HighPercent = $null; Df = $null } }
     if ($Problem) { return & $refuse $Problem }
     if ($DifferingWords -gt 0) { return & $refuse "$DifferingWords word(s) differ in status or signature between the binaries; an instruction count compares only identical parses" }
-    if ($BeforeNet.Count -lt 2 -or $AfterNet.Count -lt 2) { return & $refuse 'each side needs at least 2 measured runs to measure run-to-run noise' }
-    if (@($BeforeNet + $AfterNet | Where-Object { $_ -le 0 }).Count -gt 0) { return & $refuse 'a run counted no instructions beyond startup, so its net count is meaningless' }
-    $meanBefore = ($BeforeNet | Measure-Object -Average).Average
-    $meanAfter = ($AfterNet | Measure-Object -Average).Average
-    if ($meanBefore -le 0 -or $meanAfter -le 0) { return & $refuse 'a side counted no instructions beyond startup, so the word list gave it nothing to measure' }
-    $delta = 100.0 * ($meanAfter - $meanBefore) / $meanBefore
-    $noise = [Math]::Max((Get-SpreadPercent $BeforeNet), (Get-SpreadPercent $AfterNet)) + 100.0 * $EmptySpreadInstructions / $meanBefore
-    $threshold = [Math]::Max($NoiseMultiple * $noise, $MinPercent)
-    $verdict = if ($delta -le -$threshold) { 'GO' } elseif ($delta -ge $threshold) { 'NO-GO (regression beyond noise)' } else { 'NO-GO (within noise)' }
-    return [PSCustomObject]@{ Refused = $false; Reason = $null; Verdict = $verdict; DeltaPercent = $delta; NoisePercent = $noise; ThresholdPercent = $threshold }
+    if ($BeforeNet.Count -lt 2 -or $AfterNet.Count -lt 2) { return & $refuse 'each side needs at least 2 measured runs to estimate run-to-run variance' }
+    if (@($BeforeNet + $AfterNet | Where-Object { $_ -le 0 }).Count -gt 0) { return & $refuse 'a run counted no instructions beyond its round''s empty-list run, so its parse count is meaningless' }
+    $ci = Get-WelchInterval -Before $BeforeNet -After $AfterNet -Confidence $Confidence
+    $verdict = Get-VerdictFromInterval -DeltaPercent $ci.DeltaPercent -LowPercent $ci.LowPercent -HighPercent $ci.HighPercent -MinPercent $MinPercent
+    return [PSCustomObject]@{ Refused = $false; Reason = $null; Verdict = $verdict; DeltaPercent = $ci.DeltaPercent; LowPercent = $ci.LowPercent; HighPercent = $ci.HighPercent; Df = $ci.Df }
 }
 
 function Assert-PmcTasksPresent {
@@ -137,6 +208,13 @@ function New-MeasurementPlan {
     return $plan
 }
 
+function Get-RunTag {
+    # Neutral, equal-length side labels: 'before'/'after' in the output path biased a self-comparison about 1% (docs/design/parse-cost.md).
+    param([Parameter(Mandatory)][int]$Grammar, [Parameter(Mandatory)][int]$Round, [Parameter(Mandatory)][ValidateSet('before', 'after')][string]$Side, [Parameter(Mandatory)][string]$Kind)
+    $label = @{ before = 'sideA'; after = 'sideB' }[$Side]
+    return "g$Grammar-r$Round-$label-$Kind"
+}
+
 function Assert-DistinctPids {
     param([Parameter(Mandatory)][int[]]$Pids)
     $dup = @($Pids | Group-Object | Where-Object Count -gt 1)
@@ -161,9 +239,10 @@ function Test-RepeatsIdentical {
 }
 
 function Get-VerdictExitCode {
-    # 0 every grammar GO, 10 any NO-GO, 3 any grammar refused (refusal wins), 2 is reserved for whole-run refusals.
+    # 0 every grammar GO; 10 any NO-GO; 11 any INCONCLUSIVE (wins over 10: rerun with more repeats before reading the rest); 3 any refused (wins); 2 is reserved for whole-run refusals.
     param([Parameter(Mandatory)][string[]]$Verdicts)
     if ($Verdicts -contains 'REFUSED') { return 3 }
+    if ($Verdicts -contains 'INCONCLUSIVE') { return 11 }
     if (@($Verdicts | Where-Object { $_ -ne 'GO' }).Count -gt 0) { return 10 }
     return 0
 }

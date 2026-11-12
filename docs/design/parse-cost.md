@@ -19,8 +19,59 @@ the FST registers copied in `pg_fst::traverse`. The weights are constants in `pg
 | Wall time | Never a comparison on a shared machine | Yes: +5% to +121% measured |
 
 **Every algorithm improvement gets an instruction comparison**: the same word list on both builds,
-per grammar, with a no-change control as the noise floor. Cost predicts direction; it does not
-replace that run, because a code change can change what a unit costs.
+per grammar. Cost predicts direction; it does not replace that run, because a code change can change
+what a unit costs.
+
+### How a comparison decides
+
+Each side runs `-Repeats` rounds (default 5 on the Windows counters, 2 on callgrind), alternating
+which side goes first. Every round also runs each side on an empty word list, and that round's
+empty-list count is subtracted from its full count, so each round gives one parse count per side and
+the start-up noise stays in the spread. Welch's t gives a 95% two-sided interval for the change of
+the mean, in percent of Before, printed on every comparison. With a minimum effect of 0.5%:
+
+| Verdict | When | Exit code |
+|---|---|---|
+| GO | the interval lies below zero and the change is at least 0.5% smaller | 0 when every grammar is GO |
+| NO-GO (regression) | the interval lies above zero and the change is at least 0.5% larger | 10 |
+| NO-GO (no change) | the whole interval lies within ±0.5% | 10 |
+| INCONCLUSIVE | anything else: too wide to claim a change or its absence | 11, over 10 |
+
+A refused grammar is 3 and a refused run is 2, over everything else. INCONCLUSIVE asks for more
+repeats; it is not a quiet GO. Why Welch's t, and what was rejected:
+`docs/adr/0015-instruction-verdict-statistics.md`.
+
+The **instrument check** is a binary compared with itself. It must read neither GO nor
+NO-GO (regression); NO-GO (no change) and INCONCLUSIVE both pass. Run it once per machine session and
+whenever a verdict looks odd. It checks the instrument; it is not part of every comparison and sets no
+threshold.
+
+**Why start-up is still subtracted.** The parse-only count is the per-round paired subtraction above,
+not a sum over the threads that parse. At `--threads 1`, which the comparison uses, `pangloss batch`
+takes its sequential path (the `if threads == 1` branch in `rust/crates/pg-cli/src/main.rs`) and
+parses each word inline on the thread that loaded the grammar, so no thread carries the parse alone.
+Measured on a synthetic
+stress grammar (65 words, one pinned CPU): at `--threads 1` that thread read 344M with no words,
+573M with the list and 790M with the list twice. At `--threads 2` and `--threads 4` the loading
+thread stayed at 346M to 348M and the parse moved to pool threads, but the pool threads' total for the
+same 130 words differed by 2.3% between two and four threads. The first pass over the list also cost
+about 11M more than the second, which is one-time set-up inside the first parses. Counting by thread
+would therefore need `--threads 2` or more, which measures a different path. A marker at the start of
+the parse is the likely follow-up; both are recorded in ADR 0015. Until then the subtraction stays,
+and a grammar whose load dwarfs its parse needs more repeats or more words.
+
+**Why run files have neutral names of equal length.** Each run's output files are named
+`g<grammar>-r<round>-sideA-<kind>` or `...-sideB-...`. They used to carry `before` and `after`. With
+those names, a binary compared with itself read NO-GO (regression) at +0.96% and +1.12% on fusion.xml
+(65 words). A per-thread dump put the whole gap, about 1.8M instructions, on the parsing thread of
+the run named `after`, in every round, whichever side went first. Swapping the names moved the bias
+to the other side. With `sideA`/`sideB` three runs read +0.08%, +0.16% and -0.02%, all INCONCLUSIVE.
+The likely cause is that the `--threads 1` writer flushes the output file twice per word, and that
+kernel write cost depends on the file; this was not confirmed with kernel stacks.
+
+**Expect a wide interval on short lists.** With five rounds and about 65 words, the Windows counters
+gave intervals from ±0.6% to ±1% for a binary against itself. A change near the 0.5% minimum effect
+needs more `-Repeats` or a longer word list to leave INCONCLUSIVE.
 
 ### Where instructions are measured
 
@@ -75,8 +126,8 @@ pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify    # must print VERIFIED
 
 With no switch it reports what is missing and exits 1 until the machine is ready. `-Verify` traces a
 `dec`/`jnz` loop at two lengths and refuses unless the counted difference is within 1% of the known one. A ready
-report is not proof; only `-Verify` is. Then run a binary against itself with
-`instruction-compare.ps1`: that control must read NO-GO, not refuse.
+report is not proof; only `-Verify` is. Then run the instrument check, a binary against itself with
+`instruction-compare.ps1`: it must read neither GO nor NO-GO (regression), and must not refuse.
 
 If either script refuses because the PMC Start task failed, or with "trace carries no counter values on
 context switches", Windows recorded no counter values, and no instruction verdict is possible until
@@ -185,7 +236,7 @@ The rule it prints:
   held-out set.
 - **KEEP** otherwise, including a fit whose words do not carry the byte term and any `-NoChangeCheck` run (a
   proof run of the tool, which never exits 0).
-- **REFUSED** when a measurement cannot be trusted: a failed no-change control, a status change, a missing
+- **REFUSED** when a measurement cannot be trusted: a no-change control that reads GO or regression, a status change, a missing
   grammar, or fewer than 8 scored words in any held-out grammar.
 
 **The fit.** `cost-calibrate --fit-counts` solves the least-squares fit on relative error exactly, with no
