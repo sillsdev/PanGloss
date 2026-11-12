@@ -1,4 +1,5 @@
 use super::*;
+use crate::trail::Trail;
 use pg_shape::ShapeBuilder;
 
 fn w() -> Word {
@@ -33,20 +34,20 @@ fn dedup_key_keeps_selected_allomorph_and_annotation_order() {
 #[test]
 fn analysis_allomorphs_survive_dedup_and_alternative_expansion() {
     let mut source = w();
-    source.morphological_rule_unapplied(false, Some(MRuleId(1)));
-    source.allomorph_apps[0] = Some(AllomorphId(10));
+    source.trail = Trail::from_slots([(Some(MRuleId(1)), Some(AllomorphId(10)))]);
     let mut alternative = source.clone();
-    alternative.allomorph_apps[0] = Some(AllomorphId(11));
+    alternative.trail = Trail::from_slots([(Some(MRuleId(1)), Some(AllomorphId(11)))]);
     assert_ne!(source.dedup_key(), alternative.dedup_key());
     source.fold_alternative(alternative);
 
     let mut descendant = source.clone_without_alternatives();
     descendant.source = Some(Rc::new(source));
-    descendant.morphological_rule_unapplied(false, Some(MRuleId(2)));
-    descendant.allomorph_apps[1] = Some(AllomorphId(12));
+    descendant
+        .trail
+        .push(Some(MRuleId(2)), Some(AllomorphId(12)));
     let expanded = descendant.expand_alternatives();
     assert_eq!(expanded.len(), 2);
-    let mut trails: Vec<_> = expanded.into_iter().map(|w| w.allomorph_apps).collect();
+    let mut trails: Vec<_> = expanded.into_iter().map(|w| w.trail.allomorphs()).collect();
     trails.sort();
     assert_eq!(
         trails,
@@ -93,8 +94,7 @@ fn matches_agrees_with_key_equality() {
     use pg_shape::ShapeBuilder;
     let mut base = w();
     base.morphs = vec![MorphRecord::new(AllomorphId(1), MorphemeId(2), 0)];
-    base.mrule_apps = vec![Some(MRuleId(3))];
-    base.allomorph_apps = vec![None];
+    base.trail = Trail::from_slots([(Some(MRuleId(3)), None)]);
     let mut nested = w();
     nested.morphs = vec![MorphRecord::new(AllomorphId(9), MorphemeId(8), 1)];
     base.non_heads = vec![nested];
@@ -112,8 +112,9 @@ fn matches_agrees_with_key_equality() {
     push(&|v| v.flags.is_last_applied_rule_final = Some(true));
     push(&|v| v.flags.final_template_state = FinalTemplateState::NonTemplate);
     push(&|v| v.root_runtime_id = Some("r".to_owned()));
-    push(&|v| v.mrule_apps.push(None));
-    push(&|v| v.allomorph_apps = vec![Some(AllomorphId(2))]);
+    push(&|v| v.trail.push(None, None));
+    push(&|v| v.trail = Trail::from_slots([(Some(MRuleId(3)), Some(AllomorphId(2)))]));
+    push(&|v| v.trail.push_count_only(MRuleId(8)));
     push(&|v| v.applied_realizational_rules.push(MorphemeId(6)));
     push(&|v| v.morphs[0].order = 2);
     push(&|v| v.morphs[0].allomorph = AllomorphId(4));

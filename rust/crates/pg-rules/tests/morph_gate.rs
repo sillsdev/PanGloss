@@ -183,8 +183,10 @@ fn suffix_synthesis_appends_and_orders_root_then_affix() {
 fn uncached_synthesis_emits_only_the_recorded_allomorph() {
     let g = load_alpha_grammar();
     let mut stem = root_word(&g, "apa", 100);
-    stem.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
-    stem.allomorph_apps = vec![Some(AllomorphId(201))];
+    stem.trail = pg_rules::trail::Trail::from_slots([(
+        Some(pg_grammar_model::model::MRuleId(0)),
+        Some(AllomorphId(201)),
+    )]);
     stem.mrule_app_index = 0;
     let make_allomorph = |id| {
         allomorph(

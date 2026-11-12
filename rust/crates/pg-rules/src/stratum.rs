@@ -837,9 +837,10 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             })
             .collect();
         let rule_counts = w
-            .unapplied_rule_counts
-            .iter()
-            .filter_map(|(&id, &count)| {
+            .trail
+            .rule_counts()
+            .into_iter()
+            .filter_map(|(id, count)| {
                 let cap = self.g.mrules[id.0 as usize].max_apps();
                 let saturated = count.min(u32::from(cap));
                 (saturated > 0).then_some((id, saturated))
@@ -937,7 +938,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         // Once unapplied on `w`'s trail `max_apps` times, skipped for this candidate; outside `tick()`.
-        if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
+        if w.trail.count_of(id) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
         if let (Some(candidates), MorphRuleDef::AffixProcess(affix)) = (candidates, rule) {
@@ -1028,11 +1029,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let keeps_template_state =
             matches!(rule, MorphRuleDef::AffixProcess(def) if self.g.affix_rule_is_clitic(def));
         for o in &mut outs {
-            assert_eq!(
-                o.allomorph_apps.len(),
-                o.mrule_apps.len(),
-                "allomorph and rule trails are out of sync"
-            );
             let selected = if matches!(rule, MorphRuleDef::AffixProcess(_)) {
                 Some(
                     o.analysis_allomorph
@@ -1044,12 +1040,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 None
             };
             self.values.share(o);
-            o.allomorph_apps.push(selected);
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
-            o.mrule_apps.push(Some(id));
-            o.mrule_app_index = o.mrule_apps.len() as i32 - 1;
-            // Paired with the `mrule_apps.push` above; only `Self::state_key` reads it.
-            o.record_unapplication(id);
+            o.trail.push(Some(id), selected);
+            o.mrule_app_index = o.trail.len() as i32 - 1;
             // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
             o.non_head_app_index = o.non_heads.len() as i32 - 1;
             if self.policy.enforce && !keeps_template_state {
@@ -2055,11 +2048,11 @@ fn guided_synth(
         return Vec::new();
     }
     let idx = w.mrule_app_index as usize;
-    if idx >= w.mrule_apps.len() {
+    let Some(pending) = w.trail.rule(idx) else {
         return Vec::new();
-    }
+    };
     let is_compound = matches!(&g.mrules[id.0 as usize], MorphRuleDef::Compounding(_));
-    let applicable = match w.mrule_apps[idx] {
+    let applicable = match pending {
         Some(cur) => cur == id,
         None => is_compound,
     };
@@ -2112,14 +2105,14 @@ fn guided_synth(
 fn trail_positions(g: &Grammar, rules: &[MRuleId], w: &Word) -> Vec<usize> {
     let Some(pending) = usize::try_from(w.mrule_app_index)
         .ok()
-        .and_then(|idx| w.mrule_apps.get(idx))
+        .and_then(|idx| w.trail.rule(idx))
     else {
         return Vec::new();
     };
     rules
         .iter()
         .enumerate()
-        .filter(|&(_, &id)| match *pending {
+        .filter(|&(_, &id)| match pending {
             Some(cur) => cur == id,
             None => matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)),
         })
@@ -2153,9 +2146,9 @@ fn has_remaining_rules_from_stratum(g: &Grammar, w: &Word, stratum: StratumId) -
         return false;
     }
     let idx = w.mrule_app_index as usize;
-    match w.mrule_apps.get(idx) {
-        Some(&Some(cur)) => owning_stratum(g, cur) == Some(stratum),
-        Some(&None) => w.current_non_head().map(|nh| nh.stratum) == Some(stratum),
+    match w.trail.rule(idx) {
+        Some(Some(cur)) => owning_stratum(g, cur) == Some(stratum),
+        Some(None) => w.current_non_head().map(|nh| nh.stratum) == Some(stratum),
         None => false,
     }
 }

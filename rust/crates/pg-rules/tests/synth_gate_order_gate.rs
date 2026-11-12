@@ -161,8 +161,7 @@ fn build_fixture() -> (Grammar, StratumId, MRuleId, Word, RuleCache) {
     input.syn_fs = one_feature_fs(0b10); // disjoint from `req_fs` => the syn-FS gate fails too.
     input.flags.is_last_applied_rule_final = Some(true); // => the final-template gate fails.
     input.flags.is_partial = false;
-    input.mrule_apps = vec![Some(r)];
-    input.allomorph_apps = vec![None; input.mrule_apps.len()];
+    input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
 
     (g, s, r, input, cache)
@@ -229,8 +228,7 @@ fn syn_fs_gate_still_applies_when_every_gate_actually_passes() {
 
     let mut input = word(&g, "a", s);
     input.syn_fs = one_feature_fs(0b01); // unifies with `req_fs` (same bit).
-    input.mrule_apps = vec![Some(r)];
-    input.allomorph_apps = vec![None; input.mrule_apps.len()];
+    input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
 
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
@@ -375,8 +373,7 @@ fn ordinary_synthesis_uses_the_call_site_role_for_a_shared_affix_id() {
     let cache = RuleCache::build(&g);
     let mut input = word(&g, "a", s);
     input.flags.is_last_applied_rule_final = Some(true);
-    input.mrule_apps = vec![Some(r)];
-    input.allomorph_apps = vec![None; input.mrule_apps.len()];
+    input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
 
     let out = synthesize_stratum_traced_with_policy(

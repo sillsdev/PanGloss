@@ -1,7 +1,7 @@
 //! The in-flight parse state for the morphological-rule engine.
 //!
 //! This is the `Word` the affix-process and compounding primitives (un)apply rules to. It is
-//! deliberately **owned** (no arena lifetime, no persistent trail, no `rule_counts`).
+//! deliberately **owned** (no arena lifetime); only its rule trail is shared between clones.
 //!
 //! `syn_fs`/`real_fs` are owned `FeatureStruct`s, not `FsId`s: rule application mints new
 //! feature-structure values (`unify` then `priority_union` on synthesis; `Add`/`Clear` on
@@ -11,7 +11,6 @@
 //! are also owned here, since MPR gating/accumulation and obligatory-feature accumulation both
 //! read/write the word's own state as rules apply.
 
-use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -22,6 +21,10 @@ use pg_grammar_model::model::{
 use pg_shape::Shape;
 
 use crate::alternative::{Alternative, Alternatives};
+use crate::trail::{SlotView, Trail};
+
+/// `size_of::<Word>()` when the byte estimates were calibrated.
+pub(crate) const LEGACY_WORD_BYTES: usize = 320;
 
 /// State used by the final-template interleaving prune. `None` means the most recently applied
 /// rule was a template/realizational rule (or that no ordinary rule has established a poisoned
@@ -309,23 +312,8 @@ pub struct Word {
     /// `non_heads.len() as i32 - 1`. It is a **dedup-key** component (Word.cs:520,540), not a
     /// cascade driver — the cascades track their own rule position via `AnalysisStratumRule`.
     pub non_head_app_index: i32,
-    /// The morphological rules unapplied so far, in unapplication order (C# `Word._mruleApps`;
-    /// `MorphologicalRuleUnapplied` appends). Analysis always records the *known* `Some(`[`MRuleId`]`)`
-    /// for every (un)application (affix + compounding). `None` is C#'s `null` "unknown compounding
-    /// rule" entry (Word.cs:317-327's doc: "used when generating a compound word, because the
-    /// compounding rule is usually not known, just the non-head allomorph") — it never arises from
-    /// analysis, only from `pg_parse`'s `generate_words` seeding a bare `LexEntry` non-head
-    /// directly into the unapplication trail; the synthesis confirmation gate
-    /// (`pg_rules::stratum::guided_synth`) matches a `None` slot against **any** `CompoundingRule`,
-    /// exactly as C#'s `IsMorphologicalRuleApplicable`'s `curRule == null && rule is CompoundingRule`
-    /// clause (Word.cs:237-244) does. A dedup-key component (Word.cs:523,543): two words with the
-    /// same shape but different unapplication histories are **not** equal — which is also why the
-    /// cascade self-loop guard (`key(in) != key(out)`) is always true here (every unapplication grows
-    /// this list), so termination rests on rules ceasing to apply or the work cap, never on key
-    /// equality.
-    pub mrule_apps: Vec<Option<MRuleId>>,
-    /// Analysis-selected allomorph for each rule trail slot; `None` permits any allomorph.
-    pub allomorph_apps: Vec<Option<AllomorphId>>,
+    /// The rule and allomorph of every unapplication so far, with per-rule unapplication counts (C# `Word._mruleApps` and `_mrulesUnapplied`); a `None` rule is C#'s unknown compounding rule, matched by any compounding rule in synthesis.
+    pub trail: Trail,
     /// Allomorph selected by the current analysis call, before its rule is added to the trail.
     pub analysis_allomorph: Option<AllomorphId>,
     /// Owners of realizational rules already applied in synthesis. Each rule has a unique
@@ -333,9 +321,7 @@ pub struct Word {
     pub applied_realizational_rules: Vec<MorphemeId>,
     /// Analysis-side phonological rules that applied, populated only when stats are collected.
     pub applied_phonological_rules: Vec<(StratumId, PRuleId)>,
-    /// C# `Word._mruleAppIndex` (init `-1`). Grows in lock-step with `mrule_apps` during analysis,
-    /// so it always equals `mrule_apps.len() as i32 - 1`. A dedup-key component
-    /// (Word.cs:524,544), not a cascade driver.
+    /// C# `Word._mruleAppIndex` (init `-1`). Grows in lock-step with `trail` during analysis, so it always equals `trail.len() as i32 - 1`. A dedup-key component (Word.cs:524,544), not a cascade driver.
     pub mrule_app_index: i32,
     /// The matched root allomorph (C# `Word._rootAllomorph`). Set by lexical lookup; stays
     /// `None` throughout analysis (the surface word starts from `Word(Stratum, Shape)`, which
@@ -346,14 +332,6 @@ pub struct Word {
     /// Obligatory syntactic features accumulated by applied rules (C#
     /// `Word.ObligatorySyntacticFeatures`).
     pub obligatory: Vec<FeatId>,
-    /// Per-rule **unapplication** count multiset (C# `Word._mrulesUnapplied` /
-    /// `Word.UnappliedRuleCounts`, Word.cs:376-406) — how many times each morphological rule has been
-    /// unapplied on this word. Incremented alongside every `mrule_apps.push`. Its sole consumer is
-    /// `AnalysisStateKey`, which needs an
-    /// order-independent view of the trail; it is **not** part of `WordKey` (C# `ValueEquals`
-    /// ignores it), so adding it does not perturb dedup. A `BTreeMap` for the same canonical-order
-    /// reason the key uses one.
-    pub unapplied_rule_counts: BTreeMap<MRuleId, u32>,
     pub flags: WordFlags,
     /// C# `Word.Source` (Word.cs:86,491-533): the word this one was derived from at a **stratum
     /// boundary**. `AnalysisStratumRule.Apply` sets every output word's `Source` to the stratum's
@@ -420,8 +398,7 @@ pub struct WordKey {
     stratum: StratumId,
     root_allomorph: Option<AllomorphId>,
     root_realization: Option<String>,
-    mrule_apps: Vec<Option<MRuleId>>,
-    allomorph_apps: Vec<Option<AllomorphId>>,
+    trail: SlotView,
     applied_realizational_rules: Vec<MorphemeId>,
     mrule_app_index: i32,
     is_last_applied_rule_final: Option<bool>,
@@ -440,26 +417,12 @@ struct MorphKey {
 impl WordKey {
     /// Whether `w.dedup_key()` would equal this key, answered by reading `w` in place so no key is built. This is what lets a dedup index hold hash and position only instead of a second copy of every word's key; `tests::matches_agrees_with_key_equality` holds it to `==`.
     pub fn matches(&self, w: &Word) -> bool {
-        self.mrule_apps == w.mrule_apps
-            && self.allomorph_apps == w.allomorph_apps
-            && self.matches_beside_trails(w)
+        self.trail.matches(&w.trail) && self.matches_beside_trails(w)
     }
 
-    /// `matches` against `w` as it would be with the given rule and allomorph trails, where `u32::MAX` stands for `None`.
-    pub(crate) fn matches_with_trail(&self, w: &Word, rules: &[u32], allomorphs: &[u32]) -> bool {
-        self.mrule_apps.len() == rules.len()
-            && self.allomorph_apps.len() == allomorphs.len()
-            && self
-                .mrule_apps
-                .iter()
-                .zip(rules)
-                .all(|(have, &want)| trail_entry_matches(have.map(|id| id.0), want))
-            && self
-                .allomorph_apps
-                .iter()
-                .zip(allomorphs)
-                .all(|(have, &want)| trail_entry_matches(have.map(|id| id.0), want))
-            && self.matches_beside_trails(w)
+    /// `matches` against `w` as it would be with the given trail.
+    pub(crate) fn matches_with_trail(&self, w: &Word, trail: &Trail) -> bool {
+        self.trail.matches(trail) && self.matches_beside_trails(w)
     }
 
     fn matches_beside_trails(&self, w: &Word) -> bool {
@@ -503,8 +466,7 @@ impl Word {
             morphs: Vec::new(),
             non_heads: Vec::new(),
             non_head_app_index: -1,
-            mrule_apps: Vec::new(),
-            allomorph_apps: Vec::new(),
+            trail: Trail::default(),
             analysis_allomorph: None,
             applied_realizational_rules: Vec::new(),
             applied_phonological_rules: Vec::new(),
@@ -512,7 +474,6 @@ impl Word {
             root_allomorph: None,
             root_runtime_id: None,
             obligatory: Vec::new(),
-            unapplied_rule_counts: BTreeMap::new(),
             flags: WordFlags::default(),
             source: None,
             alternatives: Alternatives::default(),
@@ -540,35 +501,15 @@ impl Word {
         self.alternatives.push(alternative);
     }
 
-    /// Record one morphological-rule unapplication in the count multiset (C#
-    /// `Word.MorphologicalRuleUnapplied`'s `_mrulesUnapplied.UpdateValue`, Word.cs:376-379). Called
-    /// from the stratum orchestrator's per-unapplication closure, paired with `mrule_apps.push(id)`.
-    pub fn record_unapplication(&mut self, id: MRuleId) {
-        *self.unapplied_rule_counts.entry(id).or_insert(0) += 1;
-    }
-
-    /// C# `Word.MorphologicalRuleUnapplied` (Word.cs:317-327), the direct-generation counterpart to
-    /// the stratum orchestrator's inline bookkeeping (`apply_one_mrule`, which only ever pushes a
-    /// known analysis-confirmed `Some(id)`): `mrule` is `None` for C#'s "unknown compounding rule"
-    /// null (only reachable from `pg_parse`'s `generate_words`, never from analysis). If `mrule` is
-    /// known, its unapplication count is recorded first regardless of rule kind (cs:319-320); then,
-    /// unless `is_realizational` (a `RealizationalAffixProcessRule` never occupies an `mrule_apps`
-    /// slot — cs:321 — because its confirmation gate is the realizational-FS subsumption check in
-    /// `pg_rules::morph::synth_realizational`, not the ordinary trail), the slot is pushed and the
-    /// index advanced.
+    /// C# `Word.MorphologicalRuleUnapplied` (Word.cs:317-327): `mrule` is `None` for the unknown compounding rule, reachable only from generation seeding a bare non-head; a realizational rule is counted but never occupies a slot (cs:321).
     pub fn morphological_rule_unapplied(&mut self, is_realizational: bool, mrule: Option<MRuleId>) {
-        if let Some(id) = mrule {
-            self.record_unapplication(id);
-        }
-        if !is_realizational {
-            assert_eq!(
-                self.allomorph_apps.len(),
-                self.mrule_apps.len(),
-                "allomorph and rule trails are out of sync"
-            );
-            self.allomorph_apps.push(None);
-            self.mrule_apps.push(mrule);
-            self.mrule_app_index = self.mrule_apps.len() as i32 - 1;
+        match (is_realizational, mrule) {
+            (false, mrule) => {
+                self.trail.push(mrule, None);
+                self.mrule_app_index = self.trail.len() as i32 - 1;
+            }
+            (true, Some(id)) => self.trail.push_count_only(id),
+            (true, None) => {}
         }
     }
 
@@ -577,9 +518,8 @@ impl Word {
         let Ok(i) = usize::try_from(self.mrule_app_index) else {
             return None;
         };
-        *self
-            .allomorph_apps
-            .get(i)
+        self.trail
+            .allomorph(i)
             .expect("pending morphological rule has no allomorph trail slot")
     }
 
@@ -613,8 +553,7 @@ impl Word {
             stratum: self.stratum,
             root_allomorph: self.root_allomorph,
             root_realization: self.root_runtime_id.clone(),
-            mrule_apps: self.mrule_apps.clone(),
-            allomorph_apps: self.allomorph_apps.clone(),
+            trail: self.trail.slot_view(),
             applied_realizational_rules: self.applied_realizational_rules.clone(),
             mrule_app_index: self.mrule_app_index,
             is_last_applied_rule_final: self.flags.is_last_applied_rule_final,
@@ -652,7 +591,7 @@ impl Word {
     /// `Word::source`. This walks that `source` spine: it expands the
     /// source first, and — whenever the source itself expanded to two or more words (i.e. a merge
     /// happened upstream) — replays the delta this word accumulated since its source (the extra
-    /// `mrule_apps`, the extra `non_heads`, and, at the synthesis boundary, the root allomorph) onto
+    /// trail slots, the extra `non_heads`, and, at the synthesis boundary, the root allomorph) onto
     /// each of those expanded originals. The word's own `alternatives` are each expanded and appended.
     /// The net effect is that a candidate merged away at a shallow stratum is recovered with the
     /// deeper strata's rules grafted on, so synthesis sees exactly the candidate set the unmerged
@@ -685,6 +624,12 @@ impl Word {
                     .source
                     .as_ref()
                     .expect("originals is Some => source is Some");
+                let mut delta: Vec<_> = self
+                    .trail
+                    .slots_rev()
+                    .take(self.trail.len().saturating_sub(src.trail.len()))
+                    .collect();
+                delta.reverse();
                 for original in o {
                     if !pg_fst::work::consume() {
                         return Vec::new();
@@ -692,26 +637,10 @@ impl Word {
                     let mut alt = original.clone();
                     alt.shape = self.shape.clone();
                     // Rules unapplied since the source (cs:509-511 `MorphologicalRuleUnapplied`).
-                    for i in src.mrule_apps.len()..self.mrule_apps.len() {
-                        let id = self.mrule_apps[i];
-                        assert_eq!(
-                            alt.allomorph_apps.len(),
-                            alt.mrule_apps.len(),
-                            "alternative rule and allomorph trails are out of sync"
-                        );
-                        alt.allomorph_apps.push(
-                            *self
-                                .allomorph_apps
-                                .get(i)
-                                .expect("source rule has no allomorph trail slot"),
-                        );
-                        alt.mrule_apps.push(id);
-                        // C#'s `mrule != null` guard; never actually `None` on this path, kept for type-level faithfulness.
-                        if let Some(id) = id {
-                            *alt.unapplied_rule_counts.entry(id).or_insert(0) += 1;
-                        }
+                    for &(rule, allomorph) in &delta {
+                        alt.trail.push(rule, allomorph);
                     }
-                    alt.mrule_app_index = alt.mrule_apps.len() as i32 - 1;
+                    alt.mrule_app_index = alt.trail.len() as i32 - 1;
                     // Non-heads unapplied since the source (cs:512-514 `NonHeadUnapplied`).
                     for i in src.non_heads.len()..self.non_heads.len() {
                         alt.non_heads.push(self.non_heads[i].clone());
@@ -891,7 +820,8 @@ impl WordByteBreakdown {
 /// bound (see the work-cap contract).
 pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
     let mut b = WordByteBreakdown {
-        base: std::mem::size_of::<Word>() - std::mem::size_of::<Shape>()
+        // Fixed at the size `Word` had when the capture budgets were calibrated, so shrinking the struct does not move any estimate.
+        base: LEGACY_WORD_BYTES - std::mem::size_of::<Shape>()
             + pg_shape::INLINE_COLUMNS_BYTES
             // `Word` holds two inline feature structures (`syn_fs`, `real_fs`); each keeps its old 24-byte weight.
             + 2 * (pg_featstruct::FEATURE_STRUCT_INLINE_BYTES
@@ -900,11 +830,11 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
         syn_fs: estimate_fs_bytes(&w.syn_fs),
         real_fs: estimate_fs_bytes(&w.real_fs),
         morphs: w.morphs.len() * std::mem::size_of::<MorphRecord>(),
-        mrule_apps: w.mrule_apps.len() * std::mem::size_of::<Option<MRuleId>>()
-            + w.allomorph_apps.len() * std::mem::size_of::<Option<AllomorphId>>()
+        mrule_apps: w.trail.len() * std::mem::size_of::<Option<MRuleId>>()
+            + w.trail.len() * std::mem::size_of::<Option<AllomorphId>>()
             + w.applied_realizational_rules.len() * std::mem::size_of::<MorphemeId>(),
         obligatory: w.obligatory.len() * std::mem::size_of::<FeatId>(),
-        unapplied_rule_counts: w.unapplied_rule_counts.len()
+        unapplied_rule_counts: w.trail.rule_counts().len()
             * (std::mem::size_of::<MRuleId>() + std::mem::size_of::<u32>()),
         root_runtime_id: w.root_runtime_id.as_ref().map_or(0, String::len),
         non_heads: 0,
@@ -928,14 +858,6 @@ pub fn estimate_word_bytes(w: &Word) -> usize {
 /// Approximate heap-byte cost of a `MemoEntry`'s `results`, the payload the memo byte budget accounts against.
 pub fn estimate_words_bytes(words: &[Word]) -> usize {
     words.iter().map(estimate_word_bytes).sum()
-}
-
-/// Whether a key's trail entry equals a stored one; `u32::MAX` is stored only for "no rule".
-fn trail_entry_matches(have: Option<u32>, stored: u32) -> bool {
-    match have {
-        None => stored == u32::MAX,
-        Some(id) => id != u32::MAX && id == stored,
-    }
 }
 
 #[cfg(test)]

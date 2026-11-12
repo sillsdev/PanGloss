@@ -20,6 +20,7 @@ pub mod stats;
 pub mod stratum;
 pub mod surface_probe;
 pub mod trace;
+pub mod trail;
 pub mod validity;
 pub mod word;
 pub mod word_set;

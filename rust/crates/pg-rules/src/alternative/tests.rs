@@ -5,6 +5,7 @@ use pg_grammar_model::model::{AllomorphId, MRuleId, MorphemeId, MprSet, PRuleId,
 use pg_shape::ShapeBuilder;
 
 use super::*;
+use crate::trail::Trail;
 use crate::word::{FinalTemplateState, MorphRecord};
 
 fn fs_with(bits: u64) -> FeatureStruct {
@@ -26,17 +27,20 @@ fn canonical() -> Word {
     w.syn_fs = fs_with(0b01);
     w.morphs = vec![MorphRecord::new(AllomorphId(5), MorphemeId(6), 0)];
     w.obligatory = vec![FeatId(3)];
-    w.morphological_rule_unapplied(false, Some(MRuleId(1)));
-    w.morphological_rule_unapplied(false, Some(MRuleId(2)));
-    w.allomorph_apps = vec![Some(AllomorphId(10)), None];
+    w.trail = Trail::from_slots([
+        (Some(MRuleId(1)), Some(AllomorphId(10))),
+        (Some(MRuleId(2)), None),
+    ]);
     w
 }
 
 /// The same analysis state reached with the rules in the other order and other allomorphs.
 fn reordered(canonical: &Word) -> Word {
     let mut w = canonical.clone();
-    w.mrule_apps = vec![Some(MRuleId(2)), Some(MRuleId(1))];
-    w.allomorph_apps = vec![None, Some(AllomorphId(11))];
+    w.trail = Trail::from_slots([
+        (Some(MRuleId(2)), None),
+        (Some(MRuleId(1)), Some(AllomorphId(11))),
+    ]);
     w.syn_fs = fs_with(0b10);
     w
 }
@@ -106,9 +110,6 @@ fn a_candidate_differing_beside_its_trails_is_held_whole() {
             w.root_runtime_id = Some("r".to_owned())
         }),
         ("obligatory", |w| w.obligatory.push(FeatId(4))),
-        ("unapplied_rule_counts", |w| {
-            w.unapplied_rule_counts.insert(MRuleId(9), 1);
-        }),
         ("is_partial", |w| w.flags.is_partial = true),
         ("is_last_applied_rule_final", |w| {
             w.flags.is_last_applied_rule_final = Some(true)
@@ -126,12 +127,6 @@ fn a_candidate_differing_beside_its_trails_is_held_whole() {
         }),
         ("trace", |w| {
             w.trace = Some(crate::trace::TraceHandle::DUMMY)
-        }),
-        ("rule id at the stand-in value", |w| {
-            w.mrule_apps[0] = Some(MRuleId(u32::MAX))
-        }),
-        ("allomorph id at the stand-in value", |w| {
-            w.allomorph_apps[0] = Some(AllomorphId(u32::MAX))
         }),
     ];
     for (field, change) in changes {
@@ -157,14 +152,17 @@ fn matches_agrees_with_the_folded_word() {
     let folded = reordered(&canonical);
     let mut probes = vec![canonical.clone(), folded.clone()];
     let mut shorter = folded.clone();
-    shorter.mrule_apps.pop();
-    shorter.allomorph_apps.pop();
+    shorter.trail = Trail::from_slots([(Some(MRuleId(2)), None)]);
     probes.push(shorter);
     let mut other_allomorph = folded.clone();
-    other_allomorph.allomorph_apps[1] = Some(AllomorphId(12));
+    other_allomorph.trail = Trail::from_slots([
+        (Some(MRuleId(2)), None),
+        (Some(MRuleId(1)), Some(AllomorphId(12))),
+    ]);
     probes.push(other_allomorph);
     let mut unknown_rule = folded.clone();
-    unknown_rule.mrule_apps[0] = None;
+    unknown_rule.trail =
+        Trail::from_slots([(None, None), (Some(MRuleId(1)), Some(AllomorphId(11)))]);
     probes.push(unknown_rule);
     let mut other_obligatory = folded.clone();
     other_obligatory.obligatory.push(FeatId(9));
@@ -202,4 +200,19 @@ fn clones_of_a_canonical_share_one_list() {
     canonical.fold_alternative(again);
     assert_eq!(canonical.alternatives.len(), 2);
     assert_eq!(copy.alternatives.len(), 1);
+}
+
+#[test]
+fn a_trail_alternative_keeps_its_own_counts_and_any_id() {
+    let canonical = canonical();
+    let mut folded = reordered(&canonical);
+    folded.trail.push_count_only(MRuleId(9));
+    folded
+        .trail
+        .push(Some(MRuleId(u32::MAX)), Some(AllomorphId(u32::MAX)));
+    let stored = Alternative::of(folded.clone(), &canonical);
+    assert!(matches!(stored, Alternative::Trail(_)));
+    let rebuilt = stored.word(&canonical);
+    assert_eq!(printed(&rebuilt), printed(&folded));
+    assert_eq!(rebuilt.trail.count_of(MRuleId(9)), 1);
 }

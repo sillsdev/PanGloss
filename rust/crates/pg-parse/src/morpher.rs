@@ -1406,9 +1406,9 @@ impl<'g> Morpher<'g> {
     /// `no_root`: charged to the last rule applied on `aw`'s trail, or to the stratum's root lookup when none applied.
     fn record_no_root(&self, stats: Option<&pg_rules::stats::StatsCollector>, aw: &Word) {
         let Some(stats) = stats else { return };
-        if let Some(Some(id)) = aw.mrule_apps.last() {
-            if let Some(stratum) = self.mrule_stratum(*id) {
-                stats.record_no_root_mrule(stratum, *id);
+        if let Some(Some(id)) = aw.trail.last_rule() {
+            if let Some(stratum) = self.mrule_stratum(id) {
+                stats.record_no_root_mrule(stratum, id);
                 return;
             }
         }
@@ -1427,7 +1427,7 @@ impl<'g> Morpher<'g> {
     fn commit_uses(&self, stats: Option<&pg_rules::stats::StatsCollector>, vw: &Word) {
         let Some(stats) = stats else { return };
         let mut seen: Vec<MRuleId> = Vec::new();
-        for id in vw.mrule_apps.iter().flatten() {
+        for id in vw.trail.rules().iter().flatten() {
             if seen.contains(id) {
                 continue;
             }
@@ -1852,7 +1852,7 @@ impl<'g> Morpher<'g> {
 pub enum GenMorpheme {
     /// A known morphological rule to unapply (`AffixProcessRule`/`RealizationalAffixProcessRule`).
     Rule(MRuleId),
-    /// A bare compounding non-head root entry; its owning `CompoundingRule` is discovered by the synthesis confirmation gate, not specified here (see `Word::mrule_apps`).
+    /// A bare compounding non-head root entry; its owning `CompoundingRule` is discovered by the synthesis confirmation gate, not specified here (see `Word::trail`).
     NonHead(LexEntryId),
 }
 
@@ -1920,7 +1920,7 @@ fn generation_seed_product(
     Some(product)
 }
 
-/// `mrule is RealizationalAffixProcessRule`: the one rule kind that never occupies an `mrule_apps` trail slot (see that field's doc).
+/// `mrule is RealizationalAffixProcessRule`: the one rule kind that never occupies a trail slot.
 fn is_realizational_rule(g: &Grammar, id: MRuleId) -> bool {
     matches!(&g.mrules[id.0 as usize], MorphRuleDef::Realizational(_))
 }
