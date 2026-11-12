@@ -13,32 +13,32 @@ function New-Found([string]$Arguments = $null, [string]$RunLevel = 'Highest') {
         })
 }
 
-Test-Case 'tasks matching the specs are ready' {
+Test-Case 'tasks matching the specs are ready' -WindowsOnly 'task specs locate wpr.exe through the Windows directory variable' {
     Assert-Equal 0 (Get-PmcTaskProblems -Found (New-Found)).Count
 }
 
-Test-Case 'a missing task is named' {
+Test-Case 'a missing task is named' -WindowsOnly 'task specs locate wpr.exe through the Windows directory variable' {
     $p = Get-PmcTaskProblems -Found @((New-Found)[0])
     Assert-Equal 1 $p.Count
     Assert-True ($p[0] -match 'PanGloss PMC Stop') $p[0]
 }
 
-Test-Case 'no tasks at all names both' {
+Test-Case 'no tasks at all names both' -WindowsOnly 'task specs locate wpr.exe through the Windows directory variable' {
     Assert-Equal 2 (Get-PmcTaskProblems -Found @()).Count
 }
 
-Test-Case 'a task running other arguments is a problem' {
+Test-Case 'a task running other arguments is a problem' -WindowsOnly 'task specs locate wpr.exe through the Windows directory variable' {
     $p = Get-PmcTaskProblems -Found (New-Found -Arguments '-start other.wprp')
     Assert-Equal 2 $p.Count
     Assert-True ($p[0] -match 'expected') $p[0]
 }
 
-Test-Case 'a task without highest privileges is a problem' {
+Test-Case 'a task without highest privileges is a problem' -WindowsOnly 'task specs locate wpr.exe through the Windows directory variable' {
     $p = Get-PmcTaskProblems -Found (New-Found -RunLevel 'Limited')
     Assert-True ($p[0] -match 'Highest') $p[0]
 }
 
-Test-Case 'the start task records the PG profile from the PMC folder' {
+Test-Case 'the start task records the PG profile from the PMC folder' -WindowsOnly 'task specs locate wpr.exe through the Windows directory variable' {
     $start = (Get-PmcTaskSpecs -Dir 'X:\pmc')[0]
     Assert-Equal '-start "X:\pmc\pg.wprp!PG" -filemode' $start.Arguments
 }
