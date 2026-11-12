@@ -1609,6 +1609,10 @@ fn run_batch_with_counter(
             start_idx.min(words.len()),
         )?),
     };
+    // Under `auto` the meter priced the calibration parses only; the batch itself needs it just for the cost column.
+    if prefilter_mode == batch_prefilter::PrefilterMode::Auto && !cost_column {
+        pg_cost::disable();
+    }
     if threads == 1 {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
         for (i, word) in words.iter().enumerate() {
