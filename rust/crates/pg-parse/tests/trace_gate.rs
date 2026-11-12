@@ -441,6 +441,7 @@ fn rich_failure_context_preserves_parse_results_and_exact_surface_inputs() {
         TraceType::Failed,
         &mut failures,
     );
+    // machine#627: the sibling `bo` is not proposed, so no surface mismatch (and no context) arises here.
     let contexts: Vec<_> = failures
         .into_iter()
         .map(|h| rich.node(h))
@@ -450,13 +451,7 @@ fn rich_failure_context_preserves_parse_results_and_exact_surface_inputs() {
                 .expect("mismatch owner must capture its operands")
         })
         .collect();
-    assert!(!contexts.is_empty());
-    assert!(contexts
-        .iter()
-        .all(|context| context.required.as_deref() == Some("bu")));
-    assert!(contexts
-        .iter()
-        .any(|context| context.actual.as_deref() == Some("bo")));
+    assert!(contexts.is_empty());
     let mut plain_failures = Vec::new();
     find_all_by_type(
         &plain,

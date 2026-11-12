@@ -1229,7 +1229,7 @@ impl<'g> Morpher<'g> {
         }
     }
 
-    /// C# `Morpher.LexicalLookup`: one clone per allomorph of each matched entry; `lex_entry_filter` runs before the distinct-entry dedup.
+    /// C# `Morpher.LexicalLookup` (machine#627): one clone per root allomorph the search matched, never its siblings; `lex_entry_filter` and the entry's syntactic-feature unification run per matched allomorph, in search order.
     fn lexical_lookup_filtered(
         &self,
         aw: &Word,
@@ -1240,8 +1240,8 @@ impl<'g> Morpher<'g> {
         search_cache: &Mutex<crate::root_search_cache::RootSearchCache>,
     ) -> Vec<Word> {
         // Fires once per call before any root-allomorph search; `aw.trace` resolves to its own node, not the parse root.
+        let node_parent = aw.trace.unwrap_or(parent);
         let lookup = if trace.is_tracing() {
-            let node_parent = aw.trace.unwrap_or(parent);
             Some(trace.lexical_lookup(node_parent, aw.stratum, aw))
         } else {
             None
@@ -1251,8 +1251,9 @@ impl<'g> Morpher<'g> {
             stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
         }
         let matched = self.search_roots(aw.stratum, &aw.shape, stats, search_cache);
-        // Distinct entries in first-seen order; `lex_entry_filter` runs before the dedup, mirroring C#'s `.Where().Distinct()` order.
-        let mut entries: Vec<LexEntryId> = Vec::new();
+        let mut out = Vec::new();
+        // C# `SearchRootAllomorphs(..).Distinct()`: a matched allomorph is proposed once.
+        let mut seen: Vec<(LexEntryId, pg_grammar_model::model::AllomorphId)> = Vec::new();
         for root in &matched {
             let _owner = stats.map(|stats| {
                 stats.time_enter(
@@ -1266,18 +1267,26 @@ impl<'g> Morpher<'g> {
             if !pg_fst::work::consume() {
                 break;
             }
-            let ResolvedRoot::Grammar(_, le) = root else {
+            let ResolvedRoot::Grammar(matched_allo, le) = root else {
                 continue;
             };
-            if lex_entry_filter.is_some_and(|f| !f(*le)) {
+            let le = *le;
+            if lex_entry_filter.is_some_and(|f| !f(le)) {
                 continue;
             }
-            if !entries.contains(le) {
-                entries.push(*le);
+            if seen.contains(&(le, *matched_allo)) {
+                continue;
             }
-        }
-        let mut out = Vec::new();
-        for le in entries {
+            seen.push((le, *matched_allo));
+            let entry = &g.entries[le.0 as usize];
+            let Some((allo_idx, allo)) = entry
+                .allomorphs
+                .iter()
+                .enumerate()
+                .find(|(_, a)| a.id == *matched_allo)
+            else {
+                continue;
+            };
             let _entry_owner = stats.map(|stats| {
                 stats.time_enter(
                     pg_rules::stats::ObjectKind::LexEntry,
@@ -1290,30 +1299,42 @@ impl<'g> Morpher<'g> {
             if !pg_fst::work::consume() {
                 break;
             }
-            let entry = &g.entries[le.0 as usize];
-            for (allo_idx, allo) in entry.allomorphs.iter().enumerate() {
-                let _time_lex = stats.map(|stats| {
-                    stats.time_enter(
-                        pg_rules::stats::ObjectKind::LexEntry,
-                        aw.stratum,
-                        le.0,
-                        allo_idx as u32 + 1,
-                        pg_rules::stats::Direction::Analysis,
-                    )
-                });
-                if !pg_fst::work::consume() {
-                    break;
-                }
-                if let Some(stats) = stats {
-                    // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
-                    stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
-                }
-                // The clone drops alternatives and records `aw` as its source — the boundary `expand_alternatives` walks back from.
-                let mut nw = aw.clone_without_alternatives();
-                nw.source = Some(Rc::new(aw.clone()));
-                self.set_root_allomorph(&mut nw, le, allo.id, &allo.shape.text);
-                out.push(nw);
+            let _time_lex = stats.map(|stats| {
+                stats.time_enter(
+                    pg_rules::stats::ObjectKind::LexEntry,
+                    aw.stratum,
+                    le.0,
+                    allo_idx as u32 + 1,
+                    pg_rules::stats::Direction::Analysis,
+                )
+            });
+            if !pg_fst::work::consume() {
+                break;
             }
+            // Lookup fails when the entry's syntactic features do not unify with the input's: no synthesis is attempted.
+            if !pg_featstruct::is_unifiable(g.fs_interner.get(entry.syn_fs), &aw.syn_fs) {
+                if trace.is_tracing() {
+                    let mut trace_word = aw.clone_without_alternatives();
+                    self.set_root_allomorph(&mut trace_word, le, allo.id, &allo.shape.text);
+                    // The Failed trace follows a SynthesizeWord trace, as in C#.
+                    let synthesis = trace.synthesize_word(node_parent, &trace_word);
+                    trace.failed(
+                        synthesis,
+                        &trace_word,
+                        FailureReason::RequiredSyntacticFeatureStruct,
+                    );
+                }
+                continue;
+            }
+            if let Some(stats) = stats {
+                // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
+                stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
+            }
+            // The clone drops alternatives and records `aw` as its source — the boundary `expand_alternatives` walks back from.
+            let mut nw = aw.clone_without_alternatives();
+            nw.source = Some(Rc::new(aw.clone()));
+            self.set_root_allomorph(&mut nw, le, allo.id, &allo.shape.text);
+            out.push(nw);
         }
         for root in matched {
             let _owner = stats.map(|stats| match &root {

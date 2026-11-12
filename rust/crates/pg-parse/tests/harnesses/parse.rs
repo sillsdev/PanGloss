@@ -53,6 +53,8 @@ mod fw_metathesis;
 mod guess_only_orchestration_gate;
 #[path = "../guesser_gate.rs"]
 mod guesser_gate;
+#[path = "../lexical_lookup_matched_allomorph.rs"]
+mod lexical_lookup_matched_allomorph;
 #[path = "../lexical_pattern_trie_exclusion_gate.rs"]
 mod lexical_pattern_trie_exclusion_gate;
 #[path = "../loader_n3_pattern_shapes_gate.rs"]
