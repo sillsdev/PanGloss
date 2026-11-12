@@ -534,9 +534,9 @@ fn no_root_fires_only_when_lexical_lookup_finds_nothing() {
     );
 }
 
-/// Two differently-spelled allomorphs of one root: `surface_mismatch` must fire for the one that does not match.
+/// Two differently-spelled allomorphs of one root: only the matched one is proposed (machine#627), so the sibling is never rebuilt and `surface_mismatch` stays zero.
 #[test]
-fn surface_mismatch_fires_for_a_root_that_is_tried_and_rebuilt_but_does_not_match() {
+fn surface_mismatch_stays_zero_for_a_sibling_allomorph_the_search_did_not_match() {
     let extra_lexicon = r#"
       <LexicalEntry id="eSm" partOfSpeech="posV">
         <Allomorphs>
@@ -559,9 +559,9 @@ fn surface_mismatch_fires_for_a_root_that_is_tried_and_rebuilt_but_does_not_matc
         .filter(|r| r.kind == ObjectKind::LexEntry)
         .map(|r| r.counters.surface_mismatch)
         .sum();
-    assert!(
-        mismatch_sum >= 1,
-        "allomorph aSm2 (bo) is tried and rebuilt but does not match the surface word 'bu'"
+    assert_eq!(
+        mismatch_sum, 0,
+        "allomorph aSm2 (bo) is a sibling of the matched aSm1 and is not proposed for synthesis"
     );
 }
 
