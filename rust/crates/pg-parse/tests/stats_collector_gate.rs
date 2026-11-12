@@ -846,7 +846,7 @@ fn fact_work_is_segments_examined_not_the_word_work_steps_total() {
         measured,
         vec![
             ("sumulat", 767, 359),
-            ("keadilan", 2443, 1525),
+            ("keadilan", 1166, 429),
             ("katibɯd", 886, 336),
             ("katibɯt", 657, 238),
             ("pur", 331, 148),

@@ -9,6 +9,7 @@ See `README.md` for the full status table and the kind definitions.
 |---|---|
 | (none — no C# equivalent) | 028, 089 |
 | FieldWorks `HCParser.cs` / `HCLoader.cs` / XAmple (never read `DoNotUseForParsing`) | 121 |
+| `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`, `TryGetSegmentCopies`, `CanAlign`) | 049 |
 | `AnalysisScope.cs` | 024, 045 |
 | `AnalysisStateKey.cs` | 024, 045 |
 | `FeatureValue.cs` / `SimpleFeatureValue.cs` (shared variable/negation machinery) | 026 |
@@ -44,6 +45,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-rules/src/rewrite.rs` (`width_matches`) | 020 |
 | `pg-rules/src/rewrite.rs` (`pattern_defaults_ok`, synthesis target and environment matching) | 129 |
 | `pg-rules/src/morph.rs` (`generate_shape`, `ModifyFromInput` undo) | 128 |
+| `pg-rules/src/morph.rs` (`copy_agreement_refuses_match`, `copies_can_align`) | 049 |
 | `pg-rules/src/morph/optional_runs.rs`; `pg-fst/src/traverse.rs` (`interchangeable_runs`) | 130 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
