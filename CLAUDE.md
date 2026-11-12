@@ -22,6 +22,8 @@ should change, open or reuse a Machine issue with the evidence, then propose a f
 never keep a behavioural improvement unreported in Rust alone. A difference planned to stay gets an entry under
 `docs/divergences/`; a fix or speedup still to be done is a GitHub issue, not an entry.
 
+Scope: the hierarchy governs only constructs a real FieldWorks project can create (`HCLoader.cs` emits them from FLEx data, or `HCParser.cs` reads them from FieldWorks' parser settings); hand-written-XML-only constructs are out of scope (`docs/adr/0014-fieldworks-producible-scope.md`).
+
 The one escape hatch: an independently justified divergence documented in the ledger, pinned by a
 fixture, and reported upstream. An issue is not a fix PR and neither alone proves correctness.
 
