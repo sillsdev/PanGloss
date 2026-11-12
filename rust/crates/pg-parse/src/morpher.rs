@@ -1443,7 +1443,7 @@ impl<'g> Morpher<'g> {
         w.morphs = vec![MorphRecord::new(allo, entry.morpheme, 0)];
     }
 
-    /// Whether root lookup can find anything for `aw`, asked without spending the word's work, touching its root search cache or recording a statistic. It may answer true for a word lookup then finds nothing for, never false for one it finds a root for. Its own time is therefore outside the work measure: one root search per word the last stratum creates.
+    /// Whether root lookup can find anything for `aw`, asked without spending the word's work, touching its root search cache or recording a statistic. It may answer true for a word lookup then finds nothing for, never false for one it finds a root for. Its own time is therefore outside the work measure: one root search per last-stratum word that something folds into.
     fn has_root(&self, aw: &Word, lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>) -> bool {
         if self.overlay.is_some() {
             return true;

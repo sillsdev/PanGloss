@@ -485,7 +485,7 @@ pub struct StratumAnalysis {
     pub capped: bool,
 }
 
-/// Whether any root matches a word the stratum has just created. It must answer from the word's shape and stratum alone and spend none of the word's work.
+/// Whether any root matches a word of the stratum's output. It must answer from the word's shape and stratum alone and spend none of the word's work.
 pub type RootGate<'a> = &'a dyn Fn(&Word) -> bool;
 
 // Analysis stratum rule.
@@ -1645,13 +1645,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         // Only the merge keeps alternatives, so without it there is nothing to drop.
         let root_gate = root_gate.filter(|_| self.cfg.merge_equivalent);
-        // Whether each word has a root, word for word; empty without a gate.
-        let mut rooted: Vec<bool> = Vec::new();
-        if let Some(gate) = root_gate {
-            rooted.push(gate(&input));
+        // What the gate said of each word, word for word, asked when the first arrival folds into it; empty without a gate.
+        let mut rooted: Vec<Option<bool>> = Vec::new();
+        if root_gate.is_some() {
+            rooted.push(None);
         }
-        // An arrival that folds into canonical `idx` is kept as an alternative unless the gate found the canonical rootless.
-        let keeps_alternatives = |rooted: &[bool], idx: usize| root_gate.is_none() || rooted[idx];
+        // An arrival that folds into canonical `idx` is kept as an alternative unless the gate finds the canonical rootless.
+        let keeps_alternatives = |rooted: &mut [Option<bool>], words: &[Word], idx: usize| {
+            root_gate.is_none_or(|gate| *rooted[idx].get_or_insert_with(|| gate(&words[idx])))
+        };
         words.push(input.clone());
 
         // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
@@ -1688,7 +1690,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     );
                 }
                 if let Some(idx) = state_canonical {
-                    if !keeps_alternatives(&rooted, idx) {
+                    if !keeps_alternatives(&mut rooted, &words, idx) {
                         return;
                     }
                     if let Some(w) =
@@ -1706,7 +1708,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
                 if let Some(idx) = output_keys.find(&dedup_key, |at| &words[at]) {
-                    if !keeps_alternatives(&rooted, idx) {
+                    if !keeps_alternatives(&mut rooted, &words, idx) {
                         return;
                     }
                     if let Some(w) =
@@ -1736,8 +1738,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
                 output_keys.insert(&dedup_key, words.len());
                 live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                if let Some(gate) = root_gate {
-                    rooted.push(gate(&w));
+                if root_gate.is_some() {
+                    rooted.push(None);
                 }
                 words.push(w);
                 if let Some(r) = &remaining {

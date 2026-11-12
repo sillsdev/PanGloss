@@ -1744,15 +1744,10 @@ fn a_word_with_no_root_keeps_its_place_and_drops_the_alternatives_folded_into_it
     let rooted_budget = WordBudget::new(1_000_000);
     let with_roots = analyze_last(&g, s0, &cfg, &rooted_budget, Some(&rooted));
     assert_eq!(alternatives(&with_roots), alternatives(&plain));
-    let created: Vec<_> = with_roots
-        .words
-        .iter()
-        .map(|w| char_defs(&w.shape))
-        .collect();
     assert_eq!(
         *seen.borrow(),
-        created,
-        "the gate is asked once per output word, in output order, the unchanged input first"
+        vec![ag.clone()],
+        "the gate is asked once, of the one word something folds into"
     );
 
     let no_ag = |w: &Word| char_defs(&w.shape) != ag;
