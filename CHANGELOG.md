@@ -6,6 +6,7 @@ file has no section for.
 ## Unreleased
 
 - Release binaries (all four targets) are built with the `foma-tools` feature, so `pangloss batch --prefilter auto|on` works in shipped builds instead of refusing.
+- A template battery stores each of its outputs as the fields a slot rule changes (shape, syntactic features, trail, template state) against the battery's input, 40 bytes where a whole word is 168, and rebuilds the word when the stratum takes it; an output that differs anywhere else is held whole. A rule-trail step is packed into a 40-byte allocation instead of 48. On the heaviest Mbugwe word the peak falls from 32 MB to 26 MB at a 50M work cap, from 111 MB to 71 MB at 200M and from 281 MB to 196 MB at 1G, with identical analyses, order and parser work.
 
 ## 0.18.0
 
