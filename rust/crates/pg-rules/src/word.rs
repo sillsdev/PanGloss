@@ -440,6 +440,38 @@ struct MorphKey {
     runtime_identity: Option<String>,
 }
 
+impl WordKey {
+    /// Whether `w.dedup_key()` would equal this key, answered by reading `w` in place so no key is built. This is what lets a dedup index hold hash and position only instead of a second copy of every word's key; `tests::matches_agrees_with_key_equality` holds it to `==`.
+    pub fn matches(&self, w: &Word) -> bool {
+        self.non_head_app_index == w.non_head_app_index
+            && self.stratum == w.stratum
+            && self.root_allomorph == w.root_allomorph
+            && self.mrule_app_index == w.mrule_app_index
+            && self.is_last_applied_rule_final == w.flags.is_last_applied_rule_final
+            && self.final_template_state == w.flags.final_template_state
+            && self.root_realization == w.root_runtime_id
+            && self.mrule_apps == w.mrule_apps
+            && self.allomorph_apps == w.allomorph_apps
+            && self.applied_realizational_rules == w.applied_realizational_rules
+            && self.morphs.len() == w.morphs.len()
+            && self.morphs.iter().zip(&w.morphs).all(|(k, m)| {
+                k.allomorph == m.allomorph
+                    && k.morpheme == m.morpheme
+                    && k.order == m.order
+                    && k.status == m.status
+                    && k.runtime_identity.as_deref() == runtime_id(m.runtime_root.as_deref())
+            })
+            && self.non_heads.len() == w.non_heads.len()
+            && self
+                .non_heads
+                .iter()
+                .zip(&w.non_heads)
+                .all(|(k, nh)| k.matches(nh))
+            && self.real_fs == w.real_fs
+            && self.shape == w.shape
+    }
+}
+
 impl Word {
     /// A fresh word over `shape` in `stratum` with empty FSs / MPR / morphs (the starting state a
     /// root lookup or a test harness builds on).
