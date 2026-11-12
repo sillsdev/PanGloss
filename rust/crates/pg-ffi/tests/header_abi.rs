@@ -124,6 +124,8 @@ fn compile_and_run(source: &str, cpp: bool, scratch: &Path) {
     )
     .unwrap();
     let status = Command::new(&exe)
+        .env("LD_LIBRARY_PATH", &target)
+        .env("DYLD_LIBRARY_PATH", &target)
         .status()
         .expect("run linked header smoke");
     assert!(status.success(), "linked header smoke failed: {exe:?}");
