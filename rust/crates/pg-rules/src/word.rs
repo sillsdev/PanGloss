@@ -453,12 +453,12 @@ impl WordKey {
                 .mrule_apps
                 .iter()
                 .zip(rules)
-                .all(|(have, &want)| have.map_or(u32::MAX, |id| id.0) == want)
+                .all(|(have, &want)| trail_entry_matches(have.map(|id| id.0), want))
             && self
                 .allomorph_apps
                 .iter()
                 .zip(allomorphs)
-                .all(|(have, &want)| have.map_or(u32::MAX, |id| id.0) == want)
+                .all(|(have, &want)| trail_entry_matches(have.map(|id| id.0), want))
             && self.matches_beside_trails(w)
     }
 
@@ -928,6 +928,14 @@ pub fn estimate_word_bytes(w: &Word) -> usize {
 /// Approximate heap-byte cost of a `MemoEntry`'s `results`, the payload the memo byte budget accounts against.
 pub fn estimate_words_bytes(words: &[Word]) -> usize {
     words.iter().map(estimate_word_bytes).sum()
+}
+
+/// Whether a key's trail entry equals a stored one; `u32::MAX` is stored only for "no rule".
+fn trail_entry_matches(have: Option<u32>, stored: u32) -> bool {
+    match have {
+        None => stored == u32::MAX,
+        Some(id) => id != u32::MAX && id == stored,
+    }
 }
 
 #[cfg(test)]
