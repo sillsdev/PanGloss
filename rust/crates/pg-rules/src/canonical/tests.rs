@@ -161,6 +161,12 @@ fn absorbing_keeps_what_inserting_each_word_keeps() {
         let third_arrivals = vec![third.clone(), slot_output(&third, 2, 7)];
 
         let mut set = set_of(&first, &first_arrivals);
+        // A word stored as a difference that holds an alternative, which the second analysis' rules then make whole.
+        let folded_at = set
+            .position(&slot_output(&first, 3, 7).dedup_key())
+            .expect("the first analysis gave this word");
+        assert!(matches!(set.words[folded_at], Stored::Delta(_)));
+        set.fold_alternative(folded_at, Word::new(shape(4), StratumId(0)));
         // `set_of` stores the folded word whole; the same word stored as a difference holds its alternative too.
         let mut words = WordSet::default();
         for w in set.words() {
@@ -186,6 +192,8 @@ fn absorbing_keeps_what_inserting_each_word_keeps() {
             }
             set.absorb(other, merge);
         }
+        assert_eq!(matches!(set.words[folded_at], Stored::Whole(_)), merge);
+        assert_eq!(set.alternatives(folded_at).len(), 1);
         // The third analysis gave nothing new, so its input is not held.
         assert_eq!(set.bases.len(), 2);
         assert_eq!(set.len(), words.len());
