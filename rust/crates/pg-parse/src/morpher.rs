@@ -1361,11 +1361,7 @@ impl<'g> Morpher<'g> {
                     self.set_root_allomorph(&mut trace_word, le, allo.id, &allo.shape.text);
                     // The Failed trace follows a SynthesizeWord trace, as in C#.
                     let synthesis = trace.synthesize_word(node_parent, &trace_word);
-                    trace.failed(
-                        synthesis,
-                        &trace_word,
-                        FailureReason::RequiredSyntacticFeatureStruct,
-                    );
+                    trace.failed(synthesis, &trace_word, FailureReason::LexicalLookupFeatures);
                 }
                 continue;
             }

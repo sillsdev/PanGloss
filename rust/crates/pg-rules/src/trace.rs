@@ -135,6 +135,8 @@ pub enum FailureReason {
     NonPartialRuleRequiredAfterNonFinalTemplate,
     MaxApplicationCount,
     AllomorphNotApplicable,
+    /// A lexical lookup skipped a matched root allomorph because its entry's syntactic features do not unify with the input's (machine#627 `LexicalLookupFeatures`, appended after `AllomorphNotApplicable`).
+    LexicalLookupFeatures,
 }
 
 /// The lookup strategy that produced a lexical lookup's candidate roots.
