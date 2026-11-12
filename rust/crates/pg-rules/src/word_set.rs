@@ -139,9 +139,9 @@ mod tests {
     #[test]
     fn first_word_wins_a_key_collision() {
         let mut first = word(1);
-        first.applied_phonological_rules = vec![(StratumId(0), PRuleId(10))];
+        *first.applied_phonological_rules_mut() = vec![(StratumId(0), PRuleId(10))];
         let mut second = word(1);
-        second.applied_phonological_rules = vec![(StratumId(0), PRuleId(20))];
+        *second.applied_phonological_rules_mut() = vec![(StratumId(0), PRuleId(20))];
         assert_eq!(first.dedup_key(), second.dedup_key());
         let mut set = WordSet::default();
         assert_eq!(set.insert(first), (0, true));
@@ -149,7 +149,7 @@ mod tests {
         let kept = set.into_vec();
         assert_eq!(kept.len(), 1);
         assert_eq!(
-            kept[0].applied_phonological_rules,
+            kept[0].applied_phonological_rules(),
             vec![(StratumId(0), PRuleId(10))]
         );
     }

@@ -48,15 +48,12 @@ impl TrailAlternative {
             real_fs,
             mpr,
             morphs,
-            non_heads,
+            extras,
             non_head_app_index,
             trail,
             analysis_allomorph,
-            applied_realizational_rules,
-            applied_phonological_rules,
             mrule_app_index,
             root_allomorph,
-            root_runtime_id,
             obligatory,
             flags,
             source,
@@ -68,16 +65,16 @@ impl TrailAlternative {
             && *real_fs == canonical.real_fs
             && *mpr == canonical.mpr
             && *morphs == canonical.morphs
-            && non_heads.is_empty()
-            && canonical.non_heads.is_empty()
+            && extras.non_heads().is_empty()
+            && canonical.non_heads().is_empty()
             && *non_head_app_index == canonical.non_head_app_index
             && *analysis_allomorph == canonical.analysis_allomorph
-            && *applied_realizational_rules == canonical.applied_realizational_rules
+            && extras.applied_realizational_rules() == canonical.applied_realizational_rules()
             // The stats collector merges this list into a stored canonical after the fold, so only the empty list rebuilds.
-            && applied_phonological_rules.is_empty()
+            && extras.applied_phonological_rules().is_empty()
             && *mrule_app_index == canonical.mrule_app_index
             && *root_allomorph == canonical.root_allomorph
-            && *root_runtime_id == canonical.root_runtime_id
+            && extras.root_runtime_id() == canonical.root_runtime_id()
             && *obligatory == canonical.obligatory
             && *flags == canonical.flags
             && same_source(source, &canonical.source)
@@ -94,7 +91,9 @@ impl TrailAlternative {
         let mut w = canonical.clone_without_alternatives();
         w.trail = self.trail.clone();
         w.syn_fs = self.syn_fs.clone();
-        w.applied_phonological_rules.clear();
+        if !w.applied_phonological_rules().is_empty() {
+            w.applied_phonological_rules_mut().clear();
+        }
         w
     }
 }

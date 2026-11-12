@@ -368,7 +368,7 @@ pub fn lexical_guess(
                 pattern_entry,
                 text: shape_string.clone(),
             });
-            nw.root_runtime_id = Some(shape_string);
+            nw.set_root_runtime_id(Some(shape_string));
             nw.morphs = vec![
                 MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                     .with_runtime_root(runtime),

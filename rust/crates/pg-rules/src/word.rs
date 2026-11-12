@@ -21,6 +21,7 @@ use pg_grammar_model::model::{
 use pg_shape::Shape;
 
 use crate::alternative::{Alternative, Alternatives};
+use crate::extras::Extras;
 use crate::trail::{SlotView, Trail};
 
 /// `size_of::<Word>()` when the byte estimates were calibrated.
@@ -304,31 +305,23 @@ pub struct Word {
     pub mpr: MprSet,
     /// Applied allomorphs in morph order (see `MorphRecord`).
     pub morphs: Vec<MorphRecord>,
-    /// Compounding non-head children (C# `Word._nonHeadApps`; `CurrentNonHead` = the element at
-    /// `Word::non_head_app_index`).
-    pub non_heads: Vec<Word>,
     /// C# `Word._nonHeadAppIndex` (init `-1` = none). During analysis this only ever grows
     /// (`NonHeadUnapplied` pushes + increments; nothing pops), so it invariably equals
-    /// `non_heads.len() as i32 - 1`. It is a **dedup-key** component (Word.cs:520,540), not a
+    /// `non_heads().len() as i32 - 1`. It is a **dedup-key** component (Word.cs:520,540), not a
     /// cascade driver — the cascades track their own rule position via `AnalysisStratumRule`.
     pub non_head_app_index: i32,
     /// The rule and allomorph of every unapplication so far, with per-rule unapplication counts (C# `Word._mruleApps` and `_mrulesUnapplied`); a `None` rule is C#'s unknown compounding rule, matched by any compounding rule in synthesis.
     pub trail: Trail,
     /// Allomorph selected by the current analysis call, before its rule is added to the trail.
     pub analysis_allomorph: Option<AllomorphId>,
-    /// Owners of realizational rules already applied in synthesis. Each rule has a unique
-    /// morpheme in the grammar; unlike morph records this survives deletion of its segments.
-    pub applied_realizational_rules: Vec<MorphemeId>,
-    /// Analysis-side phonological rules that applied, populated only when stats are collected.
-    pub applied_phonological_rules: Vec<(StratumId, PRuleId)>,
+    /// Compounding non-heads, realizational and phonological rules applied, and the runtime root id: empty on almost every word.
+    pub(crate) extras: Extras,
     /// C# `Word._mruleAppIndex` (init `-1`). Grows in lock-step with `trail` during analysis, so it always equals `trail.len() as i32 - 1`. A dedup-key component (Word.cs:524,544), not a cascade driver.
     pub mrule_app_index: i32,
     /// The matched root allomorph (C# `Word._rootAllomorph`). Set by lexical lookup; stays
     /// `None` throughout analysis (the surface word starts from `Word(Stratum, Shape)`, which
     /// leaves it null). A dedup-key component (Word.cs:522,542).
     pub root_allomorph: Option<AllomorphId>,
-    /// Stable identity of a runtime-backed head root; payload remains on its MorphRecord.
-    pub root_runtime_id: Option<String>,
     /// Obligatory syntactic features accumulated by applied rules (C#
     /// `Word.ObligatorySyntacticFeatures`).
     pub obligatory: Vec<FeatId>,
@@ -432,8 +425,8 @@ impl WordKey {
             && self.mrule_app_index == w.mrule_app_index
             && self.is_last_applied_rule_final == w.flags.is_last_applied_rule_final
             && self.final_template_state == w.flags.final_template_state
-            && self.root_realization == w.root_runtime_id
-            && self.applied_realizational_rules == w.applied_realizational_rules
+            && self.root_realization.as_deref() == w.root_runtime_id()
+            && self.applied_realizational_rules == w.applied_realizational_rules()
             && self.morphs.len() == w.morphs.len()
             && self.morphs.iter().zip(&w.morphs).all(|(k, m)| {
                 k.allomorph == m.allomorph
@@ -442,11 +435,11 @@ impl WordKey {
                     && k.status == m.status
                     && k.runtime_identity.as_deref() == runtime_id(m.runtime_root.as_deref())
             })
-            && self.non_heads.len() == w.non_heads.len()
+            && self.non_heads.len() == w.non_heads().len()
             && self
                 .non_heads
                 .iter()
-                .zip(&w.non_heads)
+                .zip(w.non_heads())
                 .all(|(k, nh)| k.matches(nh))
             && self.real_fs == w.real_fs
             && self.shape == w.shape
@@ -454,6 +447,42 @@ impl WordKey {
 }
 
 impl Word {
+    /// Compounding non-head children (C# `Word._nonHeadApps`; `CurrentNonHead` = the element at `Word::non_head_app_index`).
+    pub fn non_heads(&self) -> &[Word] {
+        self.extras.non_heads()
+    }
+
+    pub fn non_heads_mut(&mut self) -> &mut Vec<Word> {
+        self.extras.non_heads_mut()
+    }
+
+    /// Owners of realizational rules already applied in synthesis; unlike morph records this survives deletion of their segments.
+    pub fn applied_realizational_rules(&self) -> &[MorphemeId] {
+        self.extras.applied_realizational_rules()
+    }
+
+    pub fn applied_realizational_rules_mut(&mut self) -> &mut Vec<MorphemeId> {
+        self.extras.applied_realizational_rules_mut()
+    }
+
+    /// Analysis-side phonological rules that applied, populated only when stats are collected.
+    pub fn applied_phonological_rules(&self) -> &[(StratumId, PRuleId)] {
+        self.extras.applied_phonological_rules()
+    }
+
+    pub fn applied_phonological_rules_mut(&mut self) -> &mut Vec<(StratumId, PRuleId)> {
+        self.extras.applied_phonological_rules_mut()
+    }
+
+    /// Stable identity of a runtime-backed head root; the payload remains on its `MorphRecord`.
+    pub fn root_runtime_id(&self) -> Option<&str> {
+        self.extras.root_runtime_id()
+    }
+
+    pub fn set_root_runtime_id(&mut self, id: Option<String>) {
+        self.extras.set_root_runtime_id(id);
+    }
+
     /// A fresh word over `shape` in `stratum` with empty FSs / MPR / morphs (the starting state a
     /// root lookup or a test harness builds on).
     pub fn new(shape: Shape, stratum: StratumId) -> Self {
@@ -464,15 +493,12 @@ impl Word {
             real_fs: FeatureStruct::EMPTY,
             mpr: MprSet::EMPTY,
             morphs: Vec::new(),
-            non_heads: Vec::new(),
             non_head_app_index: -1,
             trail: Trail::default(),
             analysis_allomorph: None,
-            applied_realizational_rules: Vec::new(),
-            applied_phonological_rules: Vec::new(),
+            extras: Extras::default(),
             mrule_app_index: -1,
             root_allomorph: None,
-            root_runtime_id: None,
             obligatory: Vec::new(),
             flags: WordFlags::default(),
             source: None,
@@ -528,8 +554,8 @@ impl Word {
     /// stratum orchestrator's own non-head push inside `morph::ana_compound` (which builds the
     /// non-head from the analysis split, not from a caller-supplied `Word`).
     pub fn non_head_unapplied(&mut self, non_head: Word) {
-        self.non_heads.push(non_head);
-        self.non_head_app_index = self.non_heads.len() as i32 - 1;
+        self.non_heads_mut().push(non_head);
+        self.non_head_app_index = self.non_heads().len() as i32 - 1;
     }
 
     /// The canonical dedup key (see `WordKey`). Cloned per lookup; no per-parse interning is done.
@@ -548,13 +574,13 @@ impl Word {
                     runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
                 })
                 .collect(),
-            non_heads: self.non_heads.iter().map(Word::dedup_key).collect(),
+            non_heads: self.non_heads().iter().map(Word::dedup_key).collect(),
             non_head_app_index: self.non_head_app_index,
             stratum: self.stratum,
             root_allomorph: self.root_allomorph,
-            root_realization: self.root_runtime_id.clone(),
+            root_realization: self.root_runtime_id().map(str::to_owned),
             trail: self.trail.slot_view(),
-            applied_realizational_rules: self.applied_realizational_rules.clone(),
+            applied_realizational_rules: self.applied_realizational_rules().to_vec(),
             mrule_app_index: self.mrule_app_index,
             is_last_applied_rule_final: self.flags.is_last_applied_rule_final,
             final_template_state: self.flags.final_template_state,
@@ -579,7 +605,7 @@ impl Word {
         if self.non_head_app_index < 0 {
             return None;
         }
-        self.non_heads.get(self.non_head_app_index as usize)
+        self.non_heads().get(self.non_head_app_index as usize)
     }
 
     /// Reconstruct the full set of analysis candidates that `MergeEquivalentAnalyses` folded into
@@ -642,10 +668,10 @@ impl Word {
                     }
                     alt.mrule_app_index = alt.trail.len() as i32 - 1;
                     // Non-heads unapplied since the source (cs:512-514 `NonHeadUnapplied`).
-                    for non_head in self.non_heads.iter().skip(src.non_heads.len()) {
-                        alt.non_heads.push(non_head.clone());
+                    for non_head in self.non_heads().iter().skip(src.non_heads().len()) {
+                        alt.non_heads_mut().push(non_head.clone());
                     }
-                    alt.non_head_app_index = alt.non_heads.len() as i32 - 1;
+                    alt.non_head_app_index = alt.non_heads().len() as i32 - 1;
                     // Realizational-FS diff -- see the doc comment for the one documented divergence (C#'s discarded-success-flag null path).
                     if self.real_fs != src.real_fs {
                         let diff = pg_featstruct::subtract(&self.real_fs, &src.real_fs);
@@ -662,7 +688,7 @@ impl Word {
                         alt.morphs = self.morphs.clone();
                         alt.flags.is_partial = self.flags.is_partial;
                         alt.root_allomorph = self.root_allomorph;
-                        alt.root_runtime_id = self.root_runtime_id.clone();
+                        alt.set_root_runtime_id(self.root_runtime_id().map(str::to_owned));
                         // The guessed-root payload rides along with root_allomorph: both change together at the exact same site, never observable in isolation.
                     }
                     out.push(alt);
@@ -690,7 +716,7 @@ impl Word {
             .iter()
             .find(|m| {
                 Some(m.allomorph) == self.root_allomorph
-                    && runtime_id(m.runtime_root.as_deref()) == self.root_runtime_id.as_deref()
+                    && runtime_id(m.runtime_root.as_deref()) == self.root_runtime_id()
             })
             .and_then(|m| m.runtime_root.as_deref())
     }
@@ -832,15 +858,15 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
         morphs: w.morphs.len() * std::mem::size_of::<MorphRecord>(),
         mrule_apps: w.trail.len() * std::mem::size_of::<Option<MRuleId>>()
             + w.trail.len() * std::mem::size_of::<Option<AllomorphId>>()
-            + w.applied_realizational_rules.len() * std::mem::size_of::<MorphemeId>(),
+            + std::mem::size_of_val(w.applied_realizational_rules()),
         obligatory: w.obligatory.len() * std::mem::size_of::<FeatId>(),
         unapplied_rule_counts: w.trail.rule_counts().len()
             * (std::mem::size_of::<MRuleId>() + std::mem::size_of::<u32>()),
-        root_runtime_id: w.root_runtime_id.as_ref().map_or(0, String::len),
+        root_runtime_id: w.root_runtime_id().map_or(0, str::len),
         non_heads: 0,
         alternatives: 0,
     };
-    for nh in &w.non_heads {
+    for nh in w.non_heads() {
         b.non_heads += estimate_word_bytes_breakdown(nh).total();
     }
     for alt in w.alternatives.iter() {

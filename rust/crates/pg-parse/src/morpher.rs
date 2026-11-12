@@ -1374,7 +1374,7 @@ impl<'g> Morpher<'g> {
             nw.mpr = root.mpr;
             nw.flags.is_partial = false;
             nw.root_allomorph = Some(AllomorphId::GUESSED);
-            nw.root_runtime_id = Some(root.realization_id.clone());
+            nw.set_root_runtime_id(Some(root.realization_id.clone()));
             nw.morphs = vec![
                 MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                     .with_runtime_root(RuntimeRoot::Supplied(root)),
@@ -1420,7 +1420,7 @@ impl<'g> Morpher<'g> {
         w.flags.is_partial = entry.is_partial();
         w.root_allomorph = Some(allo);
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
-        w.root_runtime_id = None;
+        w.set_root_runtime_id(None);
         w.morphs = vec![MorphRecord::new(allo, entry.morpheme, 0)];
     }
 
@@ -1458,7 +1458,7 @@ impl<'g> Morpher<'g> {
             }
         }
         let mut seen_prules = Vec::new();
-        for &(stratum, id) in &vw.applied_phonological_rules {
+        for &(stratum, id) in vw.applied_phonological_rules() {
             let applied_rule = (stratum, id);
             if seen_prules.contains(&applied_rule) {
                 continue;
@@ -1801,8 +1801,7 @@ impl<'g> Morpher<'g> {
             .iter()
             .position(|m| {
                 Some(m.allomorph) == w.root_allomorph
-                    && pg_rules::word::runtime_id(m.runtime_root.as_deref())
-                        == w.root_runtime_id.as_deref()
+                    && pg_rules::word::runtime_id(m.runtime_root.as_deref()) == w.root_runtime_id()
             })
             .map(|i| i as i32)
             .unwrap_or(-1);
@@ -2383,7 +2382,7 @@ impl<'g> Morpher<'g> {
         w.syn_fs = data.syn_fs.clone();
         w.mpr = data.mpr;
         w.root_allomorph = Some(AllomorphId::GUESSED);
-        w.root_runtime_id = Some(data.realization_id.clone());
+        w.set_root_runtime_id(Some(data.realization_id.clone()));
         w.morphs = vec![
             MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                 .with_runtime_root(RuntimeRoot::Supplied(data)),
@@ -2562,10 +2561,10 @@ fn insert_candidate(candidates: &mut WordSet, candidate: Word, collect_stats: bo
         candidates.insert_with(key, || candidate);
         return;
     };
-    let applied = &mut candidates.get_mut(at).applied_phonological_rules;
-    for rule in &candidate.applied_phonological_rules {
-        if !applied.contains(rule) {
-            applied.push(*rule);
+    let stored = candidates.get_mut(at);
+    for rule in candidate.applied_phonological_rules() {
+        if !stored.applied_phonological_rules().contains(rule) {
+            stored.applied_phonological_rules_mut().push(*rule);
         }
     }
 }

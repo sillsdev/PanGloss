@@ -10,6 +10,7 @@ pub mod branch_census;
 pub mod bridge;
 pub mod cache;
 pub mod cascade;
+pub mod extras;
 pub mod metathesis;
 pub mod morph;
 pub mod required_slots;

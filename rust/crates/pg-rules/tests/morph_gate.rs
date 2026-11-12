@@ -421,9 +421,9 @@ fn compound_synthesis_joins_head_and_non_head() {
         vec![MorphemeId(100), MorphemeId(300)]
     );
     // `non_heads` is never cleared, matching C#'s `SynthesisCompoundingRule` (only the app index moves): the non-head stays as permanent history, which lets `Word::dedup_key()` distinguish surface-homophone compounds with distinct non-heads.
-    assert_eq!(out[0].non_heads.len(), 1);
+    assert_eq!(out[0].non_heads().len(), 1);
     assert_eq!(
-        char_defs(&out[0].non_heads[0].shape),
+        char_defs(&out[0].non_heads()[0].shape),
         char_defs(&shape_with_lanes(&g, "ka"))
     );
 }

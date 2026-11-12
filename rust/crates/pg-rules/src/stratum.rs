@@ -851,7 +851,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             w.stratum,
             w.syn_fs.clone(),
             w.real_fs.clone(),
-            w.non_heads.len() as u32,
+            w.non_heads().len() as u32,
             rule_counts,
             w.flags.final_template_state,
             morph_history,
@@ -891,7 +891,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return self.apply_one_mrule_uncounted(id, w, role, candidates);
         }
         let parent = crate::branch_census::node(w);
-        let may_compound = (w.non_heads.len() as u32 + 1) < self.cfg.max_stem_count
+        let may_compound = (w.non_heads().len() as u32 + 1) < self.cfg.max_stem_count
             && self.g.strata[..=self.stratum_id.0 as usize]
                 .iter()
                 .any(|st| {
@@ -933,7 +933,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let rule = &self.g.mrules[id.0 as usize];
         // Depth gate; see `AnalyzerConfig::max_stem_count`. Outside `tick()`, same reason as the gate above.
         if matches!(rule, MorphRuleDef::Compounding(_))
-            && w.non_heads.len() as u32 + 1 >= self.cfg.max_stem_count
+            && w.non_heads().len() as u32 + 1 >= self.cfg.max_stem_count
         {
             return Vec::new();
         }
@@ -1044,7 +1044,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             o.trail.push(Some(id), selected);
             o.mrule_app_index = o.trail.len() as i32 - 1;
             // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
-            o.non_head_app_index = o.non_heads.len() as i32 - 1;
+            o.non_head_app_index = o.non_heads().len() as i32 - 1;
             if self.policy.enforce && !keeps_template_state {
                 o.flags.final_template_state = analysis_state_after_mrule(
                     role,
@@ -1600,7 +1600,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             drop(_phon_time);
             if applied && self.stats.is_some() {
                 input
-                    .applied_phonological_rules
+                    .applied_phonological_rules_mut()
                     .push((self.stratum_id, pid));
             }
             if let Some(s) = result.into_iter().next() {

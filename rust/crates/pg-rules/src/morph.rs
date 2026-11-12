@@ -2018,7 +2018,7 @@ fn synth_realizational(
     rule: &RealizationalRuleDef,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    if word.applied_realizational_rules.contains(&rule.morpheme) {
+    if word.applied_realizational_rules().contains(&rule.morpheme) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -2076,7 +2076,7 @@ fn synth_realizational(
             &mut reached,
         );
         if let Some(mut w) = matched {
-            w.applied_realizational_rules.push(rule.morpheme);
+            w.applied_realizational_rules_mut().push(rule.morpheme);
             output.push(w);
             applied.push(i as u16);
             let next_free_fluctuates = rule
@@ -2107,7 +2107,7 @@ fn synth_realizational_cached(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
-    if word.applied_realizational_rules.contains(&rule.morpheme) {
+    if word.applied_realizational_rules().contains(&rule.morpheme) {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
                 parent,
@@ -2197,7 +2197,7 @@ fn synth_realizational_cached(
         );
         match matched {
             Some(mut w) => {
-                w.applied_realizational_rules.push(rule.morpheme);
+                w.applied_realizational_rules_mut().push(rule.morpheme);
                 if trace.is_tracing() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
                 }
@@ -3828,7 +3828,7 @@ fn synth_compound_subrule(
     );
     w.morphs = morphs;
     w.obligatory.extend_from_slice(&rule.obligatory_features);
-    // The consumed non-head stays in `w.non_heads` as history (matching C#) since `WordKey` needs it to distinguish surface-homophone compounds; `current_non_head` is index-based, not `last()` — do not "simplify" it back, since generation seeds can push several non-heads at once.
+    // The consumed non-head stays in `w.non_heads()` as history (matching C#) since `WordKey` needs it to distinguish surface-homophone compounds; `current_non_head` is index-based, not `last()` — do not "simplify" it back, since generation seeds can push several non-heads at once.
     w.flags.is_last_applied_rule_final = None;
     Ok(w)
 }
@@ -4113,7 +4113,7 @@ fn resolve_non_head_roots(
             nh.syn_fs = root.syn_fs.clone();
             nh.mpr = root.mpr;
             nh.root_allomorph = Some(AllomorphId::GUESSED);
-            nh.root_runtime_id = Some(root.realization_id.clone());
+            nh.set_root_runtime_id(Some(root.realization_id.clone()));
             nh.morphs = vec![
                 MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                     .with_runtime_root(crate::word::RuntimeRoot::Supplied(root)),
@@ -4188,8 +4188,8 @@ fn push_remove_duplicates_compound(out: &mut Vec<Word>, w: Word) {
     push_keep_longer(out, w, |a, b| {
         shape_duplicates(&a.shape, &b.shape)
             && shape_duplicates(
-                &a.non_heads.last().unwrap().shape,
-                &b.non_heads.last().unwrap().shape,
+                &a.non_heads().last().unwrap().shape,
+                &b.non_heads().last().unwrap().shape,
             )
     });
 }

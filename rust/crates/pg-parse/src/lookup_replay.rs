@@ -77,7 +77,7 @@ impl LookupReplay {
         let Some(root_id) = alt.root_allomorph else {
             return true;
         };
-        if root_id == AllomorphId::GUESSED || alt.root_runtime_id.is_some() {
+        if root_id == AllomorphId::GUESSED || alt.root_runtime_id().is_some() {
             return true;
         }
         let Some(&AllomorphOwner::Root(le, idx)) = g.allomorph_owners.get(root_id.0 as usize)

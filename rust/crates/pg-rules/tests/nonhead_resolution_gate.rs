@@ -221,12 +221,12 @@ fn synthesis_records_non_head_root_morph_in_the_final_signature() {
     );
     // The non-head's material is consumed into the compound's `shape`/`morphs`, but `non_heads` itself is NOT cleared -- it stays as permanent history, which is what lets `Word::dedup_key()` distinguish two compounds built from surface-homophone but lexically distinct non-heads.
     assert_eq!(
-        w.non_heads.len(),
+        w.non_heads().len(),
         1,
         "the non-head stays in the list as history, not popped"
     );
     assert_eq!(
-        char_defs(&w.non_heads[0].shape),
+        char_defs(&w.non_heads()[0].shape),
         char_defs(&shape_with_lanes(&g, "sine")),
         "the retained non-head is still the resolved \"sine\" root"
     );
