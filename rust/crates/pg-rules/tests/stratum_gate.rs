@@ -1771,45 +1771,61 @@ fn a_word_with_no_root_keeps_its_place_and_drops_the_alternatives_folded_into_it
 }
 
 #[test]
-fn the_gate_changes_no_word_and_no_cap_at_any_work_cap() {
+fn the_gate_changes_no_word_and_no_cap_at_any_work_cap_or_starting_size() {
     let (g, s0, cfg) = two_orders_to_ag();
     let free = WordBudget::new(usize::MAX);
-    analyze_last(&g, s0, &cfg, &free, None, 0);
+    let outputs = analyze_last(&g, s0, &cfg, &free, None, 0).words.len();
     let analysis_work = free.work_steps();
-    let rootless = |_: &Word| false;
-    let mut capped_runs = 0;
-    for cap in 1..analysis_work + 2 {
-        let (plain_budget, gated_budget) = (WordBudget::new(cap), WordBudget::new(cap));
-        let plain = analyze_last(&g, s0, &cfg, &plain_budget, None, 0);
-        let gated = analyze_last(&g, s0, &cfg, &gated_budget, Some(&rootless), 0);
-        assert_eq!(gated.capped, plain.capped, "cap {cap}");
-        assert_eq!(
-            gated
-                .words
-                .iter()
-                .map(|w| w.dedup_key())
-                .collect::<Vec<_>>(),
-            plain
-                .words
-                .iter()
-                .map(|w| w.dedup_key())
-                .collect::<Vec<_>>(),
-            "cap {cap}"
-        );
-        assert_eq!(
-            gated_budget.work_steps(),
-            plain_budget.work_steps(),
-            "cap {cap}"
-        );
-        assert!(
-            gated.words.iter().all(|w| w.alternatives.is_empty()),
-            "cap {cap}"
-        );
-        capped_runs += usize::from(plain.capped);
+    let (mut capped_runs, mut kept, mut dropped) = (0, 0, 0);
+    for from_words in 0..outputs + 2 {
+        for cap in 1..analysis_work + 2 {
+            let asked = std::cell::RefCell::new(Vec::new());
+            let rootless = |w: &Word| {
+                asked.borrow_mut().push(w.dedup_key());
+                false
+            };
+            let (plain_budget, gated_budget) = (WordBudget::new(cap), WordBudget::new(cap));
+            let plain = analyze_last(&g, s0, &cfg, &plain_budget, None, 0);
+            let gated = analyze_last(&g, s0, &cfg, &gated_budget, Some(&rootless), from_words);
+            let at = format!("from {from_words} words, cap {cap}");
+            assert_eq!(gated.capped, plain.capped, "{at}");
+            assert_eq!(
+                gated
+                    .words
+                    .iter()
+                    .map(|w| w.dedup_key())
+                    .collect::<Vec<_>>(),
+                plain
+                    .words
+                    .iter()
+                    .map(|w| w.dedup_key())
+                    .collect::<Vec<_>>(),
+                "{at}"
+            );
+            assert_eq!(gated_budget.work_steps(), plain_budget.work_steps(), "{at}");
+            let mut once = asked.borrow().clone();
+            once.dedup();
+            assert_eq!(
+                once.len(),
+                asked.borrow().len(),
+                "{at}: a word is asked about once"
+            );
+            let alternatives = |out: &pg_rules::stratum::StratumAnalysis| -> usize {
+                out.words.iter().map(|w| w.alternatives.len()).sum()
+            };
+            assert!(alternatives(&gated) <= alternatives(&plain), "{at}");
+            kept += alternatives(&gated);
+            dropped += alternatives(&plain) - alternatives(&gated);
+            capped_runs += usize::from(plain.capped);
+        }
     }
     assert!(
         capped_runs > 0,
         "no cap below {analysis_work} capped the run"
+    );
+    assert!(
+        kept > 0 && dropped > 0,
+        "{kept} alternatives kept and {dropped} dropped: both sides of the starting size must be reached"
     );
 }
 
