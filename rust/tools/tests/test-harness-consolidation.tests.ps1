@@ -100,7 +100,7 @@ $crateSpecs = @(
             'adhoc_affix_copies.rs', 'fw_metathesis.rs', 'adhoc_allomorph_copies.rs', 'adhoc_fieldworks_witnesses.rs',
             'adhoc_morpheme_variant_copies.rs', 'copy_agreement_featureless.rs', 'copy_alignment_optional.rs', 'featureless_modify_from_input.rs', 'featureless_wide_class_rewrite.rs',
             'effective_analysis_target.rs', 'phonology_gate.rs', 'work_cap_gate.rs', 'trace_template_outcomes.rs',
-            'edge_prefilter_gate.rs', 'lookup_replay_gate.rs',
+            'early_root_lookup_gate.rs', 'edge_prefilter_gate.rs', 'lookup_replay_gate.rs',
             'analysis_order_gate.rs', 'batch_determinism.rs', 'bracket_pattern_affix_form.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',
             'csharp_port_affix_template.rs', 'csharp_port_compounding.rs',
