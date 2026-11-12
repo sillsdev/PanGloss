@@ -201,7 +201,7 @@ pub struct Shape {
     data: Arc<ShapeData>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 #[doc(hidden)]
 pub struct ShapeData {
     /// Hash of every column below, stored the first time the shape is hashed (0 = not yet). `Hash` feeds only this value, so hashing a shared `Shape` walks the columns once, not once per dedup lookup; shapes that are frozen and never hashed pay nothing. Not part of equality.
@@ -233,6 +233,22 @@ const _: () = assert!(std::mem::size_of::<Shape>() == std::mem::size_of::<usize>
 #[cfg(target_pointer_width = "64")]
 const _: () =
     assert!(std::mem::size_of::<ShapeData>() == INLINE_COLUMNS_BYTES + CONTENT_HASH_BYTES);
+
+/// The columns only: the lazily stored hash is not printed, so output does not depend on whether the shape was hashed.
+impl std::fmt::Debug for ShapeData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShapeData")
+            .field("kinds", &self.kinds)
+            .field("char_defs", &self.char_defs)
+            .field("flags", &self.flags)
+            .field("feat_width", &self.feat_width)
+            .field("feat_lanes", &self.feat_lanes)
+            .field("cd_sets", &self.cd_sets)
+            .field("generated_full", &self.generated_full)
+            .field("unresolved_variables", &self.unresolved_variables)
+            .finish()
+    }
+}
 
 impl PartialEq for ShapeData {
     fn eq(&self, other: &Self) -> bool {

@@ -79,3 +79,16 @@ fn empty_serializes_as_an_empty_entry_list_and_clones_share_entries() {
         fs.clone().entries().as_ptr()
     ));
 }
+
+#[test]
+fn debug_text_matches_the_vec_backed_derive() {
+    assert_eq!(
+        format!("{:?}", FeatureStruct::EMPTY),
+        "FeatureStruct { entries: [] }"
+    );
+    let fs: FeatureStruct = serde_json::from_str(OUT_OF_ORDER).unwrap();
+    assert_eq!(
+        format!("{fs:?}"),
+        "FeatureStruct { entries: [(FeatId(1), Symbolic(SymbolBits(1))), (FeatId(3), Symbolic(SymbolBits(2)))] }"
+    );
+}

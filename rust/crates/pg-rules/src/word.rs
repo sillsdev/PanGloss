@@ -837,6 +837,7 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
     let mut b = WordByteBreakdown {
         base: std::mem::size_of::<Word>() - std::mem::size_of::<Shape>()
             + pg_shape::INLINE_COLUMNS_BYTES
+            // `Word` holds two inline feature structures (`syn_fs`, `real_fs`); each keeps its old 24-byte weight.
             + 2 * (pg_featstruct::FEATURE_STRUCT_INLINE_BYTES
                 - std::mem::size_of::<FeatureStruct>()),
         shape: estimate_shape_bytes(&w.shape),

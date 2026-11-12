@@ -48,7 +48,7 @@ pub enum FeatureValue {
 /// or `FeatureStruct::EMPTY`. Grammar-tier instances are interned to `FsId` so equality
 /// on the hot path is an integer compare; this type's own `Eq`/`Hash` are what the
 /// interner pays once per distinct value.
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Hash, Default)]
 pub struct FeatureStruct {
     /// `None` is the empty structure. Frozen entries are shared, so `Clone` is a reference-count bump.
     entries: Option<Arc<[(FeatId, FeatureValue)]>>,
@@ -56,6 +56,15 @@ pub struct FeatureStruct {
 
 /// What a `FeatureStruct` weighed while it held its entries in an inline `Vec`. Byte-budget arithmetic (`Word` capture estimates) keeps using this figure so eviction and capture ceilings do not move now that the entries are shared.
 pub const INLINE_BYTES: usize = 24;
+
+/// Prints exactly what the derive printed when the entries were a plain `Vec` (`FeatureStruct { entries: [..] }`); diagnostic text embeds it.
+impl std::fmt::Debug for FeatureStruct {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FeatureStruct")
+            .field("entries", &self.entries())
+            .finish()
+    }
+}
 
 impl serde::Serialize for FeatureStruct {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {

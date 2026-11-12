@@ -357,3 +357,13 @@ fn equal_shapes_hash_alike_and_edits_rehash() {
     edited.push_segment(12);
     assert_ne!(state.hash_one(&a), state.hash_one(edited.freeze()));
 }
+
+#[test]
+fn debug_text_does_not_depend_on_whether_the_shape_was_hashed() {
+    use std::hash::BuildHasher;
+    let a = build_cvc();
+    let before = format!("{a:?}");
+    let _ = rustc_hash::FxBuildHasher.hash_one(&a);
+    assert_eq!(before, format!("{a:?}"));
+    assert!(!before.contains("content_hash"));
+}
