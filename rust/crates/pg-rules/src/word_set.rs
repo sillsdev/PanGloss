@@ -130,11 +130,6 @@ impl WordSet {
     pub fn into_vec(self) -> Vec<Word> {
         self.words
     }
-
-    /// The words in first-insertion order, each moved out as it is reached; see [`Releasing`].
-    pub fn into_releasing(self) -> Releasing {
-        Releasing::new(self.words)
-    }
 }
 
 /// Below this many words a buffer is not worth giving back early.

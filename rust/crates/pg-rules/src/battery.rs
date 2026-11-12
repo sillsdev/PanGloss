@@ -129,7 +129,7 @@ impl BatteryWord {
         }
     }
 
-    /// The byte estimate of the output as a whole word, which is what the frontier diagnostic has always counted.
+    /// The byte estimate of the output as a whole word, the unit the frontier diagnostic counts in.
     pub(crate) fn estimated_bytes(&self, input: &Word) -> usize {
         match self {
             BatteryWord::Delta(delta) => {

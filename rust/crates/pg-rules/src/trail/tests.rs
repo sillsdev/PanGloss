@@ -88,3 +88,31 @@ fn a_very_deep_trail_drops_without_overflowing_the_stack() {
     assert_eq!(t.len(), 200_000);
     drop(t);
 }
+
+#[test]
+fn a_packed_step_keeps_absent_and_zero_ids_apart() {
+    assert_eq!(std::mem::size_of::<Step>(), 24);
+    let slots = [
+        (None, None),
+        (Some(MRuleId(0)), None),
+        (None, Some(AllomorphId(0))),
+        (Some(MRuleId(0)), Some(AllomorphId(0))),
+        (Some(MRuleId(u32::MAX)), Some(AllomorphId(u32::MAX))),
+    ];
+    let mut trail = Trail::from_slots(slots);
+    trail.push_count_only(MRuleId(0));
+    assert_eq!(trail.len(), slots.len());
+    for (i, (rule, allomorph)) in slots.into_iter().enumerate() {
+        assert_eq!(trail.rule(i), Some(rule));
+        assert_eq!(trail.allomorph(i), Some(allomorph));
+    }
+    assert_eq!(trail.count_of(MRuleId(0)), 3);
+    assert_eq!(trail.count_of(MRuleId(u32::MAX)), 1);
+    for (i, a) in slots.iter().enumerate() {
+        for (j, b) in slots.iter().enumerate() {
+            assert_eq!(Trail::from_slots([*a]) == Trail::from_slots([*b]), i == j);
+        }
+    }
+    assert_ne!(trail, Trail::from_slots(slots));
+    assert!(trail.same_slots(&Trail::from_slots(slots)));
+}
