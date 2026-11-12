@@ -108,6 +108,16 @@ impl FeatureStruct {
     /// The empty feature structure (unifies with everything, subsumes everything).
     pub const EMPTY: FeatureStruct = FeatureStruct { entries: None };
 
+    /// Whether the two structures hold one allocation of entries, which equal structures need not. Two empty structures hold none and answer true.
+    #[inline]
+    pub fn same_allocation(&self, other: &FeatureStruct) -> bool {
+        match (&self.entries, &other.entries) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
     /// Entries in ascending `FeatId` order.
     #[inline]
     pub fn entries(&self) -> &[(FeatId, FeatureValue)] {

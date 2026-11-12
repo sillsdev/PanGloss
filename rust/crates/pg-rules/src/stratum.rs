@@ -80,6 +80,7 @@ pub(crate) enum RuleInvocationRole {
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::required_slots::{RequiredSlotLookahead, RequiredSlotMaterial};
+use crate::shared_values::SharedValues;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
@@ -582,6 +583,7 @@ pub fn analyze_stratum_filtered_ruled_traced(
         rule_filter,
         cache,
         budget,
+        &SharedValues::default(),
         FinalTemplateAnalysisPolicy::default(),
         stats,
         trace,
@@ -602,6 +604,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
     budget: &WordBudget,
+    values: &SharedValues,
     policy: FinalTemplateAnalysisPolicy,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
@@ -616,6 +619,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
         rule_filter,
         cache,
         budget,
+        values,
         policy,
         stats,
         trace,
@@ -634,6 +638,8 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     reversed_mrules: Vec<MRuleId>,
     cfg: AnalyzerConfig,
     budget: &'b WordBudget,
+    /// The parse's shared shapes and syntactic feature structures; every word this stratum produces points into it.
+    values: &'b SharedValues,
     /// The non-head lexicon filter, or `None` for unfiltered. See `NonHeadRootFilter`.
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
     /// The mrule/template selector, or `None` to admit every rule. See `RuleFilter`.
@@ -761,6 +767,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
         budget: &'b WordBudget,
+        values: &'b SharedValues,
         policy: FinalTemplateAnalysisPolicy,
         stats: Option<&'b StatsCollector>,
         trace: &'t dyn TraceSink,
@@ -784,6 +791,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             reversed_mrules,
             cfg,
             budget,
+            values,
             non_head_root_filter,
             rule_filter,
             admitted_mrules,
@@ -1035,6 +1043,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 o.analysis_allomorph = None;
                 None
             };
+            self.values.share(o);
             o.allomorph_apps.push(selected);
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
             o.mrule_apps.push(Some(id));
@@ -1602,6 +1611,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 input.shape = s;
             }
         }
+        self.values.share(&mut input);
 
         // The first end-event, for `input` itself, placed before any nested template/mrule event since C#'s lazy evaluation reaches it first there and this port is eager.
         if self.trace.is_tracing() {

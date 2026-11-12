@@ -837,6 +837,7 @@ impl<'g> Morpher<'g> {
         let budget = pg_rules::stratum::WordBudget::new(self.work_cap)
             .with_timeout(self.word_timeout)
             .with_retained_cap(self.capture_cap);
+        let values = pg_rules::shared_values::SharedValues::default();
         let _work_scope = budget.enter();
         for _ in word.chars() {
             if !budget.analysis_unit() {
@@ -938,6 +939,7 @@ impl<'g> Morpher<'g> {
                     rule_filter,
                     Some(&self.cache),
                     &budget,
+                    &values,
                     policy,
                     stats,
                     trace,

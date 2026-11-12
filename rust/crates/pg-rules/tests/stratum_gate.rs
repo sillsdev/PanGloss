@@ -773,6 +773,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy::default(),
         Some(&disabled_stats),
         &NoopSink,
@@ -828,6 +829,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -858,6 +860,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -909,6 +912,7 @@ fn stratum_outputs_carry_the_final_template_state_out() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: false,
@@ -968,6 +972,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: false,
@@ -1001,6 +1006,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -1029,6 +1035,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
@@ -1095,6 +1102,7 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy::default(),
         None,
         &NoopSink,
@@ -1115,6 +1123,7 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
         None,
         None,
         &WordBudget::new(usize::MAX),
+        &pg_rules::shared_values::SharedValues::default(),
         FinalTemplateAnalysisPolicy {
             enforce: true,
             all_templates_final: true,
