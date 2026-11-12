@@ -13,6 +13,7 @@ pub(crate) mod meter;
 mod meter_tests;
 mod piece;
 mod plan;
+mod subset;
 #[cfg(test)]
 mod tests;
 pub mod tiled;

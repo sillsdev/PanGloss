@@ -19,6 +19,7 @@ pub const BYTE_WEIGHT: u64 = 2;
 /// Instructions per FST register copied.
 pub const REGISTER_WEIGHT: u64 = 45;
 
+// In-process tests that read the meter or use `--cost-column` must hold the batch_prefilter test mutex.
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
