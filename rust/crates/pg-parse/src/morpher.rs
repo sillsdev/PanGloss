@@ -955,7 +955,8 @@ impl<'g> Morpher<'g> {
                     trace,
                     node_parent,
                 );
-                for o in res.words {
+                // The stratum's buffer is given back as `results` takes its words, so the two are not both held whole.
+                for o in pg_rules::word_set::Releasing::new(res.words) {
                     assert_eq!(
                         o.stratum,
                         StratumId(s as u8),

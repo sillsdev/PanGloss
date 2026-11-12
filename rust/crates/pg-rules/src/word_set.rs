@@ -105,6 +105,45 @@ impl WordSet {
     pub fn into_vec(self) -> Vec<Word> {
         self.words
     }
+
+    /// The words in first-insertion order, each moved out as it is reached; see [`Releasing`].
+    pub fn into_releasing(self) -> Releasing {
+        Releasing::new(self.words)
+    }
+}
+
+/// Below this many words a buffer is not worth giving back early.
+const RELEASE_MIN_WORDS: usize = 4096;
+
+/// Moves the words of a buffer out front to back and gives the buffer's memory back as it empties, where `Vec::into_iter` holds the whole buffer until the last word is taken. A template battery's output is consumed over the whole subtree search below it, so the plain iterator kept every emptied slot live for that long.
+pub struct Releasing {
+    /// The words still to yield, last first.
+    rest: Vec<Word>,
+}
+
+impl Releasing {
+    pub fn new(mut words: Vec<Word>) -> Self {
+        words.reverse();
+        Releasing { rest: words }
+    }
+}
+
+impl Iterator for Releasing {
+    type Item = Word;
+
+    fn next(&mut self) -> Option<Word> {
+        let word = self.rest.pop()?;
+        // Halving keeps the copying linear in the words yielded.
+        if self.rest.capacity() >= RELEASE_MIN_WORDS && self.rest.len() <= self.rest.capacity() / 2
+        {
+            self.rest.shrink_to_fit();
+        }
+        Some(word)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.rest.len(), Some(self.rest.len()))
+    }
 }
 
 #[cfg(test)]
@@ -118,6 +157,25 @@ mod tests {
         let mut w = Word::new(ShapeBuilder::new().finish(), StratumId(0));
         w.morphs = vec![MorphRecord::new(AllomorphId(allomorph), MorphemeId(1), 0)];
         w
+    }
+
+    #[test]
+    fn releasing_yields_first_insertion_order_and_shrinks() {
+        let n = RELEASE_MIN_WORDS as u32 * 4;
+        let words: Vec<Word> = (0..n).map(word).collect();
+        let mut releasing = Releasing::new(words);
+        let full = releasing.rest.capacity();
+        for expected in 0..n {
+            let w = releasing.next().expect("one word per input word");
+            assert_eq!(w.morphs[0].allomorph, AllomorphId(expected));
+            if expected == n - n / 8 {
+                assert!(
+                    releasing.rest.capacity() <= full / 4,
+                    "a buffer seven eighths consumed has been given back at least twice"
+                );
+            }
+        }
+        assert!(releasing.next().is_none());
     }
 
     #[test]

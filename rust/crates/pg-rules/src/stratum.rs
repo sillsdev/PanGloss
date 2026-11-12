@@ -86,7 +86,7 @@ use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
 };
 use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
-use crate::word_set::{fold_hash, WordIndex, WordSet};
+use crate::word_set::{fold_hash, Releasing, WordIndex, WordSet};
 use crate::{metathesis, morph, rewrite};
 
 #[cfg(test)]
@@ -1145,7 +1145,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return;
         }
         let in_key = input.dedup_key();
-        for t in self.run_template_batch(input) {
+        // The battery's buffer is given back as the loop empties it: the search below each word runs inside this loop, so a plain `Vec` iterator would hold every emptied slot until the last subtree finished.
+        for t in Releasing::new(self.run_template_batch(input)) {
             if sink.done() {
                 break;
             }
@@ -1188,7 +1189,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .find(|words| !words.is_empty())
             .unwrap_or_default();
         for template_out in per_template {
-            for w in template_out.into_vec() {
+            // Each template's set shrinks as the union grows, and is gone once merged.
+            for w in template_out.into_releasing() {
                 let key = w.dedup_key();
                 match union.position(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
