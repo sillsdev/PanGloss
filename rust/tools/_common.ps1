@@ -1918,10 +1918,13 @@ function Find-PinMatchedConformanceDriver {
             $exe = $candidate.Exe
             $probed += $exe
             if (-not (Test-Path -LiteralPath $exe)) { continue }
-            $worktreeRoot = & git -C $wt rev-parse --show-toplevel 2>$null | Select-Object -First 1
+            # Read each exit code before narrowing to the first line: a pipeline that stops git early leaves a stale $LASTEXITCODE.
+            $worktreeRootLines = @(& git -C $wt rev-parse --show-toplevel 2>$null)
             $worktreeRootExit = $LASTEXITCODE
-            $headCommit = & git -C $wt rev-parse --verify HEAD 2>$null | Select-Object -First 1
+            $worktreeRoot = $worktreeRootLines | Select-Object -First 1
+            $headCommitLines = @(& git -C $wt rev-parse --verify HEAD 2>$null)
             $headCommitExit = $LASTEXITCODE
+            $headCommit = $headCommitLines | Select-Object -First 1
             $candidateRoot = [IO.Path]::GetFullPath($wt).TrimEnd('\', '/')
             $reportedRoot = if ($worktreeRoot) { [IO.Path]::GetFullPath($worktreeRoot.Trim()).TrimEnd('\', '/') } else { '' }
             $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }

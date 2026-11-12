@@ -2,6 +2,15 @@
 
 mod acceptor;
 mod build;
+#[cfg(test)]
+mod construction_tests;
+mod floor;
+#[cfg(test)]
+mod floor_tests;
+pub mod gate;
+pub(crate) mod meter;
+#[cfg(test)]
+mod meter_tests;
 mod piece;
 mod plan;
 #[cfg(test)]
@@ -11,45 +20,53 @@ pub mod tiled;
 mod tiled_construct_tests;
 #[cfg(test)]
 mod tiled_tests;
+mod tokenizer;
 
 use crate::lower::{pattern_slots, PatternLowerScope, Slot};
 use crate::replace::{PhonologyLoweringError, SegAlphabet};
-use acceptor::{NetView, RuleOutcome, RuleTable, Tokenizer};
+use acceptor::{NetView, RuleOutcome, RuleTable};
 use foma::io::fsm_write_binary;
 use foma::options::FomaOptions;
 use foma::structures::fsm_sort_arcs;
+use meter::size_sum;
 use pg_grammar::model::{Grammar, MRuleId, Pattern, PatternNode};
+use tokenizer::Tokenizer;
 
 pub use acceptor::TableSize;
 #[cfg(any(test, feature = "developer-tools"))]
 use foma::apply::apply_init;
 #[cfg(any(test, feature = "developer-tools"))]
 use foma::types::ApplyHandle;
+pub use meter::{
+    ADMISSION_UNIT_WEIGHT, ADMIT_STEP_WEIGHT, TILED_STEP_WEIGHT, TILED_UNIT_WEIGHT, UNLIMITED_UNITS,
+};
 use std::collections::HashMap;
 #[cfg(any(test, feature = "developer-tools"))]
 use std::sync::Mutex;
 
 pub use plan::plan_admission;
-pub use tiled::{build_tiled, TileCounts, Tiled, TiledEvidence};
+pub use tiled::{
+    build_tiled, build_tiled_from, build_tiled_within, tiled_prospect, Prospect, TileCounts, Tiled,
+    TiledEvidence,
+};
 
-/// Whether a token can match the one-node pattern; anything unclear answers yes.
-pub fn class_test(g: &Grammar) -> impl Fn(&PatternNode, char) -> bool + '_ {
-    move |node, ch| {
-        let Some(table) = g.char_tables.first() else {
-            return true;
-        };
-        let alphabet = SegAlphabet::new(table);
+/// The tokens a one-node pattern can match, once per node; `None` when it can match any or the answer is unclear.
+pub fn class_of(g: &Grammar) -> impl Fn(&PatternNode) -> Option<Vec<char>> + '_ {
+    let table = g.char_tables.first();
+    let alphabet = table.map(SegAlphabet::new);
+    move |node| {
+        let (table, alphabet) = (table?, alphabet.as_ref()?);
         let pattern = Pattern {
             nodes: vec![node.clone()],
         };
         let scope = PatternLowerScope::RewriteRuleCompile;
         let slots = pattern_slots(g, table, &pattern, &mut 0, scope);
         match slots.as_deref() {
-            Some([Slot::Fixed(id)]) => alphabet.token(*id) == ch,
-            Some([Slot::Union(members)]) => {
-                members.is_empty() || members.iter().any(|id| alphabet.token(*id) == ch)
+            Some([Slot::Fixed(id)]) => Some(vec![alphabet.token(*id)]),
+            Some([Slot::Union(members)]) if !members.is_empty() => {
+                Some(members.iter().map(|id| alphabet.token(*id)).collect())
             }
-            _ => true,
+            _ => None,
         }
     }
 }
@@ -70,6 +87,11 @@ pub enum AdmissionRefusal {
         structure: String,
         size: usize,
     },
+    /// The build would pass its construction budget; carries the units spent when it stopped.
+    ConstructionBudget {
+        spent: u64,
+        budget: u64,
+    },
 }
 
 impl AdmissionRefusal {
@@ -83,6 +105,9 @@ impl AdmissionRefusal {
             Self::Construction(why) => format!("construction:{why}"),
             Self::NoUsablePiece(n) => format!("no-usable-piece:{n}"),
             Self::Containment { structure, size } => format!("containment:{structure}:{size}"),
+            Self::ConstructionBudget { spent, budget } => {
+                format!("construction-budget:{spent} of {budget} units")
+            }
         }
     }
 }
@@ -158,8 +183,11 @@ pub struct AdmissionEvidence {
     pub rule_parts: Vec<RulePartSize>,
     pub compositions: Vec<Composition>,
     pub final_net: Size,
-    pub final_bytes: usize,
+    /// Serialized size of the final net; set only by [`build_rule_admission_sized`], since the net is dropped after the tables are read out.
+    pub final_bytes: Option<usize>,
     pub tables: TableEvidence,
+    /// Construction units the build spent, tables included.
+    pub construction_units: u64,
 }
 
 /// The per-rule deterministic acceptors that answer admission.
@@ -190,6 +218,8 @@ pub struct RuleAdmission {
     free: Vec<bool>,
     evidence: AdmissionEvidence,
     warnings: Vec<String>,
+    /// The cascade the net was built from, which the tiled stage reads instead of building it again.
+    cascade: Option<std::sync::Arc<crate::cascade_parts::CascadeShare>>,
 }
 
 /// Builds the lookup, or says why the grammar is outside the model.
@@ -197,26 +227,58 @@ pub fn build_rule_admission(
     opts: &FomaOptions,
     g: &Grammar,
 ) -> Result<RuleAdmission, AdmissionRefusal> {
+    build_checked(opts, g, (UNLIMITED_UNITS, false))
+}
+
+/// [`build_rule_admission`] that stops with [`AdmissionRefusal::ConstructionBudget`] once it would spend more than `budget` construction units.
+pub fn build_rule_admission_within(
+    opts: &FomaOptions,
+    g: &Grammar,
+    budget: u64,
+) -> Result<RuleAdmission, AdmissionRefusal> {
+    build_checked(opts, g, (budget, false))
+}
+
+/// [`build_rule_admission`] that also writes the final net through the serializer to record its size in `evidence.final_bytes`.
+pub fn build_rule_admission_sized(
+    opts: &FomaOptions,
+    g: &Grammar,
+) -> Result<RuleAdmission, AdmissionRefusal> {
+    build_checked(opts, g, (UNLIMITED_UNITS, true))
+}
+
+fn build_checked(
+    opts: &FomaOptions,
+    g: &Grammar,
+    (budget, measure_bytes): (u64, bool),
+) -> Result<RuleAdmission, AdmissionRefusal> {
     check_strata(g)?;
-    let plan = plan_admission(g, &class_test(g))?;
+    let plan = plan_admission(g, &class_of(g))?;
+    if plan.construction_floor(g) > budget {
+        return Err(AdmissionRefusal::ConstructionBudget { spent: 0, budget });
+    }
     let mut evidence = AdmissionEvidence {
         plan: plan.counts.clone(),
         ..AdmissionEvidence::default()
     };
-    let mut meter = build::Meter::default();
+    let mut meter = meter::Meter::within(budget);
     let built = build::build_net(opts, g, &plan, &mut evidence, &mut meter)?;
     let build::Built {
         mut net,
         tags,
         free,
+        cascade,
     } = built;
-    let mut counter = build::CountingWriter(0);
-    fsm_write_binary(&net, &mut counter)
-        .map_err(|e| AdmissionRefusal::Construction(e.to_string()))?;
-    evidence.final_bytes = counter.0;
+    if measure_bytes {
+        let mut counter = build::CountingWriter(0);
+        fsm_write_binary(&net, &mut counter)
+            .map_err(|e| AdmissionRefusal::Construction(e.to_string()))?;
+        evidence.final_bytes = Some(counter.0);
+    }
     fsm_sort_arcs(&mut net, 2);
     acceptor::check_token_range(&net)?;
     let tables = build_tables(&net, (&tags, free), &plan, &mut evidence, &mut meter)?;
+    evidence.construction_units = meter.units();
     Ok(RuleAdmission {
         tokenizer: Tokenizer::new(&net),
         tables: tables.tables,
@@ -228,6 +290,7 @@ pub fn build_rule_admission(
         plan,
         evidence,
         warnings: meter.warnings,
+        cascade,
     })
 }
 
@@ -245,10 +308,13 @@ fn build_tables(
     (tags, free): (&HashMap<String, usize>, Vec<bool>),
     plan: &AdmissionPlan,
     evidence: &mut AdmissionEvidence,
-    meter: &mut build::Meter,
+    meter: &mut meter::Meter,
 ) -> Result<Tables, AdmissionRefusal> {
     let started = std::time::Instant::now();
+    meter.check(size_sum(net))?;
+    meter.spend(size_sum(net) as u64);
     let view = NetView::new(net);
+    let mut scratch = view.scratch();
     let mut free = free;
     let mut tables = Vec::new();
     let mut sum = TableSize::default();
@@ -266,12 +332,13 @@ fn build_tables(
             evidence.tables.never += 1;
             continue;
         };
-        match view.rule(tag.number, RULE_STATE_BOUND) {
+        match view.rule(tag.number, &mut scratch, (RULE_STATE_BOUND, meter)) {
             RuleOutcome::Never => evidence.tables.never += 1,
             RuleOutcome::Always => {
                 evidence.tables.always += 1;
                 free[rule] = true;
             }
+            RuleOutcome::OverBudget => return Err(meter.exhausted()),
             RuleOutcome::TooBig(states) => {
                 let item = piece_item(plan, rule);
                 meter.warnings.push(format!(
@@ -301,6 +368,7 @@ fn build_tables(
         arcs: sum.arcs,
     };
     meter.observe("rule acceptor tables", total, &items)?;
+    meter.check(0)?;
     Ok(Tables { tables, free })
 }
 
@@ -331,12 +399,24 @@ fn check_strata(g: &Grammar) -> Result<(), AdmissionRefusal> {
 impl RuleAdmission {
     /// Admitted rules for `word`: one pass of each rule's table over the word's NFD symbols.
     pub fn admit(&self, word: &str) -> Vec<bool> {
+        self.admit_counted(word, &mut 0)
+    }
+
+    /// [`RuleAdmission::admit`] that adds the table transitions the walks take to `steps`.
+    pub fn admit_counted(&self, word: &str, steps: &mut u64) -> Vec<bool> {
         let tokens = self.tokenizer.tokens(&pg_grammar::nfd::nfd(word));
         let mut admitted = self.free.clone();
         for (rule, table) in &self.tables {
-            admitted[*rule] = table.accepts(&tokens);
+            let (accepted, taken) = table.walk(&tokens);
+            admitted[*rule] = accepted;
+            *steps += taken as u64;
         }
         admitted
+    }
+
+    /// Construction units the build spent.
+    pub fn construction_units(&self) -> u64 {
+        self.evidence.construction_units
     }
 
     /// The admitted rules read through foma's apply on the whole net, for checking the tables against it.

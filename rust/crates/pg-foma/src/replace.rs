@@ -3,15 +3,14 @@
 //! Permissive cascades widen alpha agreement and choose each rewrite site independently.
 //! Complete cascade compilation refuses unsupported rules; it never returns a skipped-rule net.
 
-use foma::constructions::{
-    fsm_compose, fsm_ignore, fsm_intersect, fsm_symbol, fsm_union, fsm_universal,
-};
+use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
-use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
-use foma::types::{Fsm, OP_IGNORE_ALL};
+use foma::types::Fsm;
 
 use std::collections::HashMap;
+
+use crate::admission::meter::Meter;
 
 use pg_featstruct::flat_unifiable;
 use pg_grammar::chardef::{CharDefId, CharDefTable};
@@ -458,18 +457,18 @@ fn render_branch_regex(
 
 /// Rule text foma cannot parse yields no relation.
 fn parse_rule_regex(opts: &FomaOptions, regex: &str) -> Option<Fsm> {
-    let net = fsm_parse_regex(opts, regex, None, None)?;
+    parse_rule_regex_within(&Meter::default(), opts, regex)
+}
+
+/// [`parse_rule_regex`] counted in `meter`.
+fn parse_rule_regex_within(meter: &Meter, opts: &FomaOptions, regex: &str) -> Option<Fsm> {
+    let net = meter.regex(opts, regex)?;
     if foma::sigma::sigma_find(INSERTION_SKIP_SYMBOL, &net.sigma).is_none() {
         return Some(net);
     }
-    let cleanup = fsm_parse_regex(
-        opts,
-        &format!("\"{INSERTION_SKIP_SYMBOL}\" -> 0"),
-        None,
-        None,
-    )?;
+    let cleanup = meter.regex(opts, &format!("\"{INSERTION_SKIP_SYMBOL}\" -> 0"))?;
     // Erase only output markers; erasing input symbols would change the domain.
-    Some(fsm_compose(opts, net, cleanup))
+    Some(meter.compose(opts, net, cleanup))
 }
 
 /// Compiles one branch into a foma `Fsm`: `Dir::LeftToRight` renders the slots as given; `Dir::RightToLeft` unions that with `fsm_reverse` of the mirror rule's compile (LHS/RHS reversed, environments swapped-and-reversed).
@@ -606,16 +605,17 @@ pub fn compile_rewrite_rule_subset(
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
-    compile_rewrite_rule_subset_inner(opts, g, rule, allowed, None).ok()
+    compile_rewrite_rule_subset_inner(opts, g, rule, allowed, None, &Meter::default()).ok()
 }
 
-/// Permissive lowering leaves applicability and alpha agreement to HC at every site.
+/// Permissive lowering leaves applicability and alpha agreement to HC at every site; its foma operations are counted in `meter`.
 pub(crate) fn compile_rewrite_rule_subset_inner(
     opts: &FomaOptions,
     g: &Grammar,
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
     bundles: Option<&crate::lower::IntermediateBundles>,
+    meter: &Meter,
 ) -> Result<(Fsm, Vec<TupleReport>), PhonologyLoweringError> {
     let permissive = bundles.is_some();
     let unsupported = || PhonologyLoweringError::UnsupportedRewrite(rule.xml_id.clone());
@@ -798,10 +798,11 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
             .filter(|(_, definition)| {
                 definition.kind() == pg_grammar::chardef::CharDefKind::Boundary
             })
-            .map(|(id, _)| fsm_symbol(&render_alphabet.token(id).to_string()))
-            .reduce(|left, right| fsm_union(opts, left, right));
+            .map(|(id, _)| meter.symbol(&render_alphabet.token(id).to_string()))
+            .reduce(|left, right| meter.union(opts, left, right));
         if let Some(rows) = &fed_rows {
             let net = crate::lower::compile_fed_insertion(
+                meter,
                 opts,
                 &render_alphabet,
                 rows,
@@ -809,23 +810,23 @@ pub(crate) fn compile_rewrite_rule_subset_inner(
                 boundaries,
             )
             .ok_or_else(unsupported)?;
-            return Ok((if mirrored { fsm_reverse(net) } else { net }, reports));
+            return Ok((if mirrored { meter.reverse(net) } else { net }, reports));
         }
         if permissive_branches.is_empty() {
             return Err(unsupported());
         }
-        let net =
-            parse_rule_regex(opts, &permissive_branches.join(" ,, ")).ok_or_else(unsupported)?;
-        let net = if mirrored { fsm_reverse(net) } else { net };
+        let net = parse_rule_regex_within(meter, opts, &permissive_branches.join(" ,, "))
+            .ok_or_else(unsupported)?;
+        let net = if mirrored { meter.reverse(net) } else { net };
         // Ignore loops consume and copy boundaries; explicit boundary targets remain available.
         let net = match boundaries {
-            Some(boundaries) => fsm_ignore(opts, net, boundaries, OP_IGNORE_ALL),
+            Some(boundaries) => meter.ignore(opts, net, boundaries),
             None => net,
         };
         // Foma's class-to-class replacement relates every focus row to every output row; synthesis relates each row to its own.
         let net = match bundles {
-            Some(bundles) => match crate::lower::pair_filter(opts, g, bundles, rule)? {
-                Some(filter) => fsm_intersect(opts, net, filter),
+            Some(bundles) => match crate::lower::pair_filter(meter, opts, g, bundles, rule)? {
+                Some(filter) => meter.intersect(opts, net, filter),
                 None => net,
             },
             None => net,

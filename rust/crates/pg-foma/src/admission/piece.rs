@@ -4,7 +4,8 @@ use super::plan::{Cut, Literal, Mat, Max, Model, Tok};
 use crate::replace::SegAlphabet;
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::PatternNode;
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 
 const MAX_NESTING: usize = 3;
 const MAX_GAP_CHARS: usize = 4000;
@@ -12,15 +13,18 @@ const MAX_WILD_SCAN: usize = 64;
 
 pub(super) struct Ctx<'a> {
     model: &'a Model,
-    matches: &'a dyn Fn(&PatternNode, char) -> bool,
+    /// For each zone, the tokens its node can match; `None` for any token.
+    classes: Vec<Option<Vec<char>>>,
     boundaries: Vec<char>,
+    /// The gap text at each `(left depth, right depth, level)`, which nested materials ask for again and again.
+    gaps: RefCell<HashMap<(usize, usize, usize), Option<String>>>,
 }
 
 impl<'a> Ctx<'a> {
     pub(super) fn new(
         model: &'a Model,
         table: &CharDefTable,
-        matches: &'a dyn Fn(&PatternNode, char) -> bool,
+        class_of: &dyn Fn(&PatternNode) -> Option<Vec<char>>,
     ) -> Self {
         let alphabet = SegAlphabet::new(table);
         let boundaries = table
@@ -28,10 +32,16 @@ impl<'a> Ctx<'a> {
             .filter(|(_, def)| def.kind() == CharDefKind::Boundary)
             .map(|(id, _)| alphabet.token(id))
             .collect();
+        let classes = model
+            .zones
+            .iter()
+            .map(|z| z.node.as_ref().and_then(class_of))
+            .collect();
         Ctx {
             model,
-            matches,
+            classes,
             boundaries,
+            gaps: RefCell::default(),
         }
     }
 
@@ -43,10 +53,14 @@ impl<'a> Ctx<'a> {
     }
 
     fn zone_hit(&self, dl: usize, dr: usize, ch: char) -> bool {
-        self.model.zones.iter().any(|z| {
-            self.reaches(dl, dr, z.left, z.right)
-                && z.node.as_ref().is_none_or(|node| (self.matches)(node, ch))
-        })
+        self.model
+            .zones
+            .iter()
+            .zip(&self.classes)
+            .any(|(z, class)| {
+                self.reaches(dl, dr, z.left, z.right)
+                    && class.as_ref().is_none_or(|tokens| tokens.contains(&ch))
+            })
     }
 
     fn zone_reaches(&self, dl: usize, dr: usize) -> bool {
@@ -111,6 +125,15 @@ impl<'a> Ctx<'a> {
     }
 
     fn gap(&self, dl: usize, dr: usize, level: usize) -> Option<String> {
+        if let Some(known) = self.gaps.borrow().get(&(dl, dr, level)) {
+            return known.clone();
+        }
+        let made = self.gap_text(dl, dr, level);
+        self.gaps.borrow_mut().insert((dl, dr, level), made.clone());
+        made
+    }
+
+    fn gap_text(&self, dl: usize, dr: usize, level: usize) -> Option<String> {
         let cuts: Vec<&Cut> = self
             .model
             .cuts

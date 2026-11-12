@@ -1,6 +1,9 @@
 //! Measures how much parser work the rule-admission transducer saves on one grammar's words.
 use foma::options::FomaOptions;
-use pg_foma::admission::{build_rule_admission, build_tiled, RuleAdmission, Tiled};
+use pg_foma::admission::gate::restricted_parse;
+use pg_foma::admission::{
+    build_rule_admission, build_rule_admission_sized, build_tiled, RuleAdmission, Tiled,
+};
 use pg_foma_runtime::confirm::{build_morpheme_owners, MorphemeOwner};
 use pg_grammar::model::{Grammar, LexEntryId};
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
@@ -69,16 +72,22 @@ fn stage_plain(morpher: &Morpher, word: &str, options: &ParseOptions) -> ParseOu
 }
 
 #[inline(never)]
-fn stage_filter(admission: &RuleAdmission, word: &str) -> Vec<bool> {
-    let admitted = admission.admit(word);
+fn stage_filter(admission: &RuleAdmission, word: &str, steps: &mut u64) -> Vec<bool> {
+    let admitted = admission.admit_counted(word, steps);
     std::hint::black_box(&admitted);
     admitted
 }
 
 // The tiled acceptor's whole per-word cost: the applicability check and one table walk.
 #[inline(never)]
-fn stage_tiled(tiled: &Tiled, word: &str, set: &[bool], options: &ParseOptions) -> bool {
-    std::hint::black_box(tiled.rejects(word, set, options))
+fn stage_tiled(
+    tiled: &Tiled,
+    word: &str,
+    set: &[bool],
+    options: &ParseOptions,
+    steps: &mut u64,
+) -> bool {
+    std::hint::black_box(tiled.rejects_counted(word, set, options, steps))
 }
 
 #[inline(never)]
@@ -88,11 +97,7 @@ fn stage_confirm(
     set: &[bool],
     options: &ParseOptions,
 ) -> ParseOutcome {
-    let filter = |rule: RuleRef| match rule {
-        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
-        RuleRef::MRule(id) => set[id.0 as usize],
-    };
-    morpher.parse_word_selected(word, options, None, Some(&filter))
+    restricted_parse(morpher, word, set, options)
 }
 
 // A callgrind run dumps its counts on entering this marker, once after each stage, while collection is off.
@@ -134,7 +139,7 @@ fn main() -> Result<(), String> {
     let mut work_cap = DEFAULT_WORK_CAP;
     let mut capture_cap: Option<Option<usize>> = None;
     let mut with_oracle = false;
-    let (mut with_tiled, mut guess_roots) = (false, false);
+    let (mut with_tiled, mut guess_roots, mut with_bytes) = (false, false, false);
     let mut raw = std::env::args().skip(1);
     while let Some(arg) = raw.next() {
         match arg.as_str() {
@@ -152,12 +157,13 @@ fn main() -> Result<(), String> {
             }
             "--tiled" => with_tiled = true,
             "--guess-roots" => guess_roots = true,
+            "--final-bytes" => with_bytes = true,
             _ => args.push(arg),
         }
     }
     let (source, words_path, output, limit) = match args.as_slice() {
         [a, b, c, d] => (a, b, c, d),
-        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--capture-cap-mib N|unbounded] [--oracle-roots] [--tiled] [--guess-roots]".into()),
+        _ => return Err("usage: admission_measure <grammar> <words.txt> <out.jsonl> <max-words> [--work-cap N] [--capture-cap-mib N|unbounded] [--oracle-roots] [--tiled] [--guess-roots] [--final-bytes]".into()),
     };
     let limit: usize = limit.parse().map_err(|_| "max-words must be a number")?;
     let capture_cap_bytes = match capture_cap {
@@ -167,11 +173,15 @@ fn main() -> Result<(), String> {
     };
     let g = load(source)?;
     let started = Instant::now();
-    let built = build_rule_admission(&FomaOptions::default(), &g);
+    let built = match with_bytes {
+        true => build_rule_admission_sized(&FomaOptions::default(), &g),
+        false => build_rule_admission(&FomaOptions::default(), &g),
+    };
     let build_ms = started.elapsed().as_millis() as u64;
     let mut header = match &built {
         Ok(admission) => serde_json::json!({
             "evidence": admission.evidence(), "warnings": admission.warnings(),
+            "construction_units": admission.construction_units(),
             "refusal": null, "build_ms": build_ms, "work_cap": work_cap, "capture_cap_bytes": capture_cap_bytes,
         }),
         Err(refusal) => serde_json::json!({
@@ -185,6 +195,7 @@ fn main() -> Result<(), String> {
             header["tiled"] = serde_json::json!({
                 "active": tiled.active(), "inactive_reason": tiled.inactive_reason(),
                 "evidence": tiled.evidence(), "warnings": tiled.warnings(),
+                "construction_units": tiled.construction_units(),
                 "build_ms": started.elapsed().as_millis() as u64, "guess_roots": guess_roots,
             });
             Some(tiled)
@@ -212,11 +223,13 @@ fn main() -> Result<(), String> {
     {
         let plain = stage_plain(&morpher, word, &options);
         stage_mark();
-        let admitted = stage_filter(&admission, word);
+        let mut admit_steps = 0u64;
+        let admitted = stage_filter(&admission, word, &mut admit_steps);
         stage_mark();
+        let mut tiled_steps = 0u64;
         let rejected = match &tiled {
             Some(tiled) => {
-                let rejected = stage_tiled(tiled, word, &admitted, &options);
+                let rejected = stage_tiled(tiled, word, &admitted, &options, &mut tiled_steps);
                 stage_mark();
                 rejected
             }
@@ -241,11 +254,13 @@ fn main() -> Result<(), String> {
             "confirm_capture_capped": confirm.as_ref().is_some_and(|c| c.capture_capped),
             "oracle_root_steps": oracle.as_ref().map(|o| o.work_steps),
             "oracle_root_same": oracle.as_ref().map(|o| signature(o) == signature(&plain)),
+            "admit_steps": admit_steps,
         });
         if let Some(tiled) = &tiled {
             row["tiled_applies"] = tiled.applies(&admitted, &options).into();
             row["tiled_rejected"] = rejected.into();
             row["tiled_walk"] = tiled.walk_length(word).into();
+            row["tiled_steps"] = tiled_steps.into();
         }
         writeln!(out, "{row}").map_err(|error| error.to_string())?;
     }

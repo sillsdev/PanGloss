@@ -496,6 +496,11 @@ impl<'g> Morpher<'g> {
         morpher
     }
 
+    /// Whether the parse sees roots the grammar does not own: a supplied-root overlay that adds or hides one.
+    pub fn has_supplied_roots(&self) -> bool {
+        self.overlay.is_some_and(|overlay| !overlay.is_empty())
+    }
+
     fn search_roots(
         &self,
         stratum: StratumId,

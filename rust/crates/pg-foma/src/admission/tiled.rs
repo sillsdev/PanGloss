@@ -5,10 +5,12 @@ mod image;
 mod pieces;
 mod roots;
 
-use super::acceptor::{check_token_range, NetView, RuleOutcome, RuleTable, TableSize, Tokenizer};
-use super::build::{self, Meter};
+use super::acceptor::{check_token_range, NetView, RuleOutcome, RuleTable, TableSize};
+use super::build;
+use super::meter::{self, size_sum, Meter, UNLIMITED_UNITS};
+use super::tokenizer::Tokenizer;
 use super::{AdmissionRefusal, Composition, RuleAdmission, Size};
-use crate::cascade_parts::CascadeParts;
+use crate::cascade_parts::{CascadeParts, CascadeShare};
 use crate::replace::SegAlphabet;
 use foma::options::FomaOptions;
 use foma::structures::{fsm_empty_set, fsm_sort_arcs};
@@ -17,6 +19,7 @@ use pg_grammar::model::Grammar;
 use pg_parse::ParseOptions;
 use pieces::{gather, phonological_stratum, rule_label, Pieces};
 use roots::root_nets;
+use std::sync::Arc;
 
 /// Bounds a build runs under; past one the acceptor is not built and the test stays inactive.
 #[derive(Debug, Clone, Copy)]
@@ -88,6 +91,10 @@ pub struct TiledEvidence {
     pub final_net: Size,
     pub table: TableSize,
     pub table_always: bool,
+    /// Construction units the build spent, table read-out included.
+    pub construction_units: u64,
+    /// Set when the build stopped because it would have passed its construction budget.
+    pub budget_exhausted: bool,
     pub build_ms: u64,
 }
 
@@ -108,41 +115,47 @@ pub struct TiledEvidence {
 /// build past a size bound, a table past its state bound or an acceptor that accepts every text leaves
 /// [`Tiled::active`] false and [`Tiled::inactive_reason`] naming the cause, and then nothing is rejected.
 pub struct Tiled {
-    rules: usize,
+    applicability: Applicability,
     tokenizer: Option<Tokenizer>,
     table: Option<RuleTable>,
-    not_tileable: Vec<usize>,
     evidence: TiledEvidence,
     warnings: Vec<String>,
 }
 
-/// Builds the acceptor for a grammar and its rule admission; the result is inactive, with the cause, when the model does not cover the grammar.
-pub fn build_tiled(opts: &FomaOptions, g: &Grammar, admission: &RuleAdmission) -> Tiled {
-    build_within(opts, g, admission, Limits::default())
+/// The rules a rejection depends on: the rule count of the grammar and the rules the tiling cannot model.
+struct Applicability {
+    rules: usize,
+    not_tileable: Vec<usize>,
 }
 
-pub(super) fn build_within(
-    opts: &FomaOptions,
-    g: &Grammar,
-    admission: &RuleAdmission,
-    limits: Limits,
-) -> Tiled {
-    build::on_large_stack(|| construct(opts, g, admission, limits))
+impl Applicability {
+    fn applies(&self, admitted: &[bool], options: &ParseOptions) -> bool {
+        !options.guess_root
+            && admitted.len() == self.rules
+            && self.not_tileable.iter().all(|rule| !admitted[*rule])
+    }
 }
 
-fn construct(opts: &FomaOptions, g: &Grammar, admission: &RuleAdmission, limits: Limits) -> Tiled {
-    let started = std::time::Instant::now();
+/// What the rules of a grammar and its rule admission say about the tiled stage, known before any acceptor is built.
+///
+/// The causes that make the stage inactive for the whole grammar split in two. Early, answered here by
+/// [`Prospect::cannot_be_active`]: the rule admission was built for another grammar, and a rule outside the model is
+/// admitted for every word. Late, known only from the acceptor and left to [`Tiled::inactive_reason`]: a build refused
+/// for size or budget, a table past its state bound, a language that is empty or accepts every text.
+pub struct Prospect {
+    applicability: Applicability,
+    early: Option<String>,
+    pieces: Pieces,
+    tiles: TileCounts,
+    floor: u64,
+    cascade: Option<std::sync::Arc<crate::cascade_parts::CascadeShare>>,
+}
+
+/// Classifies the rules of a grammar for the tiled stage; builds no net.
+pub fn tiled_prospect(g: &Grammar, admission: &RuleAdmission) -> Prospect {
     let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let mut evidence = TiledEvidence::default();
-    let pieces = gather(g, &alphabet, &mut evidence.tiles);
-    let mut tiled = Tiled {
-        rules: g.mrules.len(),
-        tokenizer: None,
-        table: None,
-        not_tileable: pieces.not_tileable.clone(),
-        evidence: TiledEvidence::default(),
-        warnings: Vec::new(),
-    };
+    let mut tiles = TileCounts::default();
+    let pieces = gather(g, &alphabet, &mut tiles);
     let free = admission.free();
     let barred: Vec<String> = pieces
         .not_tileable
@@ -150,96 +163,233 @@ fn construct(opts: &FomaOptions, g: &Grammar, admission: &RuleAdmission, limits:
         .filter(|rule| free.get(**rule).copied().unwrap_or(true))
         .map(|rule| rule_label(g, *rule))
         .collect();
-    evidence.tiles.not_tileable_free = barred.clone();
-    if free.len() != g.mrules.len() {
-        evidence.off = Some("the rule admission was built for another grammar".to_owned());
+    tiles.not_tileable_free = barred.clone();
+    let early = if free.len() != g.mrules.len() {
+        Some("the rule admission was built for another grammar".to_owned())
     } else if !barred.is_empty() {
-        evidence.off = Some(format!(
+        Some(format!(
             "not-tileable rule admitted for every word: {}",
             barred.join(", ")
-        ));
+        ))
     } else {
-        match language(opts, g, (&pieces, &alphabet), limits, &mut evidence) {
-            Ok(net) => tiled.adopt(net, limits, &mut evidence),
-            Err(refusal) => evidence.off = Some(format!("build refused: {}", refusal.reason())),
-        }
+        None
+    };
+    Prospect {
+        applicability: Applicability {
+            rules: g.mrules.len(),
+            not_tileable: pieces.not_tileable.clone(),
+        },
+        early,
+        pieces,
+        tiles,
+        floor: roots::trie_least(g, &alphabet),
+        cascade: admission.cascade.clone(),
+    }
+}
+
+impl Prospect {
+    /// Fewest construction units the build spends, known without building a net; a budget below it refuses the build at no cost.
+    ///
+    /// It counts the trie of the plain root spellings only, so a build above the floor can still be refused later.
+    pub fn construction_floor(&self) -> u64 {
+        self.floor
+    }
+
+    /// Why the stage cannot be active for this grammar, known without building the acceptor; `None` when only the build can tell.
+    pub fn cannot_be_active(&self) -> Option<&str> {
+        self.early.as_deref()
+    }
+
+    /// Whether a rejection is sound for a parse run with `options`; the same answer [`Tiled::applies`] gives once built.
+    pub fn applies(&self, admitted: &[bool], options: &ParseOptions) -> bool {
+        self.applicability.applies(admitted, options)
+    }
+}
+
+/// Builds the acceptor for a grammar and its rule admission; the result is inactive, with the cause, when the model does not cover the grammar.
+pub fn build_tiled(opts: &FomaOptions, g: &Grammar, admission: &RuleAdmission) -> Tiled {
+    build_tiled_within(opts, g, admission, UNLIMITED_UNITS)
+}
+
+/// [`build_tiled`] that stops, leaving the stage inactive with the units spent in the reason, once it would spend more than `budget` construction units.
+pub fn build_tiled_within(
+    opts: &FomaOptions,
+    g: &Grammar,
+    admission: &RuleAdmission,
+    budget: u64,
+) -> Tiled {
+    build_tiled_from(opts, g, tiled_prospect(g, admission), budget)
+}
+
+/// [`build_tiled_within`] for a prospect already taken, so the rules are classified once.
+pub fn build_tiled_from(opts: &FomaOptions, g: &Grammar, prospect: Prospect, budget: u64) -> Tiled {
+    let limits = Limits::default();
+    build::on_large_stack(|| construct(opts, g, prospect, (limits, budget)))
+}
+
+#[cfg(test)]
+pub(super) fn build_within(
+    opts: &FomaOptions,
+    g: &Grammar,
+    admission: &RuleAdmission,
+    limits: Limits,
+) -> Tiled {
+    let prospect = tiled_prospect(g, admission);
+    build::on_large_stack(|| construct(opts, g, prospect, (limits, UNLIMITED_UNITS)))
+}
+
+fn construct(
+    opts: &FomaOptions,
+    g: &Grammar,
+    prospect: Prospect,
+    (limits, budget): (Limits, u64),
+) -> Tiled {
+    let started = std::time::Instant::now();
+    let alphabet = SegAlphabet::new(&g.char_tables[0]);
+    let Prospect {
+        applicability,
+        early,
+        pieces,
+        tiles,
+        floor,
+        cascade,
+    } = prospect;
+    let mut evidence = TiledEvidence {
+        tiles,
+        ..TiledEvidence::default()
+    };
+    let mut tiled = Tiled {
+        applicability,
+        tokenizer: None,
+        table: None,
+        evidence: TiledEvidence::default(),
+        warnings: Vec::new(),
+    };
+    match early {
+        Some(reason) => evidence.off = Some(reason),
+        None if floor > budget => tiled.refuse(
+            &AdmissionRefusal::ConstructionBudget { spent: 0, budget },
+            &mut evidence,
+        ),
+        None => match language(
+            opts,
+            g,
+            (&pieces, &alphabet),
+            (limits, budget),
+            (cascade, &mut evidence),
+        ) {
+            Ok(language) => tiled.adopt(language, limits, &mut evidence),
+            Err(refusal) => tiled.refuse(&refusal, &mut evidence),
+        },
     }
     evidence.build_ms = started.elapsed().as_millis() as u64;
     tiled.evidence = evidence;
     tiled
 }
 
-/// The tiled language of the grammar, and the warnings the build raised.
+/// The tiled language of the grammar, and the meter that counted its construction.
 struct Language {
     net: foma::types::Fsm,
-    warnings: Vec<String>,
+    meter: Meter,
 }
 
 fn language(
     opts: &FomaOptions,
     g: &Grammar,
     (pieces, alphabet): (&Pieces, &SegAlphabet),
-    limits: Limits,
-    evidence: &mut TiledEvidence,
+    (limits, budget): (Limits, u64),
+    (cascade, evidence): (Option<Arc<CascadeShare>>, &mut TiledEvidence),
 ) -> Result<Language, AdmissionRefusal> {
-    let prules = build::ordered_prules(g);
-    let parts = match CascadeParts::build(opts, g, &prules) {
-        Ok(parts) => Some(parts),
-        Err(_) if prules.is_empty() => None,
-        Err(error) => return Err(AdmissionRefusal::Cascade(error)),
-    };
-    let tokens_all = build::token_alphabet(g, parts.as_ref());
-    let (segment_tokens, boundary_tokens) = build::token_sets(g, parts.as_ref());
-    let tokens = Tokens {
-        segment: build::symbols_union(opts, segment_tokens.iter().map(|c| c.to_string()))
-            .unwrap_or_else(fsm_empty_set),
-        boundaries: any_text(opts, &boundary_tokens),
-    };
-    let at = phonological_stratum(g);
-    let roots = root_nets(opts, g, alphabet, &tokens_all, at, &mut evidence.tiles);
-    evidence.root_net = build::size(&roots.all);
-    let (spelled, _lower_symbols) = build::orthography(opts, &g.char_tables[0]);
-    let (spelling, rules) = match parts {
-        Some(parts) => (Some(parts.spelling), parts.rules),
-        None => (None, Vec::new()),
-    };
     let mut run = Run {
         opts,
-        meter: Meter::default(),
+        meter: Meter::within(budget),
         limits,
         largest: 0,
         steps: Vec::new(),
     };
-    let built = tile(
-        &mut run,
-        pieces,
-        roots,
-        (spelling, rules, spelled),
-        (&tokens_all, &tokens),
-        (g, &mut evidence.tiles),
+    let parts = match cascade {
+        Some(shared) => Some(shared),
+        None => {
+            let prules = build::ordered_prules(g);
+            let built = CascadeParts::build_within(opts, g, &prules, &run.meter);
+            run.meter.check(0)?;
+            match built {
+                Ok(parts) => Some(Arc::new(parts.into_share())),
+                Err(_) if prules.is_empty() => None,
+                Err(error) => return Err(AdmissionRefusal::Cascade(error)),
+            }
+        }
+    };
+    let upper = parts.as_deref().map(|share| &share.tokens);
+    let tokens_all = build::token_alphabet(g, upper);
+    let (segment_tokens, boundary_tokens) = build::token_sets(g, upper);
+    let tokens = Tokens {
+        segment: build::symbols_union(
+            &run.meter,
+            opts,
+            segment_tokens.iter().map(|c| c.to_string()),
+        )
+        .unwrap_or_else(fsm_empty_set),
+        boundaries: any_text(&run.meter, opts, &boundary_tokens),
+    };
+    let at = phonological_stratum(g);
+    let roots = root_nets(
+        &run.meter,
+        opts,
+        g,
+        alphabet,
+        &tokens_all,
+        at,
+        &mut evidence.tiles,
     );
+    evidence.root_net = meter::size(&roots.all);
+    let (spelled, _lower_symbols) = build::orthography(&run.meter, opts, &g.char_tables[0]);
+    let (spelling, rules) = match &parts {
+        Some(parts) => (Some(parts.spelling.clone()), parts.rules.clone()),
+        None => (None, Vec::new()),
+    };
+    let built = run.meter.check(0).and_then(|()| {
+        tile(
+            &mut run,
+            pieces,
+            roots,
+            (spelling, rules, spelled),
+            (&tokens_all, &tokens),
+            (g, &mut evidence.tiles),
+        )
+    });
     evidence.largest_intermediate = run.largest;
     evidence.steps = std::mem::take(&mut run.steps);
+    evidence.construction_units = run.meter.units();
     Ok(Language {
         net: built?,
-        warnings: std::mem::take(&mut run.meter.warnings),
+        meter: run.meter,
     })
 }
 
 impl Tiled {
     /// Reads the net out as a table; the test stays inactive when the table is too big, empty or accepts every text.
     fn adopt(&mut self, language: Language, limits: Limits, evidence: &mut TiledEvidence) {
-        let Language { mut net, warnings } = language;
-        evidence.final_net = build::size(&net);
+        let Language { mut net, meter } = language;
+        evidence.final_net = meter::size(&net);
         fsm_sort_arcs(&mut net, 2);
         if let Err(refusal) = check_token_range(&net) {
             evidence.off = Some(format!("build refused: {}", refusal.reason()));
             return;
         }
+        if let Err(refusal) = meter.check(size_sum(&net)) {
+            return self.refuse(&refusal, evidence);
+        }
+        meter.spend(size_sum(&net) as u64);
         let view = NetView::new(&net);
+        let outcome = view.language(&mut view.scratch(), (limits.table_states, &meter));
+        evidence.construction_units = meter.units();
+        if let Err(refusal) = meter.check(0) {
+            return self.refuse(&refusal, evidence);
+        }
         self.tokenizer = Some(Tokenizer::new(&net));
-        self.warnings = warnings;
-        match view.language(limits.table_states) {
+        self.warnings = meter.warnings.clone();
+        match outcome {
             RuleOutcome::Table(table) => {
                 evidence.table = table.size();
                 self.table = Some(table);
@@ -252,7 +402,14 @@ impl Tiled {
             RuleOutcome::TooBig(states) => {
                 evidence.off = Some(format!("table needs more than {states} states"));
             }
+            RuleOutcome::OverBudget => self.refuse(&meter.exhausted(), evidence),
         }
+    }
+
+    /// Leaves the stage inactive because the build was refused.
+    fn refuse(&mut self, refusal: &AdmissionRefusal, evidence: &mut TiledEvidence) {
+        evidence.budget_exhausted = matches!(refusal, AdmissionRefusal::ConstructionBudget { .. });
+        evidence.off = Some(format!("build refused: {}", refusal.reason()));
     }
 
     /// Whether the table is built; false when the test is inactive for the grammar.
@@ -273,18 +430,28 @@ impl Tiled {
         &self.warnings
     }
 
+    /// Construction units the build spent, whether or not it finished.
+    pub fn construction_units(&self) -> u64 {
+        self.evidence.construction_units
+    }
+
     /// Whether a rejection is sound for a parse run with `options`: the parse does not guess roots, `admitted` is for this grammar, and no rule outside the model is admitted.
     pub fn applies(&self, admitted: &[bool], options: &ParseOptions) -> bool {
-        !options.guess_root
-            && admitted.len() == self.rules
-            && self.not_tileable.iter().all(|rule| !admitted[*rule])
+        self.applicability.applies(admitted, options)
     }
 
     /// Whether the word can be tiled; a word the table cannot be asked about counts as tileable.
     pub fn accepts(&self, word: &str) -> bool {
+        self.accepts_counted(word, &mut 0)
+    }
+
+    /// [`Tiled::accepts`] that adds the table transitions the walk takes to `steps`.
+    pub fn accepts_counted(&self, word: &str, steps: &mut u64) -> bool {
         match (&self.tokenizer, &self.table) {
             (Some(tokenizer), Some(table)) => {
-                table.accepts(&tokenizer.tokens(&pg_grammar::nfd::nfd(word)))
+                let (accepted, taken) = table.walk(&tokenizer.tokens(&pg_grammar::nfd::nfd(word)));
+                *steps += taken as u64;
+                accepted
             }
             _ => true,
         }
@@ -292,7 +459,18 @@ impl Tiled {
 
     /// The word has no analysis under `options`: the test is active, applies to the word, and the word cannot be tiled.
     pub fn rejects(&self, word: &str, admitted: &[bool], options: &ParseOptions) -> bool {
-        self.active() && self.applies(admitted, options) && !self.accepts(word)
+        self.rejects_counted(word, admitted, options, &mut 0)
+    }
+
+    /// [`Tiled::rejects`] that adds the table transitions taken, none when the test does not apply, to `steps`.
+    pub fn rejects_counted(
+        &self,
+        word: &str,
+        admitted: &[bool],
+        options: &ParseOptions,
+        steps: &mut u64,
+    ) -> bool {
+        self.active() && self.applies(admitted, options) && !self.accepts_counted(word, steps)
     }
 
     /// Symbols the table walk reads for the word, which sets its cost.

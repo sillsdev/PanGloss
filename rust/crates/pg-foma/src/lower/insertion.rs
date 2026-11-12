@@ -2,18 +2,14 @@
 
 use std::collections::HashMap;
 
-use foma::{
-    constructions::{fsm_compose, fsm_ignore},
-    options::FomaOptions,
-    regex::fsm_parse_regex,
-    types::{Fsm, OP_IGNORE_ALL},
-};
+use foma::{options::FomaOptions, types::Fsm};
 use pg_grammar::{
     chardef::CharDefId,
     model::{Grammar, RewriteRuleDef},
 };
 
 use super::{render_slots, AlphaAssignment, IntermediateBundles, Slot};
+use crate::admission::meter::Meter;
 use crate::replace::SegAlphabet;
 
 const CLOSE: &str = "\"@PG_INSERTION_CLOSE@\"";
@@ -83,6 +79,7 @@ pub(crate) fn render_branch(
 
 /// Identity plus a marked block at any gap, kept only where its subrule's environment holds at the block's first node.
 pub(crate) fn compile_fed_insertion(
+    meter: &Meter,
     opts: &FomaOptions,
     alphabet: &SegAlphabet,
     rows: &[CharDefId],
@@ -96,7 +93,7 @@ pub(crate) fn compile_fed_insertion(
         .collect();
     // Synthesis re-inserts at or after its first inserted node, so later insertions land in the block as replacement rows.
     if live.is_empty() {
-        return fsm_parse_regex(opts, "[?]*", None, None);
+        return meter.regex(opts, "[?]*");
     }
     let rows = render_union(alphabet, rows);
     let opens: Vec<String> = live.iter().map(|(index, _)| open(*index)).collect();
@@ -110,7 +107,7 @@ pub(crate) fn compile_fed_insertion(
             format!("[0 .x. [{} {} {CLOSE}]]", open(*index), branch.insert)
         })
         .collect();
-    let expand = fsm_parse_regex(opts, &format!("[? | {}]*", blocks.join(" | ")), None, None)?;
+    let expand = meter.regex(opts, &format!("[? | {}]*", blocks.join(" | ")))?;
     let mut rules: Vec<String> = live
         .iter()
         .map(|(index, branch)| {
@@ -127,12 +124,13 @@ pub(crate) fn compile_fed_insertion(
         })
         .collect();
     rules.push(format!("{CLOSE} -> 0"));
-    let gate = fsm_parse_regex(opts, &rules.join(" ,, "), None, None)?;
+    let gate = meter.regex(opts, &rules.join(" ,, "))?;
     let gate = match boundaries {
-        Some(boundaries) => fsm_ignore(opts, gate, boundaries, OP_IGNORE_ALL),
+        Some(boundaries) => meter.ignore(opts, gate, boundaries),
         None => gate,
     };
     // A block whose first node found no environment keeps its mark and has no unmarked image.
-    let unmark = fsm_parse_regex(opts, &format!("[? - {marks}]*"), None, None)?;
-    Some(fsm_compose(opts, fsm_compose(opts, expand, gate), unmark))
+    let unmark = meter.regex(opts, &format!("[? - {marks}]*"))?;
+    let expanded = meter.compose(opts, expand, gate);
+    Some(meter.compose(opts, expanded, unmark))
 }

@@ -4,6 +4,7 @@ use super::block_tests::{
 };
 use super::*;
 use foma::constructions::fsm_compose;
+use foma::regex::fsm_parse_regex;
 use foma::structures::fsm_isempty;
 
 /// A replacement or environment node: `C`/`V` are classes, anything else a literal segment.

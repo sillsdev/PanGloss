@@ -49,6 +49,8 @@ mod final_template_pruning_gate;
 mod free_fluctuation_gate;
 #[path = "../fw_metathesis.rs"]
 mod fw_metathesis;
+#[path = "../guess_only_orchestration_gate.rs"]
+mod guess_only_orchestration_gate;
 #[path = "../guesser_gate.rs"]
 mod guesser_gate;
 #[path = "../lexical_pattern_trie_exclusion_gate.rs"]
