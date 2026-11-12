@@ -83,6 +83,15 @@ impl WordSet {
         self.words.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.words.len()
+    }
+
+    /// The word at `at`, in first-insertion order.
+    pub fn get(&self, at: usize) -> &Word {
+        &self.words[at]
+    }
+
     pub fn iter(&self) -> std::slice::Iter<'_, Word> {
         self.words.iter()
     }

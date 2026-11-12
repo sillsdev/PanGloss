@@ -38,7 +38,7 @@ fn analysis_allomorphs_survive_dedup_and_alternative_expansion() {
     let mut alternative = source.clone();
     alternative.allomorph_apps[0] = Some(AllomorphId(11));
     assert_ne!(source.dedup_key(), alternative.dedup_key());
-    source.alternatives.push(Rc::new(alternative));
+    source.fold_alternative(alternative);
 
     let mut descendant = source.clone_without_alternatives();
     descendant.source = Some(Rc::new(source));
@@ -71,9 +71,10 @@ fn dedup_key_ignores_procedural_passed_over_state() {
 fn shared_alternative_tree_cannot_expand_past_the_search_cap() {
     let mut branch = w();
     for _ in 0..12 {
-        let child = Rc::new(branch);
+        let child = branch;
         branch = w();
-        branch.alternatives = vec![child.clone(), child];
+        branch.fold_alternative(child.clone());
+        branch.fold_alternative(child);
     }
     let budget = pg_fst::work::WorkBudget::new(32);
     let _scope = budget.enter();

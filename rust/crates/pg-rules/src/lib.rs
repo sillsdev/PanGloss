@@ -4,6 +4,7 @@
 //! per-grammar tables indexed by `RuleId(u32)`.
 #![forbid(unsafe_code)]
 
+pub mod alternative;
 pub mod analysis_state_key;
 pub mod branch_census;
 pub mod bridge;
