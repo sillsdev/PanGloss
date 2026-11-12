@@ -5,8 +5,8 @@ use pg_featstruct::FeatureStruct;
 use pg_grammar::model::{Grammar, MprSet, StratumId};
 use pg_parse::{Morpher, ParseOptions, RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 
-/// Words in a batch large enough for the gate to afford the builds on the small grammars here.
-pub(super) const ON: usize = 48000;
+/// Words in a batch long enough that the budget, a share of projected parse cost, affords the small grammars' builds.
+pub(super) const ON: usize = 64000;
 
 pub(super) const LETTERS: &str = "abdgiklmnoprtu";
 

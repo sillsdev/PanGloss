@@ -77,8 +77,7 @@ pub fn build(var_count: usize, table: &TableSpec, ids: &mut IdMinter) -> AlphaBu
     let mut prules_xml = String::new();
     let mut rule_xml_ids = Vec::with_capacity(var_count);
     let mut root_shape = String::new();
-    for j in 0..var_count {
-        let seg = &table.segments[j];
+    for (j, seg) in table.segments.iter().take(var_count).enumerate() {
         root_shape.push(seg.ch);
         let rule_xml_id = ids.next("pruleAlpha");
         let var_xml_id = ids.next("var");

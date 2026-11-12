@@ -713,8 +713,8 @@ impl Word {
                     }
                     alt.mrule_app_index = alt.mrule_apps.len() as i32 - 1;
                     // Non-heads unapplied since the source (cs:512-514 `NonHeadUnapplied`).
-                    for i in src.non_heads.len()..self.non_heads.len() {
-                        alt.non_heads.push(self.non_heads[i].clone());
+                    for non_head in self.non_heads.iter().skip(src.non_heads.len()) {
+                        alt.non_heads.push(non_head.clone());
                     }
                     alt.non_head_app_index = alt.non_heads.len() as i32 - 1;
                     // Realizational-FS diff -- see the doc comment for the one documented divergence (C#'s discarded-success-flag null path).

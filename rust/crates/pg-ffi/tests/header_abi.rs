@@ -10,12 +10,19 @@ fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// `<target>/<profile>`, taken from this test executable's own `<target>/<profile>/deps/` path.
+/// `<target>/<profile>`: the parent of this test executable's nearest `deps` (older cargo) or `build` (cargo 1.100+) ancestor.
 fn target_profile() -> PathBuf {
     let exe = std::env::current_exe().expect("locate the running test executable");
-    exe.parent()
+    exe.ancestors()
+        .skip(1)
+        .find(|dir| {
+            matches!(
+                dir.file_name().and_then(|n| n.to_str()),
+                Some("deps" | "build")
+            )
+        })
         .and_then(Path::parent)
-        .expect("test executable lives in <target>/<profile>/deps")
+        .expect("test executable lives under <target>/<profile>/deps or <target>/<profile>/build")
         .to_path_buf()
 }
 
