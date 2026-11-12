@@ -1180,7 +1180,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             stats.record_template_battery(self.stratum_id, crate::stats::Direction::Analysis);
         }
         // Tracing keeps the per-template walk, whose begin/end events and slot outcomes are per template.
-        let per_template: Vec<Vec<Word>> = if self.trace.is_tracing() {
+        let per_template: Vec<WordSet> = if self.trace.is_tracing() {
             self.stratum
                 .templates
                 .iter()
@@ -1189,23 +1189,26 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         } else {
             self.shared_slot_battery(input)
         };
-        let mut seen = WordIndex::default();
-        let mut out: Vec<Word> = Vec::new();
+        // Each template's words are already distinct by key, so the first template with any is the union so far and the rest merge into it; copying it into a second set would hold every word twice.
+        let mut per_template = per_template.into_iter();
+        let mut union = per_template
+            .find(|words| !words.is_empty())
+            .unwrap_or_default();
         for template_out in per_template {
-            for w in template_out {
+            for w in template_out.into_vec() {
                 let key = w.dedup_key();
-                match seen.find(&key, |at| &out[at]) {
+                match union.position(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
                     Some(idx) => {
-                        generalize_syn_fs(&mut out[idx], &w, &|f| self.g.syn_features.mask(f))
+                        generalize_syn_fs(union.get_mut(idx), &w, &|f| self.g.syn_features.mask(f))
                     }
                     None => {
-                        seen.insert(&key, out.len());
-                        out.push(w);
+                        union.insert_with(key, || w);
                     }
                 }
             }
         }
+        let out = union.into_vec();
         if frontier_profile::enabled() {
             frontier_profile::record_template(out.len(), crate::word::estimate_words_bytes(&out));
         }
@@ -1213,9 +1216,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// Required syntactic features gate admission; only slot analysis changes output features.
-    fn analyze_template(&self, tid: TemplateId, input: &Word) -> Vec<Word> {
+    fn analyze_template(&self, tid: TemplateId, input: &Word) -> WordSet {
         if !self.template_admits(tid, input) {
-            return Vec::new();
+            return WordSet::default();
         }
         let tmpl = &self.g.templates[tid.0 as usize];
         // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
@@ -1230,11 +1233,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let mut fired = Vec::new();
         if self.required_slot_cannot_unapply(tid, input, last_slot, &mut fired, &mut None) {
             self.end_unapply_template(tid, input, false, None);
-            return Vec::new();
+            return WordSet::default();
         }
         // Descend from the last slot.
         self.template_unapply_slots(tid, input, last_slot, &mut out, slot_outcomes, fired);
-        out.into_vec()
+        out
     }
 
     /// The template's admission gates in `AnalysisAffixTemplateRule.Apply` order, recording their stats.
@@ -1279,7 +1282,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// Per-template `analyze_template` outputs, running each shared slot batch once (divergence 095).
-    fn shared_slot_battery(&self, input: &Word) -> Vec<Vec<Word>> {
+    fn shared_slot_battery(&self, input: &Word) -> Vec<WordSet> {
         let trie = self
             .slot_trie
             .get_or_init(|| SlotTrie::build(self.g, &self.stratum.templates));
@@ -1297,7 +1300,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if walk.admitted.iter().any(|&a| a) {
             self.walk_slot_trie(trie, SlotTrie::ROOT, input, &mut walk, &[], true);
         }
-        walk.outs.into_iter().map(|out| out.into_vec()).collect()
+        walk.outs
     }
 
     /// `template_unapply_slots` for every live template below `node`; `entered` is false on an optional skip. A template that fails the look-ahead on `w` is dead below this node while its siblings go on (divergence 110).
@@ -1663,8 +1666,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                             self.g.syn_features.mask(f)
                         })
                     {
-                        live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                        words[idx].alternatives.push(Rc::new(w));
+                        words[idx].fold_alternative(w);
+                        let stored = words[idx].alternatives.iter().next_back();
+                        live_bytes.set(
+                            live_bytes.get() + stored.map_or(0, |alt| alt.estimated_bytes()) as u64,
+                        );
                     }
                     return;
                 }
@@ -1675,8 +1681,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                             self.g.syn_features.mask(f)
                         })
                     {
-                        live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                        words[idx].alternatives.push(Rc::new(w));
+                        words[idx].fold_alternative(w);
+                        let stored = words[idx].alternatives.iter().next_back();
+                        live_bytes.set(
+                            live_bytes.get() + stored.map_or(0, |alt| alt.estimated_bytes()) as u64,
+                        );
                     }
                     return;
                 }
@@ -1793,13 +1802,16 @@ fn dedup_alternative(
         if stored != h {
             return false;
         }
-        let (word, syn_fs) = if j == AltIndex::CANONICAL {
-            (canonical, canonical_syn_fs)
-        } else {
-            let alt = &canonical.alternatives[j as usize];
-            (&**alt, &alt.syn_fs)
-        };
-        dedup_key.matches(word) && *syn_fs == w.syn_fs && word.obligatory == w.obligatory
+        if j == AltIndex::CANONICAL {
+            return *canonical_syn_fs == w.syn_fs
+                && canonical.obligatory == w.obligatory
+                && dedup_key.matches(canonical);
+        }
+        let alt = canonical
+            .alternatives
+            .get(j as usize)
+            .expect("an alternative index entry names a kept alternative");
+        *alt.syn_fs() == w.syn_fs && alt.matches(dedup_key, &w.obligatory, canonical)
     });
     let novel = found.is_none();
     if novel {

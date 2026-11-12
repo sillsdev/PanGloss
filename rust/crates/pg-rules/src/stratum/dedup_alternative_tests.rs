@@ -59,7 +59,7 @@ fn a_second_identical_alternative_is_pruned_after_the_first_is_kept() {
     let first = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt.clone(), &mask_none);
     assert!(first.is_some());
     if let Some(w) = first {
-        words[0].alternatives.push(Rc::new(w));
+        words[0].fold_alternative(w);
     }
     let second = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none);
 

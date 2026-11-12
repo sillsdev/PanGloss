@@ -260,9 +260,13 @@ fn shared_walk_matches_every_templates_own_walk_in_order() {
                 .stratum
                 .templates
                 .iter()
-                .map(|&tid| a.analyze_template(tid, &input))
+                .map(|&tid| a.analyze_template(tid, &input).into_vec())
                 .collect();
-            let shared = a.shared_slot_battery(&input);
+            let shared: Vec<Vec<Word>> = a
+                .shared_slot_battery(&input)
+                .into_iter()
+                .map(WordSet::into_vec)
+                .collect();
             compared += own.iter().map(Vec::len).sum::<usize>();
             assert_eq!(project(shared), project(own), "word {text}");
         }

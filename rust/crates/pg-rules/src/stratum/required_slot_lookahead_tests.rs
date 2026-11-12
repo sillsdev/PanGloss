@@ -135,6 +135,7 @@ pub(super) fn run(
     );
     let keys = a
         .analyze_template(tid, &input)
+        .into_vec()
         .iter()
         .map(Word::dedup_key)
         .collect();

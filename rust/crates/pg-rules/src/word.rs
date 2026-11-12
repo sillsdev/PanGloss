@@ -21,6 +21,8 @@ use pg_grammar_model::model::{
 };
 use pg_shape::Shape;
 
+use crate::alternative::{Alternative, Alternatives};
+
 /// State used by the final-template interleaving prune. `None` means the most recently applied
 /// rule was a template/realizational rule (or that no ordinary rule has established a poisoned
 /// state); `NonTemplate` means an ordinary affix or compounding rule was applied.
@@ -387,13 +389,8 @@ pub struct Word {
     /// leaves `_alternatives` fresh-empty, Word.cs:87), so only the two sites that build a canonical
     /// (the stratum merge) ever populate it.
     ///
-    /// `Rc` (not owned `Word`, and not `Arc`): the canonical this field lives on is cloned heavily
-    /// once merged (the stratum fold and dedup),
-    /// and each clone used to deep-copy this whole subtree even though the payload is immutable
-    /// from the moment the fold attaches it — the same rationale as `Word::source`. Plain `Rc`
-    /// suffices: `Word` is already `!Send` via `source`, and `pg-parse/src/batch.rs` parallelizes
-    /// across words, not within one word's single-threaded cascade.
-    pub alternatives: Vec<Rc<Word>>,
+    /// Held in the stored form `crate::alternative` describes; clones of the canonical share one list.
+    pub alternatives: Alternatives,
     /// Mirrors C# `Word.CurrentTrace` (`object`), the live cursor a `TraceManager`
     /// call reassigns as the parse progresses (`Trace.cs`/`TraceManager.cs`; see
     /// `crate::trace`'s module doc for why this port carries the cursor as an explicit
@@ -443,6 +440,29 @@ struct MorphKey {
 impl WordKey {
     /// Whether `w.dedup_key()` would equal this key, answered by reading `w` in place so no key is built. This is what lets a dedup index hold hash and position only instead of a second copy of every word's key; `tests::matches_agrees_with_key_equality` holds it to `==`.
     pub fn matches(&self, w: &Word) -> bool {
+        self.mrule_apps == w.mrule_apps
+            && self.allomorph_apps == w.allomorph_apps
+            && self.matches_beside_trails(w)
+    }
+
+    /// `matches` against `w` as it would be with the given rule and allomorph trails, where `u32::MAX` stands for `None`.
+    pub(crate) fn matches_with_trail(&self, w: &Word, rules: &[u32], allomorphs: &[u32]) -> bool {
+        self.mrule_apps.len() == rules.len()
+            && self.allomorph_apps.len() == allomorphs.len()
+            && self
+                .mrule_apps
+                .iter()
+                .zip(rules)
+                .all(|(have, &want)| trail_entry_matches(have.map(|id| id.0), want))
+            && self
+                .allomorph_apps
+                .iter()
+                .zip(allomorphs)
+                .all(|(have, &want)| trail_entry_matches(have.map(|id| id.0), want))
+            && self.matches_beside_trails(w)
+    }
+
+    fn matches_beside_trails(&self, w: &Word) -> bool {
         self.non_head_app_index == w.non_head_app_index
             && self.stratum == w.stratum
             && self.root_allomorph == w.root_allomorph
@@ -450,8 +470,6 @@ impl WordKey {
             && self.is_last_applied_rule_final == w.flags.is_last_applied_rule_final
             && self.final_template_state == w.flags.final_template_state
             && self.root_realization == w.root_runtime_id
-            && self.mrule_apps == w.mrule_apps
-            && self.allomorph_apps == w.allomorph_apps
             && self.applied_realizational_rules == w.applied_realizational_rules
             && self.morphs.len() == w.morphs.len()
             && self.morphs.iter().zip(&w.morphs).all(|(k, m)| {
@@ -497,7 +515,7 @@ impl Word {
             unapplied_rule_counts: BTreeMap::new(),
             flags: WordFlags::default(),
             source: None,
-            alternatives: Vec::new(),
+            alternatives: Alternatives::default(),
             trace: None,
         }
     }
@@ -514,6 +532,12 @@ impl Word {
         let mut c = self.clone();
         c.alternatives.clear();
         c
+    }
+
+    /// Folds `w` into this canonical word as an alternative.
+    pub fn fold_alternative(&mut self, w: Word) {
+        let alternative = Alternative::of(w, self);
+        self.alternatives.push(alternative);
     }
 
     /// Record one morphological-rule unapplication in the count multiset (C#
@@ -719,8 +743,8 @@ impl Word {
             _ => out.push(self.clone()),
         }
         // Local alternatives (cs:530-531): every word folded into this one by the merge expands too.
-        for alt in &self.alternatives {
-            out.extend(alt.expand_alternatives());
+        for alt in self.alternatives.iter() {
+            out.extend(alt.word(self).expand_alternatives());
             if pg_fst::work::stopped() {
                 return Vec::new();
             }
@@ -889,8 +913,8 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
     for nh in &w.non_heads {
         b.non_heads += estimate_word_bytes_breakdown(nh).total();
     }
-    for alt in &w.alternatives {
-        b.alternatives += estimate_word_bytes_breakdown(alt).total();
+    for alt in w.alternatives.iter() {
+        b.alternatives += alt.estimated_bytes();
     }
     b
 }
@@ -904,6 +928,14 @@ pub fn estimate_word_bytes(w: &Word) -> usize {
 /// Approximate heap-byte cost of a `MemoEntry`'s `results`, the payload the memo byte budget accounts against.
 pub fn estimate_words_bytes(words: &[Word]) -> usize {
     words.iter().map(estimate_word_bytes).sum()
+}
+
+/// Whether a key's trail entry equals a stored one; `u32::MAX` is stored only for "no rule".
+fn trail_entry_matches(have: Option<u32>, stored: u32) -> bool {
+    match have {
+        None => stored == u32::MAX,
+        Some(id) => id != u32::MAX && id == stored,
+    }
 }
 
 #[cfg(test)]

@@ -898,14 +898,14 @@ impl<'g> Morpher<'g> {
                 pg_rules::branch_census::record_non_head_lookup(st, shape);
                 self.search_roots(st, shape, stats, &search_cache)
             };
-        let mut input_set = WordSet::default();
-        input_set.insert(input);
         let mut results: WordSet = WordSet::default();
+        // The stratum's candidates: the surface word first, then the previous admitted stratum's outputs, which are this range of `results`. A word's key holds its stratum and every output of a stratum carries that stratum, so a stratum's outputs never meet an earlier stratum's in `results` and a second set of them would be a copy.
+        let mut inputs: Option<std::ops::Range<usize>> = None;
         let census = pg_rules::branch_census::enabled();
         let census_t0 =
             census.then(|| (pg_rules::branch_census::Timer::start(), budget.work_steps()));
         for s in (0..n).rev() {
-            // A rejected stratum must not reassign `input_set`: the next stratum still gets the same candidates, and the rejected one contributes nothing to `results`.
+            // A rejected stratum must not reassign `inputs`: the next stratum still gets the same candidates, and the rejected one contributes nothing to `results`.
             let stratum_ref = pg_rules::stratum::RuleRef::Stratum(StratumId(s as u8));
             if rule_filter.is_some_and(|f| !f(stratum_ref)) {
                 continue;
@@ -913,8 +913,9 @@ impl<'g> Morpher<'g> {
             if budget.analysis_exhausted() {
                 break;
             }
-            let mut output_set: WordSet = WordSet::default();
-            for w in input_set.iter() {
+            let first_output = results.len();
+            let candidates = inputs.clone().unwrap_or(0..1);
+            for at in candidates {
                 if budget.analysis_exhausted() {
                     break;
                 }
@@ -926,6 +927,10 @@ impl<'g> Morpher<'g> {
                 ) {
                     break;
                 }
+                let w = match &inputs {
+                    Some(_) => results.get(at).clone(),
+                    None => input.clone(),
+                };
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
                 let node_parent = w.trace.unwrap_or(root);
                 let enforce = self.always_enforce_final_templates
@@ -938,7 +943,7 @@ impl<'g> Morpher<'g> {
                 let res = pg_rules::stratum::analyze_stratum_filtered_ruled_traced_with_policy(
                     g,
                     StratumId(s as u8),
-                    w.clone(),
+                    w,
                     &cfg,
                     Some(filter),
                     rule_filter,
@@ -951,14 +956,18 @@ impl<'g> Morpher<'g> {
                     node_parent,
                 );
                 for o in res.words {
-                    insert_candidate(&mut results, o.clone(), stats.is_some());
-                    insert_candidate(&mut output_set, o, stats.is_some());
+                    assert_eq!(
+                        o.stratum,
+                        StratumId(s as u8),
+                        "a stratum's output carries that stratum"
+                    );
+                    insert_candidate(&mut results, o, stats.is_some());
                 }
             }
-            input_set = output_set;
-            if input_set.is_empty() {
+            if results.len() == first_output {
                 break;
             }
+            inputs = Some(first_output..results.len());
         }
         if let Some((t0, work0)) = census_t0 {
             pg_rules::branch_census::record_analysis_phase(

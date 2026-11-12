@@ -1365,7 +1365,11 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
             .iter()
             .map(|id| id.expect("analysis always records a known rule"))
             .collect(),
-        canonical.alternatives[0]
+        canonical
+            .alternatives
+            .get(0)
+            .expect("one alternative")
+            .word(&canonical)
             .mrule_apps
             .iter()
             .map(|id| id.expect("analysis always records a known rule"))
@@ -1498,7 +1502,15 @@ fn merge_generalizes_canonical_syntactic_fs_over_folded_alternative() {
     let mask3 = |_: pg_featstruct::FeatId| 0b111u64;
     assert_eq!(
         canonical.syn_fs,
-        pg_featstruct::union(&canonical.syn_fs, &canonical.alternatives[0].syn_fs, &mask3),
+        pg_featstruct::union(
+            &canonical.syn_fs,
+            canonical
+                .alternatives
+                .get(0)
+                .expect("one alternative")
+                .syn_fs(),
+            &mask3
+        ),
         "the merge's generalization call must be exactly `union(canonical, alternative)`, even in \
          this always-equal-FS case"
     );

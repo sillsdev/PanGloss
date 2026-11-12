@@ -226,6 +226,7 @@ fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word
         TraceHandle::DUMMY,
     )
     .analyze_template(template, input)
+    .into_vec()
 }
 
 #[test]
