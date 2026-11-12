@@ -437,7 +437,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -470,6 +470,9 @@ fn print_usage_and_fail() -> ExitCode {
          guess on stderr, and `batch --analyses` reports each guessed morph's guessedString.\n\
          --work-columns (`batch`) appends `work_steps` to every result row\n\
          (docs/formats/batch-tsv.md); off by default, the row layout is unchanged.\n\
+         --no-flush (`batch --threads 1`) keeps rows in the write buffer instead of flushing after each
+         word; the file is identical at exit, but a killed run loses the unflushed rows and the live
+         STARTED sentinel. For instruction counting, where per-word writes add kernel work.
          --cost-column (`batch`) appends `work_steps`, then each word's fixed-weight parse cost, as the last fields; off by\n\
          default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
          ok in both, reports the rest, and says inconclusive when a status changed. Use the total;\n\
@@ -1303,6 +1306,8 @@ fn run_batch_with_counter(
     // Default-off so the 5/6-column contract external adapters require stays byte-identical.
     let mut work_columns = false;
     let mut cost_column = false;
+    // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
+    let mut flush_each_word = true;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
     // None defers to the project's own `<HC><MakePartialsFinal>` once the grammar is loaded.
@@ -1369,6 +1374,7 @@ fn run_batch_with_counter(
             }
             "--work-columns" => work_columns = true,
             "--cost-column" => cost_column = true,
+            "--no-flush" => flush_each_word = false,
             "--stats" => stats_requested = true,
             "--prefilter" => {
                 let v = it.next().ok_or("--prefilter requires a value")?;
@@ -1415,7 +1421,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
@@ -1647,7 +1653,9 @@ fn run_batch_with_counter(
             }
             writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
             // Flush the STARTED sentinel immediately, before starting this word's parse, or it would only reach disk alongside the result line, defeating its purpose as a live in-flight signal for an external watchdog.
-            w.flush().map_err(|e| e.to_string())?;
+            if flush_each_word {
+                w.flush().map_err(|e| e.to_string())?;
+            }
             if per_word_diagnostics {
                 reset_per_word_diagnostics();
             }
@@ -1875,9 +1883,11 @@ fn run_batch_with_counter(
                 write_parse_analysis_row(analyses_w, i, word, elapsed_ms, &outcome, &grammar)
                     .map_err(|e| e.to_string())?;
             }
-            w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
-            if let Some(analyses_w) = analyses_w.as_mut() {
-                analyses_w.flush().map_err(|e| e.to_string())?;
+            if flush_each_word {
+                w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
+                if let Some(analyses_w) = analyses_w.as_mut() {
+                    analyses_w.flush().map_err(|e| e.to_string())?;
+                }
             }
         }
     } else {

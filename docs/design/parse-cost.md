@@ -69,9 +69,26 @@ to the other side. With `sideA`/`sideB` three runs read +0.08%, +0.16% and -0.02
 The likely cause is that the `--threads 1` writer flushes the output file twice per word, and that
 kernel write cost depends on the file; this was not confirmed with kernel stacks.
 
+**Why rows are buffered.** When both binaries list `batch --no-flush` in `--describe`, the comparison
+passes it, so a run writes its rows once at exit instead of flushing after every word. Per-word
+flushes put file-system work on the parsing thread in bursts: on fusion.xml, 12 of 76 flushed full
+runs came out 3M to 21M instructions above their side's median, and 0 of 128 buffered runs on one CPU
+did. In one trace of 12 rounds, the same binary read a per-round SD of 5.9M flushed and 0.75M
+buffered (#260). A binary without the flag is run as before, on both sides, and the comparison says so.
+
+**Why hash keys are not pinned.** std `HashMap` keys are drawn afresh every run on Windows, so the
+spread averages over hash layouts. Pinning one seed in both builds was tried (#260) and not adopted:
+two builds of one binary that differ only in the pinned seed read +0.55%, 95% CI [+0.13%, +0.97%], a
+NO-GO (regression). A pinned seed is one draw of the layout, and a code change that creates one more
+map before another draws a different one, so a pinned comparison carries an offset as large as the
+minimum effect that no instrument check can see. Callgrind's pinned keys are the same kind of single
+draw: four seeds of the shim gave parse counts 1.5% apart on fusion.xml.
+
 **Expect a wide interval on short lists.** With five rounds and about 65 words, the Windows counters
-gave intervals from ±0.6% to ±1% for a binary against itself. A change near the 0.5% minimum effect
-needs more `-Repeats` or a longer word list to leave INCONCLUSIVE.
+gave intervals from ±0.6% to ±1% for a binary against itself with flushed rows, and ±0.35% to ±0.6%
+buffered. Twelve buffered rounds gave ±0.37% to ±0.75%. A change near the 0.5% minimum effect needs
+more `-Repeats` or a longer word list to leave INCONCLUSIVE. Two CPUs instead of one, or an E-core
+instead of CPU 4, did not narrow it.
 
 ### Where instructions are measured
 

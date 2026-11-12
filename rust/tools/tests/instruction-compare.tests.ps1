@@ -257,4 +257,33 @@ Test-Case 'run tags name the two sides with neutral labels of equal length' {
     Assert-Equal 'g2-r3-sideB-empty' (Get-RunTag -Grammar 2 -Round 3 -Side after -Kind empty)
 }
 
+Test-Case 'trace reader counts only the last process that held a measured pid' -WindowsOnly 'instruction_compare_etl.py loads ctypes WINFUNCTYPE, which exists only on Windows' {
+    # pid 7 is used first by another process (thread 70), then by the measured run (threads 71, 72); CPU 0 carries every switch.
+    $script = @'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from instruction_compare_etl import Tally
+t = Tally([7])
+t.process_start(7); t.thread_start(7, 70)
+t.cswitch(0, 70, 1, (100,)); t.cswitch(0, 1, 70, (600,))
+t.process_start(7); t.thread_start(7, 71); t.thread_start(7, 72)
+t.cswitch(0, 71, 1, (1000,)); t.cswitch(0, 72, 71, (1030,)); t.cswitch(0, 1, 72, (1100,))
+print(json.dumps(t.report()))
+'@
+    $r = ($script | python -I - (Resolve-Path "$PSScriptRoot\..").Path) | ConvertFrom-Json
+    Assert-Equal 100 ([double]$r.instructions.'7')
+    Assert-Equal '30 70' (@($r.thread_instructions.'7') -join ' ')
+    Assert-Equal 1 ([int]$r.earlier_processes)
+    Assert-Equal 2 ([int]$r.threads.'7')
+}
+
+Test-Case 'describe probe: only a batch command that lists the flag counts' {
+    $with = '{"commands":[{"name":"batch","flags":[{"name":"--threads"},{"name":"--no-flush"}]},{"name":"parse","flags":[]}]}'
+    $other = '{"commands":[{"name":"batch","flags":[{"name":"--threads"}]},{"name":"parse","flags":[{"name":"--no-flush"}]}]}'
+    Assert-True (Test-DescribesBatchFlag $with '--no-flush') 'listed under batch'
+    Assert-True (-not (Test-DescribesBatchFlag $other '--no-flush')) 'listed only under another command'
+    Assert-True (-not (Test-DescribesBatchFlag $null '--no-flush')) 'no describe output'
+    Assert-True (-not (Test-DescribesBatchFlag 'pangloss 0.16 usage text' '--no-flush')) 'unparsable output'
+}
+
 Write-TestSummary
