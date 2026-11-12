@@ -20,7 +20,7 @@ use pg_grammar_model::model::{
     StratumId, TemplateId,
 };
 use pg_shape::Shape;
-use rustc_hash::{FxHashMap as HashMap, FxHashSet};
+use rustc_hash::FxHashMap as HashMap;
 
 /// Callback injected so compounding analysis can prune non-heads against the lexicon without
 /// `pg-rules` depending on `pg-parse` (the dependency runs the other way). The signature matches
@@ -85,7 +85,7 @@ use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
 };
 use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
-use crate::word_set::WordSet;
+use crate::word_set::{fold_hash, WordIndex, WordSet};
 use crate::{metathesis, morph, rewrite};
 
 #[cfg(test)]
@@ -1180,18 +1180,18 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         } else {
             self.shared_slot_battery(input)
         };
-        let mut seen: HashMap<WordKey, usize> = HashMap::default();
+        let mut seen = WordIndex::default();
         let mut out: Vec<Word> = Vec::new();
         for template_out in per_template {
             for w in template_out {
                 let key = w.dedup_key();
-                match seen.get(&key) {
+                match seen.find(&key, |at| &out[at]) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
-                    Some(&idx) => {
+                    Some(idx) => {
                         generalize_syn_fs(&mut out[idx], &w, &|f| self.g.syn_features.mask(f))
                     }
                     None => {
-                        seen.insert(key, out.len());
+                        seen.insert(&key, out.len());
                         out.push(w);
                     }
                 }
@@ -1462,7 +1462,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
     /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
     fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<(Word, MRuleId)> {
-        let mut seen: HashMap<WordKey, usize> = HashMap::default();
+        let mut seen = WordIndex::default();
         let mut out: Vec<(Word, MRuleId)> = Vec::new();
         let rules: Vec<MRuleId> = slot
             .rules
@@ -1486,13 +1486,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 candidates.as_ref(),
             ) {
                 let key = w.dedup_key();
-                match seen.get(&key) {
+                match seen.find(&key, |at| &out[at].0) {
                     // Same FS-blind collapse as `run_template_batch_raw`, one slot rule down: widen rather than drop.
-                    Some(&idx) => {
+                    Some(idx) => {
                         generalize_syn_fs(&mut out[idx].0, &w, &|f| self.g.syn_features.mask(f))
                     }
                     None => {
-                        seen.insert(key, out.len());
+                        seen.insert(&key, out.len());
                         // Retain the first dedup representative's producer, without asserting unique provenance.
                         out.push((w, rid));
                     }
@@ -1610,15 +1610,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
 
         // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
-        let mut output_keys: HashMap<WordKey, usize> = HashMap::default();
+        let mut output_keys = WordIndex::default();
         // AnalysisStateKey -> canonical word index; the seed's key is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
         let mut key_word: HashMap<AnalysisStateKey, usize> = HashMap::default();
         let mut words: Vec<Word> = Vec::new();
-        output_keys.insert(input.dedup_key(), 0);
+        output_keys.insert(&input.dedup_key(), 0);
         // This call's own running byte total, the `record_live_bytes` companion to `words.len()`.
         let live_bytes = Cell::new(estimate_word_bytes(&input) as u64);
         // Per-canonical dedup state for `dedup_alternative`, below.
-        let mut alt_keys: HashMap<usize, FxHashSet<AltKey>> = HashMap::default();
+        let mut alt_keys: AltKeys = HashMap::default();
         if let Some(received) = received {
             crate::branch_census::edge(received, crate::branch_census::node(&input));
         }
@@ -1639,8 +1639,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             if let Some(state_key) = &state_key {
                 let canonical = key_word
                     .get(state_key)
-                    .or_else(|| output_keys.get(&dedup_key));
-                if let (true, Some(&idx)) = (census, canonical) {
+                    .copied()
+                    .or_else(|| output_keys.find(&dedup_key, |at| &words[at]));
+                if let (true, Some(idx)) = (census, canonical) {
                     crate::branch_census::alias(
                         crate::branch_census::node(&words[idx]),
                         crate::branch_census::node(&w),
@@ -1658,7 +1659,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     return;
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
-                if let Some(&idx) = output_keys.get(&dedup_key) {
+                if let Some(idx) = output_keys.find(&dedup_key, |at| &words[at]) {
                     if let Some(w) =
                         dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
                             self.g.syn_features.mask(f)
@@ -1676,12 +1677,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 self.trace
                     .end_unapply_stratum(w_parent, self.stratum_id, &w);
             }
-            if !output_keys.contains_key(&dedup_key) {
+            if output_keys.find(&dedup_key, |at| &words[at]).is_none() {
                 // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
                 if let Some(state_key) = state_key {
                     key_word.insert(state_key, words.len());
                 }
-                output_keys.insert(dedup_key, words.len());
+                output_keys.insert(&dedup_key, words.len());
                 live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
                 words.push(w);
                 if let Some(r) = &remaining {
@@ -1724,34 +1725,79 @@ fn generalize_syn_fs(
     }
 }
 
-/// `WordKey` plus the two fields `Word::expand_alternatives`/`is_word_valid_traced` read off an
-/// alternative that `WordKey` omits (`docs/research/alt-yield.md` §pruning).
-type AltKey = (
-    WordKey,
-    pg_featstruct::FeatureStruct,
-    Vec<pg_featstruct::FeatId>,
-);
+/// What `dedup_alternative` remembers about one canonical's alternatives: which of them it has kept, as hash plus position. An alternative's `AltKey` is `WordKey` plus the two fields `Word::expand_alternatives`/`is_word_valid_traced` read off it that `WordKey` omits (`docs/research/alt-yield.md` §pruning); the kept alternatives and the canonical already hold all three, so none is copied here and equality is still checked field by field.
+#[derive(Default)]
+struct AltIndex {
+    /// The canonical's syntactic FS when its first alternative arrived. `generalize_syn_fs` widens the stored canonical afterwards, so the original has to be kept; it is one shared pointer.
+    canonical_syn_fs: pg_featstruct::FeatureStruct,
+    /// `(hash, j)`: `j` is a position in the canonical's `alternatives`, or `CANONICAL` for the canonical itself.
+    table: hashbrown::HashTable<(u32, u32)>,
+}
 
-/// An `AltKey` match against the canonical's frozen state or an earlier-kept alternative replays
-/// identically, so `w` is pure duplication; see docs/research/alt-yield.md.
+type AltKeys = HashMap<usize, AltIndex>;
+
+impl AltIndex {
+    const CANONICAL: u32 = u32::MAX;
+}
+
+fn alt_key_hash(
+    key: &WordKey,
+    syn_fs: &pg_featstruct::FeatureStruct,
+    obligatory: &[pg_featstruct::FeatId],
+) -> u32 {
+    use std::hash::BuildHasher;
+    fold_hash(rustc_hash::FxBuildHasher.hash_one((key, syn_fs, obligatory)))
+}
+
+/// A match against the canonical's frozen state or an earlier-kept alternative replays identically, so `w` is pure duplication (docs/research/alt-yield.md); a returned word must be pushed onto `alternatives` before the next call.
 fn dedup_alternative(
     words: &mut [Word],
-    alt_keys: &mut HashMap<usize, FxHashSet<AltKey>>,
+    alt_keys: &mut AltKeys,
     idx: usize,
     dedup_key: &WordKey,
     w: Word,
     mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
 ) -> Option<Word> {
+    fn spread(h: u32) -> u64 {
+        u64::from(h) << 32 | u64::from(h)
+    }
+    let canonical = &words[idx];
     let seen = alt_keys.entry(idx).or_insert_with(|| {
-        let mut s = FxHashSet::default();
-        s.insert((
-            words[idx].dedup_key(),
-            words[idx].syn_fs.clone(),
-            words[idx].obligatory.clone(),
-        ));
-        s
+        let mut index = AltIndex {
+            canonical_syn_fs: canonical.syn_fs.clone(),
+            ..AltIndex::default()
+        };
+        let h = alt_key_hash(
+            &canonical.dedup_key(),
+            &canonical.syn_fs,
+            &canonical.obligatory,
+        );
+        index
+            .table
+            .insert_unique(spread(h), (h, AltIndex::CANONICAL), |&(h, _)| spread(h));
+        index
     });
-    let novel = seen.insert((dedup_key.clone(), w.syn_fs.clone(), w.obligatory.clone()));
+    let h = alt_key_hash(dedup_key, &w.syn_fs, &w.obligatory);
+    let canonical_syn_fs = &seen.canonical_syn_fs;
+    let found = seen.table.find(spread(h), |&(stored, j)| {
+        if stored != h {
+            return false;
+        }
+        let (word, syn_fs) = if j == AltIndex::CANONICAL {
+            (canonical, canonical_syn_fs)
+        } else {
+            let alt = &canonical.alternatives[j as usize];
+            (&**alt, &alt.syn_fs)
+        };
+        dedup_key.matches(word) && *syn_fs == w.syn_fs && word.obligatory == w.obligatory
+    });
+    let novel = found.is_none();
+    if novel {
+        let next = u32::try_from(canonical.alternatives.len())
+            .expect("a canonical holds fewer than 2^32 alternatives");
+        seen.table
+            .insert_unique(spread(h), (h, next), |&(h, _)| spread(h));
+    }
     generalize_syn_fs(&mut words[idx], &w, mask_of);
     novel.then_some(w)
 }

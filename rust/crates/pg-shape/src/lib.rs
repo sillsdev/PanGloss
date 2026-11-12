@@ -214,8 +214,8 @@ pub struct ShapeData {
     feat_width: u32,
     /// SoA feature matrix: node `i`'s lanes are `feat_lanes[i*feat_width .. (i+1)*feat_width]`.
     feat_lanes: Box<[u64]>,
-    /// Explicit char-def-set per node, consulted only when `char_defs[i] == NO_CHAR_DEF`; `CdSet::Unrestricted` for every node whose producer doesn't set one (concrete nodes ignore this column entirely).
-    cd_sets: Box<[CdSet]>,
+    /// Explicit char-def-sets, consulted only when `char_defs[i] == NO_CHAR_DEF`. Sparse: ascending `(node, set)` pairs for the nodes whose producer set a restriction; every other node is `CdSet::Unrestricted` (concrete nodes ignore this column entirely), so the common shape stores nothing here.
+    cd_sets: Box<[(u32, CdSet)]>,
     /// Sparse (node, feature) pairs for present full sets created by rewriting.
     generated_full: Box<[(u32, u32)]>,
     /// Features retaining unresolved variables from analysis.
@@ -243,7 +243,7 @@ impl std::fmt::Debug for ShapeData {
             .field("flags", &self.flags)
             .field("feat_width", &self.feat_width)
             .field("feat_lanes", &self.feat_lanes)
-            .field("cd_sets", &self.cd_sets)
+            .field("cd_sets", &self.dense_cd_sets())
             .field("generated_full", &self.generated_full)
             .field("unresolved_variables", &self.unresolved_variables)
             .finish()
@@ -266,6 +266,19 @@ impl PartialEq for ShapeData {
 impl Eq for ShapeData {}
 
 impl ShapeData {
+    /// The per-node view of the sparse set column, for diagnostics.
+    fn dense_cd_sets(&self) -> Vec<&CdSet> {
+        let mut sparse = self.cd_sets.iter().peekable();
+        (0..self.kinds.len())
+            .map(
+                |node| match sparse.next_if(|(at, _)| *at as usize == node) {
+                    Some((_, set)) => set,
+                    None => &CdSet::Unrestricted,
+                },
+            )
+            .collect()
+    }
+
     fn column_hash(&self) -> u64 {
         let mut hasher = rustc_hash::FxHasher::default();
         self.kinds.hash(&mut hasher);
@@ -273,7 +286,15 @@ impl ShapeData {
         self.flags.hash(&mut hasher);
         self.feat_width.hash(&mut hasher);
         self.feat_lanes.hash(&mut hasher);
-        self.cd_sets.hash(&mut hasher);
+        // Feeds exactly what the dense per-node column fed (length, then every node's set), so the stored hash does not move.
+        self.kinds.len().hash(&mut hasher);
+        let mut sparse = self.cd_sets.iter().peekable();
+        for node in 0..self.kinds.len() {
+            match sparse.next_if(|(at, _)| *at as usize == node) {
+                Some((_, set)) => set.hash(&mut hasher),
+                None => CdSet::Unrestricted.hash(&mut hasher),
+            }
+        }
         self.generated_full.hash(&mut hasher);
         self.unresolved_variables.hash(&mut hasher);
         // 0 marks "not computed yet".
@@ -309,7 +330,7 @@ impl Shape {
                 .saturating_mul(3 + self.feat_width as usize)
                 .saturating_add(self.generated_full.len())
                 .saturating_add(self.unresolved_variables.len()),
-            |total, set| match set {
+            |total, (_, set)| match set {
                 CdSet::Members(bits) => total.saturating_add(bits.0.len()),
                 CdSet::Unrestricted => total,
             },
@@ -335,21 +356,21 @@ impl Shape {
             .saturating_add(allocation(
                 self.feat_lanes.len() * std::mem::size_of::<u64>(),
             ))
-            .saturating_add(allocation(
-                self.cd_sets.len() * std::mem::size_of::<CdSet>(),
-            ));
+            .saturating_add(allocation(self.kinds.len() * std::mem::size_of::<CdSet>()));
         let columns = columns.saturating_add(allocation(
             self.generated_full.len() * std::mem::size_of::<(u32, u32)>(),
         ));
         let columns = columns.saturating_add(allocation(
             self.unresolved_variables.len() * std::mem::size_of::<(u32, u32)>(),
         ));
-        self.cd_sets.iter().fold(columns, |total, set| match set {
-            CdSet::Members(bits) if bits.0.spilled() => {
-                total.saturating_add(allocation(bits.0.capacity() * std::mem::size_of::<u64>()))
-            }
-            _ => total,
-        })
+        self.cd_sets
+            .iter()
+            .fold(columns, |total, (_, set)| match set {
+                CdSet::Members(bits) if bits.0.spilled() => {
+                    total.saturating_add(allocation(bits.0.capacity() * std::mem::size_of::<u64>()))
+                }
+                _ => total,
+            })
     }
 
     /// Number of nodes, **including the two anchors**.
@@ -415,9 +436,13 @@ impl Shape {
         if cd != NO_CHAR_DEF {
             return EffectiveCdSet::Singleton(cd);
         }
-        match &self.cd_sets[i] {
-            CdSet::Unrestricted => EffectiveCdSet::Unrestricted,
-            CdSet::Members(b) => EffectiveCdSet::Members(b),
+        let at = i as u32;
+        match self.cd_sets.binary_search_by_key(&at, |(node, _)| *node) {
+            Ok(k) => match &self.cd_sets[k].1 {
+                CdSet::Unrestricted => EffectiveCdSet::Unrestricted,
+                CdSet::Members(b) => EffectiveCdSet::Members(b),
+            },
+            Err(_) => EffectiveCdSet::Unrestricted,
         }
     }
 
@@ -459,7 +484,8 @@ pub struct ShapeBuilder {
     flags: Vec<NodeFlags>,
     feat_width: u32,
     feat_lanes: Vec<u64>,
-    cd_sets: Vec<CdSet>,
+    /// Ascending `(node, set)` pairs, never `Unrestricted`; see `ShapeData::cd_sets`.
+    cd_sets: Vec<(u32, CdSet)>,
     generated_full: Vec<(u32, u32)>,
     unresolved_variables: Vec<(u32, u32)>,
 }
@@ -489,7 +515,7 @@ impl ShapeBuilder {
             flags: Vec::with_capacity(cap + 2),
             feat_width,
             feat_lanes: Vec::with_capacity((cap + 2) * w),
-            cd_sets: Vec::with_capacity(cap + 2),
+            cd_sets: Vec::new(),
             generated_full: Vec::new(),
             unresolved_variables: Vec::new(),
         };
@@ -512,6 +538,19 @@ impl ShapeBuilder {
         }
     }
 
+    /// Records node `index`'s char-def-set, keeping the column sparse: `Unrestricted` is the absence of an entry.
+    fn set_cd_set(&mut self, index: usize, cd_set: CdSet) {
+        let at = index as u32;
+        match self.cd_sets.binary_search_by_key(&at, |(node, _)| *node) {
+            Ok(k) if cd_set == CdSet::Unrestricted => {
+                self.cd_sets.remove(k);
+            }
+            Ok(k) => self.cd_sets[k].1 = cd_set,
+            Err(_) if cd_set == CdSet::Unrestricted => {}
+            Err(k) => self.cd_sets.insert(k, (at, cd_set)),
+        }
+    }
+
     /// Append a node with an explicit `feat_width`-long lane row.
     #[inline]
     fn push_with_lanes(&mut self, kind: NodeKind, char_def: u32, flags: NodeFlags, lanes: &[u64]) {
@@ -524,7 +563,6 @@ impl ShapeBuilder {
         self.char_defs.push(char_def);
         self.flags.push(flags);
         self.feat_lanes.extend_from_slice(lanes);
-        self.cd_sets.push(CdSet::Unrestricted);
     }
 
     /// Append a node, defaulting its `feat_width` lanes to `u64::MAX` ("unconstrained").
@@ -535,7 +573,6 @@ impl ShapeBuilder {
         self.flags.push(flags);
         self.feat_lanes
             .resize(self.feat_lanes.len() + self.feat_width as usize, u64::MAX);
-        self.cd_sets.push(CdSet::Unrestricted);
     }
 
     /// Append a segment node referencing character definition `char_def`, with default
@@ -570,7 +607,7 @@ impl ShapeBuilder {
     /// natural class's real membership instead of the default `CdSet::Unrestricted`.
     pub fn push_segment_with_lanes_and_set(&mut self, lanes: &[u64], cd_set: CdSet) {
         self.push_with_lanes(NodeKind::Segment, NO_CHAR_DEF, NodeFlags::EMPTY, lanes);
-        *self.cd_sets.last_mut().expect("just pushed") = cd_set;
+        self.set_cd_set(self.kinds.len() - 1, cd_set);
     }
 
     /// OR `bits` into the most-recently-pushed node's flags (audit C finding N3: the
@@ -642,7 +679,11 @@ impl ShapeBuilder {
         self.feat_lanes.resize(old + w, 0);
         self.feat_lanes.copy_within(at..old, at + w);
         self.feat_lanes[at..at + w].copy_from_slice(lanes);
-        self.cd_sets.insert(index, CdSet::Unrestricted);
+        for (node, _) in &mut self.cd_sets {
+            if *node as usize >= index {
+                *node += 1;
+            }
+        }
     }
 
     /// [`insert`](Self::insert) with an explicit char-def-set on the new (always `NO_CHAR_DEF`,
@@ -657,7 +698,7 @@ impl ShapeBuilder {
         cd_set: CdSet,
     ) {
         self.insert(index, NodeKind::Segment, NO_CHAR_DEF, flags, lanes);
-        self.cd_sets[index] = cd_set;
+        self.set_cd_set(index, cd_set);
     }
 
     /// Delete the node at position `index`, shifting nodes after it down by one (models C#
@@ -690,7 +731,12 @@ impl ShapeBuilder {
         let old = self.feat_lanes.len();
         self.feat_lanes.copy_within(at + w..old, at);
         self.feat_lanes.truncate(old - w);
-        self.cd_sets.remove(index);
+        self.cd_sets.retain(|(node, _)| *node as usize != index);
+        for (node, _) in &mut self.cd_sets {
+            if *node as usize > index {
+                *node -= 1;
+            }
+        }
     }
 
     /// Set the rewrite-produced full feature values for a node.
@@ -760,7 +806,6 @@ impl ShapeBuilder {
             self.feat_lanes.len(),
             self.kinds.len() * self.feat_width as usize
         );
-        debug_assert_eq!(self.cd_sets.len(), self.kinds.len());
         Shape {
             data: Arc::new(ShapeData {
                 content_hash: AtomicU64::new(0),
