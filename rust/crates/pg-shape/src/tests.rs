@@ -367,3 +367,81 @@ fn debug_text_does_not_depend_on_whether_the_shape_was_hashed() {
     assert_eq!(before, format!("{a:?}"));
     assert!(!before.contains("content_hash"));
 }
+
+fn members(ids: &[u32]) -> CdSet {
+    CdSet::Members(CdBits::from_ids(ids.iter().copied()))
+}
+
+fn effective(s: &Shape, i: usize) -> Option<Vec<u32>> {
+    match s.node_cd_set(i) {
+        EffectiveCdSet::Members(b) => Some((0..200).filter(|&id| b.contains(id)).collect()),
+        _ => None,
+    }
+}
+
+#[test]
+fn sparse_set_column_follows_insert_and_delete() {
+    let mut b = ShapeBuilder::new();
+    b.push_segment_with_lanes_and_set(&[], members(&[3, 4]));
+    b.push_segment(9);
+    b.push_segment_with_lanes_and_set(&[], members(&[70]));
+    let s = b.finish();
+    assert_eq!(effective(&s, 1), Some(vec![3, 4]));
+    assert_eq!(effective(&s, 2), None);
+    assert_eq!(effective(&s, 3), Some(vec![70]));
+
+    let mut b = ShapeBuilder::from_shape(&s);
+    b.insert_with_set(2, NodeFlags::EMPTY, &[], members(&[5]));
+    let t = b.freeze();
+    assert_eq!(effective(&t, 1), Some(vec![3, 4]));
+    assert_eq!(effective(&t, 2), Some(vec![5]));
+    assert_eq!(effective(&t, 3), None);
+    assert_eq!(effective(&t, 4), Some(vec![70]));
+
+    let mut b = ShapeBuilder::from_shape(&t);
+    b.delete(1);
+    b.delete(2);
+    let u = b.freeze();
+    assert_eq!(effective(&u, 1), Some(vec![5]));
+    assert_eq!(effective(&u, 2), Some(vec![70]));
+    assert_eq!(u.len(), 4);
+}
+
+#[test]
+fn explicit_unrestricted_set_equals_the_default() {
+    let mut a = ShapeBuilder::new();
+    a.push_segment_with_lanes_and_set(&[], CdSet::Unrestricted);
+    let mut b = ShapeBuilder::new();
+    b.push_segment_with_lanes_and_set(&[], members(&[1]));
+    b.set_cd_set(1, CdSet::Unrestricted);
+    let (a, b) = (a.finish(), b.finish());
+    assert_eq!(a, b);
+    assert!(b.cd_sets.is_empty());
+}
+
+/// The stored hash must stay what the per-node `Box<[CdSet]>` column produced, so hash-ordered containers iterate as before.
+#[test]
+fn content_hash_matches_the_dense_column_hash() {
+    let mut b = ShapeBuilder::with_features(1);
+    b.push_segment_with_lanes(7, &[1]);
+    b.push_segment_with_lanes_and_set(&[2], members(&[3, 70]));
+    b.push_boundary(8);
+    let s = b.finish();
+    let dense: Vec<CdSet> = (0..s.len())
+        .map(|i| match s.node_cd_set(i) {
+            EffectiveCdSet::Members(m) => CdSet::Members(m.clone()),
+            _ => CdSet::Unrestricted,
+        })
+        .collect();
+    // The pre-sparse `column_hash`, with the dense column.
+    let mut old = rustc_hash::FxHasher::default();
+    s.kinds.hash(&mut old);
+    s.char_defs.hash(&mut old);
+    s.flags.hash(&mut old);
+    s.feat_width.hash(&mut old);
+    s.feat_lanes.hash(&mut old);
+    dense.into_boxed_slice().hash(&mut old);
+    s.generated_full.hash(&mut old);
+    s.unresolved_variables.hash(&mut old);
+    assert_eq!(s.column_hash(), old.finish().max(1));
+}
