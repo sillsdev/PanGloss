@@ -5,6 +5,16 @@ file has no section for.
 
 ## Unreleased
 
+## 0.17.0
+
+Released 2026-11-12.
+
+Reduplication parses do far less work: a copy-agreement and alignment prune refuses matches whose copies cannot agree, cutting parser work 37.2% on a 4,279-word Cebuano sample and 74.1% on six reduplication words with identical readings (#238, #247), and the affix matcher enumerates one tiling per run of identical optional nodes instead of multiplying a word's work (#237). Rewrite narrowing matches C#'s captured-output guard (#224). Parsing is faster again: shared frozen feature entries cut instructions 7.8% on Cebuano and 8.5% on Swahili (#244), and a single feature-lane shift for shape insert/delete cuts 30% on Amharic (#243). The report-only parser-work weights are now 113 / 2 / 45 (#233). New analyzer APIs: `analyze_text` and `pangloss analyze-text` with language detection and segmentation alternatives, plus rule-admission and tiled-acceptor library APIs.
+
+- Feature structures share frozen entries and shapes store their content hash, giving 7.8% fewer instructions on Cebuano and 8.5% on Swahili with identical analyses (#244). Shape insert and delete shift the feature-lane row once, giving 30% fewer instructions on Amharic (#243).
+
+- Rewrite narrowing matches C#'s captured-output guard: unresolved analysis variables on captured nodes are preserved so the narrowing zipper stops before union (#199, #224).
+
 - Refuse reduplication matches whose copies cannot agree, including copies that hold optional (restored) nodes, and refuse an empty copy of a repeated part (divergence 049, PanGloss#235). A conservative alignment never refuses a match C# keeps, so readings are identical on the Cebuano list; parser work falls 37.2% on a 4,279-word sample and 74.1% on six reduplication words, with no word doing more.
 - Change the parser-work weights from 676 / 2 / 268 to 113 / 2 / 45 (work / bytes / FST registers): work and registers keep their ratio, because word lists cannot split them, and bytes stay at 2, so bytes carry a larger share. Report-only: no cap, deadline or parse reads them, and `work_steps` is unchanged. On the change pair that splits work from registers (`HC_RSL=off`, seven grammars, callgrind) the predicted change of grammar totals is off by 0.28 points on average, against 0.78 for the old weights; on #232 the two tie at 5.3 points. Costs from different versions are not comparable.
 - The analysis affix matcher enumerates one tiling per run of identical optional nodes (restored deleted segments) and refuses end-anchored arcs that cannot reach acceptance, so a reduplication allomorph no longer multiplies a word's parser work (divergence 130, PanGloss#236). Readings are identical: 0 differences on a 3,180-word Cebuano sample (live grammar) against the same tree without the change. The gain shows on words with long restored-vowel runs (toy `ttuu` 167,166 to 6,915 parser work, `thhaa` 858,997 to 4,570); on the Cebuano sample the total falls 1.1% and Pintahag by 90 (93,282 to 93,192).
