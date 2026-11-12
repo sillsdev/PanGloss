@@ -322,7 +322,8 @@ fn joining_two_nets_gives_the_net_foma_concatenation_makes() {
         crossed: true,
         ..plain
     };
-    let pairs: [(fn(Written) -> Fsm, Written, fn(Written) -> Fsm, Written); 4] = [
+    type Build = fn(Written) -> Fsm;
+    let pairs: [(Build, Written, Build, Written); 4] = [
         (|w| list(1, w), plain, |w| list(2, w), plain),
         (|w| list(1, w), open, |_| regex("?* z"), plain),
         (|_| regex("[? - q]* r"), plain, |w| list(2, w), crossed),
