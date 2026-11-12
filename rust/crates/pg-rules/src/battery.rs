@@ -116,15 +116,30 @@ impl BatteryWord {
     /// The output as it was produced. `input` is the word the battery ran on.
     pub(crate) fn into_word(self, input: &Word) -> Word {
         match self {
-            BatteryWord::Delta(delta) => {
-                let mut w = input.clone();
-                w.shape = delta.shape;
-                w.syn_fs = delta.syn_fs;
-                w.trail = delta.trail;
-                w.mrule_app_index = delta.mrule_app_index;
-                w.flags.final_template_state = delta.final_template_state;
-                w
-            }
+            // Built field by field: cloning `input` whole would copy its shape, features and trail only to drop them.
+            BatteryWord::Delta(delta) => Word {
+                shape: delta.shape,
+                stratum: input.stratum,
+                syn_fs: delta.syn_fs,
+                real_fs: input.real_fs.clone(),
+                mpr: input.mpr,
+                morphs: input.morphs.clone(),
+                extras: input.extras.clone(),
+                non_head_app_index: input.non_head_app_index,
+                trail: delta.trail,
+                analysis_allomorph: input.analysis_allomorph,
+                mrule_app_index: delta.mrule_app_index,
+                root_allomorph: input.root_allomorph,
+                obligatory: input.obligatory.clone(),
+                flags: WordFlags {
+                    is_partial: input.flags.is_partial,
+                    is_last_applied_rule_final: input.flags.is_last_applied_rule_final,
+                    final_template_state: delta.final_template_state,
+                },
+                source: input.source.clone(),
+                alternatives: input.alternatives.clone(),
+                trace: input.trace,
+            },
             BatteryWord::Whole(w) => *w,
         }
     }
