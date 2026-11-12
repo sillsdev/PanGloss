@@ -31,6 +31,8 @@ mod cross_table_metathesis_surface_match_gate;
 mod disjunctive_recheck_gate;
 #[path = "../do_not_parse.rs"]
 mod do_not_parse;
+#[path = "../early_root_lookup_gate.rs"]
+mod early_root_lookup_gate;
 #[path = "../edge_prefilter_gate.rs"]
 mod edge_prefilter_gate;
 #[path = "../effective_analysis_target.rs"]

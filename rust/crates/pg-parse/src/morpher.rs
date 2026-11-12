@@ -49,6 +49,8 @@ pub struct Morpher<'g> {
     final_template_facts: pg_grammar_model::model::FinalTemplatePruneFacts,
     always_enforce_final_templates: bool,
     prune_final_templates: bool,
+    /// Whether the last-analysed stratum drops the alternatives of a word no root matches.
+    early_root_lookup: bool,
     root_index: RootAllomorphIndex,
     overlay: Option<&'g SuppliedRootOverlay>,
     /// Every `IsPattern` root allomorph across every stratum, in document order; read only by guess.
@@ -457,6 +459,7 @@ impl<'g> Morpher<'g> {
             final_template_facts,
             always_enforce_final_templates: g.always_enforce_final_templates,
             prune_final_templates: true,
+            early_root_lookup: true,
             root_index: RootAllomorphIndex::build(g),
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
@@ -576,6 +579,12 @@ impl<'g> Morpher<'g> {
     /// Turns off the grammar-derived final-template pruning of analysis (on by default), for measuring what it saves; `with_always_enforce_final_templates(true)` still forces it.
     pub fn with_final_template_pruning(mut self, prune: bool) -> Self {
         self.prune_final_templates = prune;
+        self
+    }
+
+    /// Turns off the early root check of the last-analysed stratum (on by default), so every folded alternative is kept until root lookup. The analyses, their order and the work are the same either way; the check holds less memory.
+    pub fn with_early_root_lookup(mut self, early: bool) -> Self {
+        self.early_root_lookup = early;
         self
     }
 
@@ -899,6 +908,14 @@ impl<'g> Morpher<'g> {
                 self.search_roots(st, shape, stats, &search_cache)
             };
         let mut results: WordSet = WordSet::default();
+        // Stratum 0 is analysed last and its outputs feed no other stratum, so a word of it that no root matches is never read again. Not where something does read such a word: a trace, the root guesser, and the census and alternative-yield diagnostics.
+        let early_lookup = self.early_root_lookup
+            && !trace.is_tracing()
+            && !opts.guess_only
+            && !(opts.guess_root && !self.lexical_patterns.is_empty())
+            && !pg_rules::branch_census::enabled()
+            && !alt_yield::enabled();
+        let root_gate = |created: &Word| self.has_root(created, lex_entry_filter);
         // The stratum's candidates: the surface word first, then the previous admitted stratum's outputs, which are this range of `results`. A word's key holds its stratum and every output of a stratum carries that stratum, so a stratum's outputs never meet an earlier stratum's in `results` and a second set of them would be a copy.
         let mut inputs: Option<std::ops::Range<usize>> = None;
         let census = pg_rules::branch_census::enabled();
@@ -940,7 +957,7 @@ impl<'g> Morpher<'g> {
                     enforce,
                     all_templates_final: self.final_template_facts.all_templates_final()[s],
                 };
-                let res = pg_rules::stratum::analyze_stratum_filtered_ruled_traced_with_policy(
+                let res = pg_rules::stratum::analyze_last_stratum(
                     g,
                     StratumId(s as u8),
                     w,
@@ -954,6 +971,7 @@ impl<'g> Morpher<'g> {
                     stats,
                     trace,
                     node_parent,
+                    (early_lookup && s == 0).then_some(&root_gate as pg_rules::stratum::RootGate),
                 );
                 // The stratum's buffer is given back as `results` takes its words, so the two are not both held whole.
                 for o in pg_rules::word_set::Releasing::new(res.words) {
@@ -1423,6 +1441,19 @@ impl<'g> Morpher<'g> {
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
         w.set_root_runtime_id(None);
         w.morphs = vec![MorphRecord::new(allo, entry.morpheme, 0)];
+    }
+
+    /// Whether root lookup can find anything for `aw`, asked without spending the word's work, touching its root search cache or recording a statistic. It may answer true for a word lookup then finds nothing for, never false for one it finds a root for.
+    fn has_root(&self, aw: &Word, lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>) -> bool {
+        if self.overlay.is_some() {
+            return true;
+        }
+        let unmetered = pg_fst::work::WorkBudget::new(usize::MAX);
+        let _scope = unmetered.enter();
+        self.root_index
+            .search(self.g, aw.stratum, &aw.shape)
+            .into_iter()
+            .any(|(_, entry)| lex_entry_filter.is_none_or(|passes| passes(entry)))
     }
 
     /// `no_root`: charged to the last rule applied on `aw`'s trail, or to the stratum's root lookup when none applied.

@@ -15,7 +15,7 @@ use pg_grammar_model::model::{
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy,
+    analyze_last_stratum, analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy,
     synthesize_phonological_stratum_traced, synthesize_stratum_traced, synthesize_template,
     AnalyzerConfig, FinalTemplateAnalysisPolicy, PhonologyCascadeOutcome, WordBudget,
 };
@@ -1675,4 +1675,141 @@ fn synthesis_optional_stem_paths_share_the_per_word_allowance() {
     );
     assert_eq!(budget.work_steps(), 64);
     assert!(!budget.timed_out(), "the bound is deterministic");
+}
+
+// ---- root lookup as the last-analysed stratum creates each word ----------------------------
+
+/// "pagn" under unordered P (prefix p) and S (suffix n): P-then-S and S-then-P both reach "ag", so that canonical holds one alternative.
+fn two_orders_to_ag() -> (Grammar, StratumId, AnalyzerConfig) {
+    let mut g = load_alpha_grammar();
+    let rule_p = prefix_rule(&g, 200, "p");
+    let rule_s = suffix_rule(&g, 300, "n");
+    let id_p = push_mrule(&mut g, rule_p);
+    let id_s = push_mrule(&mut g, rule_s);
+    let s0 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_p, id_s], vec![]);
+    let cfg = AnalyzerConfig {
+        merge_equivalent: true,
+        max_unapplications: 0,
+        max_stem_count: 2,
+        prune_disagreeing_copies: false,
+        ..AnalyzerConfig::default()
+    };
+    (g, s0, cfg)
+}
+
+fn analyze_last(
+    g: &Grammar,
+    s: StratumId,
+    cfg: &AnalyzerConfig,
+    budget: &WordBudget,
+    gate: Option<&dyn Fn(&Word) -> bool>,
+) -> pg_rules::stratum::StratumAnalysis {
+    analyze_last_stratum(
+        g,
+        s,
+        word(g, "pagn", s),
+        cfg,
+        None,
+        None,
+        None,
+        budget,
+        &pg_rules::shared_values::SharedValues::default(),
+        FinalTemplateAnalysisPolicy::default(),
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+        gate,
+    )
+}
+
+#[test]
+fn a_word_with_no_root_keeps_its_place_and_drops_the_alternatives_folded_into_it() {
+    let (g, s0, cfg) = two_orders_to_ag();
+    let ag = vec![cd(&g, "char_a"), cd(&g, "char_g")];
+    let plain_budget = WordBudget::new(1_000_000);
+    let plain = analyze_last(&g, s0, &cfg, &plain_budget, None);
+    let alternatives = |out: &pg_rules::stratum::StratumAnalysis| -> Vec<usize> {
+        out.words.iter().map(|w| w.alternatives.len()).collect()
+    };
+    let keys = |out: &pg_rules::stratum::StratumAnalysis| -> Vec<_> {
+        out.words.iter().map(|w| w.dedup_key()).collect()
+    };
+    assert_eq!(alternatives(&plain).iter().sum::<usize>(), 1);
+
+    let seen = std::cell::RefCell::new(Vec::new());
+    let rooted = |w: &Word| {
+        seen.borrow_mut().push(char_defs(&w.shape));
+        true
+    };
+    let rooted_budget = WordBudget::new(1_000_000);
+    let with_roots = analyze_last(&g, s0, &cfg, &rooted_budget, Some(&rooted));
+    assert_eq!(alternatives(&with_roots), alternatives(&plain));
+    let created: Vec<_> = with_roots
+        .words
+        .iter()
+        .map(|w| char_defs(&w.shape))
+        .collect();
+    assert_eq!(
+        *seen.borrow(),
+        created,
+        "the gate is asked once per output word, in output order, the unchanged input first"
+    );
+
+    let no_ag = |w: &Word| char_defs(&w.shape) != ag;
+    let without_budget = WordBudget::new(1_000_000);
+    let without = analyze_last(&g, s0, &cfg, &without_budget, Some(&no_ag));
+    assert_eq!(
+        keys(&without),
+        keys(&plain),
+        "the same words in the same order"
+    );
+    assert_eq!(alternatives(&without).iter().sum::<usize>(), 0);
+    assert_eq!(
+        (rooted_budget.work_steps(), without_budget.work_steps()),
+        (plain_budget.work_steps(), plain_budget.work_steps()),
+        "the gate changes no work"
+    );
+}
+
+#[test]
+fn the_gate_changes_no_word_and_no_cap_at_any_work_cap() {
+    let (g, s0, cfg) = two_orders_to_ag();
+    let free = WordBudget::new(usize::MAX);
+    analyze_last(&g, s0, &cfg, &free, None);
+    let analysis_work = free.work_steps();
+    let rootless = |_: &Word| false;
+    let mut capped_runs = 0;
+    for cap in 1..analysis_work + 2 {
+        let (plain_budget, gated_budget) = (WordBudget::new(cap), WordBudget::new(cap));
+        let plain = analyze_last(&g, s0, &cfg, &plain_budget, None);
+        let gated = analyze_last(&g, s0, &cfg, &gated_budget, Some(&rootless));
+        assert_eq!(gated.capped, plain.capped, "cap {cap}");
+        assert_eq!(
+            gated
+                .words
+                .iter()
+                .map(|w| w.dedup_key())
+                .collect::<Vec<_>>(),
+            plain
+                .words
+                .iter()
+                .map(|w| w.dedup_key())
+                .collect::<Vec<_>>(),
+            "cap {cap}"
+        );
+        assert_eq!(
+            gated_budget.work_steps(),
+            plain_budget.work_steps(),
+            "cap {cap}"
+        );
+        assert!(
+            gated.words.iter().all(|w| w.alternatives.is_empty()),
+            "cap {cap}"
+        );
+        capped_runs += usize::from(plain.capped);
+    }
+    assert!(
+        capped_runs > 0,
+        "no cap below {analysis_work} capped the run"
+    );
 }
