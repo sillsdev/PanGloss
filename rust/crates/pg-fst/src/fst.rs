@@ -68,6 +68,8 @@ pub struct Fst {
     /// Per-state admissible lower bound on arcs-to-accept, ignoring constraints (`u32::MAX` sentinel = no accepting state reachable).
     /// See `docs/research/pg-fst-optimize-design-notes.md`.
     pub(crate) min_hops_to_accept: Vec<u32>,
+    /// Per-state upper bound on the arcs of any path to an accepting state, ignoring constraints; `u32::MAX` means unbounded (a cycle can be walked before accepting) or no accepting state is reachable.
+    pub(crate) max_hops_to_accept: Vec<u32>,
 }
 
 impl Fst {
@@ -102,6 +104,66 @@ impl Fst {
     #[inline]
     pub(crate) fn min_hops_to_accept(&self) -> &[u32] {
         &self.min_hops_to_accept
+    }
+
+    /// See the field doc: per-state upper bound on arcs-to-accept, indexed by state id.
+    #[inline]
+    pub(crate) fn max_hops_to_accept(&self) -> &[u32] {
+        &self.max_hops_to_accept
+    }
+
+    /// Per arc, the groups it closes and the groups it opens, by name: a group's end (`tag + 1`) or start (`tag`) register is written either by the arc itself or by a finisher copying a register that arc wrote. `None` when any arc command copies a register, a finisher writes the current position, or two accepting states disagree about what a register means.
+    pub fn arc_group_events(&self) -> Option<Vec<(Vec<&str>, Vec<&str>)>> {
+        // (group index, is_close) per register a finisher copies a group tag from.
+        let mut via_finisher: Vec<(i32, usize, bool)> = Vec::new();
+        for state in self.states.iter().filter(|s| s.accepting) {
+            for cmd in &self.commands[state.fin_lo as usize..state.fin_hi as usize] {
+                if cmd.src == crate::CURRENT_POSITION {
+                    return None;
+                }
+                for (group, (_, tag)) in self.groups.iter().enumerate() {
+                    for (dest, close) in [(*tag, false), (*tag + 1, true)] {
+                        if cmd.dest == dest && !via_finisher.contains(&(cmd.src, group, close)) {
+                            via_finisher.push((cmd.src, group, close));
+                        }
+                    }
+                }
+            }
+        }
+        let mut events = Vec::with_capacity(self.arcs.len());
+        for arc in &self.arcs {
+            let (mut closes, mut opens) = (Vec::new(), Vec::new());
+            for cmd in &self.commands[arc.cmd_lo as usize..arc.cmd_hi as usize] {
+                if cmd.src != crate::CURRENT_POSITION {
+                    return None;
+                }
+                let direct = self
+                    .groups
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(group, (_, tag))| {
+                        [
+                            (cmd.dest == *tag, group, false),
+                            (cmd.dest == *tag + 1, group, true),
+                        ]
+                    });
+                let finished = via_finisher
+                    .iter()
+                    .map(|&(register, group, close)| (register == cmd.dest, group, close));
+                for (hit, group, close) in direct.chain(finished) {
+                    if hit {
+                        let name = self.groups[group].0.as_str();
+                        if close {
+                            closes.push(name)
+                        } else {
+                            opens.push(name)
+                        }
+                    }
+                }
+            }
+            events.push((closes, opens));
+        }
+        Some(events)
     }
 
     /// Resolve a group's tag (C# `_groups[name]`).

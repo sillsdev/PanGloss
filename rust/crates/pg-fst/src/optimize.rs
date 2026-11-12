@@ -635,6 +635,60 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         dist
     };
 
+    // Max-hops-to-accept upper bound: the longest constraint-free path to an accepting state, exact on an acyclic automaton and `u32::MAX` (unbounded) as soon as a state that can reach acceptance lies on a cycle.
+    let max_hops_to_accept = {
+        let n = states.len();
+        let live: Vec<bool> = min_hops_to_accept.iter().map(|&d| d != u32::MAX).collect();
+        let mut indegree = vec![0u32; n];
+        for (s, st) in states.iter().enumerate() {
+            if live[s] {
+                for arc in &arcs[st.arc_lo as usize..st.arc_hi as usize] {
+                    if live[arc.target as usize] {
+                        indegree[arc.target as usize] += 1;
+                    }
+                }
+            }
+        }
+        let mut order: Vec<u32> = (0..n as u32)
+            .filter(|&s| live[s as usize] && indegree[s as usize] == 0)
+            .collect();
+        let mut at = 0;
+        while at < order.len() {
+            let st = &states[order[at] as usize];
+            at += 1;
+            for arc in &arcs[st.arc_lo as usize..st.arc_hi as usize] {
+                let t = arc.target as usize;
+                if live[t] {
+                    indegree[t] -= 1;
+                    if indegree[t] == 0 {
+                        order.push(t as u32);
+                    }
+                }
+            }
+        }
+        if order.len() == live.iter().filter(|&&l| l).count() {
+            let mut longest = vec![u32::MAX; n];
+            for &s in order.iter().rev() {
+                let st = &states[s as usize];
+                let mut best = if st.accepting { 0 } else { u32::MAX };
+                for arc in &arcs[st.arc_lo as usize..st.arc_hi as usize] {
+                    let t = longest[arc.target as usize];
+                    if live[arc.target as usize] && t != u32::MAX {
+                        best = if best == u32::MAX {
+                            t + 1
+                        } else {
+                            best.max(t + 1)
+                        };
+                    }
+                }
+                longest[s as usize] = best;
+            }
+            longest
+        } else {
+            vec![u32::MAX; n]
+        }
+    };
+
     Fst {
         states,
         arcs,
@@ -648,6 +702,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         groups: nfa.groups.clone(),
         initializers,
         min_hops_to_accept,
+        max_hops_to_accept,
     }
 }
 
