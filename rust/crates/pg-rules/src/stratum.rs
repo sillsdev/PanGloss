@@ -13,7 +13,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use web_time::Duration;
 
-use crate::analysis_state_key::{AnalysisStateKey, MorphHistoryKey};
+use crate::analysis_state_key::AnalysisStateKey;
 use pg_featstruct::{is_unifiable, subsumes, subtract, union};
 use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, PRuleId, SlotDef,
@@ -85,8 +85,8 @@ use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
 };
-use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
-use crate::word_set::{fold_hash, Releasing, WordIndex, WordSet};
+use crate::word::{estimate_word_bytes, FinalTemplateState, Word, WordKey};
+use crate::word_set::{fold_hash, PositionIndex, Releasing, WordIndex, WordSet};
 use crate::{metathesis, morph, rewrite};
 
 #[cfg(test)]
@@ -825,37 +825,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
     /// The order-independent state key for `w` (`AnalyzerConfig::merge_equivalent`'s fold key), with each rule's count saturated at its `max_apps` -- the only reader compares `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate, `AnalysisStateKey.cs:14-34` -- deliberate divergence).
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
-        let morph_history = w
-            .morphs
-            .iter()
-            .map(|morph| MorphHistoryKey {
-                allomorph: morph.allomorph,
-                morpheme: morph.morpheme,
-                order: morph.order,
-                status: morph.status,
-                runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
-            })
-            .collect();
-        let rule_counts = w
-            .trail
-            .rule_counts()
-            .into_iter()
-            .filter_map(|(id, count)| {
-                let cap = self.g.mrules[id.0 as usize].max_apps();
-                let saturated = count.min(u32::from(cap));
-                (saturated > 0).then_some((id, saturated))
-            })
-            .collect();
-        AnalysisStateKey::new(
-            w.shape.clone(),
-            w.stratum,
-            w.syn_fs.clone(),
-            w.real_fs.clone(),
-            w.non_heads().len() as u32,
-            rule_counts,
-            w.flags.final_template_state,
-            morph_history,
-        )
+        crate::analysis_state_key::key_of(w, &|id| self.max_apps(id))
+    }
+
+    fn max_apps(&self, id: MRuleId) -> u32 {
+        u32::from(self.g.mrules[id.0 as usize].max_apps())
     }
 
     /// True once the shared budget is exhausted; delegates to the shared `WordBudget`.
@@ -1619,8 +1593,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
         // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
         let mut output_keys = WordIndex::default();
-        // AnalysisStateKey -> canonical word index; the seed's key is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
-        let mut key_word: HashMap<AnalysisStateKey, usize> = HashMap::default();
+        // The visited set: analysis state -> canonical word index, held as positions in `words` and compared exactly against the canonical itself (`AnalysisStateKey::matches_word`), so no canonical's key is stored. The seed's state is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
+        let mut state_words = PositionIndex::default();
         let mut words: Vec<Word> = Vec::new();
         output_keys.insert(&input.dedup_key(), 0);
         // This call's own running byte total, the `record_live_bytes` companion to `words.len()`.
@@ -1643,19 +1617,29 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             if let Some(pre_fold) = pre_fold {
                 crate::branch_census::edge(pre_fold, crate::branch_census::node(&w));
             }
-            let state_key = self.cfg.merge_equivalent.then(|| self.state_key(&w));
-            if let Some(state_key) = &state_key {
-                let canonical = key_word
-                    .get(state_key)
-                    .copied()
-                    .or_else(|| output_keys.find(&dedup_key, |at| &words[at]));
+            let state_key = self.cfg.merge_equivalent.then(|| {
+                use std::hash::BuildHasher;
+                let key = self.state_key(&w);
+                let hash = fold_hash(rustc_hash::FxBuildHasher.hash_one(&key));
+                (key, hash)
+            });
+            if let Some((state_key, state_hash)) = &state_key {
+                let state_canonical = state_words.find(*state_hash, |at| {
+                    // A canonical's own syntactic features are widened once alternatives arrive; the features its key was taken with are the ones `alt_keys` froze at the first arrival.
+                    let keyed_syn_fs = alt_keys
+                        .get(&at)
+                        .map_or(&words[at].syn_fs, |seen| &seen.canonical_syn_fs);
+                    state_key.matches_word(&words[at], keyed_syn_fs, &|id| self.max_apps(id))
+                });
+                let canonical =
+                    state_canonical.or_else(|| output_keys.find(&dedup_key, |at| &words[at]));
                 if let (true, Some(idx)) = (census, canonical) {
                     crate::branch_census::alias(
                         crate::branch_census::node(&words[idx]),
                         crate::branch_census::node(&w),
                     );
                 }
-                if let Some(&idx) = key_word.get(state_key) {
+                if let Some(idx) = state_canonical {
                     if let Some(w) =
                         dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
                             self.g.syn_features.mask(f)
@@ -1693,8 +1677,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             }
             if output_keys.find(&dedup_key, |at| &words[at]).is_none() {
                 // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
-                if let Some(state_key) = state_key {
-                    key_word.insert(state_key, words.len());
+                if let Some((_, state_hash)) = state_key {
+                    state_words.insert(state_hash, words.len());
                 }
                 output_keys.insert(&dedup_key, words.len());
                 live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);

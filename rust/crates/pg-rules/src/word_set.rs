@@ -52,6 +52,31 @@ impl WordIndex {
     }
 }
 
+/// Positions of words that live in a `Vec` elsewhere, found by a 32-bit hash the caller computes and confirmed by the caller's own exact comparison against the stored word: 8 bytes an entry, and a hash collision can never merge two words.
+#[derive(Default)]
+pub struct PositionIndex {
+    table: HashTable<(u32, u32)>,
+}
+
+impl PositionIndex {
+    /// The position stored under `hash` for which `is_match` holds.
+    pub fn find(&self, hash: u32, is_match: impl Fn(usize) -> bool) -> Option<usize> {
+        self.table
+            .find(spread(hash), |&(stored, at)| {
+                stored == hash && is_match(at as usize)
+            })
+            .map(|&(_, at)| at as usize)
+    }
+
+    /// Records position `at` under `hash`. The caller has checked no stored position matches.
+    pub fn insert(&mut self, hash: u32, at: usize) {
+        self.table
+            .insert_unique(spread(hash), (hash, position_u32(at)), |&(stored, _)| {
+                spread(stored)
+            });
+    }
+}
+
 #[derive(Default)]
 pub struct WordSet {
     index: WordIndex,

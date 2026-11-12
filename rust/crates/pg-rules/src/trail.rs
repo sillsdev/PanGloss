@@ -101,6 +101,20 @@ impl Trail {
         count
     }
 
+    /// The known rule of every step, newest first, count-only steps included: each item is one unapplication.
+    pub fn counted_rules(&self) -> impl Iterator<Item = MRuleId> + '_ {
+        let mut node = &self.0;
+        std::iter::from_fn(move || {
+            while let Some(step) = node {
+                node = &step.parent.0;
+                if step.rule.is_some() {
+                    return step.rule;
+                }
+            }
+            None
+        })
+    }
+
     /// Every rule's unapplication count.
     pub fn rule_counts(&self) -> BTreeMap<MRuleId, u32> {
         let mut counts = BTreeMap::new();
