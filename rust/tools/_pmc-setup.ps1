@@ -45,8 +45,7 @@ function Assert-KnownLoopArchitecture {
 }
 
 function Get-KnownLoopVerdict {
-    # $Iterations and $Counted are the short and long runs of known_loop.rs. Each iteration retires $PerIteration instructions;
-    # the per-process overhead cancels in the difference, which must match the known difference within $TolerancePercent.
+    # Short and long runs of known_loop.rs: per-process overhead cancels in the difference, which must match the known one within $TolerancePercent.
     param([Parameter(Mandatory)][int64[]]$Iterations, [Parameter(Mandatory)][double[]]$Counted, [int]$PerIteration = 2, [double]$TolerancePercent = 1.0)
     if ($Iterations.Count -ne 2 -or $Counted.Count -ne 2) { throw 'the known-loop verdict needs exactly two lengths and two counts' }
     if ($Iterations[1] -le $Iterations[0]) { throw "the long run ($($Iterations[1])) must have more iterations than the short run ($($Iterations[0]))" }
