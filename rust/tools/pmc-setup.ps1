@@ -129,17 +129,24 @@ function Invoke-Verify {
         if ($LASTEXITCODE -ne 0) { throw "could not build the known-count loop: $($built -join ' ')" }
         $lengths = $script:KnownLoopLengths
         $runs = @()
+        $procs = @()
         $t0 = Get-Date
         Invoke-PmcTask 'PanGloss PMC Start' 60
         try {
             foreach ($n in $lengths) {
                 $p = Start-Process -FilePath $exe -ArgumentList @("$n") -PassThru -WindowStyle Hidden
+                # Holding the handle until the trace stops keeps Windows from giving this pid to another process inside the trace.
+                $null = $p.Handle
+                $procs += $p
                 $p.ProcessorAffinity = [IntPtr]([int64]1 -shl $Cpu)
                 $p.WaitForExit()
                 if ($p.ExitCode -ne 0) { throw "the known-count loop ($n iterations, pid $($p.Id)) exited $($p.ExitCode)" }
                 $runs += [PSCustomObject]@{ Iterations = [int64]$n; Pid = $p.Id }
             }
-        } finally { Invoke-PmcTask 'PanGloss PMC Stop' 900 }
+        } finally {
+            Invoke-PmcTask 'PanGloss PMC Stop' 900
+            foreach ($held in $procs) { $held.Dispose() }
+        }
         $pids = @($runs | ForEach-Object Pid)
         Assert-DistinctPids -Pids $pids
         $trace = Get-Item (Join-Path $script:PmcDir 'current.etl')

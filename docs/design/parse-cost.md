@@ -85,10 +85,11 @@ minimum effect that no instrument check can see. Callgrind's pinned keys are the
 draw: four seeds of the shim gave parse counts 1.5% apart on fusion.xml.
 
 **Expect a wide interval on short lists.** With five rounds and about 65 words, the Windows counters
-gave intervals from ±0.6% to ±1% for a binary against itself with flushed rows, and ±0.35% to ±0.6%
-buffered. Twelve buffered rounds gave ±0.37% to ±0.75%. A change near the 0.5% minimum effect needs
-more `-Repeats` or a longer word list to leave INCONCLUSIVE. Two CPUs instead of one, or an E-core
-instead of CPU 4, did not narrow it.
+gave intervals from ±0.5% to ±1% for a binary against itself. Buffering removes the outlier rounds
+that widened some intervals much further, but not the ordinary spread: buffered with fresh hash keys,
+five rounds gave ±0.50% and twelve gave ±0.74%. A change near the 0.5% minimum effect needs more
+`-Repeats` or a longer word list to leave INCONCLUSIVE. Two CPUs instead of one, or an E-core instead
+of CPU 4, did not narrow it.
 
 ### Where instructions are measured
 
