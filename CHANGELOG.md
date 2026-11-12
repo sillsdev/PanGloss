@@ -9,9 +9,11 @@ file has no section for.
 
 Released 2026-11-12.
 
-Reduplication parses do far less work: a copy-agreement and alignment prune refuses matches whose copies cannot agree, cutting parser work 37.2% on a 4,279-word Cebuano sample and 74.1% on six reduplication words with identical readings (#238, #247), and the affix matcher enumerates one tiling per run of identical optional nodes instead of multiplying a word's work (#237). Rewrite narrowing matches C#'s captured-output guard (#224). Parsing is faster again: shared frozen feature entries cut instructions 7.8% on Cebuano and 8.5% on Swahili (#244), and a single feature-lane shift for shape insert/delete cuts 30% on Amharic (#243). The report-only parser-work weights are now 113 / 2 / 45 (#233). New analyzer APIs: `analyze_text` and `pangloss analyze-text` with language detection and segmentation alternatives, plus rule-admission and tiled-acceptor library APIs.
+Reduplication parses do far less work: a copy-agreement and alignment prune refuses matches whose copies cannot agree, cutting parser work 37.2% on a 4,279-word Cebuano sample and 74.1% on six reduplication words with identical readings (#238, #247), and the affix matcher enumerates one tiling per run of identical optional nodes instead of multiplying a word's work (#237). Rewrite narrowing matches C#'s captured-output guard (#224). Parsing is faster again: shared frozen feature entries cut instructions 7.8% on Cebuano and 8.5% on Swahili (#244), and a single feature-lane shift for shape insert/delete cuts 30% on Amharic (#243). The plain-parse accumulator holds about 25% less memory (#246). The report-only parser-work weights are now 113 / 2 / 45 (#233). New analyzer APIs: `analyze_text` and `pangloss analyze-text` with language detection and segmentation alternatives, plus rule-admission and tiled-acceptor library APIs.
 
 - Feature structures share frozen entries and shapes store their content hash, giving 7.8% fewer instructions on Cebuano and 8.5% on Swahili with identical analyses (#244). Shape insert and delete shift the feature-lane row once, giving 30% fewer instructions on Amharic (#243).
+
+- The plain-parse accumulator holds about 25% less memory: shapes store char-def sets sparsely, so the common shape allocates no set column, and dedup indexes hold a hash and position instead of a second copy of every word's key (#246).
 
 - Rewrite narrowing matches C#'s captured-output guard: unresolved analysis variables on captured nodes are preserved so the narrowing zipper stops before union (#199, #224).
 
