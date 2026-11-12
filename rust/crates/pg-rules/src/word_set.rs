@@ -116,15 +116,22 @@ impl WordSet {
 const RELEASE_MIN_WORDS: usize = 4096;
 
 /// Moves the words of a buffer out front to back and gives the buffer's memory back as it empties, where `Vec::into_iter` holds the whole buffer until the last word is taken. A template battery's output is consumed over the whole subtree search below it, so the plain iterator kept every emptied slot live for that long.
-pub struct Releasing {
-    /// The words still to yield, last first.
-    rest: Vec<Word>,
+pub struct Releasing(Rest);
+
+enum Rest {
+    /// A buffer too small to be worth giving back early: the plain iterator.
+    Whole(std::vec::IntoIter<Word>),
+    /// The words still to yield, last first, so the next one pops off the end and the buffer can shrink behind it.
+    Reversed(Vec<Word>),
 }
 
 impl Releasing {
     pub fn new(mut words: Vec<Word>) -> Self {
+        if words.len() < RELEASE_MIN_WORDS {
+            return Releasing(Rest::Whole(words.into_iter()));
+        }
         words.reverse();
-        Releasing { rest: words }
+        Releasing(Rest::Reversed(words))
     }
 }
 
@@ -132,17 +139,17 @@ impl Iterator for Releasing {
     type Item = Word;
 
     fn next(&mut self) -> Option<Word> {
-        let word = self.rest.pop()?;
-        // Halving keeps the copying linear in the words yielded.
-        if self.rest.capacity() >= RELEASE_MIN_WORDS && self.rest.len() <= self.rest.capacity() / 2
-        {
-            self.rest.shrink_to_fit();
+        match &mut self.0 {
+            Rest::Whole(words) => words.next(),
+            Rest::Reversed(rest) => {
+                let word = rest.pop()?;
+                // Halving keeps the copying linear in the words yielded.
+                if rest.capacity() >= RELEASE_MIN_WORDS && rest.len() <= rest.capacity() / 2 {
+                    rest.shrink_to_fit();
+                }
+                Some(word)
+            }
         }
-        Some(word)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.rest.len(), Some(self.rest.len()))
     }
 }
 
@@ -159,21 +166,39 @@ mod tests {
         w
     }
 
+    fn held(releasing: &Releasing) -> usize {
+        match &releasing.0 {
+            Rest::Whole(words) => words.as_slice().len(),
+            Rest::Reversed(rest) => rest.capacity(),
+        }
+    }
+
     #[test]
     fn releasing_yields_first_insertion_order_and_shrinks() {
         let n = RELEASE_MIN_WORDS as u32 * 4;
         let words: Vec<Word> = (0..n).map(word).collect();
         let mut releasing = Releasing::new(words);
-        let full = releasing.rest.capacity();
+        let full = held(&releasing);
         for expected in 0..n {
             let w = releasing.next().expect("one word per input word");
             assert_eq!(w.morphs[0].allomorph, AllomorphId(expected));
             if expected == n - n / 8 {
                 assert!(
-                    releasing.rest.capacity() <= full / 4,
+                    held(&releasing) <= full / 4,
                     "a buffer seven eighths consumed has been given back at least twice"
                 );
             }
+        }
+        assert!(releasing.next().is_none());
+    }
+
+    #[test]
+    fn releasing_a_small_buffer_yields_first_insertion_order() {
+        let mut releasing = Releasing::new((0..5).map(word).collect());
+        assert!(matches!(releasing.0, Rest::Whole(_)));
+        for expected in 0..5 {
+            let w = releasing.next().expect("one word per input word");
+            assert_eq!(w.morphs[0].allomorph, AllomorphId(expected));
         }
         assert!(releasing.next().is_none());
     }
