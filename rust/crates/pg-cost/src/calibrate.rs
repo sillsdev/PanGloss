@@ -66,12 +66,6 @@ fn median(mut values: Vec<f64>) -> f64 {
     values[values.len() / 2]
 }
 
-/// Fits bounded multipliers on relative error. `cpu_share` is `None` for a count of instructions,
-/// which load cannot disturb.
-pub fn fit(samples: &[Sample], cpu_share: Option<f64>) -> Result<Fit, Refusal> {
-    fit_from(samples, cpu_share, current_weights())
-}
-
 /// The fixed weights as the fit's starting point.
 pub fn current_weights() -> [f64; 3] {
     [
@@ -81,15 +75,7 @@ pub fn current_weights() -> [f64; 3] {
     ]
 }
 
-/// `fit` starting from other weights, so a fit that hit a bound can be continued without editing the constants.
-pub fn fit_from(
-    samples: &[Sample],
-    cpu_share: Option<f64>,
-    weights: [f64; 3],
-) -> Result<Fit, Refusal> {
-    if let Some(cpu_share) = cpu_share.filter(|share| *share < MIN_CPU_SHARE) {
-        return Err(Refusal::MachineBusy { cpu_share });
-    }
+fn usable(samples: &[Sample]) -> Result<Vec<&Sample>, Refusal> {
     let usable: Vec<&Sample> = samples
         .iter()
         .filter(|sample| sample.counts.work >= MIN_WORK && sample.measured > 0.0)
@@ -99,6 +85,193 @@ pub fn fit_from(
             usable: usable.len(),
         });
     }
+    Ok(usable)
+}
+
+/// Weights with the root-mean-square relative error they leave.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Weights {
+    pub work: f64,
+    pub byte: f64,
+    pub register: f64,
+    pub error: f64,
+}
+
+/// The exact fit of the three weights to instruction counts, and what the words can tell apart.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Solution {
+    /// The non-negative least-squares fit on relative error, each weight free.
+    pub free: Weights,
+    /// The same fit with work and registers held at the ratio of the current weights.
+    pub tied: Weights,
+    /// The free fit's error when work, bytes or registers is left out and the other two are refitted.
+    pub error_without: [f64; 3],
+    /// How the estimates of work and register move together: near -1, the words cannot split the two.
+    pub work_register_tradeoff: Option<f64>,
+    pub words: usize,
+}
+
+/// Solves `a x = b` for up to three unknowns; `None` when the columns are not independent.
+fn solve_linear<const N: usize>(
+    mut a: [[f64; N]; N],
+    mut b: [f64; N],
+    n: usize,
+) -> Option<[f64; N]> {
+    for col in 0..n {
+        let pivot = (col..n).max_by(|x, y| a[*x][col].abs().total_cmp(&a[*y][col].abs()))?;
+        if a[pivot][col].abs() < 1e-12 {
+            return None;
+        }
+        a.swap(col, pivot);
+        b.swap(col, pivot);
+        let (top, top_b) = (a[col], b[col]);
+        for row in col + 1..n {
+            let factor = a[row][col] / top[col];
+            for (cell, above) in a[row].iter_mut().zip(top) {
+                *cell -= factor * above;
+            }
+            b[row] -= factor * top_b;
+        }
+    }
+    let mut x = [0.0; N];
+    for row in (0..n).rev() {
+        let rest: f64 = (row + 1..n).map(|k| a[row][k] * x[k]).sum();
+        x[row] = (b[row] - rest) / a[row][row];
+    }
+    Some(x)
+}
+
+/// The normal matrix and right-hand side of `rows · x = 1` with each column scaled to unit length, and those lengths.
+fn normal_equations<const N: usize>(rows: &[[f64; N]]) -> ([[f64; N]; N], [f64; N], [f64; N]) {
+    let mut scale = [0.0; N];
+    for row in rows {
+        for (total, value) in scale.iter_mut().zip(row) {
+            *total += value * value;
+        }
+    }
+    let scale = scale.map(f64::sqrt);
+    let unit = |row: &[f64; N]| {
+        let mut out = *row;
+        for (value, length) in out.iter_mut().zip(scale) {
+            *value = if length > 0.0 { *value / length } else { 0.0 };
+        }
+        out
+    };
+    let (mut gram, mut rhs) = ([[0.0; N]; N], [0.0; N]);
+    for row in rows.iter().map(unit) {
+        for ((line, total), value) in gram.iter_mut().zip(rhs.iter_mut()).zip(row) {
+            *total += value;
+            for (cell, other) in line.iter_mut().zip(row) {
+                *cell += value * other;
+            }
+        }
+    }
+    (gram, rhs, scale)
+}
+
+/// Non-negative least squares of `rows · x = 1` over the `allowed` columns and its error: the best plain fit over every column set with no negative weight.
+fn least_squares<const N: usize>(rows: &[[f64; N]], allowed: [bool; N]) -> ([f64; N], f64) {
+    let (gram, rhs, scale) = normal_equations(rows);
+    let count = rows.len() as f64;
+    let mut best = ([0.0; N], 1.0);
+    for set in 1u32..(1 << N) {
+        let columns: Vec<usize> = (0..N)
+            .filter(|j| set & (1 << j) != 0 && allowed[*j] && scale[*j] > 0.0)
+            .collect();
+        if columns.len() != set.count_ones() as usize {
+            continue;
+        }
+        let (mut a, mut b) = ([[0.0; N]; N], [0.0; N]);
+        for (r, j) in columns.iter().enumerate() {
+            b[r] = rhs[*j];
+            for (c, k) in columns.iter().enumerate() {
+                a[r][c] = gram[*j][*k];
+            }
+        }
+        let Some(x) = solve_linear(a, b, columns.len()) else {
+            continue;
+        };
+        if x[..columns.len()].iter().any(|value| *value < 0.0) {
+            continue;
+        }
+        let mut squares = count;
+        for (r, j) in columns.iter().enumerate() {
+            squares -= 2.0 * rhs[*j] * x[r];
+            for (c, k) in columns.iter().enumerate() {
+                squares += x[r] * gram[*j][*k] * x[c];
+            }
+        }
+        let error = (squares.max(0.0) / count).sqrt();
+        if error < best.1 {
+            let mut weights = [0.0; N];
+            for (r, j) in columns.iter().enumerate() {
+                weights[*j] = x[r] / scale[*j];
+            }
+            best = (weights, error);
+        }
+    }
+    best
+}
+
+/// How the least-squares estimates of columns 0 and 2 move together, from the inverse of the normal matrix.
+fn tradeoff(rows: &[[f64; 3]]) -> Option<f64> {
+    let (gram, _, scale) = normal_equations(rows);
+    if scale.iter().any(|value| *value <= 0.0) {
+        return None;
+    }
+    let first = solve_linear(gram, [1.0, 0.0, 0.0], 3)?;
+    let last = solve_linear(gram, [0.0, 0.0, 1.0], 3)?;
+    let spread = first[0] * last[2];
+    (spread > 0.0).then(|| first[2] / spread.sqrt())
+}
+
+/// The exact fit for instruction counts, which load cannot disturb, so no bound is needed to steady it.
+///
+/// `current` gives the work-to-register ratio of the tied fit.
+pub fn solve(samples: &[Sample], current: [f64; 3]) -> Result<Solution, Refusal> {
+    let usable = usable(samples)?;
+    let rows: Vec<[f64; 3]> = usable
+        .iter()
+        .map(|sample| columns(&sample.counts, [1.0; 3]).map(|x| x / sample.measured))
+        .collect();
+    let (free, error) = least_squares(&rows, [true; 3]);
+    let error_without = [0, 1, 2].map(|left_out| {
+        let mut allowed = [true; 3];
+        allowed[left_out] = false;
+        least_squares(&rows, allowed).1
+    });
+    let tied_rows: Vec<[f64; 2]> = rows
+        .iter()
+        .map(|row| [row[0] * current[0] + row[2] * current[2], row[1]])
+        .collect();
+    let (tied, tied_error) = least_squares(&tied_rows, [true; 2]);
+    Ok(Solution {
+        free: Weights {
+            work: free[0],
+            byte: free[1],
+            register: free[2],
+            error,
+        },
+        tied: Weights {
+            work: tied[0] * current[0],
+            byte: tied[1],
+            register: tied[0] * current[2],
+            error: tied_error,
+        },
+        error_without,
+        work_register_tradeoff: tradeoff(&rows),
+        words: usable.len(),
+    })
+}
+
+/// Fits bounded multipliers on relative error. `cpu_share` is `None` for a count of instructions,
+/// which load cannot disturb.
+pub fn fit(samples: &[Sample], cpu_share: Option<f64>) -> Result<Fit, Refusal> {
+    let weights = current_weights();
+    if let Some(cpu_share) = cpu_share.filter(|share| *share < MIN_CPU_SHARE) {
+        return Err(Refusal::MachineBusy { cpu_share });
+    }
+    let usable = usable(samples)?;
     let speed = median(
         usable
             .iter()

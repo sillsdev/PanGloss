@@ -28,6 +28,24 @@ Instructions come from the CPU's hardware counters, so `rust/tools/instruction-c
 Windows. WSL does not expose the counters. Callgrind in WSL counts simulated instructions; use it only
 as a provisional signal, never as the verdict.
 
+The two tools do not count the same thing, so a count is compared only with a count from the same tool.
+Measured 2026-11-11 on the first machine, with the same words and work cap and two builds from before #232
+(the Windows one five commits older, none of them in the parser):
+
+| Grammar | Windows counters | Callgrind in WSL | Ratio |
+|---|---:|---:|---:|
+| Sena, 80 words | 2,020M to 2,032M | 1,085M | 1.87 |
+| Swahili, 77 words | 854M to 856M | 433M | 1.97 |
+| Indonesian, 70 words | 2,047M to 2,094M | 1,204M | 1.72 |
+| Amharic, 100 words | 8,774M | 5,831M | 1.50 |
+
+`work_steps` was identical on the two systems and the cost total differed by at most 8 parts per million, so the
+parser did the same counted work. The Windows counters themselves are right: a loop of two instructions
+per iteration read 4,001.3M instructions for 4,000M known ones between two lengths, plus 16M to 20M for each
+process. Callgrind counts user-mode instructions of a Linux build, and the Windows counters also include
+what the kernel runs for the process. So "instructions" has no single level across the two, and a cost
+weight fitted to callgrind is in callgrind's units.
+
 The script does not need an elevated shell. It starts and stops a trace through two scheduled tasks
 that hold the elevation:
 
@@ -80,31 +98,36 @@ by group policy cannot be turned off this way, and the script refuses to try.
 The weights follow the code more than the grammar, so a stored per-project weight earns nothing. A
 code change can move them, which is what `cost-calibrate` is for.
 
-Evidence for 113 / 2 / 45, a rescale of the earlier 676 / 2 / 268 shape after #232 and #234. The old weights
-over-predicted instructions about 2x (the 2026-11-02 proof run on a pre-#228, pre-#232 build already showed
-93% median error; pg-cost was last set 2026-11-01). The work and register terms are collinear in the
-samples, so the split is not refitted: one factor, 0.167, scales both, chosen to minimise the median level error
-on the 779-word fit set (indonesian, aweti, amharic, mbugwe, sena; words that parse ok and cost under 20M
-instructions). The byte weight stays 2 because an integer cannot scale to 0.33. Median / worst level error:
+Cost is an index. It is read only as a ratio of two totals, so it is judged on its shape and on how well
+it predicts a change, never on its level against instructions.
 
-| | fit set | held out (Swahili + Cebuano, 723 words) |
-|---|---|---|
-| 676 / 2 / 268 | 175.50% / 290.26% | 86.09% / 194.38% |
-| 113 / 2 / 45 | 4.45% / 32.04% | 16.14% / 41.30% |
+113 / 2 / 45 (#233) replaced 676 / 2 / 268. Work and registers keep their ratio, scaled by about a sixth; bytes
+stay at 2, so bytes carry a larger share of cost than before. Evidence, from two change pairs over seven
+grammars (callgrind in WSL; change of each grammar's total, error in percentage points):
 
-- Free fits are unstable: 40 words per grammar gave 58 / 2 / 61, 779 words gave 177 / 2 / 14 and did not settle in 20
-  rounds. Work and register cannot be separated with these words, so the shape is kept.
-- Follow-up: refit the split once FST-heavy words decorrelate the work and register terms.
-- Earlier evidence (6 change pairs, r 0.978) described the previous parser and no longer applies.
+| Pair | Weights | Sign right | Mean / worst error | Per-word direction (moved 2% or more) |
+|---|---|---|---|---|
+| #232: bytes -17% to -44%, registers unchanged | 676 / 2 / 268 | 7 of 7 | 5.35 / 11.37 | 430 of 430 for every set (Swahili and Cebuano only) |
+| | 113 / 2 / 45 | 7 of 7 | 5.32 / 11.49 | |
+| `HC_RSL=off`: work falls, registers rise | 676 / 2 / 268 | 4 of 4 | 0.78 / 2.67 | 535 of 593 (all seven) |
+| | 113 / 2 / 45 | 4 of 4 | 0.28 / 0.63 | 569 of 593 |
+| | `work_steps` alone | 2 of 4 | 4.29 / 13.55 | 317 of 593 |
+
+- On #232 the two sets tie: 676 / 2 / 268 predicts too small a cut on all seven grammars, 113 / 2 / 45 too large
+  a cut on six. Per-word direction says nothing there, because every word moved the same way.
+- `HC_RSL=off` is the pair that separates them, and the only one that splits work from registers. Its best
+  ratios are 116 / 2 / 42; the tied fits below give 101 to 111 / 2 / 40 to 44.
+- Two pairs is thin, and both are callgrind. A standing set of pairs, including grammar edits, is #240.
 
 Limits:
 
-- Magnitude is rough. A real -45% read about -55%; a real -9% read -3%.
-- Changes under 2% are not resolved: a real +1.15% read -0.71%.
+- Magnitude is rough. On #232 a real -27.7% read -39.2% and a real -17.1% read -14.8%.
+- Changes under 2% are not resolved: on `HC_RSL=off` a real +0.42% read +1.04% and a real -0.14% read 0.00%.
 - Cost only sees changes in how much counted work happens. A constant-factor change, such as a
   cheaper hash per register copied, leaves the counts identical and reads as no change. Instruction
   comparison (`rust/tools/instruction-compare.ps1`) remains the required measure for algorithm
   changes; cost is the quick grammar-author signal.
+
 ## Cost is a report
 
 No cap, deadline or parse decision reads cost, so it cannot change a parse. Measurement stays off
@@ -140,21 +163,53 @@ After a change to the parser gets a GO from `rust/tools/instruction-compare.ps1`
 tests whether the weights still fit; the steps, the skip rule and what an owner decides are in
 `.claude/skills/retune-parser-work/SKILL.md`. It refits on the fit grammars from per-word Valgrind
 instructions (`cost-calibrate --parse-only`, `--targets`, `--counts-out`, `--fit-counts`) and scores old and
-new weights on grammars held out of the fit. The rule it prints:
+new weights.
 
-- **ACCEPT** only if the fit settled and, on the held-out set, direction is no worse, median error is lower
-  and worst error is no worse. A real pair whose counts did not change has no direction rows and can still
-  ACCEPT on level error; the reason then says "direction unmeasured (0 rows)".
-- **KEEP** otherwise, including a fit that did not settle and any `-NoChangeCheck` run (a proof run of the
-  tool, which never exits 0).
+**What decides.** Cost is only ever read as a ratio of two totals (`cost-compare`), so multiplying all three
+weights by one factor changes no verdict. The tool therefore decides on what a ratio can see:
+
+- the **shape**: the per-word error on held-out grammars after the median predicted/measured ratio is divided
+  out;
+- the **change**: for every grammar, the change of its total that the weights predict from the Before and
+  After counts, against the change `instruction-compare` measured;
+- the per-word **direction** on held-out grammars.
+
+The **level** (predicted against measured instructions) is printed and decides nothing. It also has no single
+value: see the table under "Where instructions are measured".
+
+The rule it prints:
+
+- **ACCEPT** only if direction is no worse, the predicted change of grammar totals is no worse (the sign on
+  every grammar that moved 0.5% or more, and a mean error within 0.5 points) and the shape is better on the
+  held-out set.
+- **KEEP** otherwise, including a fit whose words do not carry the byte term and any `-NoChangeCheck` run (a
+  proof run of the tool, which never exits 0).
 - **REFUSED** when a measurement cannot be trusted: a failed no-change control, a status change, a missing
   grammar, or fewer than 8 scored words in any held-out grammar.
 
-One fit moves a weight at most ×0.75-1.5, so the tool continues it from its own result until it settles; the
-counts do not depend on the weights. Beside the level error it prints a scale-free error (the median
-predicted/measured ratio divided out), report-only, so an ACCEPT shows whether the shape improved or the
-weights only rescaled. It warns when a weight moves by more than a quarter, and a result from 40-word samples
-is not evidence to adopt.
+**The fit.** `cost-calibrate --fit-counts` solves the least-squares fit on relative error exactly, with no
+weight below zero, and prints how much worse the fit is when work, bytes or registers is left out. The words
+carry a term only if leaving it out makes the fit at least a tenth worse. Per-word totals of work and of
+registers copied rise and fall together, so real word lists do not split them. Measured on main with #232 and
+#234:
+
+| Fit words | Free fit (work / byte / register) | Fit without work | Fit without registers | Work and registers at 676 : 268, which 113 : 45 keeps |
+|---|---|---|---|---|
+| 199 (40 per grammar) | 58.2 / 2.27 / 60.7 | x1.01 worse | x1.08 worse | 111.1 / 2.25 / 44.0 |
+| 779 | 177.0 / 2.22 / 13.6 | x1.06 worse | x1.00 worse | 100.9 / 2.26 / 40.0 |
+
+The free weights differ by a factor of three to four between two samples of the same code, and the fit with the
+two held at their current ratio moves by a tenth, at a cost of 0.1 points of fit error. So when the words do
+not carry both, the candidate keeps the ratio of work to registers and refits their sum against bytes. Only the
+byte weight is settled by per-word totals (2.16 to 2.30 over 1000 resamples of the 779 words).
+
+A change that moves work and registers apart does split them. Turning the required-slot look-ahead off
+(`HC_RSL=off`, one binary) lowers work and raises registers copied: on Swahili work -6.4%, registers +11.3%,
+instructions +2.6% (callgrind, 323 words). Over the seven grammars the ratios that predict that change best
+are work/byte 58 and register/byte 21, which is 116 / 2 / 42. `work_steps` alone has the wrong sign there on
+Sena and on Swahili, on callgrind and on the Windows counters.
+
+It warns when a weight moves by more than a quarter, and a result from 40-word samples is not evidence to adopt.
 
 It never edits a weight and never touches `work_steps`. Memory, simulated cache misses and CPU time print
 beside the result and stay out of the fit.

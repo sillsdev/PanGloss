@@ -1,7 +1,7 @@
 //! `pangloss cost-calibrate`, built only with the `cost-calibration` feature: suggests new fixed weights.
 
 use crate::{load_grammar, outcome_status, DEFAULT_WORK_CAP};
-use pg_cost::calibrate::{current_weights, fit, fit_from, Fit, Sample};
+use pg_cost::calibrate::{current_weights, fit, solve, Fit, Sample, Solution, Weights};
 use pg_cost::Counts;
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
 use std::collections::HashMap;
@@ -95,15 +95,36 @@ fn print_result(source: &str, cpu_share: Option<f64>, weights: [f64; 3], result:
     );
 }
 
-/// `work,byte,register`, each a positive number.
-fn parse_weights(text: &str) -> Result<[f64; 3], String> {
-    let bad = || format!("invalid --weights {text:?}: expected work,byte,register");
-    let parts: Vec<&str> = text.split(',').collect();
-    let [work, byte, register] = parts.as_slice() else {
-        return Err(bad());
+/// The exact fit of pooled counts files, with what leaving each term out costs: the retune tool reads this.
+fn print_solution(current: [f64; 3], solution: &Solution) {
+    let weights = |w: &Weights| {
+        serde_json::json!({
+            "work": w.work,
+            "byte": w.byte,
+            "register": w.register,
+            "error": w.error,
+        })
     };
-    let number = |s: &str| s.parse::<f64>().ok().filter(|n| *n > 0.0).ok_or_else(bad);
-    Ok([number(work)?, number(byte)?, number(register)?])
+    println!(
+        "{}",
+        serde_json::json!({
+            "source": "instructions",
+            "words": solution.words,
+            "free": weights(&solution.free),
+            "tied": weights(&solution.tied),
+            "errorWithout": {
+                "work": solution.error_without[0],
+                "byte": solution.error_without[1],
+                "register": solution.error_without[2],
+            },
+            "workRegisterTradeoff": solution.work_register_tradeoff,
+            "current": {
+                "work": current[0],
+                "byte": current[1],
+                "register": current[2],
+            },
+        })
+    );
 }
 
 /// `count` indices spread evenly over `len` words, or all of them when there are fewer.
@@ -120,7 +141,6 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
     let mut counts_out = None;
     let mut fit_counts = false;
     let mut parse_only = false;
-    let mut start_weights = None;
     let mut sample = DEFAULT_WORDS;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -129,10 +149,7 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
             "--counts-out" => counts_out = Some(it.next().ok_or("--counts-out requires a path")?),
             "--fit-counts" => fit_counts = true,
             "--parse-only" => parse_only = true,
-            "--weights" => {
-                let value = it.next().ok_or("--weights requires work,byte,register")?;
-                start_weights = Some(parse_weights(value)?);
-            }
+
             "--words" => {
                 let value = it.next().ok_or("--words requires a value")?;
                 sample = value
@@ -147,22 +164,16 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
     }
     if fit_counts {
         if targets_path.is_some() || counts_out.is_some() || positional.is_empty() {
-            return Err(
-                "usage: cost-calibrate --fit-counts [--weights work,byte,register] <counts.tsv>..."
-                    .into(),
-            );
+            return Err("usage: cost-calibrate --fit-counts <counts.tsv>...".into());
         }
         let mut samples = Vec::new();
         for path in &positional {
             samples.extend(read_counts(path)?);
         }
-        let weights = start_weights.unwrap_or_else(current_weights);
-        let result = fit_from(&samples, None, weights).map_err(|refusal| refusal.to_string())?;
-        print_result("instructions", None, weights, &result);
+        let current = current_weights();
+        let solution = solve(&samples, current).map_err(|refusal| refusal.to_string())?;
+        print_solution(current, &solution);
         return Ok(());
-    }
-    if start_weights.is_some() {
-        return Err("--weights goes with --fit-counts".into());
     }
     let [grammar_path, words_path] = positional.as_slice() else {
         return Err(
@@ -332,20 +343,6 @@ mod tests {
         fs::remove_file(&b).unwrap();
         assert!(alone.unwrap_err().contains("usable words"));
         assert!(pooled.is_ok());
-    }
-
-    #[test]
-    fn weights_start_the_fit_and_belong_to_fit_counts() {
-        assert_eq!(parse_weights("200,1.5,90").unwrap(), [200.0, 1.5, 90.0]);
-        for bad in ["1,2", "1,2,x", "1,0,3", "1,2,3,4"] {
-            assert!(parse_weights(bad).is_err(), "{bad}");
-        }
-        let args: Vec<String> = ["g.xml", "w.txt", "--weights", "1,2,3"]
-            .map(String::from)
-            .into();
-        assert!(run_cost_calibrate(&args)
-            .unwrap_err()
-            .contains("--fit-counts"));
     }
 
     #[test]

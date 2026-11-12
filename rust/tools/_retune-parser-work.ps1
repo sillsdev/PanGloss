@@ -10,6 +10,12 @@ $script:DirectionFloorPercent = 2.0
 $script:MinHeldOutWords = 8
 # A shape gain under this many percentage points of scale-free median error is read as a rescale.
 $script:ShapeMarginPoints = 0.1
+# The words carry a term only if leaving it out makes the fit's error at least this many times larger.
+$script:CarriedErrorRatio = 1.10
+# Below this change in a grammar's total instructions the sign of the change is not scored.
+$script:ChangeFloorPercent = 0.5
+# The mean error of the predicted change may rise by this many points before it counts as worse.
+$script:ChangeMarginPoints = 0.5
 # A weight that moves by more than this fraction is flagged for the owner (SKILL.md, What an owner must decide).
 $script:LargeMoveFraction = 0.25
 
@@ -109,9 +115,73 @@ function Get-WeightedCost {
 }
 
 function ConvertTo-CandidateWeights {
-    # Factors times speed, because with an instruction target speed is a real uniform error; rounded to integers, at least 1.
-    param([Parameter(Mandatory)][double[]]$Suggested, [Parameter(Mandatory)][double]$Speed)
-    return [double[]]@($Suggested | ForEach-Object { [Math]::Max(1.0, [Math]::Round($_ * $Speed, [MidpointRounding]::AwayFromZero)) })
+    # Rounded to integers, at least 1, because pg-cost holds integer weights.
+    param([Parameter(Mandatory)][double[]]$Weights)
+    return [double[]]@($Weights | ForEach-Object { [Math]::Max(1.0, [Math]::Round($_, [MidpointRounding]::AwayFromZero)) })
+}
+
+function Get-FitReading {
+    # Which fit of `cost-calibrate --fit-counts` is the candidate: the free one only when the words carry work and registers each.
+    param([Parameter(Mandatory)]$Fit)
+    $free = [double]$Fit.free.error
+    $names = 'work', 'byte', 'register'
+    $ratio = @{}; $carried = @{}
+    foreach ($n in $names) {
+        $without = [double]$Fit.errorWithout.$n
+        $ratio[$n] = if ($free -gt 0) { $without / $free } elseif ($without -gt 1e-9) { [double]::PositiveInfinity } else { 1.0 }
+        $carried[$n] = $ratio[$n] -ge $script:CarriedErrorRatio
+    }
+    $w = { param($f) [double[]]@([double]$f.work, [double]$f.byte, [double]$f.register) }
+    $times = { param($n) if ([double]::IsInfinity($ratio[$n])) { 'far' } else { 'x{0:0.00}' -f $ratio[$n] } }
+    $tradeoff = if ($null -ne $Fit.workRegisterTradeoff) { ', and their estimates trade off at {0:0.00}' -f [double]$Fit.workRegisterTradeoff } else { '' }
+    $left = "leaving a term out makes the fit worse by: work $(& $times 'work')  byte $(& $times 'byte')  register $(& $times 'register')"
+    if (-not $carried['byte']) {
+        return [PSCustomObject]@{ Kind = 'none'; Weights = $null; Left = $left; Note = "the words do not carry the byte term (the fit is as good without it), so no candidate is offered" }
+    }
+    if ($carried['work'] -and $carried['register']) {
+        return [PSCustomObject]@{ Kind = 'free'; Weights = (& $w $Fit.free); Left = $left; Note = 'the words carry work, bytes and registers each, so every weight is refitted' }
+    }
+    return [PSCustomObject]@{ Kind = 'tied'; Weights = (& $w $Fit.tied); Left = $left
+        Note = "the words cannot split work from registers (a fit without one of them is under x$('{0:0.00}' -f $script:CarriedErrorRatio) worse$tradeoff), so the candidate keeps their current ratio and refits their sum against bytes" }
+}
+
+function Get-ChangeScore {
+    # How well weights predict the change of each grammar's total: `Changes` holds {Grammar, MeasuredPercent, Before, After}, the last two being count totals (work, bytes, registers).
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Changes, [Parameter(Mandatory)][double[]]$Weights)
+    $dot = { param($c) $c[0] * $Weights[0] + $c[1] * $Weights[1] + $c[2] * $Weights[2] }
+    $rows = 0; $match = 0; $errs = @(); $by = @()
+    foreach ($c in $Changes) {
+        $before = & $dot $c.Before
+        if ($before -le 0) { throw "grammar '$($c.Grammar)': the Before counts total to no cost" }
+        $pred = 100.0 * ((& $dot $c.After) - $before) / $before
+        $errs += [Math]::Abs($pred - $c.MeasuredPercent)
+        $by += [PSCustomObject]@{ Grammar = $c.Grammar; Measured = $c.MeasuredPercent; Predicted = $pred }
+        if ([Math]::Abs($c.MeasuredPercent) -ge $script:ChangeFloorPercent) {
+            $rows++
+            if ([Math]::Sign($pred) -eq [Math]::Sign($c.MeasuredPercent)) { $match++ }
+        }
+    }
+    return [PSCustomObject]@{
+        Grammars = @($Changes).Count; Rows = $rows; Matches = $match
+        MeanError = if ($errs.Count) { ($errs | Measure-Object -Average).Average } else { $null }
+        WorstError = if ($errs.Count) { ($errs | Measure-Object -Maximum).Maximum } else { $null }
+        ByGrammar = $by
+    }
+}
+
+function Get-CountTotals {
+    # Work, bytes and registers summed over the words both builds counted, so the two totals describe the same words.
+    param([Parameter(Mandatory)]$Before, [Parameter(Mandatory)]$After)
+    $b = @{}; foreach ($r in $Before) { $b[$r.Idx] = $r }
+    $tb = [double[]]@(0, 0, 0); $ta = [double[]]@(0, 0, 0); $n = 0
+    foreach ($a in $After) {
+        $r = $b[$a.Idx]
+        if (-not $r) { continue }
+        $n++
+        $tb[0] += $r.Work; $tb[1] += $r.Bytes; $tb[2] += $r.Registers
+        $ta[0] += $a.Work; $ta[1] += $a.Bytes; $ta[2] += $a.Registers
+    }
+    return [PSCustomObject]@{ Words = $n; Before = $tb; After = $ta }
 }
 
 function Get-WeightScore {
@@ -147,6 +217,7 @@ function Get-WeightScore {
         Words = $scored.Count
         MedianError = if ($errs.Count) { Get-Median $errs } else { $null }
         WorstError = if ($errs.Count) { ($errs | Measure-Object -Maximum).Maximum } else { $null }
+        MedianRatio = if ($ratios.Count) { $scale } else { $null }
         ScaleFreeMedianError = if ($flat.Count) { Get-Median $flat } else { $null }
         ScaleFreeWorstError = if ($flat.Count) { ($flat | Measure-Object -Maximum).Maximum } else { $null }
         WordsByGrammar = $byGrammar
@@ -157,41 +228,47 @@ function Get-WeightScore {
     }
 }
 
-function Get-ShapeNote {
-    # Report-only: whether the weights fit the shape of the cost better, or only the level (a rescale).
+function Get-LevelNote {
+    # Report-only: how far the predicted level is from the measured one. Cost is only ever compared as a ratio, so the level decides nothing.
     param([Parameter(Mandatory)]$Old, [Parameter(Mandatory)]$New)
-    if ($null -eq $Old.ScaleFreeMedianError -or $null -eq $New.ScaleFreeMedianError) { return $null }
-    $o = $Old.ScaleFreeMedianError; $n = $New.ScaleFreeMedianError
-    $text = ('scale-free median error {0:0.00}% -> {1:0.00}%' -f $o, $n)
-    if ($n -le $o - $script:ShapeMarginPoints) { return "shape improved ($text)" }
-    if ($n -ge $o + $script:ShapeMarginPoints) { return "shape worse ($text)" }
-    return "shape unchanged, the gain is a rescale ($text)"
+    if ($null -eq $Old.MedianRatio -or $null -eq $New.MedianRatio) { return $null }
+    return ('level, report-only: the current weights predict x{0:0.00} of the measured instructions and the candidate x{1:0.00}; a uniform rescale changes no comparison' -f $Old.MedianRatio, $New.MedianRatio)
 }
 
 function Get-RetuneDecision {
-    # ACCEPT needs a settled fit, direction no worse, median error lower and worst error no worse; a proof run never exceeds KEEP.
-    param([Parameter(Mandatory)]$Old, [Parameter(Mandatory)]$New, [double[]]$OldWeights, [double[]]$NewWeights,
-        [Parameter(Mandatory)][bool]$Settled, [Parameter(Mandatory)][bool]$ProofRun, [string[]]$HeldOutNames)
+    # ACCEPT needs direction no worse, the predicted change of grammar totals no worse and a better shape. The level never decides, and a proof run never exceeds KEEP.
+    param([Parameter(Mandatory)]$Old, [Parameter(Mandatory)]$New, $OldChange, $NewChange, [double[]]$OldWeights, [double[]]$NewWeights,
+        [Parameter(Mandatory)][bool]$ProofRun, [string[]]$HeldOutNames, [string]$NoCandidate)
     $min = $script:MinHeldOutWords
-    $out = { param($v, $r) [PSCustomObject]@{ Verdict = $v; Reason = $r; Shape = $(if ($v -ne 'REFUSED') { Get-ShapeNote $Old $New }) } }
+    $out = { param($v, $r) [PSCustomObject]@{ Verdict = $v; Reason = $r; Level = $(if ($v -ne 'REFUSED') { Get-LevelNote $Old $New }) } }
     if ($Old.Words -lt $min) { return & $out 'REFUSED' "only $($Old.Words) held-out word(s) reach $($script:MinScoredWork) work units; at least $min are needed to score" }
     foreach ($name in $HeldOutNames) {
         $n = [int]$Old.WordsByGrammar[$name]
         if ($n -lt $min) { return & $out 'REFUSED' "held-out grammar '$name' has only $n word(s) that reach $($script:MinScoredWork) work units; at least $min per grammar are needed to score" }
     }
     if ($Old.DirectionRows -ne $New.DirectionRows) { throw 'old and new weights were scored on different direction rows' }
+    if (($null -eq $OldChange) -ne ($null -eq $NewChange)) { throw 'old and new weights need the same change scores' }
+    if ($OldChange -and $OldChange.Rows -ne $NewChange.Rows) { throw 'old and new weights were scored on different grammar changes' }
     $proof = if ($ProofRun) { 'proof run, direction unmeasurable on a no-change pair: ' } else { '' }
-    if (-not $Settled) { return & $out 'KEEP' "${proof}the fit did not settle, so the candidate is not a fixed point and is never a candidate" }
+    if ($NoCandidate) { return & $out 'KEEP' "$proof$NoCandidate" }
     $same = $OldWeights -and $NewWeights -and (@(0..2 | Where-Object { $OldWeights[$_] -ne $NewWeights[$_] }).Count -eq 0)
     if ($same) { return & $out 'KEEP' "${proof}the refit rounds to the current weights" }
     $problems = @()
     if ($New.DirectionMatches -lt $Old.DirectionMatches) { $problems += "direction worse ($($New.DirectionMatches) of $($New.DirectionRows) against $($Old.DirectionMatches))" }
-    if (-not ($New.MedianError -lt $Old.MedianError)) { $problems += ('median error not lower ({0:0.00}% against {1:0.00}%)' -f $New.MedianError, $Old.MedianError) }
-    if ($New.WorstError -gt $Old.WorstError) { $problems += ('worst error higher ({0:0.00}% against {1:0.00}%)' -f $New.WorstError, $Old.WorstError) }
+    $moved = if ($NewChange) { $NewChange.Rows } else { 0 }
+    if ($NewChange) {
+        if ($NewChange.Matches -lt $OldChange.Matches) { $problems += "change direction worse ($($NewChange.Matches) of $moved grammar(s) against $($OldChange.Matches))" }
+        if ($null -ne $NewChange.MeanError -and $NewChange.MeanError -gt $OldChange.MeanError + $script:ChangeMarginPoints) {
+            $problems += ('change error higher ({0:0.00} against {1:0.00} points over {2} grammar(s))' -f $NewChange.MeanError, $OldChange.MeanError, $NewChange.Grammars)
+        }
+    }
+    if (-not ($New.ScaleFreeMedianError -le $Old.ScaleFreeMedianError - $script:ShapeMarginPoints)) { $problems += ('shape not better (scale-free median error {0:0.00}% against {1:0.00}%)' -f $New.ScaleFreeMedianError, $Old.ScaleFreeMedianError) }
+    if ($New.ScaleFreeWorstError -gt $Old.ScaleFreeWorstError) { $problems += ('worst shape error higher ({0:0.00}% against {1:0.00}%)' -f $New.ScaleFreeWorstError, $Old.ScaleFreeWorstError) }
     if ($problems.Count -gt 0) { return & $out 'KEEP' "$proof$($problems -join '; ')" }
     $rows = $New.DirectionRows
     $direction = if ($rows -eq 0) { 'direction unmeasured (0 rows)' } elseif ($rows -lt 8) { "direction weak (no worse on only $rows row(s))" } else { 'direction no worse' }
-    $passed = "$direction, median error lower, worst error no worse on the held-out set"
+    $change = if ($moved -eq 0) { 'change of grammar totals unmeasured (0 grammars moved)' } else { "change of grammar totals no worse over $moved grammar(s)" }
+    $passed = "$direction, $change, shape better on the held-out set"
     if ($ProofRun) { return & $out 'KEEP' "${proof}the tool ran end to end and would otherwise pass ($passed); a no-change pair never issues ACCEPT" }
     return & $out 'ACCEPT' $passed
 }
@@ -201,12 +278,6 @@ function Get-WeightMoves {
     param([Parameter(Mandatory)][double[]]$Current, [Parameter(Mandatory)][double[]]$Candidate)
     $names = 'work', 'byte', 'register'
     return [string[]]@(0..2 | Where-Object { [Math]::Abs($Candidate[$_] / $Current[$_] - 1.0) -gt $script:LargeMoveFraction } | ForEach-Object { '{0} x{1:0.00} ({2} to {3})' -f $names[$_], ($Candidate[$_] / $Current[$_]), $Current[$_], $Candidate[$_] })
-}
-
-function Test-FitSettled {
-    # Settled when every factor and the speed are within 0.5% of 1: the candidate is then a fixed point of the fit.
-    param([Parameter(Mandatory)][double[]]$Factors, [Parameter(Mandatory)][double]$Speed)
-    return (($Factors | ForEach-Object { [Math]::Abs($_ - 1.0) } | Measure-Object -Maximum).Maximum -lt 0.005) -and ([Math]::Abs($Speed - 1.0) -lt 0.005)
 }
 
 function Read-CompareResult {

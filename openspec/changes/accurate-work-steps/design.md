@@ -163,7 +163,7 @@ read as better. The verdict rules are:
 ### D10: Weights are constants of the code, and calibration is a developer feature
 
 Cost = work × a + bytes allocated × b + registers copied × c. The weights are fixed constants in
-`pg-cost`, currently 676, 2 and 268 instructions per work unit, byte and register copy. Costs depend on the code, not on the
+`pg-cost`, currently 113, 2 and 45 instructions per work unit, byte and register copy (676, 2 and 268 until #233). Costs depend on the code, not on the
 grammar: fitted on four grammars and scored on the fifth, the weights stayed close and predicted the
 held-out grammar's instruction rate, so a stored per-project weight earns nothing. Both sides of a
 comparison use one weight set, so the verdict is deterministic and load cannot touch it. Weights
