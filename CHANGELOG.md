@@ -5,6 +5,15 @@ file has no section for.
 
 ## Unreleased
 
+## 0.18.0
+
+Released 2026-11-12.
+
+A word's parse holds 3 to 6 times less memory with identical analyses and parser work: on the heaviest Mbugwe word the peak falls from 1,152 MB to 82 MB at a 50M work cap and from 774 MB to 479 MB at 1G (#249, #250, #262). `pangloss batch --prefilter off|auto|on` adds an opt-in load-time gate for the rule-admission filter and tiled acceptor; the default `off` is the plain parse byte for byte, and `auto` and `on` need the `foma-tools` build feature, which the release binaries do not include (#251, #254). Building the prefilter tables needs far less memory, 22 MiB instead of 858 MiB on Amharic (#257). Lexical lookup proposes only the matched root allomorph and skips syntactic-feature mismatches, as machine#627 does (#270). CI is green on Rust 1.100 again (#267) and the pmc-setup task-spec cases are skipped off Windows (#253).
+
+- Lexical lookup proposes only the root allomorph the search matched and skips one whose entry's syntactic features do not unify, as machine#627 does (#270).
+- Main builds and passes CI on Rust 1.100 (#267); the pmc-setup task-spec cases are skipped off Windows so WSL tool-tests pass (#253).
+
 - In the last stratum analysed, once a word's search is large, a word that no root matches no longer keeps the other derivations that reach it: nothing can be synthesized from it, so they were never read. The check spends none of the word's work, its answers are kept by shape for that one word in a table held to 4 MB, and the root lookups run afterwards as before, so analyses, their order, parser work and which words reach the cap are identical; a trace and the root guesser keep everything. On the heaviest Mbugwe word the peak falls from 126 MB to 112 MB at a 200M work cap and from 479 MB to 281 MB at 1G.
 
 - The search's visited set for a stratum holds a position into the words already found, compared field by field against the stored word, instead of an owned state key per word. On the heaviest Mbugwe word the peak falls from 35 MB to 32 MB at a 50M work cap, from 158 MB to 126 MB at 200M and from 558 MB to 479 MB at 1G, with identical analyses and parser work.
