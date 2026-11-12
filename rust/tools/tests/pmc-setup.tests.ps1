@@ -1,7 +1,8 @@
 <#
   .DESCRIPTION
   Covers: the pure logic in rust/tools/_pmc-setup.ps1 behind pmc-setup.ps1 -- which registered tasks count as
-  ready, and how the memory integrity state is read. Registers no task and reads no registry.
+  ready, how the memory integrity state is read, and when a known-count loop's counts verify the counter.
+  Registers no task, reads no registry and takes no trace.
 #>
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_pmc-setup.ps1"
@@ -61,6 +62,46 @@ Test-Case 'memory integrity not running and not configured is off' {
 Test-Case 'a policy turns memory integrity on whatever the setting says' {
     $s = Get-MemoryIntegrityState -Running @() -Configured 0 -PolicyEnabled 1
     Assert-True ($s.PolicyManaged -and $s.OnAfterReboot -and $s.RebootPending) $s.Summary
+}
+
+Test-Case 'counts matching the known loop difference verify' {
+    # Counts from the first machine (issue #242): each process adds 16M to 20M on top of 2 instructions per iteration.
+    $v = Get-KnownLoopVerdict -Iterations @(1000000000, 3000000000) -Counted @(2016243525, 6017540488)
+    Assert-True $v.Pass "off by $($v.ErrorPercent)%"
+    Assert-Equal 4000000000 $v.Expected
+}
+
+Test-Case 'a counter that is not counting instructions fails the known loop' {
+    # The two-counter trace from parse-cost.md read about 2.1x the instructions; any such ratio misses the 1% window.
+    $v = Get-KnownLoopVerdict -Iterations @(1000000000, 3000000000) -Counted @(4200000000, 12600000000)
+    Assert-True (-not $v.Pass) "passed at $($v.ErrorPercent)%"
+}
+
+Test-Case 'a count just outside 1% of the known difference fails' {
+    $v = Get-KnownLoopVerdict -Iterations @(1000000000, 3000000000) -Counted @(2016000000, (2016000000 + 4041000000))
+    Assert-True (-not $v.Pass) "passed at $($v.ErrorPercent)%"
+    $v = Get-KnownLoopVerdict -Iterations @(1000000000, 3000000000) -Counted @(2016000000, (2016000000 + 4039000000))
+    Assert-True $v.Pass "failed at $($v.ErrorPercent)%"
+}
+
+Test-Case 'any count above zero is not enough' {
+    $v = Get-KnownLoopVerdict -Iterations @(1000000000, 3000000000) -Counted @(1, 2)
+    Assert-True (-not $v.Pass) 'a tiny positive count verified'
+}
+
+Test-Case 'the long run must be longer than the short run' {
+    $threw = $false
+    try { Get-KnownLoopVerdict -Iterations @(3000000000, 1000000000) -Counted @(1, 2) | Out-Null } catch { $threw = $true }
+    Assert-True $threw 'reversed lengths were accepted'
+}
+
+Test-Case 'verify refuses on a non-x86_64 machine' {
+    foreach ($arch in 'Arm64', 'X86', 'Arm') {
+        $msg = $null
+        try { Assert-KnownLoopArchitecture -Architecture $arch } catch { $msg = $_.Exception.Message }
+        Assert-True ($msg -match 'unsupported architecture') "$arch was not refused: $msg"
+    }
+    Assert-KnownLoopArchitecture -Architecture 'X64'
 }
 
 Write-TestSummary

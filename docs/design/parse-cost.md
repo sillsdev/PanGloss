@@ -73,8 +73,8 @@ pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Install   # one UAC prompt
 pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify    # must print VERIFIED
 ```
 
-With no switch it reports what is missing and exits 1 until the machine is ready. `-Verify` takes a
-real trace of a short busy process and refuses unless the trace counted instructions for it. A ready
+With no switch it reports what is missing and exits 1 until the machine is ready. `-Verify` traces a
+`dec`/`jnz` loop at two lengths and refuses unless the counted difference is within 1% of the known one. A ready
 report is not proof; only `-Verify` is. Then run a binary against itself with
 `instruction-compare.ps1`: that control must read NO-GO, not refuse.
 
@@ -92,6 +92,7 @@ identified. Microsoft Defender is reported to claim the fixed counters on Intel 
 memory integrity (HVCI) off first made no difference, so it was not the cause.
 `-DisableMemoryIntegrity` remains for a machine where `-Verify` shows otherwise. Memory integrity set
 by group policy cannot be turned off this way, and the script refuses to try.
+On 2026-11-12 the known-loop `-Verify` passed on that machine with memory integrity (HVCI) on.
 
 ## Why the weights are fixed
 

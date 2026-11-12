@@ -12,8 +12,11 @@
   -DisableMemoryIntegrity   turns memory integrity (HVCI) off; it takes effect after a reboot. Not needed on the
                             first machine set up (docs/design/parse-cost.md); use it only if -Verify fails and
                             memory integrity is the remaining suspect.
-  -Verify                   takes a real trace of a short busy process and refuses unless it carries counter
-                            values for that process. No elevation. Run it after any reboot that changed the setup.
+  -Verify                   builds instruction-compare\known_loop.rs with rustc, traces it at two lengths, and
+                            refuses unless the counted difference is within 1% of the known instruction
+                            difference. Holds the Global\PanGlossInstructionCompare lock, so it never cuts an
+                            instruction-compare trace. x86_64 only; elsewhere it refuses (unsupported architecture).
+                            No elevation. Run it after any reboot that changed the setup.
   -Install and -DisableMemoryIntegrity need an administrator. From an unelevated shell the script asks for
   elevation once (one UAC prompt), runs the elevated steps, and passes -User through so the tasks belong to you.
 
@@ -106,31 +109,59 @@ function Disable-MemoryIntegrity {
 }
 
 function Invoke-Verify {
+    Assert-KnownLoopArchitecture -Architecture "$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
+    if ($Cpu -lt 0 -or $Cpu -ge [Environment]::ProcessorCount) { throw "-Cpu $Cpu is not one of the $([Environment]::ProcessorCount) logical processors" }
     $python = (Get-Command python -ErrorAction SilentlyContinue).Source
     if (-not $python) { throw 'python is not on PATH; it reads the trace' }
+    if (-not (Get-Command rustc -ErrorAction SilentlyContinue)) { throw 'rustc is not on PATH; it builds the known-count loop' }
     $problems = Get-PmcTaskProblems -Found (Get-RegisteredPmcTasks)
     if ($problems.Count -gt 0) { throw "the PMC tasks are not ready: $($problems -join '; ')" }
-    $t0 = Get-Date
-    $busy = $null
-    Invoke-PmcTask 'PanGloss PMC Start' 60
+    # The same machine-wide lock instruction-compare.ps1 holds: starting or stopping the PMC tasks mid-comparison would cut its trace.
+    $lock = [System.Threading.Mutex]::new($false, 'Global\PanGlossInstructionCompare')
+    $held = $false
+    try { $held = $lock.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $held = $true }
+    if (-not $held) { $lock.Dispose(); throw 'an instruction-compare run (or another -Verify) holds the machine-wide lock Global\PanGlossInstructionCompare; starting a trace now would stop its trace' }
+    $work = Join-Path ([IO.Path]::GetTempPath()) "pmc-verify-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Force $work | Out-Null
     try {
-        $busy = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile', '-Command', '$x = 0; for ($i = 0; $i -lt 3000000; $i++) { $x += $i }') -PassThru -WindowStyle Hidden
-        $busy.ProcessorAffinity = [IntPtr]([int64]1 -shl $Cpu)
-        $busy.WaitForExit()
-    } finally { Invoke-PmcTask 'PanGloss PMC Stop' 900 }
-    $trace = Get-Item (Join-Path $script:PmcDir 'current.etl')
-    if ($trace.LastWriteTime -lt $t0) { throw "trace not refreshed: $($trace.FullName) is older than this run" }
-    $copy = Join-Path ([IO.Path]::GetTempPath()) "pmc-verify-$PID.etl"
-    Copy-Item $trace.FullName $copy -Force
-    try {
-        $json = & $python -I "$PSScriptRoot\instruction_compare_etl.py" $copy $busy.Id
+        $exe = Join-Path $work 'known_loop.exe'
+        $built = & rustc -O --edition 2021 "$PSScriptRoot\instruction-compare\known_loop.rs" -o $exe 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "could not build the known-count loop: $($built -join ' ')" }
+        $lengths = $script:KnownLoopLengths
+        $runs = @()
+        $t0 = Get-Date
+        Invoke-PmcTask 'PanGloss PMC Start' 60
+        try {
+            foreach ($n in $lengths) {
+                $p = Start-Process -FilePath $exe -ArgumentList @("$n") -PassThru -WindowStyle Hidden
+                $p.ProcessorAffinity = [IntPtr]([int64]1 -shl $Cpu)
+                $p.WaitForExit()
+                if ($p.ExitCode -ne 0) { throw "the known-count loop ($n iterations, pid $($p.Id)) exited $($p.ExitCode)" }
+                $runs += [PSCustomObject]@{ Iterations = [int64]$n; Pid = $p.Id }
+            }
+        } finally { Invoke-PmcTask 'PanGloss PMC Stop' 900 }
+        $pids = @($runs | ForEach-Object Pid)
+        Assert-DistinctPids -Pids $pids
+        $trace = Get-Item (Join-Path $script:PmcDir 'current.etl')
+        if ($trace.LastWriteTime -lt $t0) { throw "trace not refreshed: $($trace.FullName) is older than this run" }
+        $copy = Join-Path $work 'trace.etl'
+        Copy-Item $trace.FullName $copy -Force
+        $json = & $python -I "$PSScriptRoot\instruction_compare_etl.py" $copy @pids
         if ($LASTEXITCODE -ne 0) { throw "trace extraction failed with exit code $LASTEXITCODE" }
-    } finally { Remove-Item $copy -Force -ErrorAction SilentlyContinue }
-    $report = $json | ConvertFrom-Json
-    Assert-TraceIntact -Report $report -Pids @($busy.Id)
-    $count = [double]$report.instructions."$($busy.Id)"
-    if ($count -le 0) { throw "the trace has counter values but none for the busy process (pid $($busy.Id)); nothing was counted for it" }
-    Write-Host ("pmc-setup: VERIFIED - the trace counted {0:N0} instructions for the busy process across {1} context switches" -f $count, $report.switches)
+        $report = $json | ConvertFrom-Json
+        Assert-TraceIntact -Report $report -Pids $pids
+        $counted = @($runs | ForEach-Object { [double]$report.instructions."$($_.Pid)" })
+        $verdict = Get-KnownLoopVerdict -Iterations @($runs | ForEach-Object Iterations) -Counted $counted -PerIteration $script:KnownLoopInstructionsPerIteration
+        for ($i = 0; $i -lt $runs.Count; $i++) {
+            Write-Host ("pmc-setup: {0:N0} iterations (known loop {1:N0} instructions): counted {2:N0} (pid {3})" -f $runs[$i].Iterations, ($runs[$i].Iterations * $script:KnownLoopInstructionsPerIteration), $counted[$i], $runs[$i].Pid)
+        }
+        $line = 'difference: expected {0:N0}, counted {1:N0}, off by {2:N3}% (tolerance {3}%), {4} context switches on CPU {5}' -f $verdict.Expected, $verdict.Measured, $verdict.ErrorPercent, $verdict.TolerancePercent, $report.switches, $Cpu
+        if (-not $verdict.Pass) { throw "the counter does not count instructions: $line" }
+        Write-Host "pmc-setup: VERIFIED - $line"
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+        $lock.ReleaseMutex(); $lock.Dispose()
+    }
 }
 
 try {
