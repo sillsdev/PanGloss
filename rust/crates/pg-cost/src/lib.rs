@@ -84,6 +84,11 @@ pub fn enable() -> Result<(), AllocatorNotInstalled> {
     Ok(())
 }
 
+/// Turns counting off, so later parses carry no cost and the allocator adds one relaxed load per call.
+pub fn disable() {
+    ENABLED.store(false, Ordering::Relaxed);
+}
+
 /// Counts FST registers copied on this thread.
 #[inline]
 pub fn add_registers(count: usize) {

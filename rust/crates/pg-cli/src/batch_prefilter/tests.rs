@@ -89,7 +89,11 @@ fn fixture(count: usize) -> Fixture {
     }
 }
 
+/// The cost meter is process-wide and `--prefilter auto` turns it off after its calibration, so tests that run a batch or a decision take turns.
+static METER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn batch(fixture: &Fixture, tag: &str, extra: &[&str]) -> Result<PathBuf, String> {
+    let _turn = METER.lock().unwrap_or_else(|e| e.into_inner());
     let out = fixture.dir.path().join(format!("{tag}.tsv"));
     let path = |p: &Path| p.to_str().unwrap().to_owned();
     let mut args = vec![path(&fixture.grammar), path(&fixture.words), path(&out)];
@@ -186,13 +190,38 @@ mod with_foma {
     fn the_decision_line_is_the_same_with_and_without_the_cost_column() {
         let fixture = fixture(ON);
         let without = decision_line(&fixture, "plain", &[]);
-        assert!(
-            pg_cost::Meter::start().is_some(),
-            "auto turns the meter on by itself"
-        );
         let with = decision_line(&fixture, "column", &["--cost-column"]);
         assert!(without.starts_with("admission=on"), "{without}");
         assert_eq!(without, with);
+    }
+
+    #[test]
+    fn auto_leaves_the_meter_off_after_its_calibration_unless_the_cost_column_asked() {
+        let fixture = fixture(ON);
+        let _turn = METER.lock().unwrap_or_else(|e| e.into_inner());
+        let run = |tag: &str, extra: &[&str]| {
+            let mut args = vec![
+                fixture.grammar.to_str().unwrap().to_owned(),
+                fixture.words.to_str().unwrap().to_owned(),
+                fixture
+                    .dir
+                    .path()
+                    .join(format!("{tag}.tsv"))
+                    .to_str()
+                    .unwrap()
+                    .to_owned(),
+                "--threads".to_owned(),
+                "1".to_owned(),
+                "--prefilter".to_owned(),
+                "auto".to_owned(),
+            ];
+            args.extend(extra.iter().map(|a| (*a).to_owned()));
+            crate::run_batch(&args).unwrap();
+        };
+        run("plain", &[]);
+        assert!(pg_cost::Meter::start().is_none(), "no column: meter off");
+        run("column", &["--cost-column"]);
+        assert!(pg_cost::Meter::start().is_some(), "column: meter stays on");
     }
 
     #[test]
@@ -226,6 +255,7 @@ mod with_foma {
         let (grammar, _) = crate::load_grammar(fixture.grammar.to_str().unwrap()).unwrap();
         let morpher = Morpher::new(&grammar, 2_000_000);
         let opts = morpher.project_parse_options();
+        let _turn = METER.lock().unwrap_or_else(|e| e.into_inner());
         let lines: Vec<String> = [1, 4]
             .iter()
             .map(|&threads| {

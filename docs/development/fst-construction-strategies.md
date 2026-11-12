@@ -522,8 +522,11 @@ only; none of the nine measured grammars has a lexical pattern.
 
 Cost is the parser work of `pg_cost` (`Counts::cost` when the meter runs, else work steps times its
 work weight, which is 3 to 6 times too low; `--prefilter auto` therefore turns the meter on with or without
-`--cost-column`, so the decision line is the same either way, at a measured 1.2% of a whole Tamil process and
-2.0% of its parse (1,000 words, instructions); a library caller of `decide` with the meter off gets the
+`--cost-column`, so the decision line is the same either way, and turns it off again after the calibration
+unless `--cost-column` asked for it, so the rest of the batch pays no metering (the `outcome_cost` of those
+words in `PREFILTER-TOTAL` is then the work-step fallback; `--prefilter on` keeps the meter on for the batch;
+before this the meter cost a measured 1.2% of a whole Tamil process and 2.0% of its parse, 1,000 words,
+instructions); a library caller of `decide` with the meter off gets the
 work-step fallback, documented on `parse_cost`), plus the counted filter walks (`ADMIT_STEP_WEIGHT`, `TILED_STEP_WEIGHT` per table
 transition) and the construction units (`ADMISSION_UNIT_WEIGHT`, `TILED_UNIT_WEIGHT`), the weights in
 pg-foma `admission/meter.rs`. The `PREFILTER` line gives both stage states with reasons, `admission_units`,
