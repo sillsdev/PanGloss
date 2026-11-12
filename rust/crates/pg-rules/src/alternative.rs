@@ -7,7 +7,7 @@ use std::rc::Rc;
 use pg_featstruct::FeatureStruct;
 
 use crate::trail::Trail;
-use crate::word::{estimate_word_bytes, Word, WordKey};
+use crate::word::{estimate_word_bytes, KeyFields, Word, WordKey};
 
 /// `size_of::<Alternative>()` when the byte estimates were calibrated.
 const LEGACY_ALTERNATIVE_BYTES: usize = 32;
@@ -39,7 +39,9 @@ fn same_source(a: &Option<Rc<Word>>, b: &Option<Rc<Word>>) -> bool {
 
 impl TrailAlternative {
     /// `w` as a trail against `canonical`, or `None` when rebuilding from `canonical` would not give `w` back exactly.
-    fn of(w: &Word, canonical: &Word) -> Option<Self> {
+    fn of(w: &Word, fields: &KeyFields<'_>) -> Option<Self> {
+        // The canonical may be stored as a difference: its shape, trail, rule index and template state are `fields`' own, and `canonical` holds the rest.
+        let canonical = fields.rest;
         // Every field is named, so a new `Word` field fails to compile here until it is compared or stored.
         let Word {
             shape,
@@ -60,7 +62,7 @@ impl TrailAlternative {
             alternatives,
             trace,
         } = w;
-        let rebuilds = *shape == canonical.shape
+        let rebuilds = *shape == *fields.shape
             && *stratum == canonical.stratum
             && *real_fs == canonical.real_fs
             && *mpr == canonical.mpr
@@ -72,11 +74,13 @@ impl TrailAlternative {
             && extras.applied_realizational_rules() == canonical.applied_realizational_rules()
             // The stats collector merges this list into a stored canonical after the fold, so only the empty list rebuilds.
             && extras.applied_phonological_rules().is_empty()
-            && *mrule_app_index == canonical.mrule_app_index
+            && *mrule_app_index == fields.mrule_app_index
             && *root_allomorph == canonical.root_allomorph
             && extras.root_runtime_id() == canonical.root_runtime_id()
             && *obligatory == canonical.obligatory
-            && *flags == canonical.flags
+            && flags.is_partial == canonical.flags.is_partial
+            && flags.is_last_applied_rule_final == canonical.flags.is_last_applied_rule_final
+            && flags.final_template_state == fields.final_template_state
             && same_source(source, &canonical.source)
             && alternatives.is_empty()
             && *trace == canonical.trace;
@@ -101,6 +105,11 @@ impl TrailAlternative {
 impl Alternative {
     /// The stored form of `w`, a candidate folded into `canonical`.
     pub fn of(w: Word, canonical: &Word) -> Self {
+        Self::of_fields(w, &KeyFields::of(canonical))
+    }
+
+    /// `of` against a canonical read in place.
+    pub(crate) fn of_fields(w: Word, canonical: &KeyFields<'_>) -> Self {
         match TrailAlternative::of(&w, canonical) {
             Some(trail) => Alternative::Trail(trail),
             None => Alternative::Whole(Rc::new(w)),
@@ -129,10 +138,23 @@ impl Alternative {
         obligatory: &[pg_featstruct::FeatId],
         canonical: &Word,
     ) -> bool {
+        self.matches_fields(key, obligatory, &KeyFields::of(canonical))
+    }
+
+    /// `matches` against a canonical read in place.
+    pub(crate) fn matches_fields(
+        &self,
+        key: &WordKey,
+        obligatory: &[pg_featstruct::FeatId],
+        canonical: &KeyFields<'_>,
+    ) -> bool {
         match self {
             Alternative::Trail(trail) => {
-                canonical.obligatory == obligatory
-                    && key.matches_with_trail(canonical, &trail.trail)
+                canonical.rest.obligatory == obligatory
+                    && key.matches_fields(&KeyFields {
+                        trail: &trail.trail,
+                        ..*canonical
+                    })
             }
             Alternative::Whole(w) => w.obligatory == obligatory && key.matches(w),
         }

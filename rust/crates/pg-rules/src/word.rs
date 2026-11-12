@@ -437,14 +437,6 @@ impl WordKey {
         self.matches_fields(&KeyFields::of(w))
     }
 
-    /// `matches` against `w` as it would be with the given trail.
-    pub(crate) fn matches_with_trail(&self, w: &Word, trail: &Trail) -> bool {
-        self.matches_fields(&KeyFields {
-            trail,
-            ..KeyFields::of(w)
-        })
-    }
-
     /// `matches` against the word these fields describe.
     pub(crate) fn matches_fields(&self, f: &KeyFields<'_>) -> bool {
         let w = f.rest;

@@ -79,6 +79,7 @@ pub(crate) enum RuleInvocationRole {
 
 use crate::battery::{BatterySet, BatteryWord};
 use crate::cache::RuleCache;
+use crate::canonical::Canonicals;
 use crate::cascade::Cascade;
 use crate::required_slots::{RequiredSlotLookahead, RequiredSlotMaterial};
 use crate::shared_values::SharedValues;
@@ -484,14 +485,23 @@ pub struct StratumAnalysis {
     pub words: Vec<Word>,
     /// Whether the work cap fired (partial results). See the module docs.
     pub capped: bool,
-    /// The dedup index the analysis built over `words`.
-    keys: WordIndex,
 }
 
-impl StratumAnalysis {
-    /// The candidate set in the same order, keeping the index the analysis built, so the words are neither moved to a second buffer nor keyed again.
-    pub fn into_word_set(self) -> WordSet {
-        WordSet::from_indexed(self.keys, self.words)
+/// `StratumAnalysis` with the candidate set as the analysis built it, each word stored against the analysis' input.
+pub struct StoredStratumAnalysis {
+    /// The deduplicated candidate set, the post-prule input word first.
+    pub words: Canonicals,
+    /// Whether the work cap fired (partial results).
+    pub capped: bool,
+}
+
+impl StoredStratumAnalysis {
+    /// The analysis with every word built.
+    pub fn into_analysis(self) -> StratumAnalysis {
+        StratumAnalysis {
+            words: self.words.into_words(),
+            capped: self.capped,
+        }
     }
 }
 
@@ -645,9 +655,10 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
         parent,
         None,
     )
+    .into_analysis()
 }
 
-/// `analyze_stratum_filtered_ruled_traced_with_policy` for a stratum whose outputs feed no later stratum. With a `root_gate`, once the output has grown to `RootGate::from_words` words, a word no root matches keeps its place in the output and in the visited set but none of the alternatives that fold into it: nothing can be synthesized from it, so they would never be read. The words, their order and the work are the same either way.
+/// `analyze_stratum_filtered_ruled_traced_with_policy` for a stratum whose outputs feed no later stratum, its candidate set left as the analysis built it. With a `root_gate`, once the output has grown to `RootGate::from_words` words, a word no root matches keeps its place in the output and in the visited set but none of the alternatives that fold into it: nothing can be synthesized from it, so they would never be read. The words, their order and the work are the same either way.
 #[allow(clippy::too_many_arguments)]
 pub fn analyze_last_stratum(
     g: &Grammar,
@@ -664,7 +675,7 @@ pub fn analyze_last_stratum(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     root_gate: Option<RootGate>,
-) -> StratumAnalysis {
+) -> StoredStratumAnalysis {
     let _work_scope = budget.enter();
     StratumAnalyzer::new(
         g,
@@ -1543,7 +1554,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     /// Port of `AnalysisStratumRule.Apply`.
     // map_entry: saving one hash here would restructure the dedup block this port mirrors statement for statement.
     #[allow(clippy::map_entry)]
-    fn analyze(&self, mut input: Word, root_gate: Option<RootGate>) -> StratumAnalysis {
+    fn analyze(&self, mut input: Word, root_gate: Option<RootGate>) -> StoredStratumAnalysis {
         let census = crate::branch_census::enabled();
         let received = census.then(|| crate::branch_census::node(&input));
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
@@ -1648,12 +1659,10 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 .end_unapply_stratum(node_parent, self.stratum_id, &input);
         }
 
-        // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
-        let mut output_keys = WordIndex::default();
         // The visited set: analysis state -> canonical word index, held as positions in `words` and compared exactly against the canonical itself (`AnalysisStateKey::matches_word`), so no canonical's key is stored. The seed's state is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
         let mut state_words = PositionIndex::default();
-        let mut words: Vec<Word> = Vec::new();
-        output_keys.insert(&input.dedup_key(), 0);
+        // The output words, each stored as its difference from `input`, with the `WordKey` index an identity-fallback fold (below) finds its canonical by.
+        let mut words = Canonicals::of_base(input.clone());
         // This call's own running byte total, the `record_live_bytes` companion to `words.len()`.
         let live_bytes = Cell::new(estimate_word_bytes(&input) as u64);
         // Per-canonical dedup state for `dedup_alternative`, below.
@@ -1666,18 +1675,19 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         // What the gate said of each word it was asked about, by the word's position; grown only when the gate is asked.
         let mut rooted: Vec<Option<bool>> = Vec::new();
         // An arrival that folds into canonical `idx` is kept as an alternative unless the gate, once the output is large enough to ask it, finds the canonical rootless.
-        let keeps_alternatives = |rooted: &mut Vec<Option<bool>>, words: &[Word], idx: usize| {
-            root_gate.is_none_or(|gate| {
-                if words.len() < gate.from_words {
-                    return true;
-                }
-                if rooted.len() < words.len() {
-                    rooted.resize(words.len(), None);
-                }
-                *rooted[idx].get_or_insert_with(|| (gate.has_root)(&words[idx]))
-            })
-        };
-        words.push(input.clone());
+        let keeps_alternatives =
+            |rooted: &mut Vec<Option<bool>>, words: &Canonicals, idx: usize| {
+                root_gate.is_none_or(|gate| {
+                    if words.len() < gate.from_words {
+                        return true;
+                    }
+                    if rooted.len() < words.len() {
+                        rooted.resize(words.len(), None);
+                    }
+                    *rooted[idx].get_or_insert_with(|| (gate.has_root)(&words.word(idx)))
+                })
+            };
+        words.push_new(&input.dedup_key(), input.clone());
 
         // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
         let remaining =
@@ -1701,14 +1711,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     // A canonical's own syntactic features are widened once alternatives arrive; the features its key was taken with are the ones `alt_keys` froze at the first arrival.
                     let keyed_syn_fs = alt_keys
                         .get(&at)
-                        .map_or(&words[at].syn_fs, |seen| &seen.canonical_syn_fs);
-                    state_key.matches_word(&words[at], keyed_syn_fs, &|id| self.max_apps(id))
+                        .map_or(words.syn_fs(at), |seen| &seen.canonical_syn_fs);
+                    state_key.matches_fields(&words.key_fields(at), keyed_syn_fs, &|id| {
+                        self.max_apps(id)
+                    })
                 });
-                let canonical =
-                    state_canonical.or_else(|| output_keys.find(&dedup_key, |at| &words[at]));
+                let canonical = state_canonical.or_else(|| words.position(&dedup_key));
                 if let (true, Some(idx)) = (census, canonical) {
                     crate::branch_census::alias(
-                        crate::branch_census::node(&words[idx]),
+                        crate::branch_census::node(&words.word(idx)),
                         crate::branch_census::node(&w),
                     );
                 }
@@ -1721,8 +1732,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                             self.g.syn_features.mask(f)
                         })
                     {
-                        words[idx].fold_alternative(w);
-                        let stored = words[idx].alternatives.iter().next_back();
+                        words.fold_alternative(idx, w);
+                        let stored = words.alternatives(idx).iter().next_back();
                         live_bytes.set(
                             live_bytes.get() + stored.map_or(0, |alt| alt.estimated_bytes()) as u64,
                         );
@@ -1730,7 +1741,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     return;
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
-                if let Some(idx) = output_keys.find(&dedup_key, |at| &words[at]) {
+                if let Some(idx) = words.position(&dedup_key) {
                     if !keeps_alternatives(&mut rooted, &words, idx) {
                         return;
                     }
@@ -1739,8 +1750,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                             self.g.syn_features.mask(f)
                         })
                     {
-                        words[idx].fold_alternative(w);
-                        let stored = words[idx].alternatives.iter().next_back();
+                        words.fold_alternative(idx, w);
+                        let stored = words.alternatives(idx).iter().next_back();
                         live_bytes.set(
                             live_bytes.get() + stored.map_or(0, |alt| alt.estimated_bytes()) as u64,
                         );
@@ -1754,14 +1765,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 self.trace
                     .end_unapply_stratum(w_parent, self.stratum_id, &w);
             }
-            if output_keys.find(&dedup_key, |at| &words[at]).is_none() {
+            if words.position(&dedup_key).is_none() {
                 // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
                 if let Some((_, state_hash)) = state_key {
                     state_words.insert(state_hash, words.len());
                 }
-                output_keys.insert(&dedup_key, words.len());
                 live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                words.push(w);
+                words.push_new(&dedup_key, w);
                 if let Some(r) = &remaining {
                     r.set(r.get().saturating_sub(1));
                 }
@@ -1782,12 +1792,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         self.apply_mrules(&input, &mut sink);
 
         // `HC_WORD_STATS=1`: attribute this stratum pass's `words` to their own fields (docs/research/word-memory-trace.md).
-        crate::word_stats::record_live_words(&words);
+        if crate::word_stats::enabled() {
+            crate::word_stats::record_live_words(&words.words().collect::<Vec<_>>());
+        }
 
-        StratumAnalysis {
+        StoredStratumAnalysis {
             words,
             capped: self.budget.capped(),
-            keys: output_keys,
         }
     }
 }
@@ -1838,7 +1849,7 @@ fn alt_key_hash(
 
 /// A match against the canonical's frozen state or an earlier-kept alternative replays identically, so `w` is pure duplication (docs/research/alt-yield.md); a returned word must be pushed onto `alternatives` before the next call.
 fn dedup_alternative(
-    words: &mut [Word],
+    words: &mut Canonicals,
     alt_keys: &mut AltKeys,
     idx: usize,
     dedup_key: &WordKey,
@@ -1848,16 +1859,17 @@ fn dedup_alternative(
     fn spread(h: u32) -> u64 {
         u64::from(h) << 32 | u64::from(h)
     }
-    let canonical = &words[idx];
+    // The canonical read in place: its key fields, and beside them its syntactic features and alternatives.
+    let canonical = words.key_fields(idx);
     let seen = alt_keys.entry(idx).or_insert_with(|| {
         let mut index = AltIndex {
-            canonical_syn_fs: canonical.syn_fs.clone(),
+            canonical_syn_fs: words.syn_fs(idx).clone(),
             ..AltIndex::default()
         };
         let h = alt_key_hash(
-            &canonical.dedup_key(),
-            &canonical.syn_fs,
-            &canonical.obligatory,
+            &WordKey::of(&canonical),
+            words.syn_fs(idx),
+            &canonical.rest.obligatory,
         );
         index
             .table
@@ -1872,23 +1884,23 @@ fn dedup_alternative(
         }
         if j == AltIndex::CANONICAL {
             return *canonical_syn_fs == w.syn_fs
-                && canonical.obligatory == w.obligatory
-                && dedup_key.matches(canonical);
+                && canonical.rest.obligatory == w.obligatory
+                && dedup_key.matches_fields(&canonical);
         }
-        let alt = canonical
-            .alternatives
+        let alt = words
+            .alternatives(idx)
             .get(j as usize)
             .expect("an alternative index entry names a kept alternative");
-        *alt.syn_fs() == w.syn_fs && alt.matches(dedup_key, &w.obligatory, canonical)
+        *alt.syn_fs() == w.syn_fs && alt.matches_fields(dedup_key, &w.obligatory, &canonical)
     });
     let novel = found.is_none();
     if novel {
-        let next = u32::try_from(canonical.alternatives.len())
+        let next = u32::try_from(words.alternatives(idx).len())
             .expect("a canonical holds fewer than 2^32 alternatives");
         seen.table
             .insert_unique(spread(h), (h, next), |&(h, _)| spread(h));
     }
-    generalize_syn_fs(&mut words[idx], &w, mask_of);
+    widen_syn_fs(words.syn_fs_mut(idx), &w.syn_fs, mask_of);
     novel.then_some(w)
 }
 

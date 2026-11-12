@@ -13,6 +13,7 @@ use pg_grammar_model::model::{
     PatternNode, PhonRuleDef, StratumId,
 };
 use pg_rules::cache::RuleCache;
+use pg_rules::canonical::Canonicals;
 use pg_rules::required_slots::RequiredSlotLookahead;
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stats::{Direction, OverlayPhase, ParserWork, StatsCollector};
@@ -917,7 +918,7 @@ impl<'g> Morpher<'g> {
                 self.search_roots(st, shape, stats, &search_cache)
             };
         // One set per analysed stratum, in the order the strata ran.
-        let mut results: Vec<WordSet> = Vec::new();
+        let mut results: Vec<Canonicals> = Vec::new();
         // Stratum 0 is analysed last and its outputs feed no other stratum, so a word of it that no root matches is never read again. Not where something does read such a word: a trace, the root guesser, and the census and alternative-yield diagnostics.
         let early_lookup = self.early_root_check_from.is_some()
             && !trace.is_tracing()
@@ -943,8 +944,8 @@ impl<'g> Morpher<'g> {
                 break;
             }
             let inputs = results.last();
-            let mut outputs = WordSet::default();
-            for at in 0..inputs.map_or(1, WordSet::len) {
+            let mut outputs = Canonicals::default();
+            for at in 0..inputs.map_or(1, Canonicals::len) {
                 if budget.analysis_exhausted() {
                     break;
                 }
@@ -957,7 +958,7 @@ impl<'g> Morpher<'g> {
                     break;
                 }
                 let w = match inputs {
-                    Some(inputs) => inputs.get(at).clone(),
+                    Some(inputs) => inputs.word(at),
                     None => input.clone(),
                 };
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
@@ -991,18 +992,18 @@ impl<'g> Morpher<'g> {
                         }),
                 );
                 assert!(
-                    res.words.iter().all(|o| o.stratum == StratumId(s as u8)),
+                    res.words
+                        .strata()
+                        .all(|stratum| stratum == StratumId(s as u8)),
                     "a stratum's output carries that stratum"
                 );
                 if outputs.is_empty() {
                     // The first candidate's outputs are already a deduped set in output order, so they are taken as they stand, buffer and index.
-                    outputs = res.into_word_set();
+                    outputs = res.words;
                     continue;
                 }
-                // The stratum's buffer is given back as `outputs` takes its words, so the two are not both held whole.
-                for o in pg_rules::word_set::Releasing::new(res.words) {
-                    insert_candidate(&mut outputs, o, stats.is_some());
-                }
+                // With stats, a word another candidate already gave adds its applied phonological rules to the held word's.
+                outputs.absorb(res.words, stats.is_some());
             }
             if outputs.is_empty() {
                 break;
@@ -1020,7 +1021,8 @@ impl<'g> Morpher<'g> {
         let mut candidates_generated: usize = 0;
         let mut matches: WordSet = WordSet::default();
         if !opts.guess_only {
-            for aw in results.iter().flat_map(WordSet::iter) {
+            for aw in results.iter().flat_map(Canonicals::words) {
+                let aw = &aw;
                 let dispatch_ok = {
                     let _owner = stats.map(|stats| {
                         stats.time_enter(
@@ -1156,7 +1158,8 @@ impl<'g> Morpher<'g> {
         let (ordered_matches, guessed): (Vec<Word>, bool) =
             if opts.guess_root && matches.is_empty() && !self.lexical_patterns.is_empty() {
                 let mut guess_matches: Vec<Word> = Vec::new();
-                for aw in results.iter().flat_map(WordSet::iter) {
+                for aw in results.iter().flat_map(Canonicals::words) {
+                    let aw = &aw;
                     if !consume_parser_work(
                         stats,
                         ParserWork::CandidateExpansion,

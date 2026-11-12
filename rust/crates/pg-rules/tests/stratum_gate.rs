@@ -1724,6 +1724,7 @@ fn analyze_last(
             from_words,
         }),
     )
+    .into_analysis()
 }
 
 #[test]

@@ -18,9 +18,17 @@ fn bare_word() -> Word {
     Word::new(ShapeBuilder::new().finish(), StratumId(0))
 }
 
+/// The output set of an analysis that has kept its input only.
+fn seed_only() -> Canonicals {
+    let seed = bare_word();
+    let mut words = Canonicals::of_base(seed.clone());
+    words.push_new(&seed.dedup_key(), seed);
+    words
+}
+
 #[test]
 fn a_byte_identical_alternative_is_pruned() {
-    let mut words = vec![bare_word()];
+    let mut words = seed_only();
     let mut alt_keys: AltKeys = HashMap::default();
     let dup = bare_word();
     let key = dup.dedup_key();
@@ -31,13 +39,13 @@ fn a_byte_identical_alternative_is_pruned() {
         kept.is_none(),
         "a duplicate of the canonical must be dropped"
     );
-    assert!(words[0].alternatives.is_empty());
+    assert!(words.alternatives(0).is_empty());
 }
 
 #[test]
 fn same_word_key_but_different_syn_fs_is_kept() {
     // `WordKey` excludes `syn_fs`, so a genuinely different value must still survive.
-    let mut words = vec![bare_word()];
+    let mut words = seed_only();
     let mut alt_keys: AltKeys = HashMap::default();
     let mut alt = bare_word();
     alt.syn_fs = fs_with(0b01);
@@ -50,7 +58,7 @@ fn same_word_key_but_different_syn_fs_is_kept() {
 
 #[test]
 fn a_second_identical_alternative_is_pruned_after_the_first_is_kept() {
-    let mut words = vec![bare_word()];
+    let mut words = seed_only();
     let mut alt_keys: AltKeys = HashMap::default();
     let mut alt = bare_word();
     alt.obligatory.push(FeatId(1));
@@ -59,7 +67,7 @@ fn a_second_identical_alternative_is_pruned_after_the_first_is_kept() {
     let first = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt.clone(), &mask_none);
     assert!(first.is_some());
     if let Some(w) = first {
-        words[0].fold_alternative(w);
+        words.fold_alternative(0, w);
     }
     let second = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none);
 
