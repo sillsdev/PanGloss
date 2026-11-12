@@ -29,11 +29,6 @@ impl SharedValues {
             share_one(&mut self.feature_structs.borrow_mut(), &mut w.syn_fs);
         }
     }
-
-    /// Points `shape` at the first equal shape this parse produced.
-    pub fn share_shape(&self, shape: &mut Shape) {
-        share_one(&mut self.shapes.borrow_mut(), shape);
-    }
 }
 
 fn share_one<T: Clone + Eq + std::hash::Hash>(table: &mut HashTable<T>, value: &mut T) {

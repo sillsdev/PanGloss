@@ -5,7 +5,7 @@ file has no section for.
 
 ## Unreleased
 
-- A parse holds each distinct shape and syntactic feature structure once: equal values produced by separate rule applications share one allocation, found by hash and confirmed by full comparison. On the heaviest Mbugwe word the peak falls from 1,152 MB to 389 MB at a 200M work cap and from 199 MB to 82 MB at 50M, with identical analyses and parser work.
+- Within one parse, equal shapes and syntactic feature structures produced by separate rule applications share one allocation, found by hash and confirmed by full comparison. On the heaviest Mbugwe word the peak falls from 1,152 MB to 389 MB at a 200M work cap and from 199 MB to 82 MB at 50M, with identical analyses and parser work.
 
 ## 0.17.0
 
