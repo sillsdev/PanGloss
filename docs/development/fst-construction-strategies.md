@@ -537,7 +537,10 @@ is still reported. The `PREFILTER-TOTAL` line gives `words`, `restricted` (words
 parse), `rejected` (words the tiled stage rejected), `admit_steps` and `tiled_steps` with their `filter_cost`
 (steps times weight), `outcome_cost` (`parse_cost` summed over every word's outcome), `construction_cost`,
 `calibration_cost` and their sum `total_cost`, so a run states its whole cost in parser units; with the gate
-off it still prints, with zero filter fields. Production does not otherwise run an extra plain parse; the
+off it still prints, with zero filter fields.
+Under `auto` without `--cost-column`, `outcome_cost` and `total_cost` mix metered cost for the calibration words with
+the work-step fallback for the rest, so they are not comparable with `off` runs or the #251 tables unless
+`--cost-column` is given. Production does not otherwise run an extra plain parse; the
 calibration is at most 32 words per batch and about 1/64 of it, and the warm-up words are plain parses, not extra ones.
 
 ## Stage-0 differential
