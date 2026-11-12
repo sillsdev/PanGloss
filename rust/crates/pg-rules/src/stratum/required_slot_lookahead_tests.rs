@@ -118,6 +118,7 @@ pub(super) fn run(
     let input = Word::new(shape, StratumId(0));
     let budget = WordBudget::new(usize::MAX);
     let _scope = budget.enter();
+    let values = crate::shared_values::SharedValues::default();
     let a = StratumAnalyzer::new(
         g,
         StratumId(0),
@@ -126,6 +127,7 @@ pub(super) fn run(
         None,
         None,
         &budget,
+        &values,
         FinalTemplateAnalysisPolicy::default(),
         None,
         &crate::trace::NoopSink,
@@ -145,6 +147,7 @@ fn run_shared(g: &Grammar, mode: RequiredSlotLookahead, text: &str) -> (Vec<Vec<
     let input = Word::new(shape, StratumId(0));
     let budget = WordBudget::new(usize::MAX);
     let _scope = budget.enter();
+    let values = crate::shared_values::SharedValues::default();
     let a = StratumAnalyzer::new(
         g,
         StratumId(0),
@@ -153,6 +156,7 @@ fn run_shared(g: &Grammar, mode: RequiredSlotLookahead, text: &str) -> (Vec<Vec<
         None,
         None,
         &budget,
+        &values,
         FinalTemplateAnalysisPolicy::default(),
         None,
         &crate::trace::NoopSink,

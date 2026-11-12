@@ -200,6 +200,7 @@ fn analyzer_with<'a>(
         None,
         None,
         budget,
+        Box::leak(Box::default()),
         FinalTemplateAnalysisPolicy::default(),
         stats,
         &crate::trace::NoopSink,

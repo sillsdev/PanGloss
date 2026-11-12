@@ -91,6 +91,7 @@ fn edge_index_falls_back_for_optional_and_unknown_intermediate_edges() {
     assert!(!rejects(&matching));
     let budget = WordBudget::new(10_000);
     let _scope = budget.enter();
+    let values = crate::shared_values::SharedValues::default();
     let analyzer = StratumAnalyzer::new(
         &g,
         StratumId(0),
@@ -99,6 +100,7 @@ fn edge_index_falls_back_for_optional_and_unknown_intermediate_edges() {
         None,
         Some(&cache),
         &budget,
+        &values,
         FinalTemplateAnalysisPolicy::default(),
         None,
         &crate::trace::NoopSink,
@@ -164,6 +166,7 @@ fn syntactic_rejection_does_not_charge_the_edge_index() {
     assert!(morph::ana_syn_fs(&g, rule.required_syn_fs, rule.out_syn_fs, &input).is_none());
     let budget = WordBudget::new(10_000);
     let _scope = budget.enter();
+    let values = crate::shared_values::SharedValues::default();
     let analyzer = StratumAnalyzer::new(
         &g,
         StratumId(0),
@@ -172,6 +175,7 @@ fn syntactic_rejection_does_not_charge_the_edge_index() {
         None,
         Some(&cache),
         &budget,
+        &values,
         FinalTemplateAnalysisPolicy::default(),
         None,
         &crate::trace::NoopSink,
@@ -206,6 +210,7 @@ fn an_undecidable_allomorph_keeps_the_whole_rule() {
 
 fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word> {
     let budget = WordBudget::new(usize::MAX);
+    let values = crate::shared_values::SharedValues::default();
     StratumAnalyzer::new(
         g,
         StratumId(0),
@@ -214,6 +219,7 @@ fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word
         None,
         None,
         &budget,
+        &values,
         FinalTemplateAnalysisPolicy::default(),
         None,
         &crate::trace::NoopSink,

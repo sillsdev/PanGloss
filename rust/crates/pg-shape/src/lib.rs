@@ -323,6 +323,12 @@ impl std::ops::Deref for Shape {
 }
 
 impl Shape {
+    /// Whether the two shapes are one allocation, which equal shapes need not be.
+    #[inline]
+    pub fn same_allocation(&self, other: &Shape) -> bool {
+        Arc::ptr_eq(&self.data, &other.data)
+    }
+
     /// Work units for hashing and comparing every component of this shape.
     pub fn key_work(&self) -> usize {
         self.cd_sets.iter().fold(

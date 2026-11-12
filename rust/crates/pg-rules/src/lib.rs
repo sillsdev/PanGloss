@@ -14,6 +14,7 @@ pub mod morph;
 pub mod required_slots;
 pub mod rewrite;
 pub mod shape_feat;
+pub mod shared_values;
 pub mod stats;
 pub mod stratum;
 pub mod surface_probe;
