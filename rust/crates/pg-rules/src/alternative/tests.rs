@@ -68,7 +68,7 @@ fn later_changes_to_the_canonical_do_not_reach_a_trail_alternative() {
     // The fold widens the canonical's syntactic feature structure; the stats collector merges phonological rules into it.
     canonical.syn_fs = fs_with(0b11);
     canonical
-        .applied_phonological_rules
+        .applied_phonological_rules_mut()
         .push((StratumId(1), PRuleId(4)));
     canonical.alternatives.push(stored.clone());
     assert_eq!(printed(&stored.word(&canonical)), printed(&folded));
@@ -89,17 +89,17 @@ fn a_candidate_differing_beside_its_trails_is_held_whole() {
             w.morphs[0].passed_over = Some(vec![1].into_boxed_slice())
         }),
         ("non_heads", |w| {
-            w.non_heads.push(Word::new(shape(3), StratumId(1)))
+            w.non_heads_mut().push(Word::new(shape(3), StratumId(1)))
         }),
         ("non_head_app_index", |w| w.non_head_app_index = 0),
         ("analysis_allomorph", |w| {
             w.analysis_allomorph = Some(AllomorphId(1))
         }),
         ("applied_realizational_rules", |w| {
-            w.applied_realizational_rules.push(MorphemeId(1))
+            w.applied_realizational_rules_mut().push(MorphemeId(1))
         }),
         ("applied_phonological_rules", |w| {
-            w.applied_phonological_rules
+            w.applied_phonological_rules_mut()
                 .push((StratumId(1), PRuleId(1)))
         }),
         ("mrule_app_index", |w| w.mrule_app_index = 0),
@@ -107,7 +107,7 @@ fn a_candidate_differing_beside_its_trails_is_held_whole() {
             w.root_allomorph = Some(AllomorphId(2))
         }),
         ("root_runtime_id", |w| {
-            w.root_runtime_id = Some("r".to_owned())
+            w.set_root_runtime_id(Some("r".to_owned()))
         }),
         ("obligatory", |w| w.obligatory.push(FeatId(4))),
         ("is_partial", |w| w.flags.is_partial = true),

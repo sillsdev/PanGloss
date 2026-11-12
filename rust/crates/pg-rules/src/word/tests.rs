@@ -97,7 +97,7 @@ fn matches_agrees_with_key_equality() {
     base.trail = Trail::from_slots([(Some(MRuleId(3)), None)]);
     let mut nested = w();
     nested.morphs = vec![MorphRecord::new(AllomorphId(9), MorphemeId(8), 1)];
-    base.non_heads = vec![nested];
+    *base.non_heads_mut() = vec![nested];
 
     let mut variants: Vec<Word> = vec![base.clone()];
     let mut push = |edit: &dyn Fn(&mut Word)| {
@@ -111,26 +111,26 @@ fn matches_agrees_with_key_equality() {
     push(&|v| v.mrule_app_index = 7);
     push(&|v| v.flags.is_last_applied_rule_final = Some(true));
     push(&|v| v.flags.final_template_state = FinalTemplateState::NonTemplate);
-    push(&|v| v.root_runtime_id = Some("r".to_owned()));
+    push(&|v| v.set_root_runtime_id(Some("r".to_owned())));
     push(&|v| v.trail.push(None, None));
     push(&|v| v.trail = Trail::from_slots([(Some(MRuleId(3)), Some(AllomorphId(2)))]));
     push(&|v| v.trail.push_count_only(MRuleId(8)));
-    push(&|v| v.applied_realizational_rules.push(MorphemeId(6)));
+    push(&|v| v.applied_realizational_rules_mut().push(MorphemeId(6)));
     push(&|v| v.morphs[0].order = 2);
     push(&|v| v.morphs[0].allomorph = AllomorphId(4));
     push(&|v| {
         v.morphs
             .push(MorphRecord::new(AllomorphId(1), MorphemeId(2), 3))
     });
-    push(&|v| v.non_heads[0].morphs[0].order = 5);
-    push(&|v| v.non_heads.clear());
+    push(&|v| v.non_heads_mut()[0].morphs[0].order = 5);
+    push(&|v| v.non_heads_mut().clear());
     push(&|v| {
         let mut sb = ShapeBuilder::new();
         sb.push_segment(1);
         v.shape = sb.finish();
     });
     push(&|v| v.syn_fs = FeatureStruct::EMPTY);
-    push(&|v| v.applied_phonological_rules = vec![(StratumId(0), PRuleId(1))]);
+    push(&|v| *v.applied_phonological_rules_mut() = vec![(StratumId(0), PRuleId(1))]);
     for a in &variants {
         for b in &variants {
             assert_eq!(
