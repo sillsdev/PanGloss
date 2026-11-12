@@ -1,4 +1,4 @@
-"""Totals retired instructions per process id, and per thread in creation order, from a PMC-on-context-switch ETL; prints one JSON object, never names a thread or word.
+"""Totals retired instructions per process id (its last process in the trace), and per thread in creation order, from a PMC-on-context-switch ETL; prints one JSON object, never names a thread or word.
 
 usage: instruction_compare_etl.py <trace.etl> <pid> [<pid> ...]
 """
@@ -8,6 +8,7 @@ import json
 import struct
 import sys
 
+PROCESS_PROVIDER_A = 0x3D6FA8D0
 THREAD_PROVIDER_A = 0x3D6FA8D1
 CSWITCH_OPCODE = 36
 PMC_EXT_TYPE = 8
@@ -56,34 +57,90 @@ class LogFile(C.Structure):
                 ("EventRecordCallback", CALLBACK), ("IsKernelTrace", C.c_uint32), ("Context", C.c_void_p)]
 
 
+class Tally:
+    """Per-thread instruction totals from context-switch counter snapshots, kept for the last process that held each wanted pid.
+
+    Windows reuses a pid once no handle to its process is open, so an earlier process in the trace can share a measured pid.
+    instruction-compare.ps1 and pmc-setup.ps1 hold each run's handle until the trace stops, so a run is its pid's last process.
+    """
+
+    def __init__(self, pids):
+        self.wanted = set(pids)
+        self.pids = list(pids)
+        self.last = {}  # cpu -> (counters, thread switched in)
+        self.tid_owner = {}  # tid -> (pid, generation) of the thread that last started with that tid
+        self.generation = {p: 0 for p in pids}  # process starts seen for each wanted pid
+        self.thread_order = {}  # (pid, generation) -> tids in creation order
+        self.thread_instructions = {}  # (pid, generation, tid) -> instructions
+        self.state = {"switches": 0, "gaps_on_target": 0, "counters": 0, "callback_errors": 0, "earlier_processes": 0}
+
+    def process_start(self, pid):
+        if pid in self.wanted:
+            self.generation[pid] += 1
+
+    def thread_start(self, pid, tid):
+        owner = (pid, self.generation.get(pid, 0))
+        self.tid_owner[tid] = owner
+        if pid in self.wanted and owner + (tid,) not in self.thread_instructions:
+            self.thread_order.setdefault(owner, []).append(tid)
+            self.thread_instructions[owner + (tid,)] = 0
+
+    def _on_target(self, tid):
+        owner = self.tid_owner.get(tid)
+        return owner is not None and owner[0] in self.wanted
+
+    def cswitch(self, cpu, new, old, counters):
+        self.state["switches"] += 1
+        self.state["counters"] = len(counters)
+        prev = self.last.get(cpu)
+        self.last[cpu] = (counters, new)
+        if prev is None:
+            return
+        prev_counters, prev_thread = prev
+        if prev_thread != old:
+            if self._on_target(old) or self._on_target(prev_thread):
+                self.state["gaps_on_target"] += 1
+            return
+        owner = self.tid_owner.get(old)
+        if owner is not None and owner[0] in self.wanted:
+            key = owner + (old,)
+            self.thread_instructions[key] += counters[0] - prev_counters[0]
+
+    def report(self):
+        final = {p: (p, self.generation[p]) for p in self.pids}
+        self.state["earlier_processes"] = len({(pid, gen) for (pid, gen, _tid) in self.thread_instructions if (pid, gen) != final[pid]})
+        order = {p: self.thread_order.get(final[p], []) for p in self.pids}
+        per_thread = {p: [self.thread_instructions[final[p] + (t,)] for t in order[p]] for p in self.pids}
+        return dict(self.state, **{
+            "threads": {str(p): len(order[p]) for p in self.pids},
+            "instructions": {str(p): sum(per_thread[p]) for p in self.pids},
+            "thread_instructions": {str(p): per_thread[p] for p in self.pids},
+        })
+
+
 def totals(path, pids):
-    wanted = set(pids)
-    last, tid_pid = {}, {}
-    instructions = {p: 0 for p in pids}
-    state = {"switches": 0, "gaps_on_target": 0, "counters": 0, "callback_errors": 0}
-    target_tids = set()
-    thread_order = {p: [] for p in pids}
-    thread_instructions = {}
+    tally = Tally(pids)
 
     def on_event(record):
         try:
             handle_event(record)
         except Exception:
-            state["callback_errors"] += 1
+            tally.state["callback_errors"] += 1
 
     def handle_event(record):
         r = record.contents
         h = r.EventHeader
+        if h.ProviderId.a == PROCESS_PROVIDER_A:
+            # Process start and rundown: UniqueProcessKey (8 bytes on x64), then ProcessId.
+            if h.Opcode in (1, 3) and r.UserDataLength >= 12:
+                (pid,) = struct.unpack("<I", C.string_at(r.UserData + 8, 4))
+                tally.process_start(pid)
+            return
         if h.ProviderId.a != THREAD_PROVIDER_A:
             return
         if h.Opcode in (1, 3) and r.UserDataLength >= 8:
             pid, tid = struct.unpack("<II", C.string_at(r.UserData, 8))
-            tid_pid[tid] = pid
-            if pid in wanted:
-                target_tids.add(tid)
-                if (pid, tid) not in thread_instructions:
-                    thread_order[pid].append(tid)
-                    thread_instructions[(pid, tid)] = 0
+            tally.thread_start(pid, tid)
             return
         if h.Opcode != CSWITCH_OPCODE:
             return
@@ -95,22 +152,7 @@ def totals(path, pids):
                 counters = struct.unpack(f"<{e.DataSize // 8}Q", C.string_at(e.DataPtr, e.DataSize))
         if counters is None:
             return
-        state["switches"] += 1
-        state["counters"] = len(counters)
-        cpu = r.ProcessorNumber
-        prev = last.get(cpu)
-        last[cpu] = (counters, new)
-        if prev is None:
-            return
-        prev_counters, prev_thread = prev
-        if prev_thread != old:
-            if old in target_tids or prev_thread in target_tids:
-                state["gaps_on_target"] += 1
-            return
-        pid = tid_pid.get(old)
-        if pid in wanted:
-            instructions[pid] += counters[0] - prev_counters[0]
-            thread_instructions[(pid, old)] = thread_instructions.get((pid, old), 0) + counters[0] - prev_counters[0]
+        tally.cswitch(r.ProcessorNumber, new, old, counters)
 
     adv = C.windll.advapi32
     adv.OpenTraceW.restype = C.c_uint64
@@ -128,18 +170,7 @@ def totals(path, pids):
     h = C.c_uint64(handle)
     rc = adv.ProcessTrace(C.byref(h), 1, None, None)
     adv.CloseTrace(handle)
-    return {
-        "rc": rc,
-        "events_lost": log.LogfileHeader.EventsLost,
-        "buffers_lost": log.LogfileHeader.BuffersLost,
-        "switches": state["switches"],
-        "counters": state["counters"],
-        "gaps_on_target": state["gaps_on_target"],
-        "callback_errors": state["callback_errors"],
-        "threads": {str(p): sum(1 for t in target_tids if tid_pid.get(t) == p) for p in pids},
-        "instructions": {str(p): v for p, v in instructions.items()},
-        "thread_instructions": {str(p): [thread_instructions[(p, t)] for t in thread_order[p]] for p in pids},
-    }
+    return dict(tally.report(), rc=rc, events_lost=log.LogfileHeader.EventsLost, buffers_lost=log.LogfileHeader.BuffersLost)
 
 
 if __name__ == "__main__":

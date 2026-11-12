@@ -323,6 +323,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "append each word's work_steps and then its fixed-weight parse cost, the last field; compare two runs with cost-compare",
     },
     FlagSpec {
+        name: "--no-flush",
+        takes_value: false,
+        summary: "with --threads 1, keep rows buffered instead of flushing after each word; same file at exit, no crash-resume; for instruction counting",
+    },
+    FlagSpec {
         name: "--stats",
         takes_value: false,
         summary: "additionally record per-object statistics into the stats cache",

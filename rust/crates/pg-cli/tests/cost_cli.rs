@@ -1,4 +1,4 @@
-//! `batch --cost-column`, `cost-compare` and `cost-calibrate` through the real binary.
+//! `batch --cost-column`, `batch --no-flush`, `cost-compare` and `cost-calibrate` through the real binary.
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -69,6 +69,33 @@ fn cost_of(row: &[String]) -> u64 {
         .unwrap()
         .parse()
         .expect("the last field is a number")
+}
+
+/// Every line of a batch TSV, STARTED sentinels included, without the elapsed-time field.
+fn lines_without_elapsed(path: &Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let mut fields: Vec<&str> = line.split('\t').collect();
+            if fields.len() > 3 {
+                fields.remove(2);
+            }
+            fields.join("\t")
+        })
+        .collect()
+}
+
+#[test]
+fn no_flush_writes_the_same_file_as_flushing_every_word() {
+    let (flushed, _) = batch("flushed", &[]);
+    let (buffered, _) = batch("buffered", &["--no-flush"]);
+    let expected = lines_without_elapsed(&flushed);
+    assert!(
+        expected.iter().any(|line| line.ends_with("STARTED")),
+        "the --threads 1 writer emits STARTED sentinels"
+    );
+    assert_eq!(lines_without_elapsed(&buffered), expected);
 }
 
 #[test]

@@ -11,7 +11,8 @@
   at --threads 1 batch parses on the thread that loaded the grammar.
 
   Windows: every run happens inside one PMC trace taken through the PanGloss PMC Start/Stop scheduled tasks (no
-  elevation); each run's process is pinned to one CPU and its instructions are totalled from the trace.
+  elevation); each run's process is pinned to one CPU and its instructions are totalled from the trace, counting only
+  the last process to hold its pid. Rows are buffered (batch --no-flush) when both binaries have the flag.
   Linux/WSL: each run is `valgrind --tool=callgrind` with std HashMap keys pinned by an LD_PRELOAD shim.
 
   Refuses, naming why, when the PMC tasks are absent, the trace lost events or missed a process, a run exited
@@ -69,6 +70,12 @@ function Complete-Run($Process, [string]$Describe) {
 
 function Format-Count([double]$Value) { '{0:N0}' -f $Value }
 
+function Get-Describe([string]$Exe) {
+    $out = & $Exe --describe 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ($out -join "`n")
+}
+
 $code = 0
 $jobs = @()
 $work = $null
@@ -96,6 +103,9 @@ try {
         Assert-PmcTasksPresent -Found $found -TaskPath $PmcTaskPath
         $python = (Get-Command python -ErrorAction SilentlyContinue).Source
         if (-not $python) { throw 'python is not on PATH; it reads the trace' }
+        # Per-word flushes add file-system kernel work to the parsing thread, in bursts of 3M to 21M instructions on some runs (#260); both sides buffer or neither does.
+        $noFlush = (Test-DescribesBatchFlag (Get-Describe $Before) '--no-flush') -and (Test-DescribesBatchFlag (Get-Describe $After) '--no-flush')
+        if ($noFlush -and $BatchArgs -notcontains '--no-flush') { $BatchArgs = @($BatchArgs) + '--no-flush' }
     } else {
         if (-not (Get-Command valgrind -ErrorAction SilentlyContinue)) { throw 'valgrind is not on PATH; the callgrind backend needs it' }
         if (-not (Get-Command rustc -ErrorAction SilentlyContinue)) { throw 'rustc is not on PATH; it builds the hash-key pinning shim' }
@@ -163,7 +173,7 @@ try {
         $report = $json | ConvertFrom-Json
         Assert-TraceIntact -Report $report -Pids @($jobs | ForEach-Object Pid)
         foreach ($job in $jobs) { $job.Instructions = [double]$report.instructions."$($job.Pid)" }
-        $backendNote = "PMC trace on CPU $Cpu, $($report.switches) context switches, 0 events lost; hash keys are not pinned on Windows, so repeat spread includes hash-order noise"
+        $backendNote = "PMC trace on CPU $Cpu, $($report.switches) context switches, 0 events lost, $($report.earlier_processes) earlier process(es) with a measured pid left out; $(if ($noFlush) { 'rows buffered (--no-flush)' } else { 'rows flushed per word: a binary lacks --no-flush, so file-system work can add outliers' }); hash keys are drawn afresh every run, so the spread averages over hash layouts"
     } else {
         $shim = Join-Path $work 'libfixedrandom.so'
         & rustc -O --crate-type cdylib -C panic=abort "$PSScriptRoot/instruction-compare/fixed_random.rs" -o $shim 2>&1 | Out-Null

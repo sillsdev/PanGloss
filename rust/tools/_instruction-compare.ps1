@@ -246,3 +246,11 @@ function Get-VerdictExitCode {
     if (@($Verdicts | Where-Object { $_ -ne 'GO' }).Count -gt 0) { return 10 }
     return 0
 }
+function Test-DescribesBatchFlag {
+    # $DescribeJson: stdout of `pangloss --describe` ($null or unparsable for a binary without it); true when its batch command lists $Flag.
+    param([AllowNull()][string]$DescribeJson, [Parameter(Mandatory)][string]$Flag)
+    if (-not $DescribeJson) { return $false }
+    try { $doc = $DescribeJson | ConvertFrom-Json } catch { return $false }
+    $batch = @($doc.commands | Where-Object { $_.name -eq 'batch' }) | Select-Object -First 1
+    return [bool]($batch -and @($batch.flags | Where-Object { $_.name -eq $Flag }).Count -gt 0)
+}
