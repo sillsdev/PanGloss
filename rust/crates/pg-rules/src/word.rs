@@ -311,6 +311,7 @@ pub struct Word {
     /// cascade driver — the cascades track their own rule position via `AnalysisStratumRule`.
     pub non_head_app_index: i32,
     /// The rule and allomorph of every unapplication so far, with per-rule unapplication counts (C# `Word._mruleApps` and `_mrulesUnapplied`); a `None` rule is C#'s unknown compounding rule, matched by any compounding rule in synthesis.
+    /// Its slots are a dedup-key component (Word.cs:523,543): every unapplication grows them, so a rule output never equals its input.
     pub trail: Trail,
     /// Allomorph selected by the current analysis call, before its rule is added to the trail.
     pub analysis_allomorph: Option<AllomorphId>,
