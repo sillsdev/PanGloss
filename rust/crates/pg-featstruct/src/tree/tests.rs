@@ -66,3 +66,16 @@ fn serde_round_trip_preserves_the_public_wire_shape() {
     );
     assert_eq!(serde_json::from_str::<FeatureStruct>(&json).unwrap(), fs);
 }
+
+#[test]
+fn empty_serializes_as_an_empty_entry_list_and_clones_share_entries() {
+    assert_eq!(
+        serde_json::to_string(&FeatureStruct::EMPTY).unwrap(),
+        r#"{"entries":[]}"#
+    );
+    let fs: FeatureStruct = serde_json::from_str(OUT_OF_ORDER).unwrap();
+    assert!(std::ptr::eq(
+        fs.entries().as_ptr(),
+        fs.clone().entries().as_ptr()
+    ));
+}

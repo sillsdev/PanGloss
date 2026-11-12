@@ -37,6 +37,8 @@
 //! later split the notion of "unconstrained" between `u64::MAX` and `full_mask(count)`.
 #![forbid(unsafe_code)]
 
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use pg_featstruct::Interner;
@@ -199,9 +201,11 @@ pub struct Shape {
     data: Arc<ShapeData>,
 }
 
-#[derive(PartialEq, Eq, Hash, Debug, Default)]
+#[derive(Debug, Default)]
 #[doc(hidden)]
 pub struct ShapeData {
+    /// Hash of every column below, stored the first time the shape is hashed (0 = not yet). `Hash` feeds only this value, so hashing a shared `Shape` walks the columns once, not once per dedup lookup; shapes that are frozen and never hashed pay nothing. Not part of equality.
+    content_hash: AtomicU64,
     kinds: Box<[NodeKind]>,
     /// Index into the grammar's character-definition table, or `NO_CHAR_DEF` for anchors.
     char_defs: Box<[u32]>,
@@ -221,10 +225,57 @@ pub struct ShapeData {
 /// What a `Shape` weighed while it held its seven columns inline. Byte-budget arithmetic (the root cache's table sizing, `Word` capture estimates) keeps using this figure so eviction, cache hits and capture ceilings do not move now that a `Shape` is one shared pointer.
 pub const INLINE_COLUMNS_BYTES: usize = 120;
 
+/// Bytes the stored content hash adds to `ShapeData` beyond [`INLINE_COLUMNS_BYTES`].
+const CONTENT_HASH_BYTES: usize = std::mem::size_of::<u64>();
+
 const _: () = assert!(std::mem::size_of::<Shape>() == std::mem::size_of::<usize>());
 // The columns now live behind the pointer in `ShapeData`; on 64-bit targets the figure above is exactly their inline size (wasm32 pointers are half as wide, so it only holds there), so adding or widening a column fails the build here instead of silently shifting the budgets.
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(std::mem::size_of::<ShapeData>() == INLINE_COLUMNS_BYTES);
+const _: () =
+    assert!(std::mem::size_of::<ShapeData>() == INLINE_COLUMNS_BYTES + CONTENT_HASH_BYTES);
+
+impl PartialEq for ShapeData {
+    fn eq(&self, other: &Self) -> bool {
+        self.feat_width == other.feat_width
+            && self.kinds == other.kinds
+            && self.char_defs == other.char_defs
+            && self.flags == other.flags
+            && self.feat_lanes == other.feat_lanes
+            && self.cd_sets == other.cd_sets
+            && self.generated_full == other.generated_full
+            && self.unresolved_variables == other.unresolved_variables
+    }
+}
+
+impl Eq for ShapeData {}
+
+impl ShapeData {
+    fn column_hash(&self) -> u64 {
+        let mut hasher = rustc_hash::FxHasher::default();
+        self.kinds.hash(&mut hasher);
+        self.char_defs.hash(&mut hasher);
+        self.flags.hash(&mut hasher);
+        self.feat_width.hash(&mut hasher);
+        self.feat_lanes.hash(&mut hasher);
+        self.cd_sets.hash(&mut hasher);
+        self.generated_full.hash(&mut hasher);
+        self.unresolved_variables.hash(&mut hasher);
+        // 0 marks "not computed yet".
+        hasher.finish().max(1)
+    }
+}
+
+impl Hash for ShapeData {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut h = self.content_hash.load(Ordering::Relaxed);
+        if h == 0 {
+            h = self.column_hash();
+            self.content_hash.store(h, Ordering::Relaxed);
+        }
+        state.write_u64(h);
+    }
+}
 
 impl std::ops::Deref for Shape {
     type Target = ShapeData;
@@ -696,6 +747,7 @@ impl ShapeBuilder {
         debug_assert_eq!(self.cd_sets.len(), self.kinds.len());
         Shape {
             data: Arc::new(ShapeData {
+                content_hash: AtomicU64::new(0),
                 kinds: self.kinds.into_boxed_slice(),
                 char_defs: self.char_defs.into_boxed_slice(),
                 flags: self.flags.into_boxed_slice(),

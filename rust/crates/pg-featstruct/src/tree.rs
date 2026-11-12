@@ -20,6 +20,8 @@
 //! live in `crate::ops`; this module is the frozen data model they and the grammar
 //! loader share.
 
+use std::sync::Arc;
+
 use crate::bitvec::SymbolBits;
 
 /// Index of a feature within one feature *system* (syntactic here; phonological uses `FlatIndex` lanes), assigned densely at grammar load.
@@ -46,9 +48,22 @@ pub enum FeatureValue {
 /// or `FeatureStruct::EMPTY`. Grammar-tier instances are interned to `FsId` so equality
 /// on the hot path is an integer compare; this type's own `Eq`/`Hash` are what the
 /// interner pays once per distinct value.
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct FeatureStruct {
-    entries: Vec<(FeatId, FeatureValue)>,
+    /// `None` is the empty structure. Frozen entries are shared, so `Clone` is a reference-count bump.
+    entries: Option<Arc<[(FeatId, FeatureValue)]>>,
+}
+
+/// What a `FeatureStruct` weighed while it held its entries in an inline `Vec`. Byte-budget arithmetic (`Word` capture estimates) keeps using this figure so eviction and capture ceilings do not move now that the entries are shared.
+pub const INLINE_BYTES: usize = 24;
+
+impl serde::Serialize for FeatureStruct {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut out = serializer.serialize_struct("FeatureStruct", 1)?;
+        out.serialize_field("entries", self.entries())?;
+        out.end()
+    }
 }
 
 impl<'de> serde::Deserialize<'de> for FeatureStruct {
@@ -82,32 +97,31 @@ impl<'de> serde::Deserialize<'de> for FeatureStruct {
 
 impl FeatureStruct {
     /// The empty feature structure (unifies with everything, subsumes everything).
-    pub const EMPTY: FeatureStruct = FeatureStruct {
-        entries: Vec::new(),
-    };
+    pub const EMPTY: FeatureStruct = FeatureStruct { entries: None };
 
     /// Entries in ascending `FeatId` order.
     #[inline]
     pub fn entries(&self) -> &[(FeatId, FeatureValue)] {
-        &self.entries
+        self.entries.as_deref().unwrap_or(&[])
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_none()
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries().len()
     }
 
     /// The value of `feat`, if present (binary search over the sorted entries).
     pub fn get(&self, feat: FeatId) -> Option<&FeatureValue> {
-        self.entries
+        let entries = self.entries();
+        entries
             .binary_search_by_key(&feat, |(f, _)| *f)
             .ok()
-            .map(|i| &self.entries[i].1)
+            .map(|i| &entries[i].1)
     }
 }
 
@@ -146,7 +160,11 @@ impl FeatureStructBuilder {
 
     pub fn build(self) -> FeatureStruct {
         FeatureStruct {
-            entries: self.entries,
+            entries: if self.entries.is_empty() {
+                None
+            } else {
+                Some(Arc::from(self.entries))
+            },
         }
     }
 }
