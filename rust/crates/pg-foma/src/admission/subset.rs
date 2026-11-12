@@ -95,6 +95,10 @@ impl<'a> Subsets<'a> {
 
     /// Leaves in `set` the seeds and everything they reach without reading a symbol, sorted.
     fn close(&mut self, seeds: &[u32]) {
+        if self.stamp == u32::MAX {
+            self.seen.fill(0);
+            self.stamp = 0;
+        }
         self.stamp += 1;
         self.set.clear();
         let nfa = self.nfa;
