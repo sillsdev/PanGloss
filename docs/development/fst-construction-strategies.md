@@ -434,9 +434,8 @@ made in parser work, never in time, and prints one `PREFILTER` line when it is m
 
 The tables are built on every batch start, never cached or read from disk, and the build is charged:
 its construction units are counted while it runs and reported at their weight. The weights are fitted
-to measured instructions, not exact: the admission estimate is 0.77 to 2.2 times the measured
-instructions across nine grammars (instructions per unit 454 to 1,303 against the weight 1,000), the
-tiled estimate 0.76 to 7.3 times (218 to 2,094 against 1,600). A build whose budget is under a floor
+to measured instructions, not exact: the admission estimate is 0.77 to 2.1 times the measured
+instructions across nine grammars (instructions per unit 526 to 1,426 against the weight 1,100), the tiled estimate 0.77 to 3.3 times (224 to 973 against 750). A build whose budget is under a floor
 computed from the plan (admission) or the root lexicon (tiled) is refused before any net is built and
 spends nothing; the floor is 12 to 30 times below the full build on most grammars, so it catches only
 hopeless budgets. Every foma operation of the build, the cascade included, asks the meter first, and a

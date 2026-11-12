@@ -243,15 +243,16 @@ fn construct(meter: &Meter, nfa: &Nfa) -> Ended {
         return Ended::Refused;
     }
     if !done {
-        // A try that does not end is bounded by the net it reads and is left uncharged, so a build that goes on forward counts exactly the determinized net, as it does through foma.
         let reversed = nfa.reversed();
         let mut reverse = Subsets::new(&reversed);
-        if reverse.run_within(nfa.size().saturating_mul(REVERSE_TRY)) {
-            let made = nfa.size() + reverse.made();
-            if !meter.allows(made) {
-                return Ended::Refused;
-            }
-            meter.spend(made);
+        let ended = reverse.run_within(nfa.size().saturating_mul(REVERSE_TRY));
+        // The try is charged whether it ends or not: the reversed net and what its construction made are work done.
+        let made = nfa.size() + reverse.made();
+        if !meter.allows(made) {
+            return Ended::Refused;
+        }
+        meter.spend(made);
+        if ended {
             return Ended::Reverse(reverse.finish());
         }
     }
@@ -286,7 +287,10 @@ fn minimal(meter: &Meter, nfa: Nfa) -> Result<Option<Dfa>, ()> {
             drop(dfa);
             let mut subsets = Subsets::new(&back);
             subsets.run(u64::MAX);
-            Ok(Some(subsets.finish()))
+            match charge(meter, &subsets, 0) {
+                true => Ok(Some(subsets.finish())),
+                false => Err(()),
+            }
         }
     }
 }
@@ -306,8 +310,8 @@ pub(super) fn minimize(meter: &Meter, net: Fsm, plain: impl FnOnce(Fsm) -> Fsm) 
     }
 }
 
-/// The minimal net of `left` followed by `right`; the subset constructions are left uncharged, as the determinizing inside foma's concatenation is.
-pub(super) fn concat(opts: &FomaOptions, mut left: Fsm, mut right: Fsm) -> Fsm {
+/// The minimal net of `left` followed by `right`, charging what the subset constructions made, or an empty net past the budget.
+pub(super) fn concat(meter: &Meter, opts: &FomaOptions, mut left: Fsm, mut right: Fsm) -> Fsm {
     fsm_count(&mut left);
     fsm_count(&mut right);
     let size = |net: &Fsm| net.statecount.max(0) as usize + net.arccount.max(0) as usize;
@@ -317,7 +321,9 @@ pub(super) fn concat(opts: &FomaOptions, mut left: Fsm, mut right: Fsm) -> Fsm {
     }
     fsm_merge_sigma(opts, &mut left, &mut right);
     let (nfa, pairs) = Nfa::chain(&left, &right);
-    match minimal(&Meter::default(), nfa) {
+    match minimal(meter, nfa) {
+        Err(()) => foma::structures::fsm_empty_set(),
+        Ok(None) => fsm_concat(opts, left, right),
         Ok(Some(dfa)) => {
             drop(right);
             if sigma_find_number(EPSILON, &left.sigma).is_none() {
@@ -325,6 +331,5 @@ pub(super) fn concat(opts: &FomaOptions, mut left: Fsm, mut right: Fsm) -> Fsm {
             }
             dfa.write(left, &pairs)
         }
-        _ => fsm_concat(opts, left, right),
     }
 }

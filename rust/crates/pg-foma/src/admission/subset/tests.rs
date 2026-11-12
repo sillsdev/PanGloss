@@ -236,16 +236,16 @@ fn both_ends(back: u32) -> Nfa {
 }
 
 #[test]
-fn a_reverse_that_does_not_end_within_its_bound_is_dropped_and_not_charged() {
+fn a_reverse_that_does_not_end_within_its_bound_is_dropped_and_still_charged() {
     let nfa = both_ends(12);
     let meter = Meter::default();
     let Ended::Forward(forward) = construct(&meter, &nfa) else {
         panic!("neither direction ends within sixteen times the net");
     };
-    assert_eq!(
-        meter.units(),
-        forward.size(),
-        "what foma's determinized net would count"
+    let tried = meter.units() - forward.size();
+    assert!(
+        tried > nfa.size() && tried <= nfa.size() * (1 + REVERSE_TRY) + 8,
+        "the reversed net and what its try made are charged on top of the determinized net: {tried}"
     );
     assert_eq!(table(&forward), table(&determinized(&nfa)));
 }
@@ -330,7 +330,7 @@ fn joining_two_nets_gives_the_net_foma_concatenation_makes() {
     ];
     for (left, first, right, second) in pairs {
         let theirs = fsm_concat(&opts, left(first), right(second));
-        let ours = concat(&opts, left(first), right(second));
+        let ours = concat(&Meter::default(), &opts, left(first), right(second));
         assert_eq!(shape(&ours), shape(&theirs));
         assert!(fsm_equivalent(&opts, ours, theirs));
     }
@@ -339,12 +339,17 @@ fn joining_two_nets_gives_the_net_foma_concatenation_makes() {
 #[test]
 fn joining_small_or_empty_nets_is_left_to_foma() {
     let opts = FomaOptions::default();
-    let small = concat(&opts, regex("a b"), regex("c | d"));
+    let small = concat(&Meter::default(), &opts, regex("a b"), regex("c | d"));
     assert_eq!(
         shape(&small),
         shape(&fsm_concat(&opts, regex("a b"), regex("c | d")))
     );
-    let none = concat(&opts, list(1, Written::default()), fsm_empty_set());
+    let none = concat(
+        &Meter::default(),
+        &opts,
+        list(1, Written::default()),
+        fsm_empty_set(),
+    );
     assert_eq!((none.statecount, none.arccount, none.finalcount), (1, 0, 0));
 }
 
@@ -367,4 +372,17 @@ fn a_net_with_more_labels_than_two_bytes_number_keeps_them_all() {
     assert_eq!(minimal.accepting, [false, true]);
     let row: Vec<(u32, u32)> = minimal.rows.row(0).collect();
     assert_eq!(row, (0..labels).map(|label| (label, 1)).collect::<Vec<_>>());
+}
+
+#[test]
+fn joining_charges_its_subset_construction_and_stops_past_the_budget() {
+    let opts = FomaOptions::default();
+    let plain = Written::default();
+    let meter = Meter::default();
+    let joined = concat(&meter, &opts, list(1, plain), list(2, plain));
+    assert!(meter.units() >= (joined.statecount + joined.arccount) as u64);
+    let tight = Meter::within(meter.units() / 2);
+    let refused = concat(&tight, &opts, list(1, plain), list(2, plain));
+    assert_eq!((refused.statecount, refused.arccount), (1, 0));
+    assert!(tight.refused());
 }

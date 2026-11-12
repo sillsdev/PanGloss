@@ -23,11 +23,11 @@ const ITEMS_SHOWN: usize = 12;
 /// A budget no build reaches.
 pub const UNLIMITED_UNITS: u64 = u64::MAX;
 
-/// Instructions per [`RuleAdmission::construction_units`](super::RuleAdmission::construction_units) unit; a callgrind fit on nine grammars, the cascade build and planning included, puts the estimate between 0.77 and 2.2 times the measured cost.
-pub const ADMISSION_UNIT_WEIGHT: u64 = 1000;
+/// Instructions per [`RuleAdmission::construction_units`](super::RuleAdmission::construction_units) unit; a callgrind fit on nine grammars, the cascade build and planning included, finds 526 to 1,426 instructions a unit and puts the estimate between 0.77 and 2.1 times the measured cost.
+pub const ADMISSION_UNIT_WEIGHT: u64 = 1100;
 
-/// Instructions per [`Tiled::construction_units`](super::Tiled::construction_units) unit; a callgrind fit on eight grammars, the cascade read from the admission, puts the estimate between 0.76 and 7.3 times the measured cost.
-pub const TILED_UNIT_WEIGHT: u64 = 1600;
+/// Instructions per [`Tiled::construction_units`](super::Tiled::construction_units) unit; a callgrind fit on eight grammars, the cascade read from the admission, finds 224 to 973 instructions a unit and puts the estimate between 0.77 and 3.3 times the measured cost.
+pub const TILED_UNIT_WEIGHT: u64 = 750;
 
 /// Instructions per table transition counted by [`RuleAdmission::admit_counted`](super::RuleAdmission::admit_counted), tokenizing included; per-grammar fits run from 21 to 74.
 pub const ADMIT_STEP_WEIGHT: u64 = 26;
@@ -188,7 +188,7 @@ impl Meter {
 
     /// Concatenation, minimal without foma's determinized net of the two joined.
     pub(crate) fn concat(&self, opts: &FomaOptions, left: Fsm, right: Fsm) -> Fsm {
-        self.binary(left, right, |l, r| super::subset::concat(opts, l, r))
+        self.binary(left, right, |l, r| super::subset::concat(self, opts, l, r))
     }
 
     pub(crate) fn intersect(&self, opts: &FomaOptions, left: Fsm, right: Fsm) -> Fsm {
