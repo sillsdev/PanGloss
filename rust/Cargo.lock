@@ -1096,6 +1096,7 @@ version = "0.16.2"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-featstruct",
+ "rustc-hash",
  "smallvec",
 ]
 

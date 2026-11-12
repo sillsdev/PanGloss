@@ -198,6 +198,12 @@ pub fn is_unifiable_with_priority_union(
 /// (common features recursively unified), or `None` if any common feature fails to unify
 /// (empty symbolic intersection, or a nested unify failing).
 pub fn unify(a: &FeatureStruct, b: &FeatureStruct) -> Option<FeatureStruct> {
+    if b.is_empty() {
+        return Some(a.clone());
+    }
+    if a.is_empty() {
+        return Some(b.clone());
+    }
     let ae = a.entries();
     let be = b.entries();
     let mut builder = FeatureStructBuilder::with_capacity(ae.len() + be.len());
@@ -306,6 +312,12 @@ fn value_subsumes(a: &FeatureValue, b: &FeatureValue) -> bool {
 /// docs). Features present on only one side pass through unchanged. Always succeeds (matches C#,
 /// which has no failure mode for this operation).
 pub fn priority_union(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
+    if b.is_empty() {
+        return a.clone();
+    }
+    if a.is_empty() {
+        return b.clone();
+    }
     let ae = a.entries();
     let be = b.entries();
     let mut builder = FeatureStructBuilder::with_capacity(ae.len() + be.len());
@@ -551,6 +563,9 @@ fn union_value(
 /// `remainder`) and `pg-rules::word::Word::expand_alternatives` (`Word.cs:517-518`'s realizational-
 /// FS diff).
 pub fn subtract(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
+    if b.is_empty() {
+        return a.clone();
+    }
     let mut builder = FeatureStructBuilder::with_capacity(a.entries().len());
     for (feat, aval) in a.entries() {
         match b.get(*feat) {
@@ -594,6 +609,9 @@ pub fn subtract(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
 /// untouched, even if `a` has it. Used to invert synthesis's `out` contribution off an analysis
 /// word's syntactic FS before re-unifying with `required` (`crate::morph::ana_syn_fs`, `pg-rules`).
 pub fn remove_paths(a: &FeatureStruct, paths: &FeatureStruct) -> FeatureStruct {
+    if paths.is_empty() {
+        return a.clone();
+    }
     let ae = a.entries();
     let pe = paths.entries();
     let mut builder = FeatureStructBuilder::with_capacity(ae.len());
