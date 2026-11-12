@@ -5,12 +5,12 @@
 use std::rc::Rc;
 
 use pg_featstruct::FeatureStruct;
-use pg_grammar_model::model::{AllomorphId, MRuleId};
 
+use crate::trail::Trail;
 use crate::word::{estimate_word_bytes, Word, WordKey};
 
-/// Stands for `None` in a stored trail. A word with a real id of this value is held whole instead.
-const NO_ID: u32 = u32::MAX;
+/// `size_of::<Alternative>()` when the byte estimates were calibrated.
+const LEGACY_ALTERNATIVE_BYTES: usize = 32;
 
 /// One candidate folded into a canonical word.
 #[derive(Clone, Debug)]
@@ -24,8 +24,8 @@ pub enum Alternative {
 /// The fields of a folded candidate that its canonical does not already hold.
 #[derive(Clone, Debug)]
 pub struct TrailAlternative {
-    /// `mrule_apps` then `allomorph_apps`, half the length each.
-    apps: Rc<[u32]>,
+    /// The folded word's own trail, sharing its steps with the search.
+    trail: Trail,
     syn_fs: FeatureStruct,
 }
 
@@ -50,8 +50,7 @@ impl TrailAlternative {
             morphs,
             non_heads,
             non_head_app_index,
-            mrule_apps,
-            allomorph_apps,
+            trail,
             analysis_allomorph,
             applied_realizational_rules,
             applied_phonological_rules,
@@ -59,7 +58,6 @@ impl TrailAlternative {
             root_allomorph,
             root_runtime_id,
             obligatory,
-            unapplied_rule_counts,
             flags,
             source,
             alternatives,
@@ -73,7 +71,6 @@ impl TrailAlternative {
             && non_heads.is_empty()
             && canonical.non_heads.is_empty()
             && *non_head_app_index == canonical.non_head_app_index
-            && mrule_apps.len() == allomorph_apps.len()
             && *analysis_allomorph == canonical.analysis_allomorph
             && *applied_realizational_rules == canonical.applied_realizational_rules
             // The stats collector merges this list into a stored canonical after the fold, so only the empty list rebuilds.
@@ -82,57 +79,24 @@ impl TrailAlternative {
             && *root_allomorph == canonical.root_allomorph
             && *root_runtime_id == canonical.root_runtime_id
             && *obligatory == canonical.obligatory
-            && *unapplied_rule_counts == canonical.unapplied_rule_counts
             && *flags == canonical.flags
             && same_source(source, &canonical.source)
             && alternatives.is_empty()
             && *trace == canonical.trace;
-        if !rebuilds {
-            return None;
-        }
-        let rules = mrule_apps.iter().map(|id| id.map_or(Some(NO_ID), real_id));
-        let allomorphs = allomorph_apps
-            .iter()
-            .map(|id| id.map_or(Some(NO_ID), |id| real_id_of(id.0)));
-        let apps: Option<Rc<[u32]>> = rules.chain(allomorphs).collect();
-        Some(TrailAlternative {
-            apps: apps?,
+        // The stored trail carries its own unapplication counts, so they need no comparison with the canonical's.
+        rebuilds.then(|| TrailAlternative {
+            trail: trail.clone(),
             syn_fs: syn_fs.clone(),
         })
     }
 
-    fn rules(&self) -> &[u32] {
-        &self.apps[..self.apps.len() / 2]
-    }
-
-    fn allomorphs(&self) -> &[u32] {
-        &self.apps[self.apps.len() / 2..]
-    }
-
     fn rebuild(&self, canonical: &Word) -> Word {
         let mut w = canonical.clone_without_alternatives();
-        w.mrule_apps = self
-            .rules()
-            .iter()
-            .map(|&id| (id != NO_ID).then_some(MRuleId(id)))
-            .collect();
-        w.allomorph_apps = self
-            .allomorphs()
-            .iter()
-            .map(|&id| (id != NO_ID).then_some(AllomorphId(id)))
-            .collect();
+        w.trail = self.trail.clone();
         w.syn_fs = self.syn_fs.clone();
         w.applied_phonological_rules.clear();
         w
     }
-}
-
-fn real_id(id: MRuleId) -> Option<u32> {
-    real_id_of(id.0)
-}
-
-fn real_id_of(id: u32) -> Option<u32> {
-    (id != NO_ID).then_some(id)
 }
 
 impl Alternative {
@@ -169,7 +133,7 @@ impl Alternative {
         match self {
             Alternative::Trail(trail) => {
                 canonical.obligatory == obligatory
-                    && key.matches_with_trail(canonical, trail.rules(), trail.allomorphs())
+                    && key.matches_with_trail(canonical, &trail.trail)
             }
             Alternative::Whole(w) => w.obligatory == obligatory && key.matches(w),
         }
@@ -179,7 +143,7 @@ impl Alternative {
     pub fn estimated_bytes(&self) -> usize {
         match self {
             Alternative::Trail(trail) => {
-                std::mem::size_of::<Alternative>() + std::mem::size_of_val(&*trail.apps)
+                LEGACY_ALTERNATIVE_BYTES + trail.trail.len() * 2 * std::mem::size_of::<u32>()
             }
             Alternative::Whole(w) => estimate_word_bytes(w),
         }

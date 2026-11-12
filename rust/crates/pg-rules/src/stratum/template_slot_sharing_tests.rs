@@ -216,7 +216,7 @@ fn project(per_template: Vec<Vec<Word>>) -> Projection {
         .map(|words| {
             words
                 .into_iter()
-                .map(|w| (w.dedup_key(), w.syn_fs.clone(), w.mrule_apps.clone()))
+                .map(|w| (w.dedup_key(), w.syn_fs.clone(), w.trail.rules()))
                 .collect()
         })
         .collect()

@@ -44,7 +44,7 @@ fn redup_outputs(g: &Grammar, word: &str, prune: bool) -> usize {
     )
     .words
     .into_iter()
-    .filter(|w: &Word| !w.mrule_apps.is_empty())
+    .filter(|w: &Word| !w.trail.is_empty())
     .count()
 }
 

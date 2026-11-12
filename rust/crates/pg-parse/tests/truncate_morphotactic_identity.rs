@@ -120,10 +120,9 @@ fn trace_identity(grammar: &Grammar, word: &Word) -> TraceIdentity {
         .collect();
     // Reverse surface-inward unapplication to compare forward application order.
     let applications = word
-        .mrule_apps
-        .iter()
-        .rev()
-        .map(|rule| rule.map(|id| rule_name(grammar, id)))
+        .trail
+        .slots_rev()
+        .map(|(rule, _)| rule.map(|id| rule_name(grammar, id)))
         .collect();
     (occurrences, applications)
 }

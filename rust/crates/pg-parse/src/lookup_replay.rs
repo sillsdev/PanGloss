@@ -114,7 +114,7 @@ impl LookupReplay {
         let mut extra = self.realizational_out;
         let mut excluded_ok = !self.overwrite_reachable;
         let mut stem_ok = true;
-        for entry in alt.mrule_apps.iter().rev() {
+        for (entry, _) in alt.trail.slots_rev() {
             let rule = entry.and_then(|id| match &g.mrules[id.0 as usize] {
                 MorphRuleDef::AffixProcess(rule) => Some(rule),
                 _ => None,

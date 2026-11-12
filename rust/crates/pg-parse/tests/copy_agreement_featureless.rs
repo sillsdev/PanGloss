@@ -117,7 +117,7 @@ fn analysis_outputs(g: &Grammar, shape: Shape, prune: bool) -> Vec<Word> {
     )
     .words
     .into_iter()
-    .filter(|word| !word.mrule_apps.is_empty())
+    .filter(|word| !word.trail.is_empty())
     .collect()
 }
 
