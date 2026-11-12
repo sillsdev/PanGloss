@@ -5,7 +5,7 @@ file has no section for.
 
 ## Unreleased
 
-- In the last stratum analysed, once a word's search is large, a word that no root matches no longer keeps the other derivations that reach it: nothing can be synthesized from it, so they were never read. The check spends none of the word's work and the root lookups run afterwards as before, so analyses, their order, parser work and which words reach the cap are identical; a trace and the root guesser keep everything. On the heaviest Mbugwe word the peak falls from 126 MB to 112 MB at a 200M work cap and from 479 MB to 281 MB at 1G.
+- In the last stratum analysed, once a word's search is large, a word that no root matches no longer keeps the other derivations that reach it: nothing can be synthesized from it, so they were never read. The check spends none of the word's work, its answers are kept by shape for that one word in a table held to 4 MB, and the root lookups run afterwards as before, so analyses, their order, parser work and which words reach the cap are identical; a trace and the root guesser keep everything. On the heaviest Mbugwe word the peak falls from 126 MB to 112 MB at a 200M work cap and from 479 MB to 281 MB at 1G.
 
 - The search's visited set for a stratum holds a position into the words already found, compared field by field against the stored word, instead of an owned state key per word. On the heaviest Mbugwe word the peak falls from 35 MB to 32 MB at a 50M work cap, from 158 MB to 126 MB at 200M and from 558 MB to 479 MB at 1G, with identical analyses and parser work.
 
