@@ -61,7 +61,7 @@ pub fn record_live_words(words: &[Word]) {
         breakdown.add_assign(&b);
         MAX_SINGLE_WORD_BYTES.with(|c| c.set(c.get().max(t)));
         ALT_LENS.with(|v| v.borrow_mut().push(w.alternatives.len() as u32));
-        NON_HEAD_LENS.with(|v| v.borrow_mut().push(w.non_heads.len() as u32));
+        NON_HEAD_LENS.with(|v| v.borrow_mut().push(w.non_heads().len() as u32));
     }
     if total > LIVE_PEAK_TOTAL.with(Cell::get) {
         LIVE_PEAK_TOTAL.with(|c| c.set(total));

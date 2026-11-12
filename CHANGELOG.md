@@ -5,6 +5,14 @@ file has no section for.
 
 ## Unreleased
 
+- In the last stratum analysed, once a word's search is large, a word that no root matches no longer keeps the other derivations that reach it: nothing can be synthesized from it, so they were never read. The check spends none of the word's work, its answers are kept by shape for that one word in a table held to 4 MB, and the root lookups run afterwards as before, so analyses, their order, parser work and which words reach the cap are identical; a trace and the root guesser keep everything. On the heaviest Mbugwe word the peak falls from 126 MB to 112 MB at a 200M work cap and from 479 MB to 281 MB at 1G.
+
+- The search's visited set for a stratum holds a position into the words already found, compared field by field against the stored word, instead of an owned state key per word. On the heaviest Mbugwe word the peak falls from 35 MB to 32 MB at a 50M work cap, from 158 MB to 126 MB at 200M and from 558 MB to 479 MB at 1G, with identical analyses and parser work.
+
+- A template battery and a stratum hand their word buffers back as they are emptied instead of holding them until the last word is consumed, and each template's output set is freed once it has been merged into the battery. On the heaviest Mbugwe word the peak falls from 41 MB to 35 MB at a 50M work cap, from 165 MB to 158 MB at 200M and from 601 MB to 558 MB at 1G, with identical analyses and parser work.
+
+- A word's rule trail is one parent-linked list shared with the words it was derived from, instead of two vectors and a map per word, and the parts few words use (compound non-heads, applied realizational and phonological rules, a runtime root's identity) sit behind one pointer, so a word in the search is 168 bytes instead of 320. On the heaviest Mbugwe word the peak falls from 267 MB to 165 MB at a 200M work cap and from 774 MB to 601 MB at 1G, with identical analyses and parser work.
+
 - A folded alternative that differs from its canonical word only by rule trail, allomorph trail and syntactic features is stored as that difference and rebuilt on demand, any other alternative is held whole, and template and stratum outputs are held once instead of copied. On the heaviest Mbugwe word the peak falls from 389 MB to 267 MB at a 200M work cap, with identical analyses and parser work.
 
 - Within one parse, equal shapes and syntactic feature structures produced by separate rule applications share one allocation, found by hash and confirmed by full comparison. On the heaviest Mbugwe word the peak falls from 1,152 MB to 389 MB at a 200M work cap and from 199 MB to 82 MB at 50M, with identical analyses and parser work.

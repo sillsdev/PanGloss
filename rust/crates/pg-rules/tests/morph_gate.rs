@@ -183,8 +183,10 @@ fn suffix_synthesis_appends_and_orders_root_then_affix() {
 fn uncached_synthesis_emits_only_the_recorded_allomorph() {
     let g = load_alpha_grammar();
     let mut stem = root_word(&g, "apa", 100);
-    stem.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
-    stem.allomorph_apps = vec![Some(AllomorphId(201))];
+    stem.trail = pg_rules::trail::Trail::from_slots([(
+        Some(pg_grammar_model::model::MRuleId(0)),
+        Some(AllomorphId(201)),
+    )]);
     stem.mrule_app_index = 0;
     let make_allomorph = |id| {
         allomorph(
@@ -419,9 +421,9 @@ fn compound_synthesis_joins_head_and_non_head() {
         vec![MorphemeId(100), MorphemeId(300)]
     );
     // `non_heads` is never cleared, matching C#'s `SynthesisCompoundingRule` (only the app index moves): the non-head stays as permanent history, which lets `Word::dedup_key()` distinguish surface-homophone compounds with distinct non-heads.
-    assert_eq!(out[0].non_heads.len(), 1);
+    assert_eq!(out[0].non_heads().len(), 1);
     assert_eq!(
-        char_defs(&out[0].non_heads[0].shape),
+        char_defs(&out[0].non_heads()[0].shape),
         char_defs(&shape_with_lanes(&g, "ka"))
     );
 }

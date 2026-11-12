@@ -15,7 +15,7 @@ use pg_grammar_model::model::{
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy,
+    analyze_last_stratum, analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy,
     synthesize_phonological_stratum_traced, synthesize_stratum_traced, synthesize_template,
     AnalyzerConfig, FinalTemplateAnalysisPolicy, PhonologyCascadeOutcome, WordBudget,
 };
@@ -752,7 +752,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     let baseline_histories: Vec<Vec<MRuleId>> = baseline
         .words
         .iter()
-        .map(|w| w.mrule_apps.iter().flatten().copied().collect())
+        .map(|w| w.trail.rules().iter().flatten().copied().collect())
         .collect();
     assert!(
         baseline_histories.contains(&vec![ordinary, template_rule]),
@@ -783,7 +783,13 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         disabled
             .words
             .iter()
-            .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
+            .map(|w| w
+                .trail
+                .rules()
+                .iter()
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>())
             .collect::<Vec<_>>(),
         baseline_histories
     );
@@ -841,7 +847,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     let enforced_histories: Vec<Vec<MRuleId>> = enforced
         .words
         .iter()
-        .map(|w| w.mrule_apps.iter().flatten().copied().collect())
+        .map(|w| w.trail.rules().iter().flatten().copied().collect())
         .collect();
 
     let trace_sink = TreeTraceSink::new();
@@ -872,7 +878,14 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     let traced_histories = traced
         .words
         .iter()
-        .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
+        .map(|w| {
+            w.trail
+                .rules()
+                .iter()
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>()
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         traced_histories, enforced_histories,
@@ -923,14 +936,14 @@ fn stratum_outputs_carry_the_final_template_state_out() {
     );
     // PORT-CORRESPONDENCE: `AnalysisStratumRule.Apply` no longer clears the state on its outputs; only a blocking stratum's entry does.
     for w in &out.words {
-        let expected = if w.mrule_apps.iter().flatten().any(|&id| id == ordinary) {
+        let expected = if w.trail.rules().iter().flatten().any(|&id| id == ordinary) {
             pg_rules::word::FinalTemplateState::NonTemplate
         } else {
             pg_rules::word::FinalTemplateState::None
         };
         assert_eq!(w.flags.final_template_state, expected);
     }
-    assert!(out.words.iter().any(|w| !w.mrule_apps.is_empty()));
+    assert!(out.words.iter().any(|w| !w.trail.is_empty()));
 }
 
 #[test]
@@ -986,7 +999,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         .into_iter()
         .find(|w| {
             char_defs(&w.shape) == vec![cd(&g, "char_a"), cd(&g, "char_k")]
-                && w.mrule_apps.iter().flatten().copied().eq([outer_rule])
+                && w.trail.rules().iter().flatten().copied().eq([outer_rule])
         })
         .expect("outer ordinary rule must unapply before crossing the stratum boundary");
     assert_eq!(
@@ -1016,7 +1029,8 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
         TraceHandle::DUMMY,
     );
     assert!(!non_blocking.words.iter().any(|w| w
-        .mrule_apps
+        .trail
+        .rules()
         .iter()
         .flatten()
         .any(|&id| id == final_rule)));
@@ -1046,7 +1060,8 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
     );
     assert!(inner_result.words.iter().any(|w| {
         char_defs(&w.shape) == vec![cd(&g, "char_a")]
-            && w.mrule_apps
+            && w.trail
+                .rules()
                 .iter()
                 .flatten()
                 .copied()
@@ -1090,7 +1105,14 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
     let histories = |words: &[Word]| {
         words
             .iter()
-            .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
+            .map(|w| {
+                w.trail
+                    .rules()
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .collect::<Vec<_>>()
+            })
             .collect::<Vec<_>>()
     };
     let off = analyze_stratum_filtered_ruled_traced_with_policy(
@@ -1296,13 +1318,13 @@ fn merge_equivalent_analyses_keeps_distinct_rule_histories_as_siblings() {
         assert!(
             w.alternatives.is_empty(),
             "a distinct-history candidate must not be folded, so it carries no alternatives; \
-             mrule_apps={:?}",
-            w.mrule_apps
+             trail={:?}",
+            w.trail.rules()
         );
     }
     let mut seen_ids: Vec<MRuleId> = ag_candidates
         .iter()
-        .map(|w| w.mrule_apps[0].expect("analysis always records a known rule"))
+        .map(|w| w.trail.rules()[0].expect("analysis always records a known rule"))
         .collect();
     seen_ids.sort_by_key(|id| id.0);
     let mut want_ids = vec![id_a, id_b];
@@ -1315,7 +1337,7 @@ fn merge_equivalent_analyses_keeps_distinct_rule_histories_as_siblings() {
 
 #[test]
 fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand_recovers_both() {
-    // An Unordered stratum's `combination` cascade explores both P-then-S and S-then-P (each a distinct WordKey, since mrule_apps order differs), but both reach shape "ag" with the identical rule multiset {P:1, S:1} -- an equal AnalysisStateKey -- so the merge folds the second into the first's Alternatives.
+    // An Unordered stratum's `combination` cascade explores both P-then-S and S-then-P (each a distinct WordKey, since trail order differs), but both reach shape "ag" with the identical rule multiset {P:1, S:1} -- an equal AnalysisStateKey -- so the merge folds the second into the first's Alternatives.
     let mut g = load_alpha_grammar();
     let rule_p = prefix_rule(&g, 200, "p"); // P: strips a leading "p"
     let rule_s = suffix_rule(&g, 300, "n"); // S: strips a trailing "n"
@@ -1355,13 +1377,14 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
         canonical.alternatives.len(),
         1,
         "the order-variant arrival must be folded into Alternatives, not dropped or left a sibling; \
-         canonical.mrule_apps={:?}",
-        canonical.mrule_apps
+         canonical.trail.rules()={:?}",
+        canonical.trail.rules()
     );
     // The canonical and its lone alternative are the two rule orders, [P,S] and [S,P].
     let mut got_orders: Vec<Vec<MRuleId>> = vec![
         canonical
-            .mrule_apps
+            .trail
+            .rules()
             .iter()
             .map(|id| id.expect("analysis always records a known rule"))
             .collect(),
@@ -1370,7 +1393,8 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
             .get(0)
             .expect("one alternative")
             .word(&canonical)
-            .mrule_apps
+            .trail
+            .rules()
             .iter()
             .map(|id| id.expect("analysis always records a known rule"))
             .collect(),
@@ -1397,7 +1421,7 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
     // expand_alternatives must reconstruct both histories (each now also carrying idZ), matching what an unmerged engine would have produced.
     let expanded = final_word.expand_alternatives();
     let mut got: Vec<Vec<Option<MRuleId>>> =
-        expanded.iter().map(|w| w.mrule_apps.clone()).collect();
+        expanded.iter().map(|w| w.trail.rules().clone()).collect();
     got.sort();
     let mut want = vec![
         vec![Some(id_p), Some(id_s), Some(id_z)],
@@ -1528,7 +1552,7 @@ fn merge_generalizes_canonical_syntactic_fs_over_folded_alternative() {
 // `--word-timeout-ms` must be enforced during synthesis, not just analysis: a budget with an already-expired deadline (not a wall-clock race) proves it, since analysis/synthesis timing both vary by machine.
 #[test]
 fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short() {
-    // Guided synthesis only reapplies what the word's own mrule_apps trail says is next, so this hand-sets a two-step trail and uses push_cache_suffix_rule (registers in g.allomorph_owners, required by the cached synth_affix_cached path).
+    // Guided synthesis only reapplies what the word's own trail says is next, so this hand-sets a two-step trail and uses push_cache_suffix_rule (registers in g.allomorph_owners, required by the cached synth_affix_cached path).
     let mut g = load_alpha_grammar();
     let a = push_cache_suffix_rule(&mut g, 200, "p");
     let b = push_cache_suffix_rule(&mut g, 300, "k");
@@ -1536,8 +1560,7 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
 
     let mut root = word(&g, "a", s);
     // The trail a real analysis of "apk" would produce: B unapplied first (index 0), then A (index 1); guided synthesis walks it back off the end, A then B.
-    root.mrule_apps = vec![Some(b), Some(a)];
-    root.allomorph_apps = vec![None; root.mrule_apps.len()];
+    root.trail = pg_rules::trail::Trail::from_slots([(Some(b), None), (Some(a), None)]);
     root.mrule_app_index = 1;
 
     let cache = RuleCache::build(&g);
@@ -1652,4 +1675,182 @@ fn synthesis_optional_stem_paths_share_the_per_word_allowance() {
     );
     assert_eq!(budget.work_steps(), 64);
     assert!(!budget.timed_out(), "the bound is deterministic");
+}
+
+// ---- root lookup as the last-analysed stratum creates each word ----------------------------
+
+/// "pagn" under unordered P (prefix p) and S (suffix n): P-then-S and S-then-P both reach "ag", so that canonical holds one alternative.
+fn two_orders_to_ag() -> (Grammar, StratumId, AnalyzerConfig) {
+    let mut g = load_alpha_grammar();
+    let rule_p = prefix_rule(&g, 200, "p");
+    let rule_s = suffix_rule(&g, 300, "n");
+    let id_p = push_mrule(&mut g, rule_p);
+    let id_s = push_mrule(&mut g, rule_s);
+    let s0 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_p, id_s], vec![]);
+    let cfg = AnalyzerConfig {
+        merge_equivalent: true,
+        max_unapplications: 0,
+        max_stem_count: 2,
+        prune_disagreeing_copies: false,
+        ..AnalyzerConfig::default()
+    };
+    (g, s0, cfg)
+}
+
+fn analyze_last(
+    g: &Grammar,
+    s: StratumId,
+    cfg: &AnalyzerConfig,
+    budget: &WordBudget,
+    gate: Option<&dyn Fn(&Word) -> bool>,
+    from_words: usize,
+) -> pg_rules::stratum::StratumAnalysis {
+    analyze_last_stratum(
+        g,
+        s,
+        word(g, "pagn", s),
+        cfg,
+        None,
+        None,
+        None,
+        budget,
+        &pg_rules::shared_values::SharedValues::default(),
+        FinalTemplateAnalysisPolicy::default(),
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+        gate.map(|has_root| pg_rules::stratum::RootGate {
+            has_root,
+            from_words,
+        }),
+    )
+}
+
+#[test]
+fn a_word_with_no_root_keeps_its_place_and_drops_the_alternatives_folded_into_it() {
+    let (g, s0, cfg) = two_orders_to_ag();
+    let ag = vec![cd(&g, "char_a"), cd(&g, "char_g")];
+    let plain_budget = WordBudget::new(1_000_000);
+    let plain = analyze_last(&g, s0, &cfg, &plain_budget, None, 0);
+    let alternatives = |out: &pg_rules::stratum::StratumAnalysis| -> Vec<usize> {
+        out.words.iter().map(|w| w.alternatives.len()).collect()
+    };
+    let keys = |out: &pg_rules::stratum::StratumAnalysis| -> Vec<_> {
+        out.words.iter().map(|w| w.dedup_key()).collect()
+    };
+    assert_eq!(alternatives(&plain).iter().sum::<usize>(), 1);
+
+    let seen = std::cell::RefCell::new(Vec::new());
+    let rooted = |w: &Word| {
+        seen.borrow_mut().push(char_defs(&w.shape));
+        true
+    };
+    let rooted_budget = WordBudget::new(1_000_000);
+    let with_roots = analyze_last(&g, s0, &cfg, &rooted_budget, Some(&rooted), 0);
+    assert_eq!(alternatives(&with_roots), alternatives(&plain));
+    assert_eq!(
+        *seen.borrow(),
+        vec![ag.clone()],
+        "the gate is asked once, of the one word something folds into"
+    );
+
+    let no_ag = |w: &Word| char_defs(&w.shape) != ag;
+    let without_budget = WordBudget::new(1_000_000);
+    let without = analyze_last(&g, s0, &cfg, &without_budget, Some(&no_ag), 0);
+    assert_eq!(
+        keys(&without),
+        keys(&plain),
+        "the same words in the same order"
+    );
+    assert_eq!(alternatives(&without).iter().sum::<usize>(), 0);
+    assert_eq!(
+        (rooted_budget.work_steps(), without_budget.work_steps()),
+        (plain_budget.work_steps(), plain_budget.work_steps()),
+        "the gate changes no work"
+    );
+}
+
+#[test]
+fn the_gate_changes_no_word_and_no_cap_at_any_work_cap_or_starting_size() {
+    let (g, s0, cfg) = two_orders_to_ag();
+    let free = WordBudget::new(usize::MAX);
+    let outputs = analyze_last(&g, s0, &cfg, &free, None, 0).words.len();
+    let analysis_work = free.work_steps();
+    let (mut capped_runs, mut kept, mut dropped) = (0, 0, 0);
+    for from_words in 0..outputs + 2 {
+        for cap in 1..analysis_work + 2 {
+            let asked = std::cell::RefCell::new(Vec::new());
+            let rootless = |w: &Word| {
+                asked.borrow_mut().push(w.dedup_key());
+                false
+            };
+            let (plain_budget, gated_budget) = (WordBudget::new(cap), WordBudget::new(cap));
+            let plain = analyze_last(&g, s0, &cfg, &plain_budget, None, 0);
+            let gated = analyze_last(&g, s0, &cfg, &gated_budget, Some(&rootless), from_words);
+            let at = format!("from {from_words} words, cap {cap}");
+            assert_eq!(gated.capped, plain.capped, "{at}");
+            assert_eq!(
+                gated
+                    .words
+                    .iter()
+                    .map(|w| w.dedup_key())
+                    .collect::<Vec<_>>(),
+                plain
+                    .words
+                    .iter()
+                    .map(|w| w.dedup_key())
+                    .collect::<Vec<_>>(),
+                "{at}"
+            );
+            assert_eq!(gated_budget.work_steps(), plain_budget.work_steps(), "{at}");
+            let mut once = asked.borrow().clone();
+            once.dedup();
+            assert_eq!(
+                once.len(),
+                asked.borrow().len(),
+                "{at}: a word is asked about once"
+            );
+            let alternatives = |out: &pg_rules::stratum::StratumAnalysis| -> usize {
+                out.words.iter().map(|w| w.alternatives.len()).sum()
+            };
+            assert!(alternatives(&gated) <= alternatives(&plain), "{at}");
+            kept += alternatives(&gated);
+            dropped += alternatives(&plain) - alternatives(&gated);
+            capped_runs += usize::from(plain.capped);
+        }
+    }
+    assert!(
+        capped_runs > 0,
+        "no cap below {analysis_work} capped the run"
+    );
+    assert!(
+        kept > 0 && dropped > 0,
+        "{kept} alternatives kept and {dropped} dropped: both sides of the starting size must be reached"
+    );
+}
+
+#[test]
+fn a_stratum_with_too_few_words_is_never_asked_and_keeps_every_alternative() {
+    let (g, s0, cfg) = two_orders_to_ag();
+    let asked = std::cell::Cell::new(0);
+    let rootless = |_: &Word| {
+        asked.set(asked.get() + 1);
+        false
+    };
+    let out = analyze_last(
+        &g,
+        s0,
+        &cfg,
+        &WordBudget::new(1_000_000),
+        Some(&rootless),
+        100,
+    );
+    assert_eq!(asked.get(), 0);
+    assert_eq!(
+        out.words
+            .iter()
+            .map(|w| w.alternatives.len())
+            .sum::<usize>(),
+        1
+    );
 }

@@ -54,7 +54,7 @@ fn analyze_copy_shape(
     )
     .words
     .into_iter()
-    .filter(|word| !word.mrule_apps.is_empty())
+    .filter(|word| !word.trail.is_empty())
     .collect()
 }
 

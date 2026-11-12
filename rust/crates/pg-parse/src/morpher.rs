@@ -42,6 +42,9 @@ fn consume_parser_work(
     })
 }
 
+/// A last-analysed stratum with fewer output words than this is too small for its folded alternatives to matter, and is not asked the early root check.
+const EARLY_ROOT_CHECK_WORDS: usize = 1024;
+
 /// The compiled parser for one grammar: the immutable grammar plus its per-stratum root-allomorph
 /// tries (C# `Morpher`, built once, parses many words).
 pub struct Morpher<'g> {
@@ -49,6 +52,8 @@ pub struct Morpher<'g> {
     final_template_facts: pg_grammar_model::model::FinalTemplatePruneFacts,
     always_enforce_final_templates: bool,
     prune_final_templates: bool,
+    /// The output size from which the last-analysed stratum drops the alternatives of a word no root matches; `None` never does.
+    early_root_check_from: Option<usize>,
     root_index: RootAllomorphIndex,
     overlay: Option<&'g SuppliedRootOverlay>,
     /// Every `IsPattern` root allomorph across every stratum, in document order; read only by guess.
@@ -457,6 +462,7 @@ impl<'g> Morpher<'g> {
             final_template_facts,
             always_enforce_final_templates: g.always_enforce_final_templates,
             prune_final_templates: true,
+            early_root_check_from: Some(EARLY_ROOT_CHECK_WORDS),
             root_index: RootAllomorphIndex::build(g),
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
@@ -576,6 +582,18 @@ impl<'g> Morpher<'g> {
     /// Turns off the grammar-derived final-template pruning of analysis (on by default), for measuring what it saves; `with_always_enforce_final_templates(true)` still forces it.
     pub fn with_final_template_pruning(mut self, prune: bool) -> Self {
         self.prune_final_templates = prune;
+        self
+    }
+
+    /// Turns off the early root check of the last-analysed stratum (on by default), so every folded alternative is kept until root lookup. The analyses, their order and the work are the same either way; the check holds less memory.
+    pub fn with_early_root_lookup(mut self, early: bool) -> Self {
+        self.early_root_check_from = early.then_some(EARLY_ROOT_CHECK_WORDS);
+        self
+    }
+
+    /// Sets the output size from which the early root check is asked; without this call it waits until a word's search is large enough for the memory to matter.
+    pub fn with_early_root_check_from(mut self, words: usize) -> Self {
+        self.early_root_check_from = Some(words);
         self
     }
 
@@ -899,6 +917,17 @@ impl<'g> Morpher<'g> {
                 self.search_roots(st, shape, stats, &search_cache)
             };
         let mut results: WordSet = WordSet::default();
+        // Stratum 0 is analysed last and its outputs feed no other stratum, so a word of it that no root matches is never read again. Not where something does read such a word: a trace, the root guesser, and the census and alternative-yield diagnostics.
+        let early_lookup = self.early_root_check_from.is_some()
+            && !trace.is_tracing()
+            && !opts.guess_only
+            && !(opts.guess_root && !self.lexical_patterns.is_empty())
+            && !pg_rules::branch_census::enabled()
+            && !alt_yield::enabled();
+        // Within this call the check depends only on shape and stratum, and many states of a word share a shape.
+        let root_answers =
+            std::cell::RefCell::new(crate::root_answers::RootAnswers::new(StratumId(0)));
+        let has_root = |created: &Word| self.has_root(created, lex_entry_filter, &root_answers);
         // The stratum's candidates: the surface word first, then the previous admitted stratum's outputs, which are this range of `results`. A word's key holds its stratum and every output of a stratum carries that stratum, so a stratum's outputs never meet an earlier stratum's in `results` and a second set of them would be a copy.
         let mut inputs: Option<std::ops::Range<usize>> = None;
         let census = pg_rules::branch_census::enabled();
@@ -940,7 +969,7 @@ impl<'g> Morpher<'g> {
                     enforce,
                     all_templates_final: self.final_template_facts.all_templates_final()[s],
                 };
-                let res = pg_rules::stratum::analyze_stratum_filtered_ruled_traced_with_policy(
+                let res = pg_rules::stratum::analyze_last_stratum(
                     g,
                     StratumId(s as u8),
                     w,
@@ -954,8 +983,15 @@ impl<'g> Morpher<'g> {
                     stats,
                     trace,
                     node_parent,
+                    self.early_root_check_from
+                        .filter(|_| early_lookup && s == 0)
+                        .map(|from_words| pg_rules::stratum::RootGate {
+                            has_root: &has_root,
+                            from_words,
+                        }),
                 );
-                for o in res.words {
+                // The stratum's buffer is given back as `results` takes its words, so the two are not both held whole.
+                for o in pg_rules::word_set::Releasing::new(res.words) {
                     assert_eq!(
                         o.stratum,
                         StratumId(s as u8),
@@ -1374,7 +1410,7 @@ impl<'g> Morpher<'g> {
             nw.mpr = root.mpr;
             nw.flags.is_partial = false;
             nw.root_allomorph = Some(AllomorphId::GUESSED);
-            nw.root_runtime_id = Some(root.realization_id.clone());
+            nw.set_root_runtime_id(Some(root.realization_id.clone()));
             nw.morphs = vec![
                 MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                     .with_runtime_root(RuntimeRoot::Supplied(root)),
@@ -1420,16 +1456,40 @@ impl<'g> Morpher<'g> {
         w.flags.is_partial = entry.is_partial();
         w.root_allomorph = Some(allo);
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
-        w.root_runtime_id = None;
+        w.set_root_runtime_id(None);
         w.morphs = vec![MorphRecord::new(allo, entry.morpheme, 0)];
+    }
+
+    /// Whether root lookup can find anything for `aw`, asked without spending the word's work, touching its root search cache or recording a statistic. It may answer true for a word lookup then finds nothing for, never false for one it finds a root for. Its own time is therefore outside the work measure: one root search per shape of the last stratum that something folds into once the search is large, while `answers` has room.
+    fn has_root(
+        &self,
+        aw: &Word,
+        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+        answers: &std::cell::RefCell<crate::root_answers::RootAnswers>,
+    ) -> bool {
+        if self.overlay.is_some() {
+            return true;
+        }
+        if let Some(known) = answers.borrow().get(aw.stratum, &aw.shape) {
+            return known;
+        }
+        let unmetered = pg_fst::work::WorkBudget::new(usize::MAX);
+        let _scope = unmetered.enter();
+        let found = self
+            .root_index
+            .search(self.g, aw.stratum, &aw.shape)
+            .into_iter()
+            .any(|(_, entry)| lex_entry_filter.is_none_or(|passes| passes(entry)));
+        answers.borrow_mut().insert(aw.stratum, &aw.shape, found);
+        found
     }
 
     /// `no_root`: charged to the last rule applied on `aw`'s trail, or to the stratum's root lookup when none applied.
     fn record_no_root(&self, stats: Option<&pg_rules::stats::StatsCollector>, aw: &Word) {
         let Some(stats) = stats else { return };
-        if let Some(Some(id)) = aw.mrule_apps.last() {
-            if let Some(stratum) = self.mrule_stratum(*id) {
-                stats.record_no_root_mrule(stratum, *id);
+        if let Some(Some(id)) = aw.trail.last_rule() {
+            if let Some(stratum) = self.mrule_stratum(id) {
+                stats.record_no_root_mrule(stratum, id);
                 return;
             }
         }
@@ -1448,7 +1508,7 @@ impl<'g> Morpher<'g> {
     fn commit_uses(&self, stats: Option<&pg_rules::stats::StatsCollector>, vw: &Word) {
         let Some(stats) = stats else { return };
         let mut seen: Vec<MRuleId> = Vec::new();
-        for id in vw.mrule_apps.iter().flatten() {
+        for id in vw.trail.rules().iter().flatten() {
             if seen.contains(id) {
                 continue;
             }
@@ -1458,7 +1518,7 @@ impl<'g> Morpher<'g> {
             }
         }
         let mut seen_prules = Vec::new();
-        for &(stratum, id) in &vw.applied_phonological_rules {
+        for &(stratum, id) in vw.applied_phonological_rules() {
             let applied_rule = (stratum, id);
             if seen_prules.contains(&applied_rule) {
                 continue;
@@ -1801,8 +1861,7 @@ impl<'g> Morpher<'g> {
             .iter()
             .position(|m| {
                 Some(m.allomorph) == w.root_allomorph
-                    && pg_rules::word::runtime_id(m.runtime_root.as_deref())
-                        == w.root_runtime_id.as_deref()
+                    && pg_rules::word::runtime_id(m.runtime_root.as_deref()) == w.root_runtime_id()
             })
             .map(|i| i as i32)
             .unwrap_or(-1);
@@ -1873,7 +1932,7 @@ impl<'g> Morpher<'g> {
 pub enum GenMorpheme {
     /// A known morphological rule to unapply (`AffixProcessRule`/`RealizationalAffixProcessRule`).
     Rule(MRuleId),
-    /// A bare compounding non-head root entry; its owning `CompoundingRule` is discovered by the synthesis confirmation gate, not specified here (see `Word::mrule_apps`).
+    /// A bare compounding non-head root entry; its owning `CompoundingRule` is discovered by the synthesis confirmation gate, not specified here (see `Word::trail`).
     NonHead(LexEntryId),
 }
 
@@ -1941,7 +2000,7 @@ fn generation_seed_product(
     Some(product)
 }
 
-/// `mrule is RealizationalAffixProcessRule`: the one rule kind that never occupies an `mrule_apps` trail slot (see that field's doc).
+/// `mrule is RealizationalAffixProcessRule`: the one rule kind that never occupies a trail slot.
 fn is_realizational_rule(g: &Grammar, id: MRuleId) -> bool {
     matches!(&g.mrules[id.0 as usize], MorphRuleDef::Realizational(_))
 }
@@ -2383,7 +2442,7 @@ impl<'g> Morpher<'g> {
         w.syn_fs = data.syn_fs.clone();
         w.mpr = data.mpr;
         w.root_allomorph = Some(AllomorphId::GUESSED);
-        w.root_runtime_id = Some(data.realization_id.clone());
+        w.set_root_runtime_id(Some(data.realization_id.clone()));
         w.morphs = vec![
             MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                 .with_runtime_root(RuntimeRoot::Supplied(data)),
@@ -2562,10 +2621,10 @@ fn insert_candidate(candidates: &mut WordSet, candidate: Word, collect_stats: bo
         candidates.insert_with(key, || candidate);
         return;
     };
-    let applied = &mut candidates.get_mut(at).applied_phonological_rules;
-    for rule in &candidate.applied_phonological_rules {
-        if !applied.contains(rule) {
-            applied.push(*rule);
+    let stored = candidates.get_mut(at);
+    for rule in candidate.applied_phonological_rules() {
+        if !stored.applied_phonological_rules().contains(rule) {
+            stored.applied_phonological_rules_mut().push(*rule);
         }
     }
 }

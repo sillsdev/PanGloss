@@ -13,7 +13,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use web_time::Duration;
 
-use crate::analysis_state_key::{AnalysisStateKey, MorphHistoryKey};
+use crate::analysis_state_key::AnalysisStateKey;
 use pg_featstruct::{is_unifiable, subsumes, subtract, union};
 use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, PRuleId, SlotDef,
@@ -85,8 +85,8 @@ use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
 };
-use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
-use crate::word_set::{fold_hash, WordIndex, WordSet};
+use crate::word::{estimate_word_bytes, FinalTemplateState, Word, WordKey};
+use crate::word_set::{fold_hash, PositionIndex, Releasing, WordIndex, WordSet};
 use crate::{metathesis, morph, rewrite};
 
 #[cfg(test)]
@@ -485,6 +485,15 @@ pub struct StratumAnalysis {
     pub capped: bool,
 }
 
+/// The caller's root check for the last-analysed stratum's output words.
+#[derive(Copy, Clone)]
+pub struct RootGate<'a> {
+    /// Whether any root matches a word. It must answer from the word's shape and stratum alone and spend none of the word's work.
+    pub has_root: &'a dyn Fn(&Word) -> bool,
+    /// The check is not asked while the stratum holds fewer output words than this, so an ordinary word never pays for it.
+    pub from_words: usize,
+}
+
 // Analysis stratum rule.
 
 /// Analyze (unapply) `input` through `stratum` — a faithful port of C#'s `AnalysisStratumRule`.
@@ -610,6 +619,42 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> StratumAnalysis {
+    analyze_last_stratum(
+        g,
+        stratum,
+        input,
+        cfg,
+        non_head_root_filter,
+        rule_filter,
+        cache,
+        budget,
+        values,
+        policy,
+        stats,
+        trace,
+        parent,
+        None,
+    )
+}
+
+/// `analyze_stratum_filtered_ruled_traced_with_policy` for a stratum whose outputs feed no later stratum. With a `root_gate`, once the output has grown to `RootGate::from_words` words, a word no root matches keeps its place in the output and in the visited set but none of the alternatives that fold into it: nothing can be synthesized from it, so they would never be read. The words, their order and the work are the same either way.
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_last_stratum(
+    g: &Grammar,
+    stratum: StratumId,
+    input: Word,
+    cfg: &AnalyzerConfig,
+    non_head_root_filter: Option<NonHeadRootFilter>,
+    rule_filter: Option<RuleFilter>,
+    cache: Option<&RuleCache>,
+    budget: &WordBudget,
+    values: &SharedValues,
+    policy: FinalTemplateAnalysisPolicy,
+    stats: Option<&StatsCollector>,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    root_gate: Option<RootGate>,
+) -> StratumAnalysis {
     let _work_scope = budget.enter();
     StratumAnalyzer::new(
         g,
@@ -625,7 +670,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
         trace,
         parent,
     )
-    .analyze(input)
+    .analyze(input, root_gate)
 }
 
 /// The stratum orchestrator. Borrows the caller's `WordBudget` rather than owning its own work counter.
@@ -825,36 +870,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
     /// The order-independent state key for `w` (`AnalyzerConfig::merge_equivalent`'s fold key), with each rule's count saturated at its `max_apps` -- the only reader compares `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate, `AnalysisStateKey.cs:14-34` -- deliberate divergence).
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
-        let morph_history = w
-            .morphs
-            .iter()
-            .map(|morph| MorphHistoryKey {
-                allomorph: morph.allomorph,
-                morpheme: morph.morpheme,
-                order: morph.order,
-                status: morph.status,
-                runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
-            })
-            .collect();
-        let rule_counts = w
-            .unapplied_rule_counts
-            .iter()
-            .filter_map(|(&id, &count)| {
-                let cap = self.g.mrules[id.0 as usize].max_apps();
-                let saturated = count.min(u32::from(cap));
-                (saturated > 0).then_some((id, saturated))
-            })
-            .collect();
-        AnalysisStateKey::new(
-            w.shape.clone(),
-            w.stratum,
-            w.syn_fs.clone(),
-            w.real_fs.clone(),
-            w.non_heads.len() as u32,
-            rule_counts,
-            w.flags.final_template_state,
-            morph_history,
-        )
+        crate::analysis_state_key::key_of(w, &|id| self.max_apps(id))
+    }
+
+    fn max_apps(&self, id: MRuleId) -> u32 {
+        u32::from(self.g.mrules[id.0 as usize].max_apps())
     }
 
     /// True once the shared budget is exhausted; delegates to the shared `WordBudget`.
@@ -890,7 +910,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return self.apply_one_mrule_uncounted(id, w, role, candidates);
         }
         let parent = crate::branch_census::node(w);
-        let may_compound = (w.non_heads.len() as u32 + 1) < self.cfg.max_stem_count
+        let may_compound = (w.non_heads().len() as u32 + 1) < self.cfg.max_stem_count
             && self.g.strata[..=self.stratum_id.0 as usize]
                 .iter()
                 .any(|st| {
@@ -932,12 +952,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let rule = &self.g.mrules[id.0 as usize];
         // Depth gate; see `AnalyzerConfig::max_stem_count`. Outside `tick()`, same reason as the gate above.
         if matches!(rule, MorphRuleDef::Compounding(_))
-            && w.non_heads.len() as u32 + 1 >= self.cfg.max_stem_count
+            && w.non_heads().len() as u32 + 1 >= self.cfg.max_stem_count
         {
             return Vec::new();
         }
         // Once unapplied on `w`'s trail `max_apps` times, skipped for this candidate; outside `tick()`.
-        if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
+        if w.trail.count_of(id) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
         if let (Some(candidates), MorphRuleDef::AffixProcess(affix)) = (candidates, rule) {
@@ -1028,11 +1048,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let keeps_template_state =
             matches!(rule, MorphRuleDef::AffixProcess(def) if self.g.affix_rule_is_clitic(def));
         for o in &mut outs {
-            assert_eq!(
-                o.allomorph_apps.len(),
-                o.mrule_apps.len(),
-                "allomorph and rule trails are out of sync"
-            );
             let selected = if matches!(rule, MorphRuleDef::AffixProcess(_)) {
                 Some(
                     o.analysis_allomorph
@@ -1044,14 +1059,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 None
             };
             self.values.share(o);
-            o.allomorph_apps.push(selected);
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
-            o.mrule_apps.push(Some(id));
-            o.mrule_app_index = o.mrule_apps.len() as i32 - 1;
-            // Paired with the `mrule_apps.push` above; only `Self::state_key` reads it.
-            o.record_unapplication(id);
+            o.trail.push(Some(id), selected);
+            o.mrule_app_index = o.trail.len() as i32 - 1;
             // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
-            o.non_head_app_index = o.non_heads.len() as i32 - 1;
+            o.non_head_app_index = o.non_heads().len() as i32 - 1;
             if self.policy.enforce && !keeps_template_state {
                 o.flags.final_template_state = analysis_state_after_mrule(
                     role,
@@ -1152,7 +1164,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return;
         }
         let in_key = input.dedup_key();
-        for t in self.run_template_batch(input) {
+        // The battery's buffer is given back as this loop empties it.
+        for t in Releasing::new(self.run_template_batch(input)) {
             if sink.done() {
                 break;
             }
@@ -1195,7 +1208,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .find(|words| !words.is_empty())
             .unwrap_or_default();
         for template_out in per_template {
-            for w in template_out.into_vec() {
+            // Each template's set shrinks as the union grows, and is gone once merged.
+            for w in template_out.into_releasing() {
                 let key = w.dedup_key();
                 match union.position(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
@@ -1517,7 +1531,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     /// Port of `AnalysisStratumRule.Apply`.
     // map_entry: saving one hash here would restructure the dedup block this port mirrors statement for statement.
     #[allow(clippy::map_entry)]
-    fn analyze(&self, mut input: Word) -> StratumAnalysis {
+    fn analyze(&self, mut input: Word, root_gate: Option<RootGate>) -> StratumAnalysis {
         let census = crate::branch_census::enabled();
         let received = census.then(|| crate::branch_census::node(&input));
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
@@ -1607,7 +1621,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             drop(_phon_time);
             if applied && self.stats.is_some() {
                 input
-                    .applied_phonological_rules
+                    .applied_phonological_rules_mut()
                     .push((self.stratum_id, pid));
             }
             if let Some(s) = result.into_iter().next() {
@@ -1624,8 +1638,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
         // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
         let mut output_keys = WordIndex::default();
-        // AnalysisStateKey -> canonical word index; the seed's key is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
-        let mut key_word: HashMap<AnalysisStateKey, usize> = HashMap::default();
+        // The visited set: analysis state -> canonical word index, held as positions in `words` and compared exactly against the canonical itself (`AnalysisStateKey::matches_word`), so no canonical's key is stored. The seed's state is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
+        let mut state_words = PositionIndex::default();
         let mut words: Vec<Word> = Vec::new();
         output_keys.insert(&input.dedup_key(), 0);
         // This call's own running byte total, the `record_live_bytes` companion to `words.len()`.
@@ -1635,6 +1649,22 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if let Some(received) = received {
             crate::branch_census::edge(received, crate::branch_census::node(&input));
         }
+        // Only the merge keeps alternatives, so without it there is nothing to drop.
+        let root_gate = root_gate.filter(|_| self.cfg.merge_equivalent);
+        // What the gate said of each word it was asked about, by the word's position; grown only when the gate is asked.
+        let mut rooted: Vec<Option<bool>> = Vec::new();
+        // An arrival that folds into canonical `idx` is kept as an alternative unless the gate, once the output is large enough to ask it, finds the canonical rootless.
+        let keeps_alternatives = |rooted: &mut Vec<Option<bool>>, words: &[Word], idx: usize| {
+            root_gate.is_none_or(|gate| {
+                if words.len() < gate.from_words {
+                    return true;
+                }
+                if rooted.len() < words.len() {
+                    rooted.resize(words.len(), None);
+                }
+                *rooted[idx].get_or_insert_with(|| (gate.has_root)(&words[idx]))
+            })
+        };
         words.push(input.clone());
 
         // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
@@ -1648,19 +1678,32 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             if let Some(pre_fold) = pre_fold {
                 crate::branch_census::edge(pre_fold, crate::branch_census::node(&w));
             }
-            let state_key = self.cfg.merge_equivalent.then(|| self.state_key(&w));
-            if let Some(state_key) = &state_key {
-                let canonical = key_word
-                    .get(state_key)
-                    .copied()
-                    .or_else(|| output_keys.find(&dedup_key, |at| &words[at]));
+            let state_key = self.cfg.merge_equivalent.then(|| {
+                use std::hash::BuildHasher;
+                let key = self.state_key(&w);
+                let hash = fold_hash(rustc_hash::FxBuildHasher.hash_one(&key));
+                (key, hash)
+            });
+            if let Some((state_key, state_hash)) = &state_key {
+                let state_canonical = state_words.find(*state_hash, |at| {
+                    // A canonical's own syntactic features are widened once alternatives arrive; the features its key was taken with are the ones `alt_keys` froze at the first arrival.
+                    let keyed_syn_fs = alt_keys
+                        .get(&at)
+                        .map_or(&words[at].syn_fs, |seen| &seen.canonical_syn_fs);
+                    state_key.matches_word(&words[at], keyed_syn_fs, &|id| self.max_apps(id))
+                });
+                let canonical =
+                    state_canonical.or_else(|| output_keys.find(&dedup_key, |at| &words[at]));
                 if let (true, Some(idx)) = (census, canonical) {
                     crate::branch_census::alias(
                         crate::branch_census::node(&words[idx]),
                         crate::branch_census::node(&w),
                     );
                 }
-                if let Some(&idx) = key_word.get(state_key) {
+                if let Some(idx) = state_canonical {
+                    if !keeps_alternatives(&mut rooted, &words, idx) {
+                        return;
+                    }
                     if let Some(w) =
                         dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
                             self.g.syn_features.mask(f)
@@ -1676,6 +1719,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
                 if let Some(idx) = output_keys.find(&dedup_key, |at| &words[at]) {
+                    if !keeps_alternatives(&mut rooted, &words, idx) {
+                        return;
+                    }
                     if let Some(w) =
                         dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
                             self.g.syn_features.mask(f)
@@ -1698,8 +1744,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             }
             if output_keys.find(&dedup_key, |at| &words[at]).is_none() {
                 // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
-                if let Some(state_key) = state_key {
-                    key_word.insert(state_key, words.len());
+                if let Some((_, state_hash)) = state_key {
+                    state_words.insert(state_hash, words.len());
                 }
                 output_keys.insert(&dedup_key, words.len());
                 live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
@@ -2055,11 +2101,11 @@ fn guided_synth(
         return Vec::new();
     }
     let idx = w.mrule_app_index as usize;
-    if idx >= w.mrule_apps.len() {
+    let Some(pending) = w.trail.rule(idx) else {
         return Vec::new();
-    }
+    };
     let is_compound = matches!(&g.mrules[id.0 as usize], MorphRuleDef::Compounding(_));
-    let applicable = match w.mrule_apps[idx] {
+    let applicable = match pending {
         Some(cur) => cur == id,
         None => is_compound,
     };
@@ -2112,14 +2158,14 @@ fn guided_synth(
 fn trail_positions(g: &Grammar, rules: &[MRuleId], w: &Word) -> Vec<usize> {
     let Some(pending) = usize::try_from(w.mrule_app_index)
         .ok()
-        .and_then(|idx| w.mrule_apps.get(idx))
+        .and_then(|idx| w.trail.rule(idx))
     else {
         return Vec::new();
     };
     rules
         .iter()
         .enumerate()
-        .filter(|&(_, &id)| match *pending {
+        .filter(|&(_, &id)| match pending {
             Some(cur) => cur == id,
             None => matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)),
         })
@@ -2153,9 +2199,9 @@ fn has_remaining_rules_from_stratum(g: &Grammar, w: &Word, stratum: StratumId) -
         return false;
     }
     let idx = w.mrule_app_index as usize;
-    match w.mrule_apps.get(idx) {
-        Some(&Some(cur)) => owning_stratum(g, cur) == Some(stratum),
-        Some(&None) => w.current_non_head().map(|nh| nh.stratum) == Some(stratum),
+    match w.trail.rule(idx) {
+        Some(Some(cur)) => owning_stratum(g, cur) == Some(stratum),
+        Some(None) => w.current_non_head().map(|nh| nh.stratum) == Some(stratum),
         None => false,
     }
 }
