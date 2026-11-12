@@ -205,7 +205,7 @@ jobs:
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
-        run: cargo build --release -p pg-cli --locked --target "$TARGET"
+        run: cargo build --release -p pg-cli --locked --features foma-tools --target "$TARGET"
 
       - name: Smoke-test the Windows binary
         if: runner.os == 'Windows'

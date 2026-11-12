@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+- Release binaries (all four targets) are built with the `foma-tools` feature, so `pangloss batch --prefilter auto|on` works in shipped builds instead of refusing.
+
 ## 0.18.0
 
 Released 2026-11-12.
