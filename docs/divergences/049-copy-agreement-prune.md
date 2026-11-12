@@ -1,6 +1,6 @@
 # 049 — Copy-agreement pruning of reduplication matches
 
-Kind: optimization (result-neutral), with one deliberate step beyond C#
+Kind: efficiency (result-neutral), with one deliberate step beyond C#
 Status: permanent while the empty-copy rule differs from C#; the C# fix is proposed in sillsdev/machine#634. PanGloss issue: #235.
 
 ## C# site

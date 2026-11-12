@@ -1,4 +1,4 @@
-//! Candidate (b) of divergence 049: copies holding optional nodes are aligned the way C# `CanAlign` does, with the optional nodes next to each copy's boundaries free to belong to either neighbour. The grammar is invented: a zero-or-more variable copied twice (`redup`), an obligatory syncope `u -> 0 / C _ C#`, and a root `salum`.
+//! Divergence 049: copies holding optional nodes are aligned the way C# `CanAlign` does, with the optional nodes next to each copy's boundaries free to belong to either neighbour. The grammar is invented: a zero-or-more variable copied twice (`redup`), an obligatory syncope `u -> 0 / C _ C#`, and a root `salum`.
 
 use pg_grammar::load;
 use pg_grammar_model::model::{Grammar, StratumId};
