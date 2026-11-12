@@ -13,7 +13,7 @@ fn every_conformance_word_parses_the_same_with_and_without_the_early_lookup() {
             continue;
         }
         let grammar = fixture.load_grammar_with_settings(&yaml.morpher);
-        let early = Morpher::new(&grammar, usize::MAX);
+        let early = Morpher::new(&grammar, usize::MAX).with_early_root_check_from(0);
         let late = Morpher::new(&grammar, usize::MAX).with_early_root_lookup(false);
         fixtures += 1;
         for entry in &yaml.words {
@@ -77,7 +77,9 @@ fn a_capped_word_gives_the_same_partial_result_either_way() {
             let near =
                 (full.saturating_sub(3)..full + 2).chain([1, 8, 40, 200, full / 2, full * 3 / 4]);
             for cap in near.filter(|&cap| cap > 0) {
-                let a = Morpher::new(&grammar, cap).parse_word(&entry.word);
+                let a = Morpher::new(&grammar, cap)
+                    .with_early_root_check_from(0)
+                    .parse_word(&entry.word);
                 let b = Morpher::new(&grammar, cap)
                     .with_early_root_lookup(false)
                     .parse_word(&entry.word);
@@ -108,7 +110,12 @@ fn a_trace_keeps_every_node_whatever_the_setting() {
         for entry in yaml.words.iter().take(2) {
             let run = |early: bool| {
                 let sink = TreeTraceSink::new();
-                let morpher = Morpher::new(&grammar, usize::MAX).with_early_root_lookup(early);
+                let morpher = Morpher::new(&grammar, usize::MAX);
+                let morpher = if early {
+                    morpher.with_early_root_check_from(0)
+                } else {
+                    morpher.with_early_root_lookup(false)
+                };
                 let outcome =
                     morpher.parse_word_traced(&entry.word, &ParseOptions::default(), &sink);
                 (outcome.analyses, outcome.work_steps, sink.len())

@@ -485,8 +485,14 @@ pub struct StratumAnalysis {
     pub capped: bool,
 }
 
-/// Whether any root matches a word of the stratum's output. It must answer from the word's shape and stratum alone and spend none of the word's work.
-pub type RootGate<'a> = &'a dyn Fn(&Word) -> bool;
+/// The caller's root check for the last-analysed stratum's output words.
+#[derive(Copy, Clone)]
+pub struct RootGate<'a> {
+    /// Whether any root matches a word. It must answer from the word's shape and stratum alone and spend none of the word's work.
+    pub has_root: &'a dyn Fn(&Word) -> bool,
+    /// The check is not asked while the stratum holds fewer output words than this, so an ordinary word never pays for it.
+    pub from_words: usize,
+}
 
 // Analysis stratum rule.
 
@@ -631,7 +637,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     )
 }
 
-/// `analyze_stratum_filtered_ruled_traced_with_policy` for a stratum whose outputs feed no later stratum. With a `root_gate`, a word no root matches keeps its place in the output and in the visited set but none of the alternatives that fold into it: nothing can be synthesized from it, so they would never be read. The words, their order and the work are the same either way.
+/// `analyze_stratum_filtered_ruled_traced_with_policy` for a stratum whose outputs feed no later stratum. With a `root_gate`, once the output has grown to `RootGate::from_words` words, a word no root matches keeps its place in the output and in the visited set but none of the alternatives that fold into it: nothing can be synthesized from it, so they would never be read. The words, their order and the work are the same either way.
 #[allow(clippy::too_many_arguments)]
 pub fn analyze_last_stratum(
     g: &Grammar,
@@ -1650,9 +1656,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if root_gate.is_some() {
             rooted.push(None);
         }
-        // An arrival that folds into canonical `idx` is kept as an alternative unless the gate finds the canonical rootless.
+        // An arrival that folds into canonical `idx` is kept as an alternative unless the gate, once the output is large enough to ask it, finds the canonical rootless.
         let keeps_alternatives = |rooted: &mut [Option<bool>], words: &[Word], idx: usize| {
-            root_gate.is_none_or(|gate| *rooted[idx].get_or_insert_with(|| gate(&words[idx])))
+            root_gate.is_none_or(|gate| {
+                words.len() < gate.from_words
+                    || *rooted[idx].get_or_insert_with(|| (gate.has_root)(&words[idx]))
+            })
         };
         words.push(input.clone());
 
