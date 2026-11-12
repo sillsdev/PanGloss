@@ -1651,16 +1651,18 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         // Only the merge keeps alternatives, so without it there is nothing to drop.
         let root_gate = root_gate.filter(|_| self.cfg.merge_equivalent);
-        // What the gate said of each word, word for word, asked when the first arrival folds into it; empty without a gate.
+        // What the gate said of each word it was asked about, by the word's position; grown only when the gate is asked.
         let mut rooted: Vec<Option<bool>> = Vec::new();
-        if root_gate.is_some() {
-            rooted.push(None);
-        }
         // An arrival that folds into canonical `idx` is kept as an alternative unless the gate, once the output is large enough to ask it, finds the canonical rootless.
-        let keeps_alternatives = |rooted: &mut [Option<bool>], words: &[Word], idx: usize| {
+        let keeps_alternatives = |rooted: &mut Vec<Option<bool>>, words: &[Word], idx: usize| {
             root_gate.is_none_or(|gate| {
-                words.len() < gate.from_words
-                    || *rooted[idx].get_or_insert_with(|| (gate.has_root)(&words[idx]))
+                if words.len() < gate.from_words {
+                    return true;
+                }
+                if rooted.len() < words.len() {
+                    rooted.resize(words.len(), None);
+                }
+                *rooted[idx].get_or_insert_with(|| (gate.has_root)(&words[idx]))
             })
         };
         words.push(input.clone());
@@ -1747,9 +1749,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
                 output_keys.insert(&dedup_key, words.len());
                 live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                if root_gate.is_some() {
-                    rooted.push(None);
-                }
                 words.push(w);
                 if let Some(r) = &remaining {
                     r.set(r.get().saturating_sub(1));
