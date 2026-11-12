@@ -165,7 +165,7 @@ fn the_total_line_states_the_whole_cost_and_does_not_depend_on_the_threads() {
         .collect();
     assert_eq!(lines[0], lines[1]);
     for field in [
-        "words=48000",
+        &format!("words={ON}"),
         "restricted=",
         "rejected=",
         "admit_steps=",
