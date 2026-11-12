@@ -7,6 +7,7 @@ use foma::types::Fsm;
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{Grammar, PatternNode, PhonRuleDef, TableId};
 
+use crate::admission::meter::Meter;
 use crate::lower::{is_block_rule, IntermediateBundles};
 use crate::replace::{
     chardef_token, compile_rewrite_rule_subset_inner, owning_table_id, CascadeEvidence,
@@ -60,20 +61,48 @@ pub struct CascadeParts {
     bundles: IntermediateBundles,
 }
 
+/// The parts of a cascade that the admission and tiled stages read, shared so one gate decision builds the cascade once.
+#[derive(Debug, Clone)]
+pub struct CascadeShare {
+    pub rules: Vec<RulePart>,
+    pub spelling: Fsm,
+    pub tokens: UpperTokens,
+}
+
 impl CascadeParts {
+    /// The rule relations, spelling relation and tokens, without the bundle state that only composing and token lookup read.
+    pub(crate) fn into_share(self) -> CascadeShare {
+        CascadeShare {
+            rules: self.rules,
+            spelling: self.spelling,
+            tokens: self.tokens,
+        }
+    }
+
     /// Builds every structure for the rewrite rules in `prules_in_order`; metathesis and multi-table grammars are refused.
     pub fn build(
         opts: &FomaOptions,
         g: &Grammar,
         prules_in_order: &[&PhonRuleDef],
     ) -> Result<Self, PhonologyLoweringError> {
-        on_large_stack(|| Self::build_on_this_stack(opts, g, prules_in_order))
+        Self::build_within(opts, g, prules_in_order, &Meter::default())
+    }
+
+    /// [`CascadeParts::build`] counting every foma operation in `meter`; once the meter refuses, the rules after it are left out, so the caller checks the meter before using the result.
+    pub(crate) fn build_within(
+        opts: &FomaOptions,
+        g: &Grammar,
+        prules_in_order: &[&PhonRuleDef],
+        meter: &Meter,
+    ) -> Result<Self, PhonologyLoweringError> {
+        on_large_stack(|| Self::build_on_this_stack(opts, g, prules_in_order, meter))
     }
 
     fn build_on_this_stack(
         opts: &FomaOptions,
         g: &Grammar,
         prules_in_order: &[&PhonRuleDef],
+        meter: &Meter,
     ) -> Result<Self, PhonologyLoweringError> {
         if g.char_tables.len() != 1 {
             return Err(PhonologyLoweringError::MultipleCascadeTablesUnavailable);
@@ -99,8 +128,11 @@ impl CascadeParts {
         let mut rules = Vec::new();
         let mut reports = Vec::new();
         for rule in rewrites {
+            if meter.refused() {
+                break;
+            }
             let (net, part) = if is_block_rule(g, rule) {
-                let (net, blocks) = crate::lower::compile_block(opts, g, &bundles, rule)?;
+                let (net, blocks) = crate::lower::compile_block(meter, opts, g, &bundles, rule)?;
                 let (block_tuples, block_widened) = bundles.block_effort(&rule.xml_id);
                 reports.push((rule.xml_id.clone(), Vec::new()));
                 (
@@ -108,21 +140,27 @@ impl CascadeParts {
                     (RuleConstruction::Block, blocks, block_tuples, block_widened),
                 )
             } else {
-                let (net, tuples) =
-                    compile_rewrite_rule_subset_inner(opts, g, rule, &|_| true, Some(&bundles))?;
+                let (net, tuples) = compile_rewrite_rule_subset_inner(
+                    opts,
+                    g,
+                    rule,
+                    &|_| true,
+                    Some(&bundles),
+                    meter,
+                )?;
                 reports.push((rule.xml_id.clone(), tuples));
                 (net, (RuleConstruction::Site, 0, 0, false))
             };
             rules.push(RulePart {
                 rule: rule.xml_id.clone(),
-                net: fsm_minimize(opts, net),
+                net: meter.minimize(opts, net),
                 construction: part.0,
                 blocks: part.1,
                 block_tuples: part.2,
                 block_widened: part.3,
             });
         }
-        let spelling = bundles.spelling(opts, g).ok_or_else(|| {
+        let spelling = bundles.spelling(meter, opts, g).ok_or_else(|| {
             PhonologyLoweringError::UnsupportedRewrite("final bundle spelling".to_owned())
         })?;
         bundles.evidence.unspelled_rows = bundles.unspelled_rows(g);

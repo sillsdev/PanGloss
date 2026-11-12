@@ -550,7 +550,7 @@ fn inner_regexes(
 /// Analyses every morphological rule and renders one piece per subrule where a usable literal exists.
 pub fn plan_admission(
     g: &Grammar,
-    matches: &dyn Fn(&PatternNode, char) -> bool,
+    class_of: &dyn Fn(&PatternNode) -> Option<Vec<char>>,
 ) -> Result<AdmissionPlan, AdmissionRefusal> {
     if g.char_tables.len() != 1 {
         return Err(AdmissionRefusal::CharacterTables(g.char_tables.len()));
@@ -602,7 +602,7 @@ pub fn plan_admission(
     }
     model.deletion_left = deletion_left;
     model.deletion_right = deletion_right;
-    let ctx = Ctx::new(&model, table, matches);
+    let ctx = Ctx::new(&model, table, class_of);
     let mut counts = PlanCounts {
         rules: g.mrules.len(),
         cuts: model.cuts.len(),

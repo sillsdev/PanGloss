@@ -67,6 +67,8 @@ rayon.workspace = true
 # no new transitive dependency to that build. `cargo check -p pg-foma --target wasm32-unknown-unknown`
 # and the same for pg-wasm both stay part of this crate's gate.
 pg-parse.workspace = true
+# The gate reads a parse's cost and the work weight through pg-cost's public API.
+pg-cost.workspace = true
 
 # Native-only dependencies for FST construction and the supervised compile-worker protocol are
 # absent from the analysis-only wasm dependency graph.

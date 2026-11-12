@@ -121,7 +121,7 @@ pub(super) fn load(spec: &Spec) -> Grammar {
 }
 
 fn plan_of(g: &Grammar) -> AdmissionPlan {
-    plan_admission(g, &super::class_test(g)).expect("plan")
+    plan_admission(g, &super::class_of(g)).expect("plan")
 }
 
 /// Token string for letters of the grammar's table, with `+` for the boundary.
@@ -280,7 +280,7 @@ fn an_unclear_class_still_frees_the_suffix() {
         classes: CLASS_X,
         ..spec("sxq", vec![suffix(0, "s"), truncate_first_x(1)], &["q"])
     });
-    let plan = plan_admission(&g, &|_, _| true).expect("plan");
+    let plan = plan_admission(&g, &|_| None).expect("plan");
     assert!(plan.free[0], "{:?}", plan.counts);
 }
 
@@ -629,7 +629,7 @@ fn the_token_alphabet_holds_the_rows_morphology_creates() {
     let prules = build::ordered_prules(&g);
     let parts = CascadeParts::build(&FomaOptions::default(), &g, &prules).expect("parts");
     assert!(!parts.tokens.private_segments.is_empty());
-    let alphabet = build::token_alphabet(&g, Some(&parts));
+    let alphabet = build::token_alphabet(&g, Some(&parts.tokens));
     for token in &parts.tokens.private_segments {
         assert!(alphabet.contains(token));
     }
@@ -639,7 +639,7 @@ fn machine_net(g: &Grammar) -> foma::types::Fsm {
     let opts = FomaOptions::default();
     let plan = plan_of(g);
     let mut evidence = AdmissionEvidence::default();
-    let mut meter = build::Meter::default();
+    let mut meter = meter::Meter::default();
     build::build_net(&opts, g, &plan, &mut evidence, &mut meter)
         .expect("net")
         .net
@@ -754,8 +754,50 @@ fn a_rule_past_the_state_bound_is_reported_not_tabled() {
         .find(|s| s.symbol == "<A:0>")
         .expect("tag")
         .number;
-    assert!(matches!(view.rule(tag, 1), RuleOutcome::TooBig(1)));
-    assert!(matches!(view.rule(tag, 1000), RuleOutcome::Table(_)));
+    assert!(matches!(
+        view.rule(tag, &mut view.scratch(), (1, &meter::Meter::default())),
+        RuleOutcome::TooBig(1)
+    ));
+    assert!(matches!(
+        view.rule(tag, &mut view.scratch(), (1000, &meter::Meter::default())),
+        RuleOutcome::Table(_)
+    ));
+}
+
+#[test]
+fn a_table_after_a_rule_past_the_state_bound_equals_one_built_with_a_fresh_scratch() {
+    let g = load(&spec(
+        "kaqtnu",
+        vec![prefix(0, "ka"), suffix(1, "nu")],
+        &["qt"],
+    ));
+    let net = machine_net(&g);
+    let view = acceptor::NetView::new(&net);
+    let tag = |text: &str| {
+        net.sigma
+            .iter()
+            .find(|s| s.symbol == text)
+            .expect("tag")
+            .number
+    };
+    let meter = meter::Meter::default();
+    let mut refused = 0;
+    for (first, second) in [("<A:0>", "<A:1>"), ("<A:1>", "<A:0>")] {
+        let fresh = view.rule(tag(second), &mut view.scratch(), (1000, &meter));
+        assert!(matches!(fresh, RuleOutcome::Table(_)), "{fresh:?}");
+        for bound in 1..4 {
+            let mut scratch = view.scratch();
+            if matches!(
+                view.rule(tag(first), &mut scratch, (bound, &meter)),
+                RuleOutcome::TooBig(_)
+            ) {
+                refused += 1;
+            }
+            let reused = view.rule(tag(second), &mut scratch, (1000, &meter));
+            assert_eq!(reused, fresh, "{first} refused at {bound}, then {second}");
+        }
+    }
+    assert!(refused >= 2, "{refused} refusals");
 }
 
 #[test]

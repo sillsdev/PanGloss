@@ -1,12 +1,12 @@
 //! One small deterministic acceptor per rule tag, read out of the final admission net as a plain table.
 
+use super::meter::Meter;
 use super::AdmissionRefusal;
 use foma::types::{Fsm, EPSILON, IDENTITY};
-use foma::utf8::is_combining;
-use std::collections::{BTreeMap, HashMap};
+use rustc_hash::FxHashMap;
 
 /// The token of a character no net symbol matches, and of a symbol followed by combining marks.
-const OTHER: u16 = IDENTITY as u16;
+pub(super) const OTHER: u16 = IDENTITY as u16;
 const DEAD: u32 = u32::MAX;
 
 /// Refuses a net whose symbol numbers do not fit the 16-bit tokens the tables and the tokenizer read.
@@ -20,85 +20,8 @@ pub(super) fn check_token_range(net: &Fsm) -> Result<(), AdmissionRefusal> {
     }
 }
 
-struct TrieNode {
-    symbol: u16,
-    next: Vec<(char, u32)>,
-}
-
-/// Splits text into net symbols the way foma's apply does: longest symbol first, and a combining mark turns the token into `OTHER`.
-pub(super) struct Tokenizer {
-    nodes: Vec<TrieNode>,
-}
-
-impl Tokenizer {
-    pub(super) fn new(net: &Fsm) -> Self {
-        let mut nodes = vec![TrieNode {
-            symbol: 0,
-            next: Vec::new(),
-        }];
-        for entry in net.sigma.iter().filter(|s| s.number > IDENTITY) {
-            let mut at = 0usize;
-            for c in entry.symbol.chars() {
-                at = match nodes[at].next.iter().find(|(k, _)| *k == c) {
-                    Some((_, child)) => *child as usize,
-                    None => {
-                        nodes.push(TrieNode {
-                            symbol: 0,
-                            next: Vec::new(),
-                        });
-                        let child = nodes.len() - 1;
-                        nodes[at].next.push((c, child as u32));
-                        child
-                    }
-                };
-            }
-            nodes[at].symbol = entry.number as u16;
-        }
-        Self { nodes }
-    }
-
-    /// The longest symbol at the start of `text` and its length in bytes; symbol 0 when none matches.
-    fn longest(&self, text: &str) -> (u16, usize) {
-        let mut best = (0u16, 0usize);
-        let mut at = 0usize;
-        for (index, c) in text.char_indices() {
-            let Some((_, child)) = self.nodes[at].next.iter().find(|(k, _)| *k == c) else {
-                break;
-            };
-            at = *child as usize;
-            if self.nodes[at].symbol != 0 {
-                best = (self.nodes[at].symbol, index + c.len_utf8());
-            }
-        }
-        best
-    }
-
-    pub(super) fn tokens(&self, text: &str) -> Vec<u16> {
-        let bytes = text.as_bytes();
-        let mut out = Vec::with_capacity(text.len());
-        let mut at = 0usize;
-        while at < text.len() {
-            let (mut symbol, mut used) = self.longest(&text[at..]);
-            if symbol == 0 {
-                symbol = OTHER;
-                used = text[at..].chars().next().map_or(1, char::len_utf8);
-            }
-            loop {
-                let mark = is_combining(&bytes[at + used..]);
-                if mark == 0 {
-                    break;
-                }
-                symbol = OTHER;
-                used += mark as usize;
-            }
-            out.push(symbol);
-            at += used;
-        }
-        out
-    }
-}
-
 /// A minimal deterministic acceptor over symbol classes; a missing transition rejects.
+#[derive(Debug, PartialEq)]
 pub(super) struct RuleTable {
     class_of: Box<[u16]>,
     classes: usize,
@@ -108,16 +31,17 @@ pub(super) struct RuleTable {
 }
 
 impl RuleTable {
-    pub(super) fn accepts(&self, tokens: &[u16]) -> bool {
+    /// Whether the table accepts the tokens, and how many transitions the walk took, the one that fails included.
+    pub(super) fn walk(&self, tokens: &[u16]) -> (bool, usize) {
         let mut state = self.start;
-        for &token in tokens {
+        for (taken, &token) in tokens.iter().enumerate() {
             let class = self.class_of[token as usize] as usize;
             state = self.next[state as usize * self.classes + class];
             if state == DEAD {
-                return false;
+                return (false, taken + 1);
             }
         }
-        self.accepting[state as usize]
+        (self.accepting[state as usize], tokens.len())
     }
 
     pub(super) fn size(&self) -> TableSize {
@@ -139,6 +63,7 @@ pub struct TableSize {
 }
 
 /// What one rule tag became.
+#[derive(Debug, PartialEq)]
 pub(super) enum RuleOutcome {
     Table(RuleTable),
     /// The language of the tag is empty: no word admits the rule.
@@ -147,22 +72,72 @@ pub(super) enum RuleOutcome {
     Always,
     /// Determinizing needed more than the bound's states; carries the count reached.
     TooBig(usize),
+    /// The meter's construction budget ran out while the table was read out.
+    OverBudget,
 }
 
-struct NetArc {
-    upper: i32,
-    lower: i32,
-    target: usize,
+/// The arcs of every state in one array: row `s` is `items[at[s]..at[s + 1]]`.
+struct Rows<T> {
+    at: Vec<u32>,
+    items: Vec<T>,
+}
+
+impl<T> Rows<T> {
+    fn new(lists: Vec<Vec<T>>) -> Self {
+        let mut at = Vec::with_capacity(lists.len() + 1);
+        let mut items = Vec::new();
+        at.push(0);
+        for list in lists {
+            items.extend(list);
+            at.push(items.len() as u32);
+        }
+        Self { at, items }
+    }
+
+    fn row(&self, state: usize) -> &[T] {
+        &self.items[self.at[state] as usize..self.at[state + 1] as usize]
+    }
 }
 
 /// The arcs, starts and finals of a transducer net, read once.
 pub(super) struct NetView {
-    arcs: Vec<Vec<NetArc>>,
+    /// Arcs with no lower symbol: upper symbol and target.
+    silent: Rows<(i32, u32)>,
+    /// Arcs that read a lower symbol: upper symbol, lower token and target.
+    reading: Rows<(i32, u16, u32)>,
     is_final: Vec<bool>,
     starts: Vec<usize>,
     /// Symbols that occur on a lower side, as token ids; `OTHER` is not among them.
     lower_alphabet: Vec<u16>,
     max_symbol: usize,
+}
+
+/// Buffers that every table build leaves clean for the next, so a net's tables share one allocation.
+pub(super) struct Scratch {
+    /// Nodes are `state * 2 + seen`, where `seen` says the tag has been read on the upper side.
+    mark: Vec<bool>,
+    stack: Vec<usize>,
+    by_symbol: Vec<Vec<usize>>,
+    touched: Vec<u16>,
+}
+
+impl Scratch {
+    /// Empties every bucket the last row filled and every mark the last closure set.
+    fn reset(&mut self) {
+        for &symbol in &self.touched {
+            self.by_symbol[symbol as usize].clear();
+        }
+        self.touched.clear();
+        for node in self.stack.drain(..) {
+            self.mark[node] = false;
+        }
+    }
+
+    fn push(&mut self, node: usize) {
+        if !std::mem::replace(&mut self.mark[node], true) {
+            self.stack.push(node);
+        }
+    }
 }
 
 fn lower_token(symbol: i32) -> u16 {
@@ -176,7 +151,8 @@ fn lower_token(symbol: i32) -> u16 {
 impl NetView {
     pub(super) fn new(net: &Fsm) -> Self {
         let count = net.statecount.max(0) as usize;
-        let mut arcs: Vec<Vec<NetArc>> = (0..count).map(|_| Vec::new()).collect();
+        let mut silent: Vec<Vec<(i32, u32)>> = (0..count).map(|_| Vec::new()).collect();
+        let mut reading: Vec<Vec<(i32, u16, u32)>> = (0..count).map(|_| Vec::new()).collect();
         let mut is_final = vec![false; count];
         let mut starts = Vec::new();
         let mut lower = std::collections::BTreeSet::new();
@@ -190,14 +166,15 @@ impl NetView {
                 if arc.target < 0 {
                     continue;
                 }
+                let (upper, target) = (i32::from(arc.r#in), arc.target as u32);
+                if i32::from(arc.out) == EPSILON {
+                    silent[state].push((upper, target));
+                    continue;
+                }
                 if i32::from(arc.out) > IDENTITY {
                     lower.insert(arc.out as u16);
                 }
-                arcs[state].push(NetArc {
-                    upper: i32::from(arc.r#in),
-                    lower: i32::from(arc.out),
-                    target: arc.target as usize,
-                });
+                reading[state].push((upper, lower_token(i32::from(arc.out)), target));
             }
         }
         let max_symbol = net
@@ -208,7 +185,8 @@ impl NetView {
             .unwrap_or(0)
             .max(IDENTITY) as usize;
         Self {
-            arcs,
+            silent: Rows::new(silent),
+            reading: Rows::new(reading),
             is_final,
             starts,
             lower_alphabet: lower.into_iter().collect(),
@@ -216,85 +194,125 @@ impl NetView {
         }
     }
 
-    /// Nodes are `state * 2 + seen`, where `seen` says the tag has been read on the upper side.
-    fn close(&self, tag: Option<i32>, seed: Vec<usize>, mark: &mut [bool]) -> Vec<usize> {
+    pub(super) fn scratch(&self) -> Scratch {
+        Scratch {
+            mark: vec![false; self.is_final.len() * 2],
+            stack: Vec::new(),
+            by_symbol: (0..=self.max_symbol).map(|_| Vec::new()).collect(),
+            touched: Vec::new(),
+        }
+    }
+
+    /// The nodes reachable from the seeds on the scratch stack without reading a lower symbol, sorted.
+    fn close(&self, tag: Option<i32>, scratch: &mut Scratch) -> Vec<usize> {
         let mut set = Vec::new();
-        let mut stack = seed;
-        while let Some(node) = stack.pop() {
-            if std::mem::replace(&mut mark[node], true) {
-                continue;
-            }
+        while let Some(node) = scratch.stack.pop() {
             set.push(node);
             let seen = node % 2;
-            for arc in &self.arcs[node / 2] {
-                let Some(now) = upper_step(arc.upper, tag, seen) else {
-                    continue;
-                };
-                if arc.lower == EPSILON {
-                    stack.push(arc.target * 2 + now);
+            for &(upper, target) in self.silent.row(node / 2) {
+                if let Some(now) = upper_step(upper, tag, seen) {
+                    scratch.push(target as usize * 2 + now);
                 }
             }
         }
         for &node in &set {
-            mark[node] = false;
+            scratch.mark[node] = false;
         }
         set.sort_unstable();
         set
     }
 
     /// The deterministic acceptor of the lower side of the paths whose upper side is exactly `tag`.
-    pub(super) fn rule(&self, tag: i32, bound: usize) -> RuleOutcome {
-        self.table(Some(tag), bound)
+    pub(super) fn rule(
+        &self,
+        tag: i32,
+        scratch: &mut Scratch,
+        limits: (usize, &Meter),
+    ) -> RuleOutcome {
+        self.table(Some(tag), scratch, limits)
     }
 
     /// The deterministic acceptor of the lower side of every path of an acceptor net, whose arcs carry no tag.
-    pub(super) fn language(&self, bound: usize) -> RuleOutcome {
-        self.table(None, bound)
+    pub(super) fn language(&self, scratch: &mut Scratch, limits: (usize, &Meter)) -> RuleOutcome {
+        self.table(None, scratch, limits)
     }
 
-    fn table(&self, tag: Option<i32>, bound: usize) -> RuleOutcome {
-        let mut mark = vec![false; self.arcs.len() * 2];
+    /// Reads one table and leaves the scratch clean whatever the outcome, so no return path inside can leave a bucket behind.
+    fn table(
+        &self,
+        tag: Option<i32>,
+        scratch: &mut Scratch,
+        limits: (usize, &Meter),
+    ) -> RuleOutcome {
+        let outcome = self.determinize(tag, scratch, limits);
+        scratch.reset();
+        outcome
+    }
+
+    fn determinize(
+        &self,
+        tag: Option<i32>,
+        scratch: &mut Scratch,
+        (bound, meter): (usize, &Meter),
+    ) -> RuleOutcome {
         let seen_at_start = usize::from(tag.is_none());
-        let start_seed = self.starts.iter().map(|s| s * 2 + seen_at_start).collect();
-        let start = self.close(tag, start_seed, &mut mark);
-        let mut ids: HashMap<Vec<usize>, u32> = HashMap::new();
+        for start in &self.starts {
+            scratch.push(start * 2 + seen_at_start);
+        }
+        let start = self.close(tag, scratch);
+        if !meter.allows(start.len() as u64) {
+            return RuleOutcome::OverBudget;
+        }
+        meter.spend(start.len() as u64);
+        let mut ids: FxHashMap<Vec<usize>, u32> = FxHashMap::default();
         let mut sets: Vec<Vec<usize>> = Vec::new();
-        let mut moves: Vec<BTreeMap<u16, u32>> = Vec::new();
+        let mut moves: Vec<Vec<(u16, u32)>> = Vec::new();
         ids.insert(start.clone(), 0);
         sets.push(start);
         let mut at = 0;
         while at < sets.len() {
-            let mut by_symbol: BTreeMap<u16, Vec<usize>> = BTreeMap::new();
+            scratch.touched.clear();
             for &node in &sets[at] {
                 let seen = node % 2;
-                for arc in &self.arcs[node / 2] {
-                    if arc.lower == EPSILON {
+                for &(upper, lower, target) in self.reading.row(node / 2) {
+                    let Some(now) = upper_step(upper, tag, seen) else {
                         continue;
+                    };
+                    let bucket = &mut scratch.by_symbol[lower as usize];
+                    if bucket.is_empty() {
+                        scratch.touched.push(lower);
                     }
-                    if let Some(now) = upper_step(arc.upper, tag, seen) {
-                        by_symbol
-                            .entry(lower_token(arc.lower))
-                            .or_default()
-                            .push(arc.target * 2 + now);
-                    }
+                    bucket.push(target as usize * 2 + now);
                 }
             }
-            let mut row = BTreeMap::new();
-            for (symbol, seed) in by_symbol {
-                let target = self.close(tag, seed, &mut mark);
-                let id = match ids.get(&target) {
+            scratch.touched.sort_unstable();
+            let mut row = Vec::with_capacity(scratch.touched.len());
+            for index in 0..scratch.touched.len() {
+                let symbol = scratch.touched[index];
+                let mut seed = std::mem::take(&mut scratch.by_symbol[symbol as usize]);
+                for &node in &seed {
+                    scratch.push(node);
+                }
+                seed.clear();
+                scratch.by_symbol[symbol as usize] = seed;
+                let target = self.close(tag, scratch);
+                let id = match ids.get(target.as_slice()) {
                     Some(id) => *id,
                     None => {
                         if sets.len() >= bound {
                             return RuleOutcome::TooBig(sets.len());
                         }
                         let id = sets.len() as u32;
+                        if !meter.allows(target.len() as u64) {
+                            return RuleOutcome::OverBudget;
+                        }
+                        meter.spend(target.len() as u64);
                         ids.insert(target.clone(), id);
                         sets.push(target);
                         id
                     }
                 };
-                row.insert(symbol, id);
+                row.push((symbol, id));
             }
             moves.push(row);
             at += 1;
@@ -306,38 +324,71 @@ impl NetView {
                     .any(|node| node % 2 == 1 && self.is_final[node / 2])
             })
             .collect();
-        self.minimize(&moves, &accepting)
+        self.minimize(&moves, &accepting, meter)
     }
 
     /// Merges equivalent states of the determinized acceptor, drops the dead ones and compresses the symbols into classes.
-    fn minimize(&self, moves: &[BTreeMap<u16, u32>], accepting: &[bool]) -> RuleOutcome {
+    fn minimize(
+        &self,
+        moves: &[Vec<(u16, u32)>],
+        accepting: &[bool],
+        meter: &Meter,
+    ) -> RuleOutcome {
         let count = moves.len();
         let sink = count;
-        let mut symbols: Vec<u16> = moves.iter().flat_map(|row| row.keys().copied()).collect();
+        let mut symbols: Vec<u16> = moves
+            .iter()
+            .flat_map(|row| row.iter().map(|(symbol, _)| *symbol))
+            .collect();
         symbols.sort_unstable();
         symbols.dedup();
         let step = |state: usize, symbol: u16| -> usize {
             if state == sink {
                 return sink;
             }
-            moves[state]
-                .get(&symbol)
-                .map_or(sink, |target| *target as usize)
+            let row = &moves[state];
+            match row.binary_search_by_key(&symbol, |(s, _)| *s) {
+                Ok(i) => row[i].1 as usize,
+                Err(_) => sink,
+            }
         };
         let mut block: Vec<u32> = (0..=count)
             .map(|s| u32::from(s != sink && accepting[s]))
             .collect();
         let mut blocks = 2;
+        let mut key: Vec<u32> = Vec::with_capacity(symbols.len() + 1);
+        let round = ((count + 1) * (symbols.len() + 1)) as u64;
         loop {
-            let mut ids: HashMap<Vec<u32>, u32> = HashMap::new();
+            if !meter.allows(round) {
+                return RuleOutcome::OverBudget;
+            }
+            let mut ids: FxHashMap<Vec<u32>, u32> = FxHashMap::default();
             let mut next_block = vec![0u32; count + 1];
             for state in 0..=count {
-                let mut key = Vec::with_capacity(symbols.len() + 1);
+                key.clear();
                 key.push(block[state]);
-                key.extend(symbols.iter().map(|&s| block[step(state, s)]));
-                let fresh = ids.len() as u32;
-                next_block[state] = *ids.entry(key).or_insert(fresh);
+                if state == sink {
+                    key.resize(symbols.len() + 1, block[sink]);
+                } else {
+                    let mut row = moves[state].iter().peekable();
+                    for &symbol in &symbols {
+                        let target = match row.next_if(|(s, _)| *s == symbol) {
+                            Some((_, target)) => *target as usize,
+                            None => sink,
+                        };
+                        key.push(block[target]);
+                    }
+                }
+                next_block[state] = match ids.get(key.as_slice()) {
+                    Some(id) => *id,
+                    None => {
+                        let fresh = ids.len() as u32;
+                        ids.insert(key.clone(), fresh);
+                        fresh
+                    }
+                };
             }
+            meter.spend(round);
             let settled = ids.len() == blocks;
             blocks = ids.len();
             block = next_block;
@@ -368,7 +419,7 @@ impl NetView {
                 .map(|&s| index(block[step(s, symbol)]).unwrap_or(DEAD))
                 .collect()
         };
-        let mut class_ids: HashMap<Vec<u32>, u16> = HashMap::new();
+        let mut class_ids: FxHashMap<Vec<u32>, u16> = FxHashMap::default();
         let mut columns: Vec<Vec<u32>> = vec![vec![DEAD; live.len()]];
         class_ids.insert(columns[0].clone(), 0);
         let mut class_of = vec![0u16; self.max_symbol + 1];
@@ -389,6 +440,11 @@ impl NetView {
         }
         let accepts: Vec<bool> = representative.iter().map(|&s| accepting[s]).collect();
         let start = index(block[0]).unwrap_or(DEAD);
+        let tail = (next.len() + class_of.len() + accepts.len()) as u64;
+        if !meter.allows(tail) {
+            return RuleOutcome::OverBudget;
+        }
+        meter.spend(tail);
         let loops = |&sym: &u16| next[class_of[sym as usize] as usize] == start;
         let every_text = || self.lower_alphabet.iter().chain(&[OTHER]).all(loops);
         if live.len() == 1 && accepts[0] && every_text() {

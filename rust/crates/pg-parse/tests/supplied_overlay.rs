@@ -414,3 +414,30 @@ fn overlay_root_matches_the_same_root_compiled_into_the_grammar() {
         compiled_out.structured[0].pos_id
     );
 }
+
+#[test]
+fn has_supplied_roots_is_true_only_for_an_overlay_that_adds_or_hides_a_root() {
+    let g = grammar();
+    assert!(!Morpher::new(&g, 10_000).has_supplied_roots());
+    let empty = SuppliedRootOverlay::empty(&g);
+    assert!(!Morpher::new_with_overlay(&g, 10_000, &empty).has_supplied_roots());
+    let added = SuppliedRootOverlay::build(
+        &g,
+        vec![supplied("pgl_a", "b", "added", RootAuthority::Supplied)],
+    )
+    .unwrap();
+    assert!(Morpher::new_with_overlay(&g, 10_000, &added).has_supplied_roots());
+    let hiding = SuppliedRootOverlay::build(
+        &g,
+        vec![supplied(
+            "pgl_h",
+            "b",
+            "override",
+            RootAuthority::SuppliedOverride {
+                official_entry_id: "official-a".into(),
+            },
+        )],
+    )
+    .unwrap();
+    assert!(Morpher::new_with_overlay(&g, 10_000, &hiding).has_supplied_roots());
+}

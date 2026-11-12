@@ -308,7 +308,8 @@ admission uses the parts directly.
 `pg_foma::admission::build_rule_admission(opts, grammar)` builds a transducer from a
 surface word to the affix rules that could take part in an analysis of it. It is a
 library API exercised by tests and by the examples `admission_measure` and
-`admission_conformance`; the production FST strategy does not select it yet.
+`admission_conformance`; `pangloss batch --prefilter auto` is the only production caller
+(see **The gate**).
 
 **Contract.** The admitted set is a superset of the affix rules used by any analysis
 HC returns for the word. HC then confirms with one restricted parse
@@ -397,8 +398,8 @@ projected to the surface side and held as a table. The pieces are the edge affix
 `(left* root right*)+`, and edits modelled as windows at a stem edge (one unbounded
 part copied once). `Tiled::rejects(word, admitted, options)` says the word has no
 analysis. Like the filter, it is a library API exercised by tests and by the examples
-`admission_measure --tiled` and `admission_conformance --tiled`; the production FST
-strategy does not select it yet.
+`admission_measure --tiled` and `admission_conformance --tiled`, and used by the gate
+below.
 
 **Contract.** A rejection is sound only when all of these hold: the parse does not
 guess roots (`ParseOptions::guess_root` is false); the lexicon is the grammar's own,
@@ -417,6 +418,123 @@ grammar, the cascade or a construction step refuses, the build passes a size bou
 (4,000,000 states plus arcs of any intermediate, 2,000,000 table states), or the
 language is empty or accepts every text. When edit zones do not settle within 8 rounds
 they widen to any text, which keeps the acceptor sound and makes it looser.
+
+### The gate: when `pangloss batch` uses them
+
+`pangloss batch --prefilter auto` lets `pg_foma::admission::gate::decide` choose, for one
+batch, whether the rule admission and the tiled acceptor run. The default is `--prefilter off`,
+which is today's plain parse, byte for byte. `auto` needs a build with the `foma-tools` feature
+and is refused with `--stats`, `--word-timeout-ms` and the `HC_*` per-word diagnostics, whose
+output is that of the full plain search. `--work-columns` and `--cost-column` are allowed: the
+columns give the work the selected pipeline spent on the word (the restricted parse, plus the
+guess-only parse where one ran; the tiled and admission walks are not in them), and the first
+64 + K sampled words, whose outcomes are the gate's own plain parses, give the plain work. The decision is
+made in parser work, never in time, and prints one `PREFILTER` line when it is made and one
+`PREFILTER-TOTAL` line at the end of the batch on stderr; the batch TSV does not change.
+
+The tables are built on every batch start, never cached or read from disk, and the build is charged:
+its construction units are counted while it runs and reported at their weight. The weights are fitted
+to measured instructions, not exact: the admission estimate is 0.77 to 2.2 times the measured
+instructions across nine grammars (instructions per unit 454 to 1,303 against the weight 1,000), the
+tiled estimate 0.76 to 7.3 times (218 to 2,094 against 1,600). A build whose budget is under a floor
+computed from the plan (admission) or the root lexicon (tiled) is refused before any net is built and
+spends nothing; the floor is 12 to 30 times below the full build on most grammars, so it catches only
+hopeless budgets. Every foma operation of the build, the cascade included, asks the meter first, and a
+regular expression is charged by an estimate before foma parses it. A build that would pass its budget
+stops at the operation that does not fit and the units it had spent are reported as construction cost.
+That is a counted loss, but not a tight one: measured with whole-process instruction counts, a refused
+build stopped by its budget cost up to about twice budget x weight (0.18 to 2.1 on five grammars at 5% and
+25% budgets), and the unit overshoot is bounded by the largest single foma operation, which is up to
+millions of units on the largest grammars (a Kleene-plus minimization in the tiled build). Amharic at a
+25% budget is the measured case that exceeds 1.5 x (budget + largest operation): the cascade there costs
+more than its regex estimate charges.
+
+`--prefilter on` is the verification and measurement mode of the same pipeline (`decide_forced`): no warm-up,
+calibration, budget (`UNLIMITED_UNITS`) or minimum batch length, so it pays the whole construction whatever the
+batch length and nothing is parsed to decide. Admission runs on every word unless its build returns a typed
+refusal; the tiled stage runs on every word unless it is not valid (no prospect, or an inactive build, with the
+reason `auto` reports). A supplied-root overlay or a guess-only parse leaves both stages off with that reason,
+because `on` never overrides a soundness precondition; root guessing with lexical patterns is handled as under
+`auto`. It prints the same `PREFILTER` line (`warmup=0`, `calibration=0`, `net` the negated construction cost) and
+`PREFILTER-TOTAL`, has the same refusals and the same `foma-tools` requirement, turns the meter on, and writes the
+words in batch order; the TSV stays version 5.
+
+For a batch of N words the gate runs, before the parallel phase:
+
+1. Preconditions, each ending in off with its reason: fewer than 512 words (`MIN_BATCH`, 8 x 64: the
+   calibration below runs K restricted parses of N words, K = N / 64, so it stays near 1/64 of the batch), a guess-only parse, a non-empty supplied-root overlay
+   (`Morpher::has_supplied_roots`: the admission's root floor and the tiled lexicon assume the
+   grammar's own roots). Root guessing does not turn the gate off; see "Root guessing" below.
+2. Sample: word lists are ordered (by form, length or frequency), so the gate never takes the head of
+   the batch. It takes 96 evenly spaced distinct indices `floor(m * N / 96)`, m = 0..95, from N alone
+   (the decision line says `sample=even`; with `--start` the sample is over the words after the resume
+   index). The indices with m % 3 == 1 (32 of them) are calibration candidates; the other 64 are the
+   warm-up. Warm-up words are parsed plainly, which are their production parses. They give the mean
+   plain cost, and so the projected remaining plain cost R: that mean times the number of words not in
+   the warm-up.
+3. The admission build (`build_rule_admission_within`), under a budget of R / 64 parser work
+   (`ADMISSION_BUILD_SHARE`), that is R / 64 / `ADMISSION_UNIT_WEIGHT` construction units. A build that cannot
+   fit spends its whole budget and nothing can be learned earlier (the cost before the first table is 70% to
+   97% of the build, measured on nine grammars), so the share is the nominal bound on a refused build,
+   1.6% of the batch (the measured overshoot is below). A typed refusal, or a build over budget, is off
+   with the reason, and the units it spent are in `admission_units` and in `construction_cost`.
+4. Calibration on K = clamp(N / 64, 8, 32) of the candidates (`calibration_words`; K_MIN, K_MAX and
+   `CALIBRATION_DIVISOR` in `gate.rs`), spread evenly over the 32 candidates and taken in index order, each parsed plainly and restricted. The word's result is
+   the plain one. S is the plain cost minus the restricted cost, F the filter's walk cost, both
+   summed. The gate stops with on once S >= 4 F from the eighth word; at the Kth word it is on
+   if S > F. A restricted parse that differs from the plain parse of a completed word (or, for a
+   word the plain parse could not finish, lacks one of its analyses) is a hard error that names the
+   word: it is a soundness bug, not a gate outcome.
+5. The tiled stage, only if admission is on. First the free prospect (`tiled_prospect`): if it cannot
+   be active, or no sample word without an analysis has `prospect.applies(...)`, the stage is off with
+   the reason and nothing is built. Otherwise the potential is the estimated restricted cost of those
+   sample words, projected from the sample to the rest of the batch, and the build budget is
+   min(R / 16, potential / 2) parser work (`TILED_BUILD_SHARE`, `TILED_POTENTIAL_SHARE`; already bounded by half the saving the sample predicts), divided by `TILED_UNIT_WEIGHT` units. A refused or over-budget
+   build is off with the reason and its units in `tiled_units`. The stage is on if the estimated
+   restricted cost of the sample words it rejects exceeds the walk cost over the sample.
+6. The rest of the batch (every index whose outcome the gate did not keep, candidates the early stop
+   did not reach included) runs with the decided stages, and the outcomes are written in batch order. A word the tiled stage rejects keeps no
+   analysis; any other word gets one restricted parse under the same work cap, and a capped
+   restricted parse is the word's outcome.
+
+**Root guessing.** The report line says `guess=none` (guessing is off), `guess=no-patterns` or
+`guess=orchestrated`. A grammar with no lexical pattern cannot guess anything
+(`Morpher::lexical_patterns()` is empty), so guessing counts as off and every stage runs with
+guessing off in its options. With patterns, a word goes through the stages with guessing off: the
+tiled stage under the non-guessing options, then the restricted parse. A restricted parse that is
+complete and empty, or a tiled rejection, is a confirmed lexical miss and is followed by one plain
+`guess_only` parse, whose outcome is the word's (its work step count includes the restricted
+parse's). A restricted parse that has analyses, or reached the work cap, is the outcome as it is.
+The `guess_only` parse after a miss returns what the one-call `guess_root` parse returns: analyses,
+order, guessed flag and guessed strings, pinned by the pg-parse test
+`miss_then_guess_only_equals_one_guess_root_call`. Calibration compares the whole staged parse
+with the plain parse under the caller's options (guessing on): the saving is the plain cost minus
+the restricted and guess-only costs, and the equality check covers the analyses, the guessed flag
+and the guessed strings.
+
+Equality with `off`. The analyses equal those of `off` on every word whose parse completes in both modes.
+A word that is incomplete in either mode (it reached the work cap or the capture cap) can have a different partial
+list, in either direction
+(a restricted search does less work and a tiled rejection of a word whose plain parse would cap returns an
+uncapped empty outcome; 2 of 320 such words in the nine-grammar runs returned fewer analyses under `auto`,
+and both complete with identical analyses at a raised cap). The guess-only path (grammars with lexical patterns) is covered by synthetic grammars
+only; none of the nine measured grammars has a lexical pattern.
+
+Cost is the parser work of `pg_cost` (`Counts::cost` when the meter runs, else work steps times its
+work weight, which is 3 to 6 times too low; `--prefilter auto` therefore turns the meter on with or without
+`--cost-column`, so the decision line is the same either way, at a measured 1.2% of a whole Tamil process and
+2.0% of its parse (1,000 words, instructions); a library caller of `decide` with the meter off gets the
+work-step fallback, documented on `parse_cost`), plus the counted filter walks (`ADMIT_STEP_WEIGHT`, `TILED_STEP_WEIGHT` per table
+transition) and the construction units (`ADMISSION_UNIT_WEIGHT`, `TILED_UNIT_WEIGHT`), the weights in
+pg-foma `admission/meter.rs`. The `PREFILTER` line gives both stage states with reasons, `admission_units`,
+`tiled_units` and the `construction_cost` of both, the calibration words and their extra cost, S and F, and
+the projected net over the batch with construction and calibration subtracted; the net may be negative and
+is still reported. The `PREFILTER-TOTAL` line gives `words`, `restricted` (words through the restricted
+parse), `rejected` (words the tiled stage rejected), `admit_steps` and `tiled_steps` with their `filter_cost`
+(steps times weight), `outcome_cost` (`parse_cost` summed over every word's outcome), `construction_cost`,
+`calibration_cost` and their sum `total_cost`, so a run states its whole cost in parser units; with the gate
+off it still prints, with zero filter fields. Production does not otherwise run an extra plain parse; the
+calibration is at most 32 words per batch and about 1/64 of it, and the warm-up words are plain parses, not extra ones.
 
 ## Stage-0 differential
 

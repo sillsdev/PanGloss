@@ -2,7 +2,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use foma::{options::FomaOptions, regex::fsm_parse_regex, types::Fsm};
+use crate::admission::meter::Meter;
+use foma::{options::FomaOptions, types::Fsm};
 use pg_grammar::{
     chardef::{CharDefId, CharDefKind},
     featsys::TYPE_SEGMENT_BITS,
@@ -87,6 +88,7 @@ pub(crate) fn is_pair_rule(g: &Grammar, rule: &RewriteRuleDef) -> bool {
 
 /// Identity on every token plus each focus row to the rows synthesis makes of it; `None` unless the rule is a pair rule whose pairs are known.
 pub(crate) fn pair_filter(
+    meter: &Meter,
     opts: &FomaOptions,
     g: &Grammar,
     bundles: &IntermediateBundles,
@@ -141,7 +143,8 @@ pub(crate) fn pair_filter(
             None => format!("{}:0", token(from)),
         });
     }
-    fsm_parse_regex(opts, &format!("[{}]*", alternatives.join(" | ")), None, None)
+    meter
+        .regex(opts, &format!("[{}]*", alternatives.join(" | ")))
         .map(Some)
         .ok_or_else(|| PhonologyLoweringError::UnsupportedRewrite(rule.xml_id.clone()))
 }
@@ -251,6 +254,7 @@ pub(super) fn close_rule(
 
 /// The relation `[ ? | block ]*`, and how many blocks it holds.
 pub(crate) fn compile_block(
+    meter: &Meter,
     opts: &FomaOptions,
     g: &Grammar,
     bundles: &IntermediateBundles,
@@ -293,7 +297,8 @@ pub(crate) fn compile_block(
     };
     let mut parts = vec!["?".to_owned()];
     parts.extend(alternatives);
-    let net = fsm_parse_regex(opts, &format!("[{}]*", parts.join(" | ")), None, None)
+    let net = meter
+        .regex(opts, &format!("[{}]*", parts.join(" | ")))
         .ok_or_else(unsupported)?;
     Ok((net, count))
 }

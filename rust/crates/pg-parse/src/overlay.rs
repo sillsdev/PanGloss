@@ -93,6 +93,15 @@ impl SuppliedRootOverlay {
         Ok(overlay)
     }
 
+    /// Whether the overlay supplies no root and hides no official one.
+    pub fn is_empty(&self) -> bool {
+        self.suppressed_official.is_empty()
+            && self
+                .tries
+                .iter()
+                .all(|trie| trie.nodes.iter().all(|node| node.accepts.is_empty()))
+    }
+
     pub(crate) fn suppresses(&self, authored_id: &str) -> bool {
         self.suppressed_official.contains(authored_id)
     }

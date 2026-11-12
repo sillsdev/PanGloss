@@ -81,6 +81,7 @@
 #[cfg(feature = "alloc-trace")]
 mod alloc_trace;
 mod analyze_text_cmd;
+mod batch_prefilter;
 #[cfg(test)]
 mod test_support;
 
@@ -473,6 +474,19 @@ fn print_usage_and_fail() -> ExitCode {
          default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
          ok in both, reports the rest, and says inconclusive when a status changed. Use the total;\n\
          per-word costs repeat exactly only with --threads 1 (docs/design/parse-cost.md).\n\
+         --prefilter on (`batch`, needs the foma-tools build feature) is a verification and measurement mode: it skips the\n\
+         warm-up, calibration, budget and minimum batch length, runs every stage that is valid for the grammar on every\n\
+         word (a stage that is not valid is off with its reason, as under auto), pays the whole construction whatever the\n\
+         batch length, and prints the same PREFILTER and PREFILTER-TOTAL lines.\n\
+         --prefilter auto (`batch`, needs the foma-tools build feature) lets a load-time calibration decide whether a\n\
+         rule-admission filter and a tiled whole-word test narrow each parse; the analyses equal --prefilter off (the\n\
+         default) on every word whose parse completes in both modes; a word that is incomplete in either mode (work cap,\n\
+         capture cap) can have a different partial list. Batches under 512 words stay plain. The guess-only path for grammars\n\
+         with lexical patterns is covered by synthetic tests only. It prints PREFILTER and PREFILTER-TOTAL lines on\n\
+         stderr and is refused with --stats and --word-timeout-ms. Auto and on turn the cost meter on, with or without\n\
+         --cost-column, so the gate prices every parse in full parser work and the decision does not depend on the\n\
+         column; with --work-columns or --cost-column the columns are the work the selected pipeline spent on the word\n\
+         (docs/development/fst-construction-strategies.md).\n\
          --always-enforce-final-templates is result-changing: enforce template order even\n\
          when partial-rule rescue would otherwise allow an interleaving. A FieldWorks project\n\
          sets it with <HC><MakePartialsFinal>; an explicit flag overrides the project, and\n\
@@ -1295,6 +1309,7 @@ fn run_batch_with_counter(
     let mut always_enforce_final_templates_arg: Option<bool> = None;
     let mut cache_path_arg: Option<String> = None;
     let mut stats_manifest_path_arg: Option<String> = None;
+    let mut prefilter_mode = batch_prefilter::PrefilterMode::Off;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -1355,6 +1370,13 @@ fn run_batch_with_counter(
             "--work-columns" => work_columns = true,
             "--cost-column" => cost_column = true,
             "--stats" => stats_requested = true,
+            "--prefilter" => {
+                let v = it.next().ok_or("--prefilter requires a value")?;
+                prefilter_mode = batch_prefilter::PrefilterMode::parse(v)?;
+            }
+            s if s.starts_with("--prefilter=") => {
+                prefilter_mode = batch_prefilter::PrefilterMode::parse(&s["--prefilter=".len()..])?;
+            }
             "--always-enforce-final-templates" => always_enforce_final_templates_arg = Some(true),
             s if s.starts_with("--always-enforce-final-templates=") => {
                 always_enforce_final_templates_arg = Some(parse_bool_flag(
@@ -1393,10 +1415,18 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
+    batch_prefilter::check(
+        prefilter_mode,
+        &batch_prefilter::SearchDependent {
+            stats: stats_requested,
+            word_timeout: word_timeout_ms.is_some(),
+            per_word_diagnostics,
+        },
+    )?;
     if stats_manifest_path_arg.is_some() && !stats_requested {
         return Err("--stats-manifest requires --stats".into());
     }
@@ -1409,14 +1439,19 @@ fn run_batch_with_counter(
     if analyses_path_arg.is_some() && start_idx > 0 {
         return Err("--start cannot be combined with --analyses".into());
     }
-    if cost_column {
-        if stats_requested {
-            return Err(
-                "--cost-column cannot be combined with --stats, whose collector would be counted as parse cost"
-                    .into(),
-            );
-        }
-        pg_cost::enable().map_err(|e| e.to_string())?;
+    if cost_column && stats_requested {
+        return Err(
+            "--cost-column cannot be combined with --stats, whose collector would be counted as parse cost"
+                .into(),
+        );
+    }
+    // The gate prices parses in full parser work, so `--prefilter auto` and `on` meter the batch with or without the column.
+    if cost_column || prefilter_mode != batch_prefilter::PrefilterMode::Off {
+        pg_cost::enable().map_err(|e| match prefilter_mode {
+            batch_prefilter::PrefilterMode::Off => e.to_string(),
+            mode if !cost_column => format!("--prefilter {} cannot run: {e}", mode.name()),
+            _ => e.to_string(),
+        })?;
     }
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
@@ -1563,6 +1598,17 @@ fn run_batch_with_counter(
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
     let t_parse = Instant::now();
+    let mut prefilter = match prefilter_mode {
+        batch_prefilter::PrefilterMode::Off => None,
+        mode => Some(batch_prefilter::BatchPrefilter::prepare(
+            mode,
+            &grammar,
+            &morpher,
+            &opts,
+            &words,
+            start_idx.min(words.len()),
+        )?),
+    };
     if threads == 1 {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
         for (i, word) in words.iter().enumerate() {
@@ -1623,7 +1669,10 @@ fn run_batch_with_counter(
                 (result, Some(stats))
             } else {
                 parse_counter.record();
-                let outcome = morpher.parse_word_opts(word, &opts);
+                let outcome = match prefilter.as_mut() {
+                    Some(prefilter) => prefilter.parse(i, &morpher, word, &opts),
+                    None => morpher.parse_word_opts(word, &opts),
+                };
                 (
                     pg_parse::BatchWordOutcome {
                         outcome,
@@ -1852,7 +1901,9 @@ fn run_batch_with_counter(
             )
         } else {
             // Without a lexical pattern the guess branch never runs, so `hc_parse_batch` returns the same rows.
-            let results = if opts.guess_root && !morpher.lexical_patterns().is_empty() {
+            let results = if let Some(prefilter) = prefilter.as_mut() {
+                prefilter.parse_batch(&morpher, remaining, threads, &opts, parse_counter)
+            } else if opts.guess_root && !morpher.lexical_patterns().is_empty() {
                 parse_batch_with_opts(&morpher, remaining, threads, &opts, parse_counter)
             } else {
                 hc_parse_batch(&morpher, remaining, threads)
@@ -1928,6 +1979,9 @@ fn run_batch_with_counter(
     }
 
     eprintln!("PARSEELAPSED\tengine=default\telapsed_ms={parse_elapsed_ms:.3}");
+    if let Some(prefilter) = &prefilter {
+        eprintln!("PREFILTER-TOTAL\t{}", prefilter.total_line());
+    }
     eprintln!(
         "batch complete: {} words parsed ({} skipped), {} hit a search cap, {} timed out [threads={}]",
         parsed,

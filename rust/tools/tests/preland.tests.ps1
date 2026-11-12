@@ -222,6 +222,44 @@ Test-Case 'pin-matched driver accepts the platform binary name and a miss names 
     }
 }
 
+Test-Case 'pin-matched driver is found after an earlier candidate directory failed its git probe' {
+    $temp = New-TestTempDir -Prefix 'pg-pin-driver-stale-exit-test'
+    $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS
+    try {
+        $checkout = Join-Path $temp 'machine'
+        New-Item -ItemType Directory -Force -Path (Join-Path $checkout 'src') | Out-Null
+        & git init --quiet $checkout
+        & git -C $checkout config user.name 'PanGloss Test'
+        & git -C $checkout config user.email 'pangloss-test@example.invalid'
+        Set-Content -LiteralPath (Join-Path $checkout 'src\source.cs') -Value 'class Source { }'
+        & git -C $checkout add src/source.cs
+        & git -C $checkout commit --quiet -m 'pin commit'
+        Assert-Equal 0 $LASTEXITCODE 'commit the requested pin'
+        $pinCommit = (& git -C $checkout rev-parse HEAD).Trim()
+        $nativeName = if ($IsLinux -or $IsMacOS) { 'hc-conformance' } else { 'hc-conformance.exe' }
+        $relative = 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0'
+
+        # The first checkout is not a git repository, so git exits non-zero for its pin-named stub before the real one is probed.
+        $plain = Join-Path $temp 'plain'
+        $plainBin = Join-Path (Join-Path $plain ".worktrees\pin-$pinCommit") $relative
+        New-Item -ItemType Directory -Force -Path $plainBin | Out-Null
+        $realBin = Join-Path $checkout $relative
+        New-Item -ItemType Directory -Force -Path $realBin | Out-Null
+        foreach ($stub in (Join-Path $plainBin $nativeName), (Join-Path $realBin $nativeName)) {
+            Set-Content -LiteralPath $stub -Value 'driver'
+            [IO.File]::SetLastWriteTimeUtc($stub, [DateTime]::UtcNow.AddMinutes(1))
+        }
+
+        $env:PANGLOSS_MACHINE_CHECKOUTS = "$plain;$checkout"
+        $found = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+        Assert-True $found.Ok 'a failed git probe of an earlier candidate must not reject the matching worktree'
+        Assert-Equal ([IO.Path]::GetFullPath((Join-Path $realBin $nativeName))) $found.ExePath 'the registered checkout at the pin is the one returned'
+    } finally {
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $previousCheckouts
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-Case 'slot queue time is summed from every slot line and nothing else' {
     $lines = @('[build-env] took build slot 1 after 12.5s', 'noise after 99s', '[build-env] took run slot 0 after 0.5s')
     Assert-Equal 13 (Get-SlotWaitSeconds -Lines $lines)

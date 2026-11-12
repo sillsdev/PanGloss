@@ -5,7 +5,8 @@ use std::collections::{HashMap, HashSet};
 use super::block::{self, BlockPlan};
 use super::Slot;
 use crate::replace::{BundleClosureEvidence, PhonologyLoweringError, SegAlphabet};
-use foma::{options::FomaOptions, regex::fsm_parse_regex, types::Fsm};
+use crate::admission::meter::Meter;
+use foma::{options::FomaOptions, types::Fsm};
 use pg_grammar::{
     chardef::{CharDefId, CharDefKind, CharDefTable},
     featsys::TYPE_SEGMENT_BITS,
@@ -464,7 +465,7 @@ impl IntermediateBundles {
     }
 
     /// Spelling is postponed until all rules have seen the actual intermediate bundles.
-    pub(crate) fn spelling(&self, opts: &FomaOptions, g: &Grammar) -> Option<Fsm> {
+    pub(crate) fn spelling(&self, meter: &Meter, opts: &FomaOptions, g: &Grammar) -> Option<Fsm> {
         let table = &g.char_tables[self.table.0 as usize];
         let alphabet = SegAlphabet::new(table);
         let mut pairs = Vec::new();
@@ -492,9 +493,9 @@ impl IntermediateBundles {
             }
         }
         if pairs.is_empty() {
-            return fsm_parse_regex(opts, "[0 - 0]*", None, None);
+            return meter.regex(opts, "[0 - 0]*");
         }
-        fsm_parse_regex(opts, &format!("[{}]*", pairs.join(" | ")), None, None)
+        meter.regex(opts, &format!("[{}]*", pairs.join(" | ")))
     }
 }
 
@@ -546,7 +547,7 @@ mod tests {
         assert!(!table.iter().any(|(_, cd)| cd.feature_lanes() == wanted));
         let next_target = closure.slots(&g, &rules[1].lhs).unwrap();
         assert!(matches!(&next_target[0], Slot::Union(members) if members.contains(&id)));
-        let spelling = closure.spelling(&FomaOptions::default(), &g).unwrap();
+        let spelling = closure.spelling(&Meter::default(), &FomaOptions::default(), &g).unwrap();
         let input = SegAlphabet::new(table).token(id).to_string();
         let spelled: Vec<String> = foma::apply::apply_init(&spelling).down(&input).collect();
         assert_eq!(

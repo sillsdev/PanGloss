@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use foma::apply::apply_init;
+use foma::regex::fsm_parse_regex;
 
 use super::*;
 
