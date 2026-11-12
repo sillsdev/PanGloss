@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+- In the last stratum analysed, once a word's search is large, a word that no root matches no longer keeps the other derivations that reach it: nothing can be synthesized from it, so they were never read. The check spends none of the word's work and the root lookups run afterwards as before, so analyses, their order, parser work and which words reach the cap are identical; a trace and the root guesser keep everything. On the heaviest Mbugwe word the peak falls from 126 MB to 112 MB at a 200M work cap and from 479 MB to 281 MB at 1G.
+
 - The search's visited set for a stratum holds a position into the words already found, compared field by field against the stored word, instead of an owned state key per word. On the heaviest Mbugwe word the peak falls from 35 MB to 32 MB at a 50M work cap, from 158 MB to 126 MB at 200M and from 558 MB to 479 MB at 1G, with identical analyses and parser work.
 
 - A template battery and a stratum hand their word buffers back as they are emptied instead of holding them until the last word is consumed, and each template's output set is freed once it has been merged into the battery. On the heaviest Mbugwe word the peak falls from 41 MB to 35 MB at a 50M work cap, from 165 MB to 158 MB at 200M and from 601 MB to 558 MB at 1G, with identical analyses and parser work.
