@@ -77,6 +77,7 @@ pub(crate) enum RuleInvocationRole {
     TemplateSlot,
 }
 
+use crate::battery::{BatterySet, BatteryWord};
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::required_slots::{RequiredSlotLookahead, RequiredSlotMaterial};
@@ -734,13 +735,13 @@ struct SlotTrieNode {
 }
 
 /// The per-call state of the shared walk: one flag per template (admitted, and dead once its look-ahead fails), and each template's outputs.
-struct TrieWalk {
+struct TrieWalk<'i> {
     admitted: Vec<bool>,
     dead: Vec<bool>,
-    outs: Vec<WordSet>,
+    outs: Vec<BatterySet<'i>>,
 }
 
-impl TrieWalk {
+impl TrieWalk<'_> {
     fn live(&self, pos: usize) -> bool {
         self.admitted[pos] && !self.dead[pos]
     }
@@ -1169,6 +1170,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             if sink.done() {
                 break;
             }
+            let t = t.into_word(input);
             let changed = t.dedup_key() != in_key;
             match self.order {
                 MorphRuleOrder::Linear => {
@@ -1187,13 +1189,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
     }
 
-    /// The template battery: non-disjunctive union of every affix template's output, deduped by key.
-    fn run_template_batch(&self, input: &Word) -> Vec<Word> {
+    /// The template battery: non-disjunctive union of every affix template's output, deduped by key, each output stored against `input`.
+    fn run_template_batch<'i>(&self, input: &'i Word) -> Vec<BatteryWord> {
         if let Some(stats) = self.stats {
             stats.record_template_battery(self.stratum_id, crate::stats::Direction::Analysis);
         }
         // Tracing keeps the per-template walk, whose begin/end events and slot outcomes are per template.
-        let per_template: Vec<WordSet> = if self.trace.is_tracing() {
+        let per_template: Vec<BatterySet<'i>> = if self.trace.is_tracing() {
             self.stratum
                 .templates
                 .iter()
@@ -1206,33 +1208,32 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let mut per_template = per_template.into_iter();
         let mut union = per_template
             .find(|words| !words.is_empty())
-            .unwrap_or_default();
+            .unwrap_or_else(|| BatterySet::new(input));
         for template_out in per_template {
             // Each template's set shrinks as the union grows, and is gone once merged.
-            for w in template_out.into_releasing() {
-                let key = w.dedup_key();
+            for w in Releasing::new(template_out.into_stored()) {
+                let key = w.dedup_key(input);
                 match union.position(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
-                    Some(idx) => {
-                        generalize_syn_fs(union.get_mut(idx), &w, &|f| self.g.syn_features.mask(f))
-                    }
-                    None => {
-                        union.insert_with(key, || w);
-                    }
+                    Some(idx) => widen_syn_fs(union.get_mut(idx).syn_fs_mut(), w.syn_fs(), &|f| {
+                        self.g.syn_features.mask(f)
+                    }),
+                    None => union.push_new(&key, w),
                 }
             }
         }
-        let out = union.into_vec();
+        let out = union.into_stored();
         if frontier_profile::enabled() {
-            frontier_profile::record_template(out.len(), crate::word::estimate_words_bytes(&out));
+            let bytes = out.iter().map(|w| w.estimated_bytes(input)).sum();
+            frontier_profile::record_template(out.len(), bytes);
         }
         out
     }
 
     /// Required syntactic features gate admission; only slot analysis changes output features.
-    fn analyze_template(&self, tid: TemplateId, input: &Word) -> WordSet {
+    fn analyze_template<'i>(&self, tid: TemplateId, input: &'i Word) -> BatterySet<'i> {
         if !self.template_admits(tid, input) {
-            return WordSet::default();
+            return BatterySet::new(input);
         }
         let tmpl = &self.g.templates[tid.0 as usize];
         // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
@@ -1240,14 +1241,14 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if self.trace.is_tracing() {
             self.trace.begin_unapply_template(node_parent, tid, input);
         }
-        let mut out = WordSet::default();
+        let mut out = BatterySet::new(input);
         let slot_outcomes =
             (self.trace.is_tracing() && self.trace.captures_details()).then(Vec::new);
         let last_slot = tmpl.slots.len() as isize - 1;
         let mut fired = Vec::new();
         if self.required_slot_cannot_unapply(tid, input, last_slot, &mut fired, &mut None) {
             self.end_unapply_template(tid, input, false, None);
-            return WordSet::default();
+            return BatterySet::new(input);
         }
         // Descend from the last slot.
         self.template_unapply_slots(tid, input, last_slot, &mut out, slot_outcomes, fired);
@@ -1296,7 +1297,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// Per-template `analyze_template` outputs, running each shared slot batch once (divergence 095).
-    fn shared_slot_battery(&self, input: &Word) -> Vec<WordSet> {
+    fn shared_slot_battery<'i>(&self, input: &'i Word) -> Vec<BatterySet<'i>> {
         let trie = self
             .slot_trie
             .get_or_init(|| SlotTrie::build(self.g, &self.stratum.templates));
@@ -1308,7 +1309,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .collect();
         let mut walk = TrieWalk {
             dead: vec![false; admitted.len()],
-            outs: (0..admitted.len()).map(|_| WordSet::default()).collect(),
+            outs: (0..admitted.len())
+                .map(|_| BatterySet::new(input))
+                .collect(),
             admitted,
         };
         if walk.admitted.iter().any(|&a| a) {
@@ -1323,7 +1326,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         trie: &SlotTrie,
         node: usize,
         w: &Word,
-        walk: &mut TrieWalk,
+        walk: &mut TrieWalk<'_>,
         fired: &[Vec<usize>],
         entered: bool,
     ) {
@@ -1336,7 +1339,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         for &pos in &here.terminal {
             if walk.admitted[pos] && !walk.dead[pos] {
                 self.shadow_completed(fired_of(fired, pos));
-                walk.outs[pos].insert_with(w.dedup_key(), || w.clone());
+                walk.outs[pos].insert(w);
             }
         }
         for &child in &here.children {
@@ -1418,7 +1421,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         tid: TemplateId,
         in_word: &Word,
         index: isize,
-        out: &mut WordSet,
+        out: &mut BatterySet<'_>,
         mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
         fired: Vec<usize>,
     ) {
@@ -1483,7 +1486,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         self.end_unapply_template(tid, in_word, true, slot_outcomes.as_deref());
         self.shadow_completed(&fired);
-        out.insert_with(in_word.dedup_key(), || in_word.clone());
+        out.insert(in_word);
     }
 
     /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
@@ -1785,8 +1788,17 @@ fn generalize_syn_fs(
     alternative: &Word,
     mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
 ) {
-    if canonical.syn_fs != alternative.syn_fs {
-        canonical.syn_fs = union(&canonical.syn_fs, &alternative.syn_fs, mask_of);
+    widen_syn_fs(&mut canonical.syn_fs, &alternative.syn_fs, mask_of);
+}
+
+/// `generalize_syn_fs` on the feature structures themselves.
+fn widen_syn_fs(
+    canonical: &mut pg_featstruct::FeatureStruct,
+    alternative: &pg_featstruct::FeatureStruct,
+    mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
+) {
+    if canonical != alternative {
+        *canonical = union(canonical, alternative, mask_of);
     }
 }
 

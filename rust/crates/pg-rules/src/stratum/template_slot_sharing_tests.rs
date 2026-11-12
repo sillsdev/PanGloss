@@ -265,7 +265,7 @@ fn shared_walk_matches_every_templates_own_walk_in_order() {
             let shared: Vec<Vec<Word>> = a
                 .shared_slot_battery(&input)
                 .into_iter()
-                .map(WordSet::into_vec)
+                .map(crate::battery::BatterySet::into_vec)
                 .collect();
             compared += own.iter().map(Vec::len).sum::<usize>();
             assert_eq!(project(shared), project(own), "word {text}");

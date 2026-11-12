@@ -408,24 +408,53 @@ struct MorphKey {
     runtime_identity: Option<String>,
 }
 
+/// The fields a `WordKey` is taken from, borrowed from wherever they are held: a stored word that repeats most of another word keeps only its own fields, and its key is still read in place.
+#[derive(Clone, Copy)]
+pub(crate) struct KeyFields<'a> {
+    pub shape: &'a Shape,
+    pub trail: &'a Trail,
+    pub mrule_app_index: i32,
+    pub final_template_state: FinalTemplateState,
+    /// The word every other key field is read from.
+    pub rest: &'a Word,
+}
+
+impl<'a> KeyFields<'a> {
+    pub(crate) fn of(w: &'a Word) -> Self {
+        KeyFields {
+            shape: &w.shape,
+            trail: &w.trail,
+            mrule_app_index: w.mrule_app_index,
+            final_template_state: w.flags.final_template_state,
+            rest: w,
+        }
+    }
+}
+
 impl WordKey {
     /// Whether `w.dedup_key()` would equal this key, answered by reading `w` in place so no key is built. This is what lets a dedup index hold hash and position only instead of a second copy of every word's key; `tests::matches_agrees_with_key_equality` holds it to `==`.
     pub fn matches(&self, w: &Word) -> bool {
-        self.trail.matches(&w.trail) && self.matches_beside_trails(w)
+        self.matches_fields(&KeyFields::of(w))
     }
 
     /// `matches` against `w` as it would be with the given trail.
     pub(crate) fn matches_with_trail(&self, w: &Word, trail: &Trail) -> bool {
-        self.trail.matches(trail) && self.matches_beside_trails(w)
+        self.matches_fields(&KeyFields {
+            trail,
+            ..KeyFields::of(w)
+        })
     }
 
-    fn matches_beside_trails(&self, w: &Word) -> bool {
-        self.non_head_app_index == w.non_head_app_index
+    /// `matches` against the word these fields describe.
+    pub(crate) fn matches_fields(&self, f: &KeyFields<'_>) -> bool {
+        let w = f.rest;
+        self.trail.matches(f.trail)
+            && self.non_head_app_index == w.non_head_app_index
             && self.stratum == w.stratum
             && self.root_allomorph == w.root_allomorph
-            && self.mrule_app_index == w.mrule_app_index
+            && self.mrule_app_index == f.mrule_app_index
             && self.is_last_applied_rule_final == w.flags.is_last_applied_rule_final
-            && self.final_template_state == w.flags.final_template_state
+            && self.final_template_state == f.final_template_state
             && self.root_realization.as_deref() == w.root_runtime_id()
             && self.applied_realizational_rules == w.applied_realizational_rules()
             && self.morphs.len() == w.morphs.len()
@@ -443,7 +472,37 @@ impl WordKey {
                 .zip(w.non_heads())
                 .all(|(k, nh)| k.matches(nh))
             && self.real_fs == w.real_fs
-            && self.shape == w.shape
+            && self.shape == *f.shape
+    }
+
+    /// The key of the word these fields describe.
+    pub(crate) fn of(f: &KeyFields<'_>) -> WordKey {
+        let w = f.rest;
+        WordKey {
+            shape: f.shape.clone(),
+            real_fs: w.real_fs.clone(),
+            morphs: w
+                .morphs
+                .iter()
+                .map(|morph| MorphKey {
+                    allomorph: morph.allomorph,
+                    morpheme: morph.morpheme,
+                    order: morph.order,
+                    status: morph.status,
+                    runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
+                })
+                .collect(),
+            non_heads: w.non_heads().iter().map(Word::dedup_key).collect(),
+            non_head_app_index: w.non_head_app_index,
+            stratum: w.stratum,
+            root_allomorph: w.root_allomorph,
+            root_realization: w.root_runtime_id().map(str::to_owned),
+            trail: f.trail.slot_view(),
+            applied_realizational_rules: w.applied_realizational_rules().to_vec(),
+            mrule_app_index: f.mrule_app_index,
+            is_last_applied_rule_final: w.flags.is_last_applied_rule_final,
+            final_template_state: f.final_template_state,
+        }
     }
 }
 
@@ -561,31 +620,7 @@ impl Word {
 
     /// The canonical dedup key (see `WordKey`). Cloned per lookup; no per-parse interning is done.
     pub fn dedup_key(&self) -> WordKey {
-        WordKey {
-            shape: self.shape.clone(),
-            real_fs: self.real_fs.clone(),
-            morphs: self
-                .morphs
-                .iter()
-                .map(|morph| MorphKey {
-                    allomorph: morph.allomorph,
-                    morpheme: morph.morpheme,
-                    order: morph.order,
-                    status: morph.status,
-                    runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
-                })
-                .collect(),
-            non_heads: self.non_heads().iter().map(Word::dedup_key).collect(),
-            non_head_app_index: self.non_head_app_index,
-            stratum: self.stratum,
-            root_allomorph: self.root_allomorph,
-            root_realization: self.root_runtime_id().map(str::to_owned),
-            trail: self.trail.slot_view(),
-            applied_realizational_rules: self.applied_realizational_rules().to_vec(),
-            mrule_app_index: self.mrule_app_index,
-            is_last_applied_rule_final: self.flags.is_last_applied_rule_final,
-            final_template_state: self.flags.final_template_state,
-        }
+        WordKey::of(&KeyFields::of(self))
     }
 
     /// The current non-head — a faithful, **index-based** port of C# `Word.CurrentNonHead`

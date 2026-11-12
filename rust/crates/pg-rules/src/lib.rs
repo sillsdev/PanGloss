@@ -6,6 +6,7 @@
 
 pub mod alternative;
 pub mod analysis_state_key;
+mod battery;
 pub mod branch_census;
 pub mod bridge;
 pub mod cache;
