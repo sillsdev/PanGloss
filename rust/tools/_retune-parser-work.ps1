@@ -290,7 +290,7 @@ function Read-CompareResult {
             $out += $cur
         } elseif ($cur -and $line -match '^\s+VERDICT REFUSED: (.*)$') {
             $cur.Verdict = 'REFUSED'; $cur.Reason = $Matches[1]
-        } elseif ($cur -and $line -match '^\s+VERDICT (GO|NO-GO.*)$') {
+        } elseif ($cur -and $line -match '^\s+VERDICT (GO|NO-GO.*|INCONCLUSIVE)$') {
             $cur.Verdict = $Matches[1]
         } elseif ($cur -and $line -match '^\s+change ([+-]?\d+\.\d+)%') {
             $cur.DeltaPercent = [double]$Matches[1]
@@ -324,7 +324,7 @@ function Get-VerifyProblems {
     else {
         if (@($ctl).Count -ne $Grammars) { $why += "the control reported $(@($ctl).Count) grammar(s) for $Grammars in the manifest" }
         foreach ($g in $ctl) {
-            if ($g.Verdict -ne 'NO-GO (within noise)') { $why += "grammar #$($g.Number): the no-change control read '$($g.Verdict)', not NO-GO (within noise)" }
+            if ($g.Verdict -notin 'NO-GO (no change)', 'INCONCLUSIVE') { $why += "grammar #$($g.Number): the no-change control read '$($g.Verdict)'; an instrument check must read neither GO nor regression" }
         }
     }
     if (-not $NoChangeCheck -and @($Pair | Where-Object Verdict -eq 'GO').Count -eq 0) {

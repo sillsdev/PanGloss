@@ -18,8 +18,8 @@ change a parse, and that is a separate, output-affecting change.
 
 ## When to use
 
-After a parser change got **GO** from `rust/tools/instruction-compare.ps1` (a change beyond its noise
-floor, a no-change control inside it). Run it before the change lands if the weights should move with it,
+After a parser change got **GO** from `rust/tools/instruction-compare.ps1` (a 95% interval below zero and a
+change of at least the 0.5% minimum effect, with a no-change control that reads neither GO nor regression). Run it before the change lands if the weights should move with it,
 or in the next change if not.
 
 ## When to skip

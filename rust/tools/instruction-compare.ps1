@@ -1,12 +1,14 @@
 <#
   .SYNOPSIS
-  Before/after retired-instruction comparison of two `pangloss` binaries, per grammar, with measured noise and a go/no-go line.
+  Before/after retired-instruction comparison of two `pangloss` binaries, per grammar, with a 95% confidence interval and a verdict.
 
   .DESCRIPTION
   The standard check for an algorithm improvement: wall time and work_steps do not decide it.
-  For each grammar/word-list pair, runs `pangloss batch --threads 1` with both binaries, at least twice each,
-  alternating which side goes first, plus the same run on an empty word list per side. The empty-list run is
-  the grammar-load cost and is subtracted, so the reported figures are parse instructions only.
+  For each grammar/word-list pair, runs `pangloss batch --threads 1` with both binaries, -Repeats rounds each,
+  alternating which side goes first. Every round also runs each side on an empty word list; that run is the
+  grammar-load cost and is subtracted from the same round's full run, so each round gives one parse count per side
+  and start-up noise stays in the spread the statistics see. Thread attribution cannot replace the subtraction:
+  at --threads 1 batch parses on the thread that loaded the grammar.
 
   Windows: every run happens inside one PMC trace taken through the PanGloss PMC Start/Stop scheduled tasks (no
   elevation); each run's process is pinned to one CPU and its instructions are totalled from the trace.
@@ -16,13 +18,19 @@
   nonzero, or any word's status or signature differs between the binaries (reported as a count; no verdict).
   Word text is never printed or kept: batch output goes to a temp directory that is deleted on exit.
 
-  Verdict: GO when the change is an improvement larger than max(NoiseMultiple x noise, MinPercent), where noise is
-  the larger repeat spread of the net counts plus the spread of the empty-list runs. A binary compared with itself
-  is the no-change control and must read NO-GO (within noise); run it, since the noise floor is not otherwise proven.
+  Verdict, from Welch's t interval (95%, two-sided) on the per-round parse counts of the two sides and a minimum
+  effect of MinPercent (default 0.5%), always printed with the interval:
+    GO                  the interval lies below zero and the change is at least MinPercent smaller.
+    NO-GO (regression)  the interval lies above zero and the change is at least MinPercent larger.
+    NO-GO (no change)   the whole interval lies within +/- MinPercent.
+    INCONCLUSIVE        anything else: the interval is too wide to claim either; rerun with more -Repeats.
+  Instrument check: a binary compared with itself must read neither GO nor NO-GO (regression). Run it once per
+  machine session, or when a verdict looks odd; it is not part of every comparison and sets no threshold.
 
-  Exit codes: 0 every grammar GO; 10 at least one NO-GO and none refused; 3 at least one grammar refused (a differing
-  word, SKIPPED rows, a row-count mismatch, a non-positive net); 2 the whole run refused (PMC tasks absent, trace lost
-  or failed to process events, a run failed, another run holds the machine-wide lock, bad arguments).
+  Exit codes: 0 every grammar GO; 10 at least one NO-GO and no grammar INCONCLUSIVE or refused; 11 at least one
+  grammar INCONCLUSIVE and none refused; 3 at least one grammar refused (a differing word, SKIPPED rows, a row-count
+  mismatch, a non-positive parse count); 2 the whole run refused (PMC tasks absent, trace lost or failed to process
+  events, a run failed, another run holds the machine-wide lock, bad arguments).
 
   .EXAMPLE
   pwsh -NoProfile -File rust/tools/instruction-compare.ps1 -Before old.exe -After new.exe -Grammars g-hc.xml -Words g.txt
@@ -33,9 +41,9 @@ param(
     [Parameter(Mandatory)][string]$After,
     [Parameter(Mandatory)][string[]]$Grammars,
     [Parameter(Mandatory)][string[]]$Words,
-    [int]$Repeats = 2,
+    # Rounds per side; 0 picks the backend default: 5 on pmc, whose runs vary, 2 on callgrind, whose pinned runs do not.
+    [int]$Repeats = 0,
     [int]$Cpu = 4,
-    [double]$NoiseMultiple = 2.0,
     [double]$MinPercent = 0.5,
     [string[]]$BatchArgs = @(),
     [ValidateSet('auto', 'pmc', 'callgrind')][string]$Backend = 'auto',
@@ -67,7 +75,7 @@ $work = $null
 $lock = $null
 try {
     foreach ($exe in $Before, $After) { if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "binary not found: $exe" } }
-    if ($Repeats -lt 2) { throw '-Repeats must be at least 2: noise is measured from the spread of repeats' }
+    if ($Repeats -ne 0 -and $Repeats -lt 2) { throw '-Repeats must be at least 2: the verdict needs a variance from each side' }
     if ($Words.Count -ne 1 -and $Words.Count -ne $Grammars.Count) { throw "-Words has $($Words.Count) path(s) for $($Grammars.Count) grammar(s); give one per grammar, or one for all" }
     foreach ($p in $Grammars + $Words) { if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw "input not found: $p" } }
     $Before = (Resolve-Path -LiteralPath $Before).Path; $After = (Resolve-Path -LiteralPath $After).Path
@@ -75,6 +83,7 @@ try {
     $Words = @($Words | ForEach-Object { (Resolve-Path -LiteralPath $_).Path })
 
     if ($Backend -eq 'auto') { $Backend = if ($IsWindows) { 'pmc' } else { 'callgrind' } }
+    if ($Repeats -eq 0) { $Repeats = if ($Backend -eq 'pmc') { 5 } else { 2 } }
     $python = $null
     if ($Backend -eq 'pmc') {
         if (-not $IsWindows) { throw 'the pmc backend needs Windows; use -Backend callgrind here' }
@@ -102,7 +111,7 @@ try {
     for ($g = 0; $g -lt $Grammars.Count; $g++) {
         $list = if ($Words.Count -eq 1) { $Words[0] } else { $Words[$g] }
         foreach ($step in $plan) {
-            $tag = "g$g-r$($step.Round)-$($step.Side)-$($step.Kind)"
+            $tag = Get-RunTag -Grammar $g -Round $step.Round -Side $step.Side -Kind $step.Kind
             $jobs += [PSCustomObject]@{
                 Grammar = $g; Round = $step.Round; Side = $step.Side; Kind = $step.Kind; Tag = $tag
                 Exe = $exeOf[$step.Side]; Words = $(if ($step.Kind -eq 'empty') { $emptyList } else { $list })
@@ -179,8 +188,8 @@ try {
 
     Write-Host "instruction-compare: before=$([IO.Path]::GetFileName($Before)) after=$([IO.Path]::GetFileName($After)) repeats=$Repeats backend=$Backend"
     Write-Host "  $backendNote"
-    Write-Host '  no-change control: not run by this invocation; run -Before X -After X on the same inputs to measure the noise floor'
-    Write-Host '  startup subtracted: each side also ran an empty word list; its mean is removed from every run, so figures below are parse-only'
+    Write-Host "  verdict: Welch's t, 95% interval, minimum effect $MinPercent%; the instrument check (-Before X -After X) is a separate run"
+    Write-Host '  startup subtracted: each round also ran an empty word list per side; it is removed from that round''s full run'
     $verdicts = @()
     for ($g = 0; $g -lt $Grammars.Count; $g++) {
         $mine = @($jobs | Where-Object Grammar -eq $g)
@@ -190,6 +199,7 @@ try {
             $empty = @($mine | Where-Object { $_.Side -eq $s -and $_.Kind -eq 'empty' } | Sort-Object Round)
             $side[$s] = [PSCustomObject]@{
                 Full = $full; Startup = ($empty | ForEach-Object Instructions | Measure-Object -Average).Average
+                StartupSpread = ($empty | ForEach-Object Instructions | Measure-Object -Maximum).Maximum - ($empty | ForEach-Object Instructions | Measure-Object -Minimum).Minimum
                 Net = Get-NetInstructions -Full ([double[]]@($full | ForEach-Object Instructions)) -Empty ([double[]]@($empty | ForEach-Object Instructions))
             }
         }
@@ -204,22 +214,17 @@ try {
         $differing = $cmp.Differ + $repeatDiffs
         $skipped = { param($sig) @($sig.Values | Where-Object { $_ -like "SKIPPED`t*" }).Count }
         $problem = Get-ComparabilityProblem -Words $cmp.Words -SkippedBefore (& $skipped $sigBefore) -SkippedAfter (& $skipped $sigAfter) -RowsBefore $sigBefore.Count -RowsAfter $sigAfter.Count -InputWords $side.before.Full[0].InputWords
-        $emptySpread = 0.0
-        foreach ($s in 'before', 'after') {
-            $ev = [double[]]@($mine | Where-Object { $_.Side -eq $s -and $_.Kind -eq 'empty' } | ForEach-Object Instructions)
-            $emptySpread = [Math]::Max($emptySpread, ($ev | Measure-Object -Maximum).Maximum - ($ev | Measure-Object -Minimum).Minimum)
-        }
-        $v = Get-InstructionVerdict -BeforeNet $side.before.Net -AfterNet $side.after.Net -DifferingWords $differing -NoiseMultiple $NoiseMultiple -MinPercent $MinPercent -EmptySpreadInstructions $emptySpread -Problem $problem
+        $v = Get-InstructionVerdict -BeforeNet $side.before.Net -AfterNet $side.after.Net -DifferingWords $differing -MinPercent $MinPercent -Problem $problem
         $verdicts += $v.Verdict
         Write-Host ''
         Write-Host "grammar #$($g + 1) ($([IO.Path]::GetFileName($Grammars[$g]))), $($cmp.Words) words, status/signature differences: $($cmp.Differ) between sides, $repeatDiffs between repeats"
-        Write-Host "  startup (mean, subtracted)  before $(Format-Count $side.before.Startup)  after $(Format-Count $side.after.Startup)"
+        Write-Host "  startup mean (max-min)      before $(Format-Count $side.before.Startup) ($(Format-Count $side.before.StartupSpread))  after $(Format-Count $side.after.Startup) ($(Format-Count $side.after.StartupSpread))"
         Write-Host "  instructions before         $(($side.before.Net | ForEach-Object { Format-Count $_ }) -join ' | ')   mean $(Format-Count ($side.before.Net | Measure-Object -Average).Average)"
         Write-Host "  instructions after          $(($side.after.Net | ForEach-Object { Format-Count $_ }) -join ' | ')   mean $(Format-Count ($side.after.Net | Measure-Object -Average).Average)"
         if ($v.Refused) {
             Write-Host "  VERDICT REFUSED: $($v.Reason)"
         } else {
-            Write-Host ("  change {0:+0.00;-0.00;0.00}%   noise from repeats and empty runs {1:0.00}%   threshold {2:0.00}%" -f $v.DeltaPercent, $v.NoisePercent, $v.ThresholdPercent)
+            Write-Host ("  change {0:+0.00;-0.00;0.00}%   95% CI [{1:+0.00;-0.00;0.00}%, {2:+0.00;-0.00;0.00}%]   df {3:0.0}   minimum effect {4:0.00}%" -f $v.DeltaPercent, $v.LowPercent, $v.HighPercent, $v.Df, $MinPercent)
             Write-Host "  VERDICT $($v.Verdict)"
         }
     }
@@ -238,7 +243,7 @@ try {
         try { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction Stop } catch { }
         if (Test-Path -LiteralPath $work) {
             Write-Host "instruction-compare could not delete its temp directory $work; it can hold word text, so delete it by hand" -ForegroundColor Red
-            if ($code -eq 0 -or $code -eq 10) { $code = 2 }
+            if ($code -eq 0 -or $code -eq 10 -or $code -eq 11) { $code = 2 }
         }
     }
     if ($lock) { $lock.ReleaseMutex(); $lock.Dispose() }

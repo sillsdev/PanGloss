@@ -16,7 +16,7 @@
 
   Steps, each refusing rather than guessing:
     a. verify  instruction-compare.ps1 on Before and After over the samples, plus a no-change control (Before against Before).
-               The control must read NO-GO (within noise) on every grammar; the change must read GO on at least one.
+               The control must read neither GO nor NO-GO (regression) on any grammar; the change must read GO on at least one.
                -PairResult / -ControlResult read the saved stdout of earlier instruction-compare runs instead; they are bound to
                the manifest only by grammar file names and count, so the builds and word samples behind them are trusted.
     b. refit   per-word instructions (Valgrind callgrind, std hash keys pinned) on the After build for the fit set, then

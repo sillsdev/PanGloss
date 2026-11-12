@@ -1,7 +1,7 @@
 <#
   .DESCRIPTION
-  Covers: the pure logic in rust/tools/_instruction-compare.ps1 behind instruction-compare.ps1 -- verdicts,
-  startup subtraction, signature comparison, and the refusals. Starts no process and reads no trace.
+  Covers: the pure logic in rust/tools/_instruction-compare.ps1 behind instruction-compare.ps1 -- verdicts (Welch interval,
+  critical t, verdict classes), per-round startup subtraction, signature comparison, and the refusals. Starts no process and reads no trace.
 #>
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_instruction-compare.ps1"
@@ -12,32 +12,90 @@ function Write-Batch([string]$Dir, [string]$Name, [string[]]$Lines) {
     return $p
 }
 
-Test-Case 'a clear improvement beyond noise is GO' {
-    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1002000) -AfterNet @(930000, 931000) -DifferingWords 0
+Test-Case 'critical t matches published two-sided 95% values, including fractional df' {
+    foreach ($case in @(@(1, 12.7062), @(2, 4.3027), @(4, 2.7764), @(8, 2.3060), @(30, 2.0423), @(1000, 1.9623))) {
+        $tc = Get-StudentTCritical -Df $case[0]
+        Assert-True ([Math]::Abs($tc - $case[1]) -lt 1e-3) "df $($case[0]): got $tc, want $($case[1])"
+    }
+    $mid = Get-StudentTCritical -Df 5.5
+    Assert-True ($mid -lt (Get-StudentTCritical -Df 5) -and $mid -gt (Get-StudentTCritical -Df 6)) "df 5.5 gave $mid"
+    $threw = $false
+    try { Get-StudentTCritical -Df 0 | Out-Null } catch { $threw = $true }
+    Assert-True $threw 'df 0 must throw'
+}
+
+Test-Case 'Welch interval: df, standard error and bounds match a hand-worked case' {
+    # var(before) = 0.625, var(after) = 0.1, n = 5 each: se^2 = 0.145, df = 0.145^2 / (0.125^2/4 + 0.02^2/4) = 5.248.
+    $ci = Get-WelchInterval -Before @(100, 101, 99, 100.5, 99.5) -After @(98, 98.4, 97.6, 98.2, 97.8)
+    Assert-True ([Math]::Abs($ci.DeltaPercent + 2.0) -lt 1e-9) "delta $($ci.DeltaPercent)"
+    Assert-True ([Math]::Abs($ci.Df - 5.24805) -lt 1e-4) "df $($ci.Df)"
+    Assert-True ([Math]::Abs($ci.StdErrPercent - [Math]::Sqrt(0.145)) -lt 1e-9) "se $($ci.StdErrPercent)"
+    $half = $ci.TCritical * [Math]::Sqrt(0.145)
+    Assert-True ([Math]::Abs($ci.LowPercent - (-2.0 - $half)) -lt 1e-9 -and [Math]::Abs($ci.HighPercent - (-2.0 + $half)) -lt 1e-9) "[$($ci.LowPercent), $($ci.HighPercent)]"
+    Assert-True ($ci.TCritical -gt 2.44 -and $ci.TCritical -lt 2.58) "t $($ci.TCritical)"
+}
+
+Test-Case 'Welch df falls to n-1 of the noisy side when the other side has no spread' {
+    $ci = Get-WelchInterval -Before @(100, 100, 100, 100) -After @(97, 98, 99, 98)
+    Assert-True ([Math]::Abs($ci.Df - 3) -lt 1e-9) "df $($ci.Df)"
+}
+
+Test-Case 'two sides with no spread give an exact point interval, not a division by zero' {
+    $same = Get-WelchInterval -Before @(1000, 1000) -After @(1000, 1000)
+    Assert-Equal 0 $same.LowPercent
+    Assert-Equal 0 $same.HighPercent
+    Assert-Equal 'NO-GO (no change)' (Get-InstructionVerdict -BeforeNet @(1000, 1000) -AfterNet @(1000, 1000) -DifferingWords 0).Verdict
+    Assert-Equal 'GO' (Get-InstructionVerdict -BeforeNet @(1000, 1000) -AfterNet @(990, 990) -DifferingWords 0).Verdict
+    Assert-Equal 'NO-GO (no change)' (Get-InstructionVerdict -BeforeNet @(1000, 1000) -AfterNet @(998, 998) -DifferingWords 0).Verdict
+}
+
+Test-Case 'verdict classes: GO, regression, no change and INCONCLUSIVE each from their interval' {
+    Assert-Equal 'GO' (Get-VerdictFromInterval -DeltaPercent -2 -LowPercent -2.5 -HighPercent -1.5)
+    Assert-Equal 'NO-GO (regression)' (Get-VerdictFromInterval -DeltaPercent 2 -LowPercent 1.5 -HighPercent 2.5)
+    Assert-Equal 'NO-GO (no change)' (Get-VerdictFromInterval -DeltaPercent 0.1 -LowPercent -0.3 -HighPercent 0.4)
+    # significant but under the minimum effect, and the interval reaches past it: neither claim holds
+    Assert-Equal 'INCONCLUSIVE' (Get-VerdictFromInterval -DeltaPercent -0.4 -LowPercent -0.7 -HighPercent -0.1)
+    # large point change, interval straddles zero
+    Assert-Equal 'INCONCLUSIVE' (Get-VerdictFromInterval -DeltaPercent -2 -LowPercent -5 -HighPercent 1)
+    # a significant change smaller than the minimum effect whose interval lies inside it is no change
+    Assert-Equal 'NO-GO (no change)' (Get-VerdictFromInterval -DeltaPercent -0.3 -LowPercent -0.4 -HighPercent -0.2)
+}
+
+Test-Case 'verdict classes never overlap: GO, regression and no change are tested against each other on a grid' {
+    $vals = @(-3, -1, -0.5, -0.49, -0.2, 0, 0.2, 0.49, 0.5, 1, 3)
+    foreach ($lo in $vals) {
+        foreach ($hi in $vals) {
+            if ($hi -lt $lo) { continue }
+            foreach ($d in $vals) {
+                if ($d -lt $lo -or $d -gt $hi) { continue }
+                $go = $hi -lt 0 -and $d -le -0.5
+                $reg = $lo -gt 0 -and $d -ge 0.5
+                $none = $lo -gt -0.5 -and $hi -lt 0.5
+                Assert-True (([int]$go + [int]$reg + [int]$none) -le 1) "two classes hold at d=$d [$lo, $hi]"
+                $want = if ($go) { 'GO' } elseif ($reg) { 'NO-GO (regression)' } elseif ($none) { 'NO-GO (no change)' } else { 'INCONCLUSIVE' }
+                Assert-Equal $want (Get-VerdictFromInterval -DeltaPercent $d -LowPercent $lo -HighPercent $hi) "d=$d [$lo, $hi]"
+            }
+        }
+    }
+}
+
+Test-Case 'five quiet repeats per side resolve a 2% improvement as GO' {
+    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1004000, 996000, 1002000, 998000) -AfterNet @(980000, 983000, 977000, 981000, 979000) -DifferingWords 0
     Assert-Equal 'GO' $v.Verdict
-    Assert-True ($v.DeltaPercent -lt -6.5 -and $v.DeltaPercent -gt -7.5) "delta $($v.DeltaPercent)"
+    Assert-True ($v.HighPercent -lt 0) "CI [$($v.LowPercent), $($v.HighPercent)]"
 }
 
-Test-Case 'a self-comparison inside the noise floor is NO-GO, not GO' {
-    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1004000) -AfterNet @(1001000, 1003000) -DifferingWords 0
-    Assert-Equal 'NO-GO (within noise)' $v.Verdict
+Test-Case 'a binary against itself with real spread reads no change or INCONCLUSIVE, never GO or regression' {
+    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1004000, 996000, 1002000, 998000) -AfterNet @(1001000, 997000, 1003000, 999000, 1000000) -DifferingWords 0
+    Assert-Equal 'NO-GO (no change)' $v.Verdict
+    $noisy = Get-InstructionVerdict -BeforeNet @(1000000, 1040000) -AfterNet @(1010000, 970000) -DifferingWords 0
+    Assert-Equal 'INCONCLUSIVE' $noisy.Verdict
 }
 
-Test-Case 'a change smaller than twice the repeat spread is NO-GO even when it points down' {
-    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1030000) -AfterNet @(985000, 1015000) -DifferingWords 0
-    Assert-Equal 'NO-GO (within noise)' $v.Verdict
+Test-Case 'a regression beyond the minimum effect reads NO-GO (regression)' {
+    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1001000, 999000) -AfterNet @(1100000, 1101000, 1099000) -DifferingWords 0
+    Assert-Equal 'NO-GO (regression)' $v.Verdict
 }
-
-Test-Case 'a regression beyond noise is NO-GO and says so' {
-    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1001000) -AfterNet @(1100000, 1101000) -DifferingWords 0
-    Assert-Equal 'NO-GO (regression beyond noise)' $v.Verdict
-}
-
-Test-Case 'identical repeats still need the minimum percent to be GO' {
-    $v = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(998000, 998000) -DifferingWords 0 -MinPercent 0.5
-    Assert-Equal 'NO-GO (within noise)' $v.Verdict
-}
-
 Test-Case 'any differing word refuses the verdict and the reason carries the count' {
     $v = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(500000, 500000) -DifferingWords 3
     Assert-True $v.Refused
@@ -55,14 +113,13 @@ Test-Case 'a side with nothing beyond startup is refused' {
     Assert-True $v.Refused
 }
 
-Test-Case 'startup is the mean of the empty runs and is removed from every full run' {
-    $net = Get-NetInstructions -Full @(1000, 1010) -Empty @(100, 110)
-    Assert-Equal 895 $net[0]
-    Assert-Equal 905 $net[1]
-}
-
-Test-Case 'spread is range over mean in percent' {
-    Assert-Equal 2 (Get-SpreadPercent @(99, 101))
+Test-Case 'each round''s empty run is removed from the same round''s full run, so start-up noise reaches the variance' {
+    $net = Get-NetInstructions -Full @(1000, 1010) -Empty @(100, 130)
+    Assert-Equal 900 $net[0]
+    Assert-Equal 880 $net[1]
+    $threw = $false
+    try { Get-NetInstructions -Full @(1000, 1010) -Empty @(100) | Out-Null } catch { $threw = $true }
+    Assert-True $threw 'unpaired rounds must throw'
 }
 
 Test-Case 'signature comparison counts status and signature differences and one-sided indices, ignoring words and timing' {
@@ -139,14 +196,13 @@ Test-Case 'duplicate pids are refused and distinct pids pass' {
     Assert-True $threw
 }
 
-Test-Case 'the empty-list spread widens the noise and can turn a GO into a NO-GO' {
-    $plain = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(970000, 970000) -DifferingWords 0
-    Assert-Equal 'GO' $plain.Verdict
-    $noisy = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(970000, 970000) -DifferingWords 0 -EmptySpreadInstructions 20000
-    Assert-Equal 'NO-GO (within noise)' $noisy.Verdict
-    Assert-True ($noisy.NoisePercent -ge 2)
+Test-Case 'a noisy start-up widens the interval and can turn a GO into INCONCLUSIVE' {
+    $full = [double[]]@(1000000, 1000000, 1000000)
+    $quiet = Get-InstructionVerdict -BeforeNet (Get-NetInstructions $full @(500000, 500000, 500000)) -AfterNet (Get-NetInstructions @(970000, 970000, 971000) @(500000, 500000, 500000)) -DifferingWords 0
+    Assert-Equal 'GO' $quiet.Verdict
+    $noisy = Get-InstructionVerdict -BeforeNet (Get-NetInstructions $full @(480000, 500000, 520000)) -AfterNet (Get-NetInstructions @(970000, 970000, 971000) @(520000, 480000, 500000)) -DifferingWords 0
+    Assert-Equal 'INCONCLUSIVE' $noisy.Verdict
 }
-
 Test-Case 'a non-positive single net is refused even when the mean is positive' {
     $v = Get-InstructionVerdict -BeforeNet @(1000000, 1000000) -AfterNet @(2000000, -5) -DifferingWords 0
     Assert-True $v.Refused
@@ -179,11 +235,26 @@ Test-Case 'pinned repeats must be identical, or within the given tolerance' {
     Assert-False (Test-RepeatsIdentical @(745625497, 745390312) -RelativeTolerance 5e-5)
 }
 
-Test-Case 'exit code: all GO is 0, any NO-GO is 10, any refusal is 3 and wins' {
+Test-Case 'exit code: all GO is 0, any NO-GO is 10, any INCONCLUSIVE is 11 over NO-GO, any refusal is 3 and wins' {
     Assert-Equal 0 (Get-VerdictExitCode @('GO', 'GO'))
-    Assert-Equal 10 (Get-VerdictExitCode @('GO', 'NO-GO (within noise)'))
-    Assert-Equal 10 (Get-VerdictExitCode @('NO-GO (regression beyond noise)'))
-    Assert-Equal 3 (Get-VerdictExitCode @('NO-GO (within noise)', 'REFUSED'))
+    Assert-Equal 10 (Get-VerdictExitCode @('GO', 'NO-GO (no change)'))
+    Assert-Equal 10 (Get-VerdictExitCode @('NO-GO (regression)'))
+    Assert-Equal 11 (Get-VerdictExitCode @('GO', 'INCONCLUSIVE'))
+    Assert-Equal 11 (Get-VerdictExitCode @('NO-GO (regression)', 'INCONCLUSIVE'))
+    Assert-Equal 3 (Get-VerdictExitCode @('INCONCLUSIVE', 'REFUSED'))
+}
+
+Test-Case 'run tags name the two sides with neutral labels of equal length' {
+    # 'before'/'after' in the output path biased the parse thread about +1% on the 'after' side of a binary compared with itself.
+    foreach ($kind in 'empty', 'full') {
+        $a = Get-RunTag -Grammar 0 -Round 1 -Side before -Kind $kind
+        $b = Get-RunTag -Grammar 0 -Round 1 -Side after -Kind $kind
+        Assert-True ($a -ne $b) "both sides got tag $a"
+        Assert-Equal $a.Length $b.Length
+        foreach ($t in $a, $b) { Assert-True ($t -notmatch 'before|after') "tag $t names its side" }
+    }
+    Assert-Equal 'g2-r3-sideA-full' (Get-RunTag -Grammar 2 -Round 3 -Side before -Kind full)
+    Assert-Equal 'g2-r3-sideB-empty' (Get-RunTag -Grammar 2 -Round 3 -Side after -Kind empty)
 }
 
 Write-TestSummary

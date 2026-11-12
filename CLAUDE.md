@@ -103,10 +103,13 @@ Nothing enforces these. They are here because they change what a careful agent d
 - **A long command that is NOT a managed build should be a background job**, so the harness notifies
   on completion. *Scar: a 7,121-word corpus batch run in the foreground truncated silently at ~1,663
   words and was read as "the corpus".*
-- **Every algorithm improvement gets a before/after instruction comparison**, per grammar, with a
-  no-change control as the noise floor: `pwsh -NoProfile -File rust/tools/instruction-compare.ps1`.
-  Wall time and `work_steps` do not decide it. A new Windows machine needs
-  `rust/tools/pmc-setup.ps1` first (`docs/design/parse-cost.md`).
+- **Every algorithm improvement gets a before/after instruction comparison**, per grammar:
+  `pwsh -NoProfile -File rust/tools/instruction-compare.ps1`. Its verdict comes from a 95% interval
+  and a 0.5% minimum effect; INCONCLUSIVE (exit 11) means rerun with more `-Repeats`, not GO. Run the
+  instrument check, a binary against itself that must read neither GO nor regression, once per
+  machine session and whenever a verdict looks odd; it is not a threshold. Wall time and
+  `work_steps` do not decide it. A new Windows machine needs `rust/tools/pmc-setup.ps1` first
+  (`docs/design/parse-cost.md`). Terms: `GLOSSARY.md`.
 - **Conformance grammars use synthetic data only** — invented lexemes, never real-language data, and
   no language named outside a comment.
 
