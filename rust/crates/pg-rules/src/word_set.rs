@@ -126,6 +126,11 @@ impl WordSet {
         &mut self.words[at]
     }
 
+    /// The set of `words`, which `index` already indexes: every word's key at its position, and no two words with one key.
+    pub(crate) fn from_indexed(index: WordIndex, words: Vec<Word>) -> Self {
+        WordSet { index, words }
+    }
+
     /// The words in first-insertion order.
     pub fn into_vec(self) -> Vec<Word> {
         self.words

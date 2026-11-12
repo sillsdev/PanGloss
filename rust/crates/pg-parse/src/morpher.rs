@@ -916,7 +916,8 @@ impl<'g> Morpher<'g> {
                 pg_rules::branch_census::record_non_head_lookup(st, shape);
                 self.search_roots(st, shape, stats, &search_cache)
             };
-        let mut results: WordSet = WordSet::default();
+        // One set per analysed stratum, in the order the strata ran.
+        let mut results: Vec<WordSet> = Vec::new();
         // Stratum 0 is analysed last and its outputs feed no other stratum, so a word of it that no root matches is never read again. Not where something does read such a word: a trace, the root guesser, and the census and alternative-yield diagnostics.
         let early_lookup = self.early_root_check_from.is_some()
             && !trace.is_tracing()
@@ -928,8 +929,7 @@ impl<'g> Morpher<'g> {
         let root_answers =
             std::cell::RefCell::new(crate::root_answers::RootAnswers::new(StratumId(0)));
         let has_root = |created: &Word| self.has_root(created, lex_entry_filter, &root_answers);
-        // The stratum's candidates: the surface word first, then the previous admitted stratum's outputs, which are this range of `results`. A word's key holds its stratum and every output of a stratum carries that stratum, so a stratum's outputs never meet an earlier stratum's in `results` and a second set of them would be a copy.
-        let mut inputs: Option<std::ops::Range<usize>> = None;
+        // The stratum's candidates: the surface word first, then the previous admitted stratum's outputs, which are the last set of `results`. A word's key holds its stratum and every output of a stratum carries that stratum, so a stratum's outputs never meet an earlier stratum's and each stratum's set dedups on its own.
         let census = pg_rules::branch_census::enabled();
         let census_t0 =
             census.then(|| (pg_rules::branch_census::Timer::start(), budget.work_steps()));
@@ -942,9 +942,9 @@ impl<'g> Morpher<'g> {
             if budget.analysis_exhausted() {
                 break;
             }
-            let first_output = results.len();
-            let candidates = inputs.clone().unwrap_or(0..1);
-            for at in candidates {
+            let inputs = results.last();
+            let mut outputs = WordSet::default();
+            for at in 0..inputs.map_or(1, WordSet::len) {
                 if budget.analysis_exhausted() {
                     break;
                 }
@@ -956,8 +956,8 @@ impl<'g> Morpher<'g> {
                 ) {
                     break;
                 }
-                let w = match &inputs {
-                    Some(_) => results.get(at).clone(),
+                let w = match inputs {
+                    Some(inputs) => inputs.get(at).clone(),
                     None => input.clone(),
                 };
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
@@ -990,20 +990,24 @@ impl<'g> Morpher<'g> {
                             from_words,
                         }),
                 );
-                // The stratum's buffer is given back as `results` takes its words, so the two are not both held whole.
+                assert!(
+                    res.words.iter().all(|o| o.stratum == StratumId(s as u8)),
+                    "a stratum's output carries that stratum"
+                );
+                if outputs.is_empty() {
+                    // The first candidate's outputs are already a deduped set in output order, so they are taken as they stand, buffer and index.
+                    outputs = res.into_word_set();
+                    continue;
+                }
+                // The stratum's buffer is given back as `outputs` takes its words, so the two are not both held whole.
                 for o in pg_rules::word_set::Releasing::new(res.words) {
-                    assert_eq!(
-                        o.stratum,
-                        StratumId(s as u8),
-                        "a stratum's output carries that stratum"
-                    );
-                    insert_candidate(&mut results, o, stats.is_some());
+                    insert_candidate(&mut outputs, o, stats.is_some());
                 }
             }
-            if results.len() == first_output {
+            if outputs.is_empty() {
                 break;
             }
-            inputs = Some(first_output..results.len());
+            results.push(outputs);
         }
         if let Some((t0, work0)) = census_t0 {
             pg_rules::branch_census::record_analysis_phase(
@@ -1016,7 +1020,7 @@ impl<'g> Morpher<'g> {
         let mut candidates_generated: usize = 0;
         let mut matches: WordSet = WordSet::default();
         if !opts.guess_only {
-            for aw in results.iter() {
+            for aw in results.iter().flat_map(WordSet::iter) {
                 let dispatch_ok = {
                     let _owner = stats.map(|stats| {
                         stats.time_enter(
@@ -1152,7 +1156,7 @@ impl<'g> Morpher<'g> {
         let (ordered_matches, guessed): (Vec<Word>, bool) =
             if opts.guess_root && matches.is_empty() && !self.lexical_patterns.is_empty() {
                 let mut guess_matches: Vec<Word> = Vec::new();
-                for aw in results.iter() {
+                for aw in results.iter().flat_map(WordSet::iter) {
                     if !consume_parser_work(
                         stats,
                         ParserWork::CandidateExpansion,

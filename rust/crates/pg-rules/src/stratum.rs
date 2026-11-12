@@ -484,6 +484,15 @@ pub struct StratumAnalysis {
     pub words: Vec<Word>,
     /// Whether the work cap fired (partial results). See the module docs.
     pub capped: bool,
+    /// The dedup index the analysis built over `words`.
+    keys: WordIndex,
+}
+
+impl StratumAnalysis {
+    /// The candidate set in the same order, keeping the index the analysis built, so the words are neither moved to a second buffer nor keyed again.
+    pub fn into_word_set(self) -> WordSet {
+        WordSet::from_indexed(self.keys, self.words)
+    }
 }
 
 /// The caller's root check for the last-analysed stratum's output words.
@@ -1778,6 +1787,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         StratumAnalysis {
             words,
             capped: self.budget.capped(),
+            keys: output_keys,
         }
     }
 }
