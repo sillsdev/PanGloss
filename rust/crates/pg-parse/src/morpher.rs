@@ -924,7 +924,7 @@ impl<'g> Morpher<'g> {
             && !(opts.guess_root && !self.lexical_patterns.is_empty())
             && !pg_rules::branch_census::enabled()
             && !alt_yield::enabled();
-        // The check depends only on shape and stratum, and many states of a word share a shape.
+        // Within this call the check depends only on shape and stratum, and many states of a word share a shape.
         let root_answers =
             std::cell::RefCell::new(crate::root_answers::RootAnswers::new(StratumId(0)));
         let has_root = |created: &Word| self.has_root(created, lex_entry_filter, &root_answers);

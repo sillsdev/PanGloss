@@ -7,6 +7,7 @@ use rustc_hash::FxHashMap;
 /// The table stops taking answers at this many bytes, counting each shape as if the table alone held it; a shape it does not hold is checked afresh.
 const LIMIT: usize = 4 * 1024 * 1024;
 
+/// The answers one parse has had for one stratum, by full shape.
 pub(crate) struct RootAnswers {
     stratum: StratumId,
     table: FxHashMap<Shape, bool>,
