@@ -115,7 +115,7 @@ impl WordSet {
 /// Below this many words a buffer is not worth giving back early.
 const RELEASE_MIN_WORDS: usize = 4096;
 
-/// Moves the words of a buffer out front to back and gives the buffer's memory back as it empties, where `Vec::into_iter` holds the whole buffer until the last word is taken. A template battery's output is consumed over the whole subtree search below it, so the plain iterator kept every emptied slot live for that long.
+/// Moves the words of a buffer out front to back and gives the buffer's memory back as it empties, where `Vec::into_iter` holds the whole buffer until the last word is taken.
 pub struct Releasing(Rest);
 
 enum Rest {

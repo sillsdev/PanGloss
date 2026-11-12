@@ -1145,7 +1145,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return;
         }
         let in_key = input.dedup_key();
-        // The battery's buffer is given back as the loop empties it: the search below each word runs inside this loop, so a plain `Vec` iterator would hold every emptied slot until the last subtree finished.
+        // The battery's buffer is given back as this loop empties it.
         for t in Releasing::new(self.run_template_batch(input)) {
             if sink.done() {
                 break;
