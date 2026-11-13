@@ -25,11 +25,7 @@ fn the_sample_is_evenly_spaced_distinct_and_split_into_warm_up_and_candidates() 
     }
 }
 
-/// `batch` with its bare roots replaced by doubled roots, so half the words have no analysis.
-///
-/// The tiled stage then saves about twice what its walk costs, instead of sitting within a few percent of break-even, so
-/// a small change in what parsing allocates cannot flip it. (Which words calibrate depends on the order by design: the
-/// sample is evenly spaced by index and calibration stops early once the saving is four times the filter cost.)
+/// `batch` with its bare roots doubled, so half the words have no analysis and the tiled stage clears break-even by about 2x.
 fn mostly_unexplained(count: usize) -> Vec<String> {
     let roots = ["pat", "pit", "put", "lat", "lit"];
     batch(count)
