@@ -1,13 +1,13 @@
 //! `analyze-text`: prints `pg_analyzer::analyze_text` as JSON; format in `docs/text-analysis-format.md`.
 
 use pg_analyzer::{
-    AnalyzeOptions, DictionaryIdentity, DictionaryPack, LanguagePack, ProfileInput, TextInput,
-    TextRequest,
+    usfm_styles, AnalyzeOptions, DictionaryIdentity, DictionaryPack, LanguagePack, ProfileInput,
+    TextInput, TextRequest,
 };
 use pg_parse::Morpher;
 use std::time::Duration;
 
-const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--dictionary <language>=<prefix> ...] [--max-suggestion-chars N] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...";
+const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--dictionary <language>=<prefix> ...] [--max-suggestion-chars N] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] [--summary-only] [--reject-pattern RE] [--accept-word W]... [--accept-pattern RE]... [--no-character-rule] [--format auto|plain|usfm] <text-file>...";
 
 fn flag_value<'a>(
     flag: &str,
@@ -31,6 +31,7 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
     let mut timeout = None;
     let mut options = AnalyzeOptions::default();
     let mut text_paths: Vec<&str> = Vec::new();
+    let mut format = "auto";
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         if let Some(v) = flag_value("--profile", arg, &mut it)? {
@@ -64,6 +65,21 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
                 v.parse()
                     .map_err(|_| "--max-checked-occurrences must be an integer")?,
             );
+        } else if arg == "--summary-only" {
+            options.summary_only = true;
+        } else if let Some(v) = flag_value("--reject-pattern", arg, &mut it)? {
+            options.reject_pattern = Some(v.to_owned());
+        } else if let Some(v) = flag_value("--accept-pattern", arg, &mut it)? {
+            options.accept_patterns.push(v.to_owned());
+        } else if let Some(v) = flag_value("--accept-word", arg, &mut it)? {
+            options.accept_words.push(v.to_owned());
+        } else if arg == "--no-character-rule" {
+            options.no_character_rule = true;
+        } else if let Some(v) = flag_value("--format", arg, &mut it)? {
+            if !["auto", "plain", "usfm"].contains(&v) {
+                return Err(format!("--format expects auto, plain or usfm, got {v}"));
+            }
+            format = v;
         } else if arg == "--all-readings" {
             options.all_readings = true;
         } else if let Some(v) = flag_value("--max-alternatives", arg, &mut it)? {
@@ -132,13 +148,31 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
         .iter()
         .map(|p| std::fs::read_to_string(p).map_err(|e| format!("read {p}: {e}")))
         .collect::<Result<_, _>>()?;
+    // USFM keeps \c and \v numbers and every marker out of the word list (`auto`: .usfm/.sfm).
+    let styles: Vec<Vec<pg_analyzer::StyledRun>> = text_paths
+        .iter()
+        .zip(&contents)
+        .map(|(path, text)| {
+            let usfm = match format {
+                "usfm" => true,
+                "plain" => false,
+                _ => path.ends_with(".usfm") || path.ends_with(".sfm"),
+            };
+            if usfm {
+                usfm_styles(text)
+            } else {
+                Vec::new()
+            }
+        })
+        .collect();
     let texts: Vec<TextInput<'_>> = text_paths
         .iter()
         .zip(&contents)
-        .map(|(path, text)| TextInput {
+        .zip(&styles)
+        .map(|((path, text), styles)| TextInput {
             id: (*path).into(),
             text,
-            styles: &[],
+            styles,
         })
         .collect();
 

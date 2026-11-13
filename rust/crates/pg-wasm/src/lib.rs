@@ -271,6 +271,10 @@ impl PanGlossGrammar {
             source_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                 .into(),
             word_forming: vec![],
+            auxiliary: vec![],
+            reject_pattern: None,
+            accept_words: vec![],
+            accept_patterns: vec![],
         };
         let supplied_profile: pg_analyzer::SegmentationProfile =
             if profile.is_null() || profile.is_undefined() {

@@ -233,3 +233,53 @@ fn cli_prints_language_proposals_and_keeps_short_input_ambiguous() {
     assert_eq!(json["texts"][1]["detection"]["sufficient"], false);
     assert_eq!(json["detection"]["proposals"][0]["language"], "en");
 }
+
+#[test]
+fn usfm_files_keep_markers_and_numbers_out_and_summary_only_drops_occurrences() {
+    let dir = scratch("usfm");
+    let ldml = dir.join("qaa.ldml");
+    let text = dir.join("01-GEN.usfm");
+    std::fs::write(&ldml, LDML).unwrap();
+    std::fs::write(&text, "\\id GEN\n\\c 1\n\\p\n\\v 1 kibes 16th\n").unwrap();
+    let grammar = data("trace-family.xml");
+    let pack = format!("xx={}", grammar.display());
+    let run = |extra: &[&str]| {
+        let mut args: Vec<&std::ffi::OsStr> = vec![
+            "--profile".as_ref(),
+            ldml.as_os_str(),
+            "--pack".as_ref(),
+            pack.as_ref(),
+        ];
+        args.extend(extra.iter().map(|a| std::ffi::OsStr::new(*a)));
+        args.push(text.as_os_str());
+        let output = cli(&args);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()
+    };
+    let usfm = run(&["--summary-only"]);
+    assert!(usfm["texts"][0]["occurrences"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let stats = &usfm["corpus"];
+    assert_eq!(stats["total"]["occurrences"], 1);
+    // The chapter and verse labels are skipped by style, `16th` by its digits.
+    assert_eq!(stats["not_a_word"]["total"]["occurrences"], 3);
+    assert_eq!(stats["not_a_word"]["style"]["occurrences"], 2);
+    assert_eq!(stats["not_a_word"]["by_character"]["1"]["occurrences"], 1);
+    assert_eq!(usfm["not_a_word_rule"], "valid_characters");
+    // Plain mode leaves the markers `c`, `v`, `p` and `id` behind as ordinary tokens.
+    let plain = run(&["--format", "plain"]);
+    assert!(plain["corpus"]["total"]["occurrences"].as_u64().unwrap() >= 6);
+    // Switching the character rule off makes `16th` an ordinary token; the style exclusion stays.
+    let open = run(&["--no-character-rule"]);
+    assert_eq!(open["corpus"]["not_a_word"]["total"]["occurrences"], 2);
+    assert_eq!(open["corpus"]["total"]["occurrences"], 2);
+    // An accepted word passes.
+    let accepted = run(&["--accept-word", "16th"]);
+    assert_eq!(accepted["corpus"]["not_a_word"]["total"]["occurrences"], 2);
+}

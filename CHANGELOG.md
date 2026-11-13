@@ -5,6 +5,10 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+`analyze-text` skips tokens that are not words (ADR 0016). A token is a word candidate only when every character is in the writing system's main or auxiliary exemplar set and one is a letter; otherwise it is reported as not-a-word with its first offending character, never parsed, and kept out of coverage, failure, misspelling and no-analysis counts. Accept words and patterns and an extra reject regex are set per segmentation profile or on the command line; `--no-character-rule` switches the rule off, and a profile with no exemplar sets falls back to "numeric character or no letter". USFM files keep `\c` and `\v` numbers and markers out of the word list. New: `valid_via_alternative` statistics (hyphen and apostrophe), `--summary-only`, `--format`.
+
+- Segmentation is unchanged. A text with digits, foreign letters or a lone apostrophe now reports them under `statistics.not_a_word` and no longer in `total`, `valid` or `no_analysis`.
+
 The release script now cuts a release through a pull request, so no release step commits to local `main`. `release.ps1 -Prepare -Version X.Y.Z` branches `release/vX.Y.Z` from `origin/main`, renames `## Unreleased` to `## X.Y.Z` with a `Released <date>.` line, stamps the workspace version and `Cargo.lock`, runs the locked check, commits, pushes and opens the PR; after the squash merge, `release.ps1 -Tag -Version X.Y.Z -Push` creates and pushes the annotated tag on the merged release commit.
 
 - **Breaking for the release procedure only:** `release.ps1 -Version X.Y.Z` with no mode no longer commits on `main` or tags, and `git push --atomic origin main vX.Y.Z` is gone; `-Prepare` and `-Tag` are required. New exit code 35 means a push, PR or tag-push failure; 31 now covers a missing fetch or an existing `release/vX.Y.Z` branch rather than "not on main". The Release workflow is unchanged.

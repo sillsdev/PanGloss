@@ -79,5 +79,7 @@ The styled-run exclusion was checked directly in LibLCM `d564a719`:
 `WordMaker.IsWordforming` in `src/SIL.LCModel/DomainServices/ITextUtils.cs` applies the label
 exclusion before both ordinary word-forming classification and numeric acceptance.
 
+Which tokens are then counted as words is [ADR 0016](0016-not-a-word-tokens.md); it runs after this segmentation and never changes it.
+
 Related: [widened purpose](0010-multi-language-spelling-prediction-and-analysis.md) and
 [multi-language word evidence](0012-multi-language-word-evidence.md). Terms: [CONTEXT.md](../../CONTEXT.md).

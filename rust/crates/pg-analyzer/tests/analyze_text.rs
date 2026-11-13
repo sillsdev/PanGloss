@@ -59,6 +59,8 @@ fn occurrences_carry_wordform_span_evidence_and_resource_identities() {
     assert_eq!(words, ["kibes", "qqqq", "16th"].map(str::to_owned).to_vec());
     assert_eq!(occurrences[0].span.utf8, [0, 5]);
     assert_eq!(occurrences[1].span.code_points, [7, 11]);
+    assert_eq!(occurrences[2].outcome, OccurrenceOutcome::NotAWord);
+    assert!(occurrences[2].checks.is_empty());
     assert_eq!(occurrences[0].outcome, OccurrenceOutcome::Valid);
     assert_eq!(occurrences[0].valid_languages, ["xx"]);
     assert!(occurrences[0].checks[0].analyses >= 1);
@@ -549,7 +551,11 @@ fn zero_alternatives_reports_every_dual_role_occurrence_capped_not_dropped() {
 
 #[test]
 fn part_spans_are_exact_in_every_unit_for_multibyte_text() {
-    let result = run_joining(&[("t", "kib 𐐀é-é")], AnalyzeOptions::default());
+    let options = AnalyzeOptions {
+        no_character_rule: true,
+        ..AnalyzeOptions::default()
+    };
+    let result = run_joining(&[("t", "kib 𐐀é-é")], options);
     let occurrence = &result.texts[0].occurrences[1];
     assert_eq!(occurrence.wordform, "𐐀é-é");
     let split = occurrence
