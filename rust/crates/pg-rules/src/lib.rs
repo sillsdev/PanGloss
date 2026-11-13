@@ -10,6 +10,7 @@ mod battery;
 pub mod branch_census;
 pub mod bridge;
 pub mod cache;
+pub mod canonical;
 pub mod cascade;
 pub mod extras;
 pub mod metathesis;

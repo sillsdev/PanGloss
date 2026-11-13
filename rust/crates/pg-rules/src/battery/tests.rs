@@ -9,20 +9,20 @@ use crate::trace::TraceHandle;
 use crate::word::MorphRecord;
 use crate::word_set::WordSet;
 
-fn fs_with(bits: u64) -> FeatureStruct {
+pub(crate) fn fs_with(bits: u64) -> FeatureStruct {
     let mut b = FeatureStructBuilder::new();
     b.add(FeatId(0), FeatureValue::Symbolic(SymbolBits(bits)));
     b.build()
 }
 
-fn shape(char_def: u32) -> Shape {
+pub(crate) fn shape(char_def: u32) -> Shape {
     let mut b = ShapeBuilder::new();
     b.push_segment(char_def);
     b.finish()
 }
 
 /// A battery input with every kind of state a battery can meet: a trail, a morph, obligatory features, a source and applied rules.
-fn input() -> Word {
+pub(crate) fn input() -> Word {
     let mut w = Word::new(shape(1), StratumId(1));
     w.source = Some(Rc::new(Word::new(shape(1), StratumId(2))));
     w.syn_fs = fs_with(0b01);
@@ -39,7 +39,7 @@ fn input() -> Word {
 }
 
 /// `input` with one slot rule unapplied, as `apply_one_mrule` leaves it.
-fn slot_output(input: &Word, rule: u32, char_def: u32) -> Word {
+pub(crate) fn slot_output(input: &Word, rule: u32, char_def: u32) -> Word {
     let mut w = input.clone();
     w.shape = shape(char_def);
     w.syn_fs = fs_with(0b10);
@@ -50,7 +50,7 @@ fn slot_output(input: &Word, rule: u32, char_def: u32) -> Word {
     w
 }
 
-fn printed(w: &Word) -> String {
+pub(crate) fn printed(w: &Word) -> String {
     format!("{w:?}")
 }
 
@@ -73,10 +73,10 @@ fn a_slot_output_is_stored_as_a_delta_and_rebuilds_exactly() {
     }
 }
 
-type Edit = Box<dyn Fn(&mut Word)>;
+pub(crate) type Edit = Box<dyn Fn(&mut Word)>;
 
 /// Every way a word can differ from the input outside the delta's own fields.
-fn edits() -> Vec<Edit> {
+pub(crate) fn edits() -> Vec<Edit> {
     vec![
         Box::new(|w| w.stratum = StratumId(9)),
         Box::new(|w| w.real_fs = fs_with(0b1000)),

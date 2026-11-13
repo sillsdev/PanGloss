@@ -79,6 +79,18 @@ impl AnalysisStateKey {
         syntactic_fs: &FeatureStruct,
         max_apps: &impl Fn(MRuleId) -> u32,
     ) -> bool {
+        self.matches_fields(&crate::word::KeyFields::of(w), syntactic_fs, max_apps)
+    }
+
+    /// `matches_word` against a word read in place.
+    pub(crate) fn matches_fields(
+        &self,
+        fields: &crate::word::KeyFields<'_>,
+        syntactic_fs: &FeatureStruct,
+        max_apps: &impl Fn(MRuleId) -> u32,
+    ) -> bool {
+        // The word may be stored as a difference: its shape, trail and template state are `fields`' own, and `w` holds the rest.
+        let w = fields.rest;
         // Every field is named, so a new key field fails to compile here until it is compared.
         let AnalysisStateKey {
             shape,
@@ -91,9 +103,9 @@ impl AnalysisStateKey {
             state,
         } = self;
         *stratum == w.stratum
-            && *state == w.flags.final_template_state
+            && *state == fields.final_template_state
             && *non_head_count == w.non_heads().len() as u32
-            && *shape == w.shape
+            && *shape == *fields.shape
             && key_syntactic_fs == syntactic_fs
             && *realizational_fs == w.real_fs
             && morph_history.len() == w.morphs.len()
@@ -107,8 +119,8 @@ impl AnalysisStateKey {
             // The key holds each rule's count saturated at its limit and omits a rule saturated to zero. Every keyed rule must have that count on the word's trail, and every rule on the trail must be keyed unless its limit is zero.
             && rule_counts
                 .iter()
-                .all(|(&rule, &count)| w.trail.count_of(rule).min(max_apps(rule)) == count)
-            && w
+                .all(|(&rule, &count)| fields.trail.count_of(rule).min(max_apps(rule)) == count)
+            && fields
                 .trail
                 .counted_rules()
                 .all(|rule| rule_counts.contains_key(&rule) || max_apps(rule) == 0)

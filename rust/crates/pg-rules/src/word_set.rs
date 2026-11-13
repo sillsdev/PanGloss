@@ -42,6 +42,16 @@ impl WordIndex {
             .map(|&(_, at)| at as usize)
     }
 
+    /// The position holding `key`, for words not held as whole words: `is_match` says whether the word at a position has `key`.
+    pub(crate) fn find_by(&self, key: &WordKey, is_match: impl Fn(usize) -> bool) -> Option<usize> {
+        let h = fold_hash(FxBuildHasher.hash_one(key));
+        self.table
+            .find(spread(h), |&(stored, at)| {
+                stored == h && is_match(at as usize)
+            })
+            .map(|&(_, at)| at as usize)
+    }
+
     /// Records that the word at `at` has `key`. The caller has checked `key` is absent.
     pub fn insert(&mut self, key: &WordKey, at: usize) {
         let h = fold_hash(FxBuildHasher.hash_one(key));

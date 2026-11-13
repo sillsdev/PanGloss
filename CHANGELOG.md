@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+- A stratum's output words are stored as their differences from the stratum's input (shape, syntactic features, trail, template state and alternatives, 56 bytes where a whole word is 168) and built as whole words when lexical lookup or the next stratum reads them; a word that differs anywhere else is held whole. The morpher takes the set the stratum built, buffer and index, instead of moving every word into a second set and keying it again. On the heaviest Mbugwe word the peak falls from 26 MB to 23 MB at a 50M work cap, from 72 MB to 61 MB at 200M and from 196 MB to 165 MB at 1G, with identical analyses, order and parser work.
+
 ## 0.19.0
 
 Released 2026-11-12.
