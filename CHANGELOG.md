@@ -5,7 +5,14 @@ file has no section for.
 
 ## Unreleased
 
-- Loading a `.fwdata` grammar peaks lower with an identical grammar: the importer no longer keeps a second copy of the conversion provenance (`ImportReport.provenance` is gone; read `Snapshot::conversion_provenance`), and the parsed XML tree is stored at exact capacity (#261).
+## 0.19.2
+
+Released 2026-11-13.
+
+Loading a grammar holds less memory with identical output: Cebuano fwdata now peaks at 830 MB, down from 1,224 MB, and Swahili at 92 MB, down from 126 MB (#282). A Try a Word trace now reports a skipped lexical lookup as `LexicalLookupFeatures`, matching machine#627; parse results do not change (#271).
+
+- Loading a `.fwdata` grammar peaks lower with an identical grammar: the importer no longer keeps a second copy of the conversion provenance, and the parsed XML tree is stored at exact capacity (#261, #282). **Breaking for Rust callers of `pg-fwdata` only:** the public field `pg_fwdata::ImportReport.provenance` is removed; read `Snapshot::conversion_provenance` instead. The CLI's behaviour is unchanged.
+- A Try a Word trace reports a lexical lookup skipped for a syntactic-feature mismatch as `LexicalLookupFeatures`, as machine#627 does (#271). Parse results are unchanged.
 
 ## 0.19.1
 
