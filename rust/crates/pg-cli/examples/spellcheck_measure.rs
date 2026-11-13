@@ -168,14 +168,14 @@ fn main() {
     let mut total_analyses = 0usize;
     let mut analyses_with_syn_fs_beyond_pos = 0usize;
     let mut analyses_with_nonempty_mpr = 0usize;
-    let mut mpr_union: u64 = 0;
+    let mut mpr_union = pg_grammar::model::MprSet::EMPTY;
     let mut guessed_analyses = 0usize;
 
     // Backoff-rung class tables (D1/D4). Key -> count of analyses in that class.
     let mut rung1_full_decomp_synfs: HashMap<String, u32> = HashMap::new(); // morpheme seq + full syn_fs
     let mut rung2_pos_synfs: HashMap<String, u32> = HashMap::new(); // pos + full syn_fs
     let mut rung3_pos_head: HashMap<String, u32> = HashMap::new(); // pos + head features only (approx feature subset)
-    let mut rung4_pos_mpr: HashMap<(Option<u32>, u64), u32> = HashMap::new(); // pos + mpr
+    let mut rung4_pos_mpr: HashMap<(Option<u32>, pg_grammar::model::MprSet), u32> = HashMap::new(); // pos + mpr
     let mut rung5_pos: HashMap<Option<u32>, u32> = HashMap::new(); // pos alone
     let mut rung6_openclosed: HashMap<&'static str, u32> = HashMap::new(); // open/closed
 
@@ -315,9 +315,9 @@ fn main() {
                     entry.1 += 1;
                 }
             }
-            if mpr.0 != 0 {
+            if !mpr.is_empty() {
                 analyses_with_nonempty_mpr += 1;
-                mpr_union |= mpr.0;
+                mpr_union = mpr_union.union(*mpr);
             }
             record_feature_occurrences(
                 syn_fs,
@@ -343,7 +343,7 @@ fn main() {
             *rung3_pos_head.entry(r3key).or_insert(0) += 1;
 
             // Rung 4: POS + mpr.
-            *rung4_pos_mpr.entry((*pos_id, mpr.0)).or_insert(0) += 1;
+            *rung4_pos_mpr.entry((*pos_id, *mpr)).or_insert(0) += 1;
 
             // Rung 5: POS alone.
             *rung5_pos.entry(*pos_id).or_insert(0) += 1;
@@ -437,7 +437,7 @@ fn main() {
     );
     println!(
         "distinct mpr bits ever observed (popcount of union): {}",
-        mpr_union.count_ones()
+        mpr_union.iter().count()
     );
     println!(
         "guessed analyses: {guessed_analyses} ({:.2}%)",

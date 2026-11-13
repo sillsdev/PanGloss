@@ -4,7 +4,7 @@ Every registered `pangloss grammar-health` finding has a page generated from Pan
 
 Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/docs/diagnostics/<code>.md`. Each page's first heading is its code; GitHub also renders an anchor from that heading. The file path is stable even for dotted codes.
 
-## Errors (33)
+## Errors (32)
 
 | Code | Title | Label | What to do |
 |---|---|---|---|
@@ -35,7 +35,6 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [grammar.compile.failed](diagnostics/grammar.compile.failed.md) | Grammar compilation failed |  | Use the error description to locate and correct malformed grammar input. If FieldWorks accepts the input, report the unsupported construct with this diagnostic. |
 | [grammar.limit.parts-of-speech](diagnostics/grammar.limit.parts-of-speech.md) | Too many parts of speech |  | In Grammar > Category Edit, merge or delete unused categories and subcategories until the total is 63 or fewer. |
 | [grammar.limit.feature-values](diagnostics/grammar.limit.feature-values.md) | Too many values in one feature |  | Open the named feature and merge or delete its unused values until it has 63 or fewer: Grammar > Phonological Features for a phonological feature, Grammar > Category Edit > Inflection Features for a morphosyntactic one. |
-| [grammar.limit.mpr-features](diagnostics/grammar.limit.mpr-features.md) | Too many inflection classes and exception features |  | Merge or delete unused items until the total is 64 or fewer: inflection classes and subclasses in Grammar > Category Edit > Inflection Class Info, exception features in the Exception Features list, entry inflection types in Lists > Variant Types. |
 | [grammar.rule.feature-constraint-unresolved](diagnostics/grammar.rule.feature-constraint-unresolved.md) | Unresolved rule feature constraint |  | In Grammar > Phonological Rules, inspect the named rule part. Correct a stale constraint reference; if FieldWorks displays a valid constraint, report the rule and missing-object details. |
 | [grammar.rule.feature-constraint-phon-feature-unresolved](diagnostics/grammar.rule.feature-constraint-phon-feature-unresolved.md) | Unresolved phonological feature constraint |  | In Grammar > Phonological Rules, inspect the named constraint; in Grammar > Phonological Features, check the intended feature and reselect it in the rule. |
 | [grammar.rule.rule-feature-unresolved](diagnostics/grammar.rule.rule-feature-unresolved.md) | Unresolved phonological rule feature |  | In Grammar > Phonological Rules, inspect Required Properties and Excluded Properties on the named rule. Reselect an intended existing property if the reference is stale; if FieldWorks shows a valid selection, report the loading failure. |

@@ -247,8 +247,8 @@ fn all_type_group_excludes_partial_match_like_confirm() {
 fn append_output_is_order_invariant_overwrite_output_is_not() {
     use pg_grammar::model::{mpr_add_output, MprGroup, MprGroupMatchType, MprGroupOutput, MprSet};
 
-    let x = MprSet(0b01);
-    let y = MprSet(0b10);
+    let x = MprSet::from_low_bits(0b01);
+    let y = MprSet::from_low_bits(0b10);
     let base = MprSet::EMPTY;
 
     let append_groups = [MprGroup {

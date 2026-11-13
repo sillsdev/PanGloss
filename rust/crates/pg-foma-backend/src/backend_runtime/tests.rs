@@ -10,7 +10,7 @@ fn wa(n: u32) -> WordAnalysis {
 /// Same identity as `wa(n)`, differing only in `mpr` — a field `AnalysisIdentity` does not capture and `WordAnalysis::Eq` does.
 fn wa_other_mpr(n: u32) -> WordAnalysis {
     WordAnalysis {
-        mpr: pg_grammar::model::MprSet(1),
+        mpr: pg_grammar::model::MprSet::from_low_bits(1),
         ..wa(n)
     }
 }

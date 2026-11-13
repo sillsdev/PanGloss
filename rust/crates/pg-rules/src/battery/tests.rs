@@ -27,7 +27,7 @@ pub(crate) fn input() -> Word {
     w.source = Some(Rc::new(Word::new(shape(1), StratumId(2))));
     w.syn_fs = fs_with(0b01);
     w.real_fs = fs_with(0b100);
-    w.mpr = MprSet(0b11);
+    w.mpr = MprSet::from_low_bits(0b11);
     w.morphs = vec![MorphRecord::new(AllomorphId(5), MorphemeId(6), 0)];
     w.obligatory = vec![FeatId(3)];
     w.trail = Trail::from_slots([(Some(MRuleId(1)), Some(AllomorphId(10)))]);
@@ -80,7 +80,7 @@ pub(crate) fn edits() -> Vec<Edit> {
     vec![
         Box::new(|w| w.stratum = StratumId(9)),
         Box::new(|w| w.real_fs = fs_with(0b1000)),
-        Box::new(|w| w.mpr = MprSet(0b1)),
+        Box::new(|w| w.mpr = MprSet::from_low_bits(0b1)),
         Box::new(|w| w.morphs[0].order = 4),
         Box::new(|w| w.morphs.clear()),
         Box::new(|w| w.non_heads_mut().push(Word::new(shape(3), StratumId(0)))),

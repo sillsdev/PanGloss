@@ -1,4 +1,4 @@
-//! Bitset caps and the `grammar.limit.*` errors raised past them (issue #150: caps kept, errors made explicit).
+//! Bitset caps and the `grammar.limit.*` errors raised past them (issue #150). MPR features have no cap; parts of speech and feature values still do.
 
 use pg_snapshot::ImportWarningCode;
 
@@ -7,7 +7,6 @@ use crate::GrammarError;
 
 pub(crate) const MAX_PARTS_OF_SPEECH: usize = 63;
 pub(crate) const MAX_FEATURE_VALUES: usize = 63;
-pub(crate) const MAX_MPR_FEATURES: usize = 64;
 
 /// `owner` reads as "this project has"; `detail` is appended to the count noun, e.g. " including subcategories".
 pub(crate) fn parts_of_speech(count: usize, owner: &str, detail: &str) -> GrammarError {
@@ -15,15 +14,6 @@ pub(crate) fn parts_of_speech(count: usize, owner: &str, detail: &str) -> Gramma
         code: ImportWarningCode::LimitPartsOfSpeech,
         message: format!(
             "{owner} {count} parts of speech{detail}; PanGloss supports at most {MAX_PARTS_OF_SPEECH}. Merge or delete unused categories or subcategories to get to {MAX_PARTS_OF_SPEECH} or fewer."
-        ),
-    }
-}
-
-pub(crate) fn mpr_features(count: usize, owner: &str, detail: &str) -> GrammarError {
-    GrammarError::Limit {
-        code: ImportWarningCode::LimitMprFeatures,
-        message: format!(
-            "{owner} {count} inflection classes, exception features and entry inflection types{detail}; PanGloss supports at most {MAX_MPR_FEATURES}. Merge or delete unused ones to get to {MAX_MPR_FEATURES} or fewer."
         ),
     }
 }

@@ -146,7 +146,7 @@ impl<'g> GV<'g> {
             .mpr_names
             .iter()
             .enumerate()
-            .filter(|(i, _)| set.contains(MprId(*i as u8)))
+            .filter(|(i, _)| set.contains(MprId(*i as u16)))
             .map(|(_, n)| n.clone())
             .collect();
         names.sort();

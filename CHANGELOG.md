@@ -5,6 +5,11 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+PanGloss no longer refuses a grammar for its number of MPR features (inflection classes, exception features, entry inflection types), closing #150. `MprSet` stays an 8-byte `Copy` value: sets of ids 0 to 62 are the same single word as before, and larger sets move to an interned wide form, so grammars with 64 or fewer features pay nothing (`work_steps` identical, wall time and memory within noise). Stored analyses read back unchanged. See `docs/adr/0016-mpr-features-uncapped.md`.
+
+- **`grammar.limit.mpr-features` is gone**: its diagnostic, snapshot warning and doc page are removed. The limit is now 65,536 features, reported as an unsupported-grammar error. `MprId` is `u16`.
+- The parts-of-speech and feature-value caps (63 each) are unchanged.
+
 The release script now cuts a release through a pull request, so no release step commits to local `main`. `release.ps1 -Prepare -Version X.Y.Z` branches `release/vX.Y.Z` from `origin/main`, renames `## Unreleased` to `## X.Y.Z` with a `Released <date>.` line, stamps the workspace version and `Cargo.lock`, runs the locked check, commits, pushes and opens the PR; after the squash merge, `release.ps1 -Tag -Version X.Y.Z -Push` creates and pushes the annotated tag on the merged release commit.
 
 - **Breaking for the release procedure only:** `release.ps1 -Version X.Y.Z` with no mode no longer commits on `main` or tags, and `git push --atomic origin main vX.Y.Z` is gone; `-Prepare` and `-Tag` are required. New exit code 35 means a push, PR or tag-push failure; 31 now covers a missing fetch or an existing `release/vX.Y.Z` branch rather than "not on main". The Release workflow is unchanged.

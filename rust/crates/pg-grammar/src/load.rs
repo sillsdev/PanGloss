@@ -301,20 +301,6 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     let mut mpr_features: Vec<MprFeatureDef> = Vec::new();
     let mut mpr_index: HashMap<String, MprId> = HashMap::new();
     {
-        let count = lang
-            .elems2(
-                "MorphologicalPhonologicalRuleFeatures",
-                "MorphologicalPhonologicalRuleFeature",
-            )
-            .filter(|e| e.is_active())
-            .count();
-        if count > crate::limits::MAX_MPR_FEATURES {
-            return Err(crate::limits::mpr_features(
-                count,
-                "this grammar file has",
-                " (inflection classes, exception features and entry inflection types share the cap)",
-            ));
-        }
         for mf in lang
             .elems2(
                 "MorphologicalPhonologicalRuleFeatures",
@@ -323,7 +309,13 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             .filter(|e| e.is_active())
         {
             let id = mf.attr("id").unwrap_or("").to_string();
-            mpr_index.insert(id.clone(), MprId(mpr_names.len() as u8));
+            let next = u16::try_from(mpr_names.len()).map_err(|_| {
+                GrammarError::Unsupported(format!(
+                    "more than {} MPR features; ids are 16-bit",
+                    u16::MAX as usize + 1
+                ))
+            })?;
+            mpr_index.insert(id.clone(), MprId(next));
             mpr_features.push(MprFeatureDef {
                 xml_id: id,
                 name: mf.text.clone(),

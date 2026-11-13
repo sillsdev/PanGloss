@@ -200,7 +200,6 @@ import_warning_codes! {
     CompileFailed => "grammar.compile.failed",
     LimitPartsOfSpeech => "grammar.limit.parts-of-speech",
     LimitFeatureValues => "grammar.limit.feature-values",
-    LimitMprFeatures => "grammar.limit.mpr-features",
     TemplateSlotUnresolved => "grammar.template.slot-unresolved",
     TemplateSlotNoRules => "grammar.template.slot-no-rules",
     TemplateNoSlots => "grammar.template.no-slots",

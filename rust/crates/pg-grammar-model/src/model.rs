@@ -106,10 +106,9 @@ pub struct TableId(pub u16);
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct VarId(pub u16);
 
-/// Bit position in an `MprSet` (max 6 MPR features across the reference grammars; the
-/// loader lints >64).
+/// Index of an MPR feature in `Grammar::mpr_names` order. Any number of features is allowed.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
-pub struct MprId(pub u8);
+pub struct MprId(pub u16);
 
 /// Stable authored identity and current display label for one MPR feature. Indexed in the same
 /// order as `Grammar::mpr_names`, so `MprId` remains the compact hot-path representation.
@@ -119,39 +118,159 @@ pub struct MprFeatureDef {
     pub name: String,
 }
 
-/// A set of morphological/phonological rule (MPR) features as a bitset (C# `HashSet<MprFeature>`); sets here are tiny (≤6 members).
-#[derive(
-    Copy, Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize,
-)]
-pub struct MprSet(pub u64);
+/// A set of morphological/phonological rule (MPR) features (C# `HashSet<MprFeature>`).
+///
+/// One `u64`, `Copy`, so a `Word` stays the size it was. A set whose members are all below
+/// [`MprSet::INLINE_IDS`] is those members as bits, and every operation on two such sets is a
+/// single word instruction plus a test of the top bit. A set with any larger member has the top bit
+/// set and the rest names a canonical word list in `mpr_wide`; only grammars with more than 63 MPR
+/// features ever make one.
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Default)]
+pub struct MprSet(u64);
+
+const WIDE_TAG: u64 = 1 << 63;
+
+mod mpr_wide;
 
 impl MprSet {
     pub const EMPTY: MprSet = MprSet(0);
+    /// Ids below this stay inline; the grammar loader needs no mode switch for them.
+    pub const INLINE_IDS: u16 = 63;
+
+    /// Exactly the members `0..63` whose bits are set in `bits` (bit 63 must be clear).
+    #[inline]
+    pub const fn from_low_bits(bits: u64) -> MprSet {
+        assert!(bits & WIDE_TAG == 0, "bit 63 is the wide tag");
+        MprSet(bits)
+    }
+
+    #[inline]
+    fn is_wide(self) -> bool {
+        self.0 & WIDE_TAG != 0
+    }
+
+    /// `0b101`-style for an inline set (the format before wide sets), the word list for a wide one.
+    fn dump(self) -> String {
+        if self.is_wide() {
+            format!("{:?}", self.to_words())
+        } else {
+            format!("{:#b}", self.0)
+        }
+    }
+
+    /// The set as 64-bit words, member `i` at word `i / 64`, bit `i % 64`, no trailing zero word.
+    fn to_words(self) -> Vec<u64> {
+        if self.is_wide() {
+            mpr_wide::words(self.0 & !WIDE_TAG)
+        } else if self.0 == 0 {
+            Vec::new()
+        } else {
+            vec![self.0]
+        }
+    }
+
+    /// The canonical set holding exactly `words`; inline unless a member is 63 or above.
+    fn from_words(mut words: Vec<u64>) -> MprSet {
+        while words.last() == Some(&0) {
+            words.pop();
+        }
+        match words.as_slice() {
+            [] => MprSet::EMPTY,
+            [w] if w & WIDE_TAG == 0 => MprSet(*w),
+            _ => MprSet(WIDE_TAG | mpr_wide::intern(words)),
+        }
+    }
+
+    #[cold]
+    fn zip_slow(self, other: MprSet, f: impl Fn(u64, u64) -> u64) -> MprSet {
+        let (a, b) = (self.to_words(), other.to_words());
+        let n = a.len().max(b.len());
+        let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);
+        MprSet::from_words((0..n).map(|i| f(at(&a, i), at(&b, i))).collect())
+    }
+
     #[inline]
     pub fn insert(&mut self, id: MprId) {
-        self.0 |= 1u64 << id.0;
+        if id.0 < Self::INLINE_IDS && !self.is_wide() {
+            self.0 |= 1u64 << id.0;
+        } else {
+            self.insert_slow(id);
+        }
+    }
+    #[cold]
+    fn insert_slow(&mut self, id: MprId) {
+        let mut words = self.to_words();
+        let word = id.0 as usize / 64;
+        if words.len() <= word {
+            words.resize(word + 1, 0);
+        }
+        words[word] |= 1u64 << (id.0 % 64);
+        *self = MprSet::from_words(words);
     }
     #[inline]
     pub fn contains(self, id: MprId) -> bool {
-        self.0 & (1u64 << id.0) != 0
+        if id.0 < Self::INLINE_IDS && !self.is_wide() {
+            self.0 & (1u64 << id.0) != 0
+        } else {
+            self.to_words()
+                .get(id.0 as usize / 64)
+                .is_some_and(|w| w & (1u64 << (id.0 % 64)) != 0)
+        }
     }
     /// C# `HashSet.Overlaps`.
     #[inline]
     pub fn overlaps(self, other: MprSet) -> bool {
-        self.0 & other.0 != 0
+        if !self.is_wide() && !other.is_wide() {
+            return self.0 & other.0 != 0;
+        }
+        !self.intersection(other).is_empty()
     }
     /// C# `HashSet.IsSubsetOf` (self ⊆ other).
     #[inline]
     pub fn is_subset_of(self, other: MprSet) -> bool {
-        self.0 & !other.0 == 0
+        if !self.is_wide() && !other.is_wide() {
+            return self.0 & !other.0 == 0;
+        }
+        self.difference(other).is_empty()
     }
     #[inline]
     pub fn union(self, other: MprSet) -> MprSet {
-        MprSet(self.0 | other.0)
+        if !self.is_wide() && !other.is_wide() {
+            return MprSet(self.0 | other.0);
+        }
+        self.zip_slow(other, |a, b| a | b)
+    }
+    /// `self ∩ other`.
+    #[inline]
+    pub fn intersection(self, other: MprSet) -> MprSet {
+        if !self.is_wide() && !other.is_wide() {
+            return MprSet(self.0 & other.0);
+        }
+        self.zip_slow(other, |a, b| a & b)
+    }
+    /// `self \ other`.
+    #[inline]
+    pub fn difference(self, other: MprSet) -> MprSet {
+        if !self.is_wide() && !other.is_wide() {
+            return MprSet(self.0 & !other.0);
+        }
+        self.zip_slow(other, |a, b| a & !b)
     }
     #[inline]
     pub fn is_empty(self) -> bool {
         self.0 == 0
+    }
+    /// Members in ascending id order.
+    pub fn iter(self) -> std::vec::IntoIter<MprId> {
+        let mut out = Vec::new();
+        for (k, w) in self.to_words().into_iter().enumerate() {
+            out.extend(
+                (0..64u16)
+                    .filter(|b| w & (1u64 << b) != 0)
+                    .map(|b| MprId(k as u16 * 64 + b)),
+            );
+        }
+        out.into_iter()
     }
     /// C# `MprFeatureSet.CompoundMprFeaturesMatch` (`MprFeatureSet.cs:98-101`): `self` (a rule's
     /// productivity-restriction set) is satisfied by `stem` (a candidate stem's MPR features) when
@@ -160,6 +279,62 @@ impl MprSet {
     #[inline]
     pub fn compound_match(self, stem: MprSet) -> bool {
         self.is_empty() || self.overlaps(stem)
+    }
+}
+
+/// Prints `MprSet(<bits>)` for an inline set, as the former `u64` newtype did; a wide set prints its words.
+impl std::fmt::Debug for MprSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_wide() {
+            write!(f, "MprSet({:?})", self.to_words())
+        } else {
+            write!(f, "MprSet({})", self.0)
+        }
+    }
+}
+
+/// Stored form: a bare number below 64 members, else an array of u64 words.
+impl serde::Serialize for MprSet {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        if !self.is_wide() {
+            return ser.serialize_u64(self.0);
+        }
+        let words = self.to_words();
+        let mut seq = ser.serialize_seq(Some(words.len()))?;
+        for w in &words {
+            seq.serialize_element(w)?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for MprSet {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<MprSet, D::Error> {
+        struct V;
+        impl<'de> serde::de::Visitor<'de> for V {
+            type Value = MprSet;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a u64 or an array of u64 words")
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<MprSet, E> {
+                if v & WIDE_TAG != 0 {
+                    return Ok(MprSet::from_words(vec![v]));
+                }
+                Ok(MprSet(v))
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<MprSet, A::Error> {
+                let mut words = Vec::new();
+                while let Some(w) = seq.next_element::<u64>()? {
+                    words.push(w);
+                }
+                Ok(MprSet::from_words(words))
+            }
+        }
+        de.deserialize_any(V)
     }
 }
 
@@ -981,13 +1156,13 @@ fn mpr_group_buckets(
     let mut owned = MprSet::EMPTY;
     let mut buckets = Vec::new();
     for group in groups {
-        let bucket = MprSet(test.0 & group.members.0 & !owned.0);
+        let bucket = test.intersection(group.members).difference(owned);
         if !bucket.is_empty() {
             buckets.push((group.match_type, bucket));
             owned = owned.union(bucket);
         }
     }
-    let ungrouped = MprSet(test.0 & !owned.0);
+    let ungrouped = test.difference(owned);
     (ungrouped, buckets)
 }
 
@@ -1043,8 +1218,8 @@ pub fn mpr_add_output(groups: &[MprGroup], current: MprSet, output: MprSet) -> M
     let mut result = current;
     for group in groups {
         if group.output == MprGroupOutput::Overwrite && group.members.overlaps(output) {
-            let to_remove = MprSet(group.members.0 & !output.0);
-            result = MprSet(result.0 & !to_remove.0);
+            let to_remove = group.members.difference(output);
+            result = result.difference(to_remove);
         }
     }
     result.union(output)
@@ -1773,8 +1948,11 @@ impl Grammar {
         for (i, g) in self.mpr_groups.iter().enumerate() {
             let _ = writeln!(
                 out,
-                "  group[{i}] name={:?} match={:?} output={:?} members={:#b}",
-                g.name, g.match_type, g.output, g.members.0
+                "  group[{i}] name={:?} match={:?} output={:?} members={}",
+                g.name,
+                g.match_type,
+                g.output,
+                g.members.dump()
             );
         }
 

@@ -1,4 +1,4 @@
-//! `grammar.limit.*` errors at each bitset cap and one past it (issue #150), built from code-constructed snapshots.
+//! `grammar.limit.*` errors at each remaining bitset cap and one past it, and the absence of one for MPR features (issue #150), built from code-constructed snapshots.
 
 use pg_snapshot::feature::{ClosedFeature, FeatureSystem, FeatureValueSymbol};
 use pg_snapshot::morphology::{ExceptionFeature, InflectionClass, Morphology, PartOfSpeech};
@@ -149,17 +149,11 @@ fn mpr_morphology(n: usize) -> impl FnOnce(&mut Morphology) {
 }
 
 #[test]
-fn mpr_cap_64_compiles_and_65_names_the_breakdown() {
-    assert_eq!(limit_code(&with_morphology(mpr_morphology(64))), None);
-    let (code, message) =
-        limit_code(&with_morphology(mpr_morphology(65))).expect("65 MPR features must be refused");
-    assert_eq!(code, ImportWarningCode::LimitMprFeatures);
-    assert!(
-        message.contains("65 inflection classes, exception features")
-            && message.contains(
-                "40 inflection classes including subclasses, 25 exception features, 0 entry"
-            )
-            && message.contains("at most 64"),
-        "{message}"
-    );
+fn mpr_features_have_no_cap() {
+    for n in [64, 65, 130, 300] {
+        let (grammar, _) = compile_project(&with_morphology(mpr_morphology(n)))
+            .unwrap_or_else(|e| panic!("{n} MPR features must compile, got {e}"));
+        assert_eq!(grammar.mpr_names.len(), n);
+        assert_eq!(grammar.mpr_features.len(), n);
+    }
 }

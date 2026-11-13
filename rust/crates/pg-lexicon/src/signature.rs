@@ -147,9 +147,9 @@ impl ClassCatalog {
             let pos = resolve_pos(grammar, fs)?;
             let mut mpr = Vec::new();
             for bit in 0..grammar.mpr_features.len() {
-                if entry.mpr.contains(MprId(bit as u8)) {
+                if entry.mpr.contains(MprId(bit as u16)) {
                     let def = grammar
-                        .mpr_feature(MprId(bit as u8))
+                        .mpr_feature(MprId(bit as u16))
                         .ok_or_else(|| format!("MPR id {bit} has no authored identity"))?;
                     mpr.push(AuthoredRef {
                         id: def.xml_id.clone(),
