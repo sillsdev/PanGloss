@@ -128,6 +128,25 @@ Test-Case 'default Machine checkouts carry no drive letters off Windows and the 
     } finally { $env:PANGLOSS_MACHINE_CHECKOUTS = $previousCheckouts }
 }
 
+Test-Case 'default Machine checkout is the main clone sibling from a worktree, including a nested branch dir' {
+    if ($IsWindows) { return }  # the Windows list is fixed paths
+    $temp = New-TestTempDir -Prefix 'pg-machine-default'
+    try {
+        $clone = Join-Path $temp 'PanGloss'
+        New-Item -ItemType Directory -Force -Path $clone | Out-Null
+        & git -C $clone init --quiet
+        & git -C $clone -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m x
+        $expected = Join-Path $temp 'machine'
+        Assert-Equal $expected (Get-DefaultMachineCheckouts -RepoRoot $clone)[0] 'main clone'
+        $flat = Join-Path (Join-Path $temp 'PanGloss.worktrees') 'wt'
+        $nested = Join-Path (Join-Path (Join-Path $temp 'PanGloss.worktrees') 'fix') 'foo'
+        & git -C $clone worktree add --quiet -b wt1 $flat
+        & git -C $clone worktree add --quiet -b fix/foo $nested
+        Assert-Equal $expected (Get-DefaultMachineCheckouts -RepoRoot $flat)[0] 'flat worktree'
+        Assert-Equal $expected (Get-DefaultMachineCheckouts -RepoRoot $nested)[0] 'nested worktree'
+    } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 Test-Case 'pin-matched driver is found through Join-Path paths in a pin-named worktree' {
     $temp = New-TestTempDir -Prefix 'pg-pin-driver-neutral'
     $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS

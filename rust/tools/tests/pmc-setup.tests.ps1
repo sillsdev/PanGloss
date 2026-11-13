@@ -104,8 +104,6 @@ Test-Case 'verify refuses on a non-x86_64 machine' {
     Assert-KnownLoopArchitecture -Architecture 'X64'
 }
 
-Write-TestSummary
-
 Test-Case 'task specs build without WINDIR and use it when set' {
     $saved = $env:WINDIR
     try {
@@ -116,3 +114,5 @@ Test-Case 'task specs build without WINDIR and use it when set' {
         Assert-Equal 'D:\WinX\System32\wpr.exe' (Get-PmcTaskSpecs)[0].Execute 'a set WINDIR wins'
     } finally { $env:WINDIR = $saved }
 }
+
+Write-TestSummary

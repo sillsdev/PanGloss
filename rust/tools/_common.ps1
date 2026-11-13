@@ -1878,10 +1878,13 @@ function Get-ConformanceDriverFileNames {
 }
 
 function Get-DefaultMachineCheckouts {
-    # Windows keeps the owner's known checkouts; elsewhere those drive letters do not exist, so only a `machine` sibling of the repo's parent is probed.
+    # Windows keeps the owner's known checkouts; elsewhere a `machine` sibling of the MAIN clone (found via the git common dir, so a worktree resolves it too).
+    param([string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
     if ($IsWindows) { return @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine') }
-    $repoParent = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    return @(Join-Path (Split-Path -Parent $repoParent) 'machine')
+    $mainClone = $RepoRoot
+    $common = @(& git -C $RepoRoot rev-parse --path-format=absolute --git-common-dir 2>$null) | Select-Object -First 1
+    if ($LASTEXITCODE -eq 0 -and $common) { $mainClone = Split-Path -Parent $common.Trim() }
+    return @(Join-Path (Split-Path -Parent $mainClone) 'machine')
 }
 
 function Find-PinMatchedConformanceDriver {
