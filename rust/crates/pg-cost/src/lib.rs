@@ -90,6 +90,22 @@ pub fn disable() {
     ENABLED.store(false, Ordering::Relaxed);
 }
 
+/// Counts `size` bytes as allocated on this thread without allocating.
+#[inline]
+pub fn charge_bytes(size: usize) {
+    add_bytes(size);
+}
+
+/// Runs `f` without its allocations reaching this thread's byte count.
+pub fn unmetered<R>(f: impl FnOnce() -> R) -> R {
+    let saved = BYTES.try_with(Cell::get);
+    let result = f();
+    if let Ok(saved) = saved {
+        let _ = BYTES.try_with(|bytes| bytes.set(saved));
+    }
+    result
+}
+
 /// Counts FST registers copied on this thread.
 #[inline]
 pub fn add_registers(count: usize) {

@@ -1081,6 +1081,7 @@ version = "0.19.2"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-conformance-fixtures",
+ "pg-cost",
  "pg-featstruct",
  "pg-fst",
  "pg-grammar",

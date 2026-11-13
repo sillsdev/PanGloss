@@ -7,6 +7,7 @@ license.workspace = true
 autotests = false
 
 [dependencies]
+pg-cost.workspace = true
 pg-featstruct.workspace = true
 pg-shape.workspace = true
 pg-fst.workspace = true

@@ -6,7 +6,7 @@ Parse cost is a deterministic estimate of a word's instructions:
 cost = work_steps × 113 + bytes allocated × 2 + registers copied × 45
 ```
 
-`work_steps` counts budget reservations. Bytes are requested from the allocator, and registers are
+`work_steps` counts budget reservations. Bytes are requested from the allocator, except that a trail step is charged as the 40 bytes it cost before the per-thread slab (#284) and the slab's own growth is unmetered, so cost does not depend on the thread count. Registers are
 the FST registers copied in `pg_fst::traverse`. The weights are constants in `pg-cost`.
 
 ## What each measure is for
