@@ -257,12 +257,22 @@ Test-Case 'run tags name the two sides with neutral labels of equal length' {
     Assert-Equal 'g2-r3-sideB-empty' (Get-RunTag -Grammar 2 -Round 3 -Side after -Kind empty)
 }
 
-Test-Case 'trace reader counts only the last process that held a measured pid' -WindowsOnly 'instruction_compare_etl.py loads ctypes WINFUNCTYPE, which exists only on Windows' {
+function Invoke-Tally([string]$Body) {
+    # Runs a Python snippet against the Tally class (no Windows needed) and returns its printed JSON.
+    $names = if ($IsWindows) { @('python', 'python3') } else { @('python3', 'python') }
+    $py = $null
+    foreach ($n in $names) {
+        $c = Get-Command $n -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($c) { & $c.Source -c 'import sys' 2>$null; if ($LASTEXITCODE -eq 0) { $py = $c.Source; break } }
+    }
+    if (-not $py) { throw 'no working python on PATH' }
+    $script = "import json, sys`nsys.path.insert(0, sys.argv[1])`nfrom instruction_compare_etl import Tally`n$Body"
+    return ($script | & $py -I - (Resolve-Path "$PSScriptRoot\..").Path) | ConvertFrom-Json
+}
+
+Test-Case 'trace reader counts only the last process that held a measured pid' {
     # pid 7 is used first by another process (thread 70), then by the measured run (threads 71, 72); CPU 0 carries every switch.
-    $script = @'
-import json, sys
-sys.path.insert(0, sys.argv[1])
-from instruction_compare_etl import Tally
+    $r = Invoke-Tally @'
 t = Tally([7])
 t.process_start(7); t.thread_start(7, 70)
 t.cswitch(0, 70, 1, (100,)); t.cswitch(0, 1, 70, (600,))
@@ -270,11 +280,124 @@ t.process_start(7); t.thread_start(7, 71); t.thread_start(7, 72)
 t.cswitch(0, 71, 1, (1000,)); t.cswitch(0, 72, 71, (1030,)); t.cswitch(0, 1, 72, (1100,))
 print(json.dumps(t.report()))
 '@
-    $r = ($script | python -I - (Resolve-Path "$PSScriptRoot\..").Path) | ConvertFrom-Json
     Assert-Equal 100 ([double]$r.instructions.'7')
     Assert-Equal '30 70' (@($r.thread_instructions.'7') -join ' ')
     Assert-Equal 1 ([int]$r.earlier_processes)
     Assert-Equal 2 ([int]$r.threads.'7')
+}
+
+Test-Case 'a gap that touches only an earlier process that reused the pid is not a gap on the measured run (#269)' {
+    # Thread 70 belongs to the earlier process; a switch is missing on CPU 0 while it ran (the next switch names 70 although 1 came in).
+    $r = Invoke-Tally @'
+t = Tally([7])
+t.process_start(7); t.thread_start(7, 70)
+t.cswitch(0, 70, 1, (100,)); t.cswitch(0, 1, 5, (150,)); t.cswitch(0, 1, 70, (600,))
+t.process_start(7); t.thread_start(7, 71)
+t.cswitch(0, 71, 1, (1000,)); t.cswitch(0, 1, 71, (1100,))
+print(json.dumps(t.report()))
+'@
+    Assert-Equal 0 ([int]$r.gaps_on_target) 'the gap was on the earlier process'
+    Assert-Equal 100 ([double]$r.instructions.'7')
+    Assert-Equal 1 ([int]$r.earlier_processes)
+}
+
+Test-Case 'a gap that touches the last process of a measured pid still counts, and a reused thread id does not hide it (#269)' {
+    $r = Invoke-Tally @'
+t = Tally([7])
+t.process_start(7); t.thread_start(7, 70)
+t.cswitch(0, 70, 1, (100,)); t.cswitch(0, 1, 5, (150,))
+t.process_start(7); t.thread_start(7, 70)
+t.cswitch(0, 70, 1, (1000,)); t.cswitch(0, 1, 6, (1050,)); t.cswitch(0, 1, 70, (1100,))
+print(json.dumps(t.report()))
+'@
+    Assert-True ([int]$r.gaps_on_target -ge 1) "gaps_on_target $($r.gaps_on_target)"
+}
+
+Test-Case 'phase marks: the trace reader totals what the other threads run between the two marker threads' {
+    # Thread 10 loads, runs marker 11, parses (preempted once by foreign thread 99), runs marker 12; thread 9 is a loader thread and 13 a pool thread started after the end mark.
+    $r = Invoke-Tally @'
+M = 1_000_000
+t = Tally([7])
+t.process_start(7); t.thread_start(7, 10); t.thread_start(7, 9)
+t.cswitch(0, 10, 1, (0,))
+t.thread_start(7, 11)
+c = 2_000_000_000
+t.cswitch(0, 11, 10, (c,))
+c += 60 * M; t.cswitch(0, 10, 11, (c,))
+c += 700 * M; t.cswitch(0, 99, 10, (c,))
+c += 1000; t.cswitch(0, 10, 99, (c,))
+t.thread_start(7, 12)
+c += 300 * M; t.cswitch(0, 12, 10, (c,))
+c += 60 * M; t.cswitch(0, 10, 12, (c,))
+t.thread_start(7, 13)
+c += 200; t.cswitch(0, 13, 10, (c,))
+c += 90000; t.cswitch(0, 1, 13, (c,))
+t.cswitch(0, 9, 1, (c + 5,)); t.cswitch(0, 1, 9, (c + 5 + 12 * M,))
+print(json.dumps(t.report()))
+'@
+    Assert-Equal 2 ([int]$r.phase.'7') 'both marks ran'
+    Assert-Equal 1000000000 ([double]$r.parse_instructions.'7') 'parse = 700M + 300M between the markers'
+    Assert-Equal 3120090200 ([double]$r.instructions.'7' - 12 * 1000000) 'every thread of the process still totals'
+}
+
+Test-Case 'phase marks: a process with fewer or more than two marker threads reports phase 0, as does one without marks' {
+    $r = Invoke-Tally @'
+M = 1_000_000
+t = Tally([7, 8, 9])
+t.process_start(7); t.thread_start(7, 10); t.thread_start(7, 11)
+t.cswitch(0, 10, 1, (0,)); t.cswitch(0, 11, 10, (500 * M,)); t.cswitch(0, 10, 11, (560 * M,)); t.cswitch(0, 1, 10, (1000 * M,))
+t.process_start(8); t.thread_start(8, 20)
+t.cswitch(0, 20, 1, (2000 * M,)); t.cswitch(0, 1, 20, (2300 * M,))
+t.process_start(9); t.thread_start(9, 30); t.thread_start(9, 31); t.thread_start(9, 32); t.thread_start(9, 33)
+t.cswitch(0, 30, 1, (3000 * M,)); t.cswitch(0, 31, 30, (3500 * M,)); t.cswitch(0, 32, 31, (3560 * M,)); t.cswitch(0, 33, 32, (3620 * M,)); t.cswitch(0, 1, 33, (3680 * M,))
+print(json.dumps(t.report()))
+'@
+    Assert-Equal 0 ([int]$r.phase.'7') 'one marker thread'
+    Assert-Equal 0 ([int]$r.phase.'8') 'no marker threads'
+    Assert-Equal 0 ([double]$r.parse_instructions.'8')
+    Assert-Equal 0 ([int]$r.phase.'9') 'three marker threads'
+}
+
+Test-Case 'a trace without a completed phase is refused when the parse phase is required' {
+    $ok = [PSCustomObject]@{ rc = 0; events_lost = 0; buffers_lost = 0; callback_errors = 0; switches = 10; counters = 1; gaps_on_target = 0
+        instructions = [PSCustomObject]@{ '41' = 5e9 }; parse_instructions = [PSCustomObject]@{ '41' = 1e9 }; phase = [PSCustomObject]@{ '41' = 2 } }
+    Assert-TraceIntact -Report $ok -Pids @(41) -RequirePhase
+    foreach ($bad in 0, 1) {
+        $r = $ok | ConvertTo-Json -Depth 4 | ConvertFrom-Json
+        $r.phase.'41' = $bad
+        $msg = ''
+        try { Assert-TraceIntact -Report $r -Pids @(41) -RequirePhase } catch { $msg = $_.Exception.Message }
+        Assert-True ($msg -match 'phase mark') "phase $bad : $msg"
+    }
+    $r = $ok | ConvertTo-Json -Depth 4 | ConvertFrom-Json
+    $r.parse_instructions.'41' = 0
+    $msg = ''
+    try { Assert-TraceIntact -Report $r -Pids @(41) -RequirePhase } catch { $msg = $_.Exception.Message }
+    Assert-True ($msg -match 'parse phase') $msg
+    $r.phase.'41' = 0
+    Assert-TraceIntact -Report $r -Pids @(41)
+}
+
+Test-Case 'direct counting plans only the full-list run, in the same alternating order' {
+    $plan = New-MeasurementPlan -Repeats 3 -NoStartup
+    Assert-Equal 6 @($plan).Count
+    Assert-True (@($plan | Where-Object Kind -eq 'empty').Count -eq 0) 'no empty-list runs'
+    Assert-Equal 'before after after before before after' (@($plan | ForEach-Object Side) -join ' ')
+}
+
+Test-Case 'load ratio: a load many times the parse is refused, a modest one is not (#277, #278)' {
+    Assert-True ($null -eq (Get-LoadRatioProblem -Startup 2.4e9 -Parse 0.8e9))
+    $why = Get-LoadRatioProblem -Startup 2.55e9 -Parse 0.51e9 -MaxRatio 4
+    Assert-True ($why -match 'times the parse' -and $why -match 'phase-marks') "Swahili json was not refused: $why"
+    Assert-True ($null -ne (Get-LoadRatioProblem -Startup 27.6e9 -Parse 95e6))
+    Assert-True ($null -ne (Get-LoadRatioProblem -Startup 27e9 -Parse -78e6)) 'a negative parse count'
+    Assert-True ($null -eq (Get-LoadRatioProblem -Startup 5e9 -Parse 1e9 -MaxRatio 6))
+}
+
+Test-Case 'callgrind counts the parse by collecting only inside parse_word_opts' {
+    $a = @(Get-CallgrindParseArguments)
+    Assert-Contains $a '--collect-atstart=no'
+    Assert-Contains $a '--toggle-collect=*parse_word_opts*'
 }
 
 Test-Case 'describe probe: only a batch command that lists the flag counts' {

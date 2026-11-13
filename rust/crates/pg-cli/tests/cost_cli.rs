@@ -99,6 +99,31 @@ fn no_flush_writes_the_same_file_as_flushing_every_word() {
 }
 
 #[test]
+fn phase_marks_leave_the_rows_alone_and_need_one_thread() {
+    let (plain, _) = batch("unmarked", &["--no-flush"]);
+    let (marked, _) = batch("marked", &["--no-flush", "--phase-marks"]);
+    assert_eq!(
+        lines_without_elapsed(&marked),
+        lines_without_elapsed(&plain)
+    );
+    let dir = scratch("marks-threads");
+    let words = dir.join("words.txt");
+    std::fs::write(&words, WORDS).unwrap();
+    let grammar = grammar();
+    let output = pangloss(&[
+        "batch",
+        grammar.to_str().unwrap(),
+        words.to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--threads",
+        "2",
+        "--phase-marks",
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--phase-marks needs --threads 1"));
+}
+
+#[test]
 fn the_cost_column_follows_work_steps_and_leaves_the_rest_of_the_row_alone() {
     let (_, plain) = batch("plain", &[]);
     let (_, costed) = batch("costed", &["--cost-column"]);

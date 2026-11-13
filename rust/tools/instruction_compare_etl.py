@@ -1,4 +1,4 @@
-"""Totals retired instructions per process id (its last process in the trace), and per thread in creation order, from a PMC-on-context-switch ETL; prints one JSON object, never names a thread or word.
+"""Totals retired instructions per process id (its last process in the trace), per thread in creation order, and for the parse phase that `batch --phase-marks` delimits, from a PMC-on-context-switch ETL; prints one JSON object, never names a thread or word.
 
 usage: instruction_compare_etl.py <trace.etl> <pid> [<pid> ...]
 """
@@ -47,7 +47,8 @@ class EventRecord(C.Structure):
                 ("UserData", C.c_void_p), ("UserContext", C.c_void_p)]
 
 
-CALLBACK = C.WINFUNCTYPE(None, C.POINTER(EventRecord))
+# WINFUNCTYPE exists only on Windows; Tally is plain Python, so tests can import this module elsewhere.
+CALLBACK = C.WINFUNCTYPE(None, C.POINTER(EventRecord)) if hasattr(C, "WINFUNCTYPE") else C.c_void_p
 
 
 class LogFile(C.Structure):
@@ -57,11 +58,22 @@ class LogFile(C.Structure):
                 ("EventRecordCallback", CALLBACK), ("IsKernelTrace", C.c_uint32), ("Context", C.c_void_p)]
 
 
+# Instructions one marker thread runs (pg-cli's PHASE_MARK_SPIN loop, measured 60.2M to 60.5M), as a band; loader threads ran 8M to 34M and the busiest thread far more.
+MARK_MIN = 51_000_000
+MARK_MAX = 69_000_000
+
+
 class Tally:
     """Per-thread instruction totals from context-switch counter snapshots, kept for the last process that held each wanted pid.
 
     Windows reuses a pid once no handle to its process is open, so an earlier process in the trace can share a measured pid.
     instruction-compare.ps1 and pmc-setup.ps1 hold each run's handle until the trace stops, so a run is its pid's last process.
+    A context-switch gap counts against a process only when that process turns out to be its pid's last one.
+
+    `batch --phase-marks` starts and joins one spinning thread before the first word and one after the last. A process also
+    starts loader and pool threads, so the marker threads are the two threads, other than the busiest one, whose own total
+    lies in [MARK_MIN, MARK_MAX] (about 60M). The instructions the other threads run between the first marker's first switch-out and the
+    second marker's first switch-in are its parse phase (`parse_instructions`), counted when the trace is reported.
     """
 
     def __init__(self, pids):
@@ -72,6 +84,8 @@ class Tally:
         self.generation = {p: 0 for p in pids}  # process starts seen for each wanted pid
         self.thread_order = {}  # (pid, generation) -> tids in creation order
         self.thread_instructions = {}  # (pid, generation, tid) -> instructions
+        self.switches = {}  # (pid, generation) -> (thread out, thread in, its instructions since it came in or None after a gap), in order
+        self.gaps = []  # per gap, the measured owners (pid, generation) of the threads it touched
         self.state = {"switches": 0, "gaps_on_target": 0, "counters": 0, "callback_errors": 0, "earlier_processes": 0}
 
     def process_start(self, pid):
@@ -85,9 +99,9 @@ class Tally:
             self.thread_order.setdefault(owner, []).append(tid)
             self.thread_instructions[owner + (tid,)] = 0
 
-    def _on_target(self, tid):
+    def _measured_owner(self, tid):
         owner = self.tid_owner.get(tid)
-        return owner is not None and owner[0] in self.wanted
+        return owner if owner is not None and owner[0] in self.wanted else None
 
     def cswitch(self, cpu, new, old, counters):
         self.state["switches"] += 1
@@ -96,25 +110,53 @@ class Tally:
         self.last[cpu] = (counters, new)
         if prev is None:
             return
-        prev_counters, prev_thread = prev
-        if prev_thread != old:
-            if self._on_target(old) or self._on_target(prev_thread):
-                self.state["gaps_on_target"] += 1
-            return
-        owner = self.tid_owner.get(old)
-        if owner is not None and owner[0] in self.wanted:
-            key = owner + (old,)
-            self.thread_instructions[key] += counters[0] - prev_counters[0]
+        old_owner = self._measured_owner(old)
+        new_owner = self._measured_owner(new)
+        delta = None
+        if prev[1] == old:
+            if old_owner is not None:
+                delta = counters[0] - prev[0][0]
+                self.thread_instructions[old_owner + (old,)] += delta
+        else:
+            touched = tuple(o for o in {old_owner, self._measured_owner(prev[1])} if o is not None)
+            if touched:
+                self.gaps.append(touched)
+        for owner in {old_owner, new_owner} - {None}:
+            self.switches.setdefault(owner, []).append((old, new, delta))
+
+    def _parse_instructions(self, owner):
+        order = self.thread_order.get(owner, [])
+        busiest = max(order, key=lambda t: self.thread_instructions[owner + (t,)], default=None)
+        marks = [t for t in order if t != busiest and MARK_MIN <= self.thread_instructions[owner + (t,)] <= MARK_MAX]
+        if len(marks) != 2:
+            return 0, 0
+        begin, end = marks
+        phase = 0  # 0 before the begin marker has run, 1 in the parse, 2 once the end marker runs
+        came_in_phase = {}
+        total = 0
+        for old, new, delta in self.switches.get(owner, []):
+            if delta is not None and came_in_phase.get(old) == 1 and old not in (begin, end):
+                total += delta
+            if old == begin and phase == 0:
+                phase = 1
+            if new == end and phase == 1:
+                phase = 2
+            came_in_phase[new] = phase
+        return total, phase
 
     def report(self):
         final = {p: (p, self.generation[p]) for p in self.pids}
         self.state["earlier_processes"] = len({(pid, gen) for (pid, gen, _tid) in self.thread_instructions if (pid, gen) != final[pid]})
+        self.state["gaps_on_target"] = sum(1 for owners in self.gaps if any(o == final[o[0]] for o in owners))
         order = {p: self.thread_order.get(final[p], []) for p in self.pids}
         per_thread = {p: [self.thread_instructions[final[p] + (t,)] for t in order[p]] for p in self.pids}
+        parse = {p: self._parse_instructions(final[p]) for p in self.pids}
         return dict(self.state, **{
             "threads": {str(p): len(order[p]) for p in self.pids},
             "instructions": {str(p): sum(per_thread[p]) for p in self.pids},
             "thread_instructions": {str(p): per_thread[p] for p in self.pids},
+            "parse_instructions": {str(p): parse[p][0] for p in self.pids},
+            "phase": {str(p): parse[p][1] for p in self.pids},
         })
 
 
