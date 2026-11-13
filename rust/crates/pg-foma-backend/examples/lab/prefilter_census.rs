@@ -155,6 +155,7 @@ fn reason_name(r: FailureReason) -> &'static str {
         }
         FailureReason::MaxApplicationCount => "MaxApplicationCount",
         FailureReason::AllomorphNotApplicable => "AllomorphNotApplicable",
+        FailureReason::LexicalLookupFeatures => "LexicalLookupFeatures",
     }
 }
 

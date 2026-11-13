@@ -638,9 +638,8 @@ fn failure_context(reason: pg_rules::trace::FailureReason) -> Value {
         pg_rules::trace::FailureReason::ObligatorySyntacticFeatures
         | pg_rules::trace::FailureReason::RequiredSyntacticFeatureStruct
         | pg_rules::trace::FailureReason::HeadRequiredSyntacticFeatureStruct
-        | pg_rules::trace::FailureReason::NonHeadRequiredSyntacticFeatureStruct => {
-            "syntacticFeatures"
-        }
+        | pg_rules::trace::FailureReason::NonHeadRequiredSyntacticFeatureStruct
+        | pg_rules::trace::FailureReason::LexicalLookupFeatures => "syntacticFeatures",
         pg_rules::trace::FailureReason::RequiredMprFeatures
         | pg_rules::trace::FailureReason::ExcludedMprFeatures
         | pg_rules::trace::FailureReason::HeadProdRestrictMprFeatures

@@ -14,7 +14,7 @@ hc.dll on master turns every root allomorph that analysis matched into synthesis
 
 ## Rust site
 
-`pg-parse/src/morpher.rs::Morpher::lexical_lookup_filtered`. The matched allomorphs keep the order the root search returns and are deduplicated as C#'s `Distinct()` does. A skipped allomorph under a tracing sink emits the `SynthesizeWord` trace and then a `Failed` trace with `RequiredSyntacticFeatureStruct`, as #627 does. HC-Rust does not emit `SynthesizeWord` for the allomorphs it does propose, a difference from C# that predates this entry and is unchanged.
+`pg-parse/src/morpher.rs::Morpher::lexical_lookup_filtered`. The matched allomorphs keep the order the root search returns and are deduplicated as C#'s `Distinct()` does. A skipped allomorph under a tracing sink emits the `SynthesizeWord` trace and then a `Failed` trace with `LexicalLookupFeatures` (the reason machine#627's second commit 64a02500 added, so it no longer reuses `RequiredSyntacticFeatureStruct`), as #627 does. HC-Rust does not emit `SynthesizeWord` for the allomorphs it does propose, a difference from C# that predates this entry and is unchanged.
 
 ## Why the filter cannot change a parse
 

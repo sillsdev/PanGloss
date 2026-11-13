@@ -63,6 +63,21 @@ fn a_matched_allomorph_with_non_unifying_syntactic_features_is_skipped_by_lookup
     );
 }
 
+/// The skip is traced with machine#627's own reason (`LexicalLookupFeatures`, commit 64a02500), once, for the verb homograph; an affix rule's `RequiredSyntacticFeatureStruct` elsewhere in the trace is a different gate.
+#[test]
+fn a_lookup_skip_is_traced_as_lexical_lookup_features() {
+    let (analyses, reasons) = reasons_of("takt");
+    assert_eq!(analyses, ["TAKN+NSUF"]);
+    let skips = reasons
+        .iter()
+        .filter(|r| **r == FailureReason::LexicalLookupFeatures)
+        .count();
+    assert_eq!(
+        skips, 1,
+        "the skipped verb homograph must be traced once, got {reasons:?}"
+    );
+}
+
 /// The bare word asks for no part of speech, so lookup skips nothing and both homographs parse.
 #[test]
 fn homographs_both_parse_when_no_part_of_speech_is_asked() {
@@ -70,7 +85,7 @@ fn homographs_both_parse_when_no_part_of_speech_is_asked() {
     analyses.sort();
     assert_eq!(analyses, ["TAKN", "TAKV"]);
     assert!(
-        !reasons.contains(&FailureReason::RequiredSyntacticFeatureStruct),
+        !reasons.contains(&FailureReason::LexicalLookupFeatures),
         "nothing should be skipped for the bare word, got {reasons:?}"
     );
 }

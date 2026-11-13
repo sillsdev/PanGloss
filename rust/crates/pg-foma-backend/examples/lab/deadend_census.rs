@@ -163,7 +163,8 @@ fn classify_reason(r: FailureReason) -> DClass {
         | ExcludedMprFeatures
         | HeadProdRestrictMprFeatures
         | NonHeadProdRestrictMprFeatures
-        | ObligatorySyntacticFeatures => DClass::D3FeatureClash,
+        | ObligatorySyntacticFeatures
+        | LexicalLookupFeatures => DClass::D3FeatureClash,
         Pattern | HeadPattern | NonHeadPattern | SurfaceFormMismatch => DClass::D4Shape,
         NonPartialRuleProhibitedAfterFinalTemplate
         | NonPartialRuleRequiredAfterNonFinalTemplate
@@ -293,6 +294,7 @@ fn reason_name(r: FailureReason) -> &'static str {
         }
         MaxApplicationCount => "MaxApplicationCount",
         AllomorphNotApplicable => "AllomorphNotApplicable",
+        LexicalLookupFeatures => "LexicalLookupFeatures",
     }
 }
 

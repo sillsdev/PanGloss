@@ -73,7 +73,7 @@ derive the word. A node can have zero or more children, and every field below ex
 | `subrule` | Which numbered subrule (a rule's own internal alternative, indexed from 0) fired. Only meaningful on a rule-application node; absent everywhere else, and absent on a rule-level gate that rejects a rule before any subrule is tried (see below). |
 | `inputShape` | The plain surface form of the word going *into* this step, in whatever character table its stratum uses. Boundary and morpheme-break marks are not shown — this is the bare string of segments, not the annotated analysis. |
 | `outputShape` | The same, for the word coming *out of* this step. A node reporting a failure to apply carries `inputShape` (what it was given); a node reporting a successful step carries `outputShape` (what it produced). |
-| `failureReason` | Present only when this step refused to apply. One of the 23 reasons catalogued below. |
+| `failureReason` | Present only when this step refused to apply. One of the 25 reasons catalogued below. |
 | `children` | The steps nested under this one — always present, `[]` when there are none. |
 
 **A rule-level gate has no subrule.** C# reports such a rejection with subrule index `-1` (for
@@ -155,10 +155,10 @@ A `WordAnalysis` root can, and typically does, contain more than one candidate p
 the other candidates the unmerged search tried and rejected, not evidence that the word itself
 failed.
 
-## The 23 failure reasons
+## The 25 failure reasons
 
 Every node whose attempt to apply or unapply was refused carries a `failureReason`, one of these
-23 values (`pg-rules/src/trace.rs`'s `FailureReason` enum). Several of the mechanisms they name are
+25 values (`pg-rules/src/trace.rs`'s `FailureReason` enum). Several of the mechanisms they name are
 documented in full in `hc-mechanics.md` and `grammar-format.md` in this same directory; this list
 gives the short, plain-language version of each and points at the fuller explanation where one
 exists.
@@ -175,6 +175,7 @@ exists.
 | `HeadPattern` / `NonHeadPattern` | Same as `Pattern`, but specifically for a compounding rule's head member or non-head member. |
 | `RequiredSyntacticFeatureStruct` | A required feature structure (a bundle of agreement features, not a single one) was not satisfied. |
 | `HeadRequiredSyntacticFeatureStruct` / `NonHeadRequiredSyntacticFeatureStruct` | Same, for a compound's head or non-head member specifically. |
+| `LexicalLookupFeatures` | Lexical lookup skipped a matched root allomorph because its entry's syntactic features do not unify with the word's; no synthesis is attempted (machine#627). |
 | `HeadProdRestrictMprFeatures` / `NonHeadProdRestrictMprFeatures` | A production restriction stated in terms of MPR (lexical-class) features failed for the compound's head or non-head member. |
 | `RequiredMprFeatures` | An MPR feature the rule requires (see `hc-mechanics.md`'s "two different class mechanisms" section) was not present on the word. |
 | `ExcludedMprFeatures` | An MPR feature the rule specifically excludes was present. |
