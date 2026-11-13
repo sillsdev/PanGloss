@@ -259,7 +259,8 @@ Test-Case 'run tags name the two sides with neutral labels of equal length' {
 
 function Invoke-Tally([string]$Body) {
     # Runs a Python snippet against the Tally class (no Windows needed) and returns its printed JSON.
-    $py = (Get-Command python3, python -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    $names = if ($IsWindows) { @('python', 'python3') } else { @('python3', 'python') }
+    $py = (Get-Command $names -ErrorAction SilentlyContinue | Select-Object -First 1).Source
     if (-not $py) { throw 'python is not on PATH' }
     $script = "import json, sys`nsys.path.insert(0, sys.argv[1])`nfrom instruction_compare_etl import Tally`n$Body"
     return ($script | & $py -I - (Resolve-Path "$PSScriptRoot\..").Path) | ConvertFrom-Json
