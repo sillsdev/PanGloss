@@ -1,6 +1,6 @@
 <#
   .SYNOPSIS
-  After a parser change, tests whether the parser-work weights (pg-cost: work, bytes allocated, FST registers copied) still
+  After a parser change, tests whether the parser-work weights (pg-cost: work, bytes allocated, allocator calls; FST registers copied are counted at weight 0) still
   describe the code, and prints ACCEPT, KEEP or REFUSED for a refit. It never edits a weight.
 
   .DESCRIPTION
@@ -22,8 +22,7 @@
     b. refit   per-word instructions (Valgrind callgrind, std hash keys pinned) on the After build for the fit set, then
                `pangloss cost-calibrate --targets ... --counts-out` per grammar and `cost-calibrate --fit-counts` over all of them.
                The fit is exact least squares on relative error, solved once. It also reports how much worse the fit is with
-               work, bytes or registers left out. When the words cannot split work from registers (leaving either out costs
-               under 10%), the candidate keeps their current ratio and refits their sum against bytes.
+               work, bytes, registers or allocator calls left out; the candidate is the free fit, rounded to a quarter.
     c. test    old and new weights scored two ways. On the held-out set, per word: direction, Pearson r and the scale-free
                error (the shape; the median predicted/measured ratio is divided out). On every grammar: the change of the
                grammar's total that the weights predict from the Before and After counts, against the change instruction-compare
@@ -87,7 +86,7 @@ function Invoke-Pinned([scriptblock]$Body) {
     try { & $Body } finally { Remove-Item Env:LD_PRELOAD -ErrorAction SilentlyContinue }
 }
 
-function Format-Weights([double[]]$W) { '{0} / {1} / {2}' -f $W[0], $W[1], $W[2] }
+function Format-Weights([double[]]$W) { '{0} / {1} / {2} / {3}' -f $W[0], $W[1], $W[2], $W[3] }
 function Format-Pct($Value) { if ($null -eq $Value) { 'n/a' } else { '{0:0.00}%' -f $Value } }
 function Format-R($Value) { if ($null -eq $Value) { 'n/a' } else { '{0:0.000}' -f $Value } }
 
@@ -237,26 +236,25 @@ try {
         if ($ec -ne 0) { if ($MayRefuse) { return $null }; Stop-Refused "the pooled fit refused: $((Get-Content -LiteralPath $fitErr -Raw).Trim())" }
         (Get-Content -LiteralPath (Join-Path $work 'fit.out') -Raw) | ConvertFrom-Json }
     $fit = & $fitExact $fitFiles $false
-    if ($null -eq $fit.free -or $null -eq $fit.tied -or $null -eq $fit.errorWithout) { Stop-Refused "$([IO.Path]::GetFileName($After)) printed no exact fit for --fit-counts: build After from a tree whose cost-calibrate solves the fit exactly" }
-    $cur = [double[]]@($fit.current.work, $fit.current.byte, $fit.current.register)
+    if ($null -eq $fit.free -or $null -eq $fit.free.allocation -or $null -eq $fit.errorWithout) { Stop-Refused "$([IO.Path]::GetFileName($After)) printed no exact fit for --fit-counts: build After from a tree whose cost-calibrate solves the fit exactly" }
+    $cur = [double[]]@($fit.current.work, $fit.current.byte, $fit.current.register, $fit.current.allocation)
     $reading = Get-FitReading $fit
     Write-Host "refit over $($fit.words) fit words (exact least squares on relative error, solved once):"
-    Write-Host ("  free fit   work {0:0.##}  byte {1:0.##}  register {2:0.##}   error {3:0.00}%" -f $fit.free.work, $fit.free.byte, $fit.free.register, (100 * $fit.free.error))
-    Write-Host ("  tied fit   work {0:0.##}  byte {1:0.##}  register {2:0.##}   error {3:0.00}%   (work and registers at their current ratio)" -f $fit.tied.work, $fit.tied.byte, $fit.tied.register, (100 * $fit.tied.error))
+    Write-Host ("  free fit   work {0:0.##}  byte {1:0.##}  register {2:0.##}  allocation {3:0.##}   error {4:0.00}%" -f $fit.free.work, $fit.free.byte, $fit.free.register, $fit.free.allocation, (100 * $fit.free.error))
     Write-Host "  $($reading.Left)"
     Write-Host "  $($reading.Note)"
     $spread = @()
     foreach ($f in $fitFiles) {
         $one = & $fitExact @($f) $true
-        if ($one) { $spread += , ([double[]]@($one.free.work, $one.free.byte, $one.free.register)) }
+        if ($one) { $spread += , ([double[]]@($one.free.work, $one.free.byte, $one.free.register, $one.free.allocation)) }
     }
     if ($spread.Count -gt 1) {
         $rng = { param($i) $v = @($spread | ForEach-Object { $_[$i] }); '{0:0.#}-{1:0.#}' -f ($v | Measure-Object -Minimum).Minimum, ($v | Measure-Object -Maximum).Maximum }
-        Write-Host "  free fit of each fit grammar alone ($($spread.Count) of $($fitFiles.Count) have enough words): work $(& $rng 0)  byte $(& $rng 1)  register $(& $rng 2)"
+        Write-Host "  free fit of each fit grammar alone ($($spread.Count) of $($fitFiles.Count) have enough words): work $(& $rng 0)  byte $(& $rng 1)  register $(& $rng 2)  allocation $(& $rng 3)"
     }
     $noCandidate = if ($reading.Kind -eq 'none') { $reading.Note } else { $null }
     $cand = if ($noCandidate) { $cur } else { ConvertTo-CandidateWeights -Weights $reading.Weights }
-    if (-not $noCandidate) { Write-Host "  candidate weights ($($reading.Kind) fit, rounded, at least 1): $(Format-Weights $cand)   current: $(Format-Weights $cur)" }
+    if (-not $noCandidate) { Write-Host "  candidate weights ($($reading.Kind) fit, rounded to a quarter): $(Format-Weights $cand)   current: $(Format-Weights $cur)" }
 
     # c. test
     $heldAfter = @(); $heldBefore = @()
@@ -307,7 +305,7 @@ try {
     Write-Host ''
     Write-Host "DECISION $($decision.Verdict): $($decision.Reason)"
     if ($decision.Level) { Write-Host "  $($decision.Level)" }
-    Write-Host "  candidate weights (work / byte / register), not applied: $(Format-Weights $cand); the owner decides, then edits pg-cost"
+    Write-Host "  candidate weights (work / byte / register / allocation), not applied: $(Format-Weights $cand); the owner decides, then edits pg-cost"
     $moves = @(Get-WeightMoves -Current $cur -Candidate $cand)
     foreach ($move in $moves) { Write-Host "  WARNING: large move, $move" -ForegroundColor Yellow }
     if ($moves.Count -gt 0) { Write-Host "  WARNING: a move of more than a quarter needs the owner's review; a run on -Words $Words samples is not adoptable evidence" -ForegroundColor Yellow }

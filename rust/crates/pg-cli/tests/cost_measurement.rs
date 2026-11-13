@@ -34,3 +34,19 @@ fn parses_and_work_steps_are_identical_with_measurement_on_and_off() {
         "a word that applies a rule costs more than a bare root"
     );
 }
+
+#[test]
+fn allocator_calls_are_counted_and_synthetic_byte_charges_are_not() {
+    pg_cost::enable().expect("this binary installs the counting allocator");
+    let meter = pg_cost::Meter::start().unwrap();
+    drop(std::hint::black_box(vec![0u8; 100]));
+    pg_cost::charge_bytes(1_000_000);
+    let counts = meter.finish(0);
+    assert_eq!(counts.allocations, 1, "{counts:?}");
+    assert!(counts.bytes >= 1_000_100, "{counts:?}");
+
+    let meter = pg_cost::Meter::start().unwrap();
+    pg_cost::unmetered(|| drop(std::hint::black_box(vec![0u8; 100])));
+    let counts = meter.finish(0);
+    assert_eq!((counts.allocations, counts.bytes), (0, 0), "{counts:?}");
+}

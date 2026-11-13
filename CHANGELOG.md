@@ -5,6 +5,12 @@ file has no section for.
 
 ## Unreleased
 
+Parser work now counts allocator calls and weighs them, which fixes the over-prediction on Cebuano's heavy words: on the ceb.fwdata words costing 20M instructions or more (callgrind), the predicted total moves from +27.6% to +1.0% of the measured one. The weights are 200 per work unit, 1.25 per byte requested and 150 per allocator call (alloc, realloc, alloc_zeroed), replacing 113 / 2 / 45 over work, bytes and FST registers copied; registers are still counted, at weight 0, because once allocator calls are in they add nothing. Parses, analyses, their order and `work_steps` are identical (checked on Amharic 673 words, Mbugwe 1,645, Swahili 6,346, Cebuano 5,000 at a 2M cap).
+
+- **Reported parser work shifts per grammar**, so `batch --cost-column` totals and `cost-compare` baselines from an earlier version must not be compared with this one. The same words, at a 2M cap, over the words that parse `ok`: Amharic -13.6%, Mbugwe -3.2%, Aweti -9.1%, Indonesian -7.4%, Sena +1.1%, Swahili (fwdata) +13.1%, Cebuano (fwdata) -10.0%. A cost threshold written against the old scale needs recalibrating for the grammar it guards.
+- `pangloss batch --prefilter auto` prices a word's parse with the new weights, so its admission decisions can move with the shift above; its gate tests are unchanged.
+- `cost-calibrate --counts-out` writes an allocations column, and `--fit-counts` fits four terms (work, bytes, registers, allocator calls). `rust/tools/retune-parser-work.ps1` and the retune skill no longer tie work to registers at 113 : 45.
+
 ## 0.19.3
 
 Released 2026-11-13.

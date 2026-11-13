@@ -1,6 +1,9 @@
 //! Suggests new fixed weights from per-word measurements, for tuning the code's constants.
 
-use crate::{Counts, BYTE_WEIGHT, REGISTER_WEIGHT, WORK_WEIGHT};
+use crate::{Counts, ALLOCATION_WEIGHT, BYTE_WEIGHT, REGISTER_WEIGHT, WEIGHT_SCALE, WORK_WEIGHT};
+
+/// Work, bytes, registers copied, allocator calls.
+const TERMS: usize = 4;
 
 /// The furthest one run may pull a weight from its current value.
 pub const MIN_FACTOR: f64 = 0.75;
@@ -25,6 +28,7 @@ pub struct Fit {
     pub work_factor: f64,
     pub byte_factor: f64,
     pub register_factor: f64,
+    pub allocation_factor: f64,
     /// Measured units per fixed-cost unit: the machine's speed, which is not part of a weight.
     pub speed: f64,
     pub words: usize,
@@ -53,11 +57,12 @@ impl std::fmt::Display for Refusal {
     }
 }
 
-fn columns(counts: &Counts, weights: [f64; 3]) -> [f64; 3] {
+fn columns(counts: &Counts, weights: [f64; TERMS]) -> [f64; TERMS] {
     [
         counts.work as f64 * weights[0],
         counts.bytes as f64 * weights[1],
         counts.registers as f64 * weights[2],
+        counts.allocations as f64 * weights[3],
     ]
 }
 
@@ -67,12 +72,9 @@ fn median(mut values: Vec<f64>) -> f64 {
 }
 
 /// The fixed weights as the fit's starting point.
-pub fn current_weights() -> [f64; 3] {
-    [
-        WORK_WEIGHT as f64,
-        BYTE_WEIGHT as f64,
-        REGISTER_WEIGHT as f64,
-    ]
+pub fn current_weights() -> [f64; TERMS] {
+    [WORK_WEIGHT, BYTE_WEIGHT, REGISTER_WEIGHT, ALLOCATION_WEIGHT]
+        .map(|weight| weight as f64 / WEIGHT_SCALE as f64)
 }
 
 fn usable(samples: &[Sample]) -> Result<Vec<&Sample>, Refusal> {
@@ -94,20 +96,17 @@ pub struct Weights {
     pub work: f64,
     pub byte: f64,
     pub register: f64,
+    pub allocation: f64,
     pub error: f64,
 }
 
-/// The exact fit of the three weights to instruction counts, and what the words can tell apart.
+/// The exact fit of the weights to instruction counts, and what the words can tell apart.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Solution {
     /// The non-negative least-squares fit on relative error, each weight free.
     pub free: Weights,
-    /// The same fit with work and registers held at the ratio of the current weights.
-    pub tied: Weights,
-    /// The free fit's error when work, bytes or registers is left out and the other two are refitted.
-    pub error_without: [f64; 3],
-    /// How the estimates of work and register move together: near -1, the words cannot split the two.
-    pub work_register_tradeoff: Option<f64>,
+    /// The free fit's error when work, bytes, registers or allocations is left out and the rest are refitted.
+    pub error_without: [f64; TERMS],
     pub words: usize,
 }
 
@@ -213,53 +212,28 @@ fn least_squares<const N: usize>(rows: &[[f64; N]], allowed: [bool; N]) -> ([f64
     best
 }
 
-/// How the least-squares estimates of columns 0 and 2 move together, from the inverse of the normal matrix.
-fn tradeoff(rows: &[[f64; 3]]) -> Option<f64> {
-    let (gram, _, scale) = normal_equations(rows);
-    if scale.iter().any(|value| *value <= 0.0) {
-        return None;
-    }
-    let first = solve_linear(gram, [1.0, 0.0, 0.0], 3)?;
-    let last = solve_linear(gram, [0.0, 0.0, 1.0], 3)?;
-    let spread = first[0] * last[2];
-    (spread > 0.0).then(|| first[2] / spread.sqrt())
-}
-
 /// The exact fit for instruction counts, which load cannot disturb, so no bound is needed to steady it.
-///
-/// `current` gives the work-to-register ratio of the tied fit.
-pub fn solve(samples: &[Sample], current: [f64; 3]) -> Result<Solution, Refusal> {
+pub fn solve(samples: &[Sample]) -> Result<Solution, Refusal> {
     let usable = usable(samples)?;
-    let rows: Vec<[f64; 3]> = usable
+    let rows: Vec<[f64; TERMS]> = usable
         .iter()
-        .map(|sample| columns(&sample.counts, [1.0; 3]).map(|x| x / sample.measured))
+        .map(|sample| columns(&sample.counts, [1.0; TERMS]).map(|x| x / sample.measured))
         .collect();
-    let (free, error) = least_squares(&rows, [true; 3]);
-    let error_without = [0, 1, 2].map(|left_out| {
-        let mut allowed = [true; 3];
+    let (free, error) = least_squares(&rows, [true; TERMS]);
+    let error_without = [0, 1, 2, 3].map(|left_out| {
+        let mut allowed = [true; TERMS];
         allowed[left_out] = false;
         least_squares(&rows, allowed).1
     });
-    let tied_rows: Vec<[f64; 2]> = rows
-        .iter()
-        .map(|row| [row[0] * current[0] + row[2] * current[2], row[1]])
-        .collect();
-    let (tied, tied_error) = least_squares(&tied_rows, [true; 2]);
     Ok(Solution {
         free: Weights {
             work: free[0],
             byte: free[1],
             register: free[2],
+            allocation: free[3],
             error,
         },
-        tied: Weights {
-            work: tied[0] * current[0],
-            byte: tied[1],
-            register: tied[0] * current[2],
-            error: tied_error,
-        },
         error_without,
-        work_register_tradeoff: tradeoff(&rows),
         words: usable.len(),
     })
 }
@@ -278,16 +252,16 @@ pub fn fit(samples: &[Sample], cpu_share: Option<f64>) -> Result<Fit, Refusal> {
             .map(|sample| sample.measured / columns(&sample.counts, weights).iter().sum::<f64>())
             .collect(),
     );
-    let rows: Vec<[f64; 3]> = usable
+    let rows: Vec<[f64; TERMS]> = usable
         .iter()
         .map(|sample| columns(&sample.counts, weights).map(|x| x * speed / sample.measured))
         .collect();
-    let mut factors = [1.0f64; 3];
+    let mut factors = [1.0f64; TERMS];
     for _ in 0..SWEEPS {
-        for j in 0..3 {
+        for j in 0..TERMS {
             let (mut above, mut below) = (0.0, 0.0);
             for row in &rows {
-                let others: f64 = (0..3)
+                let others: f64 = (0..TERMS)
                     .filter(|k| *k != j)
                     .map(|k| factors[k] * row[k])
                     .sum();
@@ -303,6 +277,7 @@ pub fn fit(samples: &[Sample], cpu_share: Option<f64>) -> Result<Fit, Refusal> {
         work_factor: factors[0],
         byte_factor: factors[1],
         register_factor: factors[2],
+        allocation_factor: factors[3],
         speed,
         words: usable.len(),
     })

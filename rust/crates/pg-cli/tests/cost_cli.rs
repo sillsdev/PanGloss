@@ -353,9 +353,13 @@ mod calibrate {
             .collect();
         assert_eq!(rows.len(), 2, "only words with a target and no cap");
         assert_eq!((rows[0][0].as_str(), rows[1][0].as_str()), ("0", "1"));
-        assert!(rows.iter().all(|row| row.len() == 5));
+        assert!(rows.iter().all(|row| row.len() == 6));
         assert!(rows[0][1].parse::<u64>().unwrap() > 0, "work counted");
-        assert_eq!(rows[1][4], "2000000");
+        assert!(
+            rows[0][4].parse::<u64>().unwrap() > 0,
+            "allocations counted"
+        );
+        assert_eq!(rows[1][5], "2000000");
     }
 
     #[test]
@@ -363,13 +367,14 @@ mod calibrate {
         let counts = scratch("calibrate-fit-counts").join("counts.tsv");
         let rows: String = (1..=12u64)
             .map(|i| {
-                let (work, bytes, registers) = (
+                let (work, bytes, registers, allocations) = (
                     2000 + i * 700,
                     90_000 + (i * i * 913) % 400_000,
                     500 + (i * 311) % 3000,
+                    800 + (i * i * 37) % 2900,
                 );
-                let instructions = work * 200 + bytes * 2 + registers * 100;
-                format!("{i}\t{work}\t{bytes}\t{registers}\t{instructions}\n")
+                let instructions = work * 200 + bytes * 2 + registers * 100 + allocations * 150;
+                format!("{i}\t{work}\t{bytes}\t{registers}\t{allocations}\t{instructions}\n")
             })
             .collect();
         std::fs::write(&counts, rows).unwrap();
@@ -389,17 +394,15 @@ mod calibrate {
             "{fit}"
         );
         assert!(number(&fit["free"]["error"]) < 1e-6, "{fit}");
-        for term in ["work", "byte", "register"] {
-            assert!(number(&fit["errorWithout"][term]) > 0.005, "{term}: {fit}");
-        }
-        let current = number(&fit["current"]["work"]) / number(&fit["current"]["register"]);
-        let tied = number(&fit["tied"]["work"]) / number(&fit["tied"]["register"]);
-        assert!((tied - current).abs() < 1e-9, "{fit}");
         assert!(
-            number(&fit["tied"]["error"]) >= number(&fit["free"]["error"]),
+            (number(&fit["free"]["allocation"]) - 150.0).abs() < 1e-3,
             "{fit}"
         );
-        assert!(fit["workRegisterTradeoff"].is_number(), "{fit}");
+        for term in ["work", "byte", "register", "allocation"] {
+            assert!(number(&fit["errorWithout"][term]) > 0.005, "{term}: {fit}");
+        }
+        assert!(fit.get("tied").is_none(), "{fit}");
+        assert_eq!(number(&fit["current"]["allocation"]), 150.0, "{fit}");
     }
     #[test]
     fn parse_only_prints_one_status_row_per_word_and_counts_nothing() {

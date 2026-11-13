@@ -1,4 +1,4 @@
-//! Deterministic parse cost: fixed weights over work units, bytes allocated and registers copied.
+//! Deterministic parse cost: fixed weights over work units, bytes allocated and allocator calls.
 //!
 //! Cost is a report, never an input to parsing.
 //! The weights are constants of the code, not of a grammar: see `docs/design/parse-cost.md`.
@@ -12,12 +12,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod calibrate;
 
-/// Instructions per work unit.
-pub const WORK_WEIGHT: u64 = 113;
-/// Instructions per requested byte.
-pub const BYTE_WEIGHT: u64 = 2;
-/// Instructions per FST register copied.
-pub const REGISTER_WEIGHT: u64 = 45;
+/// The weights are whole numbers of this fraction of an instruction, so a quarter-instruction byte weight is exact.
+pub const WEIGHT_SCALE: u64 = 4;
+/// Per work unit, in `1 / WEIGHT_SCALE` instructions.
+pub const WORK_WEIGHT: u64 = 800;
+/// Per requested byte.
+pub const BYTE_WEIGHT: u64 = 5;
+/// Per FST register copied: counted, but it adds nothing once allocator calls are counted.
+pub const REGISTER_WEIGHT: u64 = 0;
+/// Per allocator call (alloc, realloc, alloc_zeroed).
+pub const ALLOCATION_WEIGHT: u64 = 600;
 
 // In-process tests that read the meter or use `--cost-column` must hold the batch_prefilter test mutex.
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -25,6 +29,7 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 thread_local! {
     static BYTES: Cell<u64> = const { Cell::new(0) };
     static REGISTERS: Cell<u64> = const { Cell::new(0) };
+    static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
 }
 
 /// The allocator a host must install for bytes to count; it forwards everything to `System`.
@@ -37,12 +42,20 @@ fn add_bytes(size: usize) {
     }
 }
 
+#[inline]
+fn add_allocation(size: usize) {
+    add_bytes(size);
+    if ENABLED.load(Ordering::Relaxed) {
+        let _ = ALLOCATIONS.try_with(|n| n.set(n.get().saturating_add(1)));
+    }
+}
+
 // SAFETY: every method delegates to `System`, which upholds `GlobalAlloc`'s contract; the wrapper
 // only adds to a thread-local counter, and that counter has no destructor and never allocates.
 #[allow(unsafe_code)]
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        add_bytes(layout.size());
+        add_allocation(layout.size());
         unsafe { System.alloc(layout) }
     }
 
@@ -51,12 +64,12 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        add_bytes(new_size);
+        add_allocation(new_size);
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        add_bytes(layout.size());
+        add_allocation(layout.size());
         unsafe { System.alloc_zeroed(layout) }
     }
 }
@@ -90,18 +103,22 @@ pub fn disable() {
     ENABLED.store(false, Ordering::Relaxed);
 }
 
-/// Counts `size` bytes as allocated on this thread without allocating.
+/// Counts `size` bytes as allocated on this thread without allocating; it is not an allocator call.
 #[inline]
 pub fn charge_bytes(size: usize) {
     add_bytes(size);
 }
 
-/// Runs `f` without its allocations reaching this thread's byte count.
+/// Runs `f` without its allocations reaching this thread's byte and allocation counts.
 pub fn unmetered<R>(f: impl FnOnce() -> R) -> R {
     let saved = BYTES.try_with(Cell::get);
+    let saved_calls = ALLOCATIONS.try_with(Cell::get);
     let result = f();
     if let Ok(saved) = saved {
         let _ = BYTES.try_with(|bytes| bytes.set(saved));
+    }
+    if let Ok(saved) = saved_calls {
+        let _ = ALLOCATIONS.try_with(|n| n.set(saved));
     }
     result
 }
@@ -120,6 +137,7 @@ pub struct Counts {
     pub work: u64,
     pub bytes: u64,
     pub registers: u64,
+    pub allocations: u64,
 }
 
 impl Counts {
@@ -129,6 +147,8 @@ impl Counts {
             .saturating_mul(WORK_WEIGHT)
             .saturating_add(self.bytes.saturating_mul(BYTE_WEIGHT))
             .saturating_add(self.registers.saturating_mul(REGISTER_WEIGHT))
+            .saturating_add(self.allocations.saturating_mul(ALLOCATION_WEIGHT))
+            / WEIGHT_SCALE
     }
 }
 
@@ -136,6 +156,7 @@ impl Counts {
 pub struct Meter {
     bytes: u64,
     registers: u64,
+    allocations: u64,
 }
 
 impl Meter {
@@ -144,6 +165,7 @@ impl Meter {
         ENABLED.load(Ordering::Relaxed).then(|| Self {
             bytes: BYTES.with(Cell::get),
             registers: REGISTERS.with(Cell::get),
+            allocations: ALLOCATIONS.with(Cell::get),
         })
     }
 
@@ -152,6 +174,7 @@ impl Meter {
             work: work as u64,
             bytes: BYTES.with(Cell::get) - self.bytes,
             registers: REGISTERS.with(Cell::get) - self.registers,
+            allocations: ALLOCATIONS.with(Cell::get) - self.allocations,
         }
     }
 }
