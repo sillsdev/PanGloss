@@ -284,6 +284,69 @@ It warns when a weight moves by more than a quarter, and a result from 40-word s
 It never edits a weight and never touches `work_steps`. Memory, simulated cache misses and CPU time print
 beside the result and stay out of the fit.
 
+**Checked against the Windows counters, 2026-11-12 (a2a35131).** Pair: look-ahead off (Before) against main
+(After), one build with the switch read from the executable name. The comparison and its control came from
+the Windows counters (`-PairResult`, `-ControlResult`, 5 rounds), on every word of each list that parses `ok`
+at the default cap with a cost under 500M. Cebuano was left out: its load is about nine times its parse,
+and both of its runs refused. That leaves Swahili as the only held-out grammar, which is not the standard set.
+
+| | 113 / 2 / 45 (current) | 105 / 2 / 42 (candidate) |
+|---|---|---|
+| Change of grammar totals, sign | 5 of 5 | 5 of 5 |
+| Change, mean / worst error (points) | 0.93 / 2.24 | 0.93 / 2.20 |
+| Held-out direction (Swahili, 77 words) | 41 of 42 | 41 of 42 |
+| Held-out shape, median / worst | 3.38% / 15.27% | 3.22% / 14.49% |
+
+The tool read ACCEPT. The weights were kept: the candidate moves work and registers by 7%, inside the
+101 to 111 / 2 / 40 to 44 that samples of one code already give (above), the change prediction is the same,
+and the shape gain is 0.16 points on one grammar. The fit (400 words, five grammars) again could not split work
+from registers (x1.01 without registers) and carried bytes (x4.05 without them). Measured against the Windows
+counters, the change of each grammar's total was -7.35% (Aweti), -6.75% (Mbugwe), -3.10% (Amharic), -2.84%
+(Sena), +0.18% (Indonesian, no change) and -0.63% (Swahili, inconclusive); 113 / 2 / 45 predicted -5.11%,
+-5.52%, -3.09%, -2.34%, 0.00% and -2.06%.
+
+## Mechanism trial (machine#575), rerun 2026-11-12
+
+Each mechanism was switched off in one build of a2a35131 and compared with that build switched on, per
+grammar, with `instruction-compare.ps1` (5 rounds, rows buffered). Sena, Swahili, Cebuano and Indonesian ran at
+`--work-cap 100000`, Mbugwe, Aweti and Amharic at 20,000,000, as in the first trial (2026-11-10, builds of
+b663c8cf, 2 rounds, the old max-min threshold). The instrument check (a build against itself) read no change or
+INCONCLUSIVE on every grammar. Change in instructions, 95% CI, verdict:
+
+| Off | Sena | Swahili | Indonesian | Mbugwe | Aweti | Amharic |
+|---|---|---|---|---|---|---|
+| Look-ahead | +2.46% [2.25, 2.68] R ¹ | +3.68% [0.96, 6.41] R ³ | +0.01% [-0.10, 0.12] N | +6.02% [5.48, 6.56] R ² | +17.29% [17.23, 17.34] R | +3.24% [2.94, 3.54] R |
+| Next-slot overlap | +0.16% [0.04, 0.28] N | +2.62% [2.01, 3.23] R ³ | -0.02% [-0.16, 0.13] N | -0.11% [-0.23, 0.01] N | +9.55% [9.49, 9.61] R | +1.63% [1.49, 1.78] R |
+| Allomorph prefilter | +0.13% [0.00, 0.27] N | +2.30% [1.48, 3.13] R | +0.13% [0.02, 0.24] N | -4.89% [-5.10, -4.68] GO ² | +45.65% [45.57, 45.73] R | +9.49% [9.33, 9.64] R |
+| Both edge checks | refused | +128.05% R | +6.00% R | -2.24% [-2.48, -2.00] GO ² | +57.21% R | +9.66% R |
+| Edge index | +11.64% [11.29, 12.00] R ¹ | +23.86% R | +1.22% [1.05, 1.39] R | +0.93% [0.72, 1.14] R ² | +1.44% [1.39, 1.50] R | +0.24% [0.15, 0.33] N |
+| Look-ahead and both edge checks | refused | +142.04% R | +5.72% R | +1.87% [1.68, 2.06] R ⁴ | +108.52% R | +15.20% R |
+
+R is NO-GO (regression), N is NO-GO (no change). Refused: a word's status differs between the builds.
+¹ 79 of 80 words, ² 99 of 100, ⁴ 98 of 100: the word that is capped on one build only, or whose capped partial
+output differs, is left out. ³ Not resolved, see below. Cebuano is not in the table: its load is about nine
+times its parse, the build against itself read -15% [-69, +38], and three of seven cells refused.
+
+What changed from the first trial, and why. The first trial's builds were rerun with the new tool to separate the
+instrument from the code:
+
+- **Instrument.** Amharic look-ahead read +0.95% "within noise" in the first trial. It is +3.06% on the first
+  trial's builds and +3.24% on a2a35131. Amharic next-slot overlap read "within noise". It is +1.48% and +1.63%.
+  The old threshold came from a max-min spread that one outlier round could widen; on Amharic the first trial's
+  control spread was 146%.
+- **Code.** The edge index saved 3.5% on Aweti in the first trial and 3.71% on its builds now, but costs 1.44% on
+  a2a35131, where the Aweti baseline parse is about twelve times cheaper. The Aweti look-ahead and next-slot figures
+  fall the same way (20.1% to 17.3%, 11.9% to 9.6%).
+- **Unattributed.** The allomorph prefilter on Sena (+1.82% then, no change now) and on Indonesian.
+- **Holds.** Switching the next-slot overlap off saves instructions on no grammar, on either build.
+
+Swahili is at the instrument's limit at 77 words: its load is about five times its parse, and the build against
+itself read -0.54% [-1.40, +0.32] at 5 rounds and -1.20% [-3.41, +1.01] at 10. Look-ahead off read +3.68% at 5
+rounds and +6.56% [4.87, 8.25] at 10, but the same 77 words without a cap, in the pair above (the builds the
+other way round), read main 0.63% cheaper [-3.03, +1.76], INCONCLUSIVE. Both runs cap no word and count the same
+work. Its direction is probably a cost; its size is not
+measured. Next-slot overlap read +2.19% [-0.69, +5.07] at 10 rounds.
+
 ## Deployed grammars
 
 WASM keeps its default cap. `PanGlossGrammar.withoutWorkLimits` removes the attempt and work limits
