@@ -437,7 +437,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -473,6 +473,8 @@ fn print_usage_and_fail() -> ExitCode {
          --no-flush (`batch --threads 1`) keeps rows in the write buffer instead of flushing after each
          word; the file is identical at exit, but a killed run loses the unflushed rows and the live
          STARTED sentinel. For instruction counting, where per-word writes add kernel work.
+         --phase-marks (`batch --threads 1`) starts and joins one empty thread before the first word and one after the\n\
+         last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare.\n\
          --cost-column (`batch`) appends `work_steps`, then each word's fixed-weight parse cost, as the last fields; off by\n\
          default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
          ok in both, reports the rest, and says inconclusive when a status changed. Use the total;\n\
@@ -1284,6 +1286,12 @@ pub(crate) fn run_batch_counted(args: &[String]) -> Result<usize, String> {
     Ok(parse_counter.count())
 }
 
+/// Starts and joins an empty thread: the thread-start event and the context switches around it are the edge of the parse phase in a PMC trace (rust/tools/instruction_compare_etl.py).
+#[inline(never)]
+fn phase_mark() {
+    let _ = std::thread::spawn(|| {}).join();
+}
+
 fn run_batch_with_counter(
     args: &[String],
     parse_counter: &BatchParseCounter,
@@ -1309,6 +1317,8 @@ fn run_batch_with_counter(
     let mut cost_column = false;
     // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
     let mut flush_each_word = true;
+    // Measurement only: a thread starts and ends at each edge of the `--threads 1` parse loop, so a PMC trace can count the parse apart from the grammar load.
+    let mut phase_marks = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
     // None defers to the project's own `<HC><MakePartialsFinal>` once the grammar is loaded.
@@ -1376,6 +1386,7 @@ fn run_batch_with_counter(
             "--work-columns" => work_columns = true,
             "--cost-column" => cost_column = true,
             "--no-flush" => flush_each_word = false,
+            "--phase-marks" => phase_marks = true,
             "--stats" => stats_requested = true,
             "--prefilter" => {
                 let v = it.next().ok_or("--prefilter requires a value")?;
@@ -1422,7 +1433,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
@@ -1620,8 +1631,14 @@ fn run_batch_with_counter(
     if prefilter_mode == batch_prefilter::PrefilterMode::Auto && !cost_column {
         pg_cost::disable();
     }
+    if phase_marks && threads != 1 {
+        return Err("--phase-marks needs --threads 1".to_string());
+    }
     if threads == 1 {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
+        if phase_marks {
+            phase_mark();
+        }
         for (i, word) in words.iter().enumerate() {
             if i < start_idx {
                 if stats_cache
@@ -1890,6 +1907,9 @@ fn run_batch_with_counter(
                     analyses_w.flush().map_err(|e| e.to_string())?;
                 }
             }
+        }
+        if phase_marks {
+            phase_mark();
         }
     } else {
         // Parallel path: hc_parse_batch parallelizes internally and returns results already reindexed to original word order; buffered and written once, no STARTED lines, so --start only skips work with no per-word crash-resume in this mode.

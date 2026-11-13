@@ -27,9 +27,9 @@ what a unit costs.
 ### How a comparison decides
 
 Each side runs `-Repeats` rounds (default 5 on the Windows counters, 2 on callgrind), alternating
-which side goes first. Every round also runs each side on an empty word list, and that round's
-empty-list count is subtracted from its full count, so each round gives one parse count per side and
-the start-up noise stays in the spread. Welch's t gives a 95% two-sided interval for the change of
+which side goes first. Each round gives one parse count per side, counted directly (see "How the parse
+is counted apart from the load"), or, for a PMC binary without `--phase-marks`, as the full run minus
+that round's empty-list run, so the start-up noise stays in the spread. Welch's t gives a 95% two-sided interval for the change of
 the mean, in percent of Before, printed on every comparison. With a minimum effect of 0.5%:
 
 | Verdict | When | Exit code |
@@ -48,19 +48,29 @@ NO-GO (regression); NO-GO (no change) and INCONCLUSIVE both pass. Run it once pe
 whenever a verdict looks odd. It checks the instrument; it is not part of every comparison and sets no
 threshold.
 
-**Why start-up is still subtracted.** The parse-only count is the per-round paired subtraction above,
-not a sum over the threads that parse. At `--threads 1`, which the comparison uses, `pangloss batch`
-takes its sequential path (the `if threads == 1` branch in `rust/crates/pg-cli/src/main.rs`) and
-parses each word inline on the thread that loaded the grammar, so no thread carries the parse alone.
-Measured on a synthetic
-stress grammar (65 words, one pinned CPU): at `--threads 1` that thread read 344M with no words,
-573M with the list and 790M with the list twice. At `--threads 2` and `--threads 4` the loading
-thread stayed at 346M to 348M and the parse moved to pool threads, but the pool threads' total for the
-same 130 words differed by 2.3% between two and four threads. The first pass over the list also cost
-about 11M more than the second, which is one-time set-up inside the first parses. Counting by thread
-would therefore need `--threads 2` or more, which measures a different path. A marker at the start of
-the parse is the likely follow-up; both are recorded in ADR 0015. Until then the subtraction stays,
-and a grammar whose load dwarfs its parse needs more repeats or more words.
+**How the parse is counted apart from the load.** Thread attribution cannot do it: at `--threads 1`,
+which the comparison uses, `pangloss batch` takes its sequential path (the `if threads == 1` branch in
+`rust/crates/pg-cli/src/main.rs`) and parses each word inline on the thread that loaded the grammar
+(measured on a synthetic stress grammar, 65 words, one pinned CPU: that thread read 344M with no words,
+573M with the list and 790M with the list twice; at `--threads 2` and `4` the pool threads' total for
+the same 130 words differed by 2.3%). Subtracting an empty-list run leaves the load's noise in the
+figure: on Swahili (load 2.55G, parse 0.51G) a build against itself read +4.3% and on Cebuano (load
+27.6G, parse 3.2G) it read -15% or refused, and #272 read +3.88% on Cebuano while the instructions
+inside `parse_word_opts` moved +0.30% (#277, #278). So each backend counts the parse phase directly:
+
+- **callgrind** collects only while `Morpher::parse_word_opts` is on the stack (`--collect-atstart=no
+  --toggle-collect=*parse_word_opts*`), callees included. It needs no change to the binary.
+- **PMC** needs the binary to mark the phase. `batch --phase-marks` (with `--threads 1`) starts and
+  joins one empty thread before the first word and one after the last. The trace carries thread starts
+  and, on the pinned CPU, a context switch with a counter snapshot at each join, so
+  `instruction_compare_etl.py` totals what the process's other threads run between the first marker's
+  exit and the second marker's first run (`parse_instructions`) and refuses a trace where either
+  mark is missing. The marks cost a thread start each, inside or beside the counted region and equal on
+  both sides.
+
+When a binary lacks `--phase-marks` the PMC backend falls back to the per-round subtraction and refuses
+a grammar whose load is more than `-MaxLoadRatio` (default 4) times its parse, with the reason, instead of
+reporting load noise as a change.
 
 **Why run files have neutral names of equal length.** Each run's output files are named
 `g<grammar>-r<round>-sideA-<kind>` or `...-sideB-...`. They used to carry `before` and `after`. With

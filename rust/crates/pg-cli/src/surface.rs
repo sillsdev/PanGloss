@@ -328,6 +328,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "with --threads 1, keep rows buffered instead of flushing after each word; same file at exit, no crash-resume; for instruction counting",
     },
     FlagSpec {
+        name: "--phase-marks",
+        takes_value: false,
+        summary: "with --threads 1, start and join an empty thread before the first word and after the last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare",
+    },
+    FlagSpec {
         name: "--stats",
         takes_value: false,
         summary: "additionally record per-object statistics into the stats cache",

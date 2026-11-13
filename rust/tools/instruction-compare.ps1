@@ -5,18 +5,21 @@
   .DESCRIPTION
   The standard check for an algorithm improvement: wall time and work_steps do not decide it.
   For each grammar/word-list pair, runs `pangloss batch --threads 1` with both binaries, -Repeats rounds each,
-  alternating which side goes first. Every round also runs each side on an empty word list; that run is the
-  grammar-load cost and is subtracted from the same round's full run, so each round gives one parse count per side
-  and start-up noise stays in the spread the statistics see. Thread attribution cannot replace the subtraction:
-  at --threads 1 batch parses on the thread that loaded the grammar.
+  alternating which side goes first. Each round gives one parse count per side, counted directly where the backend can:
+    callgrind  collects only inside `Morpher::parse_word_opts` (--toggle-collect), so the grammar load is never counted.
+    PMC        when both binaries list `batch --phase-marks`, the run passes it: the process starts and joins an empty thread
+               at each edge of the parse loop, and the trace reader totals what the process runs between them.
+  Otherwise (PMC, a binary without the flag) each round also runs each side on an empty word list; that run is the
+  grammar-load cost and is subtracted from the same round's full run, and a grammar whose load exceeds -MaxLoadRatio times
+  its parse is refused: the load's noise then decides the figure (#277, #278).
 
   Windows: every run happens inside one PMC trace taken through the PanGloss PMC Start/Stop scheduled tasks (no
   elevation); each run's process is pinned to one CPU and its instructions are totalled from the trace, counting only
   the last process to hold its pid. Rows are buffered (batch --no-flush) when both binaries have the flag.
   Linux/WSL: each run is `valgrind --tool=callgrind` with std HashMap keys pinned by an LD_PRELOAD shim.
 
-  Refuses, naming why, when the PMC tasks are absent, the trace lost events or missed a process, a run exited
-  nonzero, or any word's status or signature differs between the binaries (reported as a count; no verdict).
+  Refuses, naming why, when the PMC tasks are absent, the trace lost events, missed a process or a phase mark, a run exited
+  nonzero, callgrind collected nothing inside the parse function, the subtracted load dwarfs the parse, or any word's status or signature differs between the binaries (reported as a count; no verdict).
   Word text is never printed or kept: batch output goes to a temp directory that is deleted on exit.
 
   Verdict, from Welch's t interval (95%, two-sided) on the per-round parse counts of the two sides and a minimum
@@ -48,7 +51,9 @@ param(
     [double]$MinPercent = 0.5,
     [string[]]$BatchArgs = @(),
     [ValidateSet('auto', 'pmc', 'callgrind')][string]$Backend = 'auto',
-    [string]$PmcTaskPath = '\PanGloss\'
+    [string]$PmcTaskPath = '\PanGloss\',
+    # Subtraction only: refuse a grammar whose load is more than this many times its parse.
+    [double]$MaxLoadRatio = 4
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_instruction-compare.ps1"
@@ -92,6 +97,7 @@ try {
     if ($Backend -eq 'auto') { $Backend = if ($IsWindows) { 'pmc' } else { 'callgrind' } }
     if ($Repeats -eq 0) { $Repeats = if ($Backend -eq 'pmc') { 5 } else { 2 } }
     $python = $null
+    $direct = $Backend -eq 'callgrind'
     if ($Backend -eq 'pmc') {
         if (-not $IsWindows) { throw 'the pmc backend needs Windows; use -Backend callgrind here' }
         if ($Cpu -lt 0 -or $Cpu -ge [Environment]::ProcessorCount) { throw "-Cpu $Cpu is not one of the $([Environment]::ProcessorCount) logical processors" }
@@ -106,6 +112,8 @@ try {
         # Per-word flushes add file-system kernel work to the parsing thread, in bursts of 3M to 21M instructions on some runs (#260); both sides buffer or neither does.
         $noFlush = (Test-DescribesBatchFlag (Get-Describe $Before) '--no-flush') -and (Test-DescribesBatchFlag (Get-Describe $After) '--no-flush')
         if ($noFlush -and $BatchArgs -notcontains '--no-flush') { $BatchArgs = @($BatchArgs) + '--no-flush' }
+        $direct = (Test-DescribesBatchFlag (Get-Describe $Before) '--phase-marks') -and (Test-DescribesBatchFlag (Get-Describe $After) '--phase-marks')
+        if ($direct -and $BatchArgs -notcontains '--phase-marks') { $BatchArgs = @($BatchArgs) + '--phase-marks' }
     } else {
         if (-not (Get-Command valgrind -ErrorAction SilentlyContinue)) { throw 'valgrind is not on PATH; the callgrind backend needs it' }
         if (-not (Get-Command rustc -ErrorAction SilentlyContinue)) { throw 'rustc is not on PATH; it builds the hash-key pinning shim' }
@@ -115,7 +123,7 @@ try {
     New-Item -ItemType Directory -Force $work | Out-Null
     $emptyList = Join-Path $work 'empty.txt'
     [IO.File]::WriteAllText($emptyList, '')
-    $plan = New-MeasurementPlan -Repeats $Repeats
+    $plan = New-MeasurementPlan -Repeats $Repeats -NoStartup:$direct
     $exeOf = @{ before = $Before; after = $After }
 
     for ($g = 0; $g -lt $Grammars.Count; $g++) {
@@ -171,9 +179,9 @@ try {
         $json = & $python -I "$PSScriptRoot\instruction_compare_etl.py" $etl @($jobs | ForEach-Object Pid)
         if ($LASTEXITCODE -ne 0) { throw "trace extraction failed with exit code $LASTEXITCODE" }
         $report = $json | ConvertFrom-Json
-        Assert-TraceIntact -Report $report -Pids @($jobs | ForEach-Object Pid)
-        foreach ($job in $jobs) { $job.Instructions = [double]$report.instructions."$($job.Pid)" }
-        $backendNote = "PMC trace on CPU $Cpu, $($report.switches) context switches, 0 events lost, $($report.earlier_processes) earlier process(es) with a measured pid left out; $(if ($noFlush) { 'rows buffered (--no-flush)' } else { 'rows flushed per word: a binary lacks --no-flush, so file-system work can add outliers' }); hash keys are drawn afresh every run, so the spread averages over hash layouts"
+        Assert-TraceIntact -Report $report -Pids @($jobs | ForEach-Object Pid) -RequirePhase:$direct
+        foreach ($job in $jobs) { $job.Instructions = [double]$(if ($direct) { $report.parse_instructions."$($job.Pid)" } else { $report.instructions."$($job.Pid)" }) }
+        $backendNote = "PMC trace on CPU $Cpu, $($report.switches) context switches, 0 events lost, $($report.earlier_processes) earlier process(es) with a measured pid left out; $(if ($noFlush) { 'rows buffered (--no-flush)' } else { 'rows flushed per word: a binary lacks --no-flush, so file-system work can add outliers' }); $(if ($direct) { 'parse phase counted between the --phase-marks threads' } else { 'a binary lacks --phase-marks, so the parse is the full run minus an empty-list run' }); hash keys are drawn afresh every run, so the spread averages over hash layouts"
     } else {
         $shim = Join-Path $work 'libfixedrandom.so'
         & rustc -O --crate-type cdylib -C panic=abort "$PSScriptRoot/instruction-compare/fixed_random.rs" -o $shim 2>&1 | Out-Null
@@ -182,9 +190,10 @@ try {
         try {
             foreach ($job in $jobs) {
                 $cg = Join-Path $work "$($job.Tag).cg"
-                $launch = { param($Job) Start-BatchRun $Job.Exe $Grammars[$Job.Grammar] $Job.Words $Job.Tsv $Job.Err $Job.Out 'valgrind' @('--tool=callgrind', "--callgrind-out-file=$cg") }
+                $launch = { param($Job) Start-BatchRun $Job.Exe $Grammars[$Job.Grammar] $Job.Words $Job.Tsv $Job.Err $Job.Out 'valgrind' (@('--tool=callgrind') + (Get-CallgrindParseArguments) + @("--callgrind-out-file=$cg")) }
                 & $runJobs $job $launch
                 $job.Instructions = Get-CallgrindTotal -Lines (Get-Content -LiteralPath $cg)
+                if ($job.Instructions -le 0) { throw "callgrind collected no instructions inside Morpher::parse_word_opts for $($job.Tag); the binary lacks the symbol (stripped or inlined) or never parsed" }
             }
         } finally { Remove-Item Env:LD_PRELOAD -ErrorAction SilentlyContinue }
         foreach ($g in 0..($Grammars.Count - 1)) {
@@ -193,13 +202,14 @@ try {
                 if (-not (Test-RepeatsIdentical $vals -RelativeTolerance 5e-5)) { throw "callgrind repeats of the $s side of grammar #$($g + 1) differ by more than 0.005% although hash keys are pinned; the pinning did not act" }
             }
         }
-        $backendNote = 'valgrind callgrind totals, std HashMap keys pinned by shim. run end to end on same-build pairs of real grammars, repeats within 0.005%; no PMC (perf stat) run has cross-checked its change figures on a real change yet'
+        $backendNote = 'valgrind callgrind, collecting only inside Morpher::parse_word_opts (callees included), std HashMap keys pinned by shim. run end to end on same-build pairs of real grammars, repeats within 0.005%; no PMC (perf stat) run has cross-checked its change figures on a real change yet'
     }
 
     Write-Host "instruction-compare: before=$([IO.Path]::GetFileName($Before)) after=$([IO.Path]::GetFileName($After)) repeats=$Repeats backend=$Backend"
     Write-Host "  $backendNote"
     Write-Host "  verdict: Welch's t, 95% interval, minimum effect $MinPercent%; the instrument check (-Before X -After X) is a separate run"
-    Write-Host '  startup subtracted: each round also ran an empty word list per side; it is removed from that round''s full run'
+    if ($direct) { Write-Host '  parse phase counted directly; the grammar load is not in the figures' }
+    else { Write-Host "  startup subtracted: each round also ran an empty word list per side; it is removed from that round's full run; a load above $MaxLoadRatio times the parse is refused" }
     $verdicts = @()
     for ($g = 0; $g -lt $Grammars.Count; $g++) {
         $mine = @($jobs | Where-Object Grammar -eq $g)
@@ -207,10 +217,14 @@ try {
         foreach ($s in 'before', 'after') {
             $full = @($mine | Where-Object { $_.Side -eq $s -and $_.Kind -eq 'full' } | Sort-Object Round)
             $empty = @($mine | Where-Object { $_.Side -eq $s -and $_.Kind -eq 'empty' } | Sort-Object Round)
-            $side[$s] = [PSCustomObject]@{
-                Full = $full; Startup = ($empty | ForEach-Object Instructions | Measure-Object -Average).Average
-                StartupSpread = ($empty | ForEach-Object Instructions | Measure-Object -Maximum).Maximum - ($empty | ForEach-Object Instructions | Measure-Object -Minimum).Minimum
-                Net = Get-NetInstructions -Full ([double[]]@($full | ForEach-Object Instructions)) -Empty ([double[]]@($empty | ForEach-Object Instructions))
+            $side[$s] = if ($direct) {
+                [PSCustomObject]@{ Full = $full; Startup = $null; StartupSpread = $null; Net = [double[]]@($full | ForEach-Object Instructions) }
+            } else {
+                [PSCustomObject]@{
+                    Full = $full; Startup = ($empty | ForEach-Object Instructions | Measure-Object -Average).Average
+                    StartupSpread = ($empty | ForEach-Object Instructions | Measure-Object -Maximum).Maximum - ($empty | ForEach-Object Instructions | Measure-Object -Minimum).Minimum
+                    Net = Get-NetInstructions -Full ([double[]]@($full | ForEach-Object Instructions)) -Empty ([double[]]@($empty | ForEach-Object Instructions))
+                }
             }
         }
         $sigBefore = Read-BatchSignatures $side.before.Full[0].Tsv
@@ -224,11 +238,17 @@ try {
         $differing = $cmp.Differ + $repeatDiffs
         $skipped = { param($sig) @($sig.Values | Where-Object { $_ -like "SKIPPED`t*" }).Count }
         $problem = Get-ComparabilityProblem -Words $cmp.Words -SkippedBefore (& $skipped $sigBefore) -SkippedAfter (& $skipped $sigAfter) -RowsBefore $sigBefore.Count -RowsAfter $sigAfter.Count -InputWords $side.before.Full[0].InputWords
+        if (-not $problem -and -not $direct) {
+            foreach ($s in 'before', 'after') {
+                $problem = Get-LoadRatioProblem -Startup $side[$s].Startup -Parse (($side[$s].Net | Measure-Object -Average).Average) -MaxRatio $MaxLoadRatio
+                if ($problem) { $problem = "$s side: $problem"; break }
+            }
+        }
         $v = Get-InstructionVerdict -BeforeNet $side.before.Net -AfterNet $side.after.Net -DifferingWords $differing -MinPercent $MinPercent -Problem $problem
         $verdicts += $v.Verdict
         Write-Host ''
         Write-Host "grammar #$($g + 1) ($([IO.Path]::GetFileName($Grammars[$g]))), $($cmp.Words) words, status/signature differences: $($cmp.Differ) between sides, $repeatDiffs between repeats"
-        Write-Host "  startup mean (max-min)      before $(Format-Count $side.before.Startup) ($(Format-Count $side.before.StartupSpread))  after $(Format-Count $side.after.Startup) ($(Format-Count $side.after.StartupSpread))"
+        if (-not $direct) { Write-Host "  startup mean (max-min)      before $(Format-Count $side.before.Startup) ($(Format-Count $side.before.StartupSpread))  after $(Format-Count $side.after.Startup) ($(Format-Count $side.after.StartupSpread))" }
         Write-Host "  instructions before         $(($side.before.Net | ForEach-Object { Format-Count $_ }) -join ' | ')   mean $(Format-Count ($side.before.Net | Measure-Object -Average).Average)"
         Write-Host "  instructions after          $(($side.after.Net | ForEach-Object { Format-Count $_ }) -join ' | ')   mean $(Format-Count ($side.after.Net | Measure-Object -Average).Average)"
         if ($v.Refused) {

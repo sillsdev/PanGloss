@@ -165,7 +165,7 @@ function Invoke-PmcTask {
 
 function Assert-TraceIntact {
     # $Report is the JSON object instruction_compare_etl.py prints; $Pids are the processes whose counts are used.
-    param([Parameter(Mandatory)]$Report, [Parameter(Mandatory)][int[]]$Pids)
+    param([Parameter(Mandatory)]$Report, [Parameter(Mandatory)][int[]]$Pids, [switch]$RequirePhase)
     if ($Report.rc -ne 0) { throw "trace processing returned $($Report.rc); the trace is unreadable" }
     if ($Report.events_lost -gt 0 -or $Report.buffers_lost -gt 0) {
         throw "trace lost events ($($Report.events_lost) events, $($Report.buffers_lost) buffers); the counts would be short by an unknown amount"
@@ -176,7 +176,25 @@ function Assert-TraceIntact {
     if ($Report.gaps_on_target -gt 0) { throw "$($Report.gaps_on_target) context-switch gap(s) touched a measured process; its instruction count is incomplete" }
     foreach ($p in $Pids) {
         if ([double]$Report.instructions."$p" -le 0) { throw "no instructions attributed to measured pid $p; the trace missed the process" }
+        if ($RequirePhase) {
+            if ([int]$Report.phase."$p" -ne 2) { throw "pid $p did not run both phase marks (reached phase $($Report.phase."$p") of 2); the parse phase cannot be cut from the load. Is the binary's batch --phase-marks working?" }
+            if ([double]$Report.parse_instructions."$p" -le 0) { throw "no instructions attributed to the parse phase of pid $p" }
+        }
     }
+}
+
+function Get-LoadRatioProblem {
+    # Subtraction only: the parse count is a small difference of two large runs, so when the start-up is many times the parse its noise decides the verdict. $null when the ratio is acceptable.
+    param([Parameter(Mandatory)][double]$Startup, [Parameter(Mandatory)][double]$Parse, [double]$MaxRatio = 4)
+    if ($Parse -le 0) { return "the parse count ($('{0:N0}' -f $Parse)) is not positive beside a start-up of $('{0:N0}' -f $Startup) instructions" }
+    $ratio = $Startup / $Parse
+    if ($ratio -gt $MaxRatio) { return ('grammar load is {0:0.0} times the parse ({1:N0} against {2:N0} instructions); above {3:0.#} times the start-up noise decides the figure and the subtraction cannot resolve a change. Use binaries that list batch --phase-marks (PMC) or run callgrind, which count the parse directly' -f $ratio, $Startup, $Parse, $MaxRatio) }
+    return $null
+}
+
+function Get-CallgrindParseArguments {
+    # Collects only while `Morpher::parse_word_opts` is on the stack, callees included, so the total is the parse and the grammar load is never counted.
+    return @('--collect-atstart=no', '--toggle-collect=*parse_word_opts*')
 }
 
 function Get-CallgrindTotal {
@@ -196,13 +214,13 @@ function ConvertTo-ArgumentString {
 }
 
 function New-MeasurementPlan {
-    # Alternating order: round 1 runs Before first, round 2 After first, and so on; each side runs an empty-list and a full-list job per round.
-    param([Parameter(Mandatory)][int]$Repeats)
+    # Alternating order: round 1 runs Before first, round 2 After first, and so on; each side runs an empty-list and a full-list job per round, or only the full-list job when the parse phase is counted directly.
+    param([Parameter(Mandatory)][int]$Repeats, [switch]$NoStartup)
     $plan = @()
     for ($round = 1; $round -le $Repeats; $round++) {
         $sides = if ($round % 2 -eq 1) { @('before', 'after') } else { @('after', 'before') }
         foreach ($side in $sides) {
-            foreach ($kind in 'empty', 'full') { $plan += [PSCustomObject]@{ Round = $round; Side = $side; Kind = $kind } }
+            foreach ($kind in $(if ($NoStartup) { @('full') } else { @('empty', 'full') })) { $plan += [PSCustomObject]@{ Round = $round; Side = $side; Kind = $kind } }
         }
     }
     return $plan

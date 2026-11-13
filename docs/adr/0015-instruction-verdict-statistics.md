@@ -47,6 +47,18 @@ Windows counters the run noise is real: the same baseline and grammar printed no
   (regression), all of it on the parsing thread of the run named `after`. Swapping the names moved
   the bias with them.
 
+## Amendment (#277, #278): the parse is counted directly where the backend can
+
+The subtraction deviation above stands only for a PMC binary that cannot mark its parse. On Swahili
+(load 2.55G, parse 0.51G) and Cebuano (load 27.6G, parse 3.2G) the load's noise is larger than the
+parse, so a build against itself read +4.3% or -15%, and #272 read +3.88% on Cebuano against +0.30%
+inside `parse_word_opts`. Now callgrind collects only inside `Morpher::parse_word_opts`
+(`--toggle-collect`), and the PMC backend counts what the process runs between two phase-mark threads
+that `batch --phase-marks` starts at the edges of the parse loop (the marker this ADR named as the likely
+follow-up). Both builds must list the flag; otherwise the PMC run subtracts as before and refuses a
+grammar whose load exceeds `-MaxLoadRatio` (default 4) times its parse. The trace reader also attributes
+a context-switch gap to a process only when that process is its pid's last (#269).
+
 ## Alternatives not taken
 
 - **Counting the parse by its threads.** It is valid only at `--threads 2` or more, and that changes
