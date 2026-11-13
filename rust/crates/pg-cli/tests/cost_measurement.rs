@@ -33,11 +33,8 @@ fn parses_and_work_steps_are_identical_with_measurement_on_and_off() {
         on[1].cost.unwrap().cost() > on[0].cost.unwrap().cost(),
         "a word that applies a rule costs more than a bare root"
     );
-}
 
-#[test]
-fn allocator_calls_are_counted_and_synthetic_byte_charges_are_not() {
-    pg_cost::enable().expect("this binary installs the counting allocator");
+    // Same test: enabling measurement is process-wide, so a second test would race the off check above.
     let meter = pg_cost::Meter::start().unwrap();
     drop(std::hint::black_box(vec![0u8; 100]));
     pg_cost::charge_bytes(1_000_000);
