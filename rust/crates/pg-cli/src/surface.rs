@@ -274,6 +274,36 @@ const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
         takes_value: false,
         summary: "also enumerate alternatives for an Occurrence whose primary split is already analysed",
     },
+    FlagSpec {
+        name: "--summary-only",
+        takes_value: false,
+        summary: "omit texts[].occurrences; print resources, statistics and detection only",
+    },
+    FlagSpec {
+        name: "--reject-pattern",
+        takes_value: true,
+        summary: "regex; a token it matches is not a word (added to the profile's; the valid-character rule still applies)",
+    },
+    FlagSpec {
+        name: "--accept-word",
+        takes_value: true,
+        summary: "a word that passes the not-a-word checks anyway (repeatable; case-folded, NFC)",
+    },
+    FlagSpec {
+        name: "--accept-pattern",
+        takes_value: true,
+        summary: "regex; a token it matches passes the not-a-word checks anyway (repeatable)",
+    },
+    FlagSpec {
+        name: "--no-character-rule",
+        takes_value: false,
+        summary: "switch the valid-character rule off: tokens are skipped only by --reject-pattern or a Chapter/Verse Number style",
+    },
+    FlagSpec {
+        name: "--format",
+        takes_value: true,
+        summary: "auto (default; .usfm and .sfm files are USFM), plain or usfm; USFM keeps \\c and \\v numbers and markers out of the word list",
+    },
 ];
 
 const BATCH_FLAGS: &[FlagSpec] = &[

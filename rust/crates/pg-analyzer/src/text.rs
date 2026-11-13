@@ -3,6 +3,7 @@
 use crate::alternatives::DEFAULT_MAX_ALTERNATIVES;
 use crate::detect::{detect, Detection};
 use crate::dictionary::DictionaryPack;
+use crate::not_a_word::{self, NotAWordInfo, NotAWordReason, Rule, TokenFilter, Verdict};
 use crate::occurrence::check_occurrence;
 use crate::statistics::{summarize, Statistics};
 use crate::{analyze, ProfileInput, SegmentationProfile, StyledRun};
@@ -39,6 +40,16 @@ pub struct AnalyzeOptions {
     pub all_readings: bool,
     /// Longest form (default 64 chars) searched for suggestions; longer is `SuggestionsCapped`.
     pub max_suggestion_chars: Option<usize>,
+    /// Switch the valid-character rule off; only the reject pattern and styles skip tokens.
+    pub no_character_rule: bool,
+    /// Extra reject regex, combined with the profile's. A token it matches is not a word.
+    pub reject_pattern: Option<String>,
+    /// Words that pass anyway, added to the profile's.
+    pub accept_words: Vec<String>,
+    /// Regexes whose matches pass anyway, added to the profile's.
+    pub accept_patterns: Vec<String>,
+    /// Return statistics, detection and resources only: `texts[].occurrences` stays empty.
+    pub summary_only: bool,
 }
 
 /// Default for [`AnalyzeOptions::max_suggestion_chars`].
@@ -157,6 +168,16 @@ pub enum OccurrenceOutcome {
     Incomplete,
     /// No pack analysed it and a check never ran (no packs loaded counts).
     Unattempted,
+    /// Rejected by the reject pattern; no check ran and no other count includes it.
+    NotAWord,
+}
+
+/// The kind of character an analysed alternative splits at.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitCharacter {
+    Hyphen,
+    Apostrophe,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -192,6 +213,9 @@ pub struct OccurrenceResult {
     pub wordform: String,
     pub span: Span,
     pub outcome: OccurrenceOutcome,
+    /// Why this is not a word; set exactly when `outcome` is `not_a_word`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_a_word: Option<NotAWordInfo>,
     /// Language codes of the packs that analysed any analysed reading, in pack order.
     pub valid_languages: Vec<String>,
     /// Dictionary languages that rejected the primary split with suggestions; never a valid one.
@@ -202,6 +226,9 @@ pub struct OccurrenceResult {
     /// Primary first, then alternatives with every part analysed, then the rest.
     #[serde(default)]
     pub readings: Vec<Reading>,
+    /// Characters the first analysed alternative splits at, when only an alternative is analysed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternative_split: Vec<SplitCharacter>,
     /// Occurrence-level limits; pack limits sit on their checks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limits: Vec<LimitReason>,
@@ -225,6 +252,9 @@ pub struct TextAnalysis {
     pub resources: Vec<ResourceIdentity>,
     pub texts: Vec<TextResult>,
     pub corpus: Statistics,
+    /// The default rule that decided which tokens are not words.
+    #[serde(default)]
+    pub not_a_word_rule: Rule,
     /// Language detection over every text together.
     #[serde(default)]
     pub detection: Detection,
@@ -251,6 +281,7 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
 
     // Resolve the profile once so LDML is read once and every text shares one identity.
     let profile = analyze("", clone_input(&request.profile), &[])?.profile;
+    let filter = TokenFilter::new(&profile, &request.options)?;
     let mut remaining = request.options.max_checked_occurrences;
     let max_alternatives = request
         .options
@@ -263,10 +294,14 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
     let mut results = Vec::new();
     for input in request.texts {
         let segmented = analyze(input.text, ProfileInput::Profile(&profile), input.styles)?;
-        let occurrences: Vec<OccurrenceResult> = segmented
+        let mut occurrences: Vec<OccurrenceResult> = segmented
             .occurrences
             .into_iter()
             .map(|o| {
+                if let Some(verdict) = filter.verdict(&o.text) {
+                    let span = span_of(&o);
+                    return not_a_word::result(o.text, span, verdict);
+                }
                 let attempt = match remaining.as_mut() {
                     Some(0) => false,
                     Some(left) => {
@@ -286,10 +321,20 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
                 )
             })
             .collect();
+        occurrences.extend(segmented.labels.into_iter().map(|o| {
+            let style = Verdict {
+                reason: NotAWordReason::Style,
+                character: None,
+            };
+            not_a_word::result(o.text.clone(), span_of(&o), style)
+        }));
+        occurrences.sort_by_key(|o| o.span.code_points);
+        let statistics = summarize(&occurrences);
+        let detection = detect(&occurrences, request.dictionaries);
         results.push(TextResult {
             id: input.id.clone(),
-            statistics: summarize(&occurrences),
-            detection: detect(&occurrences, request.dictionaries),
+            statistics,
+            detection,
             occurrences,
         });
     }
@@ -322,12 +367,18 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         results.iter().flat_map(|t| t.occurrences.iter()),
         request.dictionaries,
     );
+    if request.options.summary_only {
+        for text in &mut results {
+            text.occurrences = Vec::new();
+        }
+    }
     Ok(TextAnalysis {
         schema: SCHEMA.into(),
         profile,
         resources,
         texts: results,
         corpus,
+        not_a_word_rule: filter.rule,
         detection,
     })
 }
@@ -337,5 +388,13 @@ fn clone_input<'a>(input: &ProfileInput<'a>) -> ProfileInput<'a> {
         ProfileInput::Ldml { identity, xml } => ProfileInput::Ldml { identity, xml },
         ProfileInput::Json(json) => ProfileInput::Json(json),
         ProfileInput::Profile(p) => ProfileInput::Profile(p),
+    }
+}
+
+fn span_of(o: &crate::Occurrence) -> Span {
+    Span {
+        code_points: o.code_points,
+        utf8: o.utf8,
+        utf16: o.utf16,
     }
 }

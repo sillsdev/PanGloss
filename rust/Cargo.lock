@@ -732,10 +732,12 @@ dependencies = [
  "pg-grammar",
  "pg-parse",
  "quick-xml",
+ "regex",
  "serde",
  "serde_json",
  "sha2",
  "spellbook",
+ "unicode-normalization",
 ]
 
 [[package]]

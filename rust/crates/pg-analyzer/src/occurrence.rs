@@ -4,7 +4,7 @@ use crate::alternatives::{generate, part_span};
 use crate::dictionary::{DictionaryPack, Verdict};
 use crate::text::{
     CheckStatus, EvidenceKind, LanguagePack, LimitReason, OccurrenceOutcome, OccurrenceResult,
-    PackCheck, Part, Reading, ReadingKind, Span,
+    PackCheck, Part, Reading, ReadingKind, Span, SplitCharacter,
 };
 use pg_parse::{ParseOptions, ParseOutcome};
 
@@ -63,6 +63,15 @@ pub(crate) fn check_occurrence(
     readings.extend(alternatives);
 
     let primary_analysed = readings[0].analysed;
+    let alternative_split = if primary_analysed {
+        Vec::new()
+    } else {
+        readings
+            .iter()
+            .find(|r| r.analysed)
+            .map(|r| split_characters(&occurrence.text, &span, r))
+            .unwrap_or_default()
+    };
     let mut valid: Vec<(usize, &str)> = readings
         .iter()
         .filter(|r| r.analysed)
@@ -118,6 +127,8 @@ pub(crate) fn check_occurrence(
         wordform: occurrence.text,
         span,
         outcome,
+        not_a_word: None,
+        alternative_split,
         valid_languages,
         misspelled_languages,
         checks,
@@ -262,4 +273,33 @@ fn limits(outcome: &ParseOutcome) -> Vec<LimitReason> {
     .into_iter()
     .filter_map(|(present, reason)| present.then_some(reason))
     .collect()
+}
+
+/// Hyphens and apostrophes an alternative splits at: dropped, or ending a part that is not last.
+fn split_characters(word: &str, origin: &Span, reading: &Reading) -> Vec<SplitCharacter> {
+    let chars: Vec<char> = word.chars().collect();
+    let covered: Vec<(usize, usize)> = reading
+        .parts
+        .iter()
+        .map(|p| {
+            (
+                p.span.code_points[0] - origin.code_points[0],
+                p.span.code_points[1] - origin.code_points[0],
+            )
+        })
+        .collect();
+    let mut found = Vec::new();
+    for (at, c) in chars.iter().enumerate() {
+        let kind = match c {
+            '-' | '\u{2010}' | '\u{2011}' => SplitCharacter::Hyphen,
+            '\'' | '\u{2018}' | '\u{2019}' => SplitCharacter::Apostrophe,
+            _ => continue,
+        };
+        let dropped = !covered.iter().any(|&(a, b)| a <= at && at < b);
+        let part_end = covered.iter().any(|&(_, b)| b == at + 1) && at + 1 < chars.len();
+        if (dropped || part_end) && !found.contains(&kind) {
+            found.push(kind);
+        }
+    }
+    found
 }

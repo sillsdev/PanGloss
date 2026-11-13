@@ -6,8 +6,10 @@ use std::collections::BTreeSet;
 pub(crate) fn from_ldml(identity: &str, xml: &str) -> Result<SegmentationProfile, String> {
     let mut reader = Reader::from_str(xml);
     let mut in_main = false;
+    let mut in_aux = false;
     let mut found = false;
     let mut pattern = String::new();
+    let mut aux_pattern = String::new();
     let mut depth = 0usize;
     let mut root = false;
     loop {
@@ -36,15 +38,21 @@ pub(crate) fn from_ldml(identity: &str, xml: &str) -> Result<SegmentationProfile
         match event {
             Event::Start(e) if e.name().as_ref() == b"exemplarCharacters" => {
                 let mut main = true;
+                let mut aux = false;
                 let mut alternate = false;
                 for attr in e.attributes() {
                     let attr = attr.map_err(|e| e.to_string())?;
                     if attr.key.as_ref() == b"type" {
-                        main = attr.unescape_value().map_err(|e| e.to_string())? == "main";
+                        let kind = attr.unescape_value().map_err(|e| e.to_string())?;
+                        main = kind == "main";
+                        aux = kind == "auxiliary";
                     }
                     if attr.key.as_ref() == b"alt" || attr.key.as_ref() == b"draft" {
                         alternate = true;
                     }
+                }
+                if aux && !alternate {
+                    in_aux = true;
                 }
                 if main && !alternate {
                     if found {
@@ -57,8 +65,12 @@ pub(crate) fn from_ldml(identity: &str, xml: &str) -> Result<SegmentationProfile
             Event::Text(e) if in_main => {
                 pattern.push_str(&e.unescape().map_err(|e| e.to_string())?)
             }
-            Event::End(e) if e.name().as_ref() == b"exemplarCharacters" && in_main => {
-                in_main = false
+            Event::Text(e) if in_aux => {
+                aux_pattern.push_str(&e.unescape().map_err(|e| e.to_string())?)
+            }
+            Event::End(e) if e.name().as_ref() == b"exemplarCharacters" && (in_main || in_aux) => {
+                in_main = false;
+                in_aux = false;
             }
             Event::Eof => {
                 if depth != 0 || !root {
@@ -74,11 +86,20 @@ pub(crate) fn from_ldml(identity: &str, xml: &str) -> Result<SegmentationProfile
     } else {
         Vec::new()
     };
+    let auxiliary = if aux_pattern.is_empty() {
+        Vec::new()
+    } else {
+        parse_set(&aux_pattern)?
+    };
     Ok(SegmentationProfile {
         version: 1,
+        auxiliary,
         source_id: identity.into(),
         source_sha256: format!("{:x}", Sha256::digest(xml.as_bytes())),
         word_forming,
+        reject_pattern: None,
+        accept_words: Vec::new(),
+        accept_patterns: Vec::new(),
     })
 }
 
