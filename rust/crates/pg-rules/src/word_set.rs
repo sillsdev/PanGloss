@@ -130,28 +130,23 @@ impl WordSet {
     pub fn into_vec(self) -> Vec<Word> {
         self.words
     }
-
-    /// The words in first-insertion order, each moved out as it is reached; see [`Releasing`].
-    pub fn into_releasing(self) -> Releasing {
-        Releasing::new(self.words)
-    }
 }
 
 /// Below this many words a buffer is not worth giving back early.
 const RELEASE_MIN_WORDS: usize = 4096;
 
 /// Moves the words of a buffer out front to back and gives the buffer's memory back as it empties, where `Vec::into_iter` holds the whole buffer until the last word is taken.
-pub struct Releasing(Rest);
+pub struct Releasing<T = Word>(Rest<T>);
 
-enum Rest {
+enum Rest<T> {
     /// A buffer too small to be worth giving back early: the plain iterator.
-    Whole(std::vec::IntoIter<Word>),
+    Whole(std::vec::IntoIter<T>),
     /// The words still to yield, last first, so the next one pops off the end and the buffer can shrink behind it.
-    Reversed(Vec<Word>),
+    Reversed(Vec<T>),
 }
 
-impl Releasing {
-    pub fn new(mut words: Vec<Word>) -> Self {
+impl<T> Releasing<T> {
+    pub fn new(mut words: Vec<T>) -> Self {
         if words.len() < RELEASE_MIN_WORDS {
             return Releasing(Rest::Whole(words.into_iter()));
         }
@@ -160,10 +155,10 @@ impl Releasing {
     }
 }
 
-impl Iterator for Releasing {
-    type Item = Word;
+impl<T> Iterator for Releasing<T> {
+    type Item = T;
 
-    fn next(&mut self) -> Option<Word> {
+    fn next(&mut self) -> Option<T> {
         match &mut self.0 {
             Rest::Whole(words) => words.next(),
             Rest::Reversed(rest) => {

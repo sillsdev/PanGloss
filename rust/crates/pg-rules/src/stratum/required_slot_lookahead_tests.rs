@@ -165,8 +165,8 @@ fn run_shared(g: &Grammar, mode: RequiredSlotLookahead, text: &str) -> (Vec<Vec<
     );
     let keys = a
         .shared_slot_battery(&input)
-        .iter()
-        .map(|words| words.iter().map(Word::dedup_key).collect())
+        .into_iter()
+        .map(|words| words.into_vec().iter().map(Word::dedup_key).collect())
         .collect();
     (keys, budget.work_steps())
 }

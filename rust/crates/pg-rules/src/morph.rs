@@ -926,14 +926,17 @@ fn full_lanes(g: &Grammar) -> Vec<u64> {
 
 /// Fit a lane row to width `W`: truncate extra, pad missing with `full_mask` (unconstrained).
 fn fit(g: &Grammar, lanes: &[u64]) -> Vec<u64> {
-    let w = feat_width(g);
-    let mut out = full_lanes(g);
-    for (i, slot) in out.iter_mut().enumerate().take(w) {
-        if let Some(&l) = lanes.get(i) {
-            *slot = l;
-        }
-    }
+    let mut out = Vec::new();
+    fit_into(g, lanes, &mut out);
     out
+}
+
+/// `fit` written over `out`, so a caller fitting one row after another keeps one buffer.
+fn fit_into(g: &Grammar, lanes: &[u64], out: &mut Vec<u64>) {
+    out.clear();
+    out.extend(
+        (0..feat_width(g)).map(|f| lanes.get(f).copied().unwrap_or_else(|| full_mask(g, f))),
+    );
 }
 
 /// Driver lanes for a char-def, `full_mask` for unmentioned/boundary lanes; `table` is the rule's own owning table, never an implicit default.
@@ -1133,8 +1136,10 @@ struct OutNode {
 fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
     let w = feat_width(g) as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, nodes.len());
+    // One row buffer for every node: a row is copied into the shape, never kept.
+    let mut lanes = Vec::new();
     for (i, n) in nodes.iter().enumerate() {
-        let lanes = fit(g, &n.lanes);
+        fit_into(g, &n.lanes, &mut lanes);
         match n.kind {
             // Class insertions carry their real cd_set; a concrete segment's own char_def is already the identity, so `n.cd_set` goes unread there.
             NodeKind::Segment if n.char_def == NO_CHAR_DEF => {
@@ -1158,7 +1163,7 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
         let mut m = ShapeBuilder::from_shape(&shape);
         for idx in optional_positions {
             let n = &nodes[idx - 1];
-            let lanes = fit(g, &n.lanes);
+            fit_into(g, &n.lanes, &mut lanes);
             m.delete(idx);
             if n.char_def == NO_CHAR_DEF {
                 m.insert_with_set(

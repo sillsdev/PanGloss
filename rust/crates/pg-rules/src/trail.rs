@@ -15,13 +15,60 @@ use pg_grammar_model::model::{AllomorphId, MRuleId};
 #[derive(Clone, Default)]
 pub struct Trail(Option<Rc<Step>>);
 
+/// One step, packed so that the step and its reference counts fit a 40-byte allocation: a heavy word holds a step for every word of its search.
 struct Step {
     parent: Trail,
-    rule: Option<MRuleId>,
-    allomorph: Option<AllomorphId>,
-    slot: bool,
-    /// Slots up to and including this step.
-    slots: u32,
+    /// Meaningful only with `HAS_RULE`.
+    rule: u32,
+    /// Meaningful only with `HAS_ALLOMORPH`.
+    allomorph: u32,
+    /// The slots up to and including this step, with the three flags above them.
+    packed: u32,
+}
+
+const IS_SLOT: u32 = 1 << 31;
+const HAS_RULE: u32 = 1 << 30;
+const HAS_ALLOMORPH: u32 = 1 << 29;
+const SLOTS: u32 = HAS_ALLOMORPH - 1;
+
+impl Step {
+    fn new(
+        rule: Option<MRuleId>,
+        allomorph: Option<AllomorphId>,
+        is_slot: bool,
+        slots: usize,
+    ) -> Self {
+        let slots = u32::try_from(slots)
+            .ok()
+            .filter(|&slots| slots <= SLOTS)
+            .expect("a trail holds fewer than 2^29 slots");
+        let flag = |on: bool, bit: u32| if on { bit } else { 0 };
+        Step {
+            parent: Trail::default(),
+            rule: rule.map_or(0, |id| id.0),
+            allomorph: allomorph.map_or(0, |id| id.0),
+            packed: slots
+                | flag(is_slot, IS_SLOT)
+                | flag(rule.is_some(), HAS_RULE)
+                | flag(allomorph.is_some(), HAS_ALLOMORPH),
+        }
+    }
+
+    fn rule(&self) -> Option<MRuleId> {
+        (self.packed & HAS_RULE != 0).then_some(MRuleId(self.rule))
+    }
+
+    fn allomorph(&self) -> Option<AllomorphId> {
+        (self.packed & HAS_ALLOMORPH != 0).then_some(AllomorphId(self.allomorph))
+    }
+
+    fn is_slot(&self) -> bool {
+        self.packed & IS_SLOT != 0
+    }
+
+    fn slots(&self) -> u32 {
+        self.packed & SLOTS
+    }
 }
 
 /// The slot entries only, as the dedup key compares them; count-only steps are invisible here.
@@ -32,7 +79,7 @@ type Node = Option<Rc<Step>>;
 
 fn skip_count_only(mut node: &Node) -> &Node {
     while let Some(step) = node {
-        if step.slot {
+        if step.is_slot() {
             break;
         }
         node = &step.parent.0;
@@ -54,7 +101,7 @@ impl Trail {
 
     /// The number of slots.
     pub fn len(&self) -> usize {
-        self.0.as_ref().map_or(0, |step| step.slots as usize)
+        self.0.as_ref().map_or(0, |step| step.slots() as usize)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -63,26 +110,12 @@ impl Trail {
 
     /// Appends one slot and counts `rule` as unapplied when it is known.
     pub fn push(&mut self, rule: Option<MRuleId>, allomorph: Option<AllomorphId>) {
-        let slots = self.len() as u32 + 1;
-        self.link(Step {
-            parent: Trail::default(),
-            rule,
-            allomorph,
-            slot: true,
-            slots,
-        });
+        self.link(Step::new(rule, allomorph, true, self.len() + 1));
     }
 
     /// Counts `rule` as unapplied without occupying a slot.
     pub fn push_count_only(&mut self, rule: MRuleId) {
-        let slots = self.len() as u32;
-        self.link(Step {
-            parent: Trail::default(),
-            rule: Some(rule),
-            allomorph: None,
-            slot: false,
-            slots,
-        });
+        self.link(Step::new(Some(rule), None, false, self.len()));
     }
 
     fn link(&mut self, mut step: Step) {
@@ -95,7 +128,7 @@ impl Trail {
         let mut count = 0;
         let mut node = &self.0;
         while let Some(step) = node {
-            count += u32::from(step.rule == Some(rule));
+            count += u32::from(step.rule() == Some(rule));
             node = &step.parent.0;
         }
         count
@@ -107,8 +140,8 @@ impl Trail {
         std::iter::from_fn(move || {
             while let Some(step) = node {
                 node = &step.parent.0;
-                if step.rule.is_some() {
-                    return step.rule;
+                if step.rule().is_some() {
+                    return step.rule();
                 }
             }
             None
@@ -120,7 +153,7 @@ impl Trail {
         let mut counts = BTreeMap::new();
         let mut node = &self.0;
         while let Some(step) = node {
-            if let Some(rule) = step.rule {
+            if let Some(rule) = step.rule() {
                 *counts.entry(rule).or_insert(0) += 1;
             }
             node = &step.parent.0;
@@ -135,7 +168,7 @@ impl Trail {
         let want = idx as u32 + 1;
         let mut node = &self.0;
         while let Some(step) = node {
-            if step.slot && step.slots == want {
+            if step.is_slot() && step.slots() == want {
                 return Some(step);
             }
             node = &step.parent.0;
@@ -145,12 +178,12 @@ impl Trail {
 
     /// The rule of slot `idx`, oldest first; `Some(None)` is a slot with no known rule.
     pub fn rule(&self, idx: usize) -> Option<Option<MRuleId>> {
-        self.slot_step(idx).map(|step| step.rule)
+        self.slot_step(idx).map(Step::rule)
     }
 
     /// The allomorph of slot `idx`, oldest first.
     pub fn allomorph(&self, idx: usize) -> Option<Option<AllomorphId>> {
-        self.slot_step(idx).map(|step| step.allomorph)
+        self.slot_step(idx).map(Step::allomorph)
     }
 
     /// The rule of the newest slot.
@@ -201,7 +234,7 @@ impl Trail {
                     if Rc::ptr_eq(x, y) {
                         return true;
                     }
-                    if x.rule != y.rule || x.allomorph != y.allomorph {
+                    if x.rule() != y.rule() || x.allomorph() != y.allomorph() {
                         return false;
                     }
                     a = skip_count_only(&x.parent.0);
@@ -222,7 +255,7 @@ impl Iterator for SlotsRev<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         let step = self.0.as_ref()?;
         self.0 = skip_count_only(&step.parent.0);
-        Some((step.rule, step.allomorph))
+        Some((step.rule(), step.allomorph()))
     }
 }
 
@@ -236,7 +269,10 @@ impl PartialEq for Trail {
                     if Rc::ptr_eq(x, y) {
                         return true;
                     }
-                    if x.rule != y.rule || x.allomorph != y.allomorph || x.slot != y.slot {
+                    if x.rule() != y.rule()
+                        || x.allomorph() != y.allomorph()
+                        || x.is_slot() != y.is_slot()
+                    {
                         return false;
                     }
                     a = &x.parent.0;
