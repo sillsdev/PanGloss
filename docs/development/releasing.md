@@ -40,6 +40,9 @@ A release is two steps and a PR; nothing commits to local `main`. Keep the relea
 Exit codes: 30 dirty tree, 31 origin/main or release-branch problem, 32 managed check failed, 33
 version or changelog refusal, 34 existing tag, 35 push or PR failure.
 
+If `-Prepare` fails after it created `release/vX.Y.Z` (exit 32 or 33), the tree may be dirty on that branch.
+Restore it, switch back (`git switch -`), and delete the local branch (`git branch -D release/vX.Y.Z`) before re-running.
+
 The merge to `main` starts Rust CI. The tag push starts `.github/workflows/release.yml`, which waits for
 Rust CI on that commit. Before building, release preflight confirms the tag commit is reachable
 from `origin/main`, the tag is annotated and matches the workspace version, `Cargo.lock` passes

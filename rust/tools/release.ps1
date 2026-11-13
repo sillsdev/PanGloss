@@ -172,7 +172,8 @@ function Get-WorkspaceVersionFromToml([string]$Text) {
 }
 
 function Test-ChangelogSection([string]$Text, [string]$SectionVersion) {
-    return [bool]($Text -match ('(?m)^##\s+' + [regex]::Escape($SectionVersion) + '\s*$'))
+    # Exact line match, like CI's grep -Fx: no trailing space, no CR.
+    return (($Text -split "`n") -ccontains "## $SectionVersion")
 }
 
 function Invoke-Git([string[]]$GitArguments) {
@@ -209,11 +210,18 @@ function Invoke-TagPhase {
     if ($tipVersion -cne $Version) {
         Write-Refusal 'version' "origin/main's workspace version is '$tipVersion', not $Version; merge the release PR first, or a later release has superseded it" 33
     }
+    if ((Invoke-Git @('rev-parse', '--is-shallow-repository')).Output -ne 'false') {
+        Write-Refusal 'clone' 'this is a shallow clone (or shallowness could not be checked); the release commit cannot be found. Run git fetch --unshallow' 31
+    }
     # The release commit is the oldest first-parent commit of the run that carries this version.
     $release = $tip
     foreach ($parent in (Invoke-Git @('rev-list', '--first-parent', '--skip=1', $tip)).Output -split "`n") {
         if (-not $parent) { break }
-        if ((Get-WorkspaceVersionFromToml (Get-CommitFile $parent 'rust/Cargo.toml')) -cne $Version) { break }
+        $parentVersion = Get-WorkspaceVersionFromToml (Get-CommitFile $parent 'rust/Cargo.toml')
+        if ($null -eq $parentVersion) {
+            Write-Refusal 'version' "could not read the workspace version at $parent while finding the release commit" 33
+        }
+        if ($parentVersion -cne $Version) { break }
         $release = $parent
     }
     $notes = Get-CommitFile $release 'CHANGELOG.md'
@@ -274,6 +282,11 @@ if (-not $hasSection -and -not $hasUnreleased) {
 }
 if ($null -eq (Get-CommitFile $remoteMain 'rust/Cargo.lock')) { Write-Refusal 'lockfile' 'rust/Cargo.lock is missing before the managed refresh' 33 }
 
+$gh = if ($env:PG_RELEASE_GH) { $env:PG_RELEASE_GH } else { 'gh' }
+if (-not $NoPush -and -not (Get-Command $gh -ErrorAction SilentlyContinue)) {
+    Write-Refusal 'gh' "cannot run '$gh'; install the GitHub CLI or pass -NoPush" 35
+}
+
 $changelogPlan = if ($hasSection) { "keep '## $Version'" } else { "rename '## Unreleased' to '## $Version'" }
 Write-Host "[release] preflight green: origin/main=$remoteMain, version $baseVersion -> $Version, changelog: $changelogPlan"
 if ($DryRun) {
@@ -281,6 +294,7 @@ if ($DryRun) {
     exit 0
 }
 
+$previousRef = (Invoke-Git @('rev-parse', '--abbrev-ref', 'HEAD')).Output
 $switched = Invoke-Git @('switch', '--quiet', '--no-track', '-c', $releaseBranch, $remoteMain)
 if ($switched.ExitCode -ne 0) { Write-Refusal 'branch' "could not create $releaseBranch from origin/main: $($switched.Output)" 31 }
 Write-Host "[release] created $releaseBranch from origin/main ($remoteMain)"
@@ -288,8 +302,14 @@ Write-Host "[release] created $releaseBranch from origin/main ($remoteMain)"
 if (-not $hasSection) {
     $changelogText = [System.IO.File]::ReadAllText($changelog)
     $stamp = Get-Date -Format 'yyyy-MM-dd'
-    $heading = [regex]::new('(?m)^##[ \t]+Unreleased[ \t]*(?<eol>\r?\n)(?:\r?\n)?')
-    $renamed = $heading.Replace($changelogText, { param($m) $e = $m.Groups['eol'].Value; "## $Version$e${e}Released $stamp.$e$e" }, 1)
+    $heading = [regex]::new('(?m)^##[ \t]+Unreleased[ \t]*(?<eol>\r?\n|\z)(?:\r?\n)?')
+    $renamed = $heading.Replace($changelogText, { param($m) $e = $m.Groups['eol'].Value; if (-not $e) { $e = "`n" }; "## $Version$e${e}Released $stamp.$e$e" }, 1)
+    if (-not (Test-ChangelogSection $renamed $Version)) {
+        # Nothing is written yet: leave the tree as found.
+        Invoke-Git @('switch', '--quiet', $previousRef) | Out-Null
+        Invoke-Git @('branch', '-D', $releaseBranch) | Out-Null
+        Write-Refusal 'changelog' "renaming '## Unreleased' did not produce an exact '## $Version' line (CI needs LF endings and no trailing spaces)" 33
+    }
     [System.IO.File]::WriteAllText($changelog, $renamed, [System.Text.UTF8Encoding]::new($false))
 }
 
@@ -387,10 +407,7 @@ $prBody = @"
 Cuts $releaseTag. The branch stamps the workspace version and Cargo.lock to $Version and holds the ``## $Version`` section of CHANGELOG.md (released $(Get-Date -Format 'yyyy-MM-dd')).
 
 After a squash merge, tag the merged commit: ``pwsh -NoProfile -File rust/tools/release.ps1 -Tag -Version $Version -Push``.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 "@
-$gh = if ($env:PG_RELEASE_GH) { $env:PG_RELEASE_GH } else { 'gh' }
 Push-Location $repoRoot
 try {
     $prOutput = & $gh pr create --base main --head $releaseBranch --title "release: $releaseTag" --body $prBody 2>&1 | ForEach-Object { "$_" }

@@ -13,7 +13,7 @@ function Invoke-TestGit {
 }
 
 function New-ReleaseFixture {
-    param([ValidateSet('Unreleased', 'Missing', 'Existing')][string]$ChangelogKind = 'Unreleased', [switch]$RealCargo)
+    param([ValidateSet('Unreleased', 'Missing', 'Existing')][string]$ChangelogKind = 'Unreleased', [switch]$RealCargo, [string]$ChangelogText)
     $root = New-TestTempDir 'pg-release-test'
     $repository = Join-Path $root 'checkout'
     $remote = Join-Path $root 'origin.git'
@@ -48,6 +48,7 @@ version = "0.6.2"
         'Existing' { "# Changelog`n`n## Unreleased`n`nLater notes`n`n## 0.7.0`n`nRelease notes`n`n## 0.6.2`n`nEarlier release`n" }
         default { "# Changelog`n`n## Unreleased`n`nRelease notes`n`n## 0.6.2`n`nEarlier release`n" }
     }
+    if ($ChangelogText) { $changelog = $ChangelogText }
     [System.IO.File]::WriteAllText((Join-Path $repository 'rust\Cargo.toml'), $manifest, [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::WriteAllText((Join-Path $repository 'rust\Cargo.lock'), $lock, [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::WriteAllText((Join-Path $repository 'CHANGELOG.md'), $changelog, [System.Text.UTF8Encoding]::new($false))
@@ -240,7 +241,7 @@ Test-Case 'prepare pushes the branch and opens a PR through gh' {
         Assert-True ($ghArgs -match '(?m)^release: v0\.7\.0\r?$') 'PR title must be the release subject'
         Assert-True ($ghArgs -match '(?m)^release/v0\.7\.0\r?$') 'PR head must be the release branch'
         Assert-True ($ghArgs -match '## 0\.7\.0') 'PR body must name the changelog section'
-        Assert-True ($ghArgs -match 'Generated with \[Claude Code\]\(https://claude\.com/claude-code\)') 'PR body must end with the attribution line'
+        Assert-True ($ghArgs -notmatch 'Generated with') 'PR body must carry no tool attribution'
     } finally { Remove-ReleaseFixture $fixture }
 }
 
@@ -507,6 +508,82 @@ Test-Case 'tag is refused when the tag already exists locally or on origin' {
         $remote = Invoke-ReleaseScript -Repository $fixture.Repository -Mode Tag
         Assert-Equal 34 $remote.ExitCode $remote.Output
         Assert-True ($remote.Output -match 'already exists on origin') 'refusal must name the remote tag'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'Unreleased as the last line with no trailing newline is renamed' {
+    $fixture = New-ReleaseFixture -ChangelogText "# Changelog`n`n## 0.6.2`n`nEarlier`n`n## Unreleased"
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 0 $result.ExitCode $result.Output
+        $lines = (Get-Content (Join-Path $fixture.Repository 'CHANGELOG.md') -Raw) -split "`n"
+        Assert-True ($lines -ccontains '## 0.7.0') 'exact version heading must exist'
+        Assert-True ($lines -cnotcontains '## Unreleased') 'Unreleased must be gone'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'only the first of two Unreleased headings is renamed' {
+    $fixture = New-ReleaseFixture -ChangelogText "# Changelog`n`n## Unreleased`n`nA`n`n## Unreleased`n`nB`n"
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 0 $result.ExitCode $result.Output
+        $text = Get-Content (Join-Path $fixture.Repository 'CHANGELOG.md') -Raw
+        Assert-Equal 1 ([regex]::Matches($text, '(?m)^## 0\.7\.0$').Count)
+        Assert-Equal 1 ([regex]::Matches($text, '(?m)^## Unreleased$').Count)
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'a CRLF changelog is refused before any branch exists, since CI needs LF lines' {
+    $fixture = New-ReleaseFixture -ChangelogText "# Changelog`r`n`r`n## Unreleased`r`n`r`nNotes`r`n"
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 33 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match "exact '## 0\.7\.0' line") 'refusal must name the exact heading'
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('branch', '--list', 'release/v0.7.0')) 'the release branch must be removed'
+        Assert-Equal 'main' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', '--abbrev-ref', 'HEAD')) 'must switch back'
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('status', '--porcelain')) 'tree must stay clean'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'prepare with a missing gh is refused with 35 before any branch is created' {
+    $fixture = New-ReleaseFixture
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository -Publish -Gh (Join-Path $fixture.Root 'no-such-gh.ps1')
+        Assert-Equal 35 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'cannot run') 'refusal must say gh cannot run'
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('branch', '--list', 'release/v0.7.0'))
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'tag is refused in a shallow clone' {
+    $fixture = New-ReleaseFixture
+    try {
+        Assert-Equal 0 (Invoke-ReleaseScript -Repository $fixture.Repository).ExitCode
+        Merge-ReleaseBranch -Fixture $fixture -LaterCommit | Out-Null
+        $shallow = Join-Path $fixture.Root 'shallow'
+        Invoke-TestGit -Repository $fixture.Root -Arguments @('clone', '--quiet', '--depth', '1', '--branch', 'main', ('file://' + ($fixture.Remote -replace '\\', '/')), $shallow) | Out-Null
+        $result = Invoke-ReleaseScript -Repository $shallow -Mode Tag
+        Assert-Equal 31 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'shallow') 'refusal must name the shallow clone'
+        Assert-Equal '' (Invoke-TestGit -Repository $shallow -Arguments @('tag', '--list'))
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'tag is refused when the walk reaches a commit with an unreadable workspace version' {
+    $fixture = New-ReleaseFixture
+    try {
+        $manifestPath = Join-Path $fixture.Repository 'rust\Cargo.toml'
+        $original = Get-Content $manifestPath -Raw
+        [System.IO.File]::WriteAllText($manifestPath, ($original -replace 'version = "0\.6\.2"', 'version = 0.6.2'), [System.Text.UTF8Encoding]::new($false))
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('commit', '-a', '-m', 'reformat version') | Out-Null
+        [System.IO.File]::WriteAllText($manifestPath, ($original -replace '0\.6\.2', '0.7.0'), [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText((Join-Path $fixture.Repository 'CHANGELOG.md'), "# Changelog`n`n## 0.7.0`n`nNotes`n", [System.Text.UTF8Encoding]::new($false))
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('commit', '-a', '-m', 'stamp') | Out-Null
+        Invoke-TestGit -Repository $fixture.Repository -Arguments @('push', 'origin', 'main') | Out-Null
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository -Mode Tag
+        Assert-Equal 33 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match 'could not read the workspace version') 'refusal must say the walk hit an unreadable version'
+        Assert-Equal '' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('tag', '--list'))
     } finally { Remove-ReleaseFixture $fixture }
 }
 
