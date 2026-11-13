@@ -25,12 +25,32 @@ fn the_sample_is_evenly_spaced_distinct_and_split_into_warm_up_and_candidates() 
     }
 }
 
+/// `batch` with its bare roots replaced by doubled roots, so half the words have no analysis.
+///
+/// The tiled stage then saves about twice what its walk costs, instead of sitting within a few percent of break-even, so
+/// a small change in what parsing allocates cannot flip it. (Which words calibrate depends on the order by design: the
+/// sample is evenly spaced by index and calibration stops early once the saving is four times the filter cost.)
+fn mostly_unexplained(count: usize) -> Vec<String> {
+    let roots = ["pat", "pit", "put", "lat", "lit"];
+    batch(count)
+        .into_iter()
+        .enumerate()
+        .map(|(i, w)| {
+            if i % 6 == 0 {
+                format!("{0}{0}", roots[i % roots.len()])
+            } else {
+                w
+            }
+        })
+        .collect()
+}
+
 #[test]
 fn a_batch_ordered_cheap_first_gets_the_decision_of_the_same_words_mixed() {
     let g = affix_grammar();
     let morpher = Morpher::new(&g, 2_000_000);
     let opts = ParseOptions::default();
-    let mixed = batch(ON);
+    let mixed = mostly_unexplained(ON);
     let mut ordered = mixed.clone();
     ordered.sort_by_key(|w| (parse_cost(&morpher.parse_word_opts(w, &opts)), w.clone()));
     assert_ne!(ordered, mixed);
