@@ -3,7 +3,9 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
+## 0.19.4
+
+Released 2026-11-13.
 
 Parser work now counts allocator calls and weighs them, which fixes the over-prediction on Cebuano's heavy words: on the ceb.fwdata words costing 20M instructions or more (callgrind), the predicted total moves from +27.6% to +1.0% of the measured one. The weights are 200 per work unit, 1.25 per byte requested and 150 per allocator call (alloc, realloc, alloc_zeroed), replacing 113 / 2 / 45 over work, bytes and FST registers copied; registers are still counted, at weight 0, because once allocator calls are in they add nothing. Parses, analyses, their order and `work_steps` are identical (checked on Amharic 673 words, Mbugwe 1,645, Swahili 6,346, Cebuano 5,000 at a 2M cap).
 
