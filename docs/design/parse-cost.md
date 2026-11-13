@@ -206,25 +206,31 @@ predicted with mean / worst error 0.47 / 1.30 points by 113 / 2 / 45 and 0.46 / 
 on 6 of 6 grammars that moved.
 
 **Checked against the Windows counters, 2026-11-13.** The same pair and the same samples (`rslbefore` is the `after` build with
-look-ahead off, read from the executable name), `instruction-compare.ps1` on the PMC counters, 5 rounds; the control (a build against
-itself) read no change or INCONCLUSIVE on all nine. Swahili fwdata and cebuano.json were refused: their load dwarfs their parse.
-Change of each grammar's total, measured on Windows against the change the weights predict from the counts (error in points):
+look-ahead off, read from the executable name), `instruction-compare.ps1` on the PMC counters, 5 rounds. Raw output, kept beside the
+callgrind runs in scratch: `save/win-pmc-pair.txt` (and `.raw`), `save/win-pmc-control.txt` (and `.raw`), `save/win-rslbefore-patch.diff`,
+and the predictions from `save/callgrind-rsl-retune.out`. The control (a build against itself) read no change or INCONCLUSIVE
+on every grammar except Swahili json, where it read NO-GO (regression), so that row is not evidence. cebuano.json was refused: its
+load dwarfs its parse. An earlier run of the same pair read within PMC noise of this one (Mbugwe -12.45%, Sena -0.97%, Swahili
+-4.10%) but its output was not kept, so only this run is quoted. Change of each grammar's total, measured on Windows against the
+change the weights predict from the counts (error in points):
 
 | Grammar | Windows | 113 / 2 / 45 | 200 / 1.25 / 0 / 150 |
 |---|---|---|---|
-| Indonesian | +0.08% N | 0.00% (0.08) | 0.00% (0.08) |
-| Aweti | -0.24% I | -1.02% (0.78) | -1.02% (0.78) |
-| Amharic | -1.55% GO | -1.43% (0.12) | -1.43% (0.12) |
-| Mbugwe | -12.45% GO | -10.73% (1.72) | -10.77% (1.68) |
-| Sena | -0.97% I | -1.13% (0.16) | -1.15% (0.18) |
-| Swahili (held out) | -4.10% GO | -1.97% (2.13) | -2.02% (2.08) |
-| ceb.fwdata (held out) | +0.44% I | -0.06% (0.50) | -0.06% (0.50) |
+| Indonesian | +0.23% N | 0.00% (0.23) | 0.00% (0.23) |
+| Aweti | -0.55% I | -1.02% (0.47) | -1.02% (0.47) |
+| Amharic | -1.52% GO | -1.43% (0.09) | -1.43% (0.09) |
+| Mbugwe | -12.55% GO | -10.73% (1.82) | -10.77% (1.78) |
+| Sena | -2.37% GO | -1.13% (1.24) | -1.15% (1.22) |
+| Swahili json (held out, control failed) | -1.96% I | -1.97% (0.01) | -2.02% (0.06) |
+| swh.fwdata (held out) | -0.98% I | -0.40% (0.58) | -0.42% (0.56) |
+| ceb.fwdata (held out) | +0.12% I | -0.06% (0.18) | -0.06% (0.18) |
 
-Mean error 0.78 points with the old weights, 0.77 with the new. The Windows counters do not disagree with the callgrind fit: the ratio of
-Windows instructions to predicted cost over the words, per grammar, is more even with the new weights. Over the seven grammars with a count (not swh.fwdata or
-cebuano.json) the ratios are 1.27 to 2.28 (coefficient of variation 19%) with 113 / 2 / 45 and 1.59 to 2.09 (9%) with
-the new weights, and ceb.fwdata moves from 31% below the other grammars' mean to 15% below. The level is about 1.8 times
-callgrind's, as before. No per-word Windows count exists, so the weights are not fitted on Windows.
+Mean / worst error 0.58 / 1.82 points with the old weights, 0.57 / 1.78 with the new: no difference. The Windows counters do not
+disagree with the callgrind fit: the ratio of Windows instructions to predicted cost over the words, per grammar, is more even with
+the new weights. Over the seven grammars with a count (not swh.fwdata or cebuano.json) the ratios are 1.26 to 2.28 (coefficient of
+variation 19%) with 113 / 2 / 45 and 1.59 to 2.09 (9%) with the new weights, and ceb.fwdata moves from 31% below the other
+grammars' mean to 15% below. The level is about 1.8 times callgrind's, as before. No per-word Windows count exists, so the weights
+are not fitted on Windows.
 
 The weights before this change, with their evidence:
 
