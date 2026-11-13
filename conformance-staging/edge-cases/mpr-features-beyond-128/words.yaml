@@ -1,0 +1,944 @@
+# oracle-provenance: founding-oracle
+# C# hc replay and hc-conformance self-check; synthetic data only. See STAGING.md.
+language: MprFeaturesBeyond128
+inspired_by: ["an exception-feature list longer than 64 entries, as a FieldWorks project can hold"]
+sources: ["sillsdev/pangloss#150"]
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: >-
+  Exception features are ordinary FieldWorks possibilities and FieldWorks sets no limit on their number; HCLoader.cs maps each to an MPR feature.
+words:
+  - word: kama
+    note: "Bare root kama, which carries EXC000: control."
+    parses:
+      - signature: "KAMA|kama"
+        rules: []
+  - word: kamafa
+    note: "Suffix requiring EXC000 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+REQ0|kamafa"
+        rules: [req0]
+  - word: kamaka
+    note: "Suffix excluding EXC000 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamafe
+    note: "Suffix requiring EXC001 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamake
+    note: "Suffix excluding EXC001 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT1|kamake"
+        rules: [not1]
+  - word: kamafi
+    note: "Suffix requiring EXC062 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamaki
+    note: "Suffix excluding EXC062 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT62|kamaki"
+        rules: [not62]
+  - word: kamafo
+    note: "Suffix requiring EXC063 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamako
+    note: "Suffix excluding EXC063 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT63|kamako"
+        rules: [not63]
+  - word: kamafu
+    note: "Suffix requiring EXC064 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamaku
+    note: "Suffix excluding EXC064 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT64|kamaku"
+        rules: [not64]
+  - word: kamaha
+    note: "Suffix requiring EXC126 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamasa
+    note: "Suffix excluding EXC126 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT126|kamasa"
+        rules: [not126]
+  - word: kamahi
+    note: "Suffix requiring EXC127 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamase
+    note: "Suffix excluding EXC127 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT127|kamase"
+        rules: [not127]
+  - word: kamaho
+    note: "Suffix requiring EXC128 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamasi
+    note: "Suffix excluding EXC128 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT128|kamasi"
+        rules: [not128]
+  - word: kamahu
+    note: "Suffix requiring EXC139 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamaso
+    note: "Suffix excluding EXC139 on a root carrying EXC000."
+    parses:
+      - signature: "KAMA+NOT139|kamaso"
+        rules: [not139]
+  - word: kamari
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC000."
+    expect_fail: true
+  - word: kamabu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: kamaru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "KAMA+GIVE|kamaru"
+        rules: [give]
+  - word: kamarubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "KAMA+GIVE+NEED|kamarubu"
+        rules: [give, need]
+  - word: tilo
+    note: "Bare root tilo, which carries EXC001: control."
+    parses:
+      - signature: "TILO|tilo"
+        rules: []
+  - word: tilofa
+    note: "Suffix requiring EXC000 on a root carrying EXC001."
+    expect_fail: true
+  - word: tiloka
+    note: "Suffix excluding EXC000 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT0|tiloka"
+        rules: [not0]
+  - word: tilofe
+    note: "Suffix requiring EXC001 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+REQ1|tilofe"
+        rules: [req1]
+  - word: tiloke
+    note: "Suffix excluding EXC001 on a root carrying EXC001."
+    expect_fail: true
+  - word: tilofi
+    note: "Suffix requiring EXC062 on a root carrying EXC001."
+    expect_fail: true
+  - word: tiloki
+    note: "Suffix excluding EXC062 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT62|tiloki"
+        rules: [not62]
+  - word: tilofo
+    note: "Suffix requiring EXC063 on a root carrying EXC001."
+    expect_fail: true
+  - word: tiloko
+    note: "Suffix excluding EXC063 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT63|tiloko"
+        rules: [not63]
+  - word: tilofu
+    note: "Suffix requiring EXC064 on a root carrying EXC001."
+    expect_fail: true
+  - word: tiloku
+    note: "Suffix excluding EXC064 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT64|tiloku"
+        rules: [not64]
+  - word: tiloha
+    note: "Suffix requiring EXC126 on a root carrying EXC001."
+    expect_fail: true
+  - word: tilosa
+    note: "Suffix excluding EXC126 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT126|tilosa"
+        rules: [not126]
+  - word: tilohi
+    note: "Suffix requiring EXC127 on a root carrying EXC001."
+    expect_fail: true
+  - word: tilose
+    note: "Suffix excluding EXC127 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT127|tilose"
+        rules: [not127]
+  - word: tiloho
+    note: "Suffix requiring EXC128 on a root carrying EXC001."
+    expect_fail: true
+  - word: tilosi
+    note: "Suffix excluding EXC128 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT128|tilosi"
+        rules: [not128]
+  - word: tilohu
+    note: "Suffix requiring EXC139 on a root carrying EXC001."
+    expect_fail: true
+  - word: tiloso
+    note: "Suffix excluding EXC139 on a root carrying EXC001."
+    parses:
+      - signature: "TILO+NOT139|tiloso"
+        rules: [not139]
+  - word: tilori
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC001."
+    expect_fail: true
+  - word: tilobu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: tiloru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "TILO+GIVE|tiloru"
+        rules: [give]
+  - word: tilorubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "TILO+GIVE+NEED|tilorubu"
+        rules: [give, need]
+  - word: nupe
+    note: "Bare root nupe, which carries EXC062: control."
+    parses:
+      - signature: "NUPE|nupe"
+        rules: []
+  - word: nupefa
+    note: "Suffix requiring EXC000 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupeka
+    note: "Suffix excluding EXC000 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT0|nupeka"
+        rules: [not0]
+  - word: nupefe
+    note: "Suffix requiring EXC001 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupeke
+    note: "Suffix excluding EXC001 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT1|nupeke"
+        rules: [not1]
+  - word: nupefi
+    note: "Suffix requiring EXC062 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+REQ62|nupefi"
+        rules: [req62]
+  - word: nupeki
+    note: "Suffix excluding EXC062 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupefo
+    note: "Suffix requiring EXC063 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupeko
+    note: "Suffix excluding EXC063 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT63|nupeko"
+        rules: [not63]
+  - word: nupefu
+    note: "Suffix requiring EXC064 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupeku
+    note: "Suffix excluding EXC064 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT64|nupeku"
+        rules: [not64]
+  - word: nupeha
+    note: "Suffix requiring EXC126 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupesa
+    note: "Suffix excluding EXC126 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT126|nupesa"
+        rules: [not126]
+  - word: nupehi
+    note: "Suffix requiring EXC127 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupese
+    note: "Suffix excluding EXC127 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT127|nupese"
+        rules: [not127]
+  - word: nupeho
+    note: "Suffix requiring EXC128 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupesi
+    note: "Suffix excluding EXC128 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT128|nupesi"
+        rules: [not128]
+  - word: nupehu
+    note: "Suffix requiring EXC139 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupeso
+    note: "Suffix excluding EXC139 on a root carrying EXC062."
+    parses:
+      - signature: "NUPE+NOT139|nupeso"
+        rules: [not139]
+  - word: nuperi
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC062."
+    expect_fail: true
+  - word: nupebu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: nuperu
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "NUPE+GIVE|nuperu"
+        rules: [give]
+  - word: nuperubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "NUPE+GIVE+NEED|nuperubu"
+        rules: [give, need]
+  - word: besi
+    note: "Bare root besi, which carries EXC063: control."
+    parses:
+      - signature: "BESI|besi"
+        rules: []
+  - word: besifa
+    note: "Suffix requiring EXC000 on a root carrying EXC063."
+    expect_fail: true
+  - word: besika
+    note: "Suffix excluding EXC000 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT0|besika"
+        rules: [not0]
+  - word: besife
+    note: "Suffix requiring EXC001 on a root carrying EXC063."
+    expect_fail: true
+  - word: besike
+    note: "Suffix excluding EXC001 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT1|besike"
+        rules: [not1]
+  - word: besifi
+    note: "Suffix requiring EXC062 on a root carrying EXC063."
+    expect_fail: true
+  - word: besiki
+    note: "Suffix excluding EXC062 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT62|besiki"
+        rules: [not62]
+  - word: besifo
+    note: "Suffix requiring EXC063 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+REQ63|besifo"
+        rules: [req63]
+  - word: besiko
+    note: "Suffix excluding EXC063 on a root carrying EXC063."
+    expect_fail: true
+  - word: besifu
+    note: "Suffix requiring EXC064 on a root carrying EXC063."
+    expect_fail: true
+  - word: besiku
+    note: "Suffix excluding EXC064 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT64|besiku"
+        rules: [not64]
+  - word: besiha
+    note: "Suffix requiring EXC126 on a root carrying EXC063."
+    expect_fail: true
+  - word: besisa
+    note: "Suffix excluding EXC126 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT126|besisa"
+        rules: [not126]
+  - word: besihi
+    note: "Suffix requiring EXC127 on a root carrying EXC063."
+    expect_fail: true
+  - word: besise
+    note: "Suffix excluding EXC127 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT127|besise"
+        rules: [not127]
+  - word: besiho
+    note: "Suffix requiring EXC128 on a root carrying EXC063."
+    expect_fail: true
+  - word: besisi
+    note: "Suffix excluding EXC128 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT128|besisi"
+        rules: [not128]
+  - word: besihu
+    note: "Suffix requiring EXC139 on a root carrying EXC063."
+    expect_fail: true
+  - word: besiso
+    note: "Suffix excluding EXC139 on a root carrying EXC063."
+    parses:
+      - signature: "BESI+NOT139|besiso"
+        rules: [not139]
+  - word: besiri
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC063."
+    expect_fail: true
+  - word: besibu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: besiru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "BESI+GIVE|besiru"
+        rules: [give]
+  - word: besirubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "BESI+GIVE+NEED|besirubu"
+        rules: [give, need]
+  - word: goda
+    note: "Bare root goda, which carries EXC064: control."
+    parses:
+      - signature: "GODA|goda"
+        rules: []
+  - word: godafa
+    note: "Suffix requiring EXC000 on a root carrying EXC064."
+    expect_fail: true
+  - word: godaka
+    note: "Suffix excluding EXC000 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT0|godaka"
+        rules: [not0]
+  - word: godafe
+    note: "Suffix requiring EXC001 on a root carrying EXC064."
+    expect_fail: true
+  - word: godake
+    note: "Suffix excluding EXC001 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT1|godake"
+        rules: [not1]
+  - word: godafi
+    note: "Suffix requiring EXC062 on a root carrying EXC064."
+    expect_fail: true
+  - word: godaki
+    note: "Suffix excluding EXC062 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT62|godaki"
+        rules: [not62]
+  - word: godafo
+    note: "Suffix requiring EXC063 on a root carrying EXC064."
+    expect_fail: true
+  - word: godako
+    note: "Suffix excluding EXC063 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT63|godako"
+        rules: [not63]
+  - word: godafu
+    note: "Suffix requiring EXC064 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+REQ64|godafu"
+        rules: [req64]
+  - word: godaku
+    note: "Suffix excluding EXC064 on a root carrying EXC064."
+    expect_fail: true
+  - word: godaha
+    note: "Suffix requiring EXC126 on a root carrying EXC064."
+    expect_fail: true
+  - word: godasa
+    note: "Suffix excluding EXC126 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT126|godasa"
+        rules: [not126]
+  - word: godahi
+    note: "Suffix requiring EXC127 on a root carrying EXC064."
+    expect_fail: true
+  - word: godase
+    note: "Suffix excluding EXC127 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT127|godase"
+        rules: [not127]
+  - word: godaho
+    note: "Suffix requiring EXC128 on a root carrying EXC064."
+    expect_fail: true
+  - word: godasi
+    note: "Suffix excluding EXC128 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT128|godasi"
+        rules: [not128]
+  - word: godahu
+    note: "Suffix requiring EXC139 on a root carrying EXC064."
+    expect_fail: true
+  - word: godaso
+    note: "Suffix excluding EXC139 on a root carrying EXC064."
+    parses:
+      - signature: "GODA+NOT139|godaso"
+        rules: [not139]
+  - word: godari
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC064."
+    expect_fail: true
+  - word: godabu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: godaru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "GODA+GIVE|godaru"
+        rules: [give]
+  - word: godarubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "GODA+GIVE+NEED|godarubu"
+        rules: [give, need]
+  - word: rumi
+    note: "Bare root rumi, which carries EXC126: control."
+    parses:
+      - signature: "RUMI|rumi"
+        rules: []
+  - word: rumifa
+    note: "Suffix requiring EXC000 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumika
+    note: "Suffix excluding EXC000 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT0|rumika"
+        rules: [not0]
+  - word: rumife
+    note: "Suffix requiring EXC001 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumike
+    note: "Suffix excluding EXC001 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT1|rumike"
+        rules: [not1]
+  - word: rumifi
+    note: "Suffix requiring EXC062 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumiki
+    note: "Suffix excluding EXC062 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT62|rumiki"
+        rules: [not62]
+  - word: rumifo
+    note: "Suffix requiring EXC063 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumiko
+    note: "Suffix excluding EXC063 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT63|rumiko"
+        rules: [not63]
+  - word: rumifu
+    note: "Suffix requiring EXC064 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumiku
+    note: "Suffix excluding EXC064 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT64|rumiku"
+        rules: [not64]
+  - word: rumiha
+    note: "Suffix requiring EXC126 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+REQ126|rumiha"
+        rules: [req126]
+  - word: rumisa
+    note: "Suffix excluding EXC126 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumihi
+    note: "Suffix requiring EXC127 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumise
+    note: "Suffix excluding EXC127 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT127|rumise"
+        rules: [not127]
+  - word: rumiho
+    note: "Suffix requiring EXC128 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumisi
+    note: "Suffix excluding EXC128 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT128|rumisi"
+        rules: [not128]
+  - word: rumihu
+    note: "Suffix requiring EXC139 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumiso
+    note: "Suffix excluding EXC139 on a root carrying EXC126."
+    parses:
+      - signature: "RUMI+NOT139|rumiso"
+        rules: [not139]
+  - word: rumiri
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC126."
+    expect_fail: true
+  - word: rumibu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: rumiru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "RUMI+GIVE|rumiru"
+        rules: [give]
+  - word: rumirubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "RUMI+GIVE+NEED|rumirubu"
+        rules: [give, need]
+  - word: pato
+    note: "Bare root pato, which carries EXC127: control."
+    parses:
+      - signature: "PATO|pato"
+        rules: []
+  - word: patofa
+    note: "Suffix requiring EXC000 on a root carrying EXC127."
+    expect_fail: true
+  - word: patoka
+    note: "Suffix excluding EXC000 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT0|patoka"
+        rules: [not0]
+  - word: patofe
+    note: "Suffix requiring EXC001 on a root carrying EXC127."
+    expect_fail: true
+  - word: patoke
+    note: "Suffix excluding EXC001 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT1|patoke"
+        rules: [not1]
+  - word: patofi
+    note: "Suffix requiring EXC062 on a root carrying EXC127."
+    expect_fail: true
+  - word: patoki
+    note: "Suffix excluding EXC062 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT62|patoki"
+        rules: [not62]
+  - word: patofo
+    note: "Suffix requiring EXC063 on a root carrying EXC127."
+    expect_fail: true
+  - word: patoko
+    note: "Suffix excluding EXC063 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT63|patoko"
+        rules: [not63]
+  - word: patofu
+    note: "Suffix requiring EXC064 on a root carrying EXC127."
+    expect_fail: true
+  - word: patoku
+    note: "Suffix excluding EXC064 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT64|patoku"
+        rules: [not64]
+  - word: patoha
+    note: "Suffix requiring EXC126 on a root carrying EXC127."
+    expect_fail: true
+  - word: patosa
+    note: "Suffix excluding EXC126 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT126|patosa"
+        rules: [not126]
+  - word: patohi
+    note: "Suffix requiring EXC127 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+REQ127|patohi"
+        rules: [req127]
+  - word: patose
+    note: "Suffix excluding EXC127 on a root carrying EXC127."
+    expect_fail: true
+  - word: patoho
+    note: "Suffix requiring EXC128 on a root carrying EXC127."
+    expect_fail: true
+  - word: patosi
+    note: "Suffix excluding EXC128 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT128|patosi"
+        rules: [not128]
+  - word: patohu
+    note: "Suffix requiring EXC139 on a root carrying EXC127."
+    expect_fail: true
+  - word: patoso
+    note: "Suffix excluding EXC139 on a root carrying EXC127."
+    parses:
+      - signature: "PATO+NOT139|patoso"
+        rules: [not139]
+  - word: patori
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC127."
+    expect_fail: true
+  - word: patobu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: patoru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "PATO+GIVE|patoru"
+        rules: [give]
+  - word: patorubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "PATO+GIVE+NEED|patorubu"
+        rules: [give, need]
+  - word: sedu
+    note: "Bare root sedu, which carries EXC128: control."
+    parses:
+      - signature: "SEDU|sedu"
+        rules: []
+  - word: sedufa
+    note: "Suffix requiring EXC000 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduka
+    note: "Suffix excluding EXC000 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT0|seduka"
+        rules: [not0]
+  - word: sedufe
+    note: "Suffix requiring EXC001 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduke
+    note: "Suffix excluding EXC001 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT1|seduke"
+        rules: [not1]
+  - word: sedufi
+    note: "Suffix requiring EXC062 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduki
+    note: "Suffix excluding EXC062 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT62|seduki"
+        rules: [not62]
+  - word: sedufo
+    note: "Suffix requiring EXC063 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduko
+    note: "Suffix excluding EXC063 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT63|seduko"
+        rules: [not63]
+  - word: sedufu
+    note: "Suffix requiring EXC064 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduku
+    note: "Suffix excluding EXC064 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT64|seduku"
+        rules: [not64]
+  - word: seduha
+    note: "Suffix requiring EXC126 on a root carrying EXC128."
+    expect_fail: true
+  - word: sedusa
+    note: "Suffix excluding EXC126 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT126|sedusa"
+        rules: [not126]
+  - word: seduhi
+    note: "Suffix requiring EXC127 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduse
+    note: "Suffix excluding EXC127 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT127|seduse"
+        rules: [not127]
+  - word: seduho
+    note: "Suffix requiring EXC128 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+REQ128|seduho"
+        rules: [req128]
+  - word: sedusi
+    note: "Suffix excluding EXC128 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduhu
+    note: "Suffix requiring EXC139 on a root carrying EXC128."
+    expect_fail: true
+  - word: seduso
+    note: "Suffix excluding EXC139 on a root carrying EXC128."
+    parses:
+      - signature: "SEDU+NOT139|seduso"
+        rules: [not139]
+  - word: seduri
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC128."
+    expect_fail: true
+  - word: sedubu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: seduru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "SEDU+GIVE|seduru"
+        rules: [give]
+  - word: sedurubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "SEDU+GIVE+NEED|sedurubu"
+        rules: [give, need]
+  - word: mina
+    note: "Bare root mina, which carries EXC139: control."
+    parses:
+      - signature: "MINA|mina"
+        rules: []
+  - word: minafa
+    note: "Suffix requiring EXC000 on a root carrying EXC139."
+    expect_fail: true
+  - word: minaka
+    note: "Suffix excluding EXC000 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT0|minaka"
+        rules: [not0]
+  - word: minafe
+    note: "Suffix requiring EXC001 on a root carrying EXC139."
+    expect_fail: true
+  - word: minake
+    note: "Suffix excluding EXC001 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT1|minake"
+        rules: [not1]
+  - word: minafi
+    note: "Suffix requiring EXC062 on a root carrying EXC139."
+    expect_fail: true
+  - word: minaki
+    note: "Suffix excluding EXC062 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT62|minaki"
+        rules: [not62]
+  - word: minafo
+    note: "Suffix requiring EXC063 on a root carrying EXC139."
+    expect_fail: true
+  - word: minako
+    note: "Suffix excluding EXC063 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT63|minako"
+        rules: [not63]
+  - word: minafu
+    note: "Suffix requiring EXC064 on a root carrying EXC139."
+    expect_fail: true
+  - word: minaku
+    note: "Suffix excluding EXC064 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT64|minaku"
+        rules: [not64]
+  - word: minaha
+    note: "Suffix requiring EXC126 on a root carrying EXC139."
+    expect_fail: true
+  - word: minasa
+    note: "Suffix excluding EXC126 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT126|minasa"
+        rules: [not126]
+  - word: minahi
+    note: "Suffix requiring EXC127 on a root carrying EXC139."
+    expect_fail: true
+  - word: minase
+    note: "Suffix excluding EXC127 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT127|minase"
+        rules: [not127]
+  - word: minaho
+    note: "Suffix requiring EXC128 on a root carrying EXC139."
+    expect_fail: true
+  - word: minasi
+    note: "Suffix excluding EXC128 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+NOT128|minasi"
+        rules: [not128]
+  - word: minahu
+    note: "Suffix requiring EXC139 on a root carrying EXC139."
+    parses:
+      - signature: "MINA+REQ139|minahu"
+        rules: [req139]
+  - word: minaso
+    note: "Suffix excluding EXC139 on a root carrying EXC139."
+    expect_fail: true
+  - word: minari
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC139."
+    expect_fail: true
+  - word: minabu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    parses:
+      - signature: "MINA+NEED|minabu"
+        rules: [need]
+  - word: minaru
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "MINA+GIVE|minaru"
+        rules: [give]
+  - word: minarubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "MINA+GIVE+NEED|minarubu"
+        rules: [give, need]
+  - word: lobe
+    note: "Bare root lobe, which carries EXC063 and EXC064: control."
+    parses:
+      - signature: "LOBE|lobe"
+        rules: []
+  - word: lobefa
+    note: "Suffix requiring EXC000 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobeka
+    note: "Suffix excluding EXC000 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+NOT0|lobeka"
+        rules: [not0]
+  - word: lobefe
+    note: "Suffix requiring EXC001 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobeke
+    note: "Suffix excluding EXC001 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+NOT1|lobeke"
+        rules: [not1]
+  - word: lobefi
+    note: "Suffix requiring EXC062 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobeki
+    note: "Suffix excluding EXC062 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+NOT62|lobeki"
+        rules: [not62]
+  - word: lobefo
+    note: "Suffix requiring EXC063 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+REQ63|lobefo"
+        rules: [req63]
+  - word: lobeko
+    note: "Suffix excluding EXC063 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobefu
+    note: "Suffix requiring EXC064 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+REQ64|lobefu"
+        rules: [req64]
+  - word: lobeku
+    note: "Suffix excluding EXC064 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobeha
+    note: "Suffix requiring EXC126 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobesa
+    note: "Suffix excluding EXC126 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+NOT126|lobesa"
+        rules: [not126]
+  - word: lobehi
+    note: "Suffix requiring EXC127 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobese
+    note: "Suffix excluding EXC127 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+NOT127|lobese"
+        rules: [not127]
+  - word: lobeho
+    note: "Suffix requiring EXC128 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobesi
+    note: "Suffix excluding EXC128 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+NOT128|lobesi"
+        rules: [not128]
+  - word: lobehu
+    note: "Suffix requiring EXC139 on a root carrying EXC063 and EXC064."
+    expect_fail: true
+  - word: lobeso
+    note: "Suffix excluding EXC139 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+NOT139|lobeso"
+        rules: [not139]
+  - word: loberi
+    note: "Suffix requiring both EXC063 and EXC064 on a root carrying EXC063 and EXC064."
+    parses:
+      - signature: "LOBE+BOTH|loberi"
+        rules: [both]
+  - word: lobebu
+    note: "Suffix requiring EXC139, which no root carries and only the ru suffix adds: bare use is refused."
+    expect_fail: true
+  - word: loberu
+    note: "Suffix that adds EXC139 to the word's features."
+    parses:
+      - signature: "LOBE+GIVE|loberu"
+        rules: [give]
+  - word: loberubu
+    note: "ru adds EXC139, then bu requires it: the feature added by a rule is seen by the next."
+    parses:
+      - signature: "LOBE+GIVE+NEED|loberubu"
+        rules: [give, need]

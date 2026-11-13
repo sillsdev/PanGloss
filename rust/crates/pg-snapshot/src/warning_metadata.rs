@@ -507,13 +507,6 @@ pub fn import_diagnostic_advice(code: &ImportWarningCode) -> Option<DiagnosticAd
             &[("phonologicalFeaturesAdvancedEdit", ""), ("posEdit", "Inflection Features")],
             Some(PARSER_HELP),
         ),
-        LimitMprFeatures => advice(
-            "Too many inflection classes and exception features",
-            "PanGloss supports at most 64 inflection classes (every subclass counted), exception features and entry inflection types together. This project has more, so no parser is built.",
-            "Merge or delete unused items until the total is 64 or fewer: inflection classes and subclasses in Grammar > Category Edit > Inflection Class Info, exception features in the Exception Features list, entry inflection types in Lists > Variant Types.",
-            &[("posEdit", "Inflection Class Info"), ("variantEntryTypeEdit", "")],
-            Some(PARSER_HELP),
-        ),
         EnvironmentMissingNaturalClass => advice(
             "Environment names a missing natural class",
             "A phonological environment names a natural class that does not exist. PanGloss discards the entire environment, including its other contexts, as FieldWorks and C# HermitCrab do. This can make an allomorph available in more positions.",
@@ -847,7 +840,6 @@ fn import_warning_level(code: &ImportWarningCode) -> DiagnosticLevel {
         ImportWarningCode::CompileFailed => DiagnosticLevel::Error,
         ImportWarningCode::LimitPartsOfSpeech => DiagnosticLevel::Error,
         ImportWarningCode::LimitFeatureValues => DiagnosticLevel::Error,
-        ImportWarningCode::LimitMprFeatures => DiagnosticLevel::Error,
         ImportWarningCode::TemplateSlotUnresolved => DiagnosticLevel::Warning,
         ImportWarningCode::TemplateSlotNoRules => DiagnosticLevel::Warning,
         ImportWarningCode::TemplateNoSlots => DiagnosticLevel::Warning,

@@ -1,0 +1,450 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>MprFeaturesBeyond128</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <!-- requires: [] - pure morphotactics. 140 exception features (MPR features), more than a 64-bit set holds; they are
+         the FieldWorks Exception Features list. Only the features named by the roots and rules below are
+         exercised; the rest exist so the id space is that large. -->
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="exc000">EXC000</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc001">EXC001</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc002">EXC002</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc003">EXC003</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc004">EXC004</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc005">EXC005</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc006">EXC006</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc007">EXC007</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc008">EXC008</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc009">EXC009</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc010">EXC010</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc011">EXC011</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc012">EXC012</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc013">EXC013</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc014">EXC014</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc015">EXC015</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc016">EXC016</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc017">EXC017</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc018">EXC018</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc019">EXC019</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc020">EXC020</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc021">EXC021</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc022">EXC022</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc023">EXC023</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc024">EXC024</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc025">EXC025</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc026">EXC026</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc027">EXC027</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc028">EXC028</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc029">EXC029</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc030">EXC030</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc031">EXC031</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc032">EXC032</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc033">EXC033</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc034">EXC034</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc035">EXC035</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc036">EXC036</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc037">EXC037</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc038">EXC038</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc039">EXC039</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc040">EXC040</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc041">EXC041</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc042">EXC042</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc043">EXC043</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc044">EXC044</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc045">EXC045</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc046">EXC046</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc047">EXC047</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc048">EXC048</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc049">EXC049</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc050">EXC050</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc051">EXC051</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc052">EXC052</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc053">EXC053</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc054">EXC054</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc055">EXC055</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc056">EXC056</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc057">EXC057</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc058">EXC058</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc059">EXC059</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc060">EXC060</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc061">EXC061</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc062">EXC062</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc063">EXC063</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc064">EXC064</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc065">EXC065</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc066">EXC066</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc067">EXC067</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc068">EXC068</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc069">EXC069</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc070">EXC070</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc071">EXC071</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc072">EXC072</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc073">EXC073</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc074">EXC074</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc075">EXC075</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc076">EXC076</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc077">EXC077</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc078">EXC078</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc079">EXC079</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc080">EXC080</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc081">EXC081</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc082">EXC082</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc083">EXC083</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc084">EXC084</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc085">EXC085</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc086">EXC086</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc087">EXC087</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc088">EXC088</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc089">EXC089</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc090">EXC090</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc091">EXC091</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc092">EXC092</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc093">EXC093</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc094">EXC094</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc095">EXC095</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc096">EXC096</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc097">EXC097</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc098">EXC098</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc099">EXC099</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc100">EXC100</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc101">EXC101</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc102">EXC102</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc103">EXC103</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc104">EXC104</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc105">EXC105</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc106">EXC106</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc107">EXC107</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc108">EXC108</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc109">EXC109</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc110">EXC110</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc111">EXC111</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc112">EXC112</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc113">EXC113</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc114">EXC114</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc115">EXC115</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc116">EXC116</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc117">EXC117</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc118">EXC118</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc119">EXC119</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc120">EXC120</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc121">EXC121</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc122">EXC122</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc123">EXC123</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc124">EXC124</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc125">EXC125</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc126">EXC126</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc127">EXC127</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc128">EXC128</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc129">EXC129</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc130">EXC130</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc131">EXC131</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc132">EXC132</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc133">EXC133</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc134">EXC134</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc135">EXC135</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc136">EXC136</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc137">EXC137</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc138">EXC138</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="exc139">EXC139</MorphologicalPhonologicalRuleFeature>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cf"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cg"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ch"><Representations><Representation>h</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cl"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cm"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cn"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="co"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cr"><Representations><Representation>r</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="linear" morphologicalRules="req0 req1 req62 req63 req64 req126 req127 req128 req139 not0 not1 not62 not63 not64 not126 not127 not128 not139 both give need">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="req0" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req0</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq0">
+                <MorphologicalInput requiredMPRFeatures="exc000"><PhoneticSequence id="stemreq0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq0" /><InsertSegments><PhoneticShape>fa</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ0</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req1" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req1</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq1">
+                <MorphologicalInput requiredMPRFeatures="exc001"><PhoneticSequence id="stemreq1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq1" /><InsertSegments><PhoneticShape>fe</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ1</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req62" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req62</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq62">
+                <MorphologicalInput requiredMPRFeatures="exc062"><PhoneticSequence id="stemreq62"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq62" /><InsertSegments><PhoneticShape>fi</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ62</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req63" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req63</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq63">
+                <MorphologicalInput requiredMPRFeatures="exc063"><PhoneticSequence id="stemreq63"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq63" /><InsertSegments><PhoneticShape>fo</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ63</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req64" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req64</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq64">
+                <MorphologicalInput requiredMPRFeatures="exc064"><PhoneticSequence id="stemreq64"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq64" /><InsertSegments><PhoneticShape>fu</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ64</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req126" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req126</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq126">
+                <MorphologicalInput requiredMPRFeatures="exc126"><PhoneticSequence id="stemreq126"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq126" /><InsertSegments><PhoneticShape>ha</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ126</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req127" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req127</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq127">
+                <MorphologicalInput requiredMPRFeatures="exc127"><PhoneticSequence id="stemreq127"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq127" /><InsertSegments><PhoneticShape>hi</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ127</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req128" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req128</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq128">
+                <MorphologicalInput requiredMPRFeatures="exc128"><PhoneticSequence id="stemreq128"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq128" /><InsertSegments><PhoneticShape>ho</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ128</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="req139" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>req139</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subreq139">
+                <MorphologicalInput requiredMPRFeatures="exc139"><PhoneticSequence id="stemreq139"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemreq139" /><InsertSegments><PhoneticShape>hu</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>REQ139</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not0" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not0</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot0">
+                <MorphologicalInput excludedMPRFeatures="exc000"><PhoneticSequence id="stemnot0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot0" /><InsertSegments><PhoneticShape>ka</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT0</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not1" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not1</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot1">
+                <MorphologicalInput excludedMPRFeatures="exc001"><PhoneticSequence id="stemnot1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot1" /><InsertSegments><PhoneticShape>ke</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT1</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not62" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not62</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot62">
+                <MorphologicalInput excludedMPRFeatures="exc062"><PhoneticSequence id="stemnot62"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot62" /><InsertSegments><PhoneticShape>ki</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT62</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not63" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not63</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot63">
+                <MorphologicalInput excludedMPRFeatures="exc063"><PhoneticSequence id="stemnot63"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot63" /><InsertSegments><PhoneticShape>ko</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT63</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not64" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not64</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot64">
+                <MorphologicalInput excludedMPRFeatures="exc064"><PhoneticSequence id="stemnot64"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot64" /><InsertSegments><PhoneticShape>ku</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT64</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not126" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not126</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot126">
+                <MorphologicalInput excludedMPRFeatures="exc126"><PhoneticSequence id="stemnot126"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot126" /><InsertSegments><PhoneticShape>sa</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT126</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not127" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not127</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot127">
+                <MorphologicalInput excludedMPRFeatures="exc127"><PhoneticSequence id="stemnot127"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot127" /><InsertSegments><PhoneticShape>se</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT127</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not128" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not128</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot128">
+                <MorphologicalInput excludedMPRFeatures="exc128"><PhoneticSequence id="stemnot128"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot128" /><InsertSegments><PhoneticShape>si</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT128</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="not139" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>not139</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subnot139">
+                <MorphologicalInput excludedMPRFeatures="exc139"><PhoneticSequence id="stemnot139"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemnot139" /><InsertSegments><PhoneticShape>so</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NOT139</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="both" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>both</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subboth">
+                <MorphologicalInput requiredMPRFeatures="exc063 exc064"><PhoneticSequence id="stemboth"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemboth" /><InsertSegments><PhoneticShape>ri</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>BOTH</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="give" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>give</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subgive">
+                <MorphologicalInput><PhoneticSequence id="stemgive"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput MPRFeatures="exc139"><CopyFromInput index="stemgive" /><InsertSegments><PhoneticShape>ru</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>GIVE</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="need" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>need</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subneed">
+                <MorphologicalInput requiredMPRFeatures="exc139"><PhoneticSequence id="stemneed"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemneed" /><InsertSegments><PhoneticShape>bu</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>NEED</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="ekama" partOfSpeech="posN" ruleFeatures="exc000">
+            <Allomorphs><Allomorph id="akama"><PhoneticShape>kama</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>KAMA</MorphemeId>
+            <Gloss>kama</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="etilo" partOfSpeech="posN" ruleFeatures="exc001">
+            <Allomorphs><Allomorph id="atilo"><PhoneticShape>tilo</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TILO</MorphemeId>
+            <Gloss>tilo</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="enupe" partOfSpeech="posN" ruleFeatures="exc062">
+            <Allomorphs><Allomorph id="anupe"><PhoneticShape>nupe</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NUPE</MorphemeId>
+            <Gloss>nupe</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="ebesi" partOfSpeech="posN" ruleFeatures="exc063">
+            <Allomorphs><Allomorph id="abesi"><PhoneticShape>besi</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>BESI</MorphemeId>
+            <Gloss>besi</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="egoda" partOfSpeech="posN" ruleFeatures="exc064">
+            <Allomorphs><Allomorph id="agoda"><PhoneticShape>goda</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>GODA</MorphemeId>
+            <Gloss>goda</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="erumi" partOfSpeech="posN" ruleFeatures="exc126">
+            <Allomorphs><Allomorph id="arumi"><PhoneticShape>rumi</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>RUMI</MorphemeId>
+            <Gloss>rumi</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="epato" partOfSpeech="posN" ruleFeatures="exc127">
+            <Allomorphs><Allomorph id="apato"><PhoneticShape>pato</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>PATO</MorphemeId>
+            <Gloss>pato</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="esedu" partOfSpeech="posN" ruleFeatures="exc128">
+            <Allomorphs><Allomorph id="asedu"><PhoneticShape>sedu</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>SEDU</MorphemeId>
+            <Gloss>sedu</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="emina" partOfSpeech="posN" ruleFeatures="exc139">
+            <Allomorphs><Allomorph id="amina"><PhoneticShape>mina</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>MINA</MorphemeId>
+            <Gloss>mina</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="elobe" partOfSpeech="posN" ruleFeatures="exc063 exc064">
+            <Allomorphs><Allomorph id="alobe"><PhoneticShape>lobe</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>LOBE</MorphemeId>
+            <Gloss>lobe</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

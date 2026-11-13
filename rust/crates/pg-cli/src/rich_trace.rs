@@ -677,8 +677,9 @@ fn trace_object_identity(grammar: &Grammar, object: TraceObject) -> Value {
 }
 
 fn mpr_operands(grammar: &Grammar, set: pg_grammar::model::MprSet) -> Value {
-    json!((0..64)
-        .filter(|&index| set.0 & (1u64 << index) != 0)
+    json!(set
+        .iter()
+        .map(|id| usize::from(id.0))
         .map(|index| {
             match grammar.mpr_features.get(index) {
                 Some(feature) => {

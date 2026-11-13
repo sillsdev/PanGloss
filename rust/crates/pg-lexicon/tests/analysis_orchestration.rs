@@ -402,7 +402,7 @@ fn rich_generation_rejects_all_changed_canonical_root_fields_before_engine_entry
             1 => root.realization_id.push('x'),
             2 => root.lexical_spelling = "panu".into(),
             3 => root.gloss = "forged".into(),
-            4 => root.mpr.0 ^= 1,
+            4 => root.mpr.insert(pg_grammar::model::MprId(70)),
             5 => root.stratum.0 = u8::MAX,
             6 => {
                 root.authority = pg_parse::RootAuthority::SuppliedOverride {

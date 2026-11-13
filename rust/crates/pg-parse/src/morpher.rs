@@ -2647,4 +2647,6 @@ fn contains_feature(fs: &FeatureStruct, feat: FeatId) -> bool {
 mod trace_tests;
 
 #[cfg(test)]
+mod mpr_wide_tests;
+#[cfg(test)]
 mod root_cache_tests;

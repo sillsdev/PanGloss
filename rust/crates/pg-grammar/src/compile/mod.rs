@@ -326,6 +326,8 @@ pub fn descendant_closures(snapshot: &Snapshot) -> Result<DescendantClosures, Gr
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
 ) -> Result<CompiledProject, GrammarError> {
+    let mpr_table = crate::model::MprTable::new();
+    let _mpr_scope = mpr_table.enter();
     let mut recorder = SelectionRecorder::for_stage(pg_snapshot::LoadPipelineStage::Compile);
     let mut lineage = Lineage::default();
     inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
@@ -631,6 +633,7 @@ pub(crate) fn compile_project_recording(
         char_tables: vec![char_table],
         syn_features: syn,
         fs_interner: acc.fs_interner,
+        mpr_table,
         mpr_names: mpr.mpr_names,
         mpr_features: mpr.mpr_features,
         mpr_groups: mpr.mpr_groups,

@@ -164,7 +164,7 @@ fn ungrouped_or_all(g: &Grammar, mpr: pg_grammar::model::MprSet) -> pg_grammar::
     let mut keep = mpr;
     for group in &g.mpr_groups {
         if group.match_type == MprGroupMatchType::Any {
-            keep = pg_grammar::model::MprSet(keep.0 & !group.members.0);
+            keep = keep.difference(group.members);
         }
     }
     keep

@@ -1000,6 +1000,7 @@ dependencies = [
  "pg-shape",
  "pg-snapshot",
  "serde",
+ "serde_json",
  "thiserror",
  "unicode-normalization",
 ]

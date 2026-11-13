@@ -83,7 +83,7 @@ fn a_candidate_differing_beside_its_trails_is_held_whole() {
         ("shape", |w| w.shape = shape(2)),
         ("stratum", |w| w.stratum = StratumId(0)),
         ("real_fs", |w| w.real_fs = fs_with(0b100)),
-        ("mpr", |w| w.mpr = MprSet(1)),
+        ("mpr", |w| w.mpr = MprSet::from_low_bits(1)),
         ("morphs", |w| w.morphs[0].order = 1),
         ("passed_over", |w| {
             w.morphs[0].passed_over = Some(vec![1].into_boxed_slice())

@@ -591,9 +591,8 @@ fn gate_signature(
 }
 
 fn mpr_ids(set: MprSet) -> String {
-    (0..64u8)
-        .filter(|bit| set.0 & (1u64 << bit) != 0)
-        .map(|bit| bit.to_string())
+    set.iter()
+        .map(|bit| bit.0.to_string())
         .collect::<Vec<_>>()
         .join(",")
 }
