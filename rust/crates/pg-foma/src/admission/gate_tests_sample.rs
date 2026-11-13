@@ -25,12 +25,28 @@ fn the_sample_is_evenly_spaced_distinct_and_split_into_warm_up_and_candidates() 
     }
 }
 
+/// `batch` with its bare roots doubled, so half the words have no analysis and the tiled stage clears break-even by about 2x.
+fn mostly_unexplained(count: usize) -> Vec<String> {
+    let roots = ["pat", "pit", "put", "lat", "lit"];
+    batch(count)
+        .into_iter()
+        .enumerate()
+        .map(|(i, w)| {
+            if i % 6 == 0 {
+                format!("{0}{0}", roots[i % roots.len()])
+            } else {
+                w
+            }
+        })
+        .collect()
+}
+
 #[test]
 fn a_batch_ordered_cheap_first_gets_the_decision_of_the_same_words_mixed() {
     let g = affix_grammar();
     let morpher = Morpher::new(&g, 2_000_000);
     let opts = ParseOptions::default();
-    let mixed = batch(ON);
+    let mixed = mostly_unexplained(ON);
     let mut ordered = mixed.clone();
     ordered.sort_by_key(|w| (parse_cost(&morpher.parse_word_opts(w, &opts)), w.clone()));
     assert_ne!(ordered, mixed);
@@ -40,7 +56,7 @@ fn a_batch_ordered_cheap_first_gets_the_decision_of_the_same_words_mixed() {
         let (gated, from_ordered) = gated_signatures(&g, &morpher, &ordered, (opts, threads));
         let (a, b) = (&from_mixed.report, &from_ordered.report);
         assert!(a.admission.is_on() && b.admission.is_on(), "{a}\n{b}");
-        assert_eq!(a.tiled.is_on(), b.tiled.is_on(), "{a}\n{b}");
+        assert!(a.tiled.is_on() && b.tiled.is_on(), "{a}\n{b}");
         assert_eq!(gated, plain, "threads {threads}: outcomes at their indices");
     }
 }
