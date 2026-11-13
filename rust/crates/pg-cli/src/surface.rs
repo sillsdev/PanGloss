@@ -330,7 +330,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--phase-marks",
         takes_value: false,
-        summary: "with --threads 1, start and join an empty thread before the first word and after the last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare",
+        summary: "with --threads 1, start and join a spinning thread before the first word and after the last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare",
     },
     FlagSpec {
         name: "--stats",

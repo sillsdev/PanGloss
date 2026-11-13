@@ -61,12 +61,13 @@ inside `parse_word_opts` moved +0.30% (#277, #278). So each backend counts the p
 - **callgrind** collects only while `Morpher::parse_word_opts` is on the stack (`--collect-atstart=no
   --toggle-collect=*parse_word_opts*`), callees included. It needs no change to the binary.
 - **PMC** needs the binary to mark the phase. `batch --phase-marks` (with `--threads 1`) starts and
-  joins one empty thread before the first word and one after the last. The trace carries thread starts
-  and, on the pinned CPU, a context switch with a counter snapshot at each join, so
-  `instruction_compare_etl.py` totals what the process's other threads run between the first marker's
-  exit and the second marker's first run (`parse_instructions`) and refuses a trace where either
-  mark is missing. The marks cost a thread start each, inside or beside the counted region and equal on
-  both sides.
+  joins one thread that spins about 60M instructions before the first word and one after the last. The
+  trace carries thread starts and a context switch with a counter snapshot at each join. A process also
+  starts loader threads (8M to 34M instructions each in the nine grammars) and others, so
+  `instruction_compare_etl.py` takes as the markers the two threads, other than the busiest, whose own
+  total is 51M to 69M (the spin measured 60.2M to 60.5M), and totals what the process's other threads run between the first marker's first
+  switch-out and the second marker's first switch-in (`parse_instructions`). It refuses a trace that
+  does not yield exactly two markers. The marks cost a thread start each and are equal on both sides.
 
 When a binary lacks `--phase-marks` the PMC backend falls back to the per-round subtraction and refuses
 a grammar whose load is more than `-MaxLoadRatio` (default 4) times its parse, with the reason, instead of

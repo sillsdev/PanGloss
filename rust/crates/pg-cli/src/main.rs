@@ -473,7 +473,7 @@ fn print_usage_and_fail() -> ExitCode {
          --no-flush (`batch --threads 1`) keeps rows in the write buffer instead of flushing after each
          word; the file is identical at exit, but a killed run loses the unflushed rows and the live
          STARTED sentinel. For instruction counting, where per-word writes add kernel work.
-         --phase-marks (`batch --threads 1`) starts and joins one empty thread before the first word and one after the\n\
+         --phase-marks (`batch --threads 1`) starts and joins one spinning thread before the first word and one after the\n\
          last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare.\n\
          --cost-column (`batch`) appends `work_steps`, then each word's fixed-weight parse cost, as the last fields; off by\n\
          default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
@@ -1286,10 +1286,20 @@ pub(crate) fn run_batch_counted(args: &[String]) -> Result<usize, String> {
     Ok(parse_counter.count())
 }
 
-/// Starts and joins an empty thread: the thread-start event and the context switches around it are the edge of the parse phase in a PMC trace (rust/tools/instruction_compare_etl.py).
+/// Iterations of the marker thread's busy loop; its instruction total (about 60M) is how a PMC trace tells a marker thread from the loader and pool threads a process also starts.
+const PHASE_MARK_SPIN: u64 = 20_000_000;
+
+/// Starts and joins a thread that only spins: the thread start and the context switches around it are the edge of the parse phase in a PMC trace (rust/tools/instruction_compare_etl.py).
 #[inline(never)]
 fn phase_mark() {
-    let _ = std::thread::spawn(|| {}).join();
+    let _ = std::thread::spawn(|| {
+        let mut x = 0u64;
+        for _ in 0..PHASE_MARK_SPIN {
+            x = std::hint::black_box(x.wrapping_add(1));
+        }
+        x
+    })
+    .join();
 }
 
 fn run_batch_with_counter(

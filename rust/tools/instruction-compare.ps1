@@ -7,7 +7,7 @@
   For each grammar/word-list pair, runs `pangloss batch --threads 1` with both binaries, -Repeats rounds each,
   alternating which side goes first. Each round gives one parse count per side, counted directly where the backend can:
     callgrind  collects only inside `Morpher::parse_word_opts` (--toggle-collect), so the grammar load is never counted.
-    PMC        when both binaries list `batch --phase-marks`, the run passes it: the process starts and joins an empty thread
+    PMC        when both binaries list `batch --phase-marks`, the run passes it: the process starts and joins a spinning thread
                at each edge of the parse loop, and the trace reader totals what the process runs between them.
   Otherwise (PMC, a binary without the flag) each round also runs each side on an empty word list; that run is the
   grammar-load cost and is subtracted from the same round's full run, and a grammar whose load exceeds -MaxLoadRatio times

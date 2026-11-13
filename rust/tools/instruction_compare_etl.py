@@ -58,6 +58,11 @@ class LogFile(C.Structure):
                 ("EventRecordCallback", CALLBACK), ("IsKernelTrace", C.c_uint32), ("Context", C.c_void_p)]
 
 
+# Instructions one marker thread runs (pg-cli's PHASE_MARK_SPIN loop, measured 60.2M to 60.5M), as a band; loader threads ran 8M to 34M and the busiest thread far more.
+MARK_MIN = 51_000_000
+MARK_MAX = 69_000_000
+
+
 class Tally:
     """Per-thread instruction totals from context-switch counter snapshots, kept for the last process that held each wanted pid.
 
@@ -65,9 +70,10 @@ class Tally:
     instruction-compare.ps1 and pmc-setup.ps1 hold each run's handle until the trace stops, so a run is its pid's last process.
     A context-switch gap counts against a process only when that process turns out to be its pid's last one.
 
-    `batch --phase-marks` starts and joins one empty thread before the first word and one after the last, so they are the last
-    two threads the process creates. The instructions its other threads run between the first marker's exit and the second
-    marker's first switch-in are its parse phase (`parse_instructions`), counted when the trace is reported.
+    `batch --phase-marks` starts and joins one spinning thread before the first word and one after the last. A process also
+    starts loader and pool threads, so the marker threads are the two threads, other than the busiest one, whose own total
+    lies in [MARK_MIN, MARK_MAX] (about 60M). The instructions the other threads run between the first marker's first switch-out and the
+    second marker's first switch-in are its parse phase (`parse_instructions`), counted when the trace is reported.
     """
 
     def __init__(self, pids):
@@ -120,9 +126,11 @@ class Tally:
 
     def _parse_instructions(self, owner):
         order = self.thread_order.get(owner, [])
-        if len(order) < 3:
+        busiest = max(order, key=lambda t: self.thread_instructions[owner + (t,)], default=None)
+        marks = [t for t in order if t != busiest and MARK_MIN <= self.thread_instructions[owner + (t,)] <= MARK_MAX]
+        if len(marks) != 2:
             return 0, 0
-        begin, end = order[-2], order[-1]
+        begin, end = marks
         phase = 0  # 0 before the begin marker has run, 1 in the parse, 2 once the end marker runs
         came_in_phase = {}
         total = 0

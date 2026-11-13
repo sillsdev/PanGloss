@@ -309,39 +309,48 @@ print(json.dumps(t.report()))
 }
 
 Test-Case 'phase marks: the trace reader totals what the other threads run between the two marker threads' {
-    # Thread 10 loads, runs marker 11, parses (preempted once by foreign thread 99), runs marker 12; thread 9 is an earlier loader thread.
+    # Thread 10 loads, runs marker 11, parses (preempted once by foreign thread 99), runs marker 12; thread 9 is a loader thread and 13 a pool thread started after the end mark.
     $r = Invoke-Tally @'
+M = 1_000_000
 t = Tally([7])
 t.process_start(7); t.thread_start(7, 10); t.thread_start(7, 9)
 t.cswitch(0, 10, 1, (0,))
 t.thread_start(7, 11)
-t.cswitch(0, 11, 10, (1000,))
-t.cswitch(0, 10, 11, (1010,))
-t.cswitch(0, 99, 10, (2010,))
-t.cswitch(0, 10, 99, (2510,))
+c = 2_000_000_000
+t.cswitch(0, 11, 10, (c,))
+c += 60 * M; t.cswitch(0, 10, 11, (c,))
+c += 700 * M; t.cswitch(0, 99, 10, (c,))
+c += 1000; t.cswitch(0, 10, 99, (c,))
 t.thread_start(7, 12)
-t.cswitch(0, 12, 10, (4010,))
-t.cswitch(0, 10, 12, (4020,))
-t.cswitch(0, 1, 10, (4220,))
+c += 300 * M; t.cswitch(0, 12, 10, (c,))
+c += 60 * M; t.cswitch(0, 10, 12, (c,))
+t.thread_start(7, 13)
+c += 200; t.cswitch(0, 13, 10, (c,))
+c += 90000; t.cswitch(0, 1, 13, (c,))
+t.cswitch(0, 9, 1, (c + 5,)); t.cswitch(0, 1, 9, (c + 5 + 12 * M,))
 print(json.dumps(t.report()))
 '@
     Assert-Equal 2 ([int]$r.phase.'7') 'both marks ran'
-    Assert-Equal 2500 ([double]$r.parse_instructions.'7') 'parse = 1000 + 1500 between the markers'
-    Assert-Equal 3720 ([double]$r.instructions.'7') 'every thread of the process still totals'
+    Assert-Equal 1000000000 ([double]$r.parse_instructions.'7') 'parse = 700M + 300M between the markers'
+    Assert-Equal 3120090200 ([double]$r.instructions.'7' - 12 * 1000000) 'every thread of the process still totals'
 }
 
-Test-Case 'phase marks: a process that never reached the second mark reports phase 1, and one without marks reports 0' {
+Test-Case 'phase marks: a process with fewer or more than two marker threads reports phase 0, as does one without marks' {
     $r = Invoke-Tally @'
-t = Tally([7, 8])
-t.process_start(7); t.thread_start(7, 10); t.thread_start(7, 11); t.thread_start(7, 12)
-t.cswitch(0, 10, 1, (0,)); t.cswitch(0, 11, 10, (50,)); t.cswitch(0, 10, 11, (60,)); t.cswitch(0, 1, 10, (500,))
+M = 1_000_000
+t = Tally([7, 8, 9])
+t.process_start(7); t.thread_start(7, 10); t.thread_start(7, 11)
+t.cswitch(0, 10, 1, (0,)); t.cswitch(0, 11, 10, (500 * M,)); t.cswitch(0, 10, 11, (560 * M,)); t.cswitch(0, 1, 10, (1000 * M,))
 t.process_start(8); t.thread_start(8, 20)
-t.cswitch(0, 20, 1, (600,)); t.cswitch(0, 1, 20, (900,))
+t.cswitch(0, 20, 1, (2000 * M,)); t.cswitch(0, 1, 20, (2300 * M,))
+t.process_start(9); t.thread_start(9, 30); t.thread_start(9, 31); t.thread_start(9, 32); t.thread_start(9, 33)
+t.cswitch(0, 30, 1, (3000 * M,)); t.cswitch(0, 31, 30, (3500 * M,)); t.cswitch(0, 32, 31, (3560 * M,)); t.cswitch(0, 33, 32, (3620 * M,)); t.cswitch(0, 1, 33, (3680 * M,))
 print(json.dumps(t.report()))
 '@
-    Assert-Equal 1 ([int]$r.phase.'7')
-    Assert-Equal 0 ([int]$r.phase.'8')
+    Assert-Equal 0 ([int]$r.phase.'7') 'one marker thread'
+    Assert-Equal 0 ([int]$r.phase.'8') 'no marker threads'
     Assert-Equal 0 ([double]$r.parse_instructions.'8')
+    Assert-Equal 0 ([int]$r.phase.'9') 'three marker threads'
 }
 
 Test-Case 'a trace without a completed phase is refused when the parse phase is required' {

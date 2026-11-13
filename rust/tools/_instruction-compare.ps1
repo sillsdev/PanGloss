@@ -177,7 +177,7 @@ function Assert-TraceIntact {
     foreach ($p in $Pids) {
         if ([double]$Report.instructions."$p" -le 0) { throw "no instructions attributed to measured pid $p; the trace missed the process" }
         if ($RequirePhase) {
-            if ([int]$Report.phase."$p" -ne 2) { throw "pid $p did not run both phase marks (reached phase $($Report.phase."$p") of 2); the parse phase cannot be cut from the load. Is the binary's batch --phase-marks working?" }
+            if ([int]$Report.phase."$p" -ne 2) { throw "pid $p did not run both phase marks (reached phase $($Report.phase."$p") of 2; thread totals $(@($Report.thread_instructions."$p") -join ', ')); the parse phase cannot be cut from the load. The reader needs exactly two threads of 51M to 69M instructions besides the busiest; is the binary's batch --phase-marks working?" }
             if ([double]$Report.parse_instructions."$p" -le 0) { throw "no instructions attributed to the parse phase of pid $p" }
         }
     }
