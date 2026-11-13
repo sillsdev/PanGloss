@@ -158,15 +158,25 @@ impl MprSet {
         }
     }
 
-    /// The set as 64-bit words, member `i` at word `i / 64`, bit `i % 64`, no trailing zero word.
-    fn to_words(self) -> Vec<u64> {
+    /// Runs `f` on the set's 64-bit words (member `i` at word `i / 64`, bit `i % 64`); `f` must not call `from_words`.
+    fn with_words<R>(self, f: impl FnOnce(&[u64]) -> R) -> R {
         if self.is_wide() {
-            mpr_wide::words(self.0 & !WIDE_TAG)
+            mpr_wide::with_words(self.0 & !WIDE_TAG, f)
         } else if self.0 == 0 {
-            Vec::new()
+            f(&[])
         } else {
-            vec![self.0]
+            f(&[self.0])
         }
+    }
+
+    /// The set as an owned word list (cold paths only).
+    fn to_words(self) -> Vec<u64> {
+        self.with_words(<[u64]>::to_vec)
+    }
+
+    /// How many distinct wide sets this process has interned (a growth check for tests and diagnostics).
+    pub fn interned_wide_sets() -> usize {
+        mpr_wide::len()
     }
 
     /// The canonical set holding exactly `words`; inline unless a member is 63 or above.
@@ -183,10 +193,17 @@ impl MprSet {
 
     #[cold]
     fn zip_slow(self, other: MprSet, f: impl Fn(u64, u64) -> u64) -> MprSet {
-        let (a, b) = (self.to_words(), other.to_words());
-        let n = a.len().max(b.len());
-        let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);
-        MprSet::from_words((0..n).map(|i| f(at(&a, i), at(&b, i))).collect())
+        let zip = |a: &[u64], b: &[u64]| -> Vec<u64> {
+            let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);
+            (0..a.len().max(b.len()))
+                .map(|i| f(at(a, i), at(b, i)))
+                .collect()
+        };
+        let words = match (self.is_wide(), other.is_wide()) {
+            (true, true) => mpr_wide::with_two(self.0 & !WIDE_TAG, other.0 & !WIDE_TAG, zip),
+            _ => self.with_words(|a| other.with_words(|b| zip(a, b))),
+        };
+        MprSet::from_words(words)
     }
 
     #[inline]
@@ -212,9 +229,10 @@ impl MprSet {
         if id.0 < Self::INLINE_IDS && !self.is_wide() {
             self.0 & (1u64 << id.0) != 0
         } else {
-            self.to_words()
-                .get(id.0 as usize / 64)
-                .is_some_and(|w| w & (1u64 << (id.0 % 64)) != 0)
+            self.with_words(|w| {
+                w.get(id.0 as usize / 64)
+                    .is_some_and(|w| w & (1u64 << (id.0 % 64)) != 0)
+            })
         }
     }
     /// C# `HashSet.Overlaps`.
@@ -263,13 +281,15 @@ impl MprSet {
     /// Members in ascending id order.
     pub fn iter(self) -> std::vec::IntoIter<MprId> {
         let mut out = Vec::new();
-        for (k, w) in self.to_words().into_iter().enumerate() {
-            out.extend(
-                (0..64u16)
-                    .filter(|b| w & (1u64 << b) != 0)
-                    .map(|b| MprId(k as u16 * 64 + b)),
-            );
-        }
+        self.with_words(|words| {
+            for (k, w) in words.iter().enumerate() {
+                out.extend(
+                    (0..64u16)
+                        .filter(|b| w & (1u64 << b) != 0)
+                        .map(|b| MprId(k as u16 * 64 + b)),
+                );
+            }
+        });
         out.into_iter()
     }
     /// C# `MprFeatureSet.CompoundMprFeaturesMatch` (`MprFeatureSet.cs:98-101`): `self` (a rule's

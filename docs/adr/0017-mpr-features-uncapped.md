@@ -34,6 +34,28 @@ serialises as an array of words. Old stored analyses read back unchanged.
 - `Arc<[u64]>` or a `Vec` loses `Copy` and costs a clone on the hot path.
 - Widening `Word` to carry a `SmallVec` was measured to fail the size guard.
 
+## The interner is a process-global exception
+
+PanGloss avoids parser-side caches unless they are provably small. This table is a
+conscious exception, because a `Copy` set cannot reach a per-grammar table without carrying a
+handle to it.
+
+- It is bounded in practice. Only grammars with 63 or more MPR features ever touch it, and
+  those grammars were refused before this change. A set is added only when a new distinct
+  wide set appears, and the sets that appear are unions of a grammar's own entry, rule and
+  group sets, not of its words, so a second pass over the same words adds none. A test parses
+  the 140-feature fixture twice and asserts the count is unchanged
+  (`MprSet::interned_wide_sets`). Measured: 9.3 MB and 12.1 MB resident for 70 and 140
+  features.
+- Reads copy nothing: wide `contains`, `iter` and the set operations run inside the read lock
+  on the stored list.
+- It is not freed, and it is shared across every grammar in the process. A host that loads
+  many different wide grammars, or parses against a long-lived process, only grows it.
+- Deserialising interns too: reading a stored wide set (an array of words) adds its list, so
+  untrusted stored data can add entries. Inline sets never touch the table.
+- Follow-up: a per-grammar interner (generation or epoch reset). Drafted in the PR thread, not
+  yet filed.
+
 ## Consequences
 
 The 64th feature changes representation, because bit 63 is the tag; ids 0..=62 are inline.

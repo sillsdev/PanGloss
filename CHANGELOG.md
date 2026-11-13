@@ -5,7 +5,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
-PanGloss no longer refuses a grammar for its number of MPR features (inflection classes, exception features, entry inflection types), closing #150. `MprSet` stays an 8-byte `Copy` value: sets of ids 0 to 62 are the same single word as before, and larger sets move to an interned wide form, so grammars with 64 or fewer features pay nothing (`work_steps` identical, wall time and memory within noise). Stored analyses read back unchanged. See `docs/adr/0016-mpr-features-uncapped.md`.
+PanGloss no longer refuses a grammar for its number of MPR features (inflection classes, exception features, entry inflection types), closing #150. `MprSet` stays an 8-byte `Copy` value: sets of ids 0 to 62 are the same single word as before, and larger sets move to an interned wide form, so grammars with 64 or fewer features pay nothing (`work_steps` identical, wall time and memory within noise). Stored analyses read back unchanged. See `docs/adr/0017-mpr-features-uncapped.md`.
 
 - **`grammar.limit.mpr-features` is gone**: its diagnostic, snapshot warning and doc page are removed. The limit is now 65,536 features, reported as an unsupported-grammar error. `MprId` is `u16`.
 - The parts-of-speech and feature-value caps (63 each) are unchanged.
