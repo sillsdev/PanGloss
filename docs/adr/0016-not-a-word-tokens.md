@@ -28,15 +28,15 @@ parser (HermitCrab) is never run to decide it.
 Tokens inside Chapter Number or Verse Number styled runs are never segmented as words (ADR 0011). They
 are reported as not-a-word with reason `style`, and that exclusion holds even when the character rule is off.
 For USFM input the CLI builds those styles itself from `\c`, `\cp`, `\ca`, `\v`, `\vp` and `\va`, and marks
-every marker (`\p`, `\q1`, `\id GEN ...` lines) as non-word, so markers never become single-letter words.
+every marker (`\p`, `\q1`, `\id GEN ...` lines) as non-word, so markers never become single-letter words. It also excludes `\w word|attributes` (the attributes only; the word stays), `\zaln-s`/`-e` and other `-s`/`-e`/`\z` milestones through their `\*`, and the bodies of `\xt`, `\xo` and `\fr` (references, not text). Footnote text (`\ft`, `\fq`) stays as text. The offending character is reported as written (after NFC), not case-folded. The token is checked whole: one bad character rejects `à-ba` entirely, with no partial credit.
 
 ### Exceptions, enumerated
 
 Set per writing system in the segmentation profile (`accept_words`, `accept_patterns`, `reject_pattern`) or
 per run on the CLI (`--accept-word`, `--accept-pattern`, `--reject-pattern`); run lists add to the profile's,
-and a run's reject pattern replaces the profile's.
+and a run's reject pattern is combined with the profile's (a token matching either is rejected).
 
-- **Accept list**: exact words (case-folded, NFC) and regexes that pass anyway. Accept wins over everything
+- **Accept list**: exact words (case-folded, NFC) and regexes that pass anyway. An accept regex must match the whole token (it is anchored: `^(?:re)$`). Accept wins over everything
   else, including the reject pattern. This is how CEB Psalm 119's Hebrew letter names, which are real words
   but outside the CEB valid set, are kept.
 - **Extra reject regex**: a token it matches is not a word, reason `reject_pattern`.

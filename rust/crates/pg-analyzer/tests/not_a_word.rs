@@ -288,3 +288,83 @@ fn not_a_word_does_not_spend_the_checked_occurrence_budget() {
     assert_eq!(result.corpus.valid.occurrences, 1);
     assert_eq!(result.corpus.unattempted.occurrences, 0);
 }
+
+fn words(result: &TextAnalysis) -> Vec<&str> {
+    result.texts[0]
+        .occurrences
+        .iter()
+        .filter(|o| o.outcome != OccurrenceOutcome::NotAWord)
+        .map(|o| o.wordform.as_str())
+        .collect()
+}
+
+#[test]
+fn usfm_word_attributes_are_dropped_and_the_word_is_kept() {
+    let text =
+        "\\p \\w kamao|lemma=\"dios\" strong=\"G2316\"\\w* usa \\+w matag|x-lemma=\"a\"\\+w*\n";
+    let result = run(text, true, AnalyzeOptions::default());
+    assert_eq!(words(&result), ["kamao", "usa", "matag"]);
+}
+
+#[test]
+fn usfm_milestones_are_not_text() {
+    let text = "\\zaln-s | x-strong=\"H1\" x-lemma=\"abba\"\\*kamao\\zaln-e\\* usa \\ts\\*\n";
+    let result = run(text, true, AnalyzeOptions::default());
+    assert_eq!(words(&result), ["kamao", "usa"]);
+}
+
+#[test]
+fn usfm_cross_reference_bodies_are_not_text_but_footnote_text_is() {
+    let text = "kamao \\x - \\xo 1:2 \\xt Gen 1:1\\x* \\f + \\fr 3:4 \\ft usa\\f*\n";
+    let result = run(text, true, AnalyzeOptions::default());
+    assert_eq!(words(&result), ["kamao", "usa"]);
+    // No reference digit is left over (the caller `-` of `\x` is a no-letter token).
+    assert!(!result.corpus.not_a_word.by_character.contains_key("1"));
+}
+
+#[test]
+fn accept_patterns_match_the_whole_token() {
+    let options = AnalyzeOptions {
+        accept_patterns: vec!["1".into()],
+        ..AnalyzeOptions::default()
+    };
+    // `1` accepts only the token `1`, not every token containing it.
+    let result = run("1 16 a1", false, options);
+    assert_eq!(skipped(&result), ["16", "a1"]);
+}
+
+#[test]
+fn the_offending_character_is_reported_as_written() {
+    let result = run("\u{00c0}ba \u{0130}ba", false, AnalyzeOptions::default());
+    let found: Vec<_> = result.texts[0]
+        .occurrences
+        .iter()
+        .map(|o| o.not_a_word.as_ref().unwrap().character.clone().unwrap())
+        .collect();
+    assert_eq!(found, ["\u{00c0}", "\u{0130}"]);
+}
+
+#[test]
+fn a_run_reject_pattern_adds_to_the_profiles() {
+    let profile = pg_analyzer::analyze(
+        "",
+        ProfileInput::Ldml {
+            identity: "ceb.ldml",
+            xml: LDML,
+        },
+        &[],
+    )
+    .unwrap()
+    .profile;
+    let with_reject = pg_analyzer::SegmentationProfile {
+        reject_pattern: Some("^usa$".into()),
+        ..profile
+    };
+    let json = serde_json::to_string(&with_reject).unwrap();
+    let options = AnalyzeOptions {
+        reject_pattern: Some("^kamao$".into()),
+        ..AnalyzeOptions::default()
+    };
+    let result = run_with(ProfileInput::Json(&json), "usa kamao matag", false, options);
+    assert_eq!(skipped(&result), ["usa", "kamao"]);
+}

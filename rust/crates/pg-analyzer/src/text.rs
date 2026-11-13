@@ -42,7 +42,7 @@ pub struct AnalyzeOptions {
     pub max_suggestion_chars: Option<usize>,
     /// Switch the valid-character rule off; only the reject pattern and styles skip tokens.
     pub no_character_rule: bool,
-    /// Extra reject regex; replaces the profile's. A token it matches is not a word.
+    /// Extra reject regex, combined with the profile's. A token it matches is not a word.
     pub reject_pattern: Option<String>,
     /// Words that pass anyway, added to the profile's.
     pub accept_words: Vec<String>,

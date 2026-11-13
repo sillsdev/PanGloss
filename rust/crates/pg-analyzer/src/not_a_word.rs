@@ -55,7 +55,7 @@ fn compile(name: &str, pattern: &str) -> Result<Regex, String> {
 }
 
 impl TokenFilter {
-    /// Run lists add to the profile's; a run's reject pattern replaces the profile's.
+    /// Run lists and the run's reject pattern add to the profile's; accept regexes are anchored.
     pub(crate) fn new(
         profile: &SegmentationProfile,
         options: &crate::AnalyzeOptions,
@@ -73,12 +73,14 @@ impl TokenFilter {
         } else {
             Rule::ValidCharacters
         };
-        let reject = options
-            .reject_pattern
-            .as_ref()
-            .or(profile.reject_pattern.as_ref())
+        let rejects: Vec<String> = [&profile.reject_pattern, &options.reject_pattern]
+            .into_iter()
+            .flatten()
             .filter(|p| !p.is_empty())
-            .map(|p| compile("reject", p))
+            .map(|p| format!("(?:{p})"))
+            .collect();
+        let reject = (!rejects.is_empty())
+            .then(|| compile("reject", &rejects.join("|")))
             .transpose()?;
         let accept_words = profile
             .accept_words
@@ -90,7 +92,7 @@ impl TokenFilter {
             .accept_patterns
             .iter()
             .chain(&options.accept_patterns)
-            .map(|p| compile("accept", p))
+            .map(|p| compile("accept", &format!("^(?:{p})$")))
             .collect::<Result<_, _>>()?;
         Ok(Self {
             rule,
@@ -126,9 +128,9 @@ impl TokenFilter {
             Rule::FallbackDigitOrNoLetter => {
                 word.chars().find(|c| c.is_numeric()).or_else(no_letter)
             }
-            Rule::ValidCharacters => folded
-                .chars()
-                .find(|c| !self.is_valid(*c))
+            Rule::ValidCharacters => word
+                .nfc()
+                .find(|c| !c.to_lowercase().all(|l| self.is_valid(l)))
                 .or_else(no_letter),
         };
         character.map(|c| Verdict {
