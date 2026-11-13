@@ -1,7 +1,13 @@
 # Changelog
 
-Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
-file has no section for.
+Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
+`rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
+
+## Unreleased
+
+The release script now cuts a release through a pull request, so no release step commits to local `main`. `release.ps1 -Prepare -Version X.Y.Z` branches `release/vX.Y.Z` from `origin/main`, renames `## Unreleased` to `## X.Y.Z` with a `Released <date>.` line, stamps the workspace version and `Cargo.lock`, runs the locked check, commits, pushes and opens the PR; after the squash merge, `release.ps1 -Tag -Version X.Y.Z -Push` creates and pushes the annotated tag on the merged release commit.
+
+- **Breaking for the release procedure only:** `release.ps1 -Version X.Y.Z` with no mode no longer commits on `main` or tags, and `git push --atomic origin main vX.Y.Z` is gone; `-Prepare` and `-Tag` are required. New exit code 35 means a push, PR or tag-push failure; 31 now covers a missing fetch or an existing `release/vX.Y.Z` branch rather than "not on main". The Release workflow is unchanged.
 
 ## 0.19.4
 

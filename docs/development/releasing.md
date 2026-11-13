@@ -4,27 +4,43 @@ Releases use numeric `vX.Y.Z` tags. Prereleases are unsupported.
 
 ## Cut a version
 
-Write the version's section in `CHANGELOG.md` first. From a clean, up-to-date `main`, run:
+A release is two steps and a PR; nothing commits to local `main`. Keep the release notes under
+`## Unreleased` in `CHANGELOG.md` as work lands.
 
-```powershell
-pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.10.0
-```
+1. Prepare. From a clean worktree on any branch:
 
-The script checks the branch, working tree, remote `main`, version, tag, and changelog. It stamps
-`[workspace.package].version`, refreshes `Cargo.lock` offline through managed
-`pg.ps1 -Mode lock-refresh`, verifies that only local workspace-member version lines changed, then
-runs the locked `pg.ps1 -Mode check`. It commits `release: vX.Y.Z`, creates the annotated
-`vX.Y.Z` tag, and prints the push command. It never pushes.
-`-DryRun` checks the cut preconditions and prints the command without stamping, committing, or
-tagging.
+   ```powershell
+   pwsh -NoProfile -File rust/tools/release.ps1 -Prepare -Version 0.10.0
+   ```
 
-Run the printed command, for example:
+   The script fetches `origin/main` and creates `release/v0.10.0` from it (your HEAD need not be
+   `main`). It checks the working tree, the version, and that no `v0.10.0` tag or release branch
+   exists. It renames `## Unreleased` to `## 0.10.0` followed by `Released <today>.` (an existing
+   `## 0.10.0` section is kept as is; with neither section it refuses). It stamps
+   `[workspace.package].version`, refreshes `Cargo.lock` offline through managed
+   `pg.ps1 -Mode lock-refresh`, verifies that only local workspace-member version lines changed, runs
+   the locked `pg.ps1 -Mode check`, commits `release: v0.10.0`, pushes the branch, and opens the PR
+   with `gh pr create`. `-NoPush` stops after the local commit; `-DryRun` runs the preflight only.
 
-```text
-git push --atomic origin main v0.10.0
-```
+2. Squash-merge the PR after Rust CI is green.
 
-The main push starts Rust CI. The tag push starts `.github/workflows/release.yml`, which waits for
+3. Tag. After the merge, from any checkout:
+
+   ```powershell
+   pwsh -NoProfile -File rust/tools/release.ps1 -Tag -Version 0.10.0 -Push
+   ```
+
+   The script fetches `origin/main`, requires its tip to carry workspace version 0.10.0, and tags
+   the release commit: the oldest first-parent commit in the run that carries that version, which is
+   the squash commit of the release PR even if other PRs merged after it. It requires the
+   `## 0.10.0` section at that commit, refuses an existing tag, creates the annotated `v0.10.0`
+   there without checking anything out, and pushes it with `-Push`. Without `-Push` it prints
+   `git push origin v0.10.0` instead. `-DryRun` previews the tag.
+
+Exit codes: 30 dirty tree, 31 origin/main or release-branch problem, 32 managed check failed, 33
+version or changelog refusal, 34 existing tag, 35 push or PR failure.
+
+The merge to `main` starts Rust CI. The tag push starts `.github/workflows/release.yml`, which waits for
 Rust CI on that commit. Before building, release preflight confirms the tag commit is reachable
 from `origin/main`, the tag is annotated and matches the workspace version, `Cargo.lock` passes
 locked metadata validation, and the changelog has the version section. The workflow then runs
@@ -42,22 +58,3 @@ Use Actions → Release → Run workflow with an explicit `ref` and `version`. T
 commit on `origin/main`, its workspace version and changelog must match the requested version, and
 it must pass the same preflight, gates, and four-target build. A rehearsal verifies release assets
 but never publishes a GitHub release.
-
-## Cut 0.10.0 after this change lands
-
-The `0.10.0` changelog section is already authored, while the current workspace version is `0.9.0`.
-After this change lands, update to the tip of `main` and run:
-
-```powershell
-pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.10.0
-```
-
-Review the `release: v0.10.0` commit and annotated tag the script creates, then run its printed
-command:
-
-```text
-git push --atomic origin main v0.10.0
-```
-
-That push starts Rust CI and the tag-triggered Release workflow. The workflow waits for Rust CI to
-pass before running its release gates and publishing the assets and release notes.
