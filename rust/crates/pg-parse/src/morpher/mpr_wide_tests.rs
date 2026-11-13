@@ -99,11 +99,11 @@ fn wide_parsing_on_rayon_batch_workers_matches_one_thread() {
     let sig = |threads| -> Vec<String> {
         crate::hc_parse_batch(&morpher, &words, threads)
             .iter()
-            .map(|o| format!("{}", o.outcome.analyses.len()))
+            .map(|o| crate::result_multiset(&o.outcome.analyses).join(";"))
             .collect()
     };
     let one = sig(1);
-    assert!(one.iter().any(|n| n != "0"));
+    assert!(one.iter().any(|n| !n.is_empty()));
     assert_eq!(sig(4), one);
     assert_eq!(sig(8), one);
 }

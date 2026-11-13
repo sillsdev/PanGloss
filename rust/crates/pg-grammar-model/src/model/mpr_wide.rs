@@ -9,9 +9,8 @@ use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 const INDEX_BITS: u32 = 38;
 const INDEX_MASK: u64 = (1 << INDEX_BITS) - 1;
 const GENERATION_MASK: u32 = (1 << 24) - 1;
-/// Distinct stored sets, and their bytes, the ambient table accepts from deserialisation.
-const AMBIENT_STORED_SETS: usize = 1024;
-const AMBIENT_STORED_BYTES: usize = 256 * 1024;
+/// Bytes of stored lists the ambient table accepts from deserialisation.
+const AMBIENT_STORED_BYTES: usize = 1 << 20;
 const DEAD: &str = "a wide MprSet outlived the grammar that owns its table";
 
 struct Table {
@@ -159,11 +158,7 @@ pub(super) fn intern(generation: Option<u32>, words: &[u64], stored: bool) -> Op
     if let Some(index) = table.indexes.get(words) {
         return Some(tag | index);
     }
-    if stored
-        && generation == 0
-        && (table.lists.len() >= AMBIENT_STORED_SETS
-            || table.list_bytes + words.len() * 8 > AMBIENT_STORED_BYTES)
-    {
+    if stored && generation == 0 && table.list_bytes + words.len() * 8 > AMBIENT_STORED_BYTES {
         return None;
     }
     table.list_bytes += words.len() * 8;

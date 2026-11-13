@@ -3,7 +3,7 @@
 use pg_grammar_model::model::{MprId, MprSet, MprTable};
 
 fn stored(k: u64) -> Result<MprSet, serde_json::Error> {
-    serde_json::from_str(&format!("[0,{k}]"))
+    serde_json::from_str(&format!("[{}{k}]", "0,".repeat(63)))
 }
 
 #[test]
@@ -13,7 +13,7 @@ fn repeated_stored_sets_do_not_grow_and_distinct_ones_hit_a_cap() {
     }
     let mut accepted = 0;
     let mut refused = false;
-    for k in 1..=5_000 {
+    for k in 1..=10_000 {
         match stored(k) {
             Ok(_) => accepted += 1,
             Err(e) => {
@@ -27,7 +27,7 @@ fn repeated_stored_sets_do_not_grow_and_distinct_ones_hit_a_cap() {
         refused,
         "the ambient table must refuse once its cap is reached"
     );
-    assert!(accepted <= 1024, "accepted {accepted}");
+    assert!(accepted * 512 <= 1 << 20, "accepted {accepted}");
     stored(7).expect("an already stored set stays readable at the cap");
     stored(1).expect("so does the first one");
 }
@@ -38,7 +38,7 @@ fn a_stored_set_read_inside_a_grammar_scope_goes_to_that_grammars_table() {
     let _scope = table.enter();
     let set = stored(64).unwrap();
     assert_eq!(table.len(), 1);
-    assert!(set.contains(MprId(64 + 6)));
+    assert!(set.contains(MprId(63 * 64 + 6)));
 }
 
 #[test]

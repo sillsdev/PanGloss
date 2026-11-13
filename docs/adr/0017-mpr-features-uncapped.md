@@ -52,8 +52,8 @@ serialises as an array of words. Old stored analyses read back unchanged.
 - Generation 0 is an ambient table, never freed, for a wide set built with no wide operand and
   no grammar in scope: a stored wide set read back outside any grammar, or a legacy stored
   number with bit 63 set (member 63). Inline sets never touch it. Deserialisation is capped
-  there (1,024 distinct sets, 256 KiB of lists): a repeat is found, not added, and a new set
-  past the cap is a deserialisation error, so untrusted input cannot grow it without bound.
+  there (1 MiB of stored lists, about 65,000 distinct two-word sets): a repeat is found, not added, and a new set
+  past the cap fails deserialisation with "too many distinct wide MPR sets in stored data", so untrusted input cannot grow it without bound.
   A deserialiser running inside a grammar's scope builds into that grammar's table instead.
 - Deserialising rejects a word list longer than 1024 words, so stored data cannot name an id
   beyond `u16`.
