@@ -60,7 +60,7 @@ fn a_batch_ordered_cheap_first_gets_the_decision_of_the_same_words_mixed() {
         let (gated, from_ordered) = gated_signatures(&g, &morpher, &ordered, (opts, threads));
         let (a, b) = (&from_mixed.report, &from_ordered.report);
         assert!(a.admission.is_on() && b.admission.is_on(), "{a}\n{b}");
-        assert_eq!(a.tiled.is_on(), b.tiled.is_on(), "{a}\n{b}");
+        assert!(a.tiled.is_on() && b.tiled.is_on(), "{a}\n{b}");
         assert_eq!(gated, plain, "threads {threads}: outcomes at their indices");
     }
 }
