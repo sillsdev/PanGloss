@@ -69,6 +69,13 @@ inside `parse_word_opts` moved +0.30% (#277, #278). So each backend counts the p
   switch-out and the second marker's first switch-in (`parse_instructions`). It refuses a trace that
   does not yield exactly two markers. The marks cost a thread start each and are equal on both sides.
 
+**The backends measure different scopes.** Callgrind counts only inside `parse_word_opts`. The PMC
+parse phase counts everything the parse thread runs between the two markers: the STARTED write,
+status/signature and TSV formatting, buffer writes, kernel time, and any path that bypasses
+`parse_word_opts`. Known caveat (#294): on cebuano.json the `HC_RSL=off` pair reads +5.59% on PMC
+(CI +-0.27%) and +0.14% on callgrind, while the other eight grammars agree in direction. Do not read a
+PMC NO-GO on Cebuano as a parser regression without the callgrind cross-check.
+
 When a binary lacks `--phase-marks` the PMC backend falls back to the per-round subtraction and refuses
 a grammar whose load is more than `-MaxLoadRatio` (default 4) times its parse, with the reason, instead of
 reporting load noise as a change.

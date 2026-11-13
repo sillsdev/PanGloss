@@ -202,7 +202,7 @@ try {
                 if (-not (Test-RepeatsIdentical $vals -RelativeTolerance 5e-5)) { throw "callgrind repeats of the $s side of grammar #$($g + 1) differ by more than 0.005% although hash keys are pinned; the pinning did not act" }
             }
         }
-        $backendNote = 'valgrind callgrind, collecting only inside Morpher::parse_word_opts (callees included), std HashMap keys pinned by shim. run end to end on same-build pairs of real grammars, repeats within 0.005%; no PMC (perf stat) run has cross-checked its change figures on a real change yet'
+        $backendNote = 'valgrind callgrind, collecting only inside Morpher::parse_word_opts (callees included), std HashMap keys pinned by shim. repeats within 0.005%; counts only parse_word_opts, whereas PMC counts all per-word batch work between the markers, and the cebuano.json HC_RSL pair disagrees between them (#294)'
     }
 
     Write-Host "instruction-compare: before=$([IO.Path]::GetFileName($Before)) after=$([IO.Path]::GetFileName($After)) repeats=$Repeats backend=$Backend"

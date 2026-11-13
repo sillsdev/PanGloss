@@ -59,6 +59,11 @@ follow-up). Both builds must list the flag; otherwise the PMC run subtracts as b
 grammar whose load exceeds `-MaxLoadRatio` (default 4) times its parse. The trace reader also attributes
 a context-switch gap to a process only when that process is its pid's last (#269).
 
+The two backends measure different scopes: callgrind counts only inside `parse_word_opts`; the PMC
+phase counts everything the parse thread runs between the markers (STARTED write, signature and TSV
+formatting, kernel time). Known caveat (#294): the cebuano.json `HC_RSL=off` pair reads +5.59% on PMC
+and +0.14% on callgrind.
+
 ## Alternatives not taken
 
 - **Counting the parse by its threads.** It is valid only at `--threads 2` or more, and that changes
