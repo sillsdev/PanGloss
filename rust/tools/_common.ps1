@@ -1877,6 +1877,13 @@ function Get-ConformanceDriverFileNames {
     return @('hc-conformance.exe')
 }
 
+function Get-DefaultMachineCheckouts {
+    # Windows keeps the owner's known checkouts; elsewhere those drive letters do not exist, so only a `machine` sibling of the repo's parent is probed.
+    if ($IsWindows) { return @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine') }
+    $repoParent = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    return @(Join-Path (Split-Path -Parent $repoParent) 'machine')
+}
+
 function Find-PinMatchedConformanceDriver {
     <#
       .DESCRIPTION
@@ -1893,13 +1900,13 @@ function Find-PinMatchedConformanceDriver {
     $checkouts = @(if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
         $env:PANGLOSS_MACHINE_CHECKOUTS -split ';' | Where-Object { $_ }
     } else {
-        'C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine'
+        Get-DefaultMachineCheckouts
     })
     $driverNames = Get-ConformanceDriverFileNames
-    $relative = 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\{0}\net10.0\{1}'
+    $relative = [IO.Path]::Combine('src', 'SIL.Machine.Morphology.HermitCrab.Conformance', 'bin', '{0}', 'net10.0', '{1}')
     $worktrees = [System.Collections.Generic.List[string]]::new()
     foreach ($checkout in $checkouts) {
-        $worktrees.Add((Join-Path $checkout ".worktrees\pin-$PinCommit"))
+        $worktrees.Add((Join-Path (Join-Path $checkout '.worktrees') "pin-$PinCommit"))
         if (-not (Test-Path -LiteralPath $checkout)) { continue }
         $current = $null
         foreach ($line in @(& git -C $checkout worktree list --porcelain 2>$null)) {
@@ -1943,9 +1950,10 @@ function Find-PinMatchedConformanceDriver {
         }
     }
     $first = $checkouts[0]
+    $pinRel = Join-Path '.worktrees' "pin-$PinCommit"
     $detail = "no conformance driver ($($driverNames -join ' or ')) built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
-        "Build one: git -C $first worktree add --detach .worktrees\pin-$PinCommit $PinCommit; " +
-        "dotnet build $first\.worktrees\pin-$PinCommit\src\SIL.Machine.Morphology.HermitCrab.Conformance -c Release"
+        "Build one: git -C $first worktree add --detach $pinRel $PinCommit; " +
+        "dotnet build $(Join-Path $first (Join-Path $pinRel (Join-Path 'src' 'SIL.Machine.Morphology.HermitCrab.Conformance'))) -c Release"
     return [PSCustomObject]@{ Ok = $false; ExePath = $null; Detail = $detail }
 }
 
