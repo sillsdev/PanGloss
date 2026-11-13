@@ -164,13 +164,15 @@ then running `pwsh rust/tools/conformance.ps1`.
 
 ## Releases start with a pushed version tag
 
-Author the `CHANGELOG.md` section, then run `pwsh -NoProfile -File rust/tools/release.ps1
--Version x.y.z` from a clean, up-to-date `main`. The script stamps `[workspace.package].version`,
-refreshes `Cargo.lock` through managed `pg.ps1 -Mode check`, commits `release: vX.Y.Z`, creates an
-annotated `vX.Y.Z` tag, and prints `git push --atomic origin main vX.Y.Z`. It never pushes. `-DryRun` checks
-the branch, tree, version, tag, and changelog without changing files.
+Keep release notes under `## Unreleased`, then run `pwsh -NoProfile -File rust/tools/release.ps1
+-Prepare -Version x.y.z` from a clean worktree on any branch. It branches `release/vX.Y.Z` from
+`origin/main`, renames `## Unreleased` to the version, stamps `[workspace.package].version`, refreshes
+`Cargo.lock` through managed `pg.ps1`, runs the locked check, commits `release: vX.Y.Z`, pushes, and
+opens the PR. Squash-merge it, then run `release.ps1 -Tag -Version x.y.z -Push`, which creates and
+pushes the annotated `vX.Y.Z` tag on the merged release commit. Nothing commits to local `main`.
+`-NoPush` and `-DryRun` stop early.
 
-Pushing main and the tag starts Rust CI and `.github/workflows/release.yml`. The tag must be
+The merge starts Rust CI and the tag push starts `.github/workflows/release.yml`. The tag must be
 annotated, match the workspace version and changelog, and point to a commit reachable from
 `origin/main`; the workflow verifies `Cargo.lock` with locked metadata and waits for Rust CI on that
 commit. It then runs the shared Rust and release gates, builds and smoke-checks Windows x64, Linux
@@ -181,10 +183,7 @@ release on the existing tag. CI never commits to main or creates or moves tags.
 and builds without publishing. Prerelease tags are not supported. Coverage and the real-language
 corpus exclusion are recorded in the GitHub release notes body.
 
-For the pending 0.7.0 cut, `main` currently has workspace version 0.6.2. After this change merges,
-run `pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.7.0` on `main`, then run the exact
-`git push --atomic origin main v0.7.0` command it prints. The tag workflow waits for Rust CI before building
-and publishing. See `docs/development/releasing.md` for the complete procedure and rehearsal path.
+See `docs/development/releasing.md` for the complete procedure and rehearsal path.
 
 **The contract gate is `conformance`** -- engine-agnostic, all-synthetic, diffed against
 committed ground truth, and available to CI through the `conformance` clone at the pinned commit. The real-language corpora (Sena,
