@@ -237,8 +237,8 @@ Test-Case 'prepare pushes the branch and opens a PR through gh' {
         Assert-Equal $head (Invoke-TestGit -Repository $fixture.Repository -Arguments @('ls-remote', 'origin', 'refs/heads/release/v0.7.0') | ForEach-Object { ($_ -split '\s+')[0] }) 'release branch must be pushed'
         Assert-Equal $fixture.Base (Invoke-TestGit -Repository $fixture.Repository -Arguments @('ls-remote', 'origin', 'refs/heads/main') | ForEach-Object { ($_ -split '\s+')[0] }) 'main must not be pushed'
         $ghArgs = Get-Content -LiteralPath $gh.Log -Raw
-        Assert-True ($ghArgs -match '(?m)^release: v0\.7\.0$') 'PR title must be the release subject'
-        Assert-True ($ghArgs -match '(?m)^release/v0\.7\.0$') 'PR head must be the release branch'
+        Assert-True ($ghArgs -match '(?m)^release: v0\.7\.0\r?$') 'PR title must be the release subject'
+        Assert-True ($ghArgs -match '(?m)^release/v0\.7\.0\r?$') 'PR head must be the release branch'
         Assert-True ($ghArgs -match '## 0\.7\.0') 'PR body must name the changelog section'
         Assert-True ($ghArgs -match 'Generated with \[Claude Code\]\(https://claude\.com/claude-code\)') 'PR body must end with the attribution line'
     } finally { Remove-ReleaseFixture $fixture }
