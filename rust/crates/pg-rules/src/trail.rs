@@ -32,6 +32,8 @@ struct Step {
 
 const CHUNK_BITS: u32 = 16;
 const CHUNK: usize = 1 << CHUNK_BITS;
+/// What a step cost the meter as a reference-counted allocation.
+const METERED_STEP_BYTES: usize = 40;
 
 /// Fixed-size chunks (never copied on growth) and a free list, so a dropped word's steps are reused.
 struct Slab {
@@ -57,6 +59,8 @@ impl Slab {
 
     fn alloc(&mut self, step: Step) -> u32 {
         self.live += 1;
+        // The cost meter charges a step as the 40-byte allocation it replaces; the slab's own growth is unmetered, so cost does not depend on which thread grew it.
+        pg_cost::charge_bytes(METERED_STEP_BYTES);
         if self.free != 0 {
             let handle = self.free;
             self.free = self.get(handle).parent;
@@ -64,7 +68,7 @@ impl Slab {
             return handle;
         }
         if self.chunks.last().is_none_or(|chunk| chunk.len() == CHUNK) {
-            self.chunks.push(Vec::with_capacity(CHUNK));
+            pg_cost::unmetered(|| self.chunks.push(Vec::with_capacity(CHUNK)));
         }
         let last = self.chunks.len() - 1;
         self.chunks[last].push(step);
