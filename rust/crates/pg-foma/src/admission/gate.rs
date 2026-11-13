@@ -257,6 +257,7 @@ pub(super) fn staged(
             work: a.work + b.work,
             bytes: a.bytes + b.bytes,
             registers: a.registers + b.registers,
+            allocations: a.allocations + b.allocations,
         }),
         (_, b) => b,
     };
@@ -287,15 +288,14 @@ fn no_analysis(morpher: &Morpher, word: &str, options: &ParseOptions) -> ParseOu
     morpher.parse_word_selected(word, options, None, Some(&none))
 }
 
-/// A parse's cost in parser work: the measured cost (work, bytes and registers) when the pg-cost meter ran.
+/// A parse's cost in parser work: the measured cost (work, bytes and allocator calls) when the pg-cost meter ran.
 ///
 /// A library caller with the meter off gets the work steps at the work weight, which leaves out bytes and
-/// registers and so understates the cost; `pangloss batch --prefilter auto` turns the meter on, so its gate
+/// allocator calls and so understates the cost; `pangloss batch --prefilter auto` turns the meter on, so its gate
 /// always prices the full parser work.
 pub fn parse_cost(outcome: &ParseOutcome) -> u64 {
-    outcome
-        .cost
-        .map_or(outcome.work_steps as u64 * pg_cost::WORK_WEIGHT, |c| {
-            c.cost()
-        })
+    outcome.cost.map_or(
+        outcome.work_steps as u64 * pg_cost::WORK_WEIGHT / pg_cost::WEIGHT_SCALE,
+        |c| c.cost(),
+    )
 }

@@ -2,16 +2,17 @@
 name: retune-parser-work
 description: >-
   Use after a change to the parser gets a GO from instruction-compare, to test whether the parser-work
-  weights in pg-cost (work, bytes allocated, FST registers copied) still describe the code and, if a refit
+  weights in pg-cost (work, bytes allocated, allocator calls) still describe the code and, if a refit
   is better on held-out grammars, to propose it. Trigger on "retune the cost weights", "recalibrate parser
-  work", "did this speedup move the weights", "113 / 2 / 45". Skip it for any change that does not reach
+  work", "did this speedup move the weights", "200 / 1.25 / 0 / 150". Skip it for any change that does not reach
   the parser, including pangloss facts. It never retunes work_steps, which is the cap.
 ---
 
 # Retune the parser-work weights
 
-Parser work (named cost in the commands and `pg-cost`) = a x work_steps + b x bytes allocated + c x FST registers copied, in instructions, with a, b, c
-fixed at 113, 2 and 45 in `rust/crates/pg-cost/src/lib.rs`. A parser change can move what one unit costs,
+Parser work (named cost in the commands and `pg-cost`) = a x work_steps + b x bytes allocated + c x FST registers copied + d x allocator calls, in
+instructions, with a, b, c, d fixed at 200, 1.25, 0 and 150 in `rust/crates/pg-cost/src/lib.rs` (held in quarters of an instruction).
+Registers are counted and weighted 0: with allocator calls in the fit they add nothing. A parser change can move what one unit costs,
 and then the weights drift. It is report-only: no cap, deadline or parse decision reads it, so changing
 its weights cannot change a parse. `work_steps` is the cap and is never retuned here: retuning it could
 change a parse, and that is a separate, output-affecting change.
@@ -71,12 +72,11 @@ cost cannot see it; the weights then move only if the refit says so.
    in the PR; it also covers a fit whose words do not carry the byte term and every `-NoChangeCheck` run. 3 is
    REFUSED: a failed control, a status change, a missing file or a held-out grammar with under 8 scored words;
    fix the measurement, never the rule. 2 means it could not start.
-6. The fit is exact and solved once. Read its three lines: the free fit, the fit with work and registers at
-   their current ratio, and how much worse the fit is with each term left out. When leaving out work or
-   registers costs under a tenth, the words cannot split the two and the candidate is the tied fit; that is
-   the usual case, because work and registers copied rise and fall together across words. A weight at 1 (the
-   lowest) means the fit wants it lower than an integer can say.
-7. The level line is report-only. Cost is read only as a ratio of two totals, so one factor on all three
+6. The fit is exact and solved once. Read its lines: the free fit (work, byte, register, allocation) and how much worse the fit is with each
+   term left out. The candidate is the free fit rounded to a quarter. A register weight the fit wants above 0 means the words carry a
+   register term beside allocator calls: look before keeping it at 0. A weight at 0.25 (the lowest nonzero) means the fit wants
+   it lower than a quarter can say.
+7. The level line is report-only. Cost is read only as a ratio of two totals, so one factor on all the
    weights changes no verdict, and the level differs by 1.5 to 2 times between callgrind and the Windows
    counters (`docs/design/parse-cost.md`). Do not retune to fix the level alone.
 8. Memory, simulated cache misses and CPU time print beside the result. They are never in the fit or the
@@ -86,7 +86,7 @@ cost cannot see it; the weights then move only if the refit says so.
 
 The tool never edits a weight. After the owner agrees:
 
-1. Edit `WORK_WEIGHT`, `BYTE_WEIGHT` and `REGISTER_WEIGHT` in `rust/crates/pg-cost/src/lib.rs`, and the
+1. Edit `WORK_WEIGHT`, `BYTE_WEIGHT`, `REGISTER_WEIGHT` and `ALLOCATION_WEIGHT` in `rust/crates/pg-cost/src/lib.rs`, and the
    numbers in the formula and evidence block of `docs/design/parse-cost.md` (pair count, grammars, rows,
    direction, r, median and worst error, from this run).
 2. Add a line to `CHANGELOG.md` naming the old and new weights; the `batch --cost-column` line quotes them.
@@ -100,12 +100,12 @@ Costs from different PanGloss versions are never compared, so a weight change ne
 - Whether to retune at all when the change moved only constant factors: the fit can find a drift that the
   change did not cause.
 - Whether a candidate that moves a weight by more than a quarter is credible, given the integer resolution
-  of the byte weight (2 steps to 1 or 3). The tool prints a warning for each such move. A result from
+  of the byte weight (a quarter of an instruction). The tool prints a warning for each such move. A result from
   40-word samples is not adoptable evidence.
 - The held-out set. Changing it changes what ACCEPT means.
 - Whether the change of grammar totals is evidence enough. One pair gives one result per grammar, and a pair
-  that only cuts allocation says nothing about work against registers. A switch in one binary that moves
-  them apart (`HC_RSL=off`) is the pair that does.
+  that only cuts allocation says nothing about work against allocator calls. A switch in one binary that moves
+  them apart (`HC_RSL=off`) is the pair that does; a bytes-moving pair checks the byte weight.
 - Whether to change the level. The candidate carries the level of the callgrind fit; nothing reads it.
 - Whether a KEEP with a large gap in the candidate warrants a second look at the grammars.
 

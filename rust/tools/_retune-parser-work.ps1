@@ -77,13 +77,13 @@ function Read-WordList {
 }
 
 function Read-CountsFile {
-    # Rows of `idx work bytes registers instructions`, as `cost-calibrate --counts-out` writes them; there is no word text in it.
+    # Rows of `idx work bytes registers allocations instructions`, as `cost-calibrate --counts-out` writes them; there is no word text in it.
     param([Parameter(Mandatory)][string]$Path)
     $rows = @()
     foreach ($line in [IO.File]::ReadAllLines($Path)) {
         $f = $line.Split("`t")
-        if ($f.Count -ne 5) { throw "counts row has $($f.Count) fields, expected 5: $Path" }
-        $rows += [PSCustomObject]@{ Idx = [int]$f[0]; Work = [double]$f[1]; Bytes = [double]$f[2]; Registers = [double]$f[3]; Instructions = [double]$f[4] }
+        if ($f.Count -ne 6) { throw "counts row has $($f.Count) fields, expected 6: $Path" }
+        $rows += [PSCustomObject]@{ Idx = [int]$f[0]; Work = [double]$f[1]; Bytes = [double]$f[2]; Registers = [double]$f[3]; Allocations = [double]$f[4]; Instructions = [double]$f[5] }
     }
     return $rows
 }
@@ -111,44 +111,40 @@ function Get-Pearson {
 
 function Get-WeightedCost {
     param([Parameter(Mandatory)]$Row, [Parameter(Mandatory)][double[]]$Weights)
-    return $Row.Work * $Weights[0] + $Row.Bytes * $Weights[1] + $Row.Registers * $Weights[2]
+    return $Row.Work * $Weights[0] + $Row.Bytes * $Weights[1] + $Row.Registers * $Weights[2] + $Row.Allocations * $Weights[3]
 }
 
 function ConvertTo-CandidateWeights {
-    # Rounded to integers, at least 1, because pg-cost holds integer weights.
+    # Rounded to a quarter of an instruction, because pg-cost holds its weights in quarters (WEIGHT_SCALE); a zero weight stays zero.
     param([Parameter(Mandatory)][double[]]$Weights)
-    return [double[]]@($Weights | ForEach-Object { [Math]::Max(1.0, [Math]::Round($_, [MidpointRounding]::AwayFromZero)) })
+    return [double[]]@($Weights | ForEach-Object { [Math]::Round($_ * 4, [MidpointRounding]::AwayFromZero) / 4 })
 }
 
 function Get-FitReading {
-    # Which fit of `cost-calibrate --fit-counts` is the candidate: the free one only when the words carry work and registers each.
+    # The candidate is the free fit of `cost-calibrate --fit-counts`, offered only when the words carry the byte term.
     param([Parameter(Mandatory)]$Fit)
     $free = [double]$Fit.free.error
-    $names = 'work', 'byte', 'register'
+    $names = 'work', 'byte', 'register', 'allocation'
     $ratio = @{}; $carried = @{}
     foreach ($n in $names) {
         $without = [double]$Fit.errorWithout.$n
         $ratio[$n] = if ($free -gt 0) { $without / $free } elseif ($without -gt 1e-9) { [double]::PositiveInfinity } else { 1.0 }
         $carried[$n] = $ratio[$n] -ge $script:CarriedErrorRatio
     }
-    $w = { param($f) [double[]]@([double]$f.work, [double]$f.byte, [double]$f.register) }
+    $w = { param($f) [double[]]@([double]$f.work, [double]$f.byte, [double]$f.register, [double]$f.allocation) }
     $times = { param($n) if ([double]::IsInfinity($ratio[$n])) { 'far' } else { 'x{0:0.00}' -f $ratio[$n] } }
-    $tradeoff = if ($null -ne $Fit.workRegisterTradeoff) { ', and their estimates trade off at {0:0.00}' -f [double]$Fit.workRegisterTradeoff } else { '' }
-    $left = "leaving a term out makes the fit worse by: work $(& $times 'work')  byte $(& $times 'byte')  register $(& $times 'register')"
+    $left = "leaving a term out makes the fit worse by: work $(& $times 'work')  byte $(& $times 'byte')  register $(& $times 'register')  allocation $(& $times 'allocation')"
     if (-not $carried['byte']) {
         return [PSCustomObject]@{ Kind = 'none'; Weights = $null; Left = $left; Note = "the words do not carry the byte term (the fit is as good without it), so no candidate is offered" }
     }
-    if ($carried['work'] -and $carried['register']) {
-        return [PSCustomObject]@{ Kind = 'free'; Weights = (& $w $Fit.free); Left = $left; Note = 'the words carry work, bytes and registers each, so every weight is refitted' }
-    }
-    return [PSCustomObject]@{ Kind = 'tied'; Weights = (& $w $Fit.tied); Left = $left
-        Note = "the words cannot split work from registers (a fit without one of them is under x$('{0:0.00}' -f $script:CarriedErrorRatio) worse$tradeoff), so the candidate keeps their current ratio and refits their sum against bytes" }
+    $note = if ($carried['register']) { 'the words carry a register term even beside allocator calls: look at them before keeping its weight at 0' } else { 'registers add nothing beside allocator calls, so their weight stays at 0' }
+    return [PSCustomObject]@{ Kind = 'free'; Weights = (& $w $Fit.free); Left = $left; Note = $note }
 }
 
 function Get-ChangeScore {
-    # How well weights predict the change of each grammar's total: `Changes` holds {Grammar, MeasuredPercent, Before, After}, the last two being count totals (work, bytes, registers).
+    # How well weights predict the change of each grammar's total: `Changes` holds {Grammar, MeasuredPercent, Before, After}, the last two being count totals (work, bytes, registers, allocations).
     param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Changes, [Parameter(Mandatory)][double[]]$Weights)
-    $dot = { param($c) $c[0] * $Weights[0] + $c[1] * $Weights[1] + $c[2] * $Weights[2] }
+    $dot = { param($c) $c[0] * $Weights[0] + $c[1] * $Weights[1] + $c[2] * $Weights[2] + $c[3] * $Weights[3] }
     $rows = 0; $match = 0; $errs = @(); $by = @()
     foreach ($c in $Changes) {
         $before = & $dot $c.Before
@@ -173,13 +169,13 @@ function Get-CountTotals {
     # Work, bytes and registers summed over the words both builds counted, so the two totals describe the same words.
     param([Parameter(Mandatory)]$Before, [Parameter(Mandatory)]$After)
     $b = @{}; foreach ($r in $Before) { $b[$r.Idx] = $r }
-    $tb = [double[]]@(0, 0, 0); $ta = [double[]]@(0, 0, 0); $n = 0
+    $tb = [double[]]@(0, 0, 0, 0); $ta = [double[]]@(0, 0, 0, 0); $n = 0
     foreach ($a in $After) {
         $r = $b[$a.Idx]
         if (-not $r) { continue }
         $n++
-        $tb[0] += $r.Work; $tb[1] += $r.Bytes; $tb[2] += $r.Registers
-        $ta[0] += $a.Work; $ta[1] += $a.Bytes; $ta[2] += $a.Registers
+        $tb[0] += $r.Work; $tb[1] += $r.Bytes; $tb[2] += $r.Registers; $tb[3] += $r.Allocations
+        $ta[0] += $a.Work; $ta[1] += $a.Bytes; $ta[2] += $a.Registers; $ta[3] += $a.Allocations
     }
     return [PSCustomObject]@{ Words = $n; Before = $tb; After = $ta }
 }
@@ -251,7 +247,7 @@ function Get-RetuneDecision {
     if ($OldChange -and $OldChange.Rows -ne $NewChange.Rows) { throw 'old and new weights were scored on different grammar changes' }
     $proof = if ($ProofRun) { 'proof run, direction unmeasurable on a no-change pair: ' } else { '' }
     if ($NoCandidate) { return & $out 'KEEP' "$proof$NoCandidate" }
-    $same = $OldWeights -and $NewWeights -and (@(0..2 | Where-Object { $OldWeights[$_] -ne $NewWeights[$_] }).Count -eq 0)
+    $same = $OldWeights -and $NewWeights -and (@(0..3 | Where-Object { $OldWeights[$_] -ne $NewWeights[$_] }).Count -eq 0)
     if ($same) { return & $out 'KEEP' "${proof}the refit rounds to the current weights" }
     $problems = @()
     if ($New.DirectionMatches -lt $Old.DirectionMatches) { $problems += "direction worse ($($New.DirectionMatches) of $($New.DirectionRows) against $($Old.DirectionMatches))" }
@@ -274,10 +270,11 @@ function Get-RetuneDecision {
 }
 
 function Get-WeightMoves {
-    # One line per weight that moved by more than a quarter (as a ratio of candidate to current).
+    # One line per weight that moved by more than a quarter (as a ratio of candidate to current); a weight leaving or leaving zero always counts.
     param([Parameter(Mandatory)][double[]]$Current, [Parameter(Mandatory)][double[]]$Candidate)
-    $names = 'work', 'byte', 'register'
-    return [string[]]@(0..2 | Where-Object { [Math]::Abs($Candidate[$_] / $Current[$_] - 1.0) -gt $script:LargeMoveFraction } | ForEach-Object { '{0} x{1:0.00} ({2} to {3})' -f $names[$_], ($Candidate[$_] / $Current[$_]), $Current[$_], $Candidate[$_] })
+    $names = 'work', 'byte', 'register', 'allocation'
+    $moved = @(0..3 | Where-Object { if ($Current[$_] -eq 0) { $Candidate[$_] -ne 0 } else { [Math]::Abs($Candidate[$_] / $Current[$_] - 1.0) -gt $script:LargeMoveFraction } })
+    return [string[]]@($moved | ForEach-Object { if ($Current[$_] -eq 0) { '{0} from 0 to {1}' -f $names[$_], $Candidate[$_] } else { '{0} x{1:0.00} ({2} to {3})' -f $names[$_], ($Candidate[$_] / $Current[$_]), $Current[$_], $Candidate[$_] } })
 }
 
 function Read-CompareResult {

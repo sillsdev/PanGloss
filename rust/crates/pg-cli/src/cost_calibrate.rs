@@ -35,14 +35,16 @@ fn read_targets(path: &str) -> Result<HashMap<usize, f64>, String> {
         .collect()
 }
 
-/// Reads `idx<TAB>work<TAB>bytes<TAB>registers<TAB>instructions` rows, as `--counts-out` writes them.
+/// Reads `idx<TAB>work<TAB>bytes<TAB>registers<TAB>allocations<TAB>instructions` rows, as `--counts-out` writes them.
 fn read_counts(path: &str) -> Result<Vec<Sample>, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
     text.lines()
         .map(|line| {
-            let bad = || format!("{path}: expected idx, work, bytes, registers, instructions");
+            let bad = || {
+                format!("{path}: expected idx, work, bytes, registers, allocations, instructions")
+            };
             let fields: Vec<&str> = line.split('\t').collect();
-            let [_, work, bytes, registers, measured] = fields.as_slice() else {
+            let [_, work, bytes, registers, allocations, measured] = fields.as_slice() else {
                 return Err(bad());
             };
             let count = |text: &str| text.parse::<u64>().map_err(|_| bad());
@@ -51,6 +53,7 @@ fn read_counts(path: &str) -> Result<Vec<Sample>, String> {
                     work: count(work)?,
                     bytes: count(bytes)?,
                     registers: count(registers)?,
+                    allocations: count(allocations)?,
                 },
                 measured: measured.parse().map_err(|_| bad())?,
             })
@@ -65,15 +68,15 @@ fn write_counts(path: &str, rows: &[(usize, Sample)]) -> Result<(), String> {
         .map(|(idx, sample)| {
             let c = &sample.counts;
             format!(
-                "{idx}\t{}\t{}\t{}\t{}\n",
-                c.work, c.bytes, c.registers, sample.measured
+                "{idx}\t{}\t{}\t{}\t{}\t{}\n",
+                c.work, c.bytes, c.registers, c.allocations, sample.measured
             )
         })
         .collect();
     fs::write(path, text).map_err(|e| format!("write {path}: {e}"))
 }
 
-fn print_result(source: &str, cpu_share: Option<f64>, weights: [f64; 3], result: &Fit) {
+fn print_result(source: &str, cpu_share: Option<f64>, weights: [f64; 4], result: &Fit) {
     println!(
         "{}",
         serde_json::json!({
@@ -85,23 +88,26 @@ fn print_result(source: &str, cpu_share: Option<f64>, weights: [f64; 3], result:
                 "work": weights[0] * result.work_factor,
                 "byte": weights[1] * result.byte_factor,
                 "register": weights[2] * result.register_factor,
+                "allocation": weights[3] * result.allocation_factor,
             },
             "current": {
                 "work": weights[0],
                 "byte": weights[1],
                 "register": weights[2],
+                "allocation": weights[3],
             },
         })
     );
 }
 
 /// The exact fit of pooled counts files, with what leaving each term out costs: the retune tool reads this.
-fn print_solution(current: [f64; 3], solution: &Solution) {
+fn print_solution(current: [f64; 4], solution: &Solution) {
     let weights = |w: &Weights| {
         serde_json::json!({
             "work": w.work,
             "byte": w.byte,
             "register": w.register,
+            "allocation": w.allocation,
             "error": w.error,
         })
     };
@@ -111,17 +117,17 @@ fn print_solution(current: [f64; 3], solution: &Solution) {
             "source": "instructions",
             "words": solution.words,
             "free": weights(&solution.free),
-            "tied": weights(&solution.tied),
             "errorWithout": {
                 "work": solution.error_without[0],
                 "byte": solution.error_without[1],
                 "register": solution.error_without[2],
+                "allocation": solution.error_without[3],
             },
-            "workRegisterTradeoff": solution.work_register_tradeoff,
             "current": {
                 "work": current[0],
                 "byte": current[1],
                 "register": current[2],
+                "allocation": current[3],
             },
         })
     );
@@ -171,7 +177,7 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
             samples.extend(read_counts(path)?);
         }
         let current = current_weights();
-        let solution = solve(&samples, current).map_err(|refusal| refusal.to_string())?;
+        let solution = solve(&samples).map_err(|refusal| refusal.to_string())?;
         print_solution(current, &solution);
         return Ok(());
     }
@@ -264,7 +270,6 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pg_cost::{BYTE_WEIGHT, REGISTER_WEIGHT, WORK_WEIGHT};
 
     fn temp_file(name: &str, text: &str) -> String {
         let path = std::env::temp_dir().join(format!("pg-calibrate-{}-{name}", std::process::id()));
@@ -289,6 +294,7 @@ mod tests {
                 work: 1200,
                 bytes: 90_000,
                 registers: 40,
+                allocations: 7_000,
             },
             measured: 2_500_000.0,
         };
@@ -297,7 +303,7 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         assert_eq!(
             text,
-            "3\t1200\t90000\t40\t2500000\n9\t1200\t90000\t40\t2500000\n"
+            "3\t1200\t90000\t40\t7000\t2500000\n9\t1200\t90000\t40\t7000\t2500000\n"
         );
         let back = read_counts(&path).unwrap();
         fs::remove_file(&path).unwrap();
@@ -308,7 +314,7 @@ mod tests {
 
     #[test]
     fn a_malformed_counts_row_is_refused() {
-        for (name, text) in [("few", "0\t1\t2\t3\n"), ("neg", "0\t1\t-2\t3\t4\n")] {
+        for (name, text) in [("few", "0\t1\t2\t3\t4\n"), ("neg", "0\t1\t-2\t3\t4\t5\n")] {
             let path = temp_file(name, text);
             let result = read_counts(&path);
             fs::remove_file(&path).unwrap();
@@ -320,10 +326,14 @@ mod tests {
     fn fitting_counts_files_pools_the_rows_and_refuses_too_few() {
         let rows: String = (1..=10u64)
             .map(|i| {
-                let (work, bytes, registers) = (2000 + i * 100, 50_000 + i * 997, 300 + i * 11);
-                let measured =
-                    work * WORK_WEIGHT + bytes * BYTE_WEIGHT + registers * REGISTER_WEIGHT;
-                format!("{i}\t{work}\t{bytes}\t{registers}\t{measured}\n")
+                let (work, bytes, registers, allocations) = (
+                    2000 + i * 100,
+                    50_000 + i * 997,
+                    300 + i * 11,
+                    900 + i * i * 5,
+                );
+                let measured = work * 200 + bytes * 2 + allocations * 150;
+                format!("{i}\t{work}\t{bytes}\t{registers}\t{allocations}\t{measured}\n")
             })
             .collect();
         let half_a: String = rows.lines().take(5).map(|l| format!("{l}\n")).collect();

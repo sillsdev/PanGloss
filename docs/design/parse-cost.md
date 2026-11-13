@@ -3,11 +3,13 @@
 Parse cost is a deterministic estimate of a word's instructions:
 
 ```
-cost = work_steps × 113 + bytes allocated × 2 + registers copied × 45
+cost = work_steps × 200 + bytes allocated × 1.25 + allocator calls × 150
 ```
 
-`work_steps` counts budget reservations. Bytes are requested from the allocator, except that a trail step is charged as the 40 bytes it cost before the per-thread slab (#284) and the slab's own growth is unmetered, so cost does not depend on the thread count. Registers are
-the FST registers copied in `pg_fst::traverse`. The weights are constants in `pg-cost`.
+`work_steps` counts budget reservations. Bytes are requested from the allocator, except that a trail step is charged as the 40 bytes it cost before the per-thread slab (#284) and the slab's own growth is unmetered, so cost does not depend on the thread count. Allocator calls are
+`alloc`, `realloc` and `alloc_zeroed` on the counting allocator; a trail step's synthetic byte charge is not a call. The FST
+registers copied in `pg_fst::traverse` are still counted, at weight 0: once allocator calls are in, they add nothing.
+The weights are constants in `pg-cost`, held in quarters of an instruction (`WEIGHT_SCALE`).
 
 ## What each measure is for
 
@@ -171,6 +173,67 @@ code change can move them, which is what `cost-calibrate` is for.
 Cost is an index. It is read only as a ratio of two totals, so it is judged on its shape and on how well
 it predicts a change, never on its level against instructions.
 
+200 / 1.25 / 0 / 150 (work / byte / register / allocation) replaced 113 / 2 / 45 / 0 (#233), which replaced 676 / 2 / 268.
+The old model had no term for allocator calls, and what it charged instead (bytes and registers copied) tracks calls
+differently in each grammar. Allocator functions are 27% to 38% of all instructions in the main five, Swahili and
+cebuano.json, and 50% in ceb.fwdata, at 140 to 250 instructions per call. ceb.fwdata makes fewer, larger allocations (257 B per call)
+and copies many registers per call, so it was over-predicted; cebuano.json makes smaller ones (123 B per call) and was
+under-predicted. A register copy is one allocation plus a short memcpy (arrays of 6 to 100 slots), and the old weights
+charged it about 1,200 against a real few hundred. Least squares on all 390 measured words with allocator calls in
+leaves registers at exactly 0. Fitted on the main five only (indonesian, aweti, amharic, mbugwe, sena), with Swahili,
+cebuano.json and ceb.fwdata held out; `retune-parser-work.ps1` refits 195.6 / 1.31 / 0 / 149.3 over 206 words, which
+rounds within a quarter-instruction of the weights in use. Callgrind in WSL, error is predicted against measured instructions of the
+same words (sum / median absolute, percent):
+
+| Grammar | Words | 113 / 2 / 45 | 200 / 1.25 / 0 / 150 |
+|---|---|---|---|
+| Indonesian | 38 | +7.3 / 8.8 | -1.6 / 3.3 |
+| Aweti | 29 | +2.5 / 6.3 | -1.5 / 2.4 |
+| Amharic | 50 | +10.8 / 8.1 | -5.2 / 6.4 |
+| Mbugwe | 50 | -12.5 / 7.5 | -16.7 / 4.0 |
+| Sena | 40 | 0.0 / 3.2 | +2.9 / 2.9 |
+| Swahili (held out) | 40 | -18.5 / 21.8 | -7.9 / 9.1 |
+| swh.fwdata (held out) | 50 | -17.5 / 18.1 | -5.4 / 6.1 |
+| cebuano.json (held out) | 40 | -32.0 / 34.1 | -18.9 / 20.0 |
+| ceb.fwdata (held out), 60 words | 60 | +27.3 / 7.6 | +1.0 / 3.9 |
+| ceb.fwdata heavy, 20M or more | 28 | +27.6 / 7.9 | +1.0 / 4.6 |
+
+Mbugwe's sum worsens: two of its heavy words carry an extra cost no counted term explains (the trail-step count fits
+them better, and is a separate lead). Cebuano's heavy words, the case behind this change, go from +28% to +1%.
+
+Change check, callgrind: `HC_RSL=off` against on moves work and registers apart. The change of each grammar's total is
+predicted with mean / worst error 0.47 / 1.30 points by 113 / 2 / 45 and 0.46 / 1.25 by 200 / 1.25 / 0 / 150, and the sign is right
+on 6 of 6 grammars that moved.
+
+**Checked against the Windows counters, 2026-11-13.** The same pair and the same samples (`rslbefore` is the `after` build with
+look-ahead off, read from the executable name), `instruction-compare.ps1` on the PMC counters, 5 rounds. Raw output, kept beside the
+callgrind runs in scratch: `save/win-pmc-pair.txt` (and `.raw`), `save/win-pmc-control.txt` (and `.raw`), `save/win-rslbefore-patch.diff`,
+and the predictions from `save/callgrind-rsl-retune.out`. The control (a build against itself) read no change or INCONCLUSIVE
+on every grammar except Swahili json, where it read NO-GO (regression), so that row is not evidence. cebuano.json was refused: its
+load dwarfs its parse. An earlier run of the same pair read within PMC noise of this one (Mbugwe -12.45%, Sena -0.97%, Swahili
+-4.10%) but its output was not kept, so only this run is quoted. Change of each grammar's total, measured on Windows against the
+change the weights predict from the counts (error in points):
+
+| Grammar | Windows | 113 / 2 / 45 | 200 / 1.25 / 0 / 150 |
+|---|---|---|---|
+| Indonesian | +0.23% N | 0.00% (0.23) | 0.00% (0.23) |
+| Aweti | -0.55% I | -1.02% (0.47) | -1.02% (0.47) |
+| Amharic | -1.52% GO | -1.43% (0.09) | -1.43% (0.09) |
+| Mbugwe | -12.55% GO | -10.73% (1.82) | -10.77% (1.78) |
+| Sena | -2.37% GO | -1.13% (1.24) | -1.15% (1.22) |
+| Swahili json (held out, control failed) | -1.96% I | -1.97% (0.01) | -2.02% (0.06) |
+| swh.fwdata (held out) | -0.98% I | -0.40% (0.58) | -0.42% (0.56) |
+| ceb.fwdata (held out) | +0.12% I | -0.06% (0.18) | -0.06% (0.18) |
+
+Mean / worst error 0.58 / 1.82 points with the old weights, 0.57 / 1.78 with the new: no difference. The Windows counters do not
+disagree with the callgrind fit: the ratio of Windows instructions to predicted cost over the words, per grammar, is more even with
+the new weights. Over the seven grammars with a count (not swh.fwdata or cebuano.json) the ratios are 1.26 to 2.28 (coefficient of
+variation 19%) with 113 / 2 / 45 and 1.59 to 2.09 (9%) with the new weights, and ceb.fwdata moves from 31% below the other
+grammars' mean to 15% below. The level is about 1.8 times callgrind's, as before. No per-word Windows count exists, so the weights
+are not fitted on Windows.
+
+The weights before this change, with their evidence:
+
 113 / 2 / 45 (#233) replaced 676 / 2 / 268. Work and registers keep their ratio, scaled by about a sixth; bytes
 stay at 2, so bytes carry a larger share of cost than before. Evidence, from two change pairs over seven
 grammars (callgrind in WSL; change of each grammar's total, error in percentage points):
@@ -226,6 +289,7 @@ constants to a code change.
 - Without it, it fits wall time and refuses a run where the thread held the CPU under 95% of wall
   time. Measured: idle 0.98-0.99, 20 spinning processes 0.48-0.72, 20 copies 0.50-0.57.
 - Machine speed is removed first, and one run can move a weight only ×0.75-1.5.
+- `--counts-out` rows are `idx, work, bytes, registers, allocations, instructions`.
 
 ## Retuning after a parser change
 
@@ -235,7 +299,7 @@ tests whether the weights still fit; the steps, the skip rule and what an owner 
 instructions (`cost-calibrate --parse-only`, `--targets`, `--counts-out`, `--fit-counts`) and scores old and
 new weights.
 
-**What decides.** Cost is only ever read as a ratio of two totals (`cost-compare`), so multiplying all three
+**What decides.** Cost is only ever read as a ratio of two totals (`cost-compare`), so multiplying all the
 weights by one factor changes no verdict. The tool therefore decides on what a ratio can see:
 
 - the **shape**: the per-word error on held-out grammars after the median predicted/measured ratio is divided
@@ -258,7 +322,9 @@ The rule it prints:
   grammar, or fewer than 8 scored words in any held-out grammar.
 
 **The fit.** `cost-calibrate --fit-counts` solves the least-squares fit on relative error exactly, with no
-weight below zero, and prints how much worse the fit is when work, bytes or registers is left out. The words
+weight below zero, and prints how much worse the fit is when work, bytes, registers or allocator calls is left out.
+The candidate is the free fit, rounded to a quarter; since allocator calls joined the fit, registers fit to 0 and there is no
+work-to-register ratio to tie. The two paragraphs below are the fit as it was with three terms (113 / 2 / 45, #233 and #234). The words
 carry a term only if leaving it out makes the fit at least a tenth worse. Per-word totals of work and of
 registers copied rise and fall together, so real word lists do not split them. Measured on main with #232 and
 #234:

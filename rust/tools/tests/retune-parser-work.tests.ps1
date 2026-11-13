@@ -17,18 +17,19 @@ function Write-Manifest([string]$Dir, [string]$Json, [string]$Name = 'manifest.j
 }
 
 # Rows whose instructions follow `$truth` exactly, with varied counts, so any weights can be scored against them.
-function New-Rows([string]$Grammar, [double[]]$Truth, [int]$Count = 12, [double]$Scale = 1.0, [double]$RegisterScale = 1.0) {
+function New-Rows([string]$Grammar, [double[]]$Truth, [int]$Count = 12, [double]$Scale = 1.0, [double]$AllocationScale = 1.0) {
     $rows = @()
     for ($i = 0; $i -lt $Count; $i++) {
         $work = (2000 + $i * 700) * $Scale
         $bytes = (90000 + (($i * $i * 913) % 400000)) * $Scale
-        $regs = (500 + (($i * 311) % 3000)) * $Scale * $RegisterScale
-        $rows += [PSCustomObject]@{ Grammar = $Grammar; Idx = $i; Work = $work; Bytes = $bytes; Registers = $regs; Instructions = $work * $Truth[0] + $bytes * $Truth[1] + $regs * $Truth[2] }
+        $regs = (500 + (($i * 311) % 3000)) * $Scale
+        $allocs = (800 + (($i * $i * 37) % 2900)) * $Scale * $AllocationScale
+        $rows += [PSCustomObject]@{ Grammar = $Grammar; Idx = $i; Work = $work; Bytes = $bytes; Registers = $regs; Allocations = $allocs; Instructions = $work * $Truth[0] + $bytes * $Truth[1] + $regs * $Truth[2] + $allocs * $Truth[3] }
     }
     return $rows
 }
 
-$current = [double[]]@(676, 2, 268)
+$current = [double[]]@(200, 1.25, 0, 150)
 
 Test-Case 'a manifest takes the default split for the five grammars and Swahili/Cebuano, and explicit sets win' {
     $dir = New-TestTempDir
@@ -97,55 +98,48 @@ Test-Case 'Pearson is 1 for a line, -1 for a falling one, and null when it is un
     Assert-Equal $null (Get-Pearson @(1) @(1))
 }
 
-Test-Case 'candidate weights round to integers and never fall below 1' {
-    $c = ConvertTo-CandidateWeights -Weights @(660.4, 0.3, 330.5)
-    Assert-Equal 660 $c[0]
-    Assert-Equal 1 $c[1]
-    Assert-Equal 331 $c[2]
+Test-Case 'candidate weights round to a quarter of an instruction, and a zero weight stays zero' {
+    $c = ConvertTo-CandidateWeights -Weights @(197.1, 1.26, 0, 149.9)
+    Assert-Equal 197 $c[0]
+    Assert-Equal 1.25 $c[1]
+    Assert-Equal 0 $c[2]
+    Assert-Equal 150 $c[3]
+    Assert-Equal 0 (ConvertTo-CandidateWeights -Weights @(1, 1, 0.1, 1))[2]
 }
 
 # What `cost-calibrate --fit-counts` prints; the numbers are invented.
-function New-Fit([double[]]$Free, [double]$FreeError, [double[]]$Tied, [double]$TiedError, [double[]]$Without, $Tradeoff = -0.5) {
-    $w = { param($v, $e) [PSCustomObject]@{ work = $v[0]; byte = $v[1]; register = $v[2]; error = $e } }
-    return [PSCustomObject]@{ words = 100; free = (& $w $Free $FreeError); tied = (& $w $Tied $TiedError)
-        errorWithout = [PSCustomObject]@{ work = $Without[0]; byte = $Without[1]; register = $Without[2] }
-        workRegisterTradeoff = $Tradeoff; current = [PSCustomObject]@{ work = 676; byte = 2; register = 268 } }
+function New-Fit([double[]]$Free, [double]$FreeError, [double[]]$Without) {
+    return [PSCustomObject]@{ words = 100
+        free = [PSCustomObject]@{ work = $Free[0]; byte = $Free[1]; register = $Free[2]; allocation = $Free[3]; error = $FreeError }
+        errorWithout = [PSCustomObject]@{ work = $Without[0]; byte = $Without[1]; register = $Without[2]; allocation = $Without[3] }
+        current = [PSCustomObject]@{ work = 200; byte = 1.25; register = 0; allocation = 150 } }
 }
 
-Test-Case 'the free fit is the candidate only when leaving out work or registers each makes the fit at least a tenth worse' {
-    $r = Get-FitReading (New-Fit @(200, 2, 100) 0.05 @(180, 2, 71) 0.06 @(0.09, 0.30, 0.08))
+Test-Case 'the free fit is the candidate when the words carry bytes, and registers beside allocations are called out' {
+    $r = Get-FitReading (New-Fit @(197, 1.26, 0, 150) 0.05 @(0.09, 0.30, 0.05, 0.08))
     Assert-Equal 'free' $r.Kind
-    Assert-Equal 100 $r.Weights[2]
-    Assert-True ($r.Left -match 'work x1\.80  byte x6\.00  register x1\.60') $r.Left
+    Assert-Equal 150 $r.Weights[3]
+    Assert-True ($r.Left -match 'work x1\.80  byte x6\.00  register x1\.00  allocation x1\.60') $r.Left
+    Assert-True ($r.Note -match 'registers add nothing') $r.Note
+    $carried = Get-FitReading (New-Fit @(197, 1.26, 20, 150) 0.05 @(0.09, 0.30, 0.09, 0.08))
+    Assert-True ($carried.Note -match 'carry a register term') $carried.Note
 }
 
-Test-Case 'words that cannot split work from registers give the tied fit, whichever of the two the free fit dropped' {
-    # The fit is as good without registers.
-    $a = Get-FitReading (New-Fit @(177, 2.2, 14) 0.0937 @(101, 2.3, 40) 0.0948 @(0.0992, 0.3228, 0.0940) -0.97)
-    Assert-Equal 'tied' $a.Kind
-    Assert-Equal 101 $a.Weights[0]
-    Assert-Equal 40 $a.Weights[2]
-    Assert-True ($a.Note -match 'cannot split work from registers' -and $a.Note -match 'trade off at -0\.97') $a.Note
-    # Another sample of the same code: now the fit is as good without work, and the free weights are far from the first.
-    $b = Get-FitReading (New-Fit @(58, 2.3, 61) 0.1245 @(111, 2.2, 44) 0.1253 @(0.1254, 0.2991, 0.1338) -0.89)
-    Assert-Equal 'tied' $b.Kind
-    Assert-Equal 111 $b.Weights[0]
-    # A perfect fit that stays perfect without a term does not carry it.
-    $c = Get-FitReading (New-Fit @(500, 2, 0) 0 @(250, 2, 99) 0 @(0, 0.3, 0) $null)
-    Assert-Equal 'tied' $c.Kind
+Test-Case 'a perfect fit that stays perfect without a term does not carry it' {
+    $c = Get-FitReading (New-Fit @(500, 2, 0, 0) 0 @(0, 0.3, 0, 0))
     Assert-True ($c.Left -match 'byte far') $c.Left
-    Assert-True ($c.Note -notmatch 'trade off') $c.Note
+    Assert-True ($c.Left -match 'register x1\.00') $c.Left
 }
 
 Test-Case 'words that do not carry the byte term offer no candidate' {
-    $r = Get-FitReading (New-Fit @(200, 2, 100) 0.05 @(180, 2, 71) 0.06 @(0.09, 0.052, 0.08))
+    $r = Get-FitReading (New-Fit @(200, 2, 100, 150) 0.05 @(0.09, 0.052, 0.08, 0.08))
     Assert-Equal 'none' $r.Kind
     Assert-Equal $null $r.Weights
     Assert-True ($r.Note -match 'do not carry the byte term') $r.Note
 }
 
 Test-Case 'weights that match the code have a better shape than stale ones on held-out words, so the refit is ACCEPT' {
-    $truth = [double[]]@(560, 2, 140)
+    $truth = [double[]]@(560, 2, 140, 300)
     $after = @(New-Rows 'h1' $truth) + @(New-Rows 'h2' $truth 10 2.0)
     $old = Get-WeightScore -After $after -Before $after -Weights $current
     $new = Get-WeightScore -After $after -Before $after -Weights $truth
@@ -159,20 +153,20 @@ Test-Case 'weights that match the code have a better shape than stale ones on he
 }
 
 Test-Case 'a refit whose shape is no better is KEEP, and a worse worst shape error is KEEP even with a lower median' {
-    $truth = [double[]]@(560, 2, 140)
+    $truth = [double[]]@(560, 2, 140, 300)
     $after = New-Rows 'h' $truth
     $score = Get-WeightScore -After $after -Before $after -Weights $current
-    $d = Get-RetuneDecision -Old $score -New $score -OldWeights $current -NewWeights @(677, 2, 268) -ProofRun $false
+    $d = Get-RetuneDecision -Old $score -New $score -OldWeights $current -NewWeights @(201, 1.25, 0, 150) -ProofRun $false
     Assert-Equal 'KEEP' $d.Verdict
     Assert-True ($d.Reason -match 'shape not better')
     $worse = $score.PSObject.Copy(); $worse.ScaleFreeMedianError = $score.ScaleFreeMedianError - 1; $worse.ScaleFreeWorstError = $score.ScaleFreeWorstError + 1
-    $d2 = Get-RetuneDecision -Old $score -New $worse -OldWeights $current -NewWeights @(600, 2, 200) -ProofRun $false
+    $d2 = Get-RetuneDecision -Old $score -New $worse -OldWeights $current -NewWeights @(600, 2, 200, 100) -ProofRun $false
     Assert-Equal 'KEEP' $d2.Verdict
     Assert-True ($d2.Reason -match 'worst shape error higher')
 }
 
 Test-Case 'a pure rescale fixes the level, changes no shape, and is KEEP: the level never decides' {
-    $truth = [double[]]@(560, 2, 140)
+    $truth = [double[]]@(560, 2, 140, 300)
     $rows = @(New-Rows 'h1' $truth) + @(New-Rows 'h2' $truth 10 2.0)
     $scaled = [double[]]@($truth | ForEach-Object { $_ * 2.3 })
     $a = Get-WeightScore -After $rows -Before $rows -Weights $scaled
@@ -203,23 +197,23 @@ Test-Case 'no candidate is KEEP with the reason the fit gave' {
 }
 
 Test-Case 'direction counts only words whose instructions moved at least 2%, and worse direction blocks ACCEPT' {
-    # After copies a third as many registers, so instructions fell on every word.
-    $truth = [double[]]@(676, 2, 268)
+    # After makes a third as many allocator calls, so instructions fell on every word.
+    $truth = [double[]]@(200, 1.25, 0, 150)
     $before = New-Rows 'h' $truth; $after = New-Rows 'h' $truth 12 1.0 0.33
     $right = Get-WeightScore -After $after -Before $before -Weights $truth
-    $flat = Get-WeightScore -After $after -Before $before -Weights @(676, 2, 0)
+    $flat = Get-WeightScore -After $after -Before $before -Weights @(200, 1.25, 0, 0)
     Assert-True ($right.DirectionRows -ge 10) "rows $($right.DirectionRows)"
     Assert-Equal $right.DirectionRows $right.DirectionMatches
     Assert-True ($right.PearsonChange -gt 0.99) "change r $($right.PearsonChange)"
-    # With no register weight the cost still falls only through work and bytes, which did not change: no direction at all.
+    # With no allocation weight the cost still falls only through work and bytes, which did not change: no direction at all.
     Assert-Equal 0 $flat.DirectionMatches
-    $d = Get-RetuneDecision -Old $right -New $flat -OldWeights $current -NewWeights @(676, 2, 150) -ProofRun $false
+    $d = Get-RetuneDecision -Old $right -New $flat -OldWeights $current -NewWeights @(200, 1.25, 0, 100) -ProofRun $false
     Assert-Equal 'KEEP' $d.Verdict
     Assert-True ($d.Reason -match 'direction worse')
 }
 
 Test-Case 'a no-change pair has no direction rows' {
-    $truth = [double[]]@(600, 2, 200)
+    $truth = [double[]]@(600, 2, 200, 100)
     $rows = New-Rows 'h' $truth
     $same = Get-WeightScore -After $rows -Before $rows -Weights $current
     Assert-Equal 0 $same.DirectionRows
@@ -228,7 +222,7 @@ Test-Case 'a no-change pair has no direction rows' {
 
 # Scores for a real pair whose counts did not change (a constant-factor change): only the shape discriminates.
 function Get-ZeroRowScores {
-    $truth = [double[]]@(560, 2, 140)
+    $truth = [double[]]@(560, 2, 140, 300)
     $rows = @(New-Rows 'h1' $truth) + @(New-Rows 'h2' $truth 10 2.0)
     return [PSCustomObject]@{
         Old = (Get-WeightScore -After $rows -Before $rows -Weights $current)
@@ -258,16 +252,16 @@ Test-Case 'a real pair with 0 direction rows and no grammar that moved can ACCEP
 Test-Case 'a few direction rows are called weak, and many say direction no worse' {
     $mk = { param($rows) [PSCustomObject]@{ Words = 20; MedianError = 5.0; WorstError = 9.0; DirectionRows = $rows; DirectionMatches = $rows; ScaleFreeMedianError = 1.0; ScaleFreeWorstError = 2.0; MedianRatio = 1.0; WordsByGrammar = @{} } }
     $better = & $mk 3; $better.ScaleFreeMedianError = 0.5
-    $weak = Get-RetuneDecision -Old (& $mk 3) -New $better -OldWeights $current -NewWeights @(600, 2, 200) -ProofRun $false
+    $weak = Get-RetuneDecision -Old (& $mk 3) -New $better -OldWeights $current -NewWeights @(600, 2, 200, 100) -ProofRun $false
     Assert-Equal 'ACCEPT' $weak.Verdict
     Assert-True ($weak.Reason -match 'direction weak') $weak.Reason
     $better12 = & $mk 12; $better12.ScaleFreeMedianError = 0.5
-    $full = Get-RetuneDecision -Old (& $mk 12) -New $better12 -OldWeights $current -NewWeights @(600, 2, 200) -ProofRun $false
+    $full = Get-RetuneDecision -Old (& $mk 12) -New $better12 -OldWeights $current -NewWeights @(600, 2, 200, 100) -ProofRun $false
     Assert-True ($full.Reason -match '^direction no worse') $full.Reason
 }
 
 Test-Case 'a held-out grammar with too few scored words is refused by name, though the pool is large' {
-    $truth = [double[]]@(560, 2, 140)
+    $truth = [double[]]@(560, 2, 140, 300)
     $rows = @(New-Rows 'big' $truth 30) + @(New-Rows 'tiny' $truth 3)
     $score = Get-WeightScore -After $rows -Before $rows -Weights $current
     Assert-Equal 33 $score.Words
@@ -289,14 +283,14 @@ Test-Case 'count totals cover only the words both builds counted' {
 
 # One grammar's change: the After counts are the Before counts with bytes cut by `$ByteCut`, and the instructions follow `$Truth`.
 function New-Change([string]$Grammar, [double[]]$Truth, [double]$ByteCut, [double]$WorkGain = 0.0) {
-    $before = [double[]]@(1000000, 300000000, 2500000)
-    $after = [double[]]@(($before[0] * (1 + $WorkGain)), ($before[1] * (1 - $ByteCut)), $before[2])
-    $cost = { param($c) $c[0] * $Truth[0] + $c[1] * $Truth[1] + $c[2] * $Truth[2] }
+    $before = [double[]]@(1000000, 300000000, 2500000, 4000000)
+    $after = [double[]]@(($before[0] * (1 + $WorkGain)), ($before[1] * (1 - $ByteCut)), $before[2], $before[3])
+    $cost = { param($c) $c[0] * $Truth[0] + $c[1] * $Truth[1] + $c[2] * $Truth[2] + $c[3] * $Truth[3] }
     return [PSCustomObject]@{ Grammar = $Grammar; Before = $before; After = $after; MeasuredPercent = 100.0 * ((& $cost $after) / (& $cost $before) - 1) }
 }
 
 Test-Case 'the change of a grammar total is predicted from its counts and scored in points against the measured change' {
-    $truth = [double[]]@(200, 2, 100)
+    $truth = [double[]]@(200, 2, 100, 150)
     $changes = @((New-Change 'a' $truth 0.30), (New-Change 'b' $truth 0.10), (New-Change 'c' $truth 0.0))
     $exact = Get-ChangeScore -Changes $changes -Weights $truth
     Assert-Equal 3 $exact.Grammars
@@ -304,13 +298,13 @@ Test-Case 'the change of a grammar total is predicted from its counts and scored
     Assert-Equal 2 $exact.Matches
     Assert-True ($exact.MeanError -lt 1e-9 -and $exact.WorstError -lt 1e-9) "exact weights predict the change: $($exact.MeanError)"
     # Weights that give bytes too little say the cut saved less than it did.
-    $stale = Get-ChangeScore -Changes $changes -Weights $current
+    $stale = Get-ChangeScore -Changes $changes -Weights @(200, 0.25, 100, 150)
     Assert-Equal 2 $stale.Matches
     Assert-True ($stale.MeanError -gt 2) "stale mean error $($stale.MeanError)"
     Assert-True ($stale.ByGrammar[0].Predicted -gt $stale.ByGrammar[0].Measured) 'the stale prediction is the smaller cut'
     # Work alone gets the sign wrong when work rose while bytes fell.
     $mixed = @((New-Change 'a' $truth 0.30 0.05))
-    $workOnly = Get-ChangeScore -Changes $mixed -Weights @(1, 0, 0)
+    $workOnly = Get-ChangeScore -Changes $mixed -Weights @(1, 0, 0, 0)
     Assert-Equal 1 $workOnly.Rows
     Assert-Equal 0 $workOnly.Matches
     Assert-Equal 0 (Get-ChangeScore -Changes @() -Weights $truth).Grammars
@@ -319,14 +313,14 @@ Test-Case 'the change of a grammar total is predicted from its counts and scored
 Test-Case 'a candidate that predicts the change of grammar totals worse is KEEP, though its shape is better' {
     $mk = { param([double]$shape) [PSCustomObject]@{ Words = 20; MedianError = 5.0; WorstError = 9.0; DirectionRows = 12; DirectionMatches = 12; ScaleFreeMedianError = $shape; ScaleFreeWorstError = 2.0; MedianRatio = 1.0; WordsByGrammar = @{} } }
     $ch = { param([int]$signs, [double]$mean) [PSCustomObject]@{ Grammars = 7; Rows = 7; Matches = $signs; MeanError = $mean; WorstError = $mean * 2 } }
-    $worse = Get-RetuneDecision -Old (& $mk 8.0) -New (& $mk 3.0) -OldChange (& $ch 7 5.0) -NewChange (& $ch 7 5.6) -OldWeights $current -NewWeights @(101, 2, 40) -ProofRun $false
+    $worse = Get-RetuneDecision -Old (& $mk 8.0) -New (& $mk 3.0) -OldChange (& $ch 7 5.0) -NewChange (& $ch 7 5.6) -OldWeights $current -NewWeights @(101, 2, 40, 100) -ProofRun $false
     Assert-Equal 'KEEP' $worse.Verdict
     Assert-True ($worse.Reason -match 'change error higher \(5\.60 against 5\.00 points over 7 grammar\(s\)\)') $worse.Reason
-    $sign = Get-RetuneDecision -Old (& $mk 8.0) -New (& $mk 3.0) -OldChange (& $ch 7 5.0) -NewChange (& $ch 6 4.0) -OldWeights $current -NewWeights @(101, 2, 40) -ProofRun $false
+    $sign = Get-RetuneDecision -Old (& $mk 8.0) -New (& $mk 3.0) -OldChange (& $ch 7 5.0) -NewChange (& $ch 6 4.0) -OldWeights $current -NewWeights @(101, 2, 40, 100) -ProofRun $false
     Assert-Equal 'KEEP' $sign.Verdict
     Assert-True ($sign.Reason -match 'change direction worse \(6 of 7 grammar\(s\) against 7\)') $sign.Reason
     # Within half a point the change error is no worse, and the better shape decides.
-    $ok = Get-RetuneDecision -Old (& $mk 8.0) -New (& $mk 3.0) -OldChange (& $ch 7 5.0) -NewChange (& $ch 7 5.4) -OldWeights $current -NewWeights @(101, 2, 40) -ProofRun $false
+    $ok = Get-RetuneDecision -Old (& $mk 8.0) -New (& $mk 3.0) -OldChange (& $ch 7 5.0) -NewChange (& $ch 7 5.4) -OldWeights $current -NewWeights @(101, 2, 40, 100) -ProofRun $false
     Assert-Equal 'ACCEPT' $ok.Verdict
     Assert-True ($ok.Reason -match 'change of grammar totals no worse over 7 grammar\(s\), shape better') $ok.Reason
 }
@@ -339,17 +333,19 @@ Test-Case 'the driver hands the change scores and the proof-run flag to the deci
 }
 
 Test-Case 'a weight that moves by more than a quarter is flagged, and a small move is not' {
-    Assert-Equal 0 @(Get-WeightMoves -Current $current -Candidate @(700, 2, 280)).Count
-    $m = @(Get-WeightMoves -Current $current -Candidate @(55, 2, 99))
+    Assert-Equal 0 @(Get-WeightMoves -Current $current -Candidate @(210, 1.25, 0, 160)).Count
+    $m = @(Get-WeightMoves -Current $current -Candidate @(55, 1.25, 0, 99))
     Assert-Equal 2 $m.Count
-    Assert-True ($m[0] -match '^work x0\.08') $m[0]
-    Assert-Equal 1 @(Get-WeightMoves -Current $current -Candidate @(676, 3, 268)).Count
+    Assert-True ($m[0] -match '^work x0\.28') $m[0]
+    Assert-Equal 1 @(Get-WeightMoves -Current $current -Candidate @(200, 2, 0, 150)).Count
+    $z = @(Get-WeightMoves -Current $current -Candidate @(200, 1.25, 5, 150))
+    Assert-True ($z.Count -eq 1 -and $z[0] -match '^register from 0 to 5') ($z -join ';')
 }
 
 Test-Case 'too few held-out words reaching the work floor refuses to score' {
     $rows = New-Rows 'h' $current 5
     $score = Get-WeightScore -After $rows -Before $rows -Weights $current
-    $d = Get-RetuneDecision -Old $score -New $score -OldWeights $current -NewWeights @(600, 2, 200) -ProofRun $false
+    $d = Get-RetuneDecision -Old $score -New $score -OldWeights $current -NewWeights @(600, 2, 200, 100) -ProofRun $false
     Assert-Equal 'REFUSED' $d.Verdict
     Assert-True ($d.Reason -match 'at least 8')
     $tiny = @($rows | ForEach-Object { $_.PSObject.Copy() })
@@ -471,10 +467,11 @@ Test-Case 'counts files are read without word text and a short row is refused' {
     $dir = New-TestTempDir
     try {
         $p = Join-Path $dir 'c.tsv'
-        [IO.File]::WriteAllText($p, "3`t1200`t90000`t40`t2500000`n")
+        [IO.File]::WriteAllText($p, "3`t1200`t90000`t40`t7000`t2500000`n")
         $r = @(Read-CountsFile $p)
         Assert-Equal 1 $r.Count
         Assert-Equal 90000 $r[0].Bytes
+        Assert-Equal 7000 $r[0].Allocations
         [IO.File]::WriteAllText($p, "3`t1200`n")
         $threw = $false
         try { Read-CountsFile $p | Out-Null } catch { $threw = $true }

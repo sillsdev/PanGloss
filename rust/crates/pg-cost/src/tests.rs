@@ -12,10 +12,12 @@ fn cost_applies_each_weight_to_its_own_count() {
         work: 3,
         bytes: 5,
         registers: 7,
+        allocations: 11,
     };
     assert_eq!(
         counts.cost(),
-        3 * WORK_WEIGHT + 5 * BYTE_WEIGHT + 7 * REGISTER_WEIGHT
+        (3 * WORK_WEIGHT + 5 * BYTE_WEIGHT + 7 * REGISTER_WEIGHT + 11 * ALLOCATION_WEIGHT)
+            / WEIGHT_SCALE
     );
 }
 
@@ -25,8 +27,9 @@ fn cost_saturates_rather_than_wrapping() {
         work: u64::MAX,
         bytes: u64::MAX,
         registers: u64::MAX,
+        allocations: u64::MAX,
     };
-    assert_eq!(counts.cost(), u64::MAX);
+    assert_eq!(counts.cost(), u64::MAX / WEIGHT_SCALE);
 }
 
 #[test]
@@ -36,4 +39,13 @@ fn thread_cpu_time_moves_when_this_thread_works() {
     while thread_cpu_time().unwrap() <= before {
         spin = std::hint::black_box(spin.wrapping_add(1));
     }
+}
+
+#[test]
+fn registers_are_counted_but_cost_nothing() {
+    let counts = Counts {
+        registers: 1_000_000,
+        ..Counts::default()
+    };
+    assert_eq!(counts.cost(), 0);
 }
