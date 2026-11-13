@@ -51,7 +51,10 @@ serialises as an array of words. Old stored analyses read back unchanged.
 
 - Generation 0 is an ambient table, never freed, for a wide set built with no wide operand and
   no grammar in scope: a stored wide set read back outside any grammar, or a legacy stored
-  number with bit 63 set (member 63). Inline sets never touch it.
+  number with bit 63 set (member 63). Inline sets never touch it. Deserialisation is capped
+  there (1,024 distinct sets, 256 KiB of lists): a repeat is found, not added, and a new set
+  past the cap is a deserialisation error, so untrusted input cannot grow it without bound.
+  A deserialiser running inside a grammar's scope builds into that grammar's table instead.
 - Deserialising rejects a word list longer than 1024 words, so stored data cannot name an id
   beyond `u16`.
 - A wide set that outlives its grammar cannot be read: the operation panics with a message
@@ -64,5 +67,5 @@ serialises as an array of words. Old stored analyses read back unchanged.
 
 The 64th feature changes representation, because bit 63 is the tag; ids 0..=62 are inline.
 Parser `work_steps` are identical and wall time and memory are within noise on the sample
-grammars. A table holds 0.10 MB at 70 features and 0.41 MB at 140 after parsing 3,000 words, and is freed with its grammar. The parts-of-speech and feature-value caps (63 each) are separate bitsets and stay
+grammars. A table holds 0.10 MB at 70 features and 0.41 MB at 140 after parsing 3,000 words, and is freed with its grammar. The table has no eviction and grows with the distinct wide sets a grammar's derivations reach; `MprTable::retained_bytes` reports it. The parts-of-speech and feature-value caps (63 each) are separate bitsets and stay
 as follow-ups.

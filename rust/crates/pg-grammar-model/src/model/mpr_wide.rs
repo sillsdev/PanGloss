@@ -9,12 +9,16 @@ use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 const INDEX_BITS: u32 = 38;
 const INDEX_MASK: u64 = (1 << INDEX_BITS) - 1;
 const GENERATION_MASK: u32 = (1 << 24) - 1;
+/// Distinct stored sets, and their bytes, the ambient table accepts from deserialisation.
+const AMBIENT_STORED_SETS: usize = 1024;
+const AMBIENT_STORED_BYTES: usize = 256 * 1024;
 const DEAD: &str = "a wide MprSet outlived the grammar that owns its table";
 
 struct Table {
     generation: u32,
     lists: Vec<Box<[u64]>>,
     indexes: HashMap<Box<[u64]>, u64>,
+    list_bytes: usize,
 }
 
 /// Live tables, generation 0 (the ambient one, never freed) first. A handful at most, so lookup is a scan; one lock covers reads.
@@ -43,6 +47,7 @@ impl Table {
             generation,
             lists: Vec::new(),
             indexes: HashMap::new(),
+            list_bytes: 0,
         }
     }
 }
@@ -139,12 +144,12 @@ pub(super) fn generation_of(handle: u64) -> u32 {
     (handle >> INDEX_BITS) as u32 & GENERATION_MASK
 }
 
-/// The handle for `words` (no trailing zero word) in the table of `generation`, else the current scope's, else the ambient one.
-pub(super) fn intern(generation: Option<u32>, words: &[u64]) -> u64 {
+/// Interns a list into one table and returns its handle; stored data may not grow the ambient table past its limits.
+pub(super) fn intern(generation: Option<u32>, words: &[u64], stored: bool) -> Option<u64> {
     let generation = generation.or_else(|| CURRENT.with(Cell::get)).unwrap_or(0);
     let tag = u64::from(generation) << INDEX_BITS;
     if let Some(index) = find(&read(), generation).and_then(|t| t.indexes.get(words)) {
-        return tag | index;
+        return Some(tag | index);
     }
     let mut tables = write();
     let table = tables
@@ -152,13 +157,21 @@ pub(super) fn intern(generation: Option<u32>, words: &[u64]) -> u64 {
         .find(|t| t.generation == generation)
         .expect(DEAD);
     if let Some(index) = table.indexes.get(words) {
-        return tag | index;
+        return Some(tag | index);
     }
+    if stored
+        && generation == 0
+        && (table.lists.len() >= AMBIENT_STORED_SETS
+            || table.list_bytes + words.len() * 8 > AMBIENT_STORED_BYTES)
+    {
+        return None;
+    }
+    table.list_bytes += words.len() * 8;
     let index = table.lists.len() as u64;
     assert!(index <= INDEX_MASK, "wide MprSet table is full");
     table.lists.push(words.into());
     table.indexes.insert(words.into(), index);
-    tag | index
+    Some(tag | index)
 }
 
 fn list(tables: &[Table], handle: u64) -> Option<&[u64]> {

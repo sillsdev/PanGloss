@@ -133,6 +133,8 @@ const WIDE_TAG: u64 = 1 << 63;
 /// Longest stored word list accepted (one word per 64 ids, so every `MprId` fits).
 const MAX_WIDE_WORDS: usize = 1024;
 
+const TOO_MANY_STORED: &str = "too many distinct wide MPR sets in stored data";
+
 mod mpr_wide;
 pub use mpr_wide::{is_live as mpr_table_is_live, MprScope, MprTable};
 
@@ -227,7 +229,23 @@ impl MprSet {
         match words.as_slice() {
             [] => MprSet::EMPTY,
             [w] if w & WIDE_TAG == 0 => MprSet(*w),
-            _ => MprSet(WIDE_TAG | mpr_wide::intern(generation, &words)),
+            _ => MprSet(
+                WIDE_TAG
+                    | mpr_wide::intern(generation, &words, false)
+                        .expect("only stored sets are capped"),
+            ),
+        }
+    }
+
+    /// [`from_words`](Self::from_words) for stored data: `None` when the ambient table is at its cap.
+    fn from_stored_words(mut words: Vec<u64>) -> Option<MprSet> {
+        while words.last() == Some(&0) {
+            words.pop();
+        }
+        match words.as_slice() {
+            [] => Some(MprSet::EMPTY),
+            [w] if w & WIDE_TAG == 0 => Some(MprSet(*w)),
+            _ => mpr_wide::intern(None, &words, true).map(|h| MprSet(WIDE_TAG | h)),
         }
     }
 
@@ -249,7 +267,13 @@ impl MprSet {
             (true, true) => mpr_wide::with_two(self.0 & !WIDE_TAG, other.0 & !WIDE_TAG, zip),
             _ => self.with_words(|a| other.with_words(|b| zip(a, b))),
         };
-        MprSet::from_words(words, self.generation().or(other.generation()))
+        MprSet::from_words(
+            words,
+            match (self.generation(), other.generation()) {
+                (Some(0), g @ Some(_)) | (g, None) => g,
+                (g, _) => g,
+            },
+        )
     }
 
     #[inline]
@@ -379,7 +403,9 @@ impl serde::Serialize for MprSet {
         if !self.is_wide() {
             return ser.serialize_u64(self.0);
         }
-        let words = self.to_words();
+        let words = self.try_to_words().ok_or_else(|| {
+            serde::ser::Error::custom("the grammar that owns this MPR set was dropped")
+        })?;
         let mut seq = ser.serialize_seq(Some(words.len()))?;
         for w in &words {
             seq.serialize_element(w)?;
@@ -398,7 +424,8 @@ impl<'de> serde::Deserialize<'de> for MprSet {
             }
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<MprSet, E> {
                 if v & WIDE_TAG != 0 {
-                    return Ok(MprSet::from_words(vec![v], None));
+                    return MprSet::from_stored_words(vec![v])
+                        .ok_or_else(|| E::custom(TOO_MANY_STORED));
                 }
                 Ok(MprSet(v))
             }
@@ -415,7 +442,8 @@ impl<'de> serde::Deserialize<'de> for MprSet {
                     }
                     words.push(w);
                 }
-                Ok(MprSet::from_words(words, None))
+                MprSet::from_stored_words(words)
+                    .ok_or_else(|| serde::de::Error::custom(TOO_MANY_STORED))
             }
         }
         de.deserialize_any(V)

@@ -84,3 +84,26 @@ fn two_wide_grammars_parse_side_by_side_on_separate_threads() {
     drop(a);
     assert_eq!(signatures(&Morpher::new(&b, usize::MAX)), expected);
 }
+
+#[test]
+fn wide_parsing_on_rayon_batch_workers_matches_one_thread() {
+    let grammar = load();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let words: Vec<String> = ACCEPTED
+        .iter()
+        .chain(&REFUSED)
+        .cycle()
+        .take(900)
+        .map(|w| w.to_string())
+        .collect();
+    let sig = |threads| -> Vec<String> {
+        crate::hc_parse_batch(&morpher, &words, threads)
+            .iter()
+            .map(|o| format!("{}", o.outcome.analyses.len()))
+            .collect()
+    };
+    let one = sig(1);
+    assert!(one.iter().any(|n| n != "0"));
+    assert_eq!(sig(4), one);
+    assert_eq!(sig(8), one);
+}
