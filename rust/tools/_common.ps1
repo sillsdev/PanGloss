@@ -1877,6 +1877,17 @@ function Get-ConformanceDriverFileNames {
     return @('hc-conformance.exe')
 }
 
+function Get-DefaultMachineCheckouts {
+    # Windows keeps the owner's known checkouts; elsewhere a `machine` sibling of the MAIN clone (found via the git common dir, so a worktree resolves it too).
+    param([string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    if ($IsWindows) { return @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine') }
+    $mainClone = $RepoRoot
+    $commonLines = @(& git -C $RepoRoot rev-parse --path-format=absolute --git-common-dir 2>$null)
+    $commonExit = $LASTEXITCODE  # read before narrowing the lines
+    if ($commonExit -eq 0 -and $commonLines.Count -gt 0) { $mainClone = Split-Path -Parent $commonLines[0].Trim() }
+    return @(Join-Path (Split-Path -Parent $mainClone) 'machine')
+}
+
 function Find-PinMatchedConformanceDriver {
     <#
       .DESCRIPTION
@@ -1893,13 +1904,13 @@ function Find-PinMatchedConformanceDriver {
     $checkouts = @(if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
         $env:PANGLOSS_MACHINE_CHECKOUTS -split ';' | Where-Object { $_ }
     } else {
-        'C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine'
+        Get-DefaultMachineCheckouts
     })
     $driverNames = Get-ConformanceDriverFileNames
-    $relative = 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\{0}\net10.0\{1}'
+    $relative = [IO.Path]::Combine('src', 'SIL.Machine.Morphology.HermitCrab.Conformance', 'bin', '{0}', 'net10.0', '{1}')
     $worktrees = [System.Collections.Generic.List[string]]::new()
     foreach ($checkout in $checkouts) {
-        $worktrees.Add((Join-Path $checkout ".worktrees\pin-$PinCommit"))
+        $worktrees.Add((Join-Path (Join-Path $checkout '.worktrees') "pin-$PinCommit"))
         if (-not (Test-Path -LiteralPath $checkout)) { continue }
         $current = $null
         foreach ($line in @(& git -C $checkout worktree list --porcelain 2>$null)) {
@@ -1943,9 +1954,10 @@ function Find-PinMatchedConformanceDriver {
         }
     }
     $first = $checkouts[0]
+    $pinRel = Join-Path '.worktrees' "pin-$PinCommit"
     $detail = "no conformance driver ($($driverNames -join ' or ')) built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
-        "Build one: git -C $first worktree add --detach .worktrees\pin-$PinCommit $PinCommit; " +
-        "dotnet build $first\.worktrees\pin-$PinCommit\src\SIL.Machine.Morphology.HermitCrab.Conformance -c Release"
+        "Build one: git -C $first worktree add --detach $pinRel $PinCommit; " +
+        "dotnet build $(Join-Path $first (Join-Path $pinRel (Join-Path 'src' 'SIL.Machine.Morphology.HermitCrab.Conformance'))) -c Release"
     return [PSCustomObject]@{ Ok = $false; ExePath = $null; Detail = $detail }
 }
 

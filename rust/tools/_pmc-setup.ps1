@@ -14,7 +14,9 @@ $script:KnownLoopInstructionsPerIteration = 2
 function Get-PmcTaskSpecs {
     # The two tasks instruction-compare.ps1 starts. wpr.exe needs elevation; the tasks hold it so the comparison does not.
     param([string]$Dir = $script:PmcDir)
-    $wpr = Join-Path $env:WINDIR 'System32\wpr.exe'
+    # WINDIR is unset off Windows; the specs are then built for the default Windows directory so they stay checkable.
+    $windir = if ($env:WINDIR) { $env:WINDIR } else { 'C:\Windows' }
+    $wpr = "$($windir.TrimEnd('\', '/'))\System32\wpr.exe"
     @(
         [PSCustomObject]@{ Name = 'PanGloss PMC Start'; Execute = $wpr; Arguments = "-start `"$Dir\pg.wprp!PG`" -filemode"; WorkingDirectory = $Dir }
         [PSCustomObject]@{ Name = 'PanGloss PMC Stop'; Execute = $wpr; Arguments = "-stop `"$Dir\current.etl`" -skipPdbGen"; WorkingDirectory = $Dir }

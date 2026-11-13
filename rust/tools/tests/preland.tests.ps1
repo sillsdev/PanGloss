@@ -113,6 +113,65 @@ Test-Case 'pangloss is located from the target dir the build child named, or not
     Assert-True ($null -eq (Get-PanglossFromBuildOutput -Lines @('[pg] lint gate: cargo clippy') -RustRoot 'R:\rust')) 'no build line means no binary'
 }
 
+Test-Case 'default Machine checkouts carry no drive letters off Windows and the miss names platform paths' {
+    $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS
+    try {
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $null
+        $defaults = @(Get-DefaultMachineCheckouts)
+        Assert-True ($defaults.Count -ge 1) 'at least one default checkout'
+        if (-not $IsWindows) {
+            Assert-True (-not ($defaults -match '^[A-Za-z]:\\')) "no drive-letter default on this platform: $defaults"
+            $miss = Find-PinMatchedConformanceDriver -PinCommit ('0' * 40)
+            Assert-False $miss.Ok 'no driver for an unknown pin'
+            Assert-True ($miss.Detail -notmatch '\\') "the miss detail uses no backslashes: $($miss.Detail)"
+        }
+    } finally { $env:PANGLOSS_MACHINE_CHECKOUTS = $previousCheckouts }
+}
+
+Test-Case 'default Machine checkout is the main clone sibling from a worktree, including a nested branch dir' {
+    if ($IsWindows) { return }  # the Windows list is fixed paths
+    $temp = New-TestTempDir -Prefix 'pg-machine-default'
+    try {
+        $clone = Join-Path $temp 'PanGloss'
+        New-Item -ItemType Directory -Force -Path $clone | Out-Null
+        & git -C $clone init --quiet
+        & git -C $clone -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m x
+        $expected = Join-Path $temp 'machine'
+        Assert-Equal $expected @(Get-DefaultMachineCheckouts -RepoRoot $clone)[0] 'main clone'
+        $flat = Join-Path (Join-Path $temp 'PanGloss.worktrees') 'wt'
+        $nested = Join-Path (Join-Path (Join-Path $temp 'PanGloss.worktrees') 'fix') 'foo'
+        & git -C $clone worktree add --quiet -b wt1 $flat
+        & git -C $clone worktree add --quiet -b fix/foo $nested
+        Assert-Equal $expected @(Get-DefaultMachineCheckouts -RepoRoot $flat)[0] 'flat worktree'
+        Assert-Equal $expected @(Get-DefaultMachineCheckouts -RepoRoot $nested)[0] 'nested worktree'
+    } finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+Test-Case 'pin-matched driver is found through Join-Path paths in a pin-named worktree' {
+    $temp = New-TestTempDir -Prefix 'pg-pin-driver-neutral'
+    $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS
+    try {
+        $checkout = Join-Path $temp 'machine'
+        New-Item -ItemType Directory -Force -Path $checkout | Out-Null
+        & git -C $checkout init --quiet
+        & git -C $checkout -c user.name=t -c user.email=t@t commit --quiet --allow-empty -m pin
+        $pin = (& git -C $checkout rev-parse HEAD).Trim()
+        $wt = Join-Path (Join-Path $checkout '.worktrees') "pin-$pin"
+        & git -C $checkout worktree add --quiet --detach $wt $pin
+        $exe = [IO.Path]::Combine($wt, 'src', 'SIL.Machine.Morphology.HermitCrab.Conformance', 'bin', 'Release', 'net10.0', $(if ($IsWindows) { 'hc-conformance.exe' } else { 'hc-conformance' }))
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exe) | Out-Null
+        Set-Content -LiteralPath $exe -Value 'driver'
+        [IO.File]::SetLastWriteTimeUtc($exe, [DateTime]::UtcNow.AddMinutes(1))
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $checkout
+        $found = Find-PinMatchedConformanceDriver -PinCommit $pin
+        Assert-True $found.Ok $found.Detail
+        Assert-Equal ([IO.Path]::GetFullPath($exe)) $found.ExePath
+    } finally {
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $previousCheckouts
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Test-Case 'pin-matched driver rejects a canonical wrong-HEAD candidate and accepts a matching worktree' {
     $temp = New-TestTempDir -Prefix 'pg-pin-driver-test'
     $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS
