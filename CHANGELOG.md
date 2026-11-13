@@ -5,6 +5,12 @@ file has no section for.
 
 ## Unreleased
 
+## 0.19.0
+
+Released 2026-11-12.
+
+`pangloss batch --prefilter auto|on` now works in the shipped binaries: all four release targets are built with the `foma-tools` feature (#274); the default stays `off`, the plain parse. A word's parse holds still less memory with identical analyses, order and parser work: a template battery stores each output as its difference from the input, a rule-trail step is 40 bytes instead of 48, and a rule's output shape is built in one buffer, which cuts the peak on the heaviest Mbugwe word from 281 MB to 196 MB at a 1G work cap (#272).
+
 - Release binaries (all four targets) are built with the `foma-tools` feature, so `pangloss batch --prefilter auto|on` works in shipped builds instead of refusing.
 - A template battery stores each of its outputs as the fields a slot rule changes (shape, syntactic features, trail, template state) against the battery's input, 40 bytes where a whole word is 168, and rebuilds the word when the stratum takes it; an output that differs anywhere else is held whole. A rule-trail step is packed into a 40-byte allocation instead of 48. On the heaviest Mbugwe word the peak falls from 32 MB to 26 MB at a 50M work cap, from 111 MB to 71 MB at 200M and from 281 MB to 196 MB at 1G, with identical analyses, order and parser work. Building a rule's output shape fits every node's feature row into one buffer where each node allocated its own, which takes about 5% of the instructions off that word at a 5M cap.
 
