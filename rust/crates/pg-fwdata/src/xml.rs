@@ -394,7 +394,8 @@ fn parse_rt_body<R: BufRead>(reader: &mut Reader<R>) -> Result<Node, ImportError
         match event {
             Event::Start(e) => stack.push(node_from_start(&e)?),
             Event::Empty(e) => {
-                let node = node_from_start(&e)?;
+                let mut node = node_from_start(&e)?;
+                node.attrs.shrink_to_fit();
                 stack
                     .last_mut()
                     .expect("root never popped here")
@@ -422,7 +423,8 @@ fn parse_rt_body<R: BufRead>(reader: &mut Reader<R>) -> Result<Node, ImportError
                     // This is the closing `</rt>` for the record itself.
                     break;
                 }
-                let node = stack.pop().unwrap();
+                let mut node = stack.pop().unwrap();
+                node.shrink_to_fit();
                 stack.last_mut().unwrap().children.push(node);
             }
             Event::Eof => {
@@ -434,7 +436,18 @@ fn parse_rt_body<R: BufRead>(reader: &mut Reader<R>) -> Result<Node, ImportError
         }
         buf.clear();
     }
-    Ok(stack.pop().unwrap())
+    let mut root = stack.pop().unwrap();
+    root.shrink_to_fit();
+    Ok(root)
+}
+
+impl Node {
+    /// Release over-allocated capacity once the element is complete.
+    fn shrink_to_fit(&mut self) {
+        self.attrs.shrink_to_fit();
+        self.text.shrink_to_fit();
+        self.children.shrink_to_fit();
+    }
 }
 
 fn node_from_start(e: &BytesStart) -> Result<Node, ImportError> {

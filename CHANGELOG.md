@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+- Loading a `.fwdata` grammar peaks lower with an identical grammar: the importer no longer keeps a second copy of the conversion provenance (`ImportReport.provenance` is gone; read `Snapshot::conversion_provenance`), and the parsed XML tree is stored at exact capacity (#261).
+
 ## 0.19.1
 
 Released 2026-11-12.

@@ -520,10 +520,10 @@ fn run_import(args: &[String]) -> Result<(), String> {
     let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(fwdata_path))
         .map_err(|e| format!("import {fwdata_path}: {e}"))?;
 
-    if compile_failure::CompileFailure::import_has_fatal_issues(&report.provenance) {
+    if compile_failure::CompileFailure::import_has_fatal_issues(&snapshot.conversion_provenance) {
         let failure = compile_failure::CompileFailure::from_import_provenance(
             fwdata_path,
-            &report.provenance,
+            &snapshot.conversion_provenance,
         );
         return Err(serde_json::to_string(&failure)
             .map_err(|error| format!("serialize import refusal: {error}"))?);
@@ -636,8 +636,9 @@ pub(crate) fn load_grammar_capturing(
                 .map_err(|e| format!("import {path}: {e}"))?;
             serve::record_ms(&serve::IMPORT_MS, t_phase);
             if let Some(capture) = capture.as_deref_mut() {
-                capture.import_refused =
-                    compile_failure::CompileFailure::import_has_fatal_issues(&report.provenance);
+                capture.import_refused = compile_failure::CompileFailure::import_has_fatal_issues(
+                    &snapshot.conversion_provenance,
+                );
                 if !capture.import_refused {
                     let json = snapshot.to_json();
                     capture.reuse_compile = capture.keep_compile
