@@ -65,7 +65,6 @@ pub(crate) fn apply_exemplars(snapshot: &mut Snapshot, ldml: &[(String, String)]
 pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
     let (graph, stem, ldml) = read_backup(path)?;
     let (mut snapshot, warnings) = extract::extract(&graph, &stem)?;
-    let provenance = snapshot.conversion_provenance.clone();
     let stored_analyses =
         extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     apply_exemplars(&mut snapshot, &ldml);
@@ -73,7 +72,6 @@ pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), I
         snapshot,
         ImportReport {
             warnings,
-            provenance,
             stored_analyses,
         },
     ))
@@ -85,7 +83,6 @@ pub(crate) fn import_fwbackup_measured(
 ) -> Result<(Snapshot, ImportReport, InventoryDelta), ImportError> {
     let (graph, stem, ldml) = read_backup(path)?;
     let (mut snapshot, warnings, recorder) = extract::extract_recording(&graph, &stem)?;
-    let provenance = snapshot.conversion_provenance.clone();
     let stored_analyses =
         extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     apply_exemplars(&mut snapshot, &ldml);
@@ -97,7 +94,6 @@ pub(crate) fn import_fwbackup_measured(
         snapshot,
         ImportReport {
             warnings,
-            provenance,
             stored_analyses,
         },
         InventoryDelta::from_stage(inventory, issues),

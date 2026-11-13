@@ -31,7 +31,7 @@ mod xml;
 
 use std::path::Path;
 
-use pg_snapshot::{ConversionProvenance, FwClass, FwObjectRef, InventoryDelta, Snapshot, Warning};
+use pg_snapshot::{FwClass, FwObjectRef, InventoryDelta, Snapshot, Warning};
 use thiserror::Error;
 
 /// Hard errors from `import_file`: I/O failures, invalid XML or non-`.fwdata` input, and source
@@ -57,14 +57,12 @@ pub enum ImportError {
 }
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
-/// Nonfatal warnings do not fail the import; fatal source issues are recorded in `provenance` and
-/// callers must refuse to publish that snapshot. Each warning carries a stable short code alongside
-/// its prose for assessment report comparison. `provenance` is the same value as the returned
-/// `Snapshot`'s own `conversion_provenance`.
+/// Nonfatal warnings do not fail the import; fatal source issues are recorded in the returned
+/// `Snapshot`'s `conversion_provenance` and callers must refuse to publish that snapshot. Each
+/// warning carries a stable short code alongside its prose for assessment report comparison.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ImportReport {
     pub warnings: Vec<Warning>,
-    pub provenance: ConversionProvenance,
     /// Analyses retained in FieldWorks wordforms; grammar compilation does not consume them.
     pub stored_analyses: Vec<StoredAnalysis>,
 }
@@ -105,7 +103,6 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
     let (mut snapshot, mut warnings) = extract::extract(&graph, &filename_stem)?;
-    let provenance = snapshot.conversion_provenance.clone();
     let stored_analyses =
         extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
@@ -115,7 +112,6 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
         snapshot,
         ImportReport {
             warnings,
-            provenance,
             stored_analyses,
         },
     ))
@@ -138,7 +134,6 @@ pub fn import_file_measured(
     let filename_stem = file_stem(path);
     let (mut snapshot, mut warnings, recorder) =
         extract::extract_recording(&graph, &filename_stem)?;
-    let provenance = snapshot.conversion_provenance.clone();
     let stored_analyses =
         extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
@@ -152,7 +147,6 @@ pub fn import_file_measured(
         snapshot,
         ImportReport {
             warnings,
-            provenance,
             stored_analyses,
         },
         InventoryDelta::from_stage(inventory, issues),
