@@ -1882,8 +1882,9 @@ function Get-DefaultMachineCheckouts {
     param([string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
     if ($IsWindows) { return @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine') }
     $mainClone = $RepoRoot
-    $common = @(& git -C $RepoRoot rev-parse --path-format=absolute --git-common-dir 2>$null) | Select-Object -First 1
-    if ($LASTEXITCODE -eq 0 -and $common) { $mainClone = Split-Path -Parent $common.Trim() }
+    $commonLines = @(& git -C $RepoRoot rev-parse --path-format=absolute --git-common-dir 2>$null)
+    $commonExit = $LASTEXITCODE  # read before narrowing the lines
+    if ($commonExit -eq 0 -and $commonLines.Count -gt 0) { $mainClone = Split-Path -Parent $commonLines[0].Trim() }
     return @(Join-Path (Split-Path -Parent $mainClone) 'machine')
 }
 
