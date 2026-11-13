@@ -5,6 +5,8 @@ file has no section for.
 
 ## Unreleased
 
+A heavy word's trail steps take 20 bytes each instead of 48, from a per-thread refcounted slab with a free list, which cuts the peak on the heaviest Mbugwe word from 163 MB to 121 MB at a 1G work cap with identical analyses, order and parser work.
+
 ## 0.19.2
 
 Released 2026-11-13.

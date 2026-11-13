@@ -91,7 +91,7 @@ fn a_very_deep_trail_drops_without_overflowing_the_stack() {
 
 #[test]
 fn a_packed_step_keeps_absent_and_zero_ids_apart() {
-    assert_eq!(std::mem::size_of::<Step>(), 24);
+    assert_eq!(std::mem::size_of::<Step>(), 20);
     let slots = [
         (None, None),
         (Some(MRuleId(0)), None),
@@ -115,4 +115,23 @@ fn a_packed_step_keeps_absent_and_zero_ids_apart() {
     }
     assert_ne!(trail, Trail::from_slots(slots));
     assert!(trail.same_slots(&Trail::from_slots(slots)));
+}
+
+#[test]
+fn dropped_steps_are_recycled_and_shared_prefixes_survive() {
+    let mut base = Trail::default();
+    base.push(r(1), None);
+    let mut child = base.clone();
+    child.push(r(2), a(3));
+    drop(base);
+    assert_eq!(child.rules(), vec![r(1), r(2)]);
+    drop(child);
+    let mut again = Trail::default();
+    for id in 0..(2 * CHUNK as u32) {
+        again.push(r(id), None);
+    }
+    assert_eq!(again.len(), 2 * CHUNK);
+    assert_eq!(again.rule(CHUNK + 5), Some(r(CHUNK as u32 + 5)));
+    drop(again);
+    assert_eq!(SLAB.with(|slab| slab.borrow().live), 0);
 }

@@ -5,25 +5,92 @@
 //! rule and allomorph sequences) or a *count-only* step, which raises a rule's unapplication count
 //! without occupying a slot (generation records realizational rules that way).
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::rc::Rc;
 
 use pg_grammar_model::model::{AllomorphId, MRuleId};
 
-/// The unapplication history of a word; cloning shares every step.
-#[derive(Clone, Default)]
-pub struct Trail(Option<Rc<Step>>);
+/// The unapplication history; cloning shares every step. A handle into this thread's step slab, 0 for the empty trail.
+#[derive(Default)]
+pub struct Trail(u32, PhantomData<Rc<()>>);
 
-/// One step, packed so that the step and its reference counts fit a 40-byte allocation: a heavy word holds a step for every word of its search.
+/// One slab entry: a step and its reference count, 20 bytes. A free entry keeps the next free handle in `parent`.
+#[derive(Clone, Copy)]
 struct Step {
-    parent: Trail,
+    parent: u32,
     /// Meaningful only with `HAS_RULE`.
     rule: u32,
     /// Meaningful only with `HAS_ALLOMORPH`.
     allomorph: u32,
     /// The slots up to and including this step, with the three flags above them.
     packed: u32,
+    refs: u32,
+}
+
+const CHUNK_BITS: u32 = 16;
+const CHUNK: usize = 1 << CHUNK_BITS;
+
+/// Fixed-size chunks (never copied on growth) and a free list, so a dropped word's steps are reused.
+struct Slab {
+    chunks: Vec<Vec<Step>>,
+    free: u32,
+    live: usize,
+}
+
+thread_local! {
+    static SLAB: RefCell<Slab> = const { RefCell::new(Slab { chunks: Vec::new(), free: 0, live: 0 }) };
+}
+
+impl Slab {
+    fn get(&self, handle: u32) -> &Step {
+        let at = handle as usize - 1;
+        &self.chunks[at >> CHUNK_BITS][at & (CHUNK - 1)]
+    }
+
+    fn get_mut(&mut self, handle: u32) -> &mut Step {
+        let at = handle as usize - 1;
+        &mut self.chunks[at >> CHUNK_BITS][at & (CHUNK - 1)]
+    }
+
+    fn alloc(&mut self, step: Step) -> u32 {
+        self.live += 1;
+        if self.free != 0 {
+            let handle = self.free;
+            self.free = self.get(handle).parent;
+            *self.get_mut(handle) = step;
+            return handle;
+        }
+        if self.chunks.last().is_none_or(|chunk| chunk.len() == CHUNK) {
+            self.chunks.push(Vec::with_capacity(CHUNK));
+        }
+        let last = self.chunks.len() - 1;
+        self.chunks[last].push(step);
+        let at = last * CHUNK + self.chunks[last].len();
+        u32::try_from(at).expect("fewer than 2^32 live trail steps")
+    }
+
+    fn release(&mut self, handle: u32) {
+        let free = self.free;
+        let slot = self.get_mut(handle);
+        slot.parent = free;
+        slot.refs = 0;
+        self.free = handle;
+        self.live -= 1;
+        if self.live == 0 {
+            self.chunks.truncate(1);
+            if let Some(first) = self.chunks.first_mut() {
+                first.clear();
+            }
+            self.free = 0;
+        }
+    }
+}
+
+fn step(handle: u32) -> Step {
+    SLAB.with(|slab| *slab.borrow().get(handle))
 }
 
 const IS_SLOT: u32 = 1 << 31;
@@ -44,7 +111,8 @@ impl Step {
             .expect("a trail holds fewer than 2^29 slots");
         let flag = |on: bool, bit: u32| if on { bit } else { 0 };
         Step {
-            parent: Trail::default(),
+            parent: 0,
+            refs: 1,
             rule: rule.map_or(0, |id| id.0),
             allomorph: allomorph.map_or(0, |id| id.0),
             packed: slots
@@ -75,14 +143,13 @@ impl Step {
 #[derive(Clone, Debug)]
 pub struct SlotView(Trail);
 
-type Node = Option<Rc<Step>>;
-
-fn skip_count_only(mut node: &Node) -> &Node {
-    while let Some(step) = node {
+fn skip_count_only(slab: &Slab, mut node: u32) -> u32 {
+    while node != 0 {
+        let step = slab.get(node);
         if step.is_slot() {
             break;
         }
-        node = &step.parent.0;
+        node = step.parent;
     }
     node
 }
@@ -101,7 +168,11 @@ impl Trail {
 
     /// The number of slots.
     pub fn len(&self) -> usize {
-        self.0.as_ref().map_or(0, |step| step.slots() as usize)
+        if self.0 == 0 {
+            0
+        } else {
+            step(self.0).slots() as usize
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -119,27 +190,32 @@ impl Trail {
     }
 
     fn link(&mut self, mut step: Step) {
-        step.parent = std::mem::take(self);
-        self.0 = Some(Rc::new(step));
+        step.parent = self.0;
+        self.0 = SLAB.with(|slab| slab.borrow_mut().alloc(step));
     }
 
     /// How many times `rule` has been unapplied.
     pub fn count_of(&self, rule: MRuleId) -> u32 {
-        let mut count = 0;
-        let mut node = &self.0;
-        while let Some(step) = node {
-            count += u32::from(step.rule() == Some(rule));
-            node = &step.parent.0;
-        }
-        count
+        SLAB.with(|slab| {
+            let slab = slab.borrow();
+            let mut count = 0;
+            let mut node = self.0;
+            while node != 0 {
+                let step = slab.get(node);
+                count += u32::from(step.rule() == Some(rule));
+                node = step.parent;
+            }
+            count
+        })
     }
 
     /// The known rule of every step, newest first, count-only steps included: each item is one unapplication.
     pub fn counted_rules(&self) -> impl Iterator<Item = MRuleId> + '_ {
-        let mut node = &self.0;
+        let mut node = self.0;
         std::iter::from_fn(move || {
-            while let Some(step) = node {
-                node = &step.parent.0;
+            while node != 0 {
+                let step = step(node);
+                node = step.parent;
                 if step.rule().is_some() {
                     return step.rule();
                 }
@@ -151,39 +227,47 @@ impl Trail {
     /// Every rule's unapplication count.
     pub fn rule_counts(&self) -> BTreeMap<MRuleId, u32> {
         let mut counts = BTreeMap::new();
-        let mut node = &self.0;
-        while let Some(step) = node {
-            if let Some(rule) = step.rule() {
-                *counts.entry(rule).or_insert(0) += 1;
+        SLAB.with(|slab| {
+            let slab = slab.borrow();
+            let mut node = self.0;
+            while node != 0 {
+                let step = slab.get(node);
+                if let Some(rule) = step.rule() {
+                    *counts.entry(rule).or_insert(0) += 1;
+                }
+                node = step.parent;
             }
-            node = &step.parent.0;
-        }
+        });
         counts
     }
 
-    fn slot_step(&self, idx: usize) -> Option<&Step> {
+    fn slot_step(&self, idx: usize) -> Option<Step> {
         if idx >= self.len() {
             return None;
         }
         let want = idx as u32 + 1;
-        let mut node = &self.0;
-        while let Some(step) = node {
-            if step.is_slot() && step.slots() == want {
-                return Some(step);
+        SLAB.with(|slab| {
+            let slab = slab.borrow();
+            let mut node = self.0;
+            while node != 0 {
+                let step = slab.get(node);
+                if step.is_slot() && step.slots() == want {
+                    return Some(*step);
+                }
+                node = step.parent;
             }
-            node = &step.parent.0;
-        }
-        None
+            None
+        })
     }
 
     /// The rule of slot `idx`, oldest first; `Some(None)` is a slot with no known rule.
     pub fn rule(&self, idx: usize) -> Option<Option<MRuleId>> {
-        self.slot_step(idx).map(Step::rule)
+        self.slot_step(idx).map(|step| step.rule())
     }
 
     /// The allomorph of slot `idx`, oldest first.
     pub fn allomorph(&self, idx: usize) -> Option<Option<AllomorphId>> {
-        self.slot_step(idx).map(Step::allomorph)
+        self.slot_step(idx).map(|step| step.allomorph())
     }
 
     /// The rule of the newest slot.
@@ -193,7 +277,10 @@ impl Trail {
 
     /// Slots newest first.
     pub fn slots_rev(&self) -> SlotsRev<'_> {
-        SlotsRev(skip_count_only(&self.0))
+        SlotsRev(
+            SLAB.with(|slab| skip_count_only(&slab.borrow(), self.0)),
+            PhantomData,
+        )
     }
 
     /// The slot rules, oldest first.
@@ -210,13 +297,9 @@ impl Trail {
         allomorphs
     }
 
-    /// Whether both trails are the same allocation.
+    /// Whether both trails are the same step.
     pub fn same_allocation(&self, other: &Trail) -> bool {
-        match (&self.0, &other.0) {
-            (Some(a), Some(b)) => Rc::ptr_eq(a, b),
-            (None, None) => true,
-            _ => false,
-        }
+        self.0 == other.0
     }
 
     /// This trail seen as its slots only.
@@ -226,61 +309,72 @@ impl Trail {
 
     /// Whether both trails hold the same slots, ignoring count-only steps.
     pub fn same_slots(&self, other: &Trail) -> bool {
-        let (mut a, mut b) = (skip_count_only(&self.0), skip_count_only(&other.0));
-        loop {
-            match (a, b) {
-                (None, None) => return true,
-                (Some(x), Some(y)) => {
-                    if Rc::ptr_eq(x, y) {
-                        return true;
-                    }
-                    if x.rule() != y.rule() || x.allomorph() != y.allomorph() {
-                        return false;
-                    }
-                    a = skip_count_only(&x.parent.0);
-                    b = skip_count_only(&y.parent.0);
+        SLAB.with(|slab| {
+            let slab = slab.borrow();
+            let (mut a, mut b) = (
+                skip_count_only(&slab, self.0),
+                skip_count_only(&slab, other.0),
+            );
+            loop {
+                if a == b {
+                    return true;
                 }
-                _ => return false,
+                if a == 0 || b == 0 {
+                    return false;
+                }
+                let (x, y) = (slab.get(a), slab.get(b));
+                if x.rule() != y.rule() || x.allomorph() != y.allomorph() {
+                    return false;
+                }
+                a = skip_count_only(&slab, x.parent);
+                b = skip_count_only(&slab, y.parent);
             }
-        }
+        })
     }
 }
 
 /// Slots newest first.
-pub struct SlotsRev<'a>(&'a Node);
+pub struct SlotsRev<'a>(u32, PhantomData<&'a Trail>);
 
 impl Iterator for SlotsRev<'_> {
     type Item = (Option<MRuleId>, Option<AllomorphId>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let step = self.0.as_ref()?;
-        self.0 = skip_count_only(&step.parent.0);
-        Some((step.rule(), step.allomorph()))
+        if self.0 == 0 {
+            return None;
+        }
+        SLAB.with(|slab| {
+            let slab = slab.borrow();
+            let step = slab.get(self.0);
+            self.0 = skip_count_only(&slab, step.parent);
+            Some((step.rule(), step.allomorph()))
+        })
     }
 }
 
 impl PartialEq for Trail {
     fn eq(&self, other: &Trail) -> bool {
-        let (mut a, mut b) = (&self.0, &other.0);
-        loop {
-            match (a, b) {
-                (None, None) => return true,
-                (Some(x), Some(y)) => {
-                    if Rc::ptr_eq(x, y) {
-                        return true;
-                    }
-                    if x.rule() != y.rule()
-                        || x.allomorph() != y.allomorph()
-                        || x.is_slot() != y.is_slot()
-                    {
-                        return false;
-                    }
-                    a = &x.parent.0;
-                    b = &y.parent.0;
+        SLAB.with(|slab| {
+            let slab = slab.borrow();
+            let (mut a, mut b) = (self.0, other.0);
+            loop {
+                if a == b {
+                    return true;
                 }
-                _ => return false,
+                if a == 0 || b == 0 {
+                    return false;
+                }
+                let (x, y) = (slab.get(a), slab.get(b));
+                if x.rule() != y.rule()
+                    || x.allomorph() != y.allomorph()
+                    || x.is_slot() != y.is_slot()
+                {
+                    return false;
+                }
+                a = x.parent;
+                b = y.parent;
             }
-        }
+        })
     }
 }
 
@@ -296,16 +390,37 @@ impl std::fmt::Debug for Trail {
     }
 }
 
+impl Clone for Trail {
+    fn clone(&self) -> Self {
+        if self.0 != 0 {
+            SLAB.with(|slab| slab.borrow_mut().get_mut(self.0).refs += 1);
+        }
+        Trail(self.0, PhantomData)
+    }
+}
+
 // Iterative so a trail of any depth drops without recursing through its parents.
 impl Drop for Trail {
     fn drop(&mut self) {
-        let mut next = self.0.take();
-        while let Some(rc) = next {
-            match Rc::try_unwrap(rc) {
-                Ok(mut step) => next = step.parent.0.take(),
-                Err(_) => break,
-            }
+        if self.0 == 0 {
+            return;
         }
+        let handle = self.0;
+        // A drop during thread teardown has no slab left to update.
+        let _ = SLAB.try_with(|slab| {
+            let mut slab = slab.borrow_mut();
+            let mut next = handle;
+            while next != 0 {
+                let step = slab.get_mut(next);
+                step.refs -= 1;
+                if step.refs > 0 {
+                    break;
+                }
+                let parent = step.parent;
+                slab.release(next);
+                next = parent;
+            }
+        });
     }
 }
 
