@@ -135,3 +135,26 @@ fn dropped_steps_are_recycled_and_shared_prefixes_survive() {
     drop(again);
     assert_eq!(SLAB.with(|slab| slab.borrow().live), 0);
 }
+
+#[test]
+fn a_freed_handle_is_reused_and_the_last_drop_keeps_one_chunk() {
+    let mut keep = Trail::default();
+    keep.push(r(1), None);
+    let mut temp = keep.clone();
+    temp.push(r(2), None);
+    let freed = temp.0;
+    drop(temp);
+    let mut next = keep.clone();
+    next.push(r(3), None);
+    assert_eq!(next.0, freed);
+    let mut long = next.clone();
+    for id in 0..(2 * CHUNK as u32) {
+        long.push(r(id), None);
+    }
+    assert_eq!(SLAB.with(|slab| slab.borrow().chunks.len()), 3);
+    drop((keep, next, long));
+    SLAB.with(|slab| {
+        let slab = slab.borrow();
+        assert_eq!((slab.chunks.len(), slab.live), (1, 0));
+    });
+}

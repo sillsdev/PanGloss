@@ -13,7 +13,8 @@ use std::rc::Rc;
 
 use pg_grammar_model::model::{AllomorphId, MRuleId};
 
-/// The unapplication history; cloning shares every step. A handle into this thread's step slab, 0 for the empty trail.
+/// The unapplication history; cloning shares every step.
+/// A handle into this thread's step slab; 0 is the empty trail.
 #[derive(Default)]
 pub struct Trail(u32, PhantomData<Rc<()>>);
 
@@ -35,7 +36,7 @@ const CHUNK: usize = 1 << CHUNK_BITS;
 /// What a step cost the meter as a reference-counted allocation.
 const METERED_STEP_BYTES: usize = 40;
 
-/// Fixed-size chunks (never copied on growth) and a free list, so a dropped word's steps are reused.
+/// Fixed chunks and a free list; chunks free only when no step is live, so no `Trail` may outlive its word.
 struct Slab {
     chunks: Vec<Vec<Step>>,
     free: u32,
@@ -59,7 +60,7 @@ impl Slab {
 
     fn alloc(&mut self, step: Step) -> u32 {
         self.live += 1;
-        // The cost meter charges a step as the 40-byte allocation it replaces; the slab's own growth is unmetered, so cost does not depend on which thread grew it.
+        // Metered as 40 bytes, the pre-slab step size; slab growth is unmetered.
         pg_cost::charge_bytes(METERED_STEP_BYTES);
         if self.free != 0 {
             let handle = self.free;
@@ -71,9 +72,10 @@ impl Slab {
             pg_cost::unmetered(|| self.chunks.push(Vec::with_capacity(CHUNK)));
         }
         let last = self.chunks.len() - 1;
+        let at = last * CHUNK + self.chunks[last].len() + 1;
+        let handle = u32::try_from(at).expect("fewer than 2^32 live trail steps");
         self.chunks[last].push(step);
-        let at = last * CHUNK + self.chunks[last].len();
-        u32::try_from(at).expect("fewer than 2^32 live trail steps")
+        handle
     }
 
     fn release(&mut self, handle: u32) {
@@ -397,7 +399,14 @@ impl std::fmt::Debug for Trail {
 impl Clone for Trail {
     fn clone(&self) -> Self {
         if self.0 != 0 {
-            SLAB.with(|slab| slab.borrow_mut().get_mut(self.0).refs += 1);
+            SLAB.with(|slab| {
+                let mut slab = slab.borrow_mut();
+                let step = slab.get_mut(self.0);
+                step.refs = step
+                    .refs
+                    .checked_add(1)
+                    .expect("fewer than 2^32 clones of one step");
+            });
         }
         Trail(self.0, PhantomData)
     }

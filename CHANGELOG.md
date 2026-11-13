@@ -5,7 +5,7 @@ file has no section for.
 
 ## Unreleased
 
-A heavy word's trail steps take 20 bytes each instead of 48, from a per-thread refcounted slab with a free list, which cuts the peak on the heaviest Mbugwe word from 163 MB to 121 MB at a 1G work cap with identical analyses, order and parser work.
+A heavy word's trail steps take 20 bytes each instead of 48, from a per-thread refcounted slab with a free list, which cuts the peak on the heaviest Mbugwe word from 163 MB to 117.5 MB at a 1G work cap with identical analyses, order and parser work. Reported parse cost shifts slightly (0.017% in total on Amharic) because a trail step is charged at its former 40 bytes and `Word` is 8 bytes smaller (#284).
 
 ## 0.19.2
 

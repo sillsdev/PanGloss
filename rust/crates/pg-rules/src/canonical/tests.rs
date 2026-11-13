@@ -48,8 +48,8 @@ fn printed_all(words: &[Word]) -> Vec<String> {
 }
 
 #[test]
-fn a_stored_word_is_under_half_a_word() {
-    assert!(std::mem::size_of::<Stored>() * 2 < std::mem::size_of::<Word>());
+fn a_stored_word_is_at_most_56_bytes() {
+    assert!(std::mem::size_of::<Stored>() <= 56);
 }
 
 #[test]

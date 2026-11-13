@@ -2,7 +2,7 @@ use super::*;
 use pg_shape::ShapeBuilder;
 
 /// `size_of::<Word>()` once the rarely used parts sit behind `Extras`.
-const MAX_WORD_BYTES: usize = 168;
+const MAX_WORD_BYTES: usize = 160;
 
 fn word() -> Word {
     Word::new(ShapeBuilder::new().finish(), StratumId(0))
