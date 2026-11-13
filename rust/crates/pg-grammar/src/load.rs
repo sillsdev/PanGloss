@@ -265,6 +265,8 @@ fn parse_is_clitic_rule(rule: &Node) -> Result<Option<bool>, GrammarError> {
 /// `GrammarError::Unsupported`; malformed references (unknown feature/symbol/natural-class ids)
 /// surface `GrammarError::Semantic`; XML errors surface `GrammarError::Xml`.
 pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
+    let mpr_table = crate::model::MprTable::new();
+    let _mpr_scope = mpr_table.enter();
     // Pass 1: phonological feature system + character-definition tables.
     let phon = load_char_def_table_from_xml(xml)?;
 
@@ -562,6 +564,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         char_tables,
         syn_features: syn,
         fs_interner: acc.fs_interner,
+        mpr_table,
         mpr_names,
         mpr_features,
         mpr_groups,

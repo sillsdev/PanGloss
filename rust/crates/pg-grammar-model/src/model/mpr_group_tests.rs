@@ -192,3 +192,61 @@ fn serde_keeps_the_legacy_number_form_and_round_trips_wide_sets() {
 fn debug_prints_the_legacy_form_for_inline_sets() {
     assert_eq!(format!("{:?}", set(&[0, 2])), "MprSet(5)");
 }
+
+#[test]
+fn wide_sets_compare_by_content_across_tables_and_outlive_nothing() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let build = |table: &MprTable| {
+        let _scope = table.enter();
+        let mut s = MprSet::EMPTY;
+        for id in [3, 70, 200] {
+            s.insert(MprId(id));
+        }
+        s
+    };
+    let (ta, tb) = (MprTable::new(), MprTable::new());
+    let (a, b) = (build(&ta), build(&tb));
+    assert_eq!(a, b);
+    let hash = |s: MprSet| {
+        let mut h = DefaultHasher::new();
+        s.hash(&mut h);
+        h.finish()
+    };
+    assert_eq!(hash(a), hash(b));
+    assert_eq!(a.union(b), a);
+    assert!(a.overlaps(b) && a.is_subset_of(b));
+    let mut other = b;
+    other.insert(MprId(201));
+    assert_ne!(a, other);
+    assert!(a.is_subset_of(other) && !other.is_subset_of(a));
+    let gen_b = tb.generation();
+    drop(tb);
+    assert!(!mpr_table_is_live(gen_b));
+    assert_eq!(format!("{b:?}"), "MprSet(<table dropped>)");
+    assert!(mpr_table_is_live(ta.generation()));
+}
+
+#[test]
+fn predicates_intern_nothing() {
+    let table = MprTable::new();
+    let _scope = table.enter();
+    let mut wide = MprSet::EMPTY;
+    for id in [1, 64, 130] {
+        wide.insert(MprId(id));
+    }
+    let mut have = MprSet::EMPTY;
+    for id in [1, 64, 130, 131] {
+        have.insert(MprId(id));
+    }
+    let groups = [group(
+        MprGroupMatchType::Any,
+        MprGroupOutput::Append,
+        &[64, 130],
+    )];
+    let before = table.len();
+    assert!(wide.overlaps(have) && wide.is_subset_of(have));
+    assert!(mpr_required_ok(&groups, wide, have));
+    assert!(!mpr_excluded_ok(&groups, wide, have));
+    assert_eq!(table.len(), before);
+}

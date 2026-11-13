@@ -125,12 +125,34 @@ pub struct MprFeatureDef {
 /// single word instruction plus a test of the top bit. A set with any larger member has the top bit
 /// set and the rest names a canonical word list in `mpr_wide`; only grammars with more than 63 MPR
 /// features ever make one.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Copy, Clone, Default)]
 pub struct MprSet(u64);
 
 const WIDE_TAG: u64 = 1 << 63;
 
+/// Longest stored word list accepted (one word per 64 ids, so every `MprId` fits).
+const MAX_WIDE_WORDS: usize = 1024;
+
 mod mpr_wide;
+pub use mpr_wide::{is_live as mpr_table_is_live, MprScope, MprTable};
+
+/// Equal sets are equal whichever table holds them; the same table interns equal sets to one handle, so that is the fast path.
+impl PartialEq for MprSet {
+    #[inline]
+    fn eq(&self, other: &MprSet) -> bool {
+        self.0 == other.0 || (self.is_wide() && other.is_wide() && self.eq_slow(*other))
+    }
+}
+impl Eq for MprSet {}
+impl std::hash::Hash for MprSet {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        if self.is_wide() {
+            self.with_words(|w| w.hash(state));
+        } else {
+            self.0.hash(state);
+        }
+    }
+}
 
 impl MprSet {
     pub const EMPTY: MprSet = MprSet(0);
@@ -152,7 +174,7 @@ impl MprSet {
     /// `0b101`-style for an inline set (the format before wide sets), the word list for a wide one.
     fn dump(self) -> String {
         if self.is_wide() {
-            format!("{:?}", self.to_words())
+            format!("{:?}", self.try_to_words())
         } else {
             format!("{:#b}", self.0)
         }
@@ -169,26 +191,50 @@ impl MprSet {
         }
     }
 
+    /// [`with_words`](Self::with_words) for two sets (one lock per table; never interns).
+    fn with_pair<R>(self, other: MprSet, f: impl FnOnce(&[u64], &[u64]) -> R) -> R {
+        if self.is_wide() && other.is_wide() {
+            mpr_wide::with_two(self.0 & !WIDE_TAG, other.0 & !WIDE_TAG, f)
+        } else {
+            self.with_words(|a| other.with_words(|b| f(a, b)))
+        }
+    }
+
+    #[cold]
+    fn eq_slow(self, other: MprSet) -> bool {
+        self.with_pair(other, |a, b| a == b)
+    }
+
+    /// The owned words, or `None` when the grammar owning this wide set's table is gone.
+    fn try_to_words(self) -> Option<Vec<u64>> {
+        if self.is_wide() {
+            mpr_wide::try_with_words(self.0 & !WIDE_TAG, <[u64]>::to_vec)
+        } else {
+            Some(self.to_words())
+        }
+    }
+
     /// The set as an owned word list (cold paths only).
     fn to_words(self) -> Vec<u64> {
         self.with_words(<[u64]>::to_vec)
     }
 
-    /// How many distinct wide sets this process has interned (a growth check for tests and diagnostics).
-    pub fn interned_wide_sets() -> usize {
-        mpr_wide::len()
-    }
-
-    /// The canonical set holding exactly `words`; inline unless a member is 63 or above.
-    fn from_words(mut words: Vec<u64>) -> MprSet {
+    /// The canonical set holding exactly `words`, built into `generation`'s table when it is wide; inline unless a member is 63 or above.
+    fn from_words(mut words: Vec<u64>, generation: Option<u32>) -> MprSet {
         while words.last() == Some(&0) {
             words.pop();
         }
         match words.as_slice() {
             [] => MprSet::EMPTY,
             [w] if w & WIDE_TAG == 0 => MprSet(*w),
-            _ => MprSet(WIDE_TAG | mpr_wide::intern(words)),
+            _ => MprSet(WIDE_TAG | mpr_wide::intern(generation, &words)),
         }
+    }
+
+    /// The table a wide set lives in.
+    fn generation(self) -> Option<u32> {
+        self.is_wide()
+            .then(|| mpr_wide::generation_of(self.0 & !WIDE_TAG))
     }
 
     #[cold]
@@ -203,7 +249,7 @@ impl MprSet {
             (true, true) => mpr_wide::with_two(self.0 & !WIDE_TAG, other.0 & !WIDE_TAG, zip),
             _ => self.with_words(|a| other.with_words(|b| zip(a, b))),
         };
-        MprSet::from_words(words)
+        MprSet::from_words(words, self.generation().or(other.generation()))
     }
 
     #[inline]
@@ -222,7 +268,7 @@ impl MprSet {
             words.resize(word + 1, 0);
         }
         words[word] |= 1u64 << (id.0 % 64);
-        *self = MprSet::from_words(words);
+        *self = MprSet::from_words(words, self.generation());
     }
     #[inline]
     pub fn contains(self, id: MprId) -> bool {
@@ -241,7 +287,7 @@ impl MprSet {
         if !self.is_wide() && !other.is_wide() {
             return self.0 & other.0 != 0;
         }
-        !self.intersection(other).is_empty()
+        self.with_pair(other, words_overlap)
     }
     /// C# `HashSet.IsSubsetOf` (self ⊆ other).
     #[inline]
@@ -249,7 +295,7 @@ impl MprSet {
         if !self.is_wide() && !other.is_wide() {
             return self.0 & !other.0 == 0;
         }
-        self.difference(other).is_empty()
+        self.with_pair(other, words_subset)
     }
     #[inline]
     pub fn union(self, other: MprSet) -> MprSet {
@@ -302,11 +348,24 @@ impl MprSet {
     }
 }
 
+fn words_overlap(a: &[u64], b: &[u64]) -> bool {
+    a.iter().zip(b).any(|(x, y)| x & y != 0)
+}
+
+fn words_subset(a: &[u64], b: &[u64]) -> bool {
+    a.iter()
+        .enumerate()
+        .all(|(i, x)| x & !b.get(i).copied().unwrap_or(0) == 0)
+}
+
 /// Prints `MprSet(<bits>)` for an inline set, as the former `u64` newtype did; a wide set prints its words.
 impl std::fmt::Debug for MprSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_wide() {
-            write!(f, "MprSet({:?})", self.to_words())
+            match self.try_to_words() {
+                Some(words) => write!(f, "MprSet({words:?})"),
+                None => f.write_str("MprSet(<table dropped>)"),
+            }
         } else {
             write!(f, "MprSet({})", self.0)
         }
@@ -339,7 +398,7 @@ impl<'de> serde::Deserialize<'de> for MprSet {
             }
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<MprSet, E> {
                 if v & WIDE_TAG != 0 {
-                    return Ok(MprSet::from_words(vec![v]));
+                    return Ok(MprSet::from_words(vec![v], None));
                 }
                 Ok(MprSet(v))
             }
@@ -349,9 +408,14 @@ impl<'de> serde::Deserialize<'de> for MprSet {
             ) -> Result<MprSet, A::Error> {
                 let mut words = Vec::new();
                 while let Some(w) = seq.next_element::<u64>()? {
+                    if words.len() == MAX_WIDE_WORDS {
+                        return Err(serde::de::Error::custom(
+                            "an MPR set has at most 65536 members",
+                        ));
+                    }
                     words.push(w);
                 }
-                Ok(MprSet::from_words(words))
+                Ok(MprSet::from_words(words, None))
             }
         }
         de.deserialize_any(V)
@@ -1186,6 +1250,32 @@ fn mpr_group_buckets(
     (ungrouped, buckets)
 }
 
+/// [`mpr_group_buckets`] on raw words for a wide `test`: nothing is interned.
+fn mpr_group_buckets_words(
+    groups: &[MprGroup],
+    test: &[u64],
+) -> (Vec<u64>, Vec<(MprGroupMatchType, Vec<u64>)>) {
+    let mut owned = vec![0u64; test.len()];
+    let mut buckets = Vec::new();
+    for group in groups {
+        let members = group.members.to_words();
+        let bucket: Vec<u64> = test
+            .iter()
+            .zip(&owned)
+            .enumerate()
+            .map(|(i, (t, o))| t & members.get(i).copied().unwrap_or(0) & !o)
+            .collect();
+        if bucket.iter().any(|w| *w != 0) {
+            for (o, b) in owned.iter_mut().zip(&bucket) {
+                *o |= b;
+            }
+            buckets.push((group.match_type, bucket));
+        }
+    }
+    let ungrouped = test.iter().zip(&owned).map(|(t, o)| t & !o).collect();
+    (ungrouped, buckets)
+}
+
 /// C# `MprFeatureSet.IsMatchRequired` (`MprFeatureSet.cs:46-70`): `required` is a rule's declared
 /// `RequiredMprFeatures`, `have` is the candidate word's current `MprFeatures`. Ungrouped features
 /// and members of an `All`-type group must ALL be present; an `Any`-type group needs only one
@@ -1195,6 +1285,16 @@ fn mpr_group_buckets(
 pub fn mpr_required_ok(groups: &[MprGroup], required: MprSet, have: MprSet) -> bool {
     if required.is_empty() {
         return true;
+    }
+    if required.is_wide() {
+        let (ungrouped, buckets) = mpr_group_buckets_words(groups, &required.to_words());
+        return have.with_words(|h| {
+            words_subset(&ungrouped, h)
+                && buckets.iter().all(|(mt, b)| match mt {
+                    MprGroupMatchType::All => words_subset(b, h),
+                    MprGroupMatchType::Any => words_overlap(b, h),
+                })
+        });
     }
     let (ungrouped, buckets) = mpr_group_buckets(groups, required);
     if !ungrouped.is_subset_of(have) {
@@ -1213,6 +1313,16 @@ pub fn mpr_required_ok(groups: &[MprGroup], required: MprSet, have: MprSet) -> b
 pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> bool {
     if excluded.is_empty() {
         return true;
+    }
+    if excluded.is_wide() {
+        let (ungrouped, buckets) = mpr_group_buckets_words(groups, &excluded.to_words());
+        return have.with_words(|h| {
+            !words_overlap(&ungrouped, h)
+                && buckets.iter().all(|(mt, b)| match mt {
+                    MprGroupMatchType::All => !words_overlap(b, h),
+                    MprGroupMatchType::Any => !words_subset(b, h),
+                })
+        });
     }
     let (ungrouped, buckets) = mpr_group_buckets(groups, excluded);
     if ungrouped.overlaps(have) {
@@ -1315,6 +1425,8 @@ pub struct Grammar {
     /// Grammar-tier interner for all syntactic-domain tree feature structures. Every `FsId`
     /// in these tables resolves here. `FsId` of the empty FS is interned first (id 0).
     pub fs_interner: pg_featstruct::Interner<pg_featstruct::FeatureStruct>,
+    /// Owns the wide MPR sets of this grammar; dropping the grammar frees them.
+    pub mpr_table: MprTable,
     pub mpr_names: Vec<String>,
     /// Authored identities parallel to `Self::mpr_names` and indexed by `MprId`.
     pub mpr_features: Vec<MprFeatureDef>,
