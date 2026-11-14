@@ -104,7 +104,13 @@ function Write-StoredSetReport([string]$Dir, [double[]]$Current, [double[]]$Cand
     }
     if ($realNew) {
         $v = Get-RealGuardVerdict -Current $realCur -Candidate $realNew
-        Write-Host ("  real-grammar guard: mean total error current {0:0.0}%, candidate {1:0.0}%: {2} ({3:+0.0;-0.0;0.0} points; fails above +{4:0.0})" -f $realCur.MeanError, $realNew.MeanError, $v.Verdict, $v.Points, $script:RealGuardMarginPoints)
+        Write-Host ("  real-grammar guard (on the scale-free error): current {0:0.0}%, candidate {1:0.0}%: {2} ({3:+0.0;-0.0;0.0} points; fails above +{4:0.0})" -f $realCur.MeanScaleFreeError, $realNew.MeanScaleFreeError, $v.Verdict, $v.Points, $script:RealGuardMarginPoints)
+    }
+    foreach ($pair in @(Read-CalibrationPairs -Dir $Dir)) {
+        $pc = Get-PairScore -Pair $pair -Weights $Current
+        $pn = Get-PairScore -Pair $pair -Weights $Candidate
+        $v = Get-PairVerdict -Current $pc -Candidate $pn
+        Write-Host ("  change pair {0}: mean change error current {1:0.00} points, candidate {2:0.00}; signs right {3} of {4} -> {5} of {6}: {7} ({8:+0.00;-0.00;0.00} points; fails above +{9})" -f $pair.name, $pc.MeanError, $pn.MeanError, $pc.SignAgree, $pc.SignChecked, $pn.SignAgree, $pn.SignChecked, $v.Verdict, $v.Points, $script:PairMarginPoints)
     }
 }
 

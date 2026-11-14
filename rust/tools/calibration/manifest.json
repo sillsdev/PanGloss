@@ -980,7 +980,9 @@
         "band",
         "band",
         "band"
-      ]
+      ],
+      "excludeFromMean": true,
+      "modellingGap": "its instructions include the admission and tiled-filter walks, which cost does not count, so its error is a modelling gap and no weight closes it"
     },
     {
       "name": "cal-redup-long-roots",
@@ -1074,6 +1076,20 @@
         "256x",
         "256x"
       ]
+    }
+  ],
+  "pairs": [
+    {
+      "name": "hc-rsl-off",
+      "file": "pairs/hc-rsl-off.json"
+    },
+    {
+      "name": "trail-slab-284",
+      "file": "pairs/trail-slab-284.json"
+    },
+    {
+      "name": "stratum-diff-275",
+      "file": "pairs/stratum-diff-275.json"
     }
   ]
 }

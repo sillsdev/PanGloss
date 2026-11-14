@@ -77,9 +77,12 @@ cost cannot see it; the weights then move only if the refit says so.
    register term beside allocator calls: look before keeping it at 0. A weight at 0.25 (the lowest nonzero) means the fit wants
    it lower than a quarter can say.
 7. The stored calibration set prints beside the result: per-family error and linearity of the current and candidate weights over the
-   synthetic families, and the real-grammar guard (`docs/design/parse-cost.md`, "The standing calibration set"). It is arithmetic on
-   stored counts. A NON-LINEAR family or a WORSE real-grammar guard is a finding for the owner; re-measure the set with
-   `rust/tools/calibration-set.ps1 -Measure` only when a code change alters allocation shape.
+   synthetic families (a rung that drifts more than 7% flags), the real-grammar guard (on the scale-free error, not the level) and each change
+   pair: the change of every family's total the weights predict against the change measured (`docs/design/parse-cost.md`, "The standing
+   calibration set"). It is arithmetic on stored counts. A NON-LINEAR family, a WORSE real-grammar guard or a WORSE change pair is a
+   finding for the owner (`calibration-set.ps1 -Score` exits 1 on them). Re-measure the set with
+   `rust/tools/calibration-set.ps1 -Measure` only when a code change alters allocation shape, and store a pair
+   (`-MeasurePair`, two builds that both write the allocations column) for a code change worth checking a prediction against.
 8. The level line is report-only. Cost is read only as a ratio of two totals, so one factor on all the
    weights changes no verdict, and the level differs by 1.5 to 2 times between callgrind and the Windows
    counters (`docs/design/parse-cost.md`). Do not retune to fix the level alone.

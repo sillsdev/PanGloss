@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "name": "trail-slab-284",
+  "title": "#284 trail steps in a refcounted slab, two builds (0d0cb92e and 77f4aaa8, each with the #286 allocation counting cherry-picked)",
+  "note": "The slab charges each step as its former 40-byte allocation, so the change is meant to leave cost unchanged while instructions move. cal-work-cap is left out: the older build has no --work-cap flag.",
+  "measuredOn": "2026-11-13",
+  "conformance": {
+    "repo": "sillsdev/fieldworks-parser-conformance",
+    "commit": "3ba5db1b2dda50cd6ee139b8cdb815389041549f"
+  },
+  "before": {
+    "label": "0d0cb92e + b64f7c54 (#286 counting)",
+    "commit": "789d8b3ed8df94508e718d8833dade803d4bf983",
+    "binarySha256": "624a6348c1aae3c8fa20a5d97746e27b4160d93f1303b02644abb838a2e77eaf",
+    "env": {}
+  },
+  "after": {
+    "label": "77f4aaa8 (#284) + b64f7c54",
+    "commit": "be5334b1e55815f9df256024626f3ef01c475086",
+    "binarySha256": "54b4a0a7fdceec6e5a301721b83d3f678cd701968ef4f6da0c0cf157c7a7cf51",
+    "env": {}
+  },
+  "collect": "cost-calibrate --counts-out counters and callgrind instructions inside cost_calibrate::parse_one; totals over the words both sides parsed that reach the work floor on either side; no word text",
+  "families": [
+    {
+      "family": "cal-allomorph-explosion",
+      "words": 20,
+      "before": {
+        "work": 829778,
+        "bytes": 96144644,
+        "registers": 276780,
+        "allocations": 422625,
+        "instructions": 361196034
+      },
+      "after": {
+        "work": 829778,
+        "bytes": 96124428,
+        "registers": 276780,
+        "allocations": 422559,
+        "instructions": 356762203
+      }
+    },
+    {
+      "family": "cal-clitic-chain",
+      "words": 5,
+      "before": {
+        "work": 1089061,
+        "bytes": 299719072,
+        "registers": 2996684,
+        "allocations": 1928924,
+        "instructions": 1060968921
+      },
+      "after": {
+        "work": 1089061,
+        "bytes": 297985152,
+        "registers": 2996684,
+        "allocations": 1917055,
+        "instructions": 1141737290
+      }
+    },
+    {
+      "family": "cal-compounding-large",
+      "words": 15,
+      "before": {
+        "work": 270938,
+        "bytes": 59424467,
+        "registers": 1279518,
+        "allocations": 323432,
+        "instructions": 191972533
+      },
+      "after": {
+        "work": 270938,
+        "bytes": 59396059,
+        "registers": 1279518,
+        "allocations": 323307,
+        "instructions": 192484413
+      }
+    },
+    {
+      "family": "cal-deep-template-16",
+      "words": 6,
+      "before": {
+        "work": 748357,
+        "bytes": 251370972,
+        "registers": 1943614,
+        "allocations": 1519078,
+        "instructions": 782214257
+      },
+      "after": {
+        "work": 748357,
+        "bytes": 250759452,
+        "registers": 1943614,
+        "allocations": 1515873,
+        "instructions": 801515123
+      }
+    },
+    {
+      "family": "cal-homophone-ambiguity",
+      "words": 20,
+      "before": {
+        "work": 722723,
+        "bytes": 163086408,
+        "registers": 879558,
+        "allocations": 1283989,
+        "instructions": 629087367
+      },
+      "after": {
+        "work": 722723,
+        "bytes": 161489464,
+        "registers": 879558,
+        "allocations": 1282085,
+        "instructions": 668949266
+      }
+    },
+    {
+      "family": "cal-infix-simulfix",
+      "words": 6,
+      "before": {
+        "work": 1053128,
+        "bytes": 218550114,
+        "registers": 2642184,
+        "allocations": 977788,
+        "instructions": 702749350
+      },
+      "after": {
+        "work": 1053128,
+        "bytes": 218390618,
+        "registers": 2642184,
+        "allocations": 976140,
+        "instructions": 710742438
+      }
+    },
+    {
+      "family": "cal-large-lexicon",
+      "words": 15,
+      "before": {
+        "work": 291902,
+        "bytes": 51218084,
+        "registers": 577908,
+        "allocations": 378078,
+        "instructions": 198527589
+      },
+      "after": {
+        "work": 291902,
+        "bytes": 50928476,
+        "registers": 577908,
+        "allocations": 376925,
+        "instructions": 206726478
+      }
+    },
+    {
+      "family": "cal-lexsize",
+      "words": 28,
+      "before": {
+        "work": 44706,
+        "bytes": 8424124,
+        "registers": 86064,
+        "allocations": 69611,
+        "instructions": 32370550
+      },
+      "after": {
+        "work": 44706,
+        "bytes": 8359420,
+        "registers": 86064,
+        "allocations": 69383,
+        "instructions": 33686589
+      }
+    },
+    {
+      "family": "cal-redup-long-roots",
+      "words": 6,
+      "before": {
+        "work": 688054,
+        "bytes": 140945406,
+        "registers": 4444512,
+        "allocations": 818566,
+        "instructions": 501809977
+      },
+      "after": {
+        "work": 688054,
+        "bytes": 140698414,
+        "registers": 4444512,
+        "allocations": 817792,
+        "instructions": 511469774
+      }
+    },
+    {
+      "family": "cal-rule-cascade-32",
+      "words": 6,
+      "before": {
+        "work": 3482360,
+        "bytes": 500301256,
+        "registers": 16230416,
+        "allocations": 2773025,
+        "instructions": 1854004654
+      },
+      "after": {
+        "work": 3482360,
+        "bytes": 500252512,
+        "registers": 16230416,
+        "allocations": 2772661,
+        "instructions": 1857397732
+      }
+    },
+    {
+      "family": "cal-templatic-nonconcat",
+      "words": 6,
+      "before": {
+        "work": 46799,
+        "bytes": 21760974,
+        "registers": 208950,
+        "allocations": 145311,
+        "instructions": 65484408
+      },
+      "after": {
+        "work": 46799,
+        "bytes": 21696822,
+        "registers": 208950,
+        "allocations": 145096,
+        "instructions": 67707215
+      }
+    }
+  ],
+  "gate": false,
+  "gateNote": "a constant-factor edit: the slab charges each step as its former 40-byte allocation so every counter stays put, and cost cannot see what it did to instructions (up to +7.6%). It shows what cost does not cover (the limit parse-cost.md names), not what a weight can fix."
+}

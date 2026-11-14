@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Per-grammar totals over rows with work >= 1000: predicted cost is linear in them. No words, no per-word rows. Source: counts files with the allocations column (callgrind inside the per-word parse).",
+  "note": "Per-grammar totals over rows with work >= 1000: predicted cost is linear in them. No words, no per-word rows. Source: counts files with the allocations column (callgrind inside the per-word parse). Nine grammars of seven languages: cebuano and swahili each appear twice, as a json grammar and as a fwdata project (ceb, swh) with its own word list; they are different grammar files, so both are kept and each of those two languages counts twice in the means.",
   "grammars": [
     {
       "name": "amharic",
@@ -10,7 +10,8 @@
       "bytes": 757157527,
       "registers": 16844712,
       "allocations": 3370655,
-      "instructions": 2536988052
+      "instructions": 2536988052,
+      "language": "amharic"
     },
     {
       "name": "aweti",
@@ -20,7 +21,8 @@
       "bytes": 72025236,
       "registers": 378434,
       "allocations": 353456,
-      "instructions": 171430435
+      "instructions": 171430435,
+      "language": "aweti"
     },
     {
       "name": "indonesian",
@@ -30,7 +32,8 @@
       "bytes": 149846304,
       "registers": 2573756,
       "allocations": 800085,
-      "instructions": 467544012
+      "instructions": 467544012,
+      "language": "indonesian"
     },
     {
       "name": "mbugwe",
@@ -40,7 +43,8 @@
       "bytes": 22333637807,
       "registers": 409393130,
       "allocations": 146466024,
-      "instructions": 86190337630
+      "instructions": 86190337630,
+      "language": "mbugwe"
     },
     {
       "name": "sena",
@@ -50,7 +54,8 @@
       "bytes": 31562657,
       "registers": 823600,
       "allocations": 254385,
-      "instructions": 134555136
+      "instructions": 134555136,
+      "language": "sena"
     },
     {
       "name": "ceb",
@@ -60,7 +65,9 @@
       "bytes": 6812631219,
       "registers": 100764622,
       "allocations": 26434374,
-      "instructions": 15817506854
+      "instructions": 15817506854,
+      "language": "cebuano",
+      "format": "fwdata"
     },
     {
       "name": "cebuano",
@@ -70,7 +77,9 @@
       "bytes": 3034723,
       "registers": 30328,
       "allocations": 24604,
-      "instructions": 13942419
+      "instructions": 13942419,
+      "language": "cebuano",
+      "format": "json"
     },
     {
       "name": "swahili",
@@ -80,7 +89,9 @@
       "bytes": 18850850,
       "registers": 317464,
       "allocations": 168381,
-      "instructions": 82848912
+      "instructions": 82848912,
+      "language": "swahili",
+      "format": "json"
     },
     {
       "name": "swh",
@@ -90,7 +101,9 @@
       "bytes": 116918944,
       "registers": 1376070,
       "allocations": 918400,
-      "instructions": 465495599
+      "instructions": 465495599,
+      "language": "swahili",
+      "format": "fwdata"
     }
   ]
 }

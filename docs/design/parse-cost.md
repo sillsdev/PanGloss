@@ -410,18 +410,70 @@ fixed step count, so its counts are repeatable); `cal-prefilter-scale` runs with
 
 - per family, the mean and RMS of the per-word relative error against instructions (words under 1000 work units left out, as in a fit),
   and a shape error with the set's scale divided out;
-- per rung, the cost-to-instruction ratio against the family's mean rung ratio. A family is **NON-LINEAR** when a ladder rung is
-  more than 15% off. Why 15%: callgrind repeats agree within 0.005%, so the limit is about the model, not noise. The seven real
-  grammars' totals already sit within a 1.26 max/min ratio of cost to instructions (about +-12% about their center), so a drift along
-  one ladder above that would exceed the error between grammars the weights are used across; 15% is that figure, rounded. The
-  largest drift measured at 200 / 1.25 / 0 / 150 is 6.8% (`cal-prefilter-scale`, 64x). `wasted` and `band` rungs are printed but never flag;
+- per rung, the cost-to-instruction ratio against the family's mean rung ratio. A family is **NON-LINEAR** when a ladder rung
+  is more than 7% off. Why 7%: callgrind repeats agree within 0.005%, so the limit is about the model, not noise, and what the ladder
+  is for is predicting the change a landed edit makes to a total. Those edits move totals by 2% to 7% (#232 up to 44% on bytes alone,
+  `HC_RSL=off` 0% to 13%), so a rung that drifts more than about that cannot predict one. An earlier 15% was the spread between
+  grammars' levels (max/min 1.26), a different quantity from drift along one driver. The largest drift measured at
+  200 / 1.25 / 0 / 150 is 6.8% (`cal-prefilter-scale`, 64x) and 6.6% (`cal-allomorph-explosion`, 1x, one 4-word rung): inside the limit,
+  deliberately near it. Rungs of 4 to 6 words are single-word ratios (clitic-chain scores 5 of 6 words past the 1000-work floor,
+  large-lexicon 15 of 25), so a flag on one is a lead, not a verdict. A drift is measured from the family's own mean rung ratio, so a family
+  that is uniformly off shows only in the level columns. `wasted` and `band` groups are printed (marked `*`) but never flag: a ladder
+  drift asks whether cost follows a driver in proportion, and these groups mix drivers (`wasted` is words with no analysis, all search;
+  `band` is a spread of sizes), so they differ from the ladder mean by their composition. They are the largest drifts in the report
+  (`wasted` +9.6% on `templatic-nonconcat`, `band` -9.8% on `prefilter-scale`); they would flag three families at 7%;
 - the **real-grammar guard**: per-grammar totals of the stored real counts (`real-grammar-totals.json`: totals only, no words and no per-word rows)
-  scored the same way. A candidate fails it if its mean per-grammar total error is more than 1.0 point above the current weights'.
-  The totals come from the #286 build's counts (`parse-cost-alloc/save`, the only stored files with the allocations column; the
-  older `cost-review-rsl` files have none).
+  scored the same way. It gates on the **scale-free** error, the per-grammar error left after the set's own scale (the geometric mean of
+  the grammars' cost/instructions) is divided out: a candidate fails it if its mean scale-free error is more than 1.0 point above the
+  current weights'. Level is not gated, because cost is read as a ratio and a pure rescale of every weight (113 / 2 / 45 against
+  200 / 1.25 / 0 / 150, or any candidate that fits the instruction level better) predicts every change the same. The file holds nine
+  grammars of seven languages: Cebuano and Swahili each appear twice, as a json grammar (`cebuano`, `swahili`) and as an fwdata
+  project (`ceb`, `swh`) with its own word list. They are different grammar files, so both are kept, and those two languages count
+  twice in the means; the 1.26 max/min spread is over all nine. `cebuano` scores 14 of its 40 words. The totals come from the
+  #286 build's counts (`parse-cost-alloc/save`, the only stored files with the allocations column; the older `cost-review-rsl`
+  files have none);
+- the **change pairs** (below), which are what #240 was for. A candidate fails a pair when its mean change error is more than 0.5
+  point above the current weights', or it loses a sign the current weights get right; the weights themselves must keep each pair's
+  mean change error within 1 point (the sign of each family that moved is reported, and a candidate may not lose one). `calibration-set.ps1 -Score` exits 1 on any of: a NON-LINEAR family, a
+  WORSE real-grammar guard, a failed pair gate.
+
+`cal-prefilter-scale` is scored and shown but is not in the means or in the set's scale: its instructions include the admission and tiled-filter
+walks, which cost does not count, so its error (20.8%, scale 0.789) is a modelling gap that no weight closes (`excludeFromMean` and
+`modellingGap` in the manifest).
+
+### Change pairs
+
+A level error says how far cost sits from instructions; a retune is used on the change between two builds. A pair measures the same
+words through a before and an after and stores, per family, the totals of both sides (work, bytes, registers, allocations and the
+instructions inside the parse; no words) in `rust/tools/calibration/pairs/<name>.json`, listed in the manifest's `pairs`. `-Score`
+predicts each family's change from the counters and compares it with the measured change, in percentage points, with the sign of every
+family that moved 1% or more. A word counts if both sides parsed it and it reaches the 1000-work floor on either side; `cal-prefilter-scale`
+is left out of pairs. Both sides must write the allocations column (`-MeasurePair` refuses a binary that does not). A future pair (#299's
+NFA change) is added with `calibration-set.ps1 -MeasurePair -PairName ... -BeforeExe ... -AfterExe ...` (or `-BeforeEnv/-AfterEnv NAME=value`
+for one binary), then committed with the pair file and the manifest line.
+
+The three stored pairs, scored at 200 / 1.25 / 0 / 150 (change of each family's total, predicted from the counters against measured
+in callgrind instructions; error in points; the per-family rows print with `-Score`):
+
+| Pair | Builds | Families | Mean / worst error | Sign (moved 1% or more) | Gate |
+|---|---|---|---|---|---|
+| `hc-rsl-off`: look-ahead off, work and registers move apart | one binary, `HC_RSL=off` | 12 | 0.25 / 0.83 | 2 of 2 | yes |
+| `stratum-diff-275`: #275, a stratum's output words stored as differences | `b98e75ac` and `2708ab80`, each with #286's counting cherry-picked | 11 | 0.39 / 2.18 | 0 of 1 | yes |
+| `trail-slab-284`: #284, trail steps in a refcounted slab | `0d0cb92e` and `77f4aaa8`, each with #286's counting cherry-picked | 11 | 3.17 / 8.06 | 1 of 9 | report-only |
+
+- The synthetic words barely move under `HC_RSL=off`: ten of twelve families stay inside 0.5%, so that pair reads two families
+  (`templatic-nonconcat` -2.4%, `deep-template-16` +1.4%). It still splits work from registers where they move, which the real-grammar totals
+  cannot do (the pair on real grammars is in the table above, 0.46 / 1.25 points).
+- `stratum-diff-275` is a count-changing edit and cost follows it (every family within 0.7 points but `allomorph-explosion`, where
+  instructions rose 2.2% and cost fell 0.02%: a constant-factor cost of the change, not a counted one).
+- `trail-slab-284` is the case the "Limits" list names: the slab charges each step as its former 40-byte allocation, so every counter
+  stays put while instructions rose 1.9% to 7.6% on seven of eleven families (the refcounts and chunk bookkeeping). Cost reads that as no change, and the sign
+  and size are both missed. No weight can fix that, so it is stored and printed but gates nothing. It is the pair that shows what cost does
+  not cover, and a retune is not judged on it.
+- The older builds have no `--work-cap`, so `cal-work-cap` is not in `stratum-diff-275` or `trail-slab-284`.
 
 Not covered: Windows PMC columns for the set are deferred (a run needs a Windows binary of the same commit and
-17 grammars of traces). Instructions of a `--prefilter on` word include the filter's table walks, which cost does not count.
+17 grammars of traces); #299's NFA change joins the pairs once it lands; grammar-edit pairs (#240) are not stored. Instructions of a `--prefilter on` word include the filter's table walks, which cost does not count.
 
 ## Mechanism trial (machine#575), rerun 2026-11-12
 

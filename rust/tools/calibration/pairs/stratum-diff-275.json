@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "name": "stratum-diff-275",
+  "title": "#275 a stratum stores its output words as differences from its input, two builds (b98e75ac and 2708ab80, each with the #286 allocation counting cherry-picked)",
+  "note": "An allocation and byte cut in the parser; cal-work-cap is left out: the older builds have no --work-cap flag.",
+  "measuredOn": "2026-11-13",
+  "gate": true,
+  "gateNote": "",
+  "conformance": {
+    "repo": "sillsdev/fieldworks-parser-conformance",
+    "commit": "3ba5db1b2dda50cd6ee139b8cdb815389041549f"
+  },
+  "before": {
+    "label": "b98e75ac + b64f7c54 (#286 counting)",
+    "commit": "472ba4ee3c363e6557589435cfa608a68c4d9bb8",
+    "binarySha256": "67f41f63a0a758c3cc48e63af6775ebfbc9be62a14589fb30aa0d9715b962923",
+    "env": {}
+  },
+  "after": {
+    "label": "2708ab80 (#275) + b64f7c54",
+    "commit": "b8c32a6b2cb58a3f646095ad95159bdb3200f693",
+    "binarySha256": "07f1e076cb62c706e4c7ad2ca74ba6a5a591dc997e50ca34a739ce2a8f55f7f5",
+    "env": {}
+  },
+  "collect": "cost-calibrate --counts-out counters and callgrind instructions inside cost_calibrate::parse_one; totals over the words both sides parsed that reach the work floor on either side; no word text",
+  "families": [
+    {
+      "family": "cal-allomorph-explosion",
+      "words": 20,
+      "before": {
+        "work": 829778,
+        "bytes": 96202476,
+        "registers": 276780,
+        "allocations": 422653,
+        "instructions": 363667279
+      },
+      "after": {
+        "work": 829778,
+        "bytes": 96144644,
+        "registers": 276780,
+        "allocations": 422625,
+        "instructions": 371505559
+      }
+    },
+    {
+      "family": "cal-clitic-chain",
+      "words": 5,
+      "before": {
+        "work": 1089061,
+        "bytes": 300552708,
+        "registers": 2996684,
+        "allocations": 1928419,
+        "instructions": 1060877355
+      },
+      "after": {
+        "work": 1089061,
+        "bytes": 299719072,
+        "registers": 2996684,
+        "allocations": 1928924,
+        "instructions": 1061110964
+      }
+    },
+    {
+      "family": "cal-compounding-large",
+      "words": 15,
+      "before": {
+        "work": 270938,
+        "bytes": 59504103,
+        "registers": 1279518,
+        "allocations": 323421,
+        "instructions": 191787433
+      },
+      "after": {
+        "work": 270938,
+        "bytes": 59424467,
+        "registers": 1279518,
+        "allocations": 323432,
+        "instructions": 192649689
+      }
+    },
+    {
+      "family": "cal-deep-template-16",
+      "words": 6,
+      "before": {
+        "work": 748357,
+        "bytes": 252370932,
+        "registers": 1943614,
+        "allocations": 1519118,
+        "instructions": 781906602
+      },
+      "after": {
+        "work": 748357,
+        "bytes": 251370972,
+        "registers": 1943614,
+        "allocations": 1519078,
+        "instructions": 779184666
+      }
+    },
+    {
+      "family": "cal-homophone-ambiguity",
+      "words": 20,
+      "before": {
+        "work": 722723,
+        "bytes": 164637960,
+        "registers": 879558,
+        "allocations": 1284163,
+        "instructions": 630272702
+      },
+      "after": {
+        "work": 722723,
+        "bytes": 163086408,
+        "registers": 879558,
+        "allocations": 1283989,
+        "instructions": 629134875
+      }
+    },
+    {
+      "family": "cal-infix-simulfix",
+      "words": 6,
+      "before": {
+        "work": 1053128,
+        "bytes": 220121594,
+        "registers": 2642184,
+        "allocations": 977841,
+        "instructions": 704521880
+      },
+      "after": {
+        "work": 1053128,
+        "bytes": 218550114,
+        "registers": 2642184,
+        "allocations": 977788,
+        "instructions": 702068327
+      }
+    },
+    {
+      "family": "cal-large-lexicon",
+      "words": 15,
+      "before": {
+        "work": 291902,
+        "bytes": 52248912,
+        "registers": 577908,
+        "allocations": 378199,
+        "instructions": 199237961
+      },
+      "after": {
+        "work": 291902,
+        "bytes": 51218084,
+        "registers": 577908,
+        "allocations": 378078,
+        "instructions": 198949587
+      }
+    },
+    {
+      "family": "cal-lexsize",
+      "words": 28,
+      "before": {
+        "work": 44706,
+        "bytes": 8583340,
+        "registers": 86064,
+        "allocations": 69703,
+        "instructions": 32574074
+      },
+      "after": {
+        "work": 44706,
+        "bytes": 8424124,
+        "registers": 86064,
+        "allocations": 69611,
+        "instructions": 32382244
+      }
+    },
+    {
+      "family": "cal-redup-long-roots",
+      "words": 6,
+      "before": {
+        "work": 688054,
+        "bytes": 141650758,
+        "registers": 4444512,
+        "allocations": 818605,
+        "instructions": 504467319
+      },
+      "after": {
+        "work": 688054,
+        "bytes": 140945406,
+        "registers": 4444512,
+        "allocations": 818566,
+        "instructions": 502284100
+      }
+    },
+    {
+      "family": "cal-rule-cascade-32",
+      "words": 6,
+      "before": {
+        "work": 3482360,
+        "bytes": 500587072,
+        "registers": 16230416,
+        "allocations": 2773057,
+        "instructions": 1854028433
+      },
+      "after": {
+        "work": 3482360,
+        "bytes": 500301256,
+        "registers": 16230416,
+        "allocations": 2773025,
+        "instructions": 1852136587
+      }
+    },
+    {
+      "family": "cal-templatic-nonconcat",
+      "words": 6,
+      "before": {
+        "work": 46799,
+        "bytes": 21785486,
+        "registers": 208950,
+        "allocations": 145314,
+        "instructions": 65471974
+      },
+      "after": {
+        "work": 46799,
+        "bytes": 21760974,
+        "registers": 208950,
+        "allocations": 145311,
+        "instructions": 65390180
+      }
+    }
+  ]
+}

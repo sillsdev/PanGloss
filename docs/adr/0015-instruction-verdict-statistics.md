@@ -92,3 +92,8 @@ and +0.14% on callgrind.
   subtraction stays. The wider interval now shows this, where before it could read as a false verdict.
 - On the Windows counters a list of about 65 words gives an interval about ±0.6% to ±1% wide with five
   rounds, so a change near the 0.5% minimum effect needs more repeats or more words.
+- The parser-work weights are checked against the same callgrind scope, not the PMC one: the standing calibration set
+  (`rust/tools/calibration-set.ps1`, `docs/design/parse-cost.md`, "The standing calibration set") collects instructions inside
+  `cost_calibrate::parse_one`, which wraps `parse_word_opts` (or the prefilter gate's parse). It stores per-family totals of change pairs
+  scored as predicted against measured change, not verdicts, so this ADR's t test and minimum effect do not apply to it, and it has no
+  PMC column.

@@ -2,13 +2,17 @@
 
 . "$PSScriptRoot\_retune-parser-work.ps1"
 
-# A family is flagged when the cost-to-instruction ratio of one of its ladder rungs is more than this percent away from the
-# family's own mean rung ratio. Why 15: docs/design/parse-cost.md, "The standing calibration set".
-$script:DefaultDriftPercent = 15.0
-# The real-grammar guard fails a candidate whose mean per-grammar total error is this many points above the current weights'.
+# A ladder rung more than this percent off its family mean ratio flags the family; why 7: docs/design/parse-cost.md, "The standing calibration set".
+$script:DefaultDriftPercent = 7.0
+# The real-grammar guard fails a candidate whose mean scale-free error is this many points above the current weights'.
 $script:RealGuardMarginPoints = 1.0
-# Rungs the words are picked for; 'wasted' (no analysis) and 'band' (a spread, not a rung) are reported but are not ladder rungs.
+# 'wasted' and 'band' groups mix drivers, so they are reported but are not ladder rungs (docs/design/parse-cost.md).
 $script:NonLadderRungs = @('wasted', 'band')
+# A pair is judged on the families whose measured total moved at least this many percent (a sign is not read off noise-sized moves).
+$script:PairSignFloorPercent = 1.0
+# A pair's mean change error limit in points (why 1: docs/design/parse-cost.md), and the margin a candidate may add to the current weights'.
+$script:PairMeanLimitPoints = 1.0
+$script:PairMarginPoints = 0.5
 
 function Read-CalibrationManifest {
     # The manifest and, for every set, its counts rows (each tagged with the set name, family and rung).
@@ -27,7 +31,8 @@ function Read-CalibrationManifest {
                 $_ | Add-Member -NotePropertyName Set -NotePropertyValue ([string]$s.name) -PassThru | Add-Member -NotePropertyName Family -NotePropertyValue ([string]$s.family) -PassThru | Add-Member -NotePropertyName Rung -NotePropertyValue $rung -PassThru
             })
         if ($rows.Count -ne [int]$s.rows) { throw "set '$($s.name)': the manifest says $($s.rows) row(s), the counts file has $($rows.Count)" }
-        $sets += [PSCustomObject]@{ Name = [string]$s.name; Family = [string]$s.family; Rows = $rows }
+        $exclude = ($s.PSObject.Properties.Name -contains 'excludeFromMean') -and [bool]$s.excludeFromMean
+        $sets += [PSCustomObject]@{ Name = [string]$s.name; Family = [string]$s.family; Rows = $rows; ExcludeFromMean = $exclude; Gap = $(if ($s.PSObject.Properties.Name -contains 'modellingGap') { [string]$s.modellingGap } else { $null }) }
     }
     return [PSCustomObject]@{ Manifest = $doc; Sets = $sets }
 }
@@ -100,18 +105,23 @@ function Get-FamilyScore {
 }
 
 function Get-SetScore {
-    # Per-family scores over every set of a manifest, with the set's own scale (the geometric mean of the family ratios) for the scale-free error.
+    # Per-family scores over a manifest, with the set scale for the scale-free error; an excludeFromMean family is scored but not in the means.
     param([Parameter(Mandatory)]$Sets, [Parameter(Mandatory)][double[]]$Weights, [double]$DriftPercent = $script:DefaultDriftPercent)
     $families = [ordered]@{}
+    $excluded = @{}
     foreach ($s in $Sets) {
         if (-not $families.Contains($s.Family)) { $families[$s.Family] = @() }
         $families[$s.Family] += @($s.Rows)
+        if ($s.PSObject.Properties.Name -contains 'ExcludeFromMean' -and $s.ExcludeFromMean) { $excluded[$s.Family] = if ($s.Gap) { $s.Gap } else { 'excluded from the means' } }
     }
     $first = @($families.Keys | ForEach-Object { Get-FamilyScore -Family $_ -Rows $families[$_] -Weights $Weights -DriftPercent $DriftPercent })
-    $ratios = [double[]]@($first | Where-Object { $null -ne $_.Ratio } | ForEach-Object Ratio)
+    $ratios = [double[]]@($first | Where-Object { $null -ne $_.Ratio -and -not $excluded.ContainsKey($_.Family) } | ForEach-Object Ratio)
     $scale = if ($ratios.Count -gt 0) { Get-GeometricMean -Values $ratios } else { 1.0 }
-    $scores = @($families.Keys | ForEach-Object { Get-FamilyScore -Family $_ -Rows $families[$_] -Weights $Weights -DriftPercent $DriftPercent -Scale $scale })
-    $withError = @($scores | Where-Object { $null -ne $_.MeanError })
+    $scores = @($families.Keys | ForEach-Object {
+            $f = Get-FamilyScore -Family $_ -Rows $families[$_] -Weights $Weights -DriftPercent $DriftPercent -Scale $scale
+            $f | Add-Member -NotePropertyName ExcludedFromMean -NotePropertyValue $excluded.ContainsKey($_) -PassThru | Add-Member -NotePropertyName Gap -NotePropertyValue $(if ($excluded.ContainsKey($_)) { $excluded[$_] } else { $null }) -PassThru
+        })
+    $withError = @($scores | Where-Object { $null -ne $_.MeanError -and -not $_.ExcludedFromMean })
     return [PSCustomObject]@{
         Weights = $Weights; Scale = $scale; Families = $scores
         MeanOfFamilyErrors = if ($withError.Count) { ($withError | ForEach-Object MeanError | Measure-Object -Average).Average } else { $null }
@@ -157,9 +167,9 @@ function Get-RealGuard {
 }
 
 function Get-RealGuardVerdict {
-    # PASS unless the candidate's mean per-grammar error is more than RealGuardMarginPoints above the current weights'.
+    # PASS unless the candidate's mean scale-free error is over RealGuardMarginPoints above the current weights'; level is not gated.
     param([Parameter(Mandatory)]$Current, [Parameter(Mandatory)]$Candidate)
-    $worse = $Candidate.MeanError - $Current.MeanError
+    $worse = $Candidate.MeanScaleFreeError - $Current.MeanScaleFreeError
     if ($worse -gt $script:RealGuardMarginPoints) { return [PSCustomObject]@{ Verdict = 'WORSE'; Points = $worse } }
     return [PSCustomObject]@{ Verdict = 'PASS'; Points = $worse }
 }
@@ -171,9 +181,11 @@ function Format-FamilyTable {
     foreach ($f in $Score.Families) {
         $fmt = { param($v, $p) if ($null -eq $v) { 'n/a' } else { $v.ToString($p) } }
         $verdict = if ($null -eq $f.MaxDrift) { 'n/a' } elseif ($f.Flagged) { 'NON-LINEAR' } else { 'ok' }
+        if ($f.ExcludedFromMean) { $verdict += ' (not in means)' }
         $lines += ('{0,-26} {1,5} {2,7} {3,9} {4,9} {5,10} {6,8} {7,10} {8,6} {9}' -f $f.Family, $f.Rows, $f.Scored, (& $fmt $f.MeanError '0.0'), (& $fmt $f.RmsError '0.0'), (& $fmt $f.ScaleFreeMeanError '0.0'), (& $fmt $f.Ratio '0.000'), (& $fmt $f.MaxDrift '0.0'), (& $fmt $f.Slope '0.00'), $verdict)
     }
     $lines += ('mean of family errors {0:0.0}%  (shape {1:0.0}%), set scale cost/Ir {2:0.000}, worst family {3}' -f $Score.MeanOfFamilyErrors, $Score.MeanOfScaleFreeErrors, $Score.Scale, $Score.Worst)
+    foreach ($f in @($Score.Families | Where-Object ExcludedFromMean)) { $lines += ('not in the means: {0}: {1}' -f $f.Family, $f.Gap) }
     return $lines
 }
 
@@ -186,5 +198,102 @@ function Format-RungTable {
         $lines += ('{0,-26} {1}' -f $f.Family, ($parts -join '  '))
     }
     if ($lines.Count -gt 0) { $lines += '(drift of each rung''s cost/Ir from the family''s mean rung ratio, in percent; * is not a ladder rung and does not flag)' }
+    return $lines
+}
+
+# ---- Change pairs: the same words through a before and an after, scored on the CHANGE of each family's total ----
+
+function Read-CalibrationPairs {
+    # The pairs a manifest lists (`pairs`: [{name, file}], files relative to the calibration folder); none listed is none.
+    param([Parameter(Mandatory)][string]$Dir)
+    $path = Join-Path $Dir 'manifest.json'
+    $doc = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    $out = @()
+    if ($doc.PSObject.Properties.Name -notcontains 'pairs') { return $out }
+    foreach ($p in @($doc.pairs)) {
+        $file = Join-Path $Dir ([string]$p.file)
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "pair '$($p.name)': file is missing: $file" }
+        $pair = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+        if ($pair.version -ne 1) { throw "pair '$($p.name)' needs `"version`": 1 (got $($pair.version))" }
+        if ([string]$pair.name -ne [string]$p.name) { throw "pair file $file is named '$($pair.name)', the manifest lists '$($p.name)'" }
+        if (@($pair.families).Count -eq 0) { throw "pair '$($p.name)' has no families" }
+        $out += $pair
+    }
+    return $out
+}
+
+function New-PairFamilies {
+    # Per-family totals of both sides over the words both parsed that reach the work floor on either side; no word text is kept.
+    param([Parameter(Mandatory)]$Lists)
+    $fields = 'Work', 'Bytes', 'Registers', 'Allocations', 'Instructions'
+    $acc = [ordered]@{}
+    foreach ($l in $Lists) {
+        $after = @{}; foreach ($r in @($l.After)) { $after[[int]$r.Idx] = $r }
+        foreach ($b in @($l.Before)) {
+            $a = $after[[int]$b.Idx]
+            if ($null -eq $a -or $b.Instructions -le 0 -or $a.Instructions -le 0) { continue }
+            if ($b.Work -lt $script:MinScoredWork -and $a.Work -lt $script:MinScoredWork) { continue }
+            if (-not $acc.Contains($l.Family)) { $acc[$l.Family] = [ordered]@{ words = 0; before = [ordered]@{}; after = [ordered]@{} }; foreach ($f in $fields) { $acc[$l.Family].before[$f.ToLowerInvariant()] = [long]0; $acc[$l.Family].after[$f.ToLowerInvariant()] = [long]0 } }
+            $acc[$l.Family].words++
+            foreach ($f in $fields) { $acc[$l.Family].before[$f.ToLowerInvariant()] += [long]$b.$f; $acc[$l.Family].after[$f.ToLowerInvariant()] += [long]$a.$f }
+        }
+    }
+    return @($acc.Keys | ForEach-Object { [ordered]@{ family = $_; words = $acc[$_].words; before = $acc[$_].before; after = $acc[$_].after } })
+}
+
+function Get-TotalsCost($Totals, [double[]]$Weights) {
+    return $Totals.work * $Weights[0] + $Totals.bytes * $Weights[1] + $Totals.registers * $Weights[2] + $Totals.allocations * $Weights[3]
+}
+
+function Get-PairScore {
+    # Per family: predicted change of the total against measured change in points; a sign is read only when the family moved PairSignFloorPercent.
+    param([Parameter(Mandatory)]$Pair, [Parameter(Mandatory)][double[]]$Weights)
+    $rows = @($Pair.families | ForEach-Object {
+            $predicted = 100 * ((Get-TotalsCost $_.after $Weights) / (Get-TotalsCost $_.before $Weights) - 1)
+            $measured = 100 * ($_.after.instructions / $_.before.instructions - 1)
+            $checked = [Math]::Abs($measured) -ge $script:PairSignFloorPercent
+            [PSCustomObject]@{ Family = [string]$_.family; Words = [int]$_.words; Predicted = $predicted; Measured = $measured; ErrorPoints = [Math]::Abs($predicted - $measured); SignChecked = $checked; SignOk = (-not $checked) -or ([Math]::Sign($predicted) -eq [Math]::Sign($measured)) }
+        })
+    $checkedRows = @($rows | Where-Object SignChecked)
+    return [PSCustomObject]@{
+        Name = [string]$Pair.name; Title = [string]$Pair.title; Weights = $Weights; Families = $rows
+        Gates = (-not ($Pair.PSObject.Properties.Name -contains 'gate')) -or [bool]$Pair.gate
+        GateNote = $(if ($Pair.PSObject.Properties.Name -contains 'gateNote') { [string]$Pair.gateNote } else { $null })
+        MeanError = ($rows | ForEach-Object ErrorPoints | Measure-Object -Average).Average
+        WorstError = ($rows | ForEach-Object ErrorPoints | Measure-Object -Maximum).Maximum
+        Worst = ($rows | Sort-Object ErrorPoints -Descending | Select-Object -First 1).Family
+        SignChecked = $checkedRows.Count; SignAgree = @($checkedRows | Where-Object SignOk).Count
+    }
+}
+
+function Get-PairGate {
+    # The standing gate on one pair at one weight set: mean change error within PairMeanLimitPoints. A report-only pair gates nothing.
+    param([Parameter(Mandatory)]$Score)
+    if (-not $Score.Gates) { return [PSCustomObject]@{ Pass = $true; Verdict = 'REPORT-ONLY' } }
+    $ok = $Score.MeanError -le $script:PairMeanLimitPoints
+    return [PSCustomObject]@{ Pass = $ok; Verdict = $(if ($ok) { 'PASS' } else { 'FAIL' }) }
+}
+
+function Get-PairVerdict {
+    # A candidate fails a pair when its mean change error is more than PairMarginPoints above the current weights', or it loses a sign.
+    param([Parameter(Mandatory)]$Current, [Parameter(Mandatory)]$Candidate)
+    $worse = $Candidate.MeanError - $Current.MeanError
+    if (-not $Candidate.Gates) { return [PSCustomObject]@{ Verdict = 'REPORT-ONLY'; Points = $worse; LostSign = $false } }
+    $lostSign = $Candidate.SignAgree -lt $Current.SignAgree
+    $verdict = if ($worse -gt $script:PairMarginPoints -or $lostSign) { 'WORSE' } else { 'PASS' }
+    return [PSCustomObject]@{ Verdict = $verdict; Points = $worse; LostSign = $lostSign }
+}
+
+function Format-PairTable {
+    param([Parameter(Mandatory)]$Score)
+    $lines = @()
+    $lines += ('pair {0}: {1}' -f $Score.Name, $Score.Title)
+    if (-not $Score.Gates) { $lines += ('  report-only, not a gate: {0}' -f $Score.GateNote) }
+    $lines += ('  {0,-26} {1,6} {2,10} {3,10} {4,10} {5}' -f 'family', 'words', 'predicted%', 'measured%', 'error pts', 'sign')
+    foreach ($f in $Score.Families) {
+        $sign = if (-not $f.SignChecked) { '-' } elseif ($f.SignOk) { 'ok' } else { 'WRONG' }
+        $lines += ('  {0,-26} {1,6} {2,10} {3,10} {4,10} {5}' -f $f.Family, $f.Words, $f.Predicted.ToString('+0.00;-0.00;0.00'), $f.Measured.ToString('+0.00;-0.00;0.00'), $f.ErrorPoints.ToString('0.00'), $sign)
+    }
+    $lines += ('  mean change error {0:0.00} points, worst {1:0.00} ({2}); sign right on {3} of {4} families that moved {5}% or more' -f $Score.MeanError, $Score.WorstError, $Score.Worst, $Score.SignAgree, $Score.SignChecked, $script:PairSignFloorPercent)
     return $lines
 }
