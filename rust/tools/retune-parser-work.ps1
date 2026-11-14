@@ -65,11 +65,14 @@ param(
     [switch]$NoChangeCheck,
     [switch]$SkipSideReports,
     [string]$SaveDir,
+    [string]$StoredSet = (Join-Path $PSScriptRoot 'calibration'),
+    [switch]$SkipStoredSet,
     [string]$Pattern = '*cost_calibrate::parse_one'
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\_instruction-compare.ps1"
 . "$PSScriptRoot\_retune-parser-work.ps1"
+. "$PSScriptRoot\_calibration-set.ps1"
 
 class Refusal : System.Exception { Refusal([string]$m) : base($m) {} }
 function Stop-Refused([string]$Message) { throw [Refusal]::new($Message) }
@@ -84,6 +87,31 @@ function Invoke-Tool([string]$File, [string[]]$Arguments, [string]$Err, [string]
 function Invoke-Pinned([scriptblock]$Body) {
     $env:LD_PRELOAD = $script:Shim
     try { & $Body } finally { Remove-Item Env:LD_PRELOAD -ErrorAction SilentlyContinue }
+}
+
+# The standing calibration set and the real-grammar totals, scored from stored counts: arithmetic only, report-only, never in the decision.
+function Write-StoredSetReport([string]$Dir, [double[]]$Current, [double[]]$Candidate) {
+    Write-Host ''
+    Write-Host "stored calibration set ($Dir; no new measurement):"
+    $set = Read-CalibrationManifest -Dir $Dir
+    $realPath = Join-Path $Dir 'real-grammar-totals.json'
+    $realCur = $null; $realNew = $null
+    if (Test-Path -LiteralPath $realPath) { $totals = Read-RealTotals $realPath; $realCur = Get-RealGuard -Totals $totals -Weights $Current; $realNew = Get-RealGuard -Totals $totals -Weights $Candidate }
+    foreach ($row in @(@('current', $Current), @('candidate', $Candidate))) {
+        $sc = Get-SetScore -Sets $set.Sets -Weights $row[1]
+        Write-Host ("  {0,-9} {1}: mean of family errors {2:0.0}% (shape {3:0.0}%), worst {4}, non-linear: {5}" -f $row[0], (Format-Weights $row[1]), $sc.MeanOfFamilyErrors, $sc.MeanOfScaleFreeErrors, $sc.Worst, $(if ($sc.Flagged.Count) { $sc.Flagged -join ', ' } else { 'none' }))
+        Format-FamilyTable $sc | Select-Object -Skip 1 | Select-Object -SkipLast 1 | ForEach-Object { Write-Host "    $_" }
+    }
+    if ($realNew) {
+        $v = Get-RealGuardVerdict -Current $realCur -Candidate $realNew
+        Write-Host ("  real-grammar guard (on the scale-free error): current {0:0.0}%, candidate {1:0.0}%: {2} ({3:+0.0;-0.0;0.0} points; fails above +{4:0.0})" -f $realCur.MeanScaleFreeError, $realNew.MeanScaleFreeError, $v.Verdict, $v.Points, $script:RealGuardMarginPoints)
+    }
+    foreach ($pair in @(Read-CalibrationPairs -Dir $Dir)) {
+        $pc = Get-PairScore -Pair $pair -Weights $Current
+        $pn = Get-PairScore -Pair $pair -Weights $Candidate
+        $v = Get-PairVerdict -Current $pc -Candidate $pn
+        Write-Host ("  change pair {0}: mean change error current {1:0.00} points, candidate {2:0.00}; signs right {3} of {4} -> {5} of {6}: {7} ({8:+0.00;-0.00;0.00} points; fails above +{9})" -f $pair.name, $pc.MeanError, $pn.MeanError, $pc.SignAgree, $pc.SignChecked, $pn.SignAgree, $pn.SignChecked, $v.Verdict, $v.Points, $script:PairMarginPoints)
+    }
 }
 
 function Format-Weights([double[]]$W) { '{0} / {1} / {2} / {3}' -f $W[0], $W[1], $W[2], $W[3] }
@@ -309,6 +337,7 @@ try {
     $moves = @(Get-WeightMoves -Current $cur -Candidate $cand)
     foreach ($move in $moves) { Write-Host "  WARNING: large move, $move" -ForegroundColor Yellow }
     if ($moves.Count -gt 0) { Write-Host "  WARNING: a move of more than a quarter needs the owner's review; a run on -Words $Words samples is not adoptable evidence" -ForegroundColor Yellow }
+    if (-not $SkipStoredSet -and (Test-Path -LiteralPath (Join-Path $StoredSet 'manifest.json'))) { Write-StoredSetReport $StoredSet $cur $cand }
     $code = Get-RetuneExitCode $decision.Verdict
 
     # e. report: never in the fit or the decision

@@ -1,6 +1,7 @@
 //! `pangloss cost-calibrate`, built only with the `cost-calibration` feature: suggests new fixed weights.
 
-use crate::{load_grammar, outcome_status, DEFAULT_WORK_CAP};
+use crate::batch_prefilter::{BatchPrefilter, PrefilterMode};
+use crate::{load_grammar, outcome_status, parse_work_cap, DEFAULT_WORK_CAP};
 use pg_cost::calibrate::{current_weights, fit, solve, Fit, Sample, Solution, Weights};
 use pg_cost::Counts;
 use pg_parse::{Morpher, ParseOptions, ParseOutcome};
@@ -10,10 +11,18 @@ use std::time::Instant;
 
 const DEFAULT_WORDS: usize = 40;
 
-/// Kept out of line so `valgrind --toggle-collect='*cost_calibrate::parse_one'` brackets one word.
+/// Kept out of line so `valgrind --toggle-collect='*cost_calibrate::parse_one'` brackets one word; `--prefilter on` parses through the batch gate.
 #[inline(never)]
-fn parse_one(morpher: &Morpher, word: &str, opts: &ParseOptions) -> ParseOutcome {
-    morpher.parse_word_opts(word, opts)
+fn parse_one(
+    morpher: &Morpher,
+    word: &str,
+    opts: &ParseOptions,
+    (idx, prefilter): (usize, &mut Option<BatchPrefilter>),
+) -> ParseOutcome {
+    match prefilter {
+        Some(gate) => gate.parse(idx, morpher, word, opts),
+        None => morpher.parse_word_opts(word, opts),
+    }
 }
 
 /// Reads `idx<TAB>instructions` rows, as written by the instruction measurement tools.
@@ -147,6 +156,9 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
     let mut counts_out = None;
     let mut fit_counts = false;
     let mut parse_only = false;
+    let mut work_cap = DEFAULT_WORK_CAP;
+    let mut keep_capped = false;
+    let mut prefilter_mode = PrefilterMode::Off;
     let mut sample = DEFAULT_WORDS;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -155,6 +167,17 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
             "--counts-out" => counts_out = Some(it.next().ok_or("--counts-out requires a path")?),
             "--fit-counts" => fit_counts = true,
             "--parse-only" => parse_only = true,
+            "--keep-capped" => keep_capped = true,
+            "--work-cap" => {
+                work_cap = parse_work_cap(it.next().ok_or("--work-cap requires a value")?)?
+            }
+            "--prefilter" => {
+                let value = it.next().ok_or("--prefilter requires a value")?;
+                prefilter_mode = PrefilterMode::parse(value)?;
+                if prefilter_mode == PrefilterMode::Auto {
+                    return Err("--prefilter auto lets a gate decide per batch, so one word's cost would depend on the list; use on or off".into());
+                }
+            }
 
             "--words" => {
                 let value = it.next().ok_or("--words requires a value")?;
@@ -183,7 +206,7 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path] = positional.as_slice() else {
         return Err(
-            "usage: cost-calibrate <grammar> <words.txt> [--words N] [--targets <idx-instructions.tsv> [--counts-out <counts.tsv>]] | --parse-only"
+            "usage: cost-calibrate <grammar> <words.txt> [--words N] [--work-cap N] [--keep-capped] [--prefilter on] [--targets <idx-instructions.tsv> [--counts-out <counts.tsv>]] | --parse-only"
                 .into(),
         );
     };
@@ -207,17 +230,26 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
         return Err(format!("{words_path}: no words"));
     }
     let targets = targets_path.map(|path| read_targets(path)).transpose()?;
-    let morpher = Morpher::new(&grammar, DEFAULT_WORK_CAP.as_morpher_cap())
+    let morpher = Morpher::new(&grammar, work_cap.as_morpher_cap())
         .with_always_enforce_final_templates(grammar.always_enforce_final_templates)
         .with_guess_roots(grammar.guess_roots);
     let opts = morpher.project_parse_options();
+    let mut gate = match prefilter_mode {
+        PrefilterMode::Off => None,
+        mode => {
+            let all: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+            Some(BatchPrefilter::prepare(
+                mode, &grammar, &morpher, &opts, &all, 0,
+            )?)
+        }
+    };
 
     if parse_only {
         // Counting stays off, so the instructions of each parse are those of a plain `batch` run.
         for (idx, word) in words.iter().enumerate() {
             println!(
                 "{idx}\t{}",
-                outcome_status(&parse_one(&morpher, word, &opts))
+                outcome_status(&parse_one(&morpher, word, &opts, (idx, &mut gate)))
             );
         }
         return Ok(());
@@ -229,9 +261,10 @@ pub(crate) fn run_cost_calibrate(args: &[String]) -> Result<(), String> {
     for idx in sample_indices(words.len(), sample) {
         let word = words[idx];
         let started = Instant::now();
-        let outcome = parse_one(&morpher, word, &opts);
+        let outcome = parse_one(&morpher, word, &opts, (idx, &mut gate));
         let elapsed = started.elapsed().as_secs_f64();
-        if outcome.capped || outcome.timed_out || outcome.invalid_shape {
+        // A capped word stops at a fixed count of steps, so its counts and instructions are as repeatable as any other word's.
+        if (outcome.capped && !keep_capped) || outcome.timed_out || outcome.invalid_shape {
             continue;
         }
         let measured = match &targets {

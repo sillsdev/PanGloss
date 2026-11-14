@@ -792,3 +792,87 @@ fn signatures_equal_ignores_class_member_order_but_not_members_or_negation() {
     assert!(!signatures_equal("|b[ae]t", "|b[ae]t;|b[ae]t"));
     assert!(!signatures_equal("-", "|b[ae]t"));
 }
+
+fn temp_suite(tag: &str) -> PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("pg-calibration-guard-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn write_fixture(root: &Path, category: &str, name: &str, words_yaml: &str) {
+    let dir = root.join(category).join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("grammar.xml"), "<x/>").unwrap();
+    std::fs::write(dir.join("words.yaml"), words_yaml).unwrap();
+}
+
+const CALIBRATION_HEADER_LINE: &str =
+    "# kind: calibration (CALIBRATION ONLY: never run in conformance or engine test runs; see calibration/README.md)\n";
+
+#[test]
+fn no_discovered_fixture_is_calibration_material() {
+    // Both roots, whatever scope the run claimed: the suite at its pin and the staged fixtures.
+    let all = discover_scoped(ConformanceScope::All);
+    assert!(!all.is_empty());
+    let leaks = calibration_leaks(&all);
+    assert!(
+        leaks.is_empty(),
+        "calibration reached enumeration: {leaks:#?}"
+    );
+    let staged = all_staged_fixtures();
+    let leaks = calibration_leaks(&staged);
+    assert!(leaks.is_empty(), "calibration staged: {leaks:#?}");
+}
+
+#[test]
+fn the_scan_never_descends_into_a_calibration_folder() {
+    let suite = temp_suite("folder");
+    write_fixture(&suite, "calibration", "cal-big", CALIBRATION_HEADER_LINE);
+    write_fixture(&suite, "edge-cases", "plain", "language: x\n");
+    let mut out = Vec::new();
+    scan_one_root(&suite, Root::Machine, &mut out);
+    let leaks = calibration_leaks(&out);
+    std::fs::remove_dir_all(&suite).unwrap();
+    assert_eq!(
+        out.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+        ["plain"]
+    );
+    assert!(leaks.is_empty());
+}
+
+#[test]
+fn a_cal_named_fixture_or_a_calibration_header_is_a_leak() {
+    let suite = temp_suite("leak");
+    write_fixture(&suite, "edge-cases", "cal-sneaked", "language: x\n");
+    write_fixture(&suite, "edge-cases", "headed", CALIBRATION_HEADER_LINE);
+    write_fixture(
+        &suite,
+        "languages",
+        "plain",
+        "# kind: stress (not calibration)\nlanguage: x\n",
+    );
+    let mut out = Vec::new();
+    scan_one_root(&suite, Root::Machine, &mut out);
+    assert_eq!(out.len(), 3);
+    let leaks = calibration_leaks(&out);
+    std::fs::remove_dir_all(&suite).unwrap();
+    assert_eq!(leaks.len(), 2, "{leaks:#?}");
+    assert!(leaks.iter().any(|l| l.contains("cal-sneaked")));
+    assert!(leaks.iter().any(|l| l.contains("headed")));
+}
+
+#[test]
+fn only_a_leading_comment_makes_a_words_file_a_calibration_file() {
+    assert!(words_yaml_declares_calibration(CALIBRATION_HEADER_LINE));
+    assert!(words_yaml_declares_calibration(
+        "\n# CALIBRATION ONLY\nlanguage: x\n"
+    ));
+    assert!(!words_yaml_declares_calibration(
+        "language: x\n# CALIBRATION ONLY\n"
+    ));
+    assert!(!words_yaml_declares_calibration(
+        "# kind: stress\nlanguage: x\n"
+    ));
+}
