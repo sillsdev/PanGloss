@@ -55,6 +55,7 @@ pub(crate) enum AgreementNode {
         lanes: Vec<u64>,
         vars: Vec<VarOccur>,
     },
+    Group(Vec<AgreementNode>),
     Alternation(Vec<AgreementNode>),
     Repeat {
         min: u32,
@@ -67,6 +68,9 @@ impl AgreementNode {
     fn compile_node(&self) -> CompileNode {
         match self {
             Self::Constraint { lanes, .. } => CompileNode::Constraint(lanes.clone()),
+            Self::Group(children) => CompileNode::UnnamedGroup {
+                children: children.iter().map(Self::compile_node).collect(),
+            },
             Self::Alternation(branches) => CompileNode::Alternation(
                 branches
                     .iter()
@@ -84,13 +88,18 @@ impl AgreementNode {
     pub(crate) fn has_vars(&self) -> bool {
         match self {
             Self::Constraint { vars, .. } => !vars.is_empty(),
+            Self::Group(children) => children.iter().any(Self::has_vars),
             Self::Alternation(branches) => branches.iter().any(Self::has_vars),
             Self::Repeat { children, .. } => children.iter().any(Self::has_vars),
         }
     }
 
     pub(crate) fn has_repeated_vars(&self) -> bool {
-        matches!(self, Self::Repeat { children, .. } if children.iter().any(Self::has_vars))
+        match self {
+            Self::Repeat { children, .. } => children.iter().any(Self::has_vars),
+            Self::Group(children) => children.iter().any(Self::has_repeated_vars),
+            _ => false,
+        }
     }
 }
 
@@ -464,6 +473,7 @@ impl<'g> PatternBridge<'g> {
                 }
                 PatternNode::Segments { table, shape } => {
                     let seg_table = &self.grammar.char_tables[table.0 as usize];
+                    let mut children = Vec::new();
                     for (i, _kind, char_def, _flags) in shape.shape.interior() {
                         let _ = i;
                         let mut lanes = seg_table
@@ -478,11 +488,12 @@ impl<'g> PatternBridge<'g> {
                         if let Some(strrep) = self.strrep.filter(|_| *table == self.table) {
                             strrep.constrain(&mut lanes, char_def);
                         }
-                        out.push(AgreementNode::Constraint {
+                        children.push(AgreementNode::Constraint {
                             lanes,
                             vars: Vec::new(),
                         });
                     }
+                    out.push(AgreementNode::Group(children));
                 }
                 PatternNode::Anchor(AnchorSide::Left) => *anchor_start = true,
                 PatternNode::Anchor(AnchorSide::Right) => *anchor_end = true,
