@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.19.5
+
+Released 2026-11-13.
 
 The release script now cuts a release through a pull request, so no release step commits to local `main`. `release.ps1 -Prepare -Version X.Y.Z` branches `release/vX.Y.Z` from `origin/main`, renames `## Unreleased` to `## X.Y.Z` with a `Released <date>.` line, stamps the workspace version and `Cargo.lock`, runs the locked check, commits, pushes and opens the PR; after the squash merge, `release.ps1 -Tag -Version X.Y.Z -Push` creates and pushes the annotated tag on the merged release commit.
 
