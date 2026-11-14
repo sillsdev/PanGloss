@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "name": "grammar-shorter-cascade",
+  "title": "Remove four rules from the phonological cascade",
+  "note": "cal-rule-cascade-32: remove ep1_i_s_Tvl, su1_n_m, su2_t_d and su3_k_g from the stratum rule list; generator rust/tools/calibration/grammar-edits.py shorter-cascade",
+  "measuredOn": "2026-11-14",
+  "gate": true,
+  "gateNote": "",
+  "conformance": {
+    "repo": "sillsdev/fieldworks-parser-conformance",
+    "commit": "3ba5db1b2dda50cd6ee139b8cdb815389041549f"
+  },
+  "before": {
+    "label": "before",
+    "commit": "0bb22999352be36a7d38f1e9157b35d3abbb2840",
+    "binarySha256": "d98fd53b45cb45801df959a214357660a179f6f193a482df5d2f3c0e7ba152e3",
+    "env": {}
+  },
+  "after": {
+    "label": "after",
+    "commit": "0bb22999352be36a7d38f1e9157b35d3abbb2840",
+    "binarySha256": "d98fd53b45cb45801df959a214357660a179f6f193a482df5d2f3c0e7ba152e3",
+    "env": {}
+  },
+  "collect": "cost-calibrate --counts-out counters and callgrind instructions inside cost_calibrate::parse_one; totals over the words both sides parsed that reach the work floor on either side; no word text",
+  "families": [
+    {
+      "family": "cal-rule-cascade-32",
+      "words": 6,
+      "before": {
+        "work": 1824192,
+        "bytes": 291758664,
+        "registers": 6868306,
+        "allocations": 1613606,
+        "instructions": 1026934156
+      },
+      "after": {
+        "work": 1291077,
+        "bytes": 203661947,
+        "registers": 4798962,
+        "allocations": 1106246,
+        "instructions": 726166374
+      }
+    }
+  ],
+  "grammar": {
+    "family": "cal-rule-cascade-32",
+    "beforeSha256": "332f2ccb64e2c75e34d55225d3977da1271fc2d05728efd2c4b54f8fb5398a75",
+    "afterSha256": "10ee45d015fdcb362985648a42c413b83370551c3cb48e55f0a05daa4b84c93a"
+  }
+}
