@@ -7,7 +7,7 @@
     "folder": "calibration/"
   },
   "pangloss": {
-    "commit": "04068c03a10af1184814242c953c4ec5e3149c64",
+    "commit": "cdc6780d55283bd960b10bb5e8b598ed20af1c0b",
     "binarySha256": "ba6258e228a423790add1d0f2a38110a1ad7741a2ae9ab92f6c1bac19b4dca2b",
     "features": "cost-calibration,foma-tools"
   },
