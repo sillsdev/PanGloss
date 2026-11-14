@@ -37,15 +37,19 @@ fn reservations_stop_at_the_exact_cap_and_remain_stopped() {
 fn nested_scopes_restore_the_callers_meter_on_unwind() {
     let outer = WorkBudget::new(3);
     let _outer_scope = outer.enter();
+    let outer_key = active_budget_key();
+    assert_ne!(outer_key, 0);
     assert!(consume());
     let inner = WorkBudget::new(1);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _inner_scope = inner.enter();
+        assert_ne!(active_budget_key(), outer_key);
         assert!(consume());
         assert!(!consume());
         panic!("exercise scope unwinding");
     }));
     assert!(result.is_err());
+    assert_eq!(active_budget_key(), outer_key);
     assert!(consume());
     assert_eq!(outer.used(), 2);
     assert_eq!(inner.used(), 1);

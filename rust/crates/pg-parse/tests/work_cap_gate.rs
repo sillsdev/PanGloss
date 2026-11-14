@@ -82,6 +82,28 @@ fn word_memory_cap_stops_one_word_and_does_not_affect_the_next() {
 }
 
 #[test]
+fn retained_trace_cannot_steal_a_later_words_memory_budget() {
+    use pg_rules::trace::TreeTraceSink;
+    let grammar = suffix_grammar();
+    let sink = TreeTraceSink::new();
+    let first = Morpher::new(&grammar, 10_000_000).with_word_mem_cap(None);
+    let outcome = first.parse_word_traced("sagn", &ParseOptions::default(), &sink);
+    assert!(!outcome.capped);
+    assert!(!outcome.analyses.is_empty());
+    let bounded = Morpher::new(&grammar, 10_000_000).with_word_mem_cap(Some(1024 * 1024));
+    let second = bounded.parse_word("sagn");
+    assert!(
+        second.word_mem_capped,
+        "retained trace must not hide the slab charge"
+    );
+    drop(sink);
+    let fresh = bounded.parse_word("sagn");
+    assert!(fresh.word_mem_capped);
+    assert_eq!(second.work_steps, fresh.work_steps);
+    assert_eq!(second.signature(), fresh.signature());
+}
+
+#[test]
 fn default_word_memory_budget_preserves_complete_conformance_words() {
     let mut checked = 0;
     for fixture in pg_conformance_fixtures::discover() {

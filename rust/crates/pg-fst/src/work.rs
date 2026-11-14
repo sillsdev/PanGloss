@@ -47,6 +47,7 @@ const DEADLINE_POLL_INTERVAL: usize = 64;
 
 thread_local! {
     static ACTIVE: RefCell<Option<WorkBudget>> = const { RefCell::new(None) };
+    static ACTIVE_KEY: Cell<usize> = const { Cell::new(0) };
 }
 
 impl WorkBudget {
@@ -221,9 +222,11 @@ impl WorkBudget {
     /// cannot cross threads. Standalone calls outside a scope retain their uncapped behavior.
     pub fn enter(&self) -> WorkScope {
         let previous = ACTIVE.with(|active| active.replace(Some(self.clone())));
+        let previous_key = ACTIVE_KEY.with(|key| key.replace(Rc::as_ptr(&self.0) as usize));
         WorkScope {
             current: self.clone(),
             previous,
+            previous_key,
         }
     }
 }
@@ -231,6 +234,13 @@ impl WorkBudget {
 /// Capture the current allowance for a synchronous diagnostic scope.
 pub fn active_budget() -> Option<WorkBudget> {
     ACTIVE.with(|active| active.borrow().clone())
+}
+
+/// Identity of the active budget, or zero outside a scope. A consumer retaining this key must
+/// also retain the budget, so its allocation cannot be reused for a different budget.
+#[inline]
+pub fn active_budget_key() -> usize {
+    ACTIVE_KEY.with(Cell::get)
 }
 
 /// Charges owned by one retained parser collection. Moving this value transfers the charge.
@@ -288,6 +298,7 @@ impl Drop for WordMemory {
 pub struct WorkScope {
     current: WorkBudget,
     previous: Option<WorkBudget>,
+    previous_key: usize,
 }
 
 impl Drop for WorkScope {
@@ -302,6 +313,7 @@ impl Drop for WorkScope {
             );
             *active = self.previous.take();
         });
+        ACTIVE_KEY.with(|key| key.set(self.previous_key));
     }
 }
 

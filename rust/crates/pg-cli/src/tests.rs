@@ -672,27 +672,40 @@ fn capture_cap_is_typed_in_both_batch_writer_paths_and_can_be_disabled() {
 #[test]
 fn word_memory_cap_is_typed_and_the_batch_continues_in_both_thread_modes() {
     let grammar = homophonous_suffix_grammar_xml(1);
+    let mut expected = std::collections::BTreeMap::new();
     for threads in ["1", "2"] {
-        let rows = run_batch_tsv_custom(
-            "word-memory-cap",
-            &grammar,
-            "kadd\nka\n",
-            &[
-                "--word-mem-cap-mib",
-                "1",
-                "--threads",
-                threads,
-                "--work-columns",
-            ],
-        );
-        let completed: Vec<Vec<&str>> = rows
-            .iter()
-            .map(|line| line.split('\t').collect::<Vec<_>>())
-            .filter(|row| row.len() == 6)
-            .collect();
-        assert_eq!(completed.len(), 2);
-        assert_eq!(completed[0][3], "MEMCAP");
-        assert_eq!(completed[1][3], "ok");
+        for words in ["kadd\nka\nkadd\nka\n", "ka\nkadd\nka\nkadd\n"] {
+            let rows = run_batch_tsv_custom(
+                "word-memory-cap",
+                &grammar,
+                words,
+                &[
+                    "--word-mem-cap-mib",
+                    "1",
+                    "--threads",
+                    threads,
+                    "--work-columns",
+                ],
+            );
+            let completed: Vec<Vec<&str>> = rows
+                .iter()
+                .map(|line| line.split('\t').collect::<Vec<_>>())
+                .filter(|row| row.len() == 6)
+                .collect();
+            assert_eq!(completed.len(), 4);
+            for row in completed {
+                assert_eq!(row[3], if row[1] == "kadd" { "MEMCAP" } else { "ok" });
+                let normalized: Vec<String> = [row[1], row[3], row[4], row[5]]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+                if let Some(previous) = expected.get(row[1]) {
+                    assert_eq!(&normalized, previous, "threads={threads}, words={words:?}");
+                } else {
+                    expected.insert(row[1].to_owned(), normalized);
+                }
+            }
+        }
         let complete = run_batch_tsv_custom(
             "word-memory-unbounded",
             &grammar,
