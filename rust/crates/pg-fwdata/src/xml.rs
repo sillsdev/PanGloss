@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::QName;
@@ -226,6 +226,7 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
     let mut buf = Vec::new();
     let mut graph = RawGraph::default();
     let mut seen_guids = HashSet::new();
+    let mut names = NameInterner::default();
     let mut saw_any_rt = false;
 
     loop {
@@ -257,7 +258,7 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                         // A recognized record already holds this guid; keep it and just advance past this duplicate's body.
                         skip_rt_body(&mut reader, e.name())?;
                     } else {
-                        let node = parse_rt_body(&mut reader)?;
+                        let node = parse_rt_body(&mut reader, &class, &mut names)?;
                         if class == "LexEntry" {
                             graph.lex_entry_order.push(guid.clone());
                         }
@@ -384,7 +385,11 @@ fn push_duplicate_guid_issues(graph: &mut RawGraph) {
 }
 
 /// Parse up to and including the matching `</rt>` into a `Node`, whose `children` are the record's property elements.
-fn parse_rt_body<R: BufRead>(reader: &mut Reader<R>) -> Result<Node, ImportError> {
+fn parse_rt_body<R: BufRead>(
+    reader: &mut Reader<R>,
+    class: &str,
+    names: &mut NameInterner,
+) -> Result<Node, ImportError> {
     let mut stack: Vec<Node> = vec![Node::empty()];
     let mut buf = Vec::new();
     loop {
@@ -392,9 +397,26 @@ fn parse_rt_body<R: BufRead>(reader: &mut Reader<R>) -> Result<Node, ImportError
             .read_event_into(&mut buf)
             .map_err(|e| ImportError::Xml(e.to_string()))?;
         match event {
-            Event::Start(e) => stack.push(node_from_start(&e)?),
+            Event::Start(e) => {
+                let mut node = node_from_start(&e, names)?;
+                if stack.len() == 1 && pruned_field(class, &node.tag) {
+                    let mut skip_buf = Vec::new();
+                    reader
+                        .read_to_end_into(e.name(), &mut skip_buf)
+                        .map_err(|err| ImportError::Xml(err.to_string()))?;
+                    node.attrs = Vec::new();
+                    node.pruned = true;
+                    stack[0].children.push(node);
+                } else {
+                    stack.push(node);
+                }
+            }
             Event::Empty(e) => {
-                let mut node = node_from_start(&e)?;
+                let mut node = node_from_start(&e, names)?;
+                if stack.len() == 1 && pruned_field(class, &node.tag) {
+                    node.attrs = Vec::new();
+                    node.pruned = true;
+                }
                 node.attrs.shrink_to_fit();
                 stack
                     .last_mut()
@@ -450,12 +472,28 @@ impl Node {
     }
 }
 
-fn node_from_start(e: &BytesStart) -> Result<Node, ImportError> {
-    let tag = String::from_utf8_lossy(e.local_name().into_inner()).into_owned();
+/// Element and attribute names repeat across every record, so each distinct name is allocated once.
+#[derive(Default)]
+struct NameInterner(HashSet<Arc<str>>);
+
+impl NameInterner {
+    fn intern(&mut self, name: &[u8]) -> Arc<str> {
+        let name = String::from_utf8_lossy(name);
+        if let Some(known) = self.0.get(name.as_ref()) {
+            return Arc::clone(known);
+        }
+        let known: Arc<str> = Arc::from(name.as_ref());
+        self.0.insert(Arc::clone(&known));
+        known
+    }
+}
+
+fn node_from_start(e: &BytesStart, names: &mut NameInterner) -> Result<Node, ImportError> {
+    let tag = names.intern(e.local_name().into_inner());
     let mut attrs = Vec::new();
     for a in e.attributes() {
         let a = a.map_err(|err| ImportError::Xml(err.to_string()))?;
-        let key = String::from_utf8_lossy(a.key.local_name().into_inner()).into_owned();
+        let key = names.intern(a.key.local_name().into_inner());
         let val = a
             .unescape_value()
             .map_err(|err| ImportError::Xml(err.to_string()))?
@@ -467,8 +505,36 @@ fn node_from_start(e: &BytesStart) -> Result<Node, ImportError> {
         attrs,
         text: String::new(),
         children: Vec::new(),
+        pruned: false,
     })
 }
 
+/// Top-level fields of whole records whose subtrees are skipped unparsed because no importer code reads them. Nested fields are never pruned.
+const PRUNED_FIELDS: &[(&str, &str)] = &[
+    ("LexSense", "ImportResidue"),
+    ("LexSense", "GrammarNote"),
+    ("LexSense", "Examples"),
+    ("LexSense", "Exemplar"),
+    ("LexSense", "ScientificName"),
+    ("LexSense", "GeneralNote"),
+    ("LexEntry", "DateCreated"),
+    ("LexEntry", "DateModified"),
+    ("LexEntry", "DoNotUseForParsing"),
+    ("LexEntry", "HomographNumber"),
+    ("LexEntry", "Comment"),
+    ("LexEntry", "Etymology"),
+    ("LexEntry", "ImportResidue"),
+    ("LexEntryRef", "HideMinorEntry"),
+    ("LexEntryRef", "RefType"),
+    ("WfiWordform", "Checksum"),
+    ("WfiWordform", "SpellingStatus"),
+];
+
+fn pruned_field(class: &str, field: &str) -> bool {
+    PRUNED_FIELDS.contains(&(class, field))
+}
+
+#[cfg(test)]
+mod prune_parity_tests;
 #[cfg(test)]
 mod tests;

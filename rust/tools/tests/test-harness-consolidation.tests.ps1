@@ -169,7 +169,7 @@ $crateSpecs = @(
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-fwdata'
         MinTargets = 1
         MaxTargets = 1
-        ExpectedSourceNames = @('compile_real_projects_gate.rs', 'fixture_tests.rs', 'fwbackup_tests.rs', 'measured_import_parity.rs', 'metathesis_import.rs', 'real_projects.rs')
+        ExpectedSourceNames = @('compile_real_projects_gate.rs', 'fixture_tests.rs', 'fwbackup_tests.rs', 'lean_import_parity.rs', 'measured_import_parity.rs', 'metathesis_import.rs', 'real_projects.rs')
     }
     @{
         Name = 'pg-grammar'

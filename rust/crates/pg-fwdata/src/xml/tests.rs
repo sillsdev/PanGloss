@@ -204,3 +204,51 @@ fn duplicate_guid_issues_name_every_occurrence_in_first_occurrence_order() {
         ]
     );
 }
+
+const SENSE_WITH_UNREAD_FIELDS: &[u8] = br#"<?xml version="1.0"?><languageproject>
+<rt class="LexSense" guid="00000000-0000-0000-0000-000000000001">
+<Gloss><AUni ws="en">water</AUni></Gloss>
+<ImportResidue><Str><Run ws="en">residue</Run></Str></ImportResidue>
+<Examples><objsur guid="00000000-0000-0000-0000-000000000002" t="o"/></Examples>
+<Exemplar/>
+</rt></languageproject>"#;
+
+#[test]
+fn unread_lexicon_fields_are_skipped_and_read_fields_survive() {
+    let graph = parse_fwdata_reader(std::io::Cursor::new(SENSE_WITH_UNREAD_FIELDS)).unwrap();
+    let sense = graph.get("00000000-0000-0000-0000-000000000001").unwrap();
+    assert_eq!(sense.node.ws_forms("Gloss").len(), 1);
+    let pruned: Vec<_> = sense
+        .node
+        .children
+        .iter()
+        .filter(|field| field.pruned)
+        .map(|field| &*field.tag)
+        .collect();
+    assert_eq!(pruned, ["ImportResidue", "Examples", "Exemplar"]);
+    assert!(sense
+        .node
+        .children
+        .iter()
+        .filter(|field| field.pruned)
+        .all(|field| field.children.is_empty() && field.attrs.is_empty()));
+}
+
+#[test]
+#[should_panic(expected = "was pruned at parse time")]
+fn reading_a_pruned_field_panics_instead_of_returning_none() {
+    let graph = parse_fwdata_reader(std::io::Cursor::new(SENSE_WITH_UNREAD_FIELDS)).unwrap();
+    let sense = graph.get("00000000-0000-0000-0000-000000000001").unwrap();
+    let _ = sense.node.child("ImportResidue");
+}
+
+#[test]
+fn a_class_with_no_pruned_fields_keeps_a_field_another_class_prunes() {
+    let xml = br#"<?xml version="1.0"?><languageproject>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000003"><ImportResidue><Uni>kept</Uni></ImportResidue></rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000004"><Examples><Uni>kept</Uni></Examples></rt>
+</languageproject>"#;
+    let graph = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
+    let msa = graph.get("00000000-0000-0000-0000-000000000004").unwrap();
+    assert_eq!(msa.node.child("Examples").unwrap().children.len(), 1);
+}
