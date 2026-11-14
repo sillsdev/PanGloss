@@ -46,7 +46,7 @@ pub fn parse_with_issues(
     let Some(params_elem) = root
         .children
         .first()
-        .filter(|node| node.tag == "ParserParameters")
+        .filter(|node| &*node.tag == "ParserParameters")
     else {
         return Err(invalid_active_parser(
             "ParserParameters XML has no valid root element",

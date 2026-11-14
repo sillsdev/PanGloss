@@ -7,6 +7,8 @@ mod compile_real_projects_gate;
 mod fixture_tests;
 #[path = "../fwbackup_tests.rs"]
 mod fwbackup_tests;
+#[path = "../lean_import_parity.rs"]
+mod lean_import_parity;
 #[path = "../measured_import_parity.rs"]
 mod measured_import_parity;
 #[path = "../metathesis_import.rs"]

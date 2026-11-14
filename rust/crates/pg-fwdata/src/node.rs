@@ -1,5 +1,7 @@
 //! A tiny read-only DOM for a single `.fwdata` `<rt>` record; we never DOM the whole 54MB document (see `crate::xml`), building a `Node` tree for one `<rt>` element at a time and dropping it once extracted.
 
+use std::sync::Arc;
+
 use pg_snapshot::WsForm;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
@@ -18,10 +20,12 @@ impl std::error::Error for DocumentError {}
 /// A generic element node: tag name, attributes, direct text, and child elements, enough to represent the handful of `.fwdata` field shapes this crate cares about.
 #[derive(Debug, Clone, Default)]
 pub struct Node {
-    pub tag: String,
-    pub attrs: Vec<(String, String)>,
+    pub tag: Arc<str>,
+    pub attrs: Vec<(Arc<str>, String)>,
     pub text: String,
     pub children: Vec<Node>,
+    /// Skipped at parse time; reading it panics instead of returning `None`.
+    pub pruned: bool,
 }
 
 impl Node {
@@ -32,16 +36,22 @@ impl Node {
     pub fn attr(&self, name: &str) -> Option<&str> {
         self.attrs
             .iter()
-            .find(|(k, _)| k == name)
+            .find(|(k, _)| &**k == name)
             .map(|(_, v)| v.as_str())
     }
 
-    pub fn child(&self, tag: &str) -> Option<&Node> {
-        self.children.iter().find(|c| c.tag == tag)
+    pub fn child<'a>(&'a self, tag: &'a str) -> Option<&'a Node> {
+        self.children_named(tag).next()
     }
 
     pub fn children_named<'a>(&'a self, tag: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
-        self.children.iter().filter(move |c| c.tag == tag)
+        self.children.iter().filter(move |c| &*c.tag == tag).inspect(|c| {
+            assert!(
+                !c.pruned,
+                "field `{}` was pruned at parse time because no importer code read it; remove it from `xml::pruned_field` before reading it",
+                c.tag
+            );
+        })
     }
 
     /// Tolerant boolean parse of a `val="..."` attribute: FieldWorks data mixes `"True"`/`"False"` and lowercase `"true"`, so both cases plus `"1"`/`"0"` are accepted.
@@ -88,7 +98,7 @@ impl Node {
         };
         c.children
             .iter()
-            .filter_map(|child| match child.tag.as_str() {
+            .filter_map(|child| match &*child.tag {
                 "AUni" => Some(WsForm {
                     ws: child.attr("ws")?.to_string(),
                     form: child.text.clone(),
@@ -139,11 +149,11 @@ fn document_error(message: impl Into<String>) -> DocumentError {
 }
 
 fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node, DocumentError> {
-    let tag = String::from_utf8_lossy(e.local_name().as_ref()).into_owned();
+    let tag = Arc::from(String::from_utf8_lossy(e.local_name().as_ref()).as_ref());
     let mut attrs = Vec::new();
     for attr in e.attributes() {
         let attr = attr.map_err(|error| document_error(error.to_string()))?;
-        let key = String::from_utf8_lossy(attr.key.local_name().as_ref()).into_owned();
+        let key = Arc::from(String::from_utf8_lossy(attr.key.local_name().as_ref()).as_ref());
         let value = attr
             .unescape_value()
             .map_err(|error| document_error(error.to_string()))?
@@ -155,6 +165,7 @@ fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node, Docume
         attrs,
         text: String::new(),
         children: Vec::new(),
+        pruned: false,
     })
 }
 

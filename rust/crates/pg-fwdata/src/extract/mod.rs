@@ -352,7 +352,16 @@ pub fn extract(
     graph: &RawGraph,
     filename_stem: &str,
 ) -> Result<(Snapshot, Vec<Warning>), ImportError> {
-    let (snapshot, warnings, _) = extract_with(graph, filename_stem, false)?;
+    let (snapshot, warnings, _) = extract_with(graph, filename_stem, false, false)?;
+    Ok((snapshot, warnings))
+}
+
+/// As [`extract`], but the snapshot's provenance omits `graph_to_snapshot` and `import_load_decisions`, which only the facts export reads and which dominate the peak heap of a large import.
+pub fn extract_lean(
+    graph: &RawGraph,
+    filename_stem: &str,
+) -> Result<(Snapshot, Vec<Warning>), ImportError> {
+    let (snapshot, warnings, _) = extract_with(graph, filename_stem, false, true)?;
     Ok((snapshot, warnings))
 }
 
@@ -361,7 +370,7 @@ pub(crate) fn extract_recording(
     graph: &RawGraph,
     filename_stem: &str,
 ) -> Result<(Snapshot, Vec<Warning>, SelectionRecorder), ImportError> {
-    let (snapshot, warnings, recorder) = extract_with(graph, filename_stem, true)?;
+    let (snapshot, warnings, recorder) = extract_with(graph, filename_stem, true, false)?;
     let recorder = recorder.expect("extract_with keeps the recorder when asked to");
     Ok((snapshot, warnings, recorder))
 }
@@ -370,6 +379,7 @@ fn extract_with(
     graph: &RawGraph,
     filename_stem: &str,
     keep_recorder: bool,
+    lean: bool,
 ) -> Result<(Snapshot, Vec<Warning>, Option<SelectionRecorder>), ImportError> {
     let mut ctx = Ctx::new(graph);
 
@@ -390,7 +400,7 @@ fn extract_with(
     finalize_unrecorded_tracked_objects(&mut ctx);
 
     let source_objects = graph.source_objects();
-    for source_object in &source_objects {
+    for source_object in source_objects.iter().filter(|_| !lean) {
         let decision = if !source_object.handled {
             Some((LoadReasonCode::UnknownClass, None))
         } else if source_object.raw_guid.is_empty() {
@@ -420,8 +430,12 @@ fn extract_with(
     }
     let recorder = keep_recorder.then(|| ctx.recorder.clone());
     // Source decisions add load decisions only, so one finish yields the inventory and issues too.
-    let (graph_to_snapshot, recorder_issues, import_load_decisions) =
+    let (mut graph_to_snapshot, recorder_issues, mut import_load_decisions) =
         std::mem::take(&mut ctx.recorder).finish_with_load_decisions();
+    if lean {
+        graph_to_snapshot = Default::default();
+        import_load_decisions = Vec::new();
+    }
     let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
     let mut import_issues = graph.issues.clone();
     import_issues.extend(recorder_issues);
@@ -449,7 +463,7 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
     use pg_snapshot::{InventoryKind, LoadDecisionDraft};
 
     fn collect_refs(node: &crate::node::Node, out: &mut Vec<String>) {
-        if node.tag == "objsur" {
+        if &*node.tag == "objsur" {
             if let Some(guid) = node.attr("guid") {
                 out.push(guid.to_string());
             }

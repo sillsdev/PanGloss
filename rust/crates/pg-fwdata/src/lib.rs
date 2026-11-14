@@ -93,16 +93,29 @@ pub struct StoredAnalysisMorph {
 /// For a direct `.fwdata` import, the input file stem becomes `project.name`; for a `.fwbackup`
 /// import, the embedded top-level `.fwdata` entry stem becomes `project.name`.
 pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    import_file_with(path, false)
+}
+
+/// As [`import_file`], but the snapshot's provenance keeps its census, source objects and issues and omits the import-stage inventory sets and load decisions, which only the facts export reads. Compiling a grammar needs nothing more, and skipping them cuts the import's peak heap by about a fifth on a large project.
+pub fn import_file_lean(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    import_file_with(path, true)
+}
+
+fn import_file_with(path: &Path, lean: bool) -> Result<(Snapshot, ImportReport), ImportError> {
     if path
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("fwbackup"))
     {
-        return fwbackup::import_fwbackup(path);
+        return fwbackup::import_fwbackup(path, lean);
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (mut snapshot, mut warnings) = extract::extract(&graph, &filename_stem)?;
+    let (mut snapshot, mut warnings) = if lean {
+        extract::extract_lean(&graph, &filename_stem)?
+    } else {
+        extract::extract(&graph, &filename_stem)?
+    };
     let stored_analyses =
         extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);

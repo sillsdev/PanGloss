@@ -634,8 +634,13 @@ pub(crate) fn load_grammar_capturing(
             } else {
                 None
             };
-            let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
-                .map_err(|e| format!("import {path}: {e}"))?;
+            // Only the facts export, which passes a capture, reads the import-stage inventory.
+            let imported = if capture.is_some() {
+                pg_fwdata::import_file(std::path::Path::new(path))
+            } else {
+                pg_fwdata::import_file_lean(std::path::Path::new(path))
+            };
+            let (snapshot, report) = imported.map_err(|e| format!("import {path}: {e}"))?;
             serve::record_ms(&serve::IMPORT_MS, t_phase);
             if let Some(capture) = capture.as_deref_mut() {
                 capture.import_refused = compile_failure::CompileFailure::import_has_fatal_issues(
