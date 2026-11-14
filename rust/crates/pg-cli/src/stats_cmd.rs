@@ -282,7 +282,7 @@ fn refuse_if_cache_engine_differs(
     Ok(())
 }
 
-pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 3;
+pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 4;
 
 fn prior_options(
     cache: &pg_stats::StatsCache,
@@ -365,6 +365,7 @@ fn refuse_if_search_budget_semantics_differ(
 struct StatsOptionsRecord {
     engine: &'static str,
     work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -545,6 +546,7 @@ pub(crate) fn prepare_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
     work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -554,6 +556,7 @@ pub(crate) fn prepare_batch_stats_hc(
         grammar_path,
         words,
         work_cap,
+        word_mem_cap,
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
@@ -568,6 +571,7 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
     work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -578,6 +582,7 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
         grammar_path,
         words,
         work_cap,
+        word_mem_cap,
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
@@ -592,6 +597,7 @@ fn prepare_batch_stats_hc_inner(
     grammar_path: &str,
     words: &[String],
     work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -645,6 +651,7 @@ fn prepare_batch_stats_hc_inner(
     let options = StatsOptionsRecord {
         engine: "hc",
         work_cap,
+        word_mem_cap,
         search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
         word_timeout_ms,
         guess,
@@ -977,6 +984,7 @@ pub(crate) fn run_batch_stats_hc(
         grammar_path,
         words,
         work_cap,
+        Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
         word_timeout_ms,
         guess,
         always_enforce_final_templates,

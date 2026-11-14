@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn word_memory_is_released_with_its_owner_and_the_stop_is_latched() {
+    let budget = WorkBudget::new(100).with_word_cap(Some(10));
+    let _scope = budget.enter();
+    let mut first = WordMemory::active();
+    assert!(first.charge(6));
+    {
+        let mut second = WordMemory::active();
+        assert!(second.charge(4));
+    }
+    assert!(first.charge(4));
+    assert!(!first.charge(1));
+    assert!(budget.capped() && budget.word_capped());
+    drop(first);
+    let mut later = WordMemory::active();
+    assert!(!later.charge(1));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
 fn reservations_stop_at_the_exact_cap_and_remain_stopped() {
     let budget = WorkBudget::new(3);
     for _ in 0..3 {

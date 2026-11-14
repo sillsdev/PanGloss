@@ -7,7 +7,7 @@ use pg_analyzer::{
 use pg_parse::Morpher;
 use std::time::Duration;
 
-const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--dictionary <language>=<prefix> ...] [--max-suggestion-chars N] [--work-cap N|unbounded] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...";
+const USAGE: &str = "usage: analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--dictionary <language>=<prefix> ...] [--max-suggestion-chars N] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...";
 
 fn flag_value<'a>(
     flag: &str,
@@ -28,6 +28,7 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
     let mut pack_args: Vec<(String, String)> = Vec::new();
     let mut dictionary_args: Vec<(String, String)> = Vec::new();
     let mut work_cap = crate::DEFAULT_WORK_CAP;
+    let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
     let mut timeout = None;
     let mut options = AnalyzeOptions::default();
     let mut text_paths: Vec<&str> = Vec::new();
@@ -54,6 +55,8 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
             );
         } else if let Some(v) = flag_value("--work-cap", arg, &mut it)? {
             work_cap = crate::parse_work_cap(v)?;
+        } else if let Some(v) = flag_value("--word-mem-cap-mib", arg, &mut it)? {
+            word_mem_cap = crate::parse_word_mem_cap(v)?;
         } else if let Some(v) = flag_value("--word-timeout-ms", arg, &mut it)? {
             timeout = Some(Duration::from_millis(
                 v.parse()
@@ -108,6 +111,7 @@ pub(crate) fn run_analyze_text(args: &[String]) -> Result<(), String> {
         .iter()
         .map(|(.., grammar)| {
             Morpher::new(grammar, work_cap.as_morpher_cap())
+                .with_word_mem_cap(word_mem_cap)
                 .with_word_timeout(timeout)
                 .with_guess_roots(false)
         })

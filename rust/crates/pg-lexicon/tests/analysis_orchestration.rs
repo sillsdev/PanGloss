@@ -651,6 +651,7 @@ fn without_limits_gives_the_default_analyses_where_the_default_does_not_cap() {
 fn without_limits_does_not_cap_where_a_small_work_cap_does() {
     let small = runtime_with(pg_lexicon::AnalysisPolicy {
         work_cap: 1,
+        word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
         generation_cap: 1,
     });
     let unlimited = runtime_with(pg_lexicon::AnalysisPolicy::without_limits());

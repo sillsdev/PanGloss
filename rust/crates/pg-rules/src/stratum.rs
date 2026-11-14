@@ -360,6 +360,17 @@ impl WordBudget {
         self
     }
 
+    /// Ceiling for the parser's counted per-word retained state (`None` means unbounded).
+    pub fn with_word_cap(mut self, cap: Option<usize>) -> Self {
+        self.work = self.work.with_word_cap(cap);
+        self
+    }
+
+    /// Whether the parser-state ceiling stopped this word.
+    pub fn word_capped(&self) -> bool {
+        self.work.word_capped()
+    }
+
     /// Whether the retained-capture ceiling, rather than the step cap, stopped the search. `capped()` is also true then.
     pub fn capture_capped(&self) -> bool {
         self.work.retained_capped()
@@ -1096,7 +1107,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// The mrule cascade over the reversed rule list: permutation for `Linear`, combination for `Unordered`, deduped by full word key.
-    fn run_mrule_cascade(&self, input: &Word) -> Vec<Word> {
+    fn run_mrule_cascade(&self, input: &Word) -> crate::cascade::CascadeOutput<Word> {
         let prepare = |w: &Word, start: usize, applied: Option<&[bool]>| {
             self.edge_candidates(
                 w,
@@ -1141,7 +1152,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 crate::word::estimate_words_bytes(&out.words),
             );
         }
-        out.words
+        out
     }
 
     /// Run the mrule cascade, then per stratum order interleave templates, streaming each output into `sink` (see `WordSink`) rather than returning an owned subtree.
@@ -1151,7 +1162,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
         // `.Distinct(...)` in C# is redundant here — the cascade already deduped by key.
-        for w in self.run_mrule_cascade(input) {
+        let cascade = self.run_mrule_cascade(input);
+        let _memory = cascade.memory;
+        for w in cascade.words {
+            if self.budget.word_capped() {
+                break;
+            }
             if sink.done() {
                 break;
             }
@@ -1186,7 +1202,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         let in_key = input.dedup_key();
         // The battery's buffer is given back as this loop empties it.
-        for t in Releasing::new(self.run_template_batch(input)) {
+        let (batch, _memory) = self.run_template_batch(input);
+        for t in Releasing::new(batch) {
+            if self.budget.word_capped() {
+                break;
+            }
             if sink.done() {
                 break;
             }
@@ -1210,17 +1230,25 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// The template battery: non-disjunctive union of every affix template's output, deduped by key, each output stored against `input`.
-    fn run_template_batch<'i>(&self, input: &'i Word) -> Vec<BatteryWord> {
+    fn run_template_batch<'i>(
+        &self,
+        input: &'i Word,
+    ) -> (Vec<BatteryWord>, pg_fst::work::WordMemory) {
         if let Some(stats) = self.stats {
             stats.record_template_battery(self.stratum_id, crate::stats::Direction::Analysis);
         }
         // Tracing keeps the per-template walk, whose begin/end events and slot outcomes are per template.
         let per_template: Vec<BatterySet<'i>> = if self.trace.is_tracing() {
-            self.stratum
+            let outputs: Vec<_> = self
+                .stratum
                 .templates
                 .iter()
                 .map(|&tid| self.analyze_template(tid, input))
-                .collect()
+                .collect();
+            pg_cost::discount_bytes(
+                outputs.capacity() * std::mem::size_of::<pg_fst::work::WordMemory>(),
+            );
+            outputs
         } else {
             self.shared_slot_battery(input)
         };
@@ -1231,7 +1259,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .unwrap_or_else(|| BatterySet::new(input));
         for template_out in per_template {
             // Each template's set shrinks as the union grows, and is gone once merged.
-            for w in Releasing::new(template_out.into_stored()) {
+            let (template_words, _template_memory) = template_out.into_stored();
+            for w in Releasing::new(template_words) {
+                if self.budget.word_capped() {
+                    break;
+                }
                 let key = w.dedup_key(input);
                 match union.position(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
@@ -1242,12 +1274,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
             }
         }
-        let out = union.into_stored();
+        let (out, memory) = union.into_stored();
         if frontier_profile::enabled() {
             let bytes = out.iter().map(|w| w.estimated_bytes(input)).sum();
             frontier_profile::record_template(out.len(), bytes);
         }
-        out
+        (out, memory)
     }
 
     /// Required syntactic features gate admission; only slot analysis changes output features.
@@ -1327,11 +1359,13 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .iter()
             .map(|&tid| self.template_admits(tid, input))
             .collect();
+        let outs: Vec<_> = (0..admitted.len())
+            .map(|_| BatterySet::new(input))
+            .collect();
+        pg_cost::discount_bytes(outs.capacity() * std::mem::size_of::<pg_fst::work::WordMemory>());
         let mut walk = TrieWalk {
             dead: vec![false; admitted.len()],
-            outs: (0..admitted.len())
-                .map(|_| BatterySet::new(input))
-                .collect(),
+            outs,
             admitted,
         };
         if walk.admitted.iter().any(|&a| a) {
@@ -1688,12 +1722,21 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 })
             };
         words.push_new(&input.dedup_key(), input.clone());
+        if self.budget.word_capped() {
+            return StoredStratumAnalysis {
+                words,
+                capped: true,
+            };
+        }
 
         // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
         let remaining =
             (self.cfg.max_unapplications > 0).then(|| Cell::new(self.cfg.max_unapplications));
         // The stratum's own dedup fold, now also the sink `apply_templates`/`apply_mrules` stream into directly -- the one durable accumulator this stratum call ever holds (`docs/research/live-frontier-memory-bound.md`).
         let mut fold = |mut w: Word| {
+            if self.budget.word_capped() {
+                return;
+            }
             let pre_fold = census.then(|| crate::branch_census::node(&w));
             w.source = Some(source.clone());
             let dedup_key = w.dedup_key();
@@ -2585,6 +2628,7 @@ fn synth_apply_mrules(
         ),
     };
     let mut result = Vec::new();
+    let _cascade_memory = cascade_out.memory;
     for w in cascade_out.words {
         if !pg_fst::work::consume() {
             return Vec::new();

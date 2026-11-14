@@ -41,10 +41,11 @@ struct Slab {
     chunks: Vec<Vec<Step>>,
     free: u32,
     live: usize,
+    memory: Option<pg_fst::work::WordMemory>,
 }
 
 thread_local! {
-    static SLAB: RefCell<Slab> = const { RefCell::new(Slab { chunks: Vec::new(), free: 0, live: 0 }) };
+    static SLAB: RefCell<Slab> = const { RefCell::new(Slab { chunks: Vec::new(), free: 0, live: 0, memory: None }) };
 }
 
 impl Slab {
@@ -59,6 +60,13 @@ impl Slab {
     }
 
     fn alloc(&mut self, step: Step) -> u32 {
+        if self.live == 0 {
+            let mut memory = pg_fst::work::WordMemory::active();
+            if !self.chunks.is_empty() {
+                memory.charge(CHUNK * 20);
+            }
+            self.memory = Some(memory);
+        }
         self.live += 1;
         // Metered as 40 bytes, the pre-slab step size; slab growth is unmetered.
         pg_cost::charge_bytes(METERED_STEP_BYTES);
@@ -69,6 +77,10 @@ impl Slab {
             return handle;
         }
         if self.chunks.last().is_none_or(|chunk| chunk.len() == CHUNK) {
+            self.memory
+                .as_mut()
+                .expect("live trail memory")
+                .charge(CHUNK * 20);
             pg_cost::unmetered(|| self.chunks.push(Vec::with_capacity(CHUNK)));
         }
         let last = self.chunks.len() - 1;
@@ -91,6 +103,7 @@ impl Slab {
                 first.clear();
             }
             self.free = 0;
+            self.memory = None;
         }
     }
 }

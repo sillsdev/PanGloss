@@ -239,6 +239,7 @@ pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
 }
 
 const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
     FlagSpec {
         name: "--profile",
         takes_value: true,
@@ -277,6 +278,7 @@ const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
 ];
 
 const BATCH_FLAGS: &[FlagSpec] = &[
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded); writes MEMCAP when reached" },
     FlagSpec {
         name: "--work-cap",
         takes_value: true,
@@ -366,6 +368,7 @@ const GENERATE_FLAGS: &[FlagSpec] = &[FlagSpec {
 }];
 
 const SERVE_FLAGS: &[FlagSpec] = &[
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
     FlagSpec {
         name: "--project",
         takes_value: true,
@@ -395,6 +398,7 @@ const SERVE_FLAGS: &[FlagSpec] = &[
 ];
 
 const PARSE_FLAGS: &[FlagSpec] = &[
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
     FlagSpec {
         name: "--work-cap",
         takes_value: true,

@@ -5,6 +5,8 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- A per-word parser-state memory budget defaults to 100 MiB and stops a word with `MEMCAP` while the batch continues. Set `--word-mem-cap-mib 0` to disable it; this budget is separate from the affix capture-state ceiling (#303).
+
 - The conformance pin moves to `24c62b3a`, which carries `edge-cases/infix-ambiguous-site` (fieldworks-parser-conformance #45) and marks `ginabas` in `infix-split-root-allomorph-environment` as an oracle no-parse (#46; machine#631 was closed unmerged): the oracle-verified infix site choice that #299 fixed now runs from the suite, and the staged copy is removed.
 
 ## 0.19.6

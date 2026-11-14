@@ -19,6 +19,23 @@ struct State {
     retained: Cell<usize>,
     retained_peak: Cell<usize>,
     retained_capped: Cell<bool>,
+    word_cap: Cell<Option<usize>>,
+    word_retained: Cell<usize>,
+    word_capped: Cell<bool>,
+}
+
+// The parser-work meter excludes the size of its own per-word memory instrumentation.
+#[allow(dead_code)]
+struct WorkStateBeforeWordMeter {
+    cap: usize,
+    used: Cell<usize>,
+    capped: Cell<bool>,
+    deadline: Cell<Option<Instant>>,
+    timed_out: Cell<bool>,
+    retained_cap: Cell<Option<usize>>,
+    retained: Cell<usize>,
+    retained_peak: Cell<usize>,
+    retained_capped: Cell<bool>,
 }
 
 /// Default ceiling on the capture state one word's search holds at once, as estimated by `WorkBudget::charge_retained`.
@@ -34,7 +51,7 @@ thread_local! {
 
 impl WorkBudget {
     pub fn new(cap: usize) -> Self {
-        Self(Rc::new(State {
+        let budget = Self(Rc::new(State {
             cap,
             used: Cell::new(0),
             capped: Cell::new(false),
@@ -44,7 +61,55 @@ impl WorkBudget {
             retained: Cell::new(0),
             retained_peak: Cell::new(0),
             retained_capped: Cell::new(false),
-        }))
+            word_cap: Cell::new(None),
+            word_retained: Cell::new(0),
+            word_capped: Cell::new(false),
+        }));
+        pg_cost::discount_bytes(
+            std::mem::size_of::<State>() - std::mem::size_of::<WorkStateBeforeWordMeter>(),
+        );
+        budget
+    }
+
+    /// Set the separate ceiling for retained per-word parser state (`None` means unbounded).
+    pub fn with_word_cap(self, cap: Option<usize>) -> Self {
+        self.0.word_cap.set(cap);
+        self
+    }
+
+    /// Reserve counted bytes before retaining parser state.
+    pub fn charge_word(&self, bytes: usize) -> bool {
+        if self.0.word_capped.get() {
+            return false;
+        }
+        let total = self.0.word_retained.get().saturating_add(bytes);
+        if self.0.word_cap.get().is_some_and(|cap| total > cap) {
+            self.0.word_capped.set(true);
+            self.0.capped.set(true);
+            return false;
+        }
+        self.0.word_retained.set(total);
+        true
+    }
+
+    /// Return counted bytes when the corresponding parser state is dropped.
+    pub fn release_word(&self, bytes: usize) {
+        self.0.word_retained.set(
+            self.0
+                .word_retained
+                .get()
+                .checked_sub(bytes)
+                .expect("word memory released more bytes than were charged"),
+        );
+    }
+
+    /// Whether the per-word parser-state ceiling stopped the search.
+    pub fn word_capped(&self) -> bool {
+        self.0.word_capped.get()
+    }
+
+    fn word_metered(&self) -> bool {
+        self.0.word_cap.get().is_some()
     }
 
     /// Replace the retained-capture ceiling (`None` = unbounded).
@@ -166,6 +231,56 @@ impl WorkBudget {
 /// Capture the current allowance for a synchronous diagnostic scope.
 pub fn active_budget() -> Option<WorkBudget> {
     ACTIVE.with(|active| active.borrow().clone())
+}
+
+/// Charges owned by one retained parser collection. Moving this value transfers the charge.
+#[derive(Default)]
+pub struct WordMemory {
+    budget: Option<WorkBudget>,
+    bytes: usize,
+}
+
+impl WordMemory {
+    pub fn active() -> Self {
+        Self {
+            budget: active_budget().filter(WorkBudget::word_metered),
+            bytes: 0,
+        }
+    }
+
+    pub fn charge(&mut self, bytes: usize) -> bool {
+        let Some(budget) = &self.budget else {
+            return true;
+        };
+        if !budget.charge_word(bytes) {
+            return false;
+        }
+        self.bytes = self.bytes.saturating_add(bytes);
+        true
+    }
+
+    pub fn absorb(&mut self, mut other: Self) {
+        if other.bytes == 0 {
+            return;
+        }
+        assert!(
+            self.budget
+                .as_ref()
+                .zip(other.budget.as_ref())
+                .is_some_and(|(a, b)| a.same_as(b)),
+            "word memory budgets differ"
+        );
+        self.bytes = self.bytes.saturating_add(other.bytes);
+        other.bytes = 0;
+    }
+}
+
+impl Drop for WordMemory {
+    fn drop(&mut self) {
+        if let Some(budget) = &self.budget {
+            budget.release_word(self.bytes);
+        }
+    }
 }
 
 /// Restores the preceding thread-local budget when synchronous work finishes.

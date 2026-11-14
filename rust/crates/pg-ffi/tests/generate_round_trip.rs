@@ -215,6 +215,7 @@ fn native_rich_generation_roundtrips_owner_identities_and_affixes() {
         RICH_XML,
         pg_lexicon::AnalysisPolicy {
             work_cap: pangloss_ffi::DEFAULT_WORK_CAP,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             generation_cap: 500_000,
         },
     )

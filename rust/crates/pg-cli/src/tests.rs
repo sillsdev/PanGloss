@@ -354,6 +354,7 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
         structured: Vec::new(),
         capped: true,
         capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
         work_steps: 0,
         timed_out: true,
@@ -665,6 +666,53 @@ fn capture_cap_is_typed_in_both_batch_writer_paths_and_can_be_disabled() {
             fields[4], "-",
             "the word must parse when the cap is disabled"
         );
+    }
+}
+
+#[test]
+fn word_memory_cap_is_typed_and_the_batch_continues_in_both_thread_modes() {
+    let grammar = homophonous_suffix_grammar_xml(1);
+    for threads in ["1", "2"] {
+        let rows = run_batch_tsv_custom(
+            "word-memory-cap",
+            &grammar,
+            "kadd\nka\n",
+            &[
+                "--word-mem-cap-mib",
+                "1",
+                "--threads",
+                threads,
+                "--work-columns",
+            ],
+        );
+        let completed: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|line| line.split('\t').collect::<Vec<_>>())
+            .filter(|row| row.len() == 6)
+            .collect();
+        assert_eq!(completed.len(), 2);
+        assert_eq!(completed[0][3], "MEMCAP");
+        assert_eq!(completed[1][3], "ok");
+        let complete = run_batch_tsv_custom(
+            "word-memory-unbounded",
+            &grammar,
+            "kadd\n",
+            &["--word-mem-cap-mib=0", "--threads", threads],
+        );
+        assert_eq!(complete.last().unwrap().split('\t').nth(3), Some("ok"));
+    }
+}
+
+#[test]
+fn word_memory_cap_cli_values_are_checked() {
+    assert_eq!(super::parse_word_mem_cap("0"), Ok(None));
+    assert_eq!(super::parse_word_mem_cap("000"), Ok(None));
+    assert_eq!(
+        super::parse_word_mem_cap("100"),
+        Ok(Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES))
+    );
+    for value in ["-1", "abc", &usize::MAX.to_string()] {
+        assert!(super::parse_word_mem_cap(value).is_err());
     }
 }
 
