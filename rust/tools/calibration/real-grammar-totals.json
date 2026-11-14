@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "note": "Per-grammar totals over rows with work >= 1000: predicted cost is linear in them. No words, no per-word rows. Source: counts files with the allocations column (callgrind inside the per-word parse).",
+  "grammars": [
+    {
+      "name": "amharic",
+      "rows": 50,
+      "scored": 49,
+      "work": 4757864,
+      "bytes": 757157527,
+      "registers": 16844712,
+      "allocations": 3370655,
+      "instructions": 2536988052
+    },
+    {
+      "name": "aweti",
+      "rows": 29,
+      "scored": 29,
+      "work": 129149,
+      "bytes": 72025236,
+      "registers": 378434,
+      "allocations": 353456,
+      "instructions": 171430435
+    },
+    {
+      "name": "indonesian",
+      "rows": 38,
+      "scored": 38,
+      "work": 764321,
+      "bytes": 149846304,
+      "registers": 2573756,
+      "allocations": 800085,
+      "instructions": 467544012
+    },
+    {
+      "name": "mbugwe",
+      "rows": 50,
+      "scored": 50,
+      "work": 109465257,
+      "bytes": 22333637807,
+      "registers": 409393130,
+      "allocations": 146466024,
+      "instructions": 86190337630
+    },
+    {
+      "name": "sena",
+      "rows": 40,
+      "scored": 40,
+      "work": 304440,
+      "bytes": 31562657,
+      "registers": 823600,
+      "allocations": 254385,
+      "instructions": 134555136
+    },
+    {
+      "name": "ceb",
+      "rows": 60,
+      "scored": 60,
+      "work": 17472488,
+      "bytes": 6812631219,
+      "registers": 100764622,
+      "allocations": 26434374,
+      "instructions": 15817506854
+    },
+    {
+      "name": "cebuano",
+      "rows": 40,
+      "scored": 14,
+      "work": 19552,
+      "bytes": 3034723,
+      "registers": 30328,
+      "allocations": 24604,
+      "instructions": 13942419
+    },
+    {
+      "name": "swahili",
+      "rows": 40,
+      "scored": 40,
+      "work": 137441,
+      "bytes": 18850850,
+      "registers": 317464,
+      "allocations": 168381,
+      "instructions": 82848912
+    },
+    {
+      "name": "swh",
+      "rows": 50,
+      "scored": 50,
+      "work": 781876,
+      "bytes": 116918944,
+      "registers": 1376070,
+      "allocations": 918400,
+      "instructions": 465495599
+    }
+  ]
+}

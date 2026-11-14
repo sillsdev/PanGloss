@@ -389,6 +389,40 @@ counters, the change of each grammar's total was -7.35% (Aweti), -6.75% (Mbugwe)
 (Sena), +0.18% (Indonesian, no change) and -0.63% (Swahili, inconclusive); 113 / 2 / 45 predicted -5.11%,
 -5.52%, -3.09%, -2.34%, 0.00% and -2.06%.
 
+## The standing calibration set
+
+Each family's cost ladder answers one question: does parser cost track instructions linearly as one driver grows? The set
+is the synthetic `calibration/` folder of `sillsdev/fieldworks-parser-conformance` (16 `cal-*` grammars: six scale families, the
+`cal-lexsize-1k` to `-50k` lexicon ladder and six structural families), pinned in `rust/tools/calibration/conformance.commit`
+(`b8a65d1`, branch `calib/batch-b-structure`; the pin moves to the merged commit later). Its words are calibration only: they are
+slow on purpose, `pg-conformance-fixtures` never enumerates them (`calibration_leaks` and its tests), and no normal parse or test
+run reads them.
+
+`rust/tools/calibration-set.ps1 -Measure` runs every family through `cost-calibrate --counts-out` and per-word callgrind
+instructions (collected inside the per-word parse, the bracket `retune-parser-work.ps1` uses) and stores word-free
+`<set>.counts.tsv` rows plus `manifest.json` (both commits, the binary hash, flags, a rung for every word index) in
+`rust/tools/calibration/`. `cal-work-cap` runs at `--work-cap 200000` with its cap words kept (`--keep-capped`: a capped word stops at a
+fixed step count, so its counts are repeatable); `cal-prefilter-scale` runs with `--prefilter on`. Measure from a build with
+`--features cost-calibration,foma-tools`.
+
+`calibration-set.ps1 -Score [-Weights w,b,r,a]` scores weights on the stored counts, with no measurement, and
+`retune-parser-work.ps1` prints the same report for the current and candidate weights (`-SkipStoredSet` omits it). It gives:
+
+- per family, the mean and RMS of the per-word relative error against instructions (words under 1000 work units left out, as in a fit),
+  and a shape error with the set's scale divided out;
+- per rung, the cost-to-instruction ratio against the family's mean rung ratio. A family is **NON-LINEAR** when a ladder rung is
+  more than 15% off. Why 15%: callgrind repeats agree within 0.005%, so the limit is about the model, not noise. The seven real
+  grammars' totals already sit within a 1.26 max/min ratio of cost to instructions (about +-12% about their center), so a drift along
+  one ladder above that would exceed the error between grammars the weights are used across; 15% is that figure, rounded. The
+  largest drift measured at 200 / 1.25 / 0 / 150 is 6.8% (`cal-prefilter-scale`, 64x). `wasted` and `band` rungs are printed but never flag;
+- the **real-grammar guard**: per-grammar totals of the stored real counts (`real-grammar-totals.json`: totals only, no words and no per-word rows)
+  scored the same way. A candidate fails it if its mean per-grammar total error is more than 1.0 point above the current weights'.
+  The totals come from the #286 build's counts (`parse-cost-alloc/save`, the only stored files with the allocations column; the
+  older `cost-review-rsl` files have none).
+
+Not covered: Windows PMC columns for the set are deferred (a run needs a Windows binary of the same commit and
+17 grammars of traces). Instructions of a `--prefilter on` word include the filter's table walks, which cost does not count.
+
 ## Mechanism trial (machine#575), rerun 2026-11-12
 
 Each mechanism was switched off in one build of a2a35131 and compared with that build switched on, per
