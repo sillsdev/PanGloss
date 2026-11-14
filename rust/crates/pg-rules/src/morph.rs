@@ -2557,7 +2557,9 @@ fn apply_ctx_to_nodes(nodes: &mut [CompileNode], pins: &[(usize, u64)]) {
                     }
                 }
             }
-            CompileNode::Group { children, .. } => apply_ctx_to_nodes(children, pins),
+            CompileNode::Group { children, .. } | CompileNode::UnnamedGroup { children } => {
+                apply_ctx_to_nodes(children, pins)
+            }
             CompileNode::Quantifier { children, .. } => apply_ctx_to_nodes(children, pins),
             CompileNode::Alternation(alts) => {
                 for alt in alts {

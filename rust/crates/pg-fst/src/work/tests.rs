@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn word_memory_is_released_with_its_owner_and_the_stop_is_latched() {
+    let budget = WorkBudget::new(100).with_word_cap(Some(10));
+    let _scope = budget.enter();
+    let mut first = WordMemory::active();
+    assert!(first.charge(6));
+    {
+        let mut second = WordMemory::active();
+        assert!(second.charge(4));
+    }
+    assert!(first.charge(4));
+    assert!(!first.charge(1));
+    assert!(budget.capped() && budget.word_capped());
+    drop(first);
+    let mut later = WordMemory::active();
+    assert!(!later.charge(1));
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
 fn reservations_stop_at_the_exact_cap_and_remain_stopped() {
     let budget = WorkBudget::new(3);
     for _ in 0..3 {
@@ -18,15 +37,19 @@ fn reservations_stop_at_the_exact_cap_and_remain_stopped() {
 fn nested_scopes_restore_the_callers_meter_on_unwind() {
     let outer = WorkBudget::new(3);
     let _outer_scope = outer.enter();
+    let outer_key = active_budget_key();
+    assert_ne!(outer_key, 0);
     assert!(consume());
     let inner = WorkBudget::new(1);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _inner_scope = inner.enter();
+        assert_ne!(active_budget_key(), outer_key);
         assert!(consume());
         assert!(!consume());
         panic!("exercise scope unwinding");
     }));
     assert!(result.is_err());
+    assert_eq!(active_budget_key(), outer_key);
     assert!(consume());
     assert_eq!(outer.used(), 2);
     assert_eq!(inner.used(), 1);

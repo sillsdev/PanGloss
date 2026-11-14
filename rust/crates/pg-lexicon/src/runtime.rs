@@ -186,6 +186,7 @@ impl SuppliedLexiconRuntime {
             self.analysis_policy.work_cap,
             snapshot.overlay(),
         )
+        .with_word_mem_cap(self.analysis_policy.word_mem_cap)
         .with_generation_cap(self.analysis_policy.generation_cap)
     }
 

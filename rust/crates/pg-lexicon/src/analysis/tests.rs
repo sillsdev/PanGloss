@@ -5,6 +5,7 @@ fn named_analysis_policies_pin_host_contracts() {
         AnalysisPolicy::browser_default(),
         AnalysisPolicy {
             work_cap: 10_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             generation_cap: 100_000,
         }
     );
@@ -12,6 +13,7 @@ fn named_analysis_policies_pin_host_contracts() {
         AnalysisPolicy::native_abi_v1(),
         AnalysisPolicy {
             work_cap: 50_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             generation_cap: 500_000,
         }
     );

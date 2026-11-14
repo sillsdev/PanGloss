@@ -2445,10 +2445,10 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
 #[test]
 fn a_cache_from_an_older_search_budget_is_refused() {
     assert_eq!(
-        SEARCH_BUDGET_SEMANTICS, 3,
+        SEARCH_BUDGET_SEMANTICS, 4,
         "the literal is pinned so a bump is a decision"
     );
-    let previous = 2;
+    let previous = 3;
     let older =
         format!(r#"{{"search_budget_semantics":{previous},"step_cap":"200000","work_cap":100}}"#);
     for options in ["{}".to_string(), older] {
@@ -2880,6 +2880,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
         &cancelled_args[0],
         std::slice::from_ref(&word),
         crate::DEFAULT_WORK_CAP,
+        Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
         None,
         false,
         false,
@@ -2904,6 +2905,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
         &missing_args[0],
         std::slice::from_ref(&word),
         crate::DEFAULT_WORK_CAP,
+        Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
         None,
         false,
         false,
@@ -2923,6 +2925,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
             engine: "hc",
             threads: 1,
             work_cap: crate::DEFAULT_WORK_CAP,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
             word_timeout_ms: None,
             guess: false,

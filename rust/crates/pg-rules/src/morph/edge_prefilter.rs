@@ -7,7 +7,7 @@ use super::AnalysisLhs;
 
 /// The constraint every match must meet at the first (last) pattern position, or `None` when the edge can match empty or branch.
 fn edge_constraint(nodes: &[CompileNode], first: bool) -> Option<&[u64]> {
-    let is_candidate = |node: &&CompileNode| !matches!(node, CompileNode::Group { children, .. } if children.is_empty());
+    let is_candidate = |node: &&CompileNode| !matches!(node, CompileNode::Group { children, .. } | CompileNode::UnnamedGroup { children } if children.is_empty());
     let edge = if first {
         nodes.iter().find(is_candidate)
     } else {
@@ -15,7 +15,9 @@ fn edge_constraint(nodes: &[CompileNode], first: bool) -> Option<&[u64]> {
     };
     edge.and_then(|node| match node {
         CompileNode::Constraint(lanes) => Some(lanes.as_slice()),
-        CompileNode::Group { children, .. } => edge_constraint(children, first),
+        CompileNode::Group { children, .. } | CompileNode::UnnamedGroup { children } => {
+            edge_constraint(children, first)
+        }
         CompileNode::Quantifier { min, children, .. } if *min >= 1 => {
             edge_constraint(children, first)
         }

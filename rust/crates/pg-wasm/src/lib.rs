@@ -55,6 +55,9 @@ struct CachedWord {
     analyses: Vec<AnalysisOut>,
     /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
+    #[serde(default)]
+    word_mem_capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
     /// `ParseOutcome.candidates_generated`: total synthesis candidates the parser produced before the validity/match gate, win or lose.
@@ -74,6 +77,8 @@ struct TokenOut {
     analyses: Vec<AnalysisOut>,
     /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
+    word_mem_capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
     /// See `CachedWord::candidates_generated`. `0` for `"other"` tokens.
@@ -98,6 +103,7 @@ struct AnalyzeTextResult {
 struct CacheAnalysis {
     structured: Vec<WordAnalysis>,
     capped: bool,
+    word_mem_capped: bool,
     invalid_shape: bool,
     candidates_generated: usize,
     overlay_revision: pg_lexicon::Revision,
@@ -144,6 +150,7 @@ fn build_cached_word(
         candidates_accepted: analyses.len(),
         analyses,
         capped: analysis.capped,
+        word_mem_capped: analysis.word_mem_capped,
         invalid_shape: analysis.invalid_shape,
         candidates_generated: analysis.candidates_generated,
     }
@@ -211,6 +218,27 @@ impl PanGlossGrammar {
             realize_toml,
             pg_lexicon::AnalysisPolicy::without_limits(),
         )
+    }
+
+    /// Construct with a counted per-word memory ceiling in MiB; zero is unbounded.
+    #[wasm_bindgen(js_name = withWordMemCap)]
+    pub fn with_word_mem_cap(
+        xml: &str,
+        realize_toml: Option<String>,
+        mib: u32,
+    ) -> Result<PanGlossGrammar, JsValue> {
+        let policy =
+            pg_lexicon::AnalysisPolicy {
+                word_mem_cap: if mib == 0 {
+                    None
+                } else {
+                    Some((mib as usize).checked_mul(1024 * 1024).ok_or_else(|| {
+                        JsValue::from_str("word memory cap exceeds address space")
+                    })?)
+                },
+                ..pg_lexicon::AnalysisPolicy::default()
+            };
+        Self::with_policy(xml, realize_toml, policy)
     }
 
     fn with_policy(
@@ -304,6 +332,7 @@ impl PanGlossGrammar {
                     text: s.to_string(),
                     analyses: Vec::new(),
                     capped: false,
+                    word_mem_capped: false,
                     invalid_shape: false,
                     candidates_generated: 0,
                     candidates_accepted: 0,
@@ -326,6 +355,7 @@ impl PanGlossGrammar {
                         let outcome = self.runtime.analyze_word_opts(&lexical, None, true);
                         let structured = outcome.structured;
                         let capped = outcome.capped;
+                        let word_mem_capped = outcome.word_mem_capped;
                         let invalid_shape = outcome.invalid_shape;
                         let candidates_generated = outcome.candidates_generated;
                         let overlay_revision = outcome.revision;
@@ -338,6 +368,7 @@ impl PanGlossGrammar {
                             CacheAnalysis {
                                 structured,
                                 capped,
+                                word_mem_capped,
                                 invalid_shape,
                                 candidates_generated,
                                 overlay_revision,
@@ -352,6 +383,7 @@ impl PanGlossGrammar {
                         text: word.to_string(),
                         analyses: cached.analyses,
                         capped: cached.capped,
+                        word_mem_capped: cached.word_mem_capped,
                         invalid_shape: cached.invalid_shape,
                         candidates_generated: cached.candidates_generated,
                         candidates_accepted: cached.candidates_accepted,
@@ -509,6 +541,8 @@ struct UnifiedAnalysisOut {
     analyses: Vec<(String, String)>,
     structured: Vec<StructuredAnalysisOut>,
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
+    word_mem_capped: bool,
     invalid_shape: bool,
     timed_out: bool,
     guessed: bool,
@@ -544,6 +578,7 @@ impl From<pg_lexicon::UnifiedAnalysis> for UnifiedAnalysisOut {
                 })
                 .collect(),
             capped: value.capped,
+            word_mem_capped: value.word_mem_capped,
             invalid_shape: value.invalid_shape,
             timed_out: value.timed_out,
             guessed: value.guessed,
