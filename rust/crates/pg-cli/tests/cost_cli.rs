@@ -468,4 +468,60 @@ mod calibrate {
         assert!(output.status.success());
         assert!(output.stdout.is_empty());
     }
+
+    fn counts_rows(extra: &[&str]) -> (Output, Vec<Vec<String>>) {
+        let dir = scratch("calibrate-cap");
+        let (words, targets, counts) = (
+            dir.join("words.txt"),
+            dir.join("targets.tsv"),
+            dir.join("counts.tsv"),
+        );
+        std::fs::write(&words, WORDS).unwrap();
+        std::fs::write(&targets, "0\t1\n1\t1\n2\t1\n").unwrap();
+        let grammar = grammar();
+        let mut args = vec![
+            "cost-calibrate",
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            "--targets",
+            targets.to_str().unwrap(),
+            "--counts-out",
+            counts.to_str().unwrap(),
+        ];
+        args.extend_from_slice(extra);
+        let output = pangloss(&args);
+        let rows = std::fs::read_to_string(&counts)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| line.split('\t').map(str::to_string).collect())
+            .collect();
+        (output, rows)
+    }
+
+    #[test]
+    fn a_work_cap_drops_capped_words_unless_they_are_kept() {
+        let (_, plain) = counts_rows(&[]);
+        let (_, dropped) = counts_rows(&["--work-cap", "1"]);
+        let (_, kept) = counts_rows(&["--work-cap", "1", "--keep-capped"]);
+        assert!(!plain.is_empty());
+        assert!(dropped.len() < plain.len(), "{dropped:?} against {plain:?}");
+        assert_eq!(kept.len(), plain.len(), "{kept:?}");
+    }
+
+    #[test]
+    fn prefilter_auto_is_refused_because_one_words_cost_would_depend_on_the_list() {
+        let (output, rows) = counts_rows(&["--prefilter", "auto"]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("--prefilter auto"));
+        assert!(rows.is_empty());
+    }
+
+    #[cfg(not(feature = "foma-tools"))]
+    #[test]
+    fn prefilter_on_needs_the_foma_tools_build() {
+        let (output, rows) = counts_rows(&["--prefilter", "on"]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("foma-tools"));
+        assert!(rows.is_empty());
+    }
 }

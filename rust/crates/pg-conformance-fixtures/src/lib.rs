@@ -367,6 +367,42 @@ pub fn require_fixture(category: &str, name: &str) -> FixtureRef {
     );
 }
 
+/// Directory-name prefix of the calibration families in the suite's `calibration/` folder (PanGloss #240).
+pub const CALIBRATION_FIXTURE_PREFIX: &str = "cal-";
+
+/// The words of a calibration family are slow on purpose, so its `words.yaml` opens with this phrase, in a comment.
+pub const CALIBRATION_ONLY_HEADER: &str = "CALIBRATION ONLY";
+
+/// Whether a `words.yaml` text opens as a calibration file: a leading comment line says `CALIBRATION ONLY` or `kind: calibration`.
+pub fn words_yaml_declares_calibration(words_yaml_text: &str) -> bool {
+    words_yaml_text
+        .lines()
+        .map(str::trim)
+        .take_while(|line| line.is_empty() || line.starts_with('#'))
+        .any(|line| line.contains(CALIBRATION_ONLY_HEADER) || line.contains("kind: calibration"))
+}
+
+/// What in `fixtures` is calibration material that fixture enumeration must never return: a `cal-` name, or a `words.yaml` that opens with the CALIBRATION ONLY header.
+/// Calibration words can cost 10G each, so a conformance or engine run that reached one would not finish; the check names each offender.
+pub fn calibration_leaks(fixtures: &[FixtureRef]) -> Vec<String> {
+    let mut leaks = Vec::new();
+    for fixture in fixtures {
+        if fixture.name.starts_with(CALIBRATION_FIXTURE_PREFIX) {
+            leaks.push(format!("{}: name starts with `cal-`", fixture.label()));
+        }
+        // An unreadable words.yaml is another gate's failure, not a calibration leak.
+        if let Ok(text) = std::fs::read_to_string(fixture.words_yaml_path()) {
+            if words_yaml_declares_calibration(&text) {
+                leaks.push(format!(
+                    "{}: words.yaml opens with the {CALIBRATION_ONLY_HEADER} header",
+                    fixture.label()
+                ));
+            }
+        }
+    }
+    leaks
+}
+
 /// The "graduation guard": fixture `(category, name)` identities that exist under BOTH roots.
 /// Non-empty means a staged fixture has been accepted upstream (its name now also exists under
 /// `conformance/`) and the staged copy must be deleted in the same change — see
