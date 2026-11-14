@@ -479,6 +479,161 @@ fn epsilon_removal_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, 
     out
 }
 
+// C# Fst.Minimize (Fst.cs:1599-1707): vectors retain HashSet insertion order.
+fn minimize(states: &mut Vec<BuildState>, start: usize) {
+    #[derive(PartialEq, Eq, Hash)]
+    struct Key {
+        accepting: bool,
+        finishers: Vec<Cmd>,
+        accept_ids: Vec<Option<String>>,
+        input: Option<(Vec<u64>, Vec<Vec<u64>>)>,
+        commands: Vec<Cmd>,
+    }
+    fn key(state: &BuildState, arc: Option<&BuildArc>) -> Key {
+        let input = arc.map(|arc| {
+            let mut negated = arc.input.negated.clone();
+            negated.sort();
+            negated.dedup();
+            (arc.input.pos.clone(), negated)
+        });
+        Key {
+            accepting: state.accepting,
+            finishers: if state.accepting {
+                state.finishers.clone()
+            } else {
+                Vec::new()
+            },
+            accept_ids: if state.accepting {
+                state
+                    .accept_infos
+                    .iter()
+                    .map(|info| info.id.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            input,
+            commands: arc.map_or_else(Vec::new, |arc| arc.commands.clone()),
+        }
+    }
+    fn same_set(a: &[usize], b: &[usize]) -> bool {
+        a.len() == b.len() && a.iter().all(|item| b.contains(item))
+    }
+
+    let mut partitions = vec![Vec::new()];
+    let mut accepting_groups: HashMap<Key, usize> = HashMap::new();
+    for (i, state) in states.iter().enumerate() {
+        if !state.accepting {
+            partitions[0].push(i);
+        } else {
+            let k = key(state, None);
+            let index = *accepting_groups.entry(k).or_insert_with(|| {
+                partitions.push(Vec::new());
+                partitions.len() - 1
+            });
+            partitions[index].push(i);
+        }
+    }
+    let mut waiting: VecDeque<Vec<usize>> = partitions[1..].iter().cloned().collect();
+    while let Some(a) = waiting.pop_front() {
+        let mut in_a = vec![false; states.len()];
+        for state in a {
+            in_a[state] = true;
+        }
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        let mut group_index: HashMap<Key, usize> = HashMap::new();
+        for (i, state) in states.iter().enumerate() {
+            for arc in &state.arcs {
+                if in_a[arc.target] {
+                    let index = *group_index.entry(key(state, Some(arc))).or_insert_with(|| {
+                        groups.push(Vec::new());
+                        groups.len() - 1
+                    });
+                    groups[index].push(i);
+                }
+            }
+        }
+        for x in groups {
+            let mut in_x = vec![false; states.len()];
+            for &i in &x {
+                in_x[i] = true;
+            }
+            for i in (0..partitions.len()).rev() {
+                let y = &partitions[i];
+                let mut in_y = vec![false; states.len()];
+                for &item in y {
+                    in_y[item] = true;
+                }
+                let mut subset1 = Vec::new();
+                for &item in &x {
+                    if in_y[item] {
+                        subset1.push(item);
+                        in_y[item] = false;
+                    }
+                }
+                if subset1.is_empty() {
+                    continue;
+                }
+                let subset2: Vec<usize> = y.iter().copied().filter(|&item| !in_x[item]).collect();
+                if let Some(j) = waiting.iter().position(|w| same_set(w, y)) {
+                    waiting[j] = subset1.clone();
+                    if !subset2.is_empty() {
+                        waiting.push_back(subset2.clone());
+                    }
+                } else if subset1.len() <= subset2.len() {
+                    waiting.push_back(subset1.clone());
+                } else if !subset2.is_empty() {
+                    waiting.push_back(subset2.clone());
+                }
+                partitions[i] = subset1;
+                if !subset2.is_empty() {
+                    partitions.push(subset2);
+                }
+            }
+        }
+    }
+    let mut representative: Vec<usize> = (0..states.len()).collect();
+    let mut merged = false;
+    for partition in partitions {
+        if let Some((&first, rest)) = partition.split_first() {
+            for &state in rest {
+                representative[state] = first;
+                merged = true;
+            }
+        }
+    }
+    if !merged {
+        return;
+    }
+    let mut keep = vec![false; states.len()];
+    keep[start] = true;
+    for state in states.iter_mut() {
+        for arc in &mut state.arcs {
+            arc.target = representative[arc.target];
+            keep[arc.target] = true;
+        }
+    }
+    let mut remap = vec![0; states.len()];
+    let mut next = 0;
+    for (i, &kept) in keep.iter().enumerate() {
+        if kept {
+            remap[i] = next;
+            next += 1;
+        }
+    }
+    for state in states.iter_mut() {
+        for arc in &mut state.arcs {
+            arc.target = remap[arc.target];
+        }
+    }
+    let mut index = 0;
+    states.retain(|_| {
+        let kept = keep[index];
+        index += 1;
+        kept
+    });
+}
+
 // --- optimize driver (Fst.cs:819-901) ---------------------------------------------------------
 
 fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
@@ -564,6 +719,10 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
     }
     // Keep initializer register references inside the compacted range too, matching C#'s 0.._nextTag band.
     renumber(&mut initializers, &mut reg_nums, &mut register_count);
+
+    if deterministic {
+        minimize(&mut b.states, start_idx);
+    }
 
     // Freeze to CSR.
     let mut pool = ConstraintPool::default();

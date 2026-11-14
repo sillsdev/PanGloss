@@ -85,3 +85,33 @@ fn flat_unifiable_is_not_usedefaults() {
         &[0b01, 0b01]
     ));
 }
+
+#[test]
+fn literal_segments_group_has_trailing_epsilon() {
+    use pg_fst::nfa::ArcInput;
+    use pg_grammar_model::model::{SegmentedText, TableId};
+
+    let g = common::load_probe_grammar();
+    for (text, exit_state) in [("a", 2), ("at", 3)] {
+        let shape =
+            pg_rules::shape_feat::segment_with_features(&g, common::table(&g), text).unwrap();
+        let pattern = Pattern {
+            nodes: vec![PatternNode::Segments {
+                table: TableId(0),
+                shape: SegmentedText {
+                    text: text.into(),
+                    shape,
+                },
+            }],
+        };
+        let compiled = PatternBridge::new(&g).compile_pattern(&pattern).unwrap();
+        let nfa = compiled.input.build_nfa();
+        assert_eq!(nfa.states.len(), exit_state + 4);
+        let arc = &nfa.states[exit_state].arcs[0];
+        assert!(matches!(arc.input, ArcInput::Epsilon));
+        assert_eq!(arc.tag, -1, "the group exit has no capture tag");
+        assert_eq!(arc.target, exit_state + 1);
+        assert_eq!(arc.ptype, 1);
+        assert_eq!(arc.priority, exit_state as i32);
+    }
+}

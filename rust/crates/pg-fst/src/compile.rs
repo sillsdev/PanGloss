@@ -25,6 +25,8 @@ pub enum CompileNode {
         name: String,
         children: Vec<CompileNode>,
     },
+    /// An unnamed group, including its trailing epsilon when nonempty.
+    UnnamedGroup { children: Vec<CompileNode> },
     /// `(alt0 | alt1 | ...)` — each alternative is its own node sequence.
     Alternation(Vec<Vec<CompileNode>>),
     /// `{min,max}` repetition of a child sequence; `max == None` is unbounded (Kleene), `min == 0` makes it optional.
@@ -106,6 +108,7 @@ fn gen_node(nfa: &mut Nfa, source: usize, node: &CompileNode) -> usize {
             let e = gen_seq(nfa, s, children);
             nfa.create_tag(e, name, false)
         }
+        CompileNode::UnnamedGroup { children } => gen_body(nfa, source, children),
         CompileNode::Alternation(alts) => {
             let merge = nfa.create_state();
             for alt in alts {
