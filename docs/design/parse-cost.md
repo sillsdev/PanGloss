@@ -394,7 +394,7 @@ counters, the change of each grammar's total was -7.35% (Aweti), -6.75% (Mbugwe)
 Each family's cost ladder answers one question: does parser cost track instructions linearly as one driver grows? The set
 is the synthetic `calibration/` folder of `sillsdev/fieldworks-parser-conformance` (16 `cal-*` grammars: six scale families, the
 `cal-lexsize-1k` to `-50k` lexicon ladder and six structural families), pinned in `rust/tools/calibration/conformance.commit`
-(`b8a65d1`, branch `calib/batch-b-structure`; the pin moves to the merged commit later). Its words are calibration only: they are
+(`3ba5db1`, the merge of #43 and #44, content identical to `b8a65d1` on which the counts were measured). Its words are calibration only: they are
 slow on purpose, `pg-conformance-fixtures` never enumerates them (`calibration_leaks` and its tests), and no normal parse or test
 run reads them.
 

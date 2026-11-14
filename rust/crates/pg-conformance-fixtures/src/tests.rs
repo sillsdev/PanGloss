@@ -833,12 +833,13 @@ fn the_scan_never_descends_into_a_calibration_folder() {
     write_fixture(&suite, "edge-cases", "plain", "language: x\n");
     let mut out = Vec::new();
     scan_one_root(&suite, Root::Machine, &mut out);
+    let leaks = calibration_leaks(&out);
     std::fs::remove_dir_all(&suite).unwrap();
     assert_eq!(
         out.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
         ["plain"]
     );
-    assert!(calibration_leaks(&out).is_empty());
+    assert!(leaks.is_empty());
 }
 
 #[test]
@@ -854,9 +855,9 @@ fn a_cal_named_fixture_or_a_calibration_header_is_a_leak() {
     );
     let mut out = Vec::new();
     scan_one_root(&suite, Root::Machine, &mut out);
-    std::fs::remove_dir_all(&suite).unwrap();
     assert_eq!(out.len(), 3);
     let leaks = calibration_leaks(&out);
+    std::fs::remove_dir_all(&suite).unwrap();
     assert_eq!(leaks.len(), 2, "{leaks:#?}");
     assert!(leaks.iter().any(|l| l.contains("cal-sneaked")));
     assert!(leaks.iter().any(|l| l.contains("headed")));

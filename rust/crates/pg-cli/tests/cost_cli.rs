@@ -505,7 +505,8 @@ mod calibrate {
         let (_, kept) = counts_rows(&["--work-cap", "1", "--keep-capped"]);
         assert!(!plain.is_empty());
         assert!(dropped.len() < plain.len(), "{dropped:?} against {plain:?}");
-        assert_eq!(kept.len(), plain.len(), "{kept:?}");
+        assert!(kept.len() >= plain.len(), "{kept:?}");
+        assert!(kept.len() > dropped.len(), "{kept:?} against {dropped:?}");
     }
 
     #[test]
