@@ -36,61 +36,149 @@ const CHUNK: usize = 1 << CHUNK_BITS;
 /// What a step cost the meter as a reference-counted allocation.
 const METERED_STEP_BYTES: usize = 40;
 
-/// Fixed chunks and a free list; chunks free only when no step is live, so no `Trail` may outlive its word.
-struct Slab {
-    chunks: Vec<Vec<Step>>,
+struct Chunk {
+    steps: Vec<Step>,
+    owner: usize,
+}
+
+#[derive(Default)]
+struct Group {
+    key: usize,
+    // Retain even an unmetered budget: its identity must not be recycled while trails survive.
+    _budget: Option<pg_fst::work::WorkBudget>,
+    memory: pg_fst::work::WordMemory,
+    chunks: Vec<usize>,
     free: u32,
     live: usize,
 }
 
+/// Each budget owns its own chunks and free list, even when another word's trails survive.
+struct Slab {
+    chunks: Vec<Chunk>,
+    groups: Vec<Group>,
+    available: Vec<usize>,
+    current: Option<usize>,
+    live: usize,
+}
+
 thread_local! {
-    static SLAB: RefCell<Slab> = const { RefCell::new(Slab { chunks: Vec::new(), free: 0, live: 0 }) };
+    static SLAB: RefCell<Slab> = const { RefCell::new(Slab { chunks: Vec::new(), groups: Vec::new(), available: Vec::new(), current: None, live: 0 }) };
 }
 
 impl Slab {
     fn get(&self, handle: u32) -> &Step {
         let at = handle as usize - 1;
-        &self.chunks[at >> CHUNK_BITS][at & (CHUNK - 1)]
+        &self.chunks[at >> CHUNK_BITS].steps[at & (CHUNK - 1)]
     }
 
     fn get_mut(&mut self, handle: u32) -> &mut Step {
         let at = handle as usize - 1;
-        &mut self.chunks[at >> CHUNK_BITS][at & (CHUNK - 1)]
+        &mut self.chunks[at >> CHUNK_BITS].steps[at & (CHUNK - 1)]
+    }
+
+    fn active_group(&mut self) -> usize {
+        let key = pg_fst::work::active_budget_key();
+        if let Some(index) = self
+            .current
+            .filter(|&index| self.groups[index].live != 0 && self.groups[index].key == key)
+        {
+            return index;
+        }
+        let existing = self.groups.iter().position(|g| g.live != 0 && g.key == key);
+        let index = existing.unwrap_or_else(|| {
+            let index = self
+                .groups
+                .iter()
+                .position(|g| g.live == 0)
+                .unwrap_or_else(|| {
+                    pg_cost::unmetered(|| self.groups.push(Group::default()));
+                    self.groups.len() - 1
+                });
+            let group = &mut self.groups[index];
+            group.key = key;
+            group._budget = pg_fst::work::active_budget();
+            group.memory = pg_fst::work::WordMemory::active();
+            index
+        });
+        self.current = Some(index);
+        index
     }
 
     fn alloc(&mut self, step: Step) -> u32 {
+        let owner = self.active_group();
         self.live += 1;
+        self.groups[owner].live += 1;
         // Metered as 40 bytes, the pre-slab step size; slab growth is unmetered.
         pg_cost::charge_bytes(METERED_STEP_BYTES);
-        if self.free != 0 {
-            let handle = self.free;
-            self.free = self.get(handle).parent;
+        if self.groups[owner].free != 0 {
+            let handle = self.groups[owner].free;
+            self.groups[owner].free = self.get(handle).parent;
             *self.get_mut(handle) = step;
             return handle;
         }
-        if self.chunks.last().is_none_or(|chunk| chunk.len() == CHUNK) {
-            pg_cost::unmetered(|| self.chunks.push(Vec::with_capacity(CHUNK)));
-        }
-        let last = self.chunks.len() - 1;
-        let at = last * CHUNK + self.chunks[last].len() + 1;
-        let handle = u32::try_from(at).expect("fewer than 2^32 live trail steps");
-        self.chunks[last].push(step);
+        let last = self.groups[owner].chunks.last().copied();
+        let chunk = if last.is_none_or(|index| self.chunks[index].steps.len() == CHUNK) {
+            self.groups[owner].memory.charge(CHUNK * 20);
+            let index = if let Some(index) = self.available.pop() {
+                index
+            } else {
+                pg_cost::unmetered(|| {
+                    self.chunks.push(Chunk {
+                        steps: Vec::new(),
+                        owner,
+                    })
+                });
+                self.chunks.len() - 1
+            };
+            let chunk = &mut self.chunks[index];
+            chunk.owner = owner;
+            if chunk.steps.capacity() == 0 {
+                chunk.steps = pg_cost::unmetered(|| Vec::with_capacity(CHUNK));
+            }
+            pg_cost::unmetered(|| self.groups[owner].chunks.push(index));
+            index
+        } else {
+            last.expect("group has a chunk")
+        };
+        let at = chunk * CHUNK + self.chunks[chunk].steps.len() + 1;
+        let handle = u32::try_from(at).expect("fewer than 2^32 trail slots");
+        self.chunks[chunk].steps.push(step);
         handle
     }
 
     fn release(&mut self, handle: u32) {
-        let free = self.free;
+        let owner = self.chunks[(handle as usize - 1) >> CHUNK_BITS].owner;
+        let free = self.groups[owner].free;
         let slot = self.get_mut(handle);
         slot.parent = free;
         slot.refs = 0;
-        self.free = handle;
+        self.groups[owner].free = handle;
+        self.groups[owner].live -= 1;
         self.live -= 1;
-        if self.live == 0 {
-            self.chunks.truncate(1);
-            if let Some(first) = self.chunks.first_mut() {
-                first.clear();
+        if self.groups[owner].live == 0 {
+            let group = &mut self.groups[owner];
+            group.free = 0;
+            group.memory = pg_fst::work::WordMemory::default();
+            group._budget = None;
+            if self.current == Some(owner) {
+                self.current = None;
             }
-            self.free = 0;
+            if self.live == 0 {
+                group.chunks.clear();
+                self.chunks.truncate(1);
+                if let Some(first) = self.chunks.first_mut() {
+                    first.steps.clear();
+                }
+                self.available.clear();
+                if !self.chunks.is_empty() {
+                    pg_cost::unmetered(|| self.available.push(0));
+                }
+            } else {
+                for index in group.chunks.drain(..) {
+                    self.chunks[index].steps = Vec::new();
+                    pg_cost::unmetered(|| self.available.push(index));
+                }
+            }
         }
     }
 }

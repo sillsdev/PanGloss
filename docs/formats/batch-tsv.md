@@ -30,7 +30,7 @@ idx  word  elapsed_ms  status  signature  [guessed]  [work_steps]  [cost]
 | `idx` | 0-based position of the word in `words.txt` (blank lines are skipped and not counted) |
 | `word` | the word, trimmed |
 | `elapsed_ms` | wall-clock milliseconds for this word: time on this computer, which varies with load and thread count |
-| `status` | `ok`, `CAP` (stopped at the work cap `--work-cap`), `MEMCAP` (stopped at the capture-state ceiling `--capture-cap-mib`, default 256 MiB; the signature is partial, like `CAP`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
+| `status` | `ok`, `CAP` (stopped at the work cap `--work-cap`), `MEMCAP` (stopped at a memory ceiling; the signature is partial, like `CAP`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
 | `work_steps` | present only with `--work-columns`. The word's work: the total of work steps it reserved, across analysis, the inner matchers and confirmation. `--work-cap` bounds the analysis; confirmation may spend one sixteenth of the cap more (none under a cap of 16), so `work_steps` never exceeds the cap plus one sixteenth |
@@ -41,6 +41,11 @@ other column keeps its default index, including `guessed` at index 5. With `--wo
 has 6 fields, or 7 with `--guess`; with `--cost-column` (with or without `--work-columns`) it has 7, or 8
 with `--guess`. The extra field count therefore tells a cost run from a work-columns run. Read `cost` from
 the end of the row, then `work_steps` from the end of what remains.
+
+The per-word parser-state ceiling is 100 MiB by default; `--word-mem-cap-mib N` sets it and
+`--word-mem-cap-mib 0` disables it. It counts retained search structures with fixed byte weights,
+not process RSS or the loaded grammar. The separate `--capture-cap-mib` ceiling defaults to
+256 MiB and covers affix-matching capture state. Either produces `MEMCAP`.
 
 ### Determinism
 

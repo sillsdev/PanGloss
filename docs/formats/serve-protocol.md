@@ -3,7 +3,7 @@
 `pangloss serve` keeps one compiled project resident and answers parse requests over stdin and stdout, so a host pays the project load and grammar compile once instead of on every word. Measured on a 22,237-entry project: load and compile cost 7-9 s per process, the parse itself 70-90 ms.
 
 ```
-pangloss serve --project <path.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing]
+pangloss serve --project <path.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--guess[=true|false]] [--timing]
 ```
 
 `--project` accepts whatever `pangloss parse` accepts as `<grammar>`. The cap, timeout and guess flags mean what they mean for `parse` and apply to every request. Unknown options are refused, including the removed `--step-cap`.
@@ -73,7 +73,7 @@ For `traceDetails: true`, every field is identical to the cold document except t
 
 Every `result` response, in both modes, also carries the word's search counts beside `result`, outside the cold stdout:
 
-- `status`: `ok`, `CAP` when the work cap stopped the parse, `MEMCAP` when the default 256 MiB ceiling on affix-matching capture state stopped it, `TIMEOUT` when the
+- `status`: `ok`, `CAP` when the work cap stopped the parse, `MEMCAP` when the per-word parser-state ceiling (100 MiB by default) or the affix-matching capture-state ceiling (256 MiB by default) stopped it, `TIMEOUT` when the
   time limit stopped it, or `SKIPPED` for an invalid shape. This optional field is absent from
   older servers.
 - `workSteps`: the word's work, meaning the total of work steps the parse reserved. This is the quantity `--work-cap` bounds.

@@ -107,6 +107,7 @@ pub(crate) struct BatchOptions {
     pub(crate) engine: &'static str,
     pub(crate) threads: usize,
     pub(crate) work_cap: pg_stats::WorkCap,
+    pub(crate) word_mem_cap: Option<usize>,
     pub(crate) search_budget_semantics: u32,
     pub(crate) word_timeout_ms: Option<u64>,
     pub(crate) guess: bool,
