@@ -63,6 +63,90 @@ fn ordinary_words_keep_their_analyses_and_work_when_the_bound_does_not_fire() {
     );
 }
 
+#[test]
+fn word_memory_cap_stops_one_word_and_does_not_affect_the_next() {
+    let grammar = suffix_grammar();
+    let tiny = Morpher::new(&grammar, 10_000_000).with_word_mem_cap(Some(1));
+    let stopped = tiny.parse_word("sagn");
+    assert!(stopped.capped && stopped.word_mem_capped);
+    assert!(!stopped.capture_capped && !stopped.timed_out);
+    let next = tiny.parse_word("!");
+    assert!(next.invalid_shape && !next.capped);
+
+    let ordinary = Morpher::new(&grammar, 10_000_000);
+    let first = ordinary.parse_word("sag");
+    let second = ordinary.parse_word("sag");
+    assert!(!first.capped && !second.capped);
+    assert_eq!(first.signature(), second.signature());
+    assert_eq!(first.work_steps, second.work_steps);
+}
+
+#[test]
+fn retained_trace_cannot_steal_a_later_words_memory_budget() {
+    use pg_rules::trace::TreeTraceSink;
+    let grammar = suffix_grammar();
+    let sink = TreeTraceSink::new();
+    let first = Morpher::new(&grammar, 10_000_000).with_word_mem_cap(None);
+    let outcome = first.parse_word_traced("sagn", &ParseOptions::default(), &sink);
+    assert!(!outcome.capped);
+    assert!(!outcome.analyses.is_empty());
+    let bounded = Morpher::new(&grammar, 10_000_000).with_word_mem_cap(Some(1024 * 1024));
+    let second = bounded.parse_word("sagn");
+    assert!(
+        second.word_mem_capped,
+        "retained trace must not hide the slab charge"
+    );
+    drop(sink);
+    let fresh = bounded.parse_word("sagn");
+    assert!(fresh.word_mem_capped);
+    assert_eq!(second.work_steps, fresh.work_steps);
+    assert_eq!(second.signature(), fresh.signature());
+}
+
+#[test]
+fn default_word_memory_budget_preserves_complete_conformance_words() {
+    let mut checked = 0;
+    for fixture in pg_conformance_fixtures::discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        let bounded = Morpher::new(&grammar, 20_000_000);
+        let unlimited = Morpher::new(&grammar, 20_000_000).with_word_mem_cap(None);
+        for entry in fixture.load_words_yaml().words {
+            if !entry.adapter_visible() {
+                continue;
+            }
+            let actual = bounded.parse_word(&entry.word);
+            let expected = unlimited.parse_word(&entry.word);
+            assert!(!actual.word_mem_capped, "{}: memory cap", fixture.label());
+            assert_eq!(actual.capped, expected.capped, "{}", fixture.label());
+            assert_eq!(
+                actual.invalid_shape,
+                expected.invalid_shape,
+                "{}",
+                fixture.label()
+            );
+            assert_eq!(
+                actual.structured,
+                expected.structured,
+                "{}",
+                fixture.label()
+            );
+            assert_eq!(
+                actual.work_steps,
+                expected.work_steps,
+                "{}",
+                fixture.label()
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked > 100,
+        "only {checked} conformance words were checked"
+    );
+}
+
 /// `k` homophonous one-shot suffix rules, so the unwind is combinatorial and analysis is nearly all of the work.
 fn homophonous_grammar(k: usize) -> pg_grammar_model::model::Grammar {
     let mut rules = String::new();

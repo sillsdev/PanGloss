@@ -109,6 +109,20 @@ pub fn charge_bytes(size: usize) {
     add_bytes(size);
 }
 
+/// Exclude bytes added solely by an instrumentation field in an otherwise counted allocation.
+pub fn discount_bytes(size: usize) {
+    if ENABLED.load(Ordering::Relaxed) {
+        let _ = BYTES.try_with(|bytes| {
+            bytes.set(
+                bytes
+                    .get()
+                    .checked_sub(size as u64)
+                    .expect("instrumentation discount exceeds measured bytes"),
+            );
+        });
+    }
+}
+
 /// Runs `f` without its allocations reaching this thread's byte and allocation counts.
 pub fn unmetered<R>(f: impl FnOnce() -> R) -> R {
     let saved = BYTES.try_with(Cell::get);

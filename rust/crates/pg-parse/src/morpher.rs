@@ -46,6 +46,9 @@ fn consume_parser_work(
 /// A last-analysed stratum with fewer output words than this is too small for its folded alternatives to matter, and is not asked the early root check.
 const EARLY_ROOT_CHECK_WORDS: usize = 1024;
 
+/// Default counted per-word parser-state allowance, in bytes.
+pub const DEFAULT_WORD_MEM_CAP_BYTES: usize = 100 * 1024 * 1024;
+
 /// The compiled parser for one grammar: the immutable grammar plus its per-stratum root-allomorph
 /// tries (C# `Morpher`, built once, parses many words).
 pub struct Morpher<'g> {
@@ -67,6 +70,7 @@ pub struct Morpher<'g> {
     word_timeout: Option<Duration>,
     /// Ceiling on matcher capture state per word, in estimated bytes; `None` is unbounded.
     capture_cap: Option<usize>,
+    word_mem_cap: Option<usize>,
     /// Every matcher this grammar's rules need, compiled once and shared read-only across `--threads=N` workers.
     cache: RuleCache,
     /// Drops lexical-lookup alternatives whose trail cannot pass a stem-name or MPR gate; `None` runs every alternative through synthesis.
@@ -176,6 +180,8 @@ pub struct ParseOutcome {
     pub capped: bool,
     /// Whether the capture-state ceiling (not the step cap) stopped the search; `capped` is also true then.
     pub capture_capped: bool,
+    /// The per-word parser-state memory ceiling stopped the search.
+    pub word_mem_capped: bool,
     /// The surface word did not segment (C# `InvalidShapeException` → batch status `SKIPPED`).
     pub invalid_shape: bool,
     /// Total work steps consumed by all search phases under the one work cap.
@@ -218,6 +224,7 @@ fn empty_outcome(invalid_shape: bool) -> ParseOutcome {
         structured: Vec::new(),
         capped: false,
         capture_capped: false,
+        word_mem_capped: false,
         invalid_shape,
         work_steps: 0,
         timed_out: false,
@@ -471,6 +478,7 @@ impl<'g> Morpher<'g> {
             generation_cap: work_cap,
             word_timeout: None,
             capture_cap: Some(pg_fst::work::DEFAULT_RETAINED_CAP_BYTES),
+            word_mem_cap: Some(DEFAULT_WORD_MEM_CAP_BYTES),
             cache: RuleCache::build(g),
             lookup_replay: Some(crate::lookup_replay::LookupReplay::build(g)),
             max_stem_count: g.max_stem_count,
@@ -607,6 +615,12 @@ impl<'g> Morpher<'g> {
     /// Bound the capture state one word's affix matching may hold at once (estimated bytes; `None` = unbounded). A word that reaches it stops with `ParseOutcome::capture_capped`.
     pub fn with_capture_cap(mut self, cap: Option<usize>) -> Self {
         self.capture_cap = cap;
+        self
+    }
+
+    /// Bound retained per-word parser state in counted bytes; `None` disables this ceiling.
+    pub fn with_word_mem_cap(mut self, cap: Option<usize>) -> Self {
+        self.word_mem_cap = cap;
         self
     }
 
@@ -860,7 +874,8 @@ impl<'g> Morpher<'g> {
 
         let budget = pg_rules::stratum::WordBudget::new(self.work_cap)
             .with_timeout(self.word_timeout)
-            .with_retained_cap(self.capture_cap);
+            .with_retained_cap(self.capture_cap)
+            .with_word_cap(self.word_mem_cap);
         let values = pg_rules::shared_values::SharedValues::default();
         let _work_scope = budget.enter();
         for _ in word.chars() {
@@ -868,6 +883,7 @@ impl<'g> Morpher<'g> {
                 let mut outcome = empty_outcome(false);
                 outcome.capped = budget.capped();
                 outcome.capture_capped = budget.capture_capped();
+                outcome.word_mem_capped = budget.word_capped();
                 outcome.timed_out = budget.timed_out();
                 outcome.work_steps = budget.work_steps();
                 return outcome;
@@ -881,6 +897,7 @@ impl<'g> Morpher<'g> {
                 let mut outcome = empty_outcome(true);
                 outcome.capped = budget.capped();
                 outcome.capture_capped = budget.capture_capped();
+                outcome.word_mem_capped = budget.word_capped();
                 outcome.timed_out = budget.timed_out();
                 outcome.work_steps = budget.work_steps();
                 return outcome;
@@ -1008,7 +1025,13 @@ impl<'g> Morpher<'g> {
             if outputs.is_empty() {
                 break;
             }
+            let prior_capacity = results.capacity();
             results.push(outputs);
+            if results.capacity() != prior_capacity {
+                pg_cost::discount_bytes(
+                    results.capacity() * std::mem::size_of::<pg_fst::work::WordMemory>(),
+                );
+            }
         }
         if let Some((t0, work0)) = census_t0 {
             pg_rules::branch_census::record_analysis_phase(
@@ -1263,6 +1286,7 @@ impl<'g> Morpher<'g> {
             structured,
             capped: budget.capped(),
             capture_capped: budget.capture_capped(),
+            word_mem_capped: budget.word_capped(),
             invalid_shape: false,
             work_steps: budget.work_steps(),
             timed_out: budget.timed_out(),

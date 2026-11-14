@@ -82,6 +82,7 @@ fn unified_to_parse(unified: pg_lexicon::UnifiedAnalysis) -> pg_parse::ParseOutc
         structured: unified.structured,
         capped: unified.capped,
         capture_capped: unified.capture_capped,
+        word_mem_capped: unified.word_mem_capped,
         invalid_shape: unified.invalid_shape,
         work_steps: 0,
         timed_out: unified.timed_out,

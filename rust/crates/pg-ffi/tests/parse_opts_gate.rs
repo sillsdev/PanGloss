@@ -171,6 +171,7 @@ fn assert_wire_matches_owner(
         structured: owner.structured.clone(),
         capped: owner.capped,
         capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: owner.invalid_shape,
         work_steps: 0,
         timed_out: owner.timed_out,
@@ -194,6 +195,7 @@ fn assert_opts_owner_matrix(handle: *mut c_void, words: &[&str]) {
         GRAMMAR_XML,
         pg_lexicon::AnalysisPolicy {
             work_cap: DEFAULT_WORK_CAP,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             generation_cap: 500_000,
         },
     )

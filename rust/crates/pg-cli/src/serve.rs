@@ -30,6 +30,7 @@ pub(crate) fn record_ms(slot: &AtomicU64, since: Instant) {
 pub(crate) struct ServeArgs {
     project: String,
     work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout: Option<Duration>,
     guess_arg: Option<bool>,
     timing: bool,
@@ -38,6 +39,7 @@ pub(crate) struct ServeArgs {
 pub(crate) fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
     let mut project = None;
     let mut work_cap = crate::DEFAULT_WORK_CAP;
+    let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
     let mut word_timeout = None;
     let mut guess_arg = None;
     let mut timing = false;
@@ -64,6 +66,14 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
             s if s.starts_with("--work-cap=") => {
                 work_cap = crate::parse_work_cap(&s["--work-cap=".len()..])?;
             }
+            "--word-mem-cap-mib" => {
+                word_mem_cap = crate::parse_word_mem_cap(
+                    it.next().ok_or("--word-mem-cap-mib requires a value")?,
+                )?;
+            }
+            s if s.starts_with("--word-mem-cap-mib=") => {
+                word_mem_cap = crate::parse_word_mem_cap(&s["--word-mem-cap-mib=".len()..])?;
+            }
             "--word-timeout-ms" => {
                 word_timeout = Some(ms(it
                     .next()
@@ -81,6 +91,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
     Ok(ServeArgs {
         project: project.ok_or("--project <path> is required")?,
         work_cap,
+        word_mem_cap,
         word_timeout,
         guess_arg,
         timing,
@@ -116,6 +127,7 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
     crate::print_grammar_warnings(&warnings);
     let morpher = crate::with_guess_override(
         Morpher::new(&grammar, parsed.work_cap.as_morpher_cap())
+            .with_word_mem_cap(parsed.word_mem_cap)
             .with_word_timeout(parsed.word_timeout),
         parsed.guess_arg,
     );

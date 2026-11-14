@@ -142,6 +142,14 @@ impl DeltaWord {
 }
 
 impl BatteryWord {
+    fn retained_bytes(&self) -> usize {
+        match self {
+            BatteryWord::Delta(delta) => {
+                128usize.saturating_add(delta.shape.len().saturating_mul(8))
+            }
+            BatteryWord::Whole(word) => crate::word::retained_word_bytes(word),
+        }
+    }
     /// The stored form of `w`, an output of the battery run on `input`.
     pub(crate) fn of(w: &Word, input: &Word) -> Self {
         match DeltaWord::of(w, input) {
@@ -208,6 +216,7 @@ pub(crate) struct BatterySet<'i> {
     input: &'i Word,
     index: PositionIndex,
     words: Vec<BatteryWord>,
+    memory: pg_fst::work::WordMemory,
 }
 
 impl<'i> BatterySet<'i> {
@@ -216,6 +225,7 @@ impl<'i> BatterySet<'i> {
             input,
             index: PositionIndex::default(),
             words: Vec::new(),
+            memory: pg_fst::work::WordMemory::active(),
         }
     }
 
@@ -232,6 +242,9 @@ impl<'i> BatterySet<'i> {
 
     /// Inserts `word`, whose key is `key`. The caller has checked `key` is absent.
     pub(crate) fn push_new(&mut self, key: &WordKey, word: BatteryWord) {
+        if !self.memory.charge(word.retained_bytes()) {
+            return;
+        }
         self.index.insert(Self::hash(key), self.words.len());
         self.words.push(word);
     }
@@ -258,14 +271,15 @@ impl<'i> BatterySet<'i> {
     }
 
     /// The outputs in first-insertion order, in their stored form.
-    pub(crate) fn into_stored(self) -> Vec<BatteryWord> {
-        self.words
+    pub(crate) fn into_stored(self) -> (Vec<BatteryWord>, pg_fst::work::WordMemory) {
+        (self.words, self.memory)
     }
 
     /// The outputs in first-insertion order.
     #[cfg(test)]
     pub(crate) fn into_vec(self) -> Vec<Word> {
         let input = self.input;
+        let _memory = self.memory;
         self.words.into_iter().map(|w| w.into_word(input)).collect()
     }
 }

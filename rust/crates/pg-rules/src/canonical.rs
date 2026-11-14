@@ -26,12 +26,23 @@ struct Delta {
 }
 
 /// A `WordKey`-deduped set of stratum output words in first-insertion order, each stored against the input of the analysis that made it.
-#[derive(Default)]
 pub struct Canonicals {
     /// The inputs the stored words are differences from: one for each analysis whose words the set took.
     bases: Vec<Word>,
     words: Vec<Stored>,
     index: WordIndex,
+    memory: pg_fst::work::WordMemory,
+}
+
+impl Default for Canonicals {
+    fn default() -> Self {
+        Self {
+            bases: Vec::new(),
+            words: Vec::new(),
+            index: WordIndex::default(),
+            memory: pg_fst::work::WordMemory::active(),
+        }
+    }
 }
 
 impl Canonicals {
@@ -91,6 +102,9 @@ impl Canonicals {
 
     /// Folds `w` into the word at `at` as an alternative (`Word::fold_alternative`).
     pub(crate) fn fold_alternative(&mut self, at: usize, w: Word) {
+        if !self.memory.charge(crate::word::retained_word_bytes(&w)) {
+            return;
+        }
         let alternative = Alternative::of_fields(w, &self.key_fields(at));
         match &mut self.words[at] {
             Stored::Delta(delta) => delta.alternatives.push(alternative),
@@ -106,6 +120,9 @@ impl Canonicals {
 
     /// Appends `w`, whose key is `key`, stored against the first base. The caller has checked `key` is absent.
     pub(crate) fn push_new(&mut self, key: &WordKey, w: Word) {
+        if !self.memory.charge(crate::word::retained_word_bytes(&w)) {
+            return;
+        }
         let stored = match DeltaWord::of(&w, &self.bases[0]) {
             Some(fields) => Stored::Delta(Delta {
                 fields,
@@ -144,7 +161,13 @@ impl Canonicals {
 
     /// The words in first-insertion order.
     pub fn into_words(self) -> Vec<Word> {
-        let Canonicals { bases, words, .. } = self;
+        let Canonicals {
+            bases,
+            words,
+            memory,
+            ..
+        } = self;
+        let _memory = memory;
         words
             .into_iter()
             .map(|stored| match stored {
@@ -165,7 +188,13 @@ impl Canonicals {
 
     /// Adds the words of `other`, the set of one analysis, whose key this set does not hold, in `other`'s order; the first word wins a key. With `merge_phonological_rules`, a word whose key is held adds its applied phonological rules to the held word's.
     pub fn absorb(&mut self, other: Canonicals, merge_phonological_rules: bool) {
-        let Canonicals { bases, words, .. } = other;
+        let Canonicals {
+            bases,
+            words,
+            memory,
+            ..
+        } = other;
+        self.memory.absorb(memory);
         let first_base = self.bases.len();
         let rebase = u32::try_from(first_base).expect("a set holds fewer than 2^32 bases");
         self.bases.extend(bases);

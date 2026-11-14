@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 pub struct AnalysisPolicy {
     /// Per-word work cap for parsing; confirmation may spend up to one sixteenth more.
     pub work_cap: usize,
+    /// Per-word counted retained parser-state ceiling; `None` disables it.
+    pub word_mem_cap: Option<usize>,
     /// Limit on one bounded generation run, in work steps and seed choices.
     pub generation_cap: usize,
 }
@@ -18,6 +20,7 @@ impl AnalysisPolicy {
     pub const fn browser_default() -> Self {
         Self {
             work_cap: 10_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             generation_cap: 100_000,
         }
     }
@@ -25,6 +28,7 @@ impl AnalysisPolicy {
     pub const fn native_abi_v1() -> Self {
         Self {
             work_cap: 50_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             generation_cap: 500_000,
         }
     }
@@ -36,6 +40,7 @@ impl AnalysisPolicy {
     pub const fn without_limits() -> Self {
         Self {
             work_cap: usize::MAX,
+            word_mem_cap: None,
             generation_cap: usize::MAX,
         }
     }
@@ -60,6 +65,7 @@ pub struct UnifiedAnalysis {
     pub capped: bool,
     /// The retained-capture ceiling (not the step cap) stopped the search; `capped` is also true then.
     pub capture_capped: bool,
+    pub word_mem_capped: bool,
     pub invalid_shape: bool,
     pub timed_out: bool,
     pub guessed: bool,
@@ -164,6 +170,7 @@ impl SuppliedLexiconRuntime {
         let mut guessed = false;
         let mut capped = normal.capped;
         let mut capture_capped = normal.capture_capped;
+        let mut word_mem_capped = normal.word_mem_capped;
         let mut invalid_shape = normal.invalid_shape;
         let mut timed_out = normal.timed_out;
         if structured.is_empty() && !invalid_shape && guess_fallback {
@@ -178,6 +185,7 @@ impl SuppliedLexiconRuntime {
             guessed = fallback.guessed;
             capped |= fallback.capped;
             capture_capped |= fallback.capture_capped;
+            word_mem_capped |= fallback.word_mem_capped;
             invalid_shape |= fallback.invalid_shape;
             timed_out |= fallback.timed_out;
         }
@@ -186,6 +194,7 @@ impl SuppliedLexiconRuntime {
             structured,
             capped,
             capture_capped,
+            word_mem_capped,
             invalid_shape,
             timed_out,
             guessed,
