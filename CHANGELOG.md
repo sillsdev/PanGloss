@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- The conformance pin moves to `24c62b3a`, which carries `edge-cases/infix-ambiguous-site` (fieldworks-parser-conformance #45) and marks `ginabas` in `infix-split-root-allomorph-environment` as an oracle no-parse (#46; machine#631 was closed unmerged): the oracle-verified infix site choice that #299 fixed now runs from the suite, and the staged copy is removed.
+
 ## 0.19.6
 
 Released 2026-11-13.

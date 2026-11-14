@@ -42,11 +42,11 @@ impl Bucket {
     }
 }
 
-// Named comparison preserves all 189 prior cells; #196 and this lane add seven cells. #199's conformance-staging/edge-cases/cascade-symbolic-output fixture adds three oracle-exact cells (159 -> 162); the #189 nullable-copy-partition fixtures add six more; the lexical-lookup-sibling-allomorphs fixture (machine#627, port #263) adds three more (168 -> 171); the infix-ambiguous-site fixture adds one more now that infix site selection matches C# (171 -> 172, #297); deliberate update per the reconciliation note.
+// Named comparison preserves all 189 prior cells; #196 and this lane add seven cells. #199's conformance-staging/edge-cases/cascade-symbolic-output fixture adds three oracle-exact cells (159 -> 162); the #189 nullable-copy-partition fixtures add six more; the lexical-lookup-sibling-allomorphs fixture (machine#627, port #263) adds three more (168 -> 171); the infix-ambiguous-site fixture adds one more now that infix site selection matches C# (171 -> 172, #297); the pin bump to 24c62b3a graduates that fixture to the suite and brings in the suite fixture infix-split-root-allomorph-environment (conformance #39), one oracle-exact cell net (172 -> 173); deliberate update per the reconciliation note.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 172,
+        oracle_exact: 173,
         compiles_but_misses: 14,
         refused: 24,
         unmeasurable: 0,
