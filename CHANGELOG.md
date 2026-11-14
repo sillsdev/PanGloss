@@ -6,6 +6,8 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 ## Unreleased
 
 - Calibration tooling can measure a before/after grammar edit against the same words and records both grammar hashes; the standing pairs include a phonological-cascade edit, an optional-slot edit and a root-cache switch. The last two are report-only: the slot edit exposes a prediction gap and the cache pair did not move on these words (part of #240).
+- Literal segment groups now include HermitCrab’s trailing epsilon, and deterministic matchers minimize their automata with its partitioning and construction order (#300). The conformance pin moves to `a0094a3f` for a required allomorph-environment case. On 2,556 completed in-repo fixture and evidence words, reported parser work rises 0.00014%; the six measured real-grammar samples are unchanged (first 300 words available, 3M cap). Completed analyses and stop statuses match before and after in these samples.
+
 - The conformance pin moves to `24c62b3a`, which carries `edge-cases/infix-ambiguous-site` (fieldworks-parser-conformance #45) and marks `ginabas` in `infix-split-root-allomorph-environment` as an oracle no-parse (#46; machine#631 was closed unmerged): the oracle-verified infix site choice that #299 fixed now runs from the suite, and the staged copy is removed.
 
 ## 0.19.6

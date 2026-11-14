@@ -1103,7 +1103,7 @@ fn binding_constraint_can_match(
             AgreementNode::Alternation(branches) => {
                 binding_constraint_can_match(g, branches, segment, bindings, synthesis)
             }
-            AgreementNode::Repeat { children, .. } => {
+            AgreementNode::Group(children) | AgreementNode::Repeat { children, .. } => {
                 binding_constraint_can_match(g, children, segment, bindings, synthesis)
             }
         }
@@ -1258,6 +1258,12 @@ fn walk_binding_environment<'a>(
             } else {
                 best
             }
+        }
+        BindingTask::Node(AgreementNode::Group(children)) => {
+            push_binding_nodes(&mut tasks, children, reverse);
+            walk_binding_environment(
+                g, input, reverse, anchored, furthest, synthesis, tasks, pos, bindings,
+            )
         }
         BindingTask::Node(AgreementNode::Repeat { min, max, children }) => {
             tasks.push(BindingTask::Repeat {
@@ -1448,6 +1454,9 @@ fn agreement_node(
         return Vec::new();
     }
     match node {
+        AgreementNode::Group(children) => {
+            agreement_sequence(g, children, input, reverse, vec![state])
+        }
         AgreementNode::Alternation(branches) => branches
             .iter()
             .flat_map(|branch| agreement_node(g, branch, input, reverse, state.clone()))
