@@ -564,7 +564,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     // All borrows of `phon` (via `ro`) have ended; the grammar takes ownership of its phonology so ids stay resolvable downstream.
     let (phon_features, char_tables) = phon.into_parts();
 
-    let grammar = Grammar {
+    let mut grammar = Grammar {
         name: lang.text_of("Name").map(str::to_string),
         phon_features,
         char_tables,
@@ -591,6 +591,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         representative_msas: Default::default(),
         guess_roots: false,
     };
+    grammar.shrink_to_fit();
     grammar.final_template_prune_facts()?;
     Ok(grammar)
 }

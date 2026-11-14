@@ -145,11 +145,12 @@ pub(crate) fn owning_table_for_compounding_rule(
 /// same global registry, `Grammar::allomorph_owners`). `envs` backs `crate::validity`'s
 /// per-environment gate (populated for both owner kinds); `synth_lhs`/`ana_lhs` are
 /// `AffixAllomorphDef`-only (a root allomorph has no `MorphologicalInput`/RHS to compile, so both
-/// stay `None` for a `AllomorphOwner::Root` entry).
+/// stay `None` for a `AllomorphOwner::Root` entry). Boxing the optional matchers keeps those
+/// numerous empty root slots small; populated matchers retain the same owned values.
 pub(crate) struct AllomorphCache {
     pub(crate) envs: Vec<(Option<EnvFst>, Option<EnvFst>)>,
-    pub(crate) synth_lhs: Option<(Fst, Vec<String>)>,
-    pub(crate) ana_lhs: Option<(Fst, AnalysisLhs)>,
+    pub(crate) synth_lhs: Option<Box<(Fst, Vec<String>)>>,
+    pub(crate) ana_lhs: Option<Box<(Fst, AnalysisLhs)>>,
 }
 
 /// One `RuleCache::prules` slot: which kind of compiled cache depends on the corresponding
@@ -333,8 +334,8 @@ fn build_allomorph_cache(g: &Grammar, owner: &AllomorphOwner) -> AllomorphCache 
             let lhs = morph::build_allomorph_lhs_cache(g, table, def);
             AllomorphCache {
                 envs: build_env_cache(g, table, &def.environments),
-                synth_lhs: lhs.synth_lhs,
-                ana_lhs: lhs.ana_lhs,
+                synth_lhs: lhs.synth_lhs.map(Box::new),
+                ana_lhs: lhs.ana_lhs.map(Box::new),
             }
         }
     }

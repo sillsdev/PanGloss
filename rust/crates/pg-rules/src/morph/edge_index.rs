@@ -81,7 +81,7 @@ impl EdgeIndex {
                     cache
                         .allomorph(a.id)
                         .ana_lhs
-                        .as_ref()
+                        .as_deref()
                         .map(|(_, lhs)| (a, lhs))
                 })
                 .collect();
