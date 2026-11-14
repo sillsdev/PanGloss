@@ -25,8 +25,9 @@ pub mod trace_identity;
 pub use pg_grammar_model::{chardef, featsys, model, nfd, segment};
 
 pub use compile::{
-    compile_project, compile_project_measured, compile_project_with,
-    compile_project_with_import_warnings, compile_project_with_options_and_import_warnings,
+    compile_project, compile_project_grammar_only_with_import_warnings, compile_project_measured,
+    compile_project_with, compile_project_with_import_warnings,
+    compile_project_with_options_and_import_warnings,
 };
 pub use load::load;
 

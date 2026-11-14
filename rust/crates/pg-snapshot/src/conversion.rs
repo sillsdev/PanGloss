@@ -185,6 +185,10 @@ pub struct SelectionRecorder {
     load_decisions: Vec<LoadDecision>,
     load_decision_ordinals: BTreeMap<(InventoryKey, LoadPipelineStage, String), u32>,
     load_decision_stage: Option<LoadPipelineStage>,
+    /// Grammar-only recorder: keeps `issues` and `text_uses`, drops the inventory sets and load decisions that only a facts export reads.
+    lean: bool,
+    /// Lean importer only: the one set a lean recorder still keeps, restricted to these kinds because the extractors read `is_represented` for no others.
+    represented_kinds: &'static [InventoryKind],
     /// Owner-selected literal text for substrate inference; independent of the stage sets below.
     text_uses: Vec<(SourceRef, String)>,
 }
@@ -198,19 +202,62 @@ impl SelectionRecorder {
         }
     }
 
+    /// As [`Self::for_stage`], but a grammar-only compile: nothing is recorded except issues and text uses.
+    pub fn lean_for_stage(stage: LoadPipelineStage) -> Self {
+        Self {
+            lean: true,
+            ..Self::for_stage(stage)
+        }
+    }
+
+    /// As [`Self::lean_for_stage`], but keeps `represented` for `kinds`, which extractors read back through [`Self::is_represented`] to decide what to emit.
+    pub fn lean_for_stage_keeping_represented(
+        stage: LoadPipelineStage,
+        kinds: &'static [InventoryKind],
+    ) -> Self {
+        Self {
+            represented_kinds: kinds,
+            ..Self::lean_for_stage(stage)
+        }
+    }
+
+    fn retains_represented(&self, key: &InventoryKey) -> bool {
+        self.represented_kinds.contains(&key.kind)
+    }
+
+    /// Whether this recorder drops everything but issues and text uses.
+    pub fn is_lean(&self) -> bool {
+        self.lean
+    }
+
     pub fn authored(&mut self, key: InventoryKey) {
+        if self.lean {
+            return;
+        }
         self.inventory.authored.insert(key);
     }
 
     pub fn considered(&mut self, key: InventoryKey) {
+        if self.lean {
+            return;
+        }
         self.inventory.considered.insert(key);
     }
 
     pub fn selected(&mut self, key: InventoryKey) {
+        if self.lean {
+            return;
+        }
         self.inventory.selected.insert(key);
     }
 
     pub fn represented(&mut self, key: InventoryKey) {
+        if self.lean {
+            if self.retains_represented(&key) {
+                self.inventory.represented.insert(key);
+            }
+            return;
+        }
         if let Some(stage) = self.load_decision_stage {
             self.record_load_decision(LoadDecisionDraft {
                 subject: key.clone(),
@@ -231,6 +278,12 @@ impl SelectionRecorder {
         key: InventoryKey,
         effective_value_json: String,
     ) {
+        if self.lean {
+            if self.retains_represented(&key) {
+                self.inventory.represented.insert(key);
+            }
+            return;
+        }
         if let Some(stage) = self.load_decision_stage {
             self.record_load_decision(LoadDecisionDraft {
                 subject: key.clone(),
@@ -252,6 +305,9 @@ impl SelectionRecorder {
         context_key: String,
         reason_code: LoadReasonCode,
     ) {
+        if self.lean {
+            return;
+        }
         if let Some(stage) = self.load_decision_stage {
             self.record_load_decision(LoadDecisionDraft {
                 subject,
@@ -267,6 +323,9 @@ impl SelectionRecorder {
     }
 
     pub fn synthesized(&mut self, key: InventoryKey) {
+        if self.lean {
+            return;
+        }
         if let Some(stage) = self.load_decision_stage {
             self.record_load_decision(LoadDecisionDraft {
                 subject: key.clone(),
@@ -296,6 +355,10 @@ impl SelectionRecorder {
         issue: ConversionIssue,
         reason_code: LoadReasonCode,
     ) {
+        if self.lean {
+            self.issues.push(issue);
+            return;
+        }
         if let Some(stage) = self.load_decision_stage {
             let issue_code = issue.code.wire().to_string();
             self.record_load_decision(LoadDecisionDraft {
@@ -325,12 +388,18 @@ impl SelectionRecorder {
             Some(false),
             "rejected_without_issue requires loaded=false"
         );
+        if self.lean {
+            return;
+        }
         self.inventory.rejected.insert(draft.subject.clone());
         self.record_load_decision(draft);
     }
 
     /// Records an owner's typed disposition without changing the inventory stage sets.
     pub fn record_load_decision(&mut self, draft: LoadDecisionDraft) {
+        if self.lean {
+            return;
+        }
         assert!(
             !draft.reason_code.as_str().is_empty(),
             "load decisions require a reason code"
@@ -367,6 +436,10 @@ impl SelectionRecorder {
 
     /// Whether an owner has already published a decision for `subject` at `stage`.
     pub fn has_load_decision(&self, subject: &InventoryKey, stage: LoadPipelineStage) -> bool {
+        assert!(
+            !self.lean,
+            "has_load_decision on a lean recorder that does not retain decisions"
+        );
         // Every recorded decision has an ordinal key, and `String::new()` sorts first among context keys.
         self.load_decision_ordinals
             .range((subject.clone(), stage, String::new())..)
@@ -380,6 +453,13 @@ impl SelectionRecorder {
     }
 
     pub fn is_represented(&self, key: &InventoryKey) -> bool {
+        if self.lean {
+            assert!(
+                self.retains_represented(key),
+                "is_represented on a lean recorder that does not retain {:?}",
+                key.kind
+            );
+        }
         self.inventory.represented.contains(key)
     }
 
@@ -398,6 +478,10 @@ impl SelectionRecorder {
     /// compaction pass dropped after the compiler represented it. Panics if `key` was not represented:
     /// that would mean the caller is re-deriving reachability instead of relaying an owner's own decision.
     pub fn revoke_represented(&mut self, key: InventoryKey, issue: ConversionIssue) {
+        if self.lean {
+            self.issues.push(issue);
+            return;
+        }
         let was_represented = self.inventory.represented.remove(&key);
         assert!(
             was_represented,
@@ -422,6 +506,9 @@ impl SelectionRecorder {
 
     /// `represented ⊆ selected ⊆ considered ⊆ authored ∪ synthesized`; `rejected ⊆ selected`; `represented ∩ rejected = ∅`.
     pub fn check_invariants(&self) -> Result<(), String> {
+        if self.lean {
+            return Ok(());
+        }
         let authored_or_synthesized: BTreeSet<_> = self
             .inventory
             .authored

@@ -241,6 +241,9 @@ pub(crate) fn build<'a>(
         }
 
         for msa in &entry.msas {
+            if ctx.is_lean() {
+                break;
+            }
             let msa_key = InventoryKey::object(InventoryKind::Msa, msa.guid().to_string());
             if ctx.has_load_decision(&msa_key) {
                 continue;

@@ -36,6 +36,9 @@ pub(crate) fn build(
 }
 
 pub(crate) fn record_unconsidered_slots(snapshot: &Snapshot, ctx: &Ctx) {
+    if ctx.is_lean() {
+        return;
+    }
     fn walk<'a>(
         items: &'a [PartOfSpeech],
         slots: &mut Vec<&'a AffixSlot>,

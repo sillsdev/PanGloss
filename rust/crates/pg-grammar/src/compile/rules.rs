@@ -94,6 +94,9 @@ pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, Grammar
 }
 
 pub(crate) fn record_unreferenced_feature_constraints(snapshot: &Snapshot, ctx: &Ctx) {
+    if ctx.is_lean() {
+        return;
+    }
     for constraint in &snapshot.phonology.feature_constraints {
         let key = InventoryKey::object(InventoryKind::FeatureConstraint, constraint.guid.clone());
         if ctx.has_load_decision(&key) {

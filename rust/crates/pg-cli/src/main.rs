@@ -625,14 +625,18 @@ pub(crate) fn load_grammar_capturing(
             let stats_source_identity = capture_stats_identity
                 .then(|| stats_manifest::SourceIdentity::from_snapshot_source(&json, &snapshot))
                 .transpose()?;
+            drop(json);
             let t_compile = Instant::now();
-            let output = pg_grammar::compile_project_with(&snapshot, Default::default()).map_err(
-                |error| {
-                    compile_failure::GrammarLoadError::Compile(Box::new(
-                        compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
-                    ))
-                },
-            )?;
+            let output = pg_grammar::compile_project_grammar_only_with_import_warnings(
+                &snapshot,
+                Default::default(),
+                std::iter::empty(),
+            )
+            .map_err(|error| {
+                compile_failure::GrammarLoadError::Compile(Box::new(
+                    compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
+                ))
+            })?;
             serve::record_ms(&serve::COMPILE_MS, t_compile);
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "snapshot"));
@@ -691,12 +695,23 @@ pub(crate) fn load_grammar_capturing(
             let mut import_warnings = report.warnings;
             import_warnings.extend(snapshot.validate());
             let t_compile = Instant::now();
-            let output = pg_grammar::compile_project_with_options_and_import_warnings(
-                &snapshot,
-                Default::default(),
-                import_warnings,
-            )
-            .map_err(|error| {
+            let compiled = if capture
+                .as_ref()
+                .is_some_and(|capture| capture.reuse_compile)
+            {
+                pg_grammar::compile_project_with_options_and_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    import_warnings,
+                )
+            } else {
+                pg_grammar::compile_project_grammar_only_with_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    import_warnings,
+                )
+            };
+            let output = compiled.map_err(|error| {
                 compile_failure::GrammarLoadError::Compile(Box::new(
                     compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
                 ))
