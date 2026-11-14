@@ -26,6 +26,10 @@ name = "stratum_gate"
 path = "tests/stratum_gate.rs"
 
 [[test]]
+name = "trail_cost"
+path = "tests/trail_cost.rs"
+
+[[test]]
 name = "rules"
 path = "tests/harnesses/rules.rs"
 

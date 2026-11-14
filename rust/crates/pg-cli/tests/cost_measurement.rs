@@ -25,10 +25,14 @@ fn parses_and_work_steps_are_identical_with_measurement_on_and_off() {
         assert_eq!(on.capped, off.capped, "{word}");
         assert_eq!(on.invalid_shape, off.invalid_shape, "{word}");
         let counts = on.cost.expect("measurement is on");
-        assert_eq!(counts.work, on.work_steps as u64, "{word}");
+        assert!(counts.work >= on.work_steps as u64, "{word}");
         assert!(counts.cost() > 0, "{word}");
     }
     assert!(!on[1].analyses.is_empty(), "the suffixed word parses");
+    assert!(
+        on[1].cost.unwrap().work > on[1].work_steps as u64,
+        "slab operations add reported work"
+    );
     assert!(
         on[1].cost.unwrap().cost() > on[0].cost.unwrap().cost(),
         "a word that applies a rule costs more than a bare root"

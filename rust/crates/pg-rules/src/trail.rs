@@ -33,8 +33,6 @@ struct Step {
 
 const CHUNK_BITS: u32 = 16;
 const CHUNK: usize = 1 << CHUNK_BITS;
-/// What a step cost the meter as a reference-counted allocation.
-const METERED_STEP_BYTES: usize = 40;
 
 struct Chunk {
     steps: Vec<Step>,
@@ -106,10 +104,10 @@ impl Slab {
 
     fn alloc(&mut self, step: Step) -> u32 {
         let owner = self.active_group();
+        self.charge_owner_work(owner);
+        pg_cost::charge_bytes(std::mem::size_of::<Step>());
         self.live += 1;
         self.groups[owner].live += 1;
-        // Metered as 40 bytes, the pre-slab step size; slab growth is unmetered.
-        pg_cost::charge_bytes(METERED_STEP_BYTES);
         if self.groups[owner].free != 0 {
             let handle = self.groups[owner].free;
             self.groups[owner].free = self.get(handle).parent;
@@ -118,7 +116,9 @@ impl Slab {
         }
         let last = self.groups[owner].chunks.last().copied();
         let chunk = if last.is_none_or(|index| self.chunks[index].steps.len() == CHUNK) {
-            self.groups[owner].memory.charge(CHUNK * 20);
+            self.charge_owner_work(owner);
+            let bytes = CHUNK * std::mem::size_of::<Step>();
+            self.groups[owner].memory.charge(bytes);
             let index = if let Some(index) = self.available.pop() {
                 index
             } else {
@@ -148,6 +148,7 @@ impl Slab {
 
     fn release(&mut self, handle: u32) {
         let owner = self.chunks[(handle as usize - 1) >> CHUNK_BITS].owner;
+        self.charge_owner_work(owner);
         let free = self.groups[owner].free;
         let slot = self.get_mut(handle);
         slot.parent = free;
@@ -156,6 +157,9 @@ impl Slab {
         self.groups[owner].live -= 1;
         self.live -= 1;
         if self.groups[owner].live == 0 {
+            for _ in 0..self.groups[owner].chunks.len() {
+                self.charge_owner_work(owner);
+            }
             let group = &mut self.groups[owner];
             group.free = 0;
             group.memory = pg_fst::work::WordMemory::default();
@@ -179,6 +183,13 @@ impl Slab {
                     pg_cost::unmetered(|| self.available.push(index));
                 }
             }
+        }
+    }
+
+    fn charge_owner_work(&self, owner: usize) {
+        let key = self.groups[owner].key;
+        if key != 0 && key == pg_fst::work::active_budget_key() {
+            pg_cost::charge_work();
         }
     }
 }
@@ -489,6 +500,8 @@ impl Clone for Trail {
         if self.0 != 0 {
             SLAB.with(|slab| {
                 let mut slab = slab.borrow_mut();
+                let owner = slab.chunks[(self.0 as usize - 1) >> CHUNK_BITS].owner;
+                slab.charge_owner_work(owner);
                 let step = slab.get_mut(self.0);
                 step.refs = step
                     .refs
@@ -512,6 +525,8 @@ impl Drop for Trail {
             let mut slab = slab.borrow_mut();
             let mut next = handle;
             while next != 0 {
+                let owner = slab.chunks[(next as usize - 1) >> CHUNK_BITS].owner;
+                slab.charge_owner_work(owner);
                 let step = slab.get_mut(next);
                 step.refs -= 1;
                 if step.refs > 0 {

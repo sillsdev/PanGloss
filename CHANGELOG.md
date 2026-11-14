@@ -13,6 +13,8 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 - The conformance pin moves to `24c62b3a`, which carries `edge-cases/infix-ambiguous-site` (fieldworks-parser-conformance #45) and marks `ginabas` in `infix-split-root-allomorph-environment` as an oracle no-parse (#46; machine#631 was closed unmerged): the oracle-verified infix site choice that #299 fixed now runs from the suite, and the staged copy is removed.
 - The C# oracle pin includes machine #627, aligning lexical lookup with PanGloss: `bu` in `lexical-lookup-sibling-allomorphs` no longer parses through an unmatched sibling allomorph.
 
+- Reported parser work now counts trail slab bookkeeping and amortized slot bytes, with no weight changes (#301). On the first 300 available words at a 3M search cap, totals for words completed on both versions shift: Amharic +0.5%, Indonesian +0.5%, Sena +1.7%, Mbugwe +1.8%, Aweti +1.5%, Swahili +3.4%, and Cebuano +2.6%. Recalibrate parser-work thresholds; completed analyses and stop statuses match in these samples.
+
 ## 0.19.6
 
 Released 2026-11-13.
