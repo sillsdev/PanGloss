@@ -55,9 +55,26 @@ impl ReferenceResolution<'_> {
 }
 
 impl<'a> Ctx<'a> {
+    #[cfg(test)]
     fn new(graph: &'a RawGraph) -> Self {
-        let mut recorder = SelectionRecorder::for_stage(LoadPipelineStage::Import);
-        inventory::seed_authored_from_graph(&mut recorder, graph);
+        Self::new_with(graph, false)
+    }
+
+    /// A `lean` context records only issues and the `represented` kinds the extractors read back; its recorder yields no inventory or load decisions.
+    fn new_with(graph: &'a RawGraph, lean: bool) -> Self {
+        let recorder = if lean {
+            SelectionRecorder::lean_for_stage_keeping_represented(
+                LoadPipelineStage::Import,
+                &[
+                    pg_snapshot::InventoryKind::TemplateSlot,
+                    pg_snapshot::InventoryKind::Environment,
+                ],
+            )
+        } else {
+            let mut recorder = SelectionRecorder::for_stage(LoadPipelineStage::Import);
+            inventory::seed_authored_from_graph(&mut recorder, graph);
+            recorder
+        };
         Ctx {
             graph,
             warnings: Vec::new(),
@@ -381,7 +398,7 @@ fn extract_with(
     keep_recorder: bool,
     lean: bool,
 ) -> Result<(Snapshot, Vec<Warning>, Option<SelectionRecorder>), ImportError> {
-    let mut ctx = Ctx::new(graph);
+    let mut ctx = Ctx::new_with(graph, lean);
 
     let lang_project = project::find_lang_project(&mut ctx, filename_stem);
     let project = project::extract_project(&mut ctx, lang_project, filename_stem);
@@ -397,7 +414,9 @@ fn extract_with(
     morphology.adhoc_prohibitions = morphology::extract_adhoc_prohibitions(&mut ctx, lang_project);
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
-    finalize_unrecorded_tracked_objects(&mut ctx);
+    if !lean {
+        finalize_unrecorded_tracked_objects(&mut ctx);
+    }
 
     let source_objects = graph.source_objects();
     for source_object in source_objects.iter().filter(|_| !lean) {

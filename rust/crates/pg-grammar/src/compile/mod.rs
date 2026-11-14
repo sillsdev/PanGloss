@@ -184,6 +184,24 @@ pub fn compile_project_with_options_and_import_warnings(
     options: CompileOptions,
     import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
 ) -> Result<CompileOutput, GrammarError> {
+    compile_project_inner(snapshot, options, import_warnings, false)
+}
+
+/// As [`compile_project_with_options_and_import_warnings`], for callers that read only `grammar`, `warnings`, `substrate` and `issues`: the facts-only inventory, load decisions and lineage publication are never built, so those `CompileOutput` fields (and a refusal's facts fields) come back empty. The `Grammar`, the warnings and any refusal are the same.
+pub fn compile_project_grammar_only_with_import_warnings(
+    snapshot: &Snapshot,
+    options: CompileOptions,
+    import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
+) -> Result<CompileOutput, GrammarError> {
+    compile_project_inner(snapshot, options, import_warnings, true)
+}
+
+fn compile_project_inner(
+    snapshot: &Snapshot,
+    options: CompileOptions,
+    import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
+    lean: bool,
+) -> Result<CompileOutput, GrammarError> {
     let mut external_issues: Vec<ConversionIssue> =
         snapshot.conversion_provenance.import_issues.clone();
     let provenance_error = snapshot
@@ -212,19 +230,29 @@ pub fn compile_project_with_options_and_import_warnings(
         owner_warnings,
         environment_resolutions,
         allomorph_gates,
-    ) = compile_project_recording(snapshot)?;
+    ) = compile_project_recording_with(snapshot, lean)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
     let (recorded_inventory, recorded_issues, load_decisions) =
         recorder.finish_with_load_decisions();
-    let compiled_outputs = lineage::compiled_outputs(&grammar);
-    let allomorph_output_ids = (0..grammar.allomorph_owners.len())
-        .map(|index| compiled_outputs.allomorph(AllomorphId(index as u32)))
-        .collect();
-    let (compiled_mappings, compiled_allomorph_order) =
-        lineage::publish(snapshot, &grammar, &compiled_outputs, &load_decisions);
-    let compiled_outputs = compiled_outputs.outputs().to_vec();
+    let (compiled_outputs, allomorph_output_ids, compiled_mappings, compiled_allomorph_order) =
+        if lean {
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        } else {
+            let compiled_outputs = lineage::compiled_outputs(&grammar);
+            let allomorph_output_ids = (0..grammar.allomorph_owners.len())
+                .map(|index| compiled_outputs.allomorph(AllomorphId(index as u32)))
+                .collect();
+            let (compiled_mappings, compiled_allomorph_order) =
+                lineage::publish(snapshot, &grammar, &compiled_outputs, &load_decisions);
+            (
+                compiled_outputs.outputs().to_vec(),
+                allomorph_output_ids,
+                compiled_mappings,
+                compiled_allomorph_order,
+            )
+        };
     issues.extend(recorded_issues.iter().cloned());
     issues.extend(substrate_issues.iter().cloned());
     let mut warnings: Vec<_> = import_warnings.into_iter().collect();
@@ -323,12 +351,28 @@ pub fn descendant_closures(snapshot: &Snapshot) -> Result<DescendantClosures, Gr
 /// `reachability::compact_mrules`/`trim_unreachable_morpheme_coocurrence`/`natclass::compact_to_referenced`
 /// run, so `represented` is a pre-compaction claim, not a claim about the returned `Grammar` after
 /// compaction.
+#[cfg(test)]
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
 ) -> Result<CompiledProject, GrammarError> {
-    let mut recorder = SelectionRecorder::for_stage(pg_snapshot::LoadPipelineStage::Compile);
+    compile_project_recording_with(snapshot, false)
+}
+
+/// Compile with the full recorder or the grammar-only recorder (see [`SelectionRecorder::lean_for_stage`]).
+pub(crate) fn compile_project_recording_with(
+    snapshot: &Snapshot,
+    lean: bool,
+) -> Result<CompiledProject, GrammarError> {
+    let stage = pg_snapshot::LoadPipelineStage::Compile;
+    let mut recorder = if lean {
+        SelectionRecorder::lean_for_stage(stage)
+    } else {
+        SelectionRecorder::for_stage(stage)
+    };
     let mut lineage = Lineage::default();
-    inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
+    if !lean {
+        inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
+    }
 
     // --- MPR feature groups: inflection classes, exception features, lexEntryInflTypes --------
     let mpr = mpr::build(snapshot, &mut recorder)?;
@@ -1164,6 +1208,11 @@ impl Ctx<'_> {
 
     pub(crate) fn record_load_decision(&self, draft: pg_snapshot::LoadDecisionDraft) {
         self.recorder.borrow_mut().record_load_decision(draft);
+    }
+
+    /// Whether this compile is grammar-only, so loops whose sole effect is recording inventory can be skipped.
+    pub(crate) fn is_lean(&self) -> bool {
+        self.recorder.borrow().is_lean()
     }
 
     pub(crate) fn has_load_decision(&self, key: &InventoryKey) -> bool {

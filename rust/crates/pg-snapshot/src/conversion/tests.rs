@@ -29,3 +29,20 @@ fn a_load_decision_written_by_0_11_to_0_14_still_deserializes() {
     assert_eq!(read.reason_code, LoadReasonCode::DoNotUseForParsing);
     assert_eq!(read.reason_code.as_str(), "doNotUseForParsing");
 }
+
+#[test]
+#[should_panic(expected = "is_represented on a lean recorder that does not retain")]
+fn lean_recorder_refuses_unretained_representation_queries() {
+    let recorder = SelectionRecorder::lean_for_stage(LoadPipelineStage::Import);
+    recorder.is_represented(&InventoryKey::object(InventoryKind::Entry, "entry"));
+}
+
+#[test]
+#[should_panic(expected = "has_load_decision on a lean recorder")]
+fn lean_recorder_refuses_load_decision_queries() {
+    let recorder = SelectionRecorder::lean_for_stage(LoadPipelineStage::Import);
+    recorder.has_load_decision(
+        &InventoryKey::object(InventoryKind::Entry, "entry"),
+        LoadPipelineStage::Import,
+    );
+}

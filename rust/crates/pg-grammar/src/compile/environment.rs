@@ -107,6 +107,9 @@ pub(crate) fn snapshot_environment_source(
 }
 
 pub(crate) fn record_unattempted(snapshot: &pg_snapshot::Snapshot, ctx: &Ctx) {
+    if ctx.is_lean() {
+        return;
+    }
     for environment in &snapshot.phonology.environments {
         let key = InventoryKey::object(InventoryKind::Environment, environment.guid.clone());
         if ctx.has_load_decision(&key) {
