@@ -3,7 +3,7 @@
 language: BracketPatternReduplicationAffix
 inspired_by: ["synthetic CV-copying prefix and suffix, written in FieldWorks as reduplication bracket patterns (not modeling any real language)"]
 sources: ["PanGloss issue 148", "FieldWorks HCLoader.cs LoadFormAffixProcessAllomorph, LoadReduplicationPatterns, LoadReduplicationOutputActions"]
-requires: [phonology]
+requires: []
 fieldworks_producible: true
 fieldworks_producible_notes: >-
   FieldWorks writes this grammar for an affix allomorph whose Form is the reduplication bracket pattern

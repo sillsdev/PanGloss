@@ -10,7 +10,7 @@ suite disagree.
 | Path | Repository | What reads it | Fetched by |
 |---|---|---|---|
 | `conformance/` | `sillsdev/fieldworks-parser-conformance`, a `git clone --filter=blob:none` at the commit `conformance.commit` names; gitignored, not a submodule | every fixture gate, `pg-conformance-fixtures`, `typology_speedup`, the xample projector, the C# driver's `--fixtures` | `pg.ps1` (before Cargo starts), `rust/tools/conformance.ps1`, the `conformance-suite` CI action |
-| `machine` | `sillsdev/machine`, a submodule pinned to `4d9b454d` by tag `pangloss-oracle-pin-4d9b454d` | `run-conformance.sh` builds the driver from its source; everything else uses a prebuilt pin-matched driver worktree (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) and a human; `pg.ps1` never touches it |
+| `machine` | `sillsdev/machine`, a submodule pinned to `1ddef2bd` | `run-conformance.sh` builds the driver from its source; everything else uses a prebuilt pin-matched driver worktree (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) and a human; `pg.ps1` never touches it |
 
 The suite used to live inside `machine` at `machine/conformance/`, which is why PanGloss's first
 submodule had to be initialized *sparsely*: a full `machine` checkout is 41MB of C# source that nothing
@@ -78,16 +78,14 @@ without a local commit, the dirty refusal, the unreachable remote, a missing pin
 
 ## The `machine` pin and its `.gitmodules` branch
 
-`machine` is pinned to `4d9b454d`, the head of sillsdev/machine PR #615 (branch
-`hermitcrab-conformance-runner`, stacked on #556 and #500), which is **not** an ancestor of
-`integrate-conformance-framework` (the branch `.gitmodules` used to name). It is reachable from the tag
-`pangloss-oracle-pin-4d9b454d`, which keeps it from being garbage collected on the remote. The pin moves
-to sillsdev/machine master once #615 lands. (The earlier pin was `aab4c598`, tag
-`pangloss-oracle-pin-aab4c598`.) Nothing here reads the `machine` branch
-field either: the old hand-rolled sparse clone passed it to `git clone --branch`, and that clone is
-gone. A plain `git submodule update --init machine` fetches the recorded commit by SHA. The branch
-line therefore only affects `submodule update --remote machine`, which would move the oracle pin
-and must be a deliberate edit, not something a branch rename can trigger.
+`machine` is pinned to `1ddef2bd2f1503717de95556116df8e4a63846d6`: Machine #627 cherry-picked
+onto `4d9b454d`, the head of PR #615 (stacked on #556 and #500). Master includes #627 but not
+the runner or its parser prerequisites, so it cannot yet replace this branch. The tag
+`pangloss-oracle-pin-1ddef2bd` keeps the pin reachable. Previous pins
+include `4d9b454d` (tag `pangloss-oracle-pin-4d9b454d`) and `aab4c598` (tag
+`pangloss-oracle-pin-aab4c598`). `.gitmodules` records the repository URL without a branch field.
+A plain `git submodule update --init machine` fetches the recorded commit by SHA; moving the oracle
+pin is a deliberate gitlink edit.
 
 ## Oracle pin and the suite's field names
 
@@ -99,7 +97,7 @@ the `conformance/` path prefix the v1 manifest carried.
 
 The C# driver at the previous oracle pin (`aab4c598`) had a `WordsYamlLoader` that allowed `claimed_cells`
 and no `claims`, so every path that ran the driver over the real suite stopped on the first file. The
-current pin (`4d9b454d`) accepts `claims` (and requires a `note` per word and a `rules` list per parse), so
+current pin, descended from `4d9b454d`, accepts `claims` (and requires a `note` per word and a `rules` list per parse), so
 `run-conformance.sh`, the `conformance-ci` workflow, `preland.ps1`'s conformance check and
 `oracle-conformance.ps1 -Scope all` run over the real suite. PanGloss passes only `--fixtures` to the
 driver, never the manifest flags, so the v2 manifest is not a second break.
