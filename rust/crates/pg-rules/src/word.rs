@@ -914,5 +914,14 @@ pub fn estimate_words_bytes(words: &[Word]) -> usize {
     words.iter().map(estimate_word_bytes).sum()
 }
 
+/// Platform-independent logical charge for a retained search word and its indexes.
+/// Fixed weights account for spare collection capacity; the trail slab is charged separately.
+pub(crate) fn retained_word_bytes(w: &Word) -> usize {
+    512usize
+        .saturating_add(w.shape.len().saturating_mul(8))
+        .saturating_add(w.morphs.len().saturating_mul(64))
+        .saturating_add(w.obligatory.len().saturating_mul(16))
+}
+
 #[cfg(test)]
 mod tests;

@@ -26,6 +26,7 @@
 //! stratum's output count instead). The cap is a safety valve, not a semantic change: when it does
 //! not fire, output is byte-identical to the uncapped C# walk.
 
+use std::any::Any;
 use std::hash::Hash;
 
 use rustc_hash::FxHashMap as HashMap;
@@ -55,21 +56,29 @@ struct Acc<T, K: Hash + Eq> {
     steps: usize,
     /// Set once the cap fires so the caller can report/log truncation (plan: "no silent caps").
     capped: bool,
+    memory: pg_fst::work::WordMemory,
 }
 
-impl<T, K: Hash + Eq> Acc<T, K> {
+impl<T: 'static, K: Hash + Eq> Acc<T, K> {
     fn new() -> Self {
         Acc {
             seen: HashMap::default(),
             items: Vec::new(),
             steps: 0,
             capped: false,
+            memory: pg_fst::work::WordMemory::active(),
         }
     }
 
     /// C# `HashSet<TData>.Add` under the comparer: insert iff no equal element is present.
     fn add(&mut self, key: K, item: T) {
         if let std::collections::hash_map::Entry::Vacant(e) = self.seen.entry(key) {
+            if let Some(word) = (&item as &dyn Any).downcast_ref::<crate::word::Word>() {
+                if !self.memory.charge(crate::word::retained_word_bytes(word)) {
+                    self.capped = true;
+                    return;
+                }
+            }
             e.insert(self.items.len());
             self.items.push(item);
         }
@@ -80,6 +89,7 @@ impl<T, K: Hash + Eq> Acc<T, K> {
 pub struct CascadeOutput<T> {
     pub words: Vec<T>,
     pub capped: bool,
+    pub(crate) memory: pg_fst::work::WordMemory,
 }
 
 impl<'a> Cascade<'a> {
@@ -130,7 +140,7 @@ impl<'a> Cascade<'a> {
         key: &F,
     ) -> CascadeOutput<T>
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -147,7 +157,7 @@ impl<'a> Cascade<'a> {
         key: &F,
     ) -> CascadeOutput<T>
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -159,6 +169,7 @@ impl<'a> Cascade<'a> {
         CascadeOutput {
             words: acc.items,
             capped: acc.capped,
+            memory: acc.memory,
         }
     }
 
@@ -174,7 +185,7 @@ impl<'a> Cascade<'a> {
         acc: &mut Acc<T, K>,
     ) -> bool
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -218,7 +229,7 @@ impl<'a> Cascade<'a> {
         key: &F,
     ) -> CascadeOutput<T>
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -241,7 +252,7 @@ impl<'a> Cascade<'a> {
         key: &F,
     ) -> CascadeOutput<T>
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -252,6 +263,7 @@ impl<'a> Cascade<'a> {
         CascadeOutput {
             words: acc.items,
             capped: acc.capped,
+            memory: acc.memory,
         }
     }
 
@@ -266,7 +278,7 @@ impl<'a> Cascade<'a> {
         key: &F,
         acc: &mut Acc<T, K>,
     ) where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -301,7 +313,7 @@ impl<'a> Cascade<'a> {
         key: &F,
     ) -> CascadeOutput<T>
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -327,7 +339,7 @@ impl<'a> Cascade<'a> {
         key: &F,
     ) -> CascadeOutput<T>
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -348,6 +360,7 @@ impl<'a> Cascade<'a> {
         CascadeOutput {
             words: acc.items,
             capped: acc.capped,
+            memory: acc.memory,
         }
     }
 
@@ -360,7 +373,7 @@ impl<'a> Cascade<'a> {
         key: &F,
     ) -> CascadeOutput<T>
     where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,
@@ -387,7 +400,7 @@ impl<'a> Cascade<'a> {
         key: &F,
         acc: &mut Acc<T, K>,
     ) where
-        T: Clone,
+        T: Clone + 'static,
         K: Hash + Eq,
         A: Fn(usize, &T, &P) -> Vec<T>,
         F: Fn(&T) -> K,

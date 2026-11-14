@@ -15,6 +15,75 @@ fn hash_of(view: &SlotView) -> u64 {
 }
 
 #[test]
+fn retained_trail_does_not_steal_the_next_words_budget() {
+    use pg_fst::work::WorkBudget;
+    for first_cap in [None, Some(4 * 1024 * 1024)] {
+        let first = WorkBudget::new(100).with_word_cap(first_cap);
+        let retained = {
+            let _scope = first.enter();
+            Trail::from_slots([(r(1), None)])
+        };
+        let second = WorkBudget::new(100).with_word_cap(Some(1024 * 1024));
+        {
+            let _scope = second.enter();
+            let mut trail = Trail::default();
+            trail.push(r(2), None);
+            assert!(
+                second.word_capped(),
+                "later word must pay for its slab chunk"
+            );
+        }
+        assert!(!first.word_capped());
+        drop(retained);
+    }
+}
+
+#[test]
+fn retained_trail_does_not_hide_later_word_chunk_growth() {
+    use pg_fst::work::WorkBudget;
+    for first_cap in [None, Some(2 * CHUNK * 20 - 1)] {
+        let first = WorkBudget::new(100).with_word_cap(first_cap);
+        let retained = {
+            let _scope = first.enter();
+            Trail::from_slots([(r(1), None)])
+        };
+        let second = WorkBudget::new(100).with_word_cap(Some(2 * CHUNK * 20 - 1));
+        {
+            let _scope = second.enter();
+            let mut trail = Trail::default();
+            for _ in 0..=CHUNK {
+                trail.push(r(2), None);
+            }
+            assert!(second.word_capped());
+        }
+        assert!(!first.word_capped(), "growth belongs to the later word");
+        drop(retained);
+    }
+}
+
+#[test]
+fn trails_can_share_parents_across_nested_budgets() {
+    use pg_fst::work::WorkBudget;
+    let outer = WorkBudget::new(100).with_word_cap(Some(4 * 1024 * 1024));
+    let inner = WorkBudget::new(100).with_word_cap(Some(4 * 1024 * 1024));
+    let _outer_scope = outer.enter();
+    let mut parent = Trail::from_slots([(r(1), None)]);
+    let child = {
+        let _inner_scope = inner.enter();
+        let mut child = parent.clone();
+        child.push(r(2), None);
+        child
+    };
+    parent.push(r(3), None);
+    assert_eq!(child.rules(), vec![r(1), r(2)]);
+    assert_eq!(parent.rules(), vec![r(1), r(3)]);
+    drop(parent);
+    assert_eq!(child.rules(), vec![r(1), r(2)]);
+    drop(child);
+    assert!(!outer.word_capped() && !inner.word_capped());
+}
+
+#[test]
 fn pushes_are_indexed_in_forward_order() {
     let mut t = Trail::default();
     assert!(t.is_empty());
