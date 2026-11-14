@@ -94,7 +94,7 @@ fn extract_feature_system(
 }
 
 fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
-    let key = InventoryKey::object(InventoryKind::FeatureDefinition, rec.guid.clone());
+    let key = InventoryKey::object(InventoryKind::FeatureDefinition, rec.guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
@@ -111,7 +111,7 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
         );
         let attachment = InventoryKey::attachment(
             InventoryKind::FeatureValue,
-            rec.guid.clone(),
+            rec.guid.to_string(),
             value_guid.clone(),
             "value",
         );
@@ -151,7 +151,7 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
     }
     ctx.represented(key);
     ClosedFeature {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name,
         abbreviation,
         values,
@@ -159,11 +159,11 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
 }
 
 fn extract_complex_feature(ctx: &mut Ctx, rec: &Record) -> ComplexFeature {
-    let key = InventoryKey::object(InventoryKind::FeatureDefinition, rec.guid.clone());
+    let key = InventoryKey::object(InventoryKind::FeatureDefinition, rec.guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
     let feature = ComplexFeature {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         abbreviation: ctx.best_analysis(&rec.node.ws_forms("Abbreviation")),
         feature_type: rec.node.objsur_one("Type"),
@@ -219,7 +219,7 @@ fn extract_feature_struct_node(
             );
             continue;
         };
-        let value = match spec.class.as_str() {
+        let value = match spec.class {
             "FsClosedValue" => match spec.node.objsur_one("Value") {
                 Some(v) => FeatureValueKind::Closed { value: v },
                 None => {
@@ -292,11 +292,11 @@ fn extract_feature_struct_node(
                 ))
                 .with_subject(ctx.subject_for_record(spec, None));
                 ctx.reject_with_warning(
-                    InventoryKey::object(InventoryKind::FeatureStructure, rec.guid.clone()),
+                    InventoryKey::object(InventoryKind::FeatureStructure, rec.guid.to_string()),
                     IssueClass::UnrepresentableForHc,
                     true,
                     Some(SourceRef {
-                        kind: FwClass::from_wire(&spec.class),
+                        kind: FwClass::from_wire(spec.class),
                         id: spec_guid.clone(),
                     }),
                     warning,

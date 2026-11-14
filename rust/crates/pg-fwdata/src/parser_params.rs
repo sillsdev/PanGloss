@@ -57,8 +57,8 @@ pub fn parse_with_issues(
     let active_parser_present = params_elem.child("ActiveParser").is_some();
     let active_parser = match params_elem.child("ActiveParser") {
         None => ActiveParser::XAmple,
-        Some(node) if node.text == "HC" && node.children.is_empty() => ActiveParser::Hc,
-        Some(node) if node.text == "XAmple" && node.children.is_empty() => ActiveParser::XAmple,
+        Some(node) if &*node.text == "HC" && node.children.is_empty() => ActiveParser::Hc,
+        Some(node) if &*node.text == "XAmple" && node.children.is_empty() => ActiveParser::XAmple,
         Some(node) => {
             return Err(invalid_active_parser(format!(
                 "ActiveParser has unrecognized value {:?}",
@@ -188,7 +188,9 @@ pub fn parse_with_issues(
         hc_parser_bool(hc, "MergeMSAs", "Merge MSAs", &mut hc_fields_present)?.unwrap_or(true);
     let guess_roots =
         hc_parser_bool(hc, "GuessRoots", "Guess roots", &mut hc_fields_present)?.unwrap_or(true);
-    let strata = hc.and_then(|hc| hc.child("Strata")).map(|s| s.text.clone());
+    let strata = hc
+        .and_then(|hc| hc.child("Strata"))
+        .map(|s| s.text.to_string());
 
     let compound_rule_max_applications = params_elem
         .child("CompoundRules")
