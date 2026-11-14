@@ -91,8 +91,7 @@ function Find-PinOracleExe {
     <#
       .DESCRIPTION
       The conformance control (-Scope all) needs an exe built from the EXACT commit
-      PanGloss's `machine` submodule pins (the oracle, tagged `pangloss-oracle-pin-4d9b454d` on
-      sillsdev/machine), not a newer machine tip: a loader and the fixtures it reads are a pair, and
+      PanGloss's `machine` submodule pins, not a newer machine tip: a loader and the fixtures it reads are a pair, and
       a newer loader and an older suite disagree on field names (the suite's `claims` key is
       accepted by this pin's WordsYamlLoader): see docs/design/conformance-suite.md ("Oracle pin
       and the suite's field names").

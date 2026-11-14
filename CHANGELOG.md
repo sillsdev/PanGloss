@@ -5,6 +5,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- The C# oracle pin includes machine #627, aligning lexical lookup with PanGloss: `bu` in `lexical-lookup-sibling-allomorphs` no longer parses through an unmatched sibling allomorph.
 - The conformance pin moves to `24c62b3a`, which carries `edge-cases/infix-ambiguous-site` (fieldworks-parser-conformance #45) and marks `ginabas` in `infix-split-root-allomorph-environment` as an oracle no-parse (#46; machine#631 was closed unmerged): the oracle-verified infix site choice that #299 fixed now runs from the suite, and the staged copy is removed.
 
 ## 0.19.6

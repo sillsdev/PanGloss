@@ -15,7 +15,6 @@ See `README.md` for the full status table and the kind definitions.
 | `FeatureValue.cs` / `SimpleFeatureValue.cs` (shared variable/negation machinery) | 026 |
 | `HermitCrabExtensions.cs` | 027 |
 | `Morpher.cs` (`MatchNodesWithPattern`, `LexicalGuess`) | 027 |
-| `Morpher.cs` (`LexicalLookup`) | 131 |
 | FieldWorks `HCParser.cs` (`LoadParser`, `ProcessParseException`, `MaxAlternatives`); `Morpher.cs` (`SynthesizeSequential`/`SynthesizeParallel`); `AnalysisStratumRule.cs`, `CombinationRuleCascade.cs`, `LinearRuleCascade.cs`, `MemoizedCombinationRuleCascade.cs` | 097 |
 | rule-spec constructors (LHS/RHS child type casts) | 020 |
 | `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
@@ -32,7 +31,6 @@ See `README.md` for the full status table and the kind definitions.
 | Rust file | Entry ids |
 |---|---|
 | _(was `pg-memo/src/lib.rs`, deleted)_ | 045 |
-| `pg-parse/src/morpher.rs` (`lexical_lookup_filtered`) | 131 |
 | `pg-grammar/src/compile/reduplication.rs` | 124 |
 | `pg-grammar/src/compile/compounding.rs` | 125 |
 | `pg-grammar/src/compile/affixes.rs`, `pg-grammar/src/compile/rules.rs` (pattern member refusal) | 126 |

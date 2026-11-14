@@ -336,7 +336,7 @@ conformance oracle instead (§5).
 
 ## 5. The conformance oracle
 
-The `machine` submodule is pinned to `4d9b454d42a0da35e058641a65596339a79d115b` (the oracle), and the
+The `machine` submodule records the founding-oracle revision, and the
 pinned `conformance/` suite's fixtures (`sillsdev/fieldworks-parser-conformance`) are replayed alongside `conformance-staging/` through the managed
 `rust/tools/conformance.ps1` and `rust/tools/pg.ps1 -Mode conformance-test` workflows. Fixture
 presence, oracle provenance, and demonstrated regression coverage are distinct claims; consult the
