@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>InfixAmbiguousSite</Name>
+    <!-- Two infixes written the way HCLoader.LoadFormAffixProcessAllomorph writes a form-allomorph infix: TWO input
+         parts, left = [any*] + left context, right = right context + [any*]; output Copy left, Insert, Copy right.
+         mrAfter has only a left context (a vowel), so its right part is a bare any*. mrBefore has only a right
+         context (a vowel), so its left part is a bare any*. The root "mime" has two vowels, so each infix has two
+         places it could go. The ambiguity is the point: see README.md. No phonological rules or features. -->
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAny"><Name>Any</Name><Segment segment="cM" /><Segment segment="cG" /><Segment segment="cI" /><Segment segment="cE" /><Segment segment="cU" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="cI" /><Segment segment="cE" /><Segment segment="cU" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrAfter" requiredPartsOfSpeech="posV">
+            <Name>after</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subAfter">
+                <MorphologicalInput>
+                  <PhoneticSequence id="afterLeft"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence>
+                  <PhoneticSequence id="afterRight"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="afterLeft" /><InsertSegments><PhoneticShape>gu</PhoneticShape></InsertSegments><CopyFromInput index="afterRight" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>AFTER</MorphemeId>
+            <Gloss>infix gu after a vowel</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrBefore" requiredPartsOfSpeech="posV">
+            <Name>before</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subBefore">
+                <MorphologicalInput>
+                  <PhoneticSequence id="beforeLeft"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="beforeRight"><SimpleContext naturalClass="ncV" /><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="beforeLeft" /><InsertSegments><PhoneticShape>gu</PhoneticShape></InsertSegments><CopyFromInput index="beforeRight" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>BEFORE</MorphemeId>
+            <Gloss>infix gu before a vowel</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>tmpl</Name>
+            <Slot optional="true" morphologicalRules="mrAfter mrBefore"><Name>infix</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eMime" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aMime"><PhoneticShape>mime</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>MIME</MorphemeId>
+            <Gloss>mime</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

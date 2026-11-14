@@ -13,9 +13,9 @@ fn mark_arc_priorities_preorder() {
     nfa.add_epsilon(s1, s3); // state1 arc0
     nfa.add_epsilon(s2, s3); // state2 arc0
     nfa.mark_arc_priorities();
-    // Expected: 0->1 = 0, 1->3 = 1, 0->2 = 2, 2->3 = 3.
+    // Equal-type arcs insert at the search hit (ArcCollection.cs), so the later arc is first.
     assert_eq!(nfa.states[0].arcs[0].priority, 0);
-    assert_eq!(nfa.states[1].arcs[0].priority, 1);
+    assert_eq!(nfa.states[2].arcs[0].priority, 1);
     assert_eq!(nfa.states[0].arcs[1].priority, 2);
-    assert_eq!(nfa.states[2].arcs[0].priority, 3);
+    assert_eq!(nfa.states[1].arcs[0].priority, 3);
 }

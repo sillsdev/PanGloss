@@ -1,0 +1,52 @@
+# oracle-provenance: founding-oracle machine-source=4d9b454d (hc-conformance self-check, six identical runs; row values read with --propose)
+# Every row is what the C# engine does, not what a reader might expect: at an ambiguous infix site it applies the
+# rule at ONE place (see README.md). Do not "fix" the expect_fail rows.
+
+language: InfixAmbiguousSite
+inspired_by: ["synthetic infix at an ambiguous site (not modeling any real language)"]
+sources:
+  - "FieldWorks HCLoader.LoadFormAffixProcessAllomorph (infix and infixing-interfix branch): left = any* + left context, right = right context + any*"
+requires: []
+fieldworks_producible: true
+words:
+  - word: mime
+    note: Bare root, no infix; the control.
+    parses:
+      - signature: "MIME|mime"
+        rules: []
+
+  - word: migume
+    note: >-
+      mrAfter at the FIRST vowel (left = "m" + "i", right = "me"). The engine's synthesis of mime + AFTER gives exactly
+      this word, so it parses.
+    parses:
+      - signature: "MIME+AFTER|migume"
+        rules: [mrAfter]
+        exercises:
+          - "AffixProcessRule: prefix/suffix/circumfix/infix"
+
+  - word: mimegu
+    note: >-
+      mrAfter at the LAST vowel, with an empty right part (left = "mim" + "e", right = ""). A legal reading of the
+      rule, but the engine's synthesis never produces it, and a parse is accepted only if synthesis reproduces the
+      word, so it has no analysis.
+    expect_fail: true
+    blocked_by: [mrAfter]
+
+  - word: mimgue
+    note: >-
+      mrBefore at the LAST vowel (left = "mim", right = "e"). The engine's synthesis of mime + BEFORE gives exactly
+      this word, so it parses. The mirror image of migume: for a right-context infix the engine picks the last
+      site, for a left-context infix the first.
+    parses:
+      - signature: "MIME+BEFORE|mimgue"
+        rules: [mrBefore]
+        exercises:
+          - "AffixProcessRule: prefix/suffix/circumfix/infix"
+
+  - word: mguime
+    note: >-
+      mrBefore at the FIRST vowel (left = "m", right = "ime"). A legal reading of the rule that the engine's
+      synthesis never produces, so it has no analysis.
+    expect_fail: true
+    blocked_by: [mrBefore]

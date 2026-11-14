@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- At an ambiguous infix site the engine now picks the same site as C# HermitCrab (the greedy `any*` match) instead of the first vowel (#297). The cause was in matcher construction, not the result tiebreak: quantifier NFAs now carry C#'s arc priorities and insertion order, and the subset construction keeps C#'s epsilon-closure order, so the determinized matcher prefers the same branch. No analysis changed on the 240 in-repo grammars outside this case, and parse work fell 0.5% overall.
+
 ## 0.19.5
 
 Released 2026-11-13.
