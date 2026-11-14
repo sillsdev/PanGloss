@@ -35,6 +35,42 @@ fn tiny_trie() -> RootAllomorphTrie {
 }
 
 #[test]
+fn built_trie_keeps_original_lanes_and_compacts_its_nodes() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance-staging/edge-cases/adjacent-nullable-copies/grammar.xml");
+    let grammar = pg_grammar::load(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert!(!grammar.phon_features.is_empty());
+    let mut checked = 0;
+    for (index, stratum) in grammar.strata.iter().enumerate() {
+        let table = &grammar.char_tables[stratum.table.0 as usize];
+        let width = grammar.phon_features.len();
+        let lanes: Vec<_> = table.iter().map(|(_, cd)| cd.matching_lanes()).collect();
+        let trie = RootAllomorphTrie::build(&grammar, StratumId(index as u8));
+        assert_eq!(trie.nodes.capacity(), trie.nodes.len());
+        for node in &trie.nodes {
+            assert_eq!(node.edges.capacity(), node.edges.len());
+            assert_eq!(node.accepts.capacity(), node.accepts.len());
+        }
+        for entry in &stratum.entries {
+            for allo in &grammar.entries[entry.0 as usize].allomorphs {
+                if allo.is_pattern {
+                    continue;
+                }
+                let segments = shape_segments(&allo.shape.shape, &lanes, width);
+                for (cd, actual, _) in segments {
+                    assert_eq!(actual, char_def_lanes(table, cd, width));
+                    checked += 1;
+                }
+                assert!(trie
+                    .search(&grammar, &allo.shape.shape)
+                    .contains(&(allo.id, *entry)));
+            }
+        }
+    }
+    assert!(checked > 0);
+}
+
+#[test]
 fn exact_match_returns_the_root() {
     let t = tiny_trie();
     // Search /p a/ (exact same char_defs + lanes as root A) ⇒ {allo 100}.

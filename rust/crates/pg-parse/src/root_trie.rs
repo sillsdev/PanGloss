@@ -128,15 +128,30 @@ impl RootAllomorphTrie {
             allomorph_count: 0,
         };
 
+        // One lane vector per char def, shared by every allomorph instead of rebuilt per segment.
+        let lanes_by_cd: Vec<Vec<u64>> = if feat_width == 0 {
+            Vec::new()
+        } else {
+            table_ref
+                .iter()
+                .map(|(_, cd)| cd.matching_lanes())
+                .collect()
+        };
         for &le_id in &sd.entries {
             let entry = &grammar.entries[le_id.0 as usize];
             for allo in &entry.allomorphs {
                 if allo.is_pattern {
                     continue;
                 }
-                let segs = shape_segments(&allo.shape.shape, table_ref, feat_width);
+                let segs = shape_segments(&allo.shape.shape, &lanes_by_cd, feat_width);
                 trie.add_path(&segs, allo.id, le_id);
             }
+        }
+        // Edge and accept lists grow by doubling from four slots; most nodes hold one.
+        trie.nodes.shrink_to_fit();
+        for node in &mut trie.nodes {
+            node.edges.shrink_to_fit();
+            node.accepts.shrink_to_fit();
         }
         trie
     }
@@ -154,12 +169,18 @@ impl RootAllomorphTrie {
     }
 
     /// Adds one root allomorph path, grouping edges by `char_def` so shared prefixes share a path; a pattern-derived edge also requires matching `cd_set`/lanes to reuse an edge.
-    fn add_path(&mut self, segs: &[(u32, Vec<u64>, CdSet)], allo: AllomorphId, entry: LexEntryId) {
+    fn add_path<L: AsRef<[u64]>>(
+        &mut self,
+        segs: &[(u32, L, CdSet)],
+        allo: AllomorphId,
+        entry: LexEntryId,
+    ) {
         let mut cur = 0usize;
         for (cd, lanes, cd_set) in segs {
             let found = self.nodes[cur].edges.iter().position(|e| {
                 e.char_def == *cd
-                    && (*cd != NO_CHAR_DEF || (e.cd_set == *cd_set && e.lanes == *lanes))
+                    && (*cd != NO_CHAR_DEF
+                        || (e.cd_set == *cd_set && e.lanes.as_slice() == lanes.as_ref()))
             });
             cur = match found {
                 Some(ei) => self.nodes[cur].edges[ei].target,
@@ -168,7 +189,7 @@ impl RootAllomorphTrie {
                     self.nodes.push(TrieNode::default());
                     self.nodes[cur].edges.push(TrieEdge {
                         char_def: *cd,
-                        lanes: lanes.clone(),
+                        lanes: lanes.as_ref().to_vec(),
                         cd_set: cd_set.clone(),
                         target,
                     });
@@ -315,12 +336,12 @@ impl RootAllomorphTrie {
 }
 
 /// The `(char_def, phon-lanes, cd_set)` sequence of a shape's `Segment` nodes (boundaries/anchors skipped); a pattern-derived node's `CdSet` is its class member set, a concrete node's is `Unrestricted`.
-fn shape_segments(
+fn shape_segments<'a>(
     shape: &Shape,
-    table: &CharDefTable,
+    lanes_by_cd: &'a [Vec<u64>],
     feat_width: usize,
-) -> Vec<(u32, Vec<u64>, CdSet)> {
-    let mut out = Vec::new();
+) -> Vec<(u32, &'a [u64], CdSet)> {
+    let mut out = Vec::with_capacity(shape.len());
     for i in 0..shape.len() {
         if shape.kind(i) == NodeKind::Segment {
             let cd = shape.char_def(i);
@@ -328,7 +349,12 @@ fn shape_segments(
                 EffectiveCdSet::Members(b) => CdSet::Members(b.clone()),
                 EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => CdSet::Unrestricted,
             };
-            out.push((cd, char_def_lanes(table, cd, feat_width), cd_set));
+            let lanes: &[u64] = if cd == NO_CHAR_DEF || feat_width == 0 {
+                &[]
+            } else {
+                &lanes_by_cd[cd as usize]
+            };
+            out.push((cd, lanes, cd_set));
         }
     }
     out

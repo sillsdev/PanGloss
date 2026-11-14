@@ -77,3 +77,60 @@ fn lean_compile_matches_full_on_fieldworks_conformance_projects_and_refusal() {
         "unknown provenance must refuse"
     );
 }
+
+#[test]
+fn lexical_compaction_preserves_values_and_releases_reserved_capacity() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let xml = std::fs::read_to_string(
+        root.join("conformance-staging/edge-cases/adjacent-nullable-copies/grammar.xml"),
+    )
+    .unwrap();
+    let mut grammar = pg_grammar::load(&xml).unwrap();
+    assert!(!grammar.entries.is_empty());
+    assert!(!grammar.morphemes.is_empty());
+    grammar.entries.reserve(100);
+    grammar.morphemes.reserve(100);
+    grammar.allomorph_owners.reserve(100);
+    grammar.allomorph_sources.reserve(100);
+    grammar.entries[0].allomorphs.reserve(100);
+    grammar.entries[0].allomorphs[0].environments.reserve(100);
+    grammar.entries[0].allomorphs[0].co_occurrence.reserve(100);
+    grammar.entries[0].allomorphs[0].properties.reserve(100);
+    grammar.morphemes[0].properties.reserve(100);
+    grammar.morphemes[0].co_occurrence.reserve(100);
+    let before = format!("{grammar:?}");
+    grammar.shrink_to_fit();
+    assert_eq!(before, format!("{grammar:?}"));
+    assert_eq!(grammar.entries.capacity(), grammar.entries.len());
+    assert_eq!(grammar.morphemes.capacity(), grammar.morphemes.len());
+    assert_eq!(
+        grammar.allomorph_owners.capacity(),
+        grammar.allomorph_owners.len()
+    );
+    assert_eq!(
+        grammar.allomorph_sources.capacity(),
+        grammar.allomorph_sources.len()
+    );
+    let allomorphs = &grammar.entries[0].allomorphs;
+    assert_eq!(allomorphs.capacity(), allomorphs.len());
+    assert_eq!(
+        allomorphs[0].environments.capacity(),
+        allomorphs[0].environments.len()
+    );
+    assert_eq!(
+        allomorphs[0].co_occurrence.capacity(),
+        allomorphs[0].co_occurrence.len()
+    );
+    assert_eq!(
+        allomorphs[0].properties.capacity(),
+        allomorphs[0].properties.len()
+    );
+    assert_eq!(
+        grammar.morphemes[0].properties.capacity(),
+        grammar.morphemes[0].properties.len()
+    );
+    assert_eq!(
+        grammar.morphemes[0].co_occurrence.capacity(),
+        grammar.morphemes[0].co_occurrence.len()
+    );
+}
