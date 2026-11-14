@@ -6,11 +6,13 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 ## Unreleased
 
 - Plain `.fwdata` and `.fwbackup` loads now omit facts-only recorder and lineage work, and snapshot JSON loads release the source text before the grammar-only compile. On the Cebuano project, a one-word batch process takes 25.060 to 15.709 billion instructions and its sampled useful heap peak falls from 529.9 to 338.5 MiB; `serve` loadMs median fell from 10,926 to 4,140 in five runs under shared load. Cebuano, Swahili and Tamil batch output, including reported parser work and cost, is identical apart from elapsed time.
+- Loading `.fwdata` uses a compact record graph: repeated names and GUIDs are shared, nodes store only needed attributes and exact-size children, and skipped fields leave no placeholders (#315).
 - A per-word parser-state memory budget defaults to 100 MiB and stops a word with `MEMCAP` while the batch continues. Set `--word-mem-cap-mib 0` to disable it; this budget is separate from the affix capture-state ceiling (#303).
 - Literal segment groups now include HermitCrab’s trailing epsilon, and deterministic matchers minimize their automata with its partitioning and construction order (#300). The conformance pin moves to `a0094a3f` for a required allomorph-environment case. On 2,556 completed in-repo fixture and evidence words, reported parser work rises 0.00014%; the six measured real-grammar samples are unchanged (first 300 words available, 3M cap). Completed analyses and stop statuses match before and after in these samples.
+- Calibration tooling can measure a before/after grammar edit against the same words and records both grammar hashes; the standing pairs include a phonological-cascade edit, an optional-slot edit and a root-cache switch. The last two are report-only: the slot edit exposes a prediction gap and the cache pair did not move on these words (part of #240).
 
 - The conformance pin moves to `24c62b3a`, which carries `edge-cases/infix-ambiguous-site` (fieldworks-parser-conformance #45) and marks `ginabas` in `infix-split-root-allomorph-environment` as an oracle no-parse (#46; machine#631 was closed unmerged): the oracle-verified infix site choice that #299 fixed now runs from the suite, and the staged copy is removed.
-- Loading `.fwdata` uses a compact record graph: repeated names and GUIDs are shared, nodes store only needed attributes and exact-size children, and skipped fields leave no placeholders (#315).
+- The C# oracle pin includes machine #627, aligning lexical lookup with PanGloss: `bu` in `lexical-lookup-sibling-allomorphs` no longer parses through an unmatched sibling allomorph.
 
 ## 0.19.6
 

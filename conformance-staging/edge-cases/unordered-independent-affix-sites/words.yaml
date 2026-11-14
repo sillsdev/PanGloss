@@ -7,40 +7,48 @@ requires: []
 fieldworks_producible: true
 words:
   - word: qabcd
+    note: Bare root control.
     parses:
       - signature: "root|qabcd"
         rules: []
   - word: qaubcd
+    note: Independent affix combination mr0.
     parses:
       - signature: "root+m0|qaubcd"
         rules: ["mr0"]
   - word: qabvcd
+    note: Independent affix combination mr1.
     parses:
       - signature: "root+m1|qabvcd"
         rules: ["mr1"]
   - word: qaubvcd
+    note: Independent affix combination mr0, mr1.
     parses:
       - signature: "root+m0+m1|qaubvcd"
         rules: ["mr0", "mr1"]
       - signature: "root+m0+m1|qaubvcd"
         rules: ["mr0", "mr1"]
   - word: qabcwd
+    note: Independent affix combination mr2.
     parses:
       - signature: "root+m2|qabcwd"
         rules: ["mr2"]
   - word: qaubcwd
+    note: Independent affix combination mr0, mr2.
     parses:
       - signature: "root+m0+m2|qaubcwd"
         rules: ["mr0", "mr2"]
       - signature: "root+m0+m2|qaubcwd"
         rules: ["mr0", "mr2"]
   - word: qabvcwd
+    note: Independent affix combination mr1, mr2.
     parses:
       - signature: "root+m1+m2|qabvcwd"
         rules: ["mr1", "mr2"]
       - signature: "root+m1+m2|qabvcwd"
         rules: ["mr1", "mr2"]
   - word: qaubvcwd
+    note: Independent affix combination mr0, mr1, mr2.
     parses:
       - signature: "root+m0+m1+m2|qaubvcwd"
         rules: ["mr0", "mr1", "mr2"]
@@ -55,22 +63,26 @@ words:
       - signature: "root+m0+m1+m2|qaubvcwd"
         rules: ["mr0", "mr1", "mr2"]
   - word: qabcdx
+    note: Independent affix combination mr3.
     parses:
       - signature: "root+m3|qabcdx"
         rules: ["mr3"]
   - word: qaubcdx
+    note: Independent affix combination mr0, mr3.
     parses:
       - signature: "root+m0+m3|qaubcdx"
         rules: ["mr0", "mr3"]
       - signature: "root+m0+m3|qaubcdx"
         rules: ["mr0", "mr3"]
   - word: qabvcdx
+    note: Independent affix combination mr1, mr3.
     parses:
       - signature: "root+m1+m3|qabvcdx"
         rules: ["mr1", "mr3"]
       - signature: "root+m1+m3|qabvcdx"
         rules: ["mr1", "mr3"]
   - word: qaubvcdx
+    note: Independent affix combination mr0, mr1, mr3.
     parses:
       - signature: "root+m0+m1+m3|qaubvcdx"
         rules: ["mr0", "mr1", "mr3"]
@@ -85,12 +97,14 @@ words:
       - signature: "root+m0+m1+m3|qaubvcdx"
         rules: ["mr0", "mr1", "mr3"]
   - word: qabcwdx
+    note: Independent affix combination mr2, mr3.
     parses:
       - signature: "root+m2+m3|qabcwdx"
         rules: ["mr2", "mr3"]
       - signature: "root+m2+m3|qabcwdx"
         rules: ["mr2", "mr3"]
   - word: qaubcwdx
+    note: Independent affix combination mr0, mr2, mr3.
     parses:
       - signature: "root+m0+m2+m3|qaubcwdx"
         rules: ["mr0", "mr2", "mr3"]
@@ -105,6 +119,7 @@ words:
       - signature: "root+m0+m2+m3|qaubcwdx"
         rules: ["mr0", "mr2", "mr3"]
   - word: qabvcwdx
+    note: Independent affix combination mr1, mr2, mr3.
     parses:
       - signature: "root+m1+m2+m3|qabvcwdx"
         rules: ["mr1", "mr2", "mr3"]
@@ -119,6 +134,7 @@ words:
       - signature: "root+m1+m2+m3|qabvcwdx"
         rules: ["mr1", "mr2", "mr3"]
   - word: qaubvcwdx
+    note: Independent affix combination mr0, mr1, mr2, mr3.
     parses:
       - signature: "root+m0+m1+m2+m3|qaubvcwdx"
         rules: ["mr0", "mr1", "mr2", "mr3"]
@@ -169,6 +185,8 @@ words:
       - signature: "root+m0+m1+m2+m3|qaubvcwdx"
         rules: ["mr0", "mr1", "mr2", "mr3"]
   - word: qaubvwcxd
+    note: Reject an insertion at an unattested site or in the wrong order.
     expect_fail: true
   - word: quabcd
+    note: Reject an insertion at an unattested site or in the wrong order.
     expect_fail: true

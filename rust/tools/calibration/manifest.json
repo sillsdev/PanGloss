@@ -1090,6 +1090,18 @@
     {
       "name": "stratum-diff-275",
       "file": "pairs/stratum-diff-275.json"
+    },
+    {
+      "name": "grammar-optional-slot",
+      "file": "pairs/grammar-optional-slot.json"
+    },
+    {
+      "name": "grammar-shorter-cascade",
+      "file": "pairs/grammar-shorter-cascade.json"
+    },
+    {
+      "name": "root-cache-off",
+      "file": "pairs/root-cache-off.json"
     }
   ]
 }
