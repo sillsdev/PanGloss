@@ -5,7 +5,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
-- At an ambiguous infix site the engine now picks the same site as C# HermitCrab (the greedy `any*` match) instead of the first vowel (#297). The cause was in matcher construction, not the result tiebreak: quantifier NFAs now carry C#'s arc priorities and insertion order, and the subset construction keeps C#'s epsilon-closure order, so the determinized matcher prefers the same branch. No analysis changed on the 240 in-repo grammars outside this case, and parse work fell 0.5% overall.
+- At an ambiguous infix site the engine now picks the same site as C# HermitCrab (the greedy `any*` match) instead of the first vowel (#297). The cause was in matcher construction, not the result tiebreak: quantifier NFAs now carry C#'s arc priorities and insertion order, and the subset construction keeps C#'s epsilon-closure order, so the determinized matcher prefers the same branch. Unbounded `{n,}` environments with `n` above zero chose the wrong site before this (14 of 175 differential cases, none now). No analysis changed on the in-repo grammars or the real grammars outside this case. Parse work is flat to lower on most grammars (amharic -56%, indonesian -22%, in-repo total -0.5%), but the nullable-copy fixture `adjacent-nullable-copies` costs 32% more instructions (`ttp`, `ptt`) because the NFA now has C#'s extra epsilons; its traversal arc visits stay at 61% of C#'s.
 
 ## 0.19.5
 

@@ -1,6 +1,6 @@
 # oracle-provenance: founding-oracle machine-source=4d9b454d (hc-conformance self-check, six identical runs; row values read with --propose)
 # Every row is what the C# engine does, not what a reader might expect: at an ambiguous infix site it applies the
-# rule at ONE place (see README.md). Do not "fix" the expect_fail rows.
+# rule at ONE place (see STAGING.md). Do not "fix" the expect_fail rows.
 
 language: InfixAmbiguousSite
 inspired_by: ["synthetic infix at an ambiguous site (not modeling any real language)"]

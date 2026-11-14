@@ -162,10 +162,16 @@ fn structural_commutation_keeps_uncertain_stratum_interactions() {
 
 #[test]
 fn structural_segment_interaction_keeps_both_orders() {
-    let xml = commuting_structural_xml(2).replace(
-        "<PhoneticShape>au</PhoneticShape>",
-        "<PhoneticShape>bu</PhoneticShape>",
-    );
+    // The inserted `b` lands before the stem's `b` and C# picks the greedy last one, so with the stem `qba` the two orders give qbvbu and qbbvu (checked on the C# oracle).
+    let xml = commuting_structural_xml(2)
+        .replace(
+            "<PhoneticShape>au</PhoneticShape>",
+            "<PhoneticShape>bu</PhoneticShape>",
+        )
+        .replace(
+            "<PhoneticShape>qab</PhoneticShape>",
+            "<PhoneticShape>qba</PhoneticShape>",
+        );
     let g = pg_grammar::load(&xml).unwrap();
     let (baseline, _, _) = structural_walk(&g, false);
     let (outputs, _, stats) = structural_walk(&g, true);

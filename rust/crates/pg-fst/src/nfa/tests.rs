@@ -19,3 +19,23 @@ fn mark_arc_priorities_preorder() {
     assert_eq!(nfa.states[0].arcs[1].priority, 2);
     assert_eq!(nfa.states[1].arcs[0].priority, 3);
 }
+
+/// `insert_arc` reproduces `ArcCollection.AddInternal` (BinarySearch with the reversed priority-type comparer, insert at the hit) across types.
+#[test]
+fn insert_arc_orders_across_priority_types_like_csharp() {
+    let mut nfa = Nfa::new();
+    let t: Vec<usize> = (0..6).map(|_| nfa.create_state()).collect();
+    // Low=2, Medium=1, High=0; targets named by add order a..f.
+    for (target, ptype) in [
+        (t[0], 2u8),
+        (t[1], 0),
+        (t[2], 1),
+        (t[3], 1),
+        (t[4], 0),
+        (t[5], 2),
+    ] {
+        nfa.add_epsilon_typed(nfa.start, target, ptype);
+    }
+    let order: Vec<usize> = nfa.states[0].arcs.iter().map(|a| a.target).collect();
+    assert_eq!(order, vec![t[5], t[0], t[3], t[2], t[4], t[1]]);
+}

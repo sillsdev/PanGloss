@@ -85,21 +85,13 @@ impl std::hash::Hash for SubsetState {
 
 // --- epsilon closure (Fst.cs:1141-1190) -------------------------------------------------------
 
-/// The closure's identity for an `Nsi`: C# `NfaStateInfo.Equals` is the NFA state plus the SET OF TAG KEYS (not their indices), so one NFA state reached with different tag sets stays two entries.
-type ClosureKey = (usize, Vec<i32>);
-
-fn closure_key(state: usize, tags: &BTreeMap<i32, i32>) -> ClosureKey {
-    (state, tags.keys().copied().collect())
-}
-
-/// C# `EpsilonClosure` (Fst.cs:1141-1190): keeps the highest-priority path per (state, tag-key set), seeds in order with the last of equal key winning; `index` stamps tag writes.
+/// C# `EpsilonClosure` (Fst.cs:1141-1190), keyed on the NFA state alone (outputs are empty in a matcher): keeps the highest-priority path per NFA state, seeds in order with the last of equal key winning; `index` stamps tag writes.
 fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
     let mut entries: Vec<Nsi> = Vec::new();
-    let mut slot: HashMap<ClosureKey, usize> = HashMap::new();
+    let mut slot: HashMap<usize, usize> = HashMap::new();
     let mut stack: Vec<Nsi> = Vec::new();
     for seed in seeds {
-        let key = closure_key(seed.state, &seed.tags);
-        match slot.entry(key) {
+        match slot.entry(seed.state) {
             std::collections::hash_map::Entry::Occupied(e) => entries[*e.get()] = seed.clone(),
             std::collections::hash_map::Entry::Vacant(e) => {
                 e.insert(entries.len());
@@ -116,7 +108,7 @@ fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
             }
             let new_max = arc.priority.max(top.max_priority);
             let new_last = arc.priority;
-            if let Some(&at) = slot.get(&closure_key(arc.target, &top.tags)) {
+            if let Some(&at) = slot.get(&arc.target) {
                 let temp = &entries[at];
                 if temp.max_priority < new_max {
                     continue;
@@ -135,7 +127,7 @@ fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
                 last_priority: new_last,
                 tags,
             };
-            match slot.entry(closure_key(nsi.state, &nsi.tags)) {
+            match slot.entry(nsi.state) {
                 std::collections::hash_map::Entry::Occupied(e) => entries[*e.get()] = nsi.clone(),
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(entries.len());

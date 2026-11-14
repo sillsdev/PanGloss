@@ -7,7 +7,7 @@
          parts, left = [any*] + left context, right = right context + [any*]; output Copy left, Insert, Copy right.
          mrAfter has only a left context (a vowel), so its right part is a bare any*. mrBefore has only a right
          context (a vowel), so its left part is a bare any*. The root "mime" has two vowels, so each infix has two
-         places it could go. The ambiguity is the point: see README.md. No phonological rules or features. -->
+         places it could go. The ambiguity is the point: see STAGING.md. No phonological rules or features. -->
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>

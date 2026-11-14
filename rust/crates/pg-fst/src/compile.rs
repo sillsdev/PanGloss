@@ -141,6 +141,7 @@ fn gen_quantifier(
     max: Option<u32>,
     children: &[CompileNode],
 ) -> usize {
+    // Every loader quantifier is greedy; a lazy one would need `Low` here (C# `IsGreedy`).
     const HIGH: u8 = 0;
     let mut start_states: Vec<usize> = Vec::new();
     let mut current = source;
@@ -182,3 +183,6 @@ fn gen_quantifier(
     }
     end
 }
+
+#[cfg(test)]
+mod tests;
