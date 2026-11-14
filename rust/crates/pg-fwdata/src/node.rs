@@ -24,7 +24,7 @@ pub struct Node {
     pub attrs: Vec<(Arc<str>, String)>,
     pub text: String,
     pub children: Vec<Node>,
-    /// Skipped at parse time; reading it panics instead of returning `None`.
+    /// Skipped at parse time, so `children`, `attrs` and `text` are empty. `child` and `children_named` panic on it; code that walks `children` directly must skip it or show it cannot matter (see `collect_refs`).
     pub pruned: bool,
 }
 

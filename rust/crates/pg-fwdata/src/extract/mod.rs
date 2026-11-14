@@ -462,7 +462,11 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
 
     use pg_snapshot::{InventoryKind, LoadDecisionDraft};
 
+    // Pruned lexicon fields hold no references to tracked phonology or morphology objects, which are the only targets read from `incoming`, so skipping them cannot change a decision.
     fn collect_refs(node: &crate::node::Node, out: &mut Vec<String>) {
+        if node.pruned {
+            return;
+        }
         if &*node.tag == "objsur" {
             if let Some(guid) = node.attr("guid") {
                 out.push(guid.to_string());

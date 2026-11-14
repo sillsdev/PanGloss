@@ -712,6 +712,29 @@ fn work_cap_unbounded_parses_and_batch_completes_ok() {
 }
 
 #[test]
+fn batch_stats_identity_for_fwdata_matches_the_full_import_fingerprint() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let xml = fs::read_to_string(&fixture).expect("read synthetic fixture");
+    let xml = xml.replace(
+        "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+        "guid=\"00000000-0000-0000-0000-000000000017\"",
+    );
+    let path = scratch_dir("stats-identity-fwdata").join("fixture.fwdata");
+    fs::write(&path, &xml).expect("write adjusted synthetic fixture");
+
+    let loaded = super::load_grammar_impl(&path.to_string_lossy(), false, true)
+        .unwrap_or_else(|e| panic!("fixture loads: {e}"));
+    let identity = loaded.stats_source_identity.expect("identity captured");
+    let (snapshot, _) = pg_fwdata::import_file(&path).expect("full import");
+    let expected =
+        super::stats_manifest::SourceIdentity::from_imported_snapshot(xml.as_bytes(), &snapshot)
+            .expect("full identity");
+    assert_eq!(identity.model_fingerprint, expected.model_fingerprint);
+    assert_eq!(identity.grammar_hash, expected.grammar_hash);
+}
+
+#[test]
 fn fwdata_load_keeps_structured_warnings_and_collapses_import_compile_duplicates() {
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../pg-fwdata/tests/data/fixture.fwdata");

@@ -634,8 +634,8 @@ pub(crate) fn load_grammar_capturing(
             } else {
                 None
             };
-            // Only the facts export, which passes a capture, reads the import-stage inventory.
-            let imported = if capture.is_some() {
+            // The facts export (a capture) and the stats manifest fingerprint the full snapshot, provenance included, so only a plain load goes lean.
+            let imported = if capture.is_some() || capture_stats_identity {
                 pg_fwdata::import_file(std::path::Path::new(path))
             } else {
                 pg_fwdata::import_file_lean(std::path::Path::new(path))

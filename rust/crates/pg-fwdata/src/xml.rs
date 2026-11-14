@@ -509,31 +509,32 @@ fn node_from_start(e: &BytesStart, names: &mut NameInterner) -> Result<Node, Imp
     })
 }
 
-/// Lexicon fields whose subtrees are skipped unparsed because no importer code reads them.
+/// Top-level fields of whole records whose subtrees are skipped unparsed because no importer code reads them. Nested fields are never pruned.
+const PRUNED_FIELDS: &[(&str, &str)] = &[
+    ("LexSense", "ImportResidue"),
+    ("LexSense", "GrammarNote"),
+    ("LexSense", "Examples"),
+    ("LexSense", "Exemplar"),
+    ("LexSense", "ScientificName"),
+    ("LexSense", "GeneralNote"),
+    ("LexEntry", "DateCreated"),
+    ("LexEntry", "DateModified"),
+    ("LexEntry", "DoNotUseForParsing"),
+    ("LexEntry", "HomographNumber"),
+    ("LexEntry", "Comment"),
+    ("LexEntry", "Etymology"),
+    ("LexEntry", "ImportResidue"),
+    ("LexEntryRef", "HideMinorEntry"),
+    ("LexEntryRef", "RefType"),
+    ("WfiWordform", "Checksum"),
+    ("WfiWordform", "SpellingStatus"),
+];
+
 fn pruned_field(class: &str, field: &str) -> bool {
-    matches!(
-        (class, field),
-        (
-            "LexSense",
-            "ImportResidue"
-                | "GrammarNote"
-                | "Examples"
-                | "Exemplar"
-                | "ScientificName"
-                | "GeneralNote"
-        ) | (
-            "LexEntry",
-            "DateCreated"
-                | "DateModified"
-                | "DoNotUseForParsing"
-                | "HomographNumber"
-                | "Comment"
-                | "Etymology"
-                | "ImportResidue"
-        ) | ("LexEntryRef", "HideMinorEntry" | "RefType")
-            | ("WfiWordform", "Checksum" | "SpellingStatus")
-    )
+    PRUNED_FIELDS.contains(&(class, field))
 }
 
+#[cfg(test)]
+mod prune_parity_tests;
 #[cfg(test)]
 mod tests;
