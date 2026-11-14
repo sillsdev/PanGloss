@@ -122,7 +122,18 @@ fn gen_node(nfa: &mut Nfa, source: usize, node: &CompileNode) -> usize {
     }
 }
 
-/// Compile a `{min,max}` quantifier: mandatory copies are concatenated, optional copies each get a skip epsilon to the shared exit, unbounded adds a back-epsilon loop.
+/// A quantifier body: the unnamed group the loaders wrap it in (C# `Group.GenerateNfa`), whose children end in one epsilon arc.
+fn gen_body(nfa: &mut Nfa, source: usize, children: &[CompileNode]) -> usize {
+    if children.is_empty() {
+        return source;
+    }
+    let end = gen_seq(nfa, source, children);
+    let next = nfa.create_state();
+    nfa.add_epsilon(end, next);
+    next
+}
+
+/// Compile a `{min,max}` quantifier as C# `Quantifier.GenerateNfa` does for a greedy one: High arc priority on the entry and loop arcs, Medium on the skip arcs.
 fn gen_quantifier(
     nfa: &mut Nfa,
     source: usize,
@@ -130,29 +141,48 @@ fn gen_quantifier(
     max: Option<u32>,
     children: &[CompileNode],
 ) -> usize {
-    let mut cur = source;
-    for _ in 0..min {
-        cur = gen_seq(nfa, cur, children);
+    // Every loader quantifier is greedy; a lazy one would need `Low` here (C# `IsGreedy`).
+    const HIGH: u8 = 0;
+    let mut start_states: Vec<usize> = Vec::new();
+    let mut current = source;
+    let mut end;
+    if min == 0 {
+        let s1 = nfa.create_state();
+        nfa.add_epsilon_typed(source, s1, HIGH);
+        end = gen_body(nfa, s1, children);
+        start_states.push(current);
+    } else {
+        end = source;
+        for _ in 0..min {
+            current = end;
+            end = gen_body(nfa, current, children);
+        }
     }
     match max {
         None => {
-            // Kleene tail: `cur` is both a possible exit and the loop entry; continuation arcs added after `cur` exit the loop.
-            let body_end = gen_seq(nfa, cur, children);
-            nfa.add_epsilon(body_end, cur);
-            cur
+            nfa.add_epsilon_typed(end, current, HIGH);
+            if min == 0 {
+                end = nfa.create_state();
+            }
         }
         Some(max) => {
-            let extra = max.saturating_sub(min);
-            if extra == 0 {
-                return cur;
+            let mut copies = i64::from(max) - i64::from(min);
+            if min == 0 {
+                copies -= 1;
             }
-            let exit = nfa.create_state();
-            for _ in 0..extra {
-                nfa.add_epsilon(cur, exit); // stop here (skip remaining optional copies)
-                cur = gen_seq(nfa, cur, children);
+            for _ in 0..copies.max(0) {
+                start_states.push(end);
+                let s = nfa.create_state();
+                nfa.add_epsilon_typed(end, s, HIGH);
+                end = gen_body(nfa, s, children);
             }
-            nfa.add_epsilon(cur, exit);
-            exit
         }
     }
+    for s in start_states {
+        nfa.add_epsilon(s, end);
+    }
+    end
 }
+
+#[cfg(test)]
+mod tests;

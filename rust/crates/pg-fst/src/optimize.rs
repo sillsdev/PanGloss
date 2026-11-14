@@ -85,31 +85,31 @@ impl std::hash::Hash for SubsetState {
 
 // --- epsilon closure (Fst.cs:1141-1190) -------------------------------------------------------
 
-/// Deterministically dedup seeds by state, keeping the highest-priority one (C#'s own order is nondeterministic here).
-fn dedup_seeds(mut seeds: Vec<Nsi>) -> HashMap<usize, Nsi> {
-    seeds.sort_by(nsi_cmp);
-    let mut map: HashMap<usize, Nsi> = HashMap::new();
-    for s in seeds {
-        map.entry(s.state).or_insert(s);
-    }
-    map
-}
-
-/// C# `EpsilonClosure`: expand epsilon arcs, keeping the highest-priority path to each state and recording tag writes at `index`.
+/// C# `EpsilonClosure` (Fst.cs:1141-1190), keyed on the NFA state alone (outputs are empty in a matcher): keeps the highest-priority path per NFA state, seeds in order with the last of equal key winning; `index` stamps tag writes.
 fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
-    let mut closure = dedup_seeds(seeds);
-    let mut stack: Vec<usize> = closure.keys().copied().collect();
+    let mut entries: Vec<Nsi> = Vec::new();
+    let mut slot: HashMap<usize, usize> = HashMap::new();
+    let mut stack: Vec<Nsi> = Vec::new();
+    for seed in seeds {
+        match slot.entry(seed.state) {
+            std::collections::hash_map::Entry::Occupied(e) => entries[*e.get()] = seed.clone(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(entries.len());
+                entries.push(seed.clone());
+            }
+        }
+        stack.push(seed);
+    }
 
-    while let Some(top_state) = stack.pop() {
-        let top = closure[&top_state].clone();
+    while let Some(top) = stack.pop() {
         for arc in &nfa.states[top.state].arcs {
             if !matches!(arc.input, ArcInput::Epsilon) {
                 continue;
             }
-            let new_state = arc.target;
             let new_max = arc.priority.max(top.max_priority);
             let new_last = arc.priority;
-            if let Some(temp) = closure.get(&new_state) {
+            if let Some(&at) = slot.get(&arc.target) {
+                let temp = &entries[at];
                 if temp.max_priority < new_max {
                     continue;
                 }
@@ -122,16 +122,22 @@ fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
                 tags.insert(arc.tag, index);
             }
             let nsi = Nsi {
-                state: new_state,
+                state: arc.target,
                 max_priority: new_max,
                 last_priority: new_last,
                 tags,
             };
-            closure.insert(new_state, nsi);
-            stack.push(new_state);
+            match slot.entry(nsi.state) {
+                std::collections::hash_map::Entry::Occupied(e) => entries[*e.get()] = nsi.clone(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(entries.len());
+                    entries.push(nsi.clone());
+                }
+            }
+            stack.push(nsi);
         }
     }
-    closure.into_values().collect()
+    entries
 }
 
 /// C# `GetFirstFreeIndex` (Fst.cs:1192-1201): max tag index in the subset, + 1.
@@ -202,8 +208,8 @@ impl<'n> Builder<'n> {
             .iter()
             .filter(|s| self.nfa.states[s.state].accepting)
             .collect();
-        // `orderby state descending` (by CompareTo), tie-break by state index for determinism.
-        accepting.sort_by(|a, b| nsi_cmp(b, a).then(a.state.cmp(&b.state)));
+        // `orderby state descending` (by CompareTo); the sort is stable, so ties keep subset order as in C#.
+        accepting.sort_by(|a, b| nsi_cmp(b, a));
 
         if accepting.is_empty() {
             self.states.push(BuildState {
@@ -376,9 +382,7 @@ fn deterministic_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, Ma
     // Group arcs by input FS (stable, state-index then arc order).
     let mut cond_keys: Vec<Vec<u64>> = Vec::new();
     let mut cond_map: HashMap<Vec<u64>, Vec<Nsi>> = HashMap::new();
-    let mut states_sorted: Vec<&Nsi> = from.states.iter().collect();
-    states_sorted.sort_by_key(|a| a.state);
-    for st in states_sorted {
+    for st in &from.states {
         for arc in &nfa.states[st.state].arcs {
             if let ArcInput::Fs(lanes) = &arc.input {
                 let key = canonicalize(lanes.clone());
@@ -449,10 +453,8 @@ fn deterministic_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, Ma
 /// C# `EpsilonRemovalGetArcs` (Fst.cs:775-799): each non-epsilon arc becomes one arc to the epsilon-closure of its target.
 fn epsilon_removal_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, MatchInput, i32)> {
     let mut out = Vec::new();
-    let mut states_sorted: Vec<&Nsi> = from.states.iter().collect();
-    states_sorted.sort_by_key(|a| a.state);
     let idx = get_first_free_index(from);
-    for q in states_sorted {
+    for q in &from.states {
         for arc in &nfa.states[q.state].arcs {
             if let ArcInput::Fs(lanes) = &arc.input {
                 let nsi = Nsi {

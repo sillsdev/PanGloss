@@ -27,6 +27,8 @@ pub struct NfaArc {
     pub target: usize,
     pub tag: i32,
     pub priority: i32,
+    /// C# `ArcPriorityType` (0 High, 1 Medium, 2 Low); orders the arcs of a state.
+    pub ptype: u8,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -93,31 +95,77 @@ impl Nfa {
     pub fn create_tag(&mut self, source: usize, group: &str, is_start: bool) -> usize {
         let tag = self.get_tag(group, is_start);
         let target = self.create_state();
-        self.states[source].arcs.push(NfaArc {
-            input: ArcInput::Epsilon,
-            target,
-            tag,
-            priority: -1,
-        });
+        self.insert_arc(
+            source,
+            NfaArc {
+                input: ArcInput::Epsilon,
+                target,
+                tag,
+                priority: -1,
+                ptype: 1,
+            },
+        );
         target
     }
 
+    /// C# `ArcCollection.AddInternal` (ArcCollection.cs:136): `List.BinarySearch` over arc priority type, inserting at the index it returns, which among equal types is not the end.
+    fn insert_arc(&mut self, source: usize, arc: NfaArc) {
+        let arcs = &mut self.states[source].arcs;
+        let key = arc.ptype;
+        let (mut lo, mut hi) = (0isize, arcs.len() as isize - 1);
+        let mut index = None;
+        while lo <= hi {
+            let i = lo + ((hi - lo) >> 1);
+            let a = arcs[i as usize].ptype;
+            match key.cmp(&a) {
+                std::cmp::Ordering::Equal => {
+                    index = Some(i as usize);
+                    break;
+                }
+                std::cmp::Ordering::Less => lo = i + 1,
+                std::cmp::Ordering::Greater => hi = i - 1,
+            }
+        }
+        arcs.insert(index.unwrap_or(lo as usize), arc);
+    }
+
+    pub fn add_epsilon_typed(&mut self, source: usize, target: usize, ptype: u8) {
+        self.insert_arc(
+            source,
+            NfaArc {
+                input: ArcInput::Epsilon,
+                target,
+                tag: -1,
+                priority: -1,
+                ptype,
+            },
+        );
+    }
+
     pub fn add_epsilon(&mut self, source: usize, target: usize) {
-        self.states[source].arcs.push(NfaArc {
-            input: ArcInput::Epsilon,
-            target,
-            tag: -1,
-            priority: -1,
-        });
+        self.insert_arc(
+            source,
+            NfaArc {
+                input: ArcInput::Epsilon,
+                target,
+                tag: -1,
+                priority: -1,
+                ptype: 1,
+            },
+        );
     }
 
     pub fn add_input(&mut self, source: usize, target: usize, lanes: Vec<u64>) {
-        self.states[source].arcs.push(NfaArc {
-            input: ArcInput::Fs(lanes),
-            target,
-            tag: -1,
-            priority: -1,
-        });
+        self.insert_arc(
+            source,
+            NfaArc {
+                input: ArcInput::Fs(lanes),
+                target,
+                tag: -1,
+                priority: -1,
+                ptype: 1,
+            },
+        );
     }
 
     /// Number of capture registers reserved by tags (C# `_nextTag`). This is the base of the
