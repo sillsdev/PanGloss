@@ -55,6 +55,7 @@ struct CachedWord {
     analyses: Vec<AnalysisOut>,
     /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
     #[serde(default)]
     word_mem_capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
@@ -76,6 +77,7 @@ struct TokenOut {
     analyses: Vec<AnalysisOut>,
     /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
     word_mem_capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
@@ -539,6 +541,7 @@ struct UnifiedAnalysisOut {
     analyses: Vec<(String, String)>,
     structured: Vec<StructuredAnalysisOut>,
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
     word_mem_capped: bool,
     invalid_shape: bool,
     timed_out: bool,
