@@ -24,14 +24,14 @@ fn malformed_attributes_are_rejected_but_valid_attributes_are_kept() {
 #[test]
 fn text_and_cdata_are_preserved() {
     let root = parse_full_document("<a>text<![CDATA[<raw>]]>tail</a>").unwrap();
-    assert_eq!(root.children[0].text, "text<raw>tail");
+    assert_eq!(&*root.children[0].text, "text<raw>tail");
 }
 
 #[test]
 fn comments_do_not_change_document_contents() {
     let root =
         parse_full_document("<!-- before --><a><!-- inside -->ok</a><!-- after -->").unwrap();
-    assert_eq!(root.children[0].text, "ok");
+    assert_eq!(&*root.children[0].text, "ok");
 }
 
 #[test]

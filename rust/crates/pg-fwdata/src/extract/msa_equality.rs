@@ -17,7 +17,7 @@ pub(super) fn equal_msas(ctx: &Ctx, msa_guids: &[&str]) -> Vec<EqualMsas> {
     let records: Vec<&Record> = msa_guids
         .iter()
         .filter_map(|guid| ctx.get(guid))
-        .filter(|rec| MSA_CLASSES.contains(&rec.class.as_str()))
+        .filter(|rec| MSA_CLASSES.contains(&rec.class))
         .collect();
     let mut out = Vec::new();
     for msa in &records {
@@ -25,11 +25,11 @@ pub(super) fn equal_msas(ctx: &Ctx, msa_guids: &[&str]) -> Vec<EqualMsas> {
             .iter()
             .filter(|candidate| candidate.guid != msa.guid && candidate.class == msa.class)
             .filter(|candidate| equals_msa(ctx, candidate, msa))
-            .map(|candidate| candidate.guid.clone())
+            .map(|candidate| candidate.guid.to_string())
             .collect();
         if !equal_to.is_empty() {
             out.push(EqualMsas {
-                msa: msa.guid.clone(),
+                msa: msa.guid.to_string(),
                 equal_to,
             });
         }
@@ -44,7 +44,7 @@ fn equals_msa(ctx: &Ctx, this: &Record, other: &Record) -> bool {
     }
     let t = &this.node;
     let o = &other.node;
-    match this.class.as_str() {
+    match this.class {
         // MoStemMsa.EqualsMsa: slots, stratum and the other clitic-only properties are not compared.
         "MoStemMsa" => {
             same_ref(o, t, "PartOfSpeech")
@@ -152,7 +152,7 @@ fn fs_is_empty(ctx: &Ctx, fs: &Record) -> bool {
 
 /// `this.IsEquivalent(other)` for an `IFsAbstractStructure`, dispatched on `this`'s class.
 fn abstract_is_equivalent(ctx: &Ctx, this: &Record, other: Option<&Record>) -> bool {
-    match this.class.as_str() {
+    match this.class {
         "FsFeatStruc" => fs_is_equivalent(ctx, this, other),
         "FsFeatStrucDisj" => disj_is_equivalent(ctx, this, other),
         _ => other.is_some_and(|other| other.class == this.class),
@@ -215,7 +215,7 @@ fn spec_is_equivalent(ctx: &Ctx, this: &Record, other: &Record) -> bool {
     {
         return false;
     }
-    match this.class.as_str() {
+    match this.class {
         "FsClosedValue" | "FsNegatedValue" | "FsSharedValue" => same_ref(o, t, "Value"),
         // FsComplexValue: `otherValue.IsEquivalent(thisValue)`, the receiver swapped.
         "FsComplexValue" => match (owned(ctx, o, "Value"), owned(ctx, t, "Value")) {

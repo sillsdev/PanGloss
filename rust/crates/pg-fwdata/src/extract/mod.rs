@@ -97,9 +97,9 @@ impl<'a> Ctx<'a> {
 
     pub(crate) fn subject_for_record(&self, record: &Record, field: Option<&str>) -> FwObjectRef {
         let name = record_name(record, self);
-        let mut subject = FwObjectRef::new(FwClass::from_wire(&record.class))
-            .guid(record.guid.clone())
-            .source_class(record.class.clone());
+        let mut subject = FwObjectRef::new(FwClass::from_wire(record.class))
+            .guid(record.guid.to_string())
+            .source_class(record.class);
         if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
             subject = subject.name(name);
         }
@@ -338,7 +338,7 @@ fn record_name(record: &Record, ctx: &Ctx<'_>) -> Option<String> {
             return Some(name);
         }
     }
-    let fields = match record.class.as_str() {
+    let fields = match record.class {
         "LexEntry" => ["CitationForm", "Name", "Abbreviation"],
         "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess" | "MoForm" => {
             ["Form", "Name", "CitationForm"]
@@ -483,9 +483,6 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
 
     // Pruned lexicon fields hold no references to tracked phonology or morphology objects, which are the only targets read from `incoming`, so skipping them cannot change a decision.
     fn collect_refs(node: &crate::node::Node, out: &mut Vec<String>) {
-        if node.pruned {
-            return;
-        }
         if &*node.tag == "objsur" {
             if let Some(guid) = node.attr("guid") {
                 out.push(guid.to_string());
@@ -506,7 +503,7 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
             incoming
                 .entry(target)
                 .or_default()
-                .push((owner.class.clone(), owner.guid.clone()));
+                .push((owner.class.to_string(), owner.guid.to_string()));
         }
     }
     for owners in incoming.values_mut() {
@@ -516,7 +513,7 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
 
     let mut disabled_rule_targets = BTreeMap::<String, Vec<String>>::new();
     for rule in ctx.graph.records.values().filter(|record| {
-        matches!(record.class.as_str(), "PhRegularRule" | "PhMetathesisRule")
+        matches!(record.class, "PhRegularRule" | "PhMetathesisRule")
             && record.node.val_bool("Disabled").unwrap_or(false)
     }) {
         let mut pending = Vec::new();
@@ -527,7 +524,7 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
                 continue;
             }
             if ctx.graph.get(&target).is_some_and(|record| {
-                inventory::tracked_kind(&record.class).is_some_and(|kind| {
+                inventory::tracked_kind(record.class).is_some_and(|kind| {
                     matches!(
                         kind,
                         InventoryKind::PhonologicalContext | InventoryKind::RuleFeature
@@ -537,10 +534,10 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
                 disabled_rule_targets
                     .entry(target.clone())
                     .or_default()
-                    .push(rule.guid.clone());
+                    .push(rule.guid.to_string());
             }
             if ctx.graph.get(&target).is_some_and(|record| {
-                inventory::tracked_kind(&record.class) == Some(InventoryKind::PhonologicalContext)
+                inventory::tracked_kind(record.class) == Some(InventoryKind::PhonologicalContext)
             }) {
                 if let Some(record) = ctx.graph.get(&target) {
                     collect_refs(&record.node, &mut pending);
@@ -557,17 +554,17 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
         .graph
         .records
         .values()
-        .filter_map(|record| inventory::tracked_kind(&record.class).map(|kind| (kind, record)))
+        .filter_map(|record| inventory::tracked_kind(record.class).map(|kind| (kind, record)))
         .collect();
     records.sort_by(|(left_kind, left), (right_kind, right)| {
-        (left_kind, left.guid.as_str()).cmp(&(right_kind, right.guid.as_str()))
+        (left_kind, &*left.guid).cmp(&(right_kind, &*right.guid))
     });
 
     for (guid, rule_guids) in &disabled_rule_targets {
         let Some(record) = ctx.graph.get(guid) else {
             continue;
         };
-        let Some(kind) = inventory::tracked_kind(&record.class) else {
+        let Some(kind) = inventory::tracked_kind(record.class) else {
             continue;
         };
         ctx.considered(InventoryKey::object(kind, guid.clone()));
@@ -590,12 +587,12 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
         ) {
             continue;
         }
-        let key = InventoryKey::object(kind, record.guid.clone());
+        let key = InventoryKey::object(kind, record.guid.to_string());
         if ctx.has_load_decision(&key, LoadPipelineStage::Import) {
             continue;
         }
 
-        let owners = incoming.get(&record.guid).cloned().unwrap_or_default();
+        let owners = incoming.get(&*record.guid).cloned().unwrap_or_default();
         match kind {
             InventoryKind::FeatureStructure if !owners.is_empty() => {
                 ctx.recorder.record_load_decision(LoadDecisionDraft {

@@ -451,7 +451,7 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Co
     let disabled = rec.node.val_bool("Disabled").unwrap_or(false);
     let label = "morphology.compoundRules";
     let key = InventoryKey::object(InventoryKind::CompoundRule, guid.to_string());
-    match rec.class.as_str() {
+    match rec.class {
         "MoEndoCompound" => {
             ctx.considered(key.clone());
             ctx.selected(key.clone());
@@ -560,7 +560,7 @@ fn record_compound_side_attachment(
 ) {
     let key = InventoryKey::attachment(
         InventoryKind::Msa,
-        owner.guid.clone(),
+        owner.guid.to_string(),
         target_guid.to_string(),
         role.to_string(),
     );
@@ -668,12 +668,7 @@ pub(super) fn extract_adhoc_prohibitions(
         .graph
         .records
         .values()
-        .filter(|record| {
-            matches!(
-                record.class.as_str(),
-                "MoMorphAdhocProhib" | "MoAlloAdhocProhib"
-            )
-        })
+        .filter(|record| matches!(record.class, "MoMorphAdhocProhib" | "MoAlloAdhocProhib"))
         .collect();
     rules.sort_by(|left, right| left.guid.cmp(&right.guid));
     rules
@@ -692,7 +687,7 @@ fn extract_adhoc_prohibition_groups(ctx: &Ctx) -> Vec<AdhocProhibitionGroup> {
             members.sort();
             members.dedup();
             AdhocProhibitionGroup {
-                guid: group.guid.clone(),
+                guid: group.guid.to_string(),
                 name: group.node.ws_forms("Name"),
                 description: group.node.ws_forms("Description"),
                 members,
@@ -707,7 +702,7 @@ fn validate_adhoc_prohibition_references(ctx: &mut Ctx, owner: &Record, field: &
         match ctx.get(&guid) {
             Some(record)
                 if matches!(
-                    record.class.as_str(),
+                    record.class,
                     "MoAdhocProhibGr" | "MoMorphAdhocProhib" | "MoAlloAdhocProhib"
                 ) => {}
             Some(record) => {
@@ -765,7 +760,7 @@ fn extract_adhoc_prohibition(
             Adjacency::Anywhere
         }
     };
-    match rec.class.as_str() {
+    match rec.class {
         "MoAlloAdhocProhib" => {
             let primary = rec.node.objsur_one("FirstAllomorph")?;
             let others = rec.node.objsur_list("RestOfAllos");
@@ -961,7 +956,7 @@ fn extract_exception_features(
 
 fn exception_feature(ctx: &mut Ctx, rec: &Record) -> ExceptionFeature {
     ExceptionFeature {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         abbreviation: ctx.best_analysis(&rec.node.ws_forms("Abbreviation")),
     }
@@ -993,7 +988,7 @@ fn extract_lex_entry_infl_types(ctx: &mut Ctx, lex_db: &Record) -> Vec<LexEntryI
 }
 
 fn lex_entry_infl_type(ctx: &mut Ctx, rec: &Record) -> Option<LexEntryInflType> {
-    let key = InventoryKey::object(InventoryKind::RuleFeature, rec.guid.clone());
+    let key = InventoryKey::object(InventoryKind::RuleFeature, rec.guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
     let inflection_features = rec
@@ -1004,7 +999,7 @@ fn lex_entry_infl_type(ctx: &mut Ctx, rec: &Record) -> Option<LexEntryInflType> 
         })
         .filter(|fs| !fs.values.is_empty());
     let result = LexEntryInflType {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         abbreviation: ctx.best_analysis(&rec.node.ws_forms("Abbreviation")),
         gloss_prepend: ctx.best_analysis(&rec.node.ws_forms("GlossPrepend")),
