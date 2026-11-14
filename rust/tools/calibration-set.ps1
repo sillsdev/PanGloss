@@ -20,6 +20,7 @@
   allocations column. -ReuseSaved takes the rows an interrupted run left under -SaveDir. -ReportOnly <reason> stores a pair that is shown but gates nothing
   (a change whose counters cannot move, such as a constant-factor edit). Future pairs (#299's NFA change) are added the same way. -Score then scores each pair: the change of every family's total
   the weights predict against the change measured, in percentage points, and whether the sign agrees.
+  For a grammar edit, -Only selects one word list and -AfterGrammar supplies its edited grammar; both grammar hashes are recorded.
 
   -RealTotals writes real-grammar-totals.json from local word-free counts files that carry the allocations column. Real words are never stored.
 
@@ -47,6 +48,7 @@ param(
     [Parameter(ParameterSetName = 'Pair')][string]$AfterLabel = 'after',
     [Parameter(ParameterSetName = 'Pair')][string]$BeforeCommit = '',
     [Parameter(ParameterSetName = 'Pair')][string]$AfterCommit = '',
+    [Parameter(ParameterSetName = 'Pair')][string]$AfterGrammar = '',
     [Parameter(ParameterSetName = 'Pair')][string]$PairNote = '',
     [Parameter(ParameterSetName = 'Pair')][switch]$ReuseSaved,
     [Parameter(ParameterSetName = 'Pair')][string]$ReportOnly = '',
@@ -231,11 +233,16 @@ if ($MeasurePair) {
     if (-not $PairName -or $PairName -notmatch '^[a-z0-9][a-z0-9-]*$') { throw '-PairName is lowercase letters, digits and dashes' }
     $BeforeExe = (Resolve-Path -LiteralPath $BeforeExe).Path
     $AfterExe = (Resolve-Path -LiteralPath $AfterExe).Path
-    if ($BeforeExe -eq $AfterExe -and $bEnv.Count -eq 0 -and $aEnv.Count -eq 0) { throw 'a pair needs two builds or two environments: the same binary with the same environment cannot change' }
+    if ($AfterGrammar -and $sets.Count -ne 1) { throw '-AfterGrammar requires -Only to select exactly one word list' }
+    if ($AfterGrammar -and $ReuseSaved) { throw '-AfterGrammar cannot reuse saved rows: their grammar provenance is not recorded' }
+    if ($AfterGrammar) { $AfterGrammar = (Resolve-Path -LiteralPath $AfterGrammar).Path }
+    if ($BeforeExe -eq $AfterExe -and $bEnv.Count -eq 0 -and $aEnv.Count -eq 0 -and -not $AfterGrammar) { throw 'a pair needs two builds, environments or grammars' }
     $lists = @()
     foreach ($s in $sets) {
         Write-Host "pair $PairName : $($s.Name)"
         $g = Resolve-Grammar $s
+        $afterG = if ($AfterGrammar) { [PSCustomObject]@{ Path = $AfterGrammar; Sha = (Get-FileHash -LiteralPath $AfterGrammar -Algorithm SHA256).Hash.ToLowerInvariant() } } else { $g }
+        if ($AfterGrammar -and $g.Sha -eq $afterG.Sha) { throw '-AfterGrammar must differ from the pinned grammar' }
         $savedB = if ($SaveDir) { Join-Path $SaveDir "$PairName.$($s.Name).before.tsv" } else { $null }
         $savedA = if ($SaveDir) { Join-Path $SaveDir "$PairName.$($s.Name).after.tsv" } else { $null }
         if ($ReuseSaved -and $SaveDir -and (Test-Path -LiteralPath $savedB) -and (Test-Path -LiteralPath $savedA)) {
@@ -244,7 +251,7 @@ if ($MeasurePair) {
             $a = [PSCustomObject]@{ Rows = @(Read-CountsFile $savedA) }
         } else {
             $b = Measure-Set $BeforeExe $s $g $bEnv "$($s.Name).before"
-            $a = Measure-Set $AfterExe $s $g $aEnv "$($s.Name).after"
+            $a = Measure-Set $AfterExe $s $afterG $aEnv "$($s.Name).after"
         }
         if ($SaveDir) {
             [IO.File]::WriteAllLines((Join-Path $SaveDir "$PairName.$($s.Name).before.tsv"), [string[]]@($b.Rows | ForEach-Object { "{0}`t{1}`t{2}`t{3}`t{4}`t{5}" -f $_.Idx, $_.Work, $_.Bytes, $_.Registers, $_.Allocations, $_.Instructions }))
@@ -261,6 +268,7 @@ if ($MeasurePair) {
         collect = 'cost-calibrate --counts-out counters and callgrind instructions inside cost_calibrate::parse_one; totals over the words both sides parsed that reach the work floor on either side; no word text'
         families = @(New-PairFamilies -Lists $lists)
     }
+    if ($AfterGrammar) { $doc['grammar'] = [ordered]@{ family = $sets[0].Family; beforeSha256 = $g.Sha; afterSha256 = $afterG.Sha } }
     $pairDir = Join-Path $Dir 'pairs'
     New-Item -ItemType Directory -Force -Path $pairDir | Out-Null
     [IO.File]::WriteAllText((Join-Path $pairDir "$PairName.json"), ($doc | ConvertTo-Json -Depth 6) + "`n")
