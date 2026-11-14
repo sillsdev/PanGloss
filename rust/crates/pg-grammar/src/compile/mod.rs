@@ -306,7 +306,7 @@ fn compile_project_inner(
     })
 }
 
-/// What [`compile_project_recording`] yields: the grammar, recording seams, and owner-published warning subjects.
+/// What `compile_project_recording_with` yields: the grammar, recording seams, and owner-published warning subjects.
 pub(crate) type CompiledProject = (
     Grammar,
     SelectionRecorder,
