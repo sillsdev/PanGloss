@@ -119,8 +119,8 @@ fn resolve_morph_type(
             IssueClass::UnrepresentableForHc,
             false,
             Some(SourceRef {
-                kind: pg_snapshot::FwClass::from_wire(&rec.class),
-                id: rec.guid.clone(),
+                kind: pg_snapshot::FwClass::from_wire(rec.class),
+                id: rec.guid.to_string(),
             }),
             warning,
         );
@@ -146,8 +146,8 @@ fn resolve_morph_type(
                 IssueClass::UnrepresentableForHc,
                 false,
                 Some(SourceRef {
-                    kind: pg_snapshot::FwClass::from_wire(&rec.class),
-                    id: rec.guid.clone(),
+                    kind: pg_snapshot::FwClass::from_wire(rec.class),
+                    id: rec.guid.to_string(),
                 }),
                 warning,
             );
@@ -160,7 +160,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str, owner: &Record, field: &str) -> 
     let label = "lexicon.entries.allomorphs";
     let rec = ctx.get(guid)?;
     if !matches!(
-        rec.class.as_str(),
+        rec.class,
         "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess"
     ) {
         ctx.warn_with_subjects(
@@ -174,7 +174,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str, owner: &Record, field: &str) -> 
         );
         return None;
     }
-    let kind = tracked_kind(&rec.class)?;
+    let kind = tracked_kind(rec.class)?;
     let key = InventoryKey::object(kind, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
@@ -238,7 +238,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str, owner: &Record, field: &str) -> 
 fn record_environment_attachment(ctx: &mut Ctx, allomorph: &Record, env_guid: &str) {
     let attachment = InventoryKey::attachment(
         InventoryKind::Environment,
-        allomorph.guid.clone(),
+        allomorph.guid.to_string(),
         env_guid.to_string(),
         "environment",
     );
@@ -334,7 +334,7 @@ fn extract_rule_mapping(
             }
         }
     };
-    match rec.class.as_str() {
+    match rec.class {
         "MoInsertNC" => {
             let natural_class = rec.node.objsur_one("Content")?;
             Some(RuleMapping::InsertNaturalClass { natural_class })
@@ -358,10 +358,7 @@ fn extract_rule_mapping(
                         let mut subjects = vec![ctx.subject_for_record(rec, Some("Content"))];
                         match ctx.get(&term_guid) {
                             Some(target)
-                                if matches!(
-                                    target.class.as_str(),
-                                    "PhPhoneme" | "PhBdryMarker"
-                                ) =>
+                                if matches!(target.class, "PhPhoneme" | "PhBdryMarker") =>
                             {
                                 subjects.push(ctx.subject_for_record(target, Some("Content")));
                             }
@@ -421,12 +418,12 @@ fn extract_rule_mapping(
 fn extract_msa(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Msa> {
     let label = "lexicon.entries.msas";
     let rec = ctx.get(guid)?;
-    let key = tracked_kind(&rec.class).map(|kind| InventoryKey::object(kind, guid.to_string()));
+    let key = tracked_kind(rec.class).map(|kind| InventoryKey::object(kind, guid.to_string()));
     if let Some(key) = &key {
         ctx.considered(key.clone());
         ctx.selected(key.clone());
     }
-    let msa = match rec.class.as_str() {
+    let msa = match rec.class {
         "MoStemMsa" => {
             let features = rec
                 .node

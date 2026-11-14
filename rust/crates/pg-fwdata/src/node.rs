@@ -1,4 +1,4 @@
-//! A tiny read-only DOM for a single `.fwdata` `<rt>` record; we never DOM the whole 54MB document (see `crate::xml`), building a `Node` tree for one `<rt>` element at a time and dropping it once extracted.
+//! Compact read-only trees for retained `.fwdata` records, built by `crate::xml` for extraction.
 
 use std::sync::Arc;
 
@@ -17,27 +17,84 @@ impl std::fmt::Display for DocumentError {
 
 impl std::error::Error for DocumentError {}
 
-/// A generic element node: tag name, attributes, direct text, and child elements, enough to represent the handful of `.fwdata` field shapes this crate cares about.
-#[derive(Debug, Clone, Default)]
+/// Set on a record's root node, whose `tag` is the record class.
+pub(crate) const FLAG_RECORD_ROOT: u8 = 1;
+/// Set on every node built by the record parser, whose attributes are limited to `KEPT_ATTRIBUTES`.
+pub(crate) const FLAG_ATTRS_FILTERED: u8 = 2;
+
+/// Attribute names the importer ever reads from a record's elements (`val`, `guid` and `ws`); every other attribute is validated and dropped at parse time.
+pub(crate) const KEPT_ATTRIBUTES: &[&str] = &["val", "guid", "ws"];
+
+pub(crate) type Attr = (Arc<str>, Box<str>);
+
+/// A generic element node: tag name, attributes, direct text, and child elements, enough to represent the handful of `.fwdata` field shapes this crate cares about. Every collection is an exactly sized boxed slice.
+#[derive(Debug, Clone)]
 pub struct Node {
     pub tag: Arc<str>,
-    pub attrs: Vec<(Arc<str>, String)>,
+    pub attrs: Box<[Attr]>,
+    pub text: Box<str>,
+    pub children: Box<[Node]>,
+    pub(crate) flags: u8,
+}
+
+impl Default for Node {
+    fn default() -> Self {
+        Node::empty()
+    }
+}
+
+/// An element under construction.
+#[derive(Default)]
+pub(crate) struct NodeBuilder {
+    pub tag: Option<Arc<str>>,
+    pub attrs: Vec<Attr>,
     pub text: String,
     pub children: Vec<Node>,
-    /// Skipped at parse time, so `children`, `attrs` and `text` are empty. `child` and `children_named` panic on it; code that walks `children` directly must skip it or show it cannot matter (see `collect_refs`).
-    pub pruned: bool,
+}
+
+impl NodeBuilder {
+    pub(crate) fn finish(self) -> Node {
+        Node {
+            tag: self.tag.unwrap_or_else(|| Arc::from("")),
+            attrs: self.attrs.into_boxed_slice(),
+            text: self.text.into_boxed_str(),
+            children: self.children.into_boxed_slice(),
+            flags: 0,
+        }
+    }
 }
 
 impl Node {
     pub fn empty() -> Self {
-        Node::default()
+        Node {
+            tag: Arc::from(""),
+            attrs: Box::new([]),
+            text: "".into(),
+            children: Box::new([]),
+            flags: 0,
+        }
+    }
+
+    /// The root of one `<rt>` record of `class`.
+    pub(crate) fn record_root(class: Arc<str>, text: Box<str>, children: Box<[Node]>) -> Self {
+        Node {
+            tag: class,
+            attrs: Box::new([]),
+            text,
+            children,
+            flags: FLAG_RECORD_ROOT | FLAG_ATTRS_FILTERED,
+        }
     }
 
     pub fn attr(&self, name: &str) -> Option<&str> {
+        assert!(
+            self.flags & FLAG_ATTRS_FILTERED == 0 || KEPT_ATTRIBUTES.contains(&name),
+            "attribute `{name}` is dropped at parse time because no importer code reads it; add it to `node::KEPT_ATTRIBUTES` before reading it"
+        );
         self.attrs
             .iter()
             .find(|(k, _)| &**k == name)
-            .map(|(_, v)| v.as_str())
+            .map(|(_, v)| &**v)
     }
 
     pub fn child<'a>(&'a self, tag: &'a str) -> Option<&'a Node> {
@@ -45,13 +102,12 @@ impl Node {
     }
 
     pub fn children_named<'a>(&'a self, tag: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
-        self.children.iter().filter(move |c| &*c.tag == tag).inspect(|c| {
-            assert!(
-                !c.pruned,
-                "field `{}` was pruned at parse time because no importer code read it; remove it from `xml::pruned_field` before reading it",
-                c.tag
-            );
-        })
+        assert!(
+            self.flags & FLAG_RECORD_ROOT == 0 || !crate::xml::pruned_field(&self.tag, tag),
+            "field `{tag}` of `{}` is skipped at parse time because no importer code read it; remove it from `xml::pruned_field` before reading it",
+            self.tag
+        );
+        self.children.iter().filter(move |c| &*c.tag == tag)
     }
 
     /// Tolerant boolean parse of a `val="..."` attribute: FieldWorks data mixes `"True"`/`"False"` and lowercase `"true"`, so both cases plus `"1"`/`"0"` are accepted.
@@ -101,7 +157,7 @@ impl Node {
             .filter_map(|child| match &*child.tag {
                 "AUni" => Some(WsForm {
                     ws: child.attr("ws")?.to_string(),
-                    form: child.text.clone(),
+                    form: child.text.to_string(),
                 }),
                 "AStr" => Some(WsForm {
                     ws: child.attr("ws")?.to_string(),
@@ -114,7 +170,7 @@ impl Node {
 
     /// `<Tag><Uni>plain text</Uni></Tag>` — a single plain-text field with no writing-system tagging.
     pub fn uni_text(&self, tag: &str) -> Option<String> {
-        Some(self.child(tag)?.child("Uni")?.text.clone())
+        Some(self.child(tag)?.child("Uni")?.text.to_string())
     }
 
     /// `<Tag><Str><Run ws="en">text</Run>...</Str></Tag>` — a single rich-text field collapsed to plain text.
@@ -148,7 +204,7 @@ fn document_error(message: impl Into<String>) -> DocumentError {
     DocumentError(message.into())
 }
 
-fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node, DocumentError> {
+fn builder_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<NodeBuilder, DocumentError> {
     let tag = Arc::from(String::from_utf8_lossy(e.local_name().as_ref()).as_ref());
     let mut attrs = Vec::new();
     for attr in e.attributes() {
@@ -157,15 +213,15 @@ fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node, Docume
         let value = attr
             .unescape_value()
             .map_err(|error| document_error(error.to_string()))?
-            .into_owned();
+            .into_owned()
+            .into_boxed_str();
         attrs.push((key, value));
     }
-    Ok(Node {
-        tag,
+    Ok(NodeBuilder {
+        tag: Some(tag),
         attrs,
         text: String::new(),
         children: Vec::new(),
-        pruned: false,
     })
 }
 
@@ -174,7 +230,7 @@ pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
     reader.config_mut().check_comments = true;
-    let mut stack: Vec<Node> = vec![Node::empty()];
+    let mut stack: Vec<NodeBuilder> = vec![NodeBuilder::default()];
     loop {
         let event = reader
             .read_event()
@@ -184,13 +240,13 @@ pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
                 if stack.len() == 1 && stack[0].children.len() == 1 {
                     return Err(document_error("multiple root elements"));
                 }
-                stack.push(node_from_start(&e)?);
+                stack.push(builder_from_start(&e)?);
             }
             Event::Empty(e) => {
                 if stack.len() == 1 && stack[0].children.len() == 1 {
                     return Err(document_error("multiple root elements"));
                 }
-                let node = node_from_start(&e)?;
+                let node = builder_from_start(&e)?.finish();
                 stack
                     .last_mut()
                     .ok_or_else(|| document_error("parser stack is empty"))?
@@ -228,7 +284,8 @@ pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
                 }
                 let node = stack
                     .pop()
-                    .ok_or_else(|| document_error("parser stack is empty"))?;
+                    .ok_or_else(|| document_error("parser stack is empty"))?
+                    .finish();
                 if node.tag.as_bytes() != end.local_name().as_ref() {
                     return Err(document_error(format!(
                         "closing tag {:?} does not match {:?}",
@@ -253,6 +310,7 @@ pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
                 }
                 return stack
                     .pop()
+                    .map(NodeBuilder::finish)
                     .ok_or_else(|| document_error("parser stack is empty"));
             }
             Event::Comment(_) | Event::Decl(_) | Event::PI(_) => {}
