@@ -15,6 +15,22 @@ fn ws(ws: &str, form: &str) -> WsForm {
     }
 }
 
+#[test]
+fn streaming_grammar_hash_matches_pretty_json_digest() {
+    use sha2::{Digest, Sha256};
+    let mut escaped = sample_snapshot();
+    escaped.project.name = "quotes \" slash \\ newline\n\u{2603}".into();
+    let fixture = Snapshot::from_json(include_str!(
+        "../../../../../docs/formats/examples/trace-details-v2-sample.snapshot.json"
+    ))
+    .unwrap();
+    for snapshot in [sample_snapshot(), escaped, fixture] {
+        let json = serde_json::to_string_pretty(&GrammarHashInput::from(&snapshot)).unwrap();
+        let expected = format!("{:x}", Sha256::digest(json.as_bytes()));
+        assert_eq!(snapshot.grammar_hash(), expected);
+    }
+}
+
 /// A small but structurally rich snapshot: one closed feature, one phoneme, one POS, one lex entry with a stem MSA and a sense referencing it.
 fn sample_snapshot() -> Snapshot {
     let noun_pos_guid = "11111111-1111-1111-1111-111111111111".to_string();
