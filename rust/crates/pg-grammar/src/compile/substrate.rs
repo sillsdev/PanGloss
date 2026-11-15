@@ -8,7 +8,7 @@ use pg_snapshot::{ConversionIssue, FwClass, ImportWarningCode, IssueClass, Sourc
 use crate::chardef::{CharDefKind, CharDefTable, RawCharDef};
 use crate::featsys::PhonFeatureSystem;
 use crate::nfd::nfd;
-use crate::segment::segment;
+use crate::segment::segment_load as segment;
 
 use super::chardef::RawCharDefBuild;
 use super::issues::{InferenceEvidence, InferredChar, SubstrateReport};

@@ -1,6 +1,56 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
+#[test]
+fn name_interner_has_a_bounded_lookup() {
+    let mut names = NameInterner::default();
+    let first = names.intern(b"shared");
+    assert!(Rc::ptr_eq(&first, &names.intern(b"shared")));
+    for i in 0..20_000 {
+        names.intern(format!("unique-{i}").as_bytes());
+    }
+    assert!(names.accounted_bytes <= 1024 * 1024);
+    let after_limit = names.intern(b"new-after-limit");
+    assert!(!Rc::ptr_eq(&after_limit, &names.intern(b"new-after-limit")));
+}
+
+#[test]
+fn phonology_ranges_preserve_bom_and_multiple_outer_elements() {
+    let xml = "\u{feff}<HermitCrabInput><Language><CharacterDefinitionTable id=\"one\"/></Language><Language><CharacterDefinitionTable id=\"two\"/></Language></HermitCrabInput>";
+    let (_, spans) = parse_document(xml).unwrap();
+    let replay: String = spans.ranges.iter().map(|&(a, b)| &xml[a..b]).collect();
+    let whole = load_char_def_table_from_xml(xml).unwrap();
+    let sliced = load_char_def_table_from_xml(&replay).unwrap();
+    let ids = |p: &GrammarPhonology| {
+        p.tables()
+            .iter()
+            .map(|t| t.xml_id().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&whole), ["one", "two"]);
+    assert_eq!(ids(&whole), ids(&sliced));
+}
+
+#[test]
+fn unfinished_phonology_reports_the_original_reader_error() {
+    let xml = "<HermitCrabInput><Language><CharacterDefinitionTable id=\"t\">";
+    let expected = match load_char_def_table_from_xml(xml) {
+        Err(error) => error.to_string(),
+        Ok(_) => panic!("expected phonology error"),
+    };
+    assert_eq!(load(xml).unwrap_err().to_string(), expected);
+}
+
+#[test]
+fn phonology_error_precedes_dom_error() {
+    let xml = "<HermitCrabInput><Language><CharacterDefinitionTable id=\"t\"><bad></CharacterDefinitionTable></Language></HermitCrabInput>";
+    let expected = match load_char_def_table_from_xml(xml) {
+        Err(error) => error.to_string(),
+        Ok(_) => panic!("expected phonology error"),
+    };
+    assert_eq!(load(xml).unwrap_err().to_string(), expected);
+}
+
 /// Same self-skipping corpus-file locator as the lib.rs segmentation tests: `*-hc.xml` grammars are untracked local corpus files. Returns `None` if absent so callers self-skip.
 fn sample_path(name: &str) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));

@@ -489,7 +489,7 @@ fn nodes_from_spanned(
             }
             Some(_) => {
                 let text = tok.trim();
-                let shape = crate::segment::segment_phonemes_only(ctx.table, text)
+                let shape = crate::segment::segment_phonemes_only_load(ctx.table, text)
                     .map_err(|e| e.to_string())?;
                 out.push(PatternNode::Segments {
                     table: ctx.table_id,

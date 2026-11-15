@@ -142,6 +142,83 @@ pub fn segment_phonemes_only(table: &CharDefTable, word: &str) -> Result<Shape, 
     Ok(builder.finish())
 }
 
+/// NFD form of `word`, borrowed when it already is NFD.
+fn nfd_cow(word: &str) -> std::borrow::Cow<'_, str> {
+    if is_nfd(word) {
+        std::borrow::Cow::Borrowed(word)
+    } else {
+        std::borrow::Cow::Owned(nfd(word))
+    }
+}
+
+/// Byte offset of every char boundary of `s`, plus its length (`chars + 1` entries).
+fn char_offsets(s: &str, chars: usize) -> Vec<usize> {
+    let mut offs = Vec::with_capacity(chars + 1);
+    offs.extend(s.char_indices().map(|(b, _)| b));
+    offs.push(s.len());
+    offs
+}
+
+/// The longest table representation starting at char `i` (greedy longest-match), comparing slices of `norm` and never trying a candidate longer than any representation in the table. `segments_only` skips matches whose char def is not a `Segment` and keeps trying shorter ones.
+#[inline]
+fn longest_match(
+    table: &CharDefTable,
+    norm: &str,
+    offs: &[usize],
+    i: usize,
+    segments_only: bool,
+) -> Option<(CharDefId, usize)> {
+    let n = offs.len() - 1;
+    let longest = (n - i).min(table.max_rep_chars());
+    for j in (1..=longest).rev() {
+        if let Some(id) = table.lookup_nfd(&norm[offs[i]..offs[i + j]]) {
+            if segments_only && table.get(id).kind() != CharDefKind::Segment {
+                continue;
+            }
+            return Some((id, j));
+        }
+    }
+    None
+}
+
+/// [`segment`] without a `String` per candidate; the shapes and errors are identical.
+pub fn segment_load(table: &CharDefTable, word: &str) -> Result<Shape, InvalidShape> {
+    segment_fast(table, word, false)
+}
+
+/// [`segment_phonemes_only`] without a `String` per candidate; the shapes and errors are identical.
+pub fn segment_phonemes_only_load(table: &CharDefTable, word: &str) -> Result<Shape, InvalidShape> {
+    segment_fast(table, word, true)
+}
+
+fn segment_fast(
+    table: &CharDefTable,
+    word: &str,
+    segments_only: bool,
+) -> Result<Shape, InvalidShape> {
+    let normalized = nfd_cow(word);
+    let nchars = normalized.chars().count();
+    let offs = char_offsets(&normalized, nchars);
+    let mut builder = ShapeBuilder::with_interior_capacity(nchars);
+    let mut i = 0usize;
+    while i < nchars {
+        let Some((id, j)) = longest_match(table, &normalized, &offs, i, segments_only) else {
+            let chars: Vec<char> = normalized.chars().collect();
+            let position = remap_error_position(word, &chars, i);
+            return Err(InvalidShape {
+                word: word.to_string(),
+                position,
+            });
+        };
+        match table.get(id).kind() {
+            CharDefKind::Segment => builder.push_segment(id.0),
+            CharDefKind::Boundary => builder.push_boundary(id.0),
+        }
+        i += j;
+    }
+    Ok(builder.finish())
+}
+
 /// Segment `word` into a `Shape` via greedy longest-match, falling back to the HC pattern
 /// language at any position where no literal character-definition substring matches (C#
 /// `CharacterDefinitionTable.Segment(str, allowPattern: true)`/`GetShapeNodes`,
@@ -173,8 +250,9 @@ pub fn segment_with_patterns(
     natural_classes: &[NaturalClass],
     word: &str,
 ) -> Result<Shape, InvalidShape> {
-    let normalized = nfd(word);
+    let normalized = nfd_cow(word);
     let chars: Vec<char> = normalized.chars().collect();
+    let offs = char_offsets(&normalized, chars.len());
     let mut builder = ShapeBuilder::with_interior_capacity(chars.len());
 
     let mut optional = false;
@@ -184,21 +262,12 @@ pub fn segment_with_patterns(
 
     let mut i = 0usize;
     while i < chars.len() {
-        let mut matched = false;
-        for j in (1..=(chars.len() - i)).rev() {
-            let candidate: String = chars[i..i + j].iter().collect();
-            if let Some(char_def_id) = table.lookup_nfd(&candidate) {
-                let cd = table.get(char_def_id);
-                match cd.kind() {
-                    CharDefKind::Segment => builder.push_segment(char_def_id.0),
-                    CharDefKind::Boundary => builder.push_boundary(char_def_id.0),
-                }
-                i += j;
-                matched = true;
-                break;
+        if let Some((char_def_id, j)) = longest_match(table, &normalized, &offs, i, false) {
+            match table.get(char_def_id).kind() {
+                CharDefKind::Segment => builder.push_segment(char_def_id.0),
+                CharDefKind::Boundary => builder.push_boundary(char_def_id.0),
             }
-        }
-        if matched {
+            i += j;
             continue;
         }
 

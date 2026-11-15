@@ -168,7 +168,7 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Result<Vec<MRuleId>, G
 
 /// `Copy(head), "+", Copy(nonhead)` or the reverse, depending on which constituent comes first.
 fn plus_join(head_first: bool, ctx: &Ctx) -> Result<Vec<OutputAction>, GrammarError> {
-    let plus = crate::segment::segment(ctx.table, "+").map_err(|e| {
+    let plus = crate::segment::segment_load(ctx.table, "+").map_err(|e| {
         GrammarError::UnsegmentableBoundary(format!(
             "table {:?} cannot segment the morph boundary \"+\" ({e}); a table needs at least \
              its boundary/phoneme definitions",

@@ -1430,7 +1430,7 @@ fn build_concatenative(
 }
 
 pub(super) fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
-    let shape = crate::segment::segment(ctx.table, text).map_err(|e| e.to_string())?;
+    let shape = crate::segment::segment_load(ctx.table, text).map_err(|e| e.to_string())?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {
