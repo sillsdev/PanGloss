@@ -27,9 +27,19 @@ pub const ALLOCATION_WEIGHT: u64 = 600;
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
+    static EXTRA_WORK: Cell<u64> = const { Cell::new(0) };
     static BYTES: Cell<u64> = const { Cell::new(0) };
     static REGISTERS: Cell<u64> = const { Cell::new(0) };
     static ALLOCATIONS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Count three quarters of a work unit of bookkeeping without changing the search's containment budget.
+/// Fractional units are combined per measurement and rounded down at its end.
+#[inline]
+pub fn charge_work() {
+    if ENABLED.load(Ordering::Relaxed) {
+        let _ = EXTRA_WORK.try_with(|work| work.set(work.get().saturating_add(1)));
+    }
 }
 
 /// The allocator a host must install for bytes to count; it forwards everything to `System`.
@@ -168,6 +178,7 @@ impl Counts {
 
 /// Measures the bytes and registers of one parse on the current thread.
 pub struct Meter {
+    work: u64,
     bytes: u64,
     registers: u64,
     allocations: u64,
@@ -177,6 +188,7 @@ impl Meter {
     /// `None` when counting is off, so a caller cannot mistake an unmeasured parse for a cheap one.
     pub fn start() -> Option<Self> {
         ENABLED.load(Ordering::Relaxed).then(|| Self {
+            work: EXTRA_WORK.with(Cell::get),
             bytes: BYTES.with(Cell::get),
             registers: REGISTERS.with(Cell::get),
             allocations: ALLOCATIONS.with(Cell::get),
@@ -185,7 +197,8 @@ impl Meter {
 
     pub fn finish(self, work: usize) -> Counts {
         Counts {
-            work: work as u64,
+            work: (work as u64)
+                .saturating_add((EXTRA_WORK.with(Cell::get) - self.work).saturating_mul(3) / 4),
             bytes: BYTES.with(Cell::get) - self.bytes,
             registers: REGISTERS.with(Cell::get) - self.registers,
             allocations: ALLOCATIONS.with(Cell::get) - self.allocations,

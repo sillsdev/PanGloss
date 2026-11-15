@@ -3,11 +3,11 @@
 Parse cost is a deterministic estimate of a word's instructions:
 
 ```
-cost = work_steps × 200 + bytes allocated × 1.25 + allocator calls × 150
+cost = (work_steps + floor(3 × slab_operations / 4)) × 200 + bytes allocated × 1.25 + allocator calls × 150
 ```
 
-`work_steps` counts budget reservations. Bytes are requested from the allocator, except that a trail step is charged as the 40 bytes it cost before the per-thread slab (#284) and the slab's own growth is unmetered, so cost does not depend on the thread count. Allocator calls are
-`alloc`, `realloc` and `alloc_zeroed` on the counting allocator; a trail step's synthetic byte charge is not a call. The FST
+`work_steps` counts budget reservations. The cost meter also counts trail slab allocation, reference-count and reclamation operations at three quarters of a work unit each without spending the search budget. Each allocated trail slot is charged its 20-byte footprint, including reused slots; this amortizes the slab capacity and makes the charge independent of thread scheduling. Other bytes are requested from the allocator. Allocator calls are
+`alloc`, `realloc` and `alloc_zeroed` on the counting allocator; a trail slot's synthetic byte charge is not a call. The FST
 registers copied in `pg_fst::traverse` are still counted, at weight 0: once allocator calls are in, they add nothing.
 The weights are constants in `pg-cost`, held in quarters of an instruction (`WEIGHT_SCALE`).
 
