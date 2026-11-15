@@ -218,28 +218,69 @@ fn unread_lexicon_fields_are_skipped_and_read_fields_survive() {
     let graph = parse_fwdata_reader(std::io::Cursor::new(SENSE_WITH_UNREAD_FIELDS)).unwrap();
     let sense = graph.get("00000000-0000-0000-0000-000000000001").unwrap();
     assert_eq!(sense.node.ws_forms("Gloss").len(), 1);
-    let pruned: Vec<_> = sense
+    let kept: Vec<_> = sense
         .node
         .children
         .iter()
-        .filter(|field| field.pruned)
         .map(|field| &*field.tag)
         .collect();
-    assert_eq!(pruned, ["ImportResidue", "Examples", "Exemplar"]);
-    assert!(sense
-        .node
-        .children
-        .iter()
-        .filter(|field| field.pruned)
-        .all(|field| field.children.is_empty() && field.attrs.is_empty()));
+    assert_eq!(kept, ["Gloss"]);
 }
 
 #[test]
-#[should_panic(expected = "was pruned at parse time")]
+#[should_panic(expected = "is skipped at parse time")]
 fn reading_a_pruned_field_panics_instead_of_returning_none() {
     let graph = parse_fwdata_reader(std::io::Cursor::new(SENSE_WITH_UNREAD_FIELDS)).unwrap();
     let sense = graph.get("00000000-0000-0000-0000-000000000001").unwrap();
     let _ = sense.node.child("ImportResidue");
+}
+
+#[test]
+fn retained_attributes_survive_and_unused_attributes_are_discarded() {
+    let xml = br#"<languageproject><rt class="LexSense" guid="g"><Gloss extra="ignored"><AUni ws="en" other="ignored">x</AUni></Gloss></rt></languageproject>"#;
+    let graph = parse_fwdata_reader(std::io::Cursor::new(xml)).unwrap();
+    let gloss = graph.get("g").unwrap().node.child("Gloss").unwrap();
+    assert!(gloss.attrs.is_empty());
+    let form = gloss.child("AUni").unwrap();
+    assert_eq!(form.attr("ws"), Some("en"));
+    assert_eq!(form.attrs.len(), 1);
+}
+
+#[test]
+fn record_text_preserves_many_interleaved_text_and_cdata_chunks() {
+    let chunks = "a<![CDATA[b]]>".repeat(1024);
+    let xml = format!("<languageproject><rt class=\"LexSense\" guid=\"g\"><Gloss>{chunks}</Gloss></rt></languageproject>");
+    let graph = parse_fwdata_reader(std::io::Cursor::new(xml)).unwrap();
+    let gloss = graph.get("g").unwrap().node.child("Gloss").unwrap();
+    assert_eq!(&*gloss.text, "ab".repeat(1024));
+}
+
+#[test]
+#[should_panic(expected = "attribute `other` is dropped")]
+fn reading_a_discarded_attribute_panics() {
+    let xml = br#"<languageproject><rt class="LexSense" guid="g"><Gloss other="ignored"/></rt></languageproject>"#;
+    let graph = parse_fwdata_reader(std::io::Cursor::new(xml)).unwrap();
+    let _ = graph
+        .get("g")
+        .unwrap()
+        .node
+        .child("Gloss")
+        .unwrap()
+        .attr("other");
+}
+
+#[test]
+fn name_interner_stops_retaining_new_names_at_budget() {
+    let mut names = NameInterner::default();
+    let first = names.intern(b"repeated");
+    assert!(Arc::ptr_eq(&first, &names.intern(b"repeated")));
+    let oversized = vec![b'x'; NAME_INTERNER_BUDGET];
+    let a = names.intern(&oversized);
+    let b = names.intern(&oversized);
+    assert_eq!(a, b);
+    assert!(!Arc::ptr_eq(&a, &b));
+    assert_eq!(names.names.len(), 1);
+    assert!(names.accounted_bytes <= NAME_INTERNER_BUDGET);
 }
 
 #[test]

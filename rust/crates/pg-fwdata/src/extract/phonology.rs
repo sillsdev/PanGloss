@@ -179,8 +179,8 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Phoneme>
             IssueClass::UnrepresentableForHc,
             false,
             Some(pg_snapshot::SourceRef {
-                kind: FwClass::from_wire(&rec.class),
-                id: rec.guid.clone(),
+                kind: FwClass::from_wire(rec.class),
+                id: rec.guid.to_string(),
             }),
             warning,
         );
@@ -199,7 +199,7 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Phoneme>
         name,
         representations,
         features,
-        basic_ipa_symbol: rec.node.child("BasicIPASymbol").map(|c| c.text.clone()),
+        basic_ipa_symbol: rec.node.child("BasicIPASymbol").map(|c| c.text.to_string()),
     })
 }
 
@@ -295,7 +295,7 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Na
     let display_name =
         Some(ctx.best_analysis(&rec.node.ws_forms("Name"))).filter(|n| !n.trim().is_empty());
     let key = InventoryKey::object(InventoryKind::NaturalClass, guid.to_string());
-    match rec.class.as_str() {
+    match rec.class {
         "PhNCSegments" => {
             let phonemes = rec.node.objsur_list("Segments");
             ctx.considered(key.clone());
@@ -364,8 +364,8 @@ fn record_unreferenced_environments(ctx: &mut Ctx, phon_data: Option<&Record>) {
         .graph
         .headers
         .iter()
-        .filter(|header| header.class == "PhEnvironment" && !header.guid.is_empty())
-        .map(|header| header.guid.clone())
+        .filter(|header| &*header.class == "PhEnvironment" && !header.guid.is_empty())
+        .map(|header| header.guid.to_string())
         .collect();
     let mut seen = std::collections::BTreeSet::new();
     for guid in candidates {
@@ -451,13 +451,13 @@ fn extract_rules(ctx: &mut Ctx, phon_data: &Record) -> Vec<PhonologicalRule> {
             let rec = ctx.get(&guid)?;
             let key = InventoryKey::object(InventoryKind::PhonologicalRule, guid.clone());
             if rec.node.val_bool("Disabled").unwrap_or(false) {
-                if matches!(rec.class.as_str(), "PhRegularRule" | "PhMetathesisRule") {
+                if matches!(rec.class, "PhRegularRule" | "PhMetathesisRule") {
                     ctx.considered(key.clone());
                     ctx.not_considered(key, pg_snapshot::LoadReasonCode::Disabled);
                 }
                 return None;
             }
-            match rec.class.as_str() {
+            match rec.class {
                 "PhRegularRule" => {
                     ctx.considered(key.clone());
                     ctx.selected(key.clone());
@@ -545,7 +545,7 @@ fn extract_rewrite_rule(ctx: &mut Ctx, rec: &Record) -> Option<RewriteRule> {
         }
     }
     Some(RewriteRule {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         direction,
         structural_description,
@@ -686,7 +686,7 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
     }
 
     Some(MetathesisRule {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         direction,
         structural_description,
@@ -727,7 +727,7 @@ pub(crate) fn resolve_phon_context(
         ctx.selected(key.clone());
         ctx.represented(key.clone());
     };
-    match rec.class.as_str() {
+    match rec.class {
         "PhSequenceContext" => {
             let members = rec
                 .node
@@ -797,7 +797,7 @@ pub(crate) fn resolve_phon_context(
 fn required_context_reference(ctx: &mut Ctx<'_>, rec: &Record, field: &str) -> Option<String> {
     let guid = rec.node.objsur_one(field);
     if guid.is_none() {
-        let key = InventoryKey::object(InventoryKind::PhonologicalContext, rec.guid.clone());
+        let key = InventoryKey::object(InventoryKind::PhonologicalContext, rec.guid.to_string());
         ctx.considered(key.clone());
         ctx.selected(key.clone());
         ctx.recorder

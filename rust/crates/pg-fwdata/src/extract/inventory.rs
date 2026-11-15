@@ -77,10 +77,10 @@ pub(crate) fn seed_authored_from_graph(recorder: &mut SelectionRecorder, graph: 
         let Some(record) = graph.records.get(&header.guid) else {
             continue;
         };
-        if record.class != header.class {
+        if record.class != &*header.class {
             continue;
         }
-        recorder.authored(InventoryKey::object(kind, header.guid.clone()));
+        recorder.authored(InventoryKey::object(kind, header.guid.to_string()));
     }
 }
 
