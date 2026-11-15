@@ -123,7 +123,7 @@ fn edge_index_falls_back_for_optional_and_unknown_intermediate_edges() {
     assert!(allos.iter().all(|allo| cache
         .allomorph(allo.id)
         .ana_lhs
-        .as_ref()
+        .as_deref()
         .unwrap()
         .1
         .edge_rejects(&segments)));

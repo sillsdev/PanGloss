@@ -725,6 +725,7 @@ pub(crate) fn compile_project_recording_with(
         removed_natclasses,
     );
 
+    grammar.shrink_to_fit();
     grammar.final_template_prune_facts()?;
 
     Ok((
