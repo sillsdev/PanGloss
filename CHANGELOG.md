@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.20.0
+
+Released 2026-11-14.
 
 **Reported parser work shifts again**, so `batch --cost-column` totals and `cost-compare` baselines from 0.19.6 must not be compared with this version: Amharic +0.5%, Indonesian +0.5%, Aweti +1.5%, Sena +1.7%, Mbugwe +1.8%, Cebuano +2.6%, Swahili +3.4% (first 300 words at a 3M cap; #301). Recalibrate any parser-work threshold. `--prefilter auto` decisions can move with it.
 
