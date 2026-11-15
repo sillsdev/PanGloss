@@ -245,7 +245,7 @@ fn inserted_material(
         Some(c) => c
             .allomorph(allo.id)
             .ana_lhs
-            .as_ref()
+            .as_deref()
             .map(|(_, lhs)| lhs.inserted_material()),
         None => build_analysis_lhs_for(g, table, allo)
             .ok()

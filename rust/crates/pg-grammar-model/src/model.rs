@@ -893,6 +893,30 @@ pub struct LexEntryDef {
     pub family: Option<FamilyId>,
 }
 
+impl Grammar {
+    /// Reduces excess capacity in the large, long-lived lexical registries and their rows.
+    ///
+    /// This preserves all values and IDs; it is intended for use once grammar assembly is complete.
+    pub fn shrink_to_fit(&mut self) {
+        self.morphemes.shrink_to_fit();
+        self.allomorph_owners.shrink_to_fit();
+        self.allomorph_sources.shrink_to_fit();
+        self.entries.shrink_to_fit();
+        for entry in &mut self.entries {
+            entry.allomorphs.shrink_to_fit();
+            for allomorph in &mut entry.allomorphs {
+                allomorph.environments.shrink_to_fit();
+                allomorph.co_occurrence.shrink_to_fit();
+                allomorph.properties.shrink_to_fit();
+            }
+        }
+        for morpheme in &mut self.morphemes {
+            morpheme.properties.shrink_to_fit();
+            morpheme.co_occurrence.shrink_to_fit();
+        }
+    }
+}
+
 impl LexEntryDef {
     pub fn is_partial(&self) -> bool {
         self.partial_reason.is_some()

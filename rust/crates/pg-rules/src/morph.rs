@@ -607,7 +607,7 @@ fn ana_affix_cached_traced(
             record_interrupted_mrule_attempt(mstats, reached);
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
         if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
@@ -689,7 +689,7 @@ fn ana_realizational_cached_traced(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
         let before = output.len();
@@ -1920,7 +1920,7 @@ fn synth_affix_cached(
             }
             continue;
         }
-        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
+        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_deref() else {
             continue;
         };
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -2172,7 +2172,7 @@ fn synth_realizational_cached(
             }
             continue;
         }
-        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
+        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_deref() else {
             continue;
         };
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -2968,7 +2968,7 @@ fn ana_affix_cached(
             record_interrupted_mrule_attempt(mstats, reached);
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
         if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
@@ -3361,7 +3361,7 @@ fn ana_realizational_cached(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
         let before = output.len();

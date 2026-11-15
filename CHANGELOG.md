@@ -14,6 +14,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 - The C# oracle pin includes machine #627, aligning lexical lookup with PanGloss: `bu` in `lexical-lookup-sibling-allomorphs` no longer parses through an unmatched sibling allomorph.
 
 - Reported parser work now counts trail slab bookkeeping and amortized slot bytes, with no weight changes (#301). On the first 300 available words at a 3M search cap, totals for words completed on both versions shift: Amharic +0.5%, Indonesian +0.5%, Sena +1.7%, Mbugwe +1.8%, Aweti +1.5%, Swahili +3.4%, and Cebuano +2.6%. Recalibrate parser-work thresholds; completed analyses and stop statuses match in these samples.
+- Loaded grammars and their Morphers retain less memory by trimming lexical vectors and trie nodes and keeping optional rule matchers out of empty slots. On the Cebuano project, live allocations after construction fall from 97.7 MB to 45.2 MB, while the 355.0 MB load peak is unchanged (#316).
 
 ## 0.19.6
 
