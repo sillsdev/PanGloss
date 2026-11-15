@@ -147,6 +147,18 @@ impl CharDef {
     }
 }
 
+/// The segmentation lookup plus its longest key; `Debug` shows only the map so the Grammar dump is unchanged.
+struct Lookup {
+    map: HashMap<String, CharDefId>,
+    max_rep_chars: usize,
+}
+
+impl std::fmt::Debug for Lookup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.map.fmt(f)
+    }
+}
+
 /// A compiled `CharacterDefinitionTable`: the segment/boundary inventory plus the NFD
 /// segmentation lookup (`nfd(representation) -> CharDefId`).
 #[derive(Debug)]
@@ -158,7 +170,7 @@ pub struct CharDefTable {
     source_guid: Option<String>,
     defs: Vec<CharDef>,
     /// NFD-normalized representation -> owning char def, the exact lookup `CharacterDefinitionTable._charDefLookup` performs.
-    lookup: HashMap<String, CharDefId>,
+    lookup: Lookup,
     /// Static segment unifiability closure; absent for zero-feature grammars, with boundary rows empty.
     unif_closure: Option<Vec<CdBits>>,
 }
@@ -187,6 +199,7 @@ impl CharDefTable {
     ) -> Result<Self, ModelError> {
         let mut defs = Vec::with_capacity(raw_defs.len());
         let mut lookup: HashMap<String, CharDefId> = HashMap::with_capacity(raw_defs.len() * 2);
+        let mut max_rep_chars = 0usize;
 
         for raw in raw_defs {
             let representations_nfd: Vec<String> =
@@ -231,6 +244,7 @@ impl CharDefTable {
 
             let id = CharDefId(defs.len() as u32);
             for norm in &representations_nfd {
+                max_rep_chars = max_rep_chars.max(norm.chars().count());
                 lookup.insert(norm.clone(), id);
             }
             defs.push(CharDef {
@@ -276,7 +290,10 @@ impl CharDefTable {
             type_feature: feat_sys.type_flat(),
             source_guid: None,
             defs,
-            lookup,
+            lookup: Lookup {
+                map: lookup,
+                max_rep_chars,
+            },
             unif_closure,
         })
     }
@@ -353,7 +370,13 @@ impl CharDefTable {
     /// The segmentation lookup: NFD-normalized representation -> owning char def, exactly
     /// `CharacterDefinitionTable.TryGetValue` (representations are normalized before matching).
     pub fn lookup_nfd(&self, nfd_rep: &str) -> Option<CharDefId> {
-        self.lookup.get(nfd_rep).copied()
+        self.lookup.map.get(nfd_rep).copied()
+    }
+
+    /// The most `char`s any NFD representation in the segmentation lookup has; no longer candidate can match.
+    #[inline]
+    pub fn max_rep_chars(&self) -> usize {
+        self.lookup.max_rep_chars
     }
 
     /// Iterates character definitions in table order.

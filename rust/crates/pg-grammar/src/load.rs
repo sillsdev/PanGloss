@@ -2,13 +2,10 @@
 //! runtime tables of `crate::model::Grammar`. A faithful port of the C#
 //! `XmlLanguageLoader.cs` object-model construction.
 //!
-//! ## Two passes, one file
-//! Pass 1 reuses `crate::load_char_def_table_from_xml` to build the phonological census
-//! (`PhonologicalFeatureSystem` + every `CharacterDefinitionTable`). Pass 2 builds a small
-//! read-only DOM of the active `<Language>` element and ports each `Load*` method almost
-//! line-for-line against it — the C# is irreducibly DOM-style (`.Element`/`.Elements`/
-//! `SingleOrDefault`/recursion in `LoadFeatureStruct`), so a DOM keeps the port faithful and
-//! the parity surface small. Both passes use only `quick_xml`.
+//! ## Document and phonology
+//! A `quick_xml` pass builds a read-only DOM and records the byte ranges of the phonology
+//! elements. The phonology reader replays those ranges to build the feature and character
+//! tables. The remaining `Load*` methods traverse the DOM, mirroring C#'s element queries.
 //!
 //! ## Ordering (parity-critical)
 //! Strata in document order; a stratum's phonological/morphological rules in the order of its
@@ -25,6 +22,7 @@
 use hashbrown::{HashMap, HashSet};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
+use std::rc::Rc;
 
 use pg_featstruct::{
     FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, Interner, SymbolBits,
@@ -34,15 +32,15 @@ use pg_shape::NodeKind;
 use crate::chardef::{CharDefId, CharDefTable};
 use crate::featsys::{FlatIndex, PhonFeatureSystem};
 use crate::model::*;
-use crate::segment::{segment, segment_with_patterns};
+use crate::segment::{segment_load as segment, segment_with_patterns};
 use crate::{load_char_def_table_from_xml, GrammarError, GrammarPhonology};
 
 // Minimal read-only DOM built from quick_xml events (mirrors the XElement subset the C# uses).
 
 #[derive(Debug)]
 struct Node {
-    tag: String,
-    attrs: Vec<(String, String)>,
+    tag: Rc<str>,
+    attrs: Vec<(Rc<str>, String)>,
     /// Concatenated direct text (`XElement.Value` for the leaf-text elements HC uses).
     text: String,
     children: Vec<Node>,
@@ -53,7 +51,7 @@ impl Node {
     fn attr(&self, name: &str) -> Option<&str> {
         self.attrs
             .iter()
-            .find(|(k, _)| k == name)
+            .find(|(k, _)| &**k == name)
             .map(|(_, v)| v.as_str())
     }
 
@@ -69,7 +67,7 @@ impl Node {
 
     /// `elem.Element(tag)` — the first child element named `tag`.
     fn child(&self, tag: &str) -> Option<&Node> {
-        self.children.iter().find(|c| c.tag == tag)
+        self.children.iter().find(|c| &*c.tag == tag)
     }
 
     /// `(string)elem.Element(tag)` — that child's text, or `None` if the element is absent.
@@ -79,23 +77,23 @@ impl Node {
 
     /// `elem.Elements(tag)` — all child elements named `tag`, document order.
     fn elems<'a>(&'a self, tag: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
-        self.children.iter().filter(move |c| c.tag == tag)
+        self.children.iter().filter(move |c| &*c.tag == tag)
     }
 
     /// `elem.Elements(outer).Elements(inner)`.
     fn elems2<'a>(&'a self, outer: &'a str, inner: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
         self.children
             .iter()
-            .filter(move |c| c.tag == outer)
+            .filter(move |c| &*c.tag == outer)
             .flat_map(|c| c.children.iter())
-            .filter(move |c| c.tag == inner)
+            .filter(move |c| &*c.tag == inner)
     }
 
     /// `elem.Elements(outer).Elements()` — every element child of every `outer` block.
     fn under<'a>(&'a self, outer: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
         self.children
             .iter()
-            .filter(move |c| c.tag == outer)
+            .filter(move |c| &*c.tag == outer)
             .flat_map(|c| c.children.iter())
     }
 }
@@ -104,15 +102,39 @@ fn xml_err(e: impl std::fmt::Display) -> GrammarError {
     GrammarError::Xml(e.to_string())
 }
 
-fn start_node(e: &BytesStart) -> Result<Node, GrammarError> {
-    let tag = String::from_utf8_lossy(e.local_name().into_inner()).into_owned();
+/// Shares element and attribute names while the bounded lookup has room.
+#[derive(Default)]
+struct NameInterner {
+    names: HashMap<Vec<u8>, Rc<str>>,
+    accounted_bytes: usize,
+}
+
+impl NameInterner {
+    fn intern(&mut self, bytes: &[u8]) -> Rc<str> {
+        if let Some(name) = self.names.get(bytes) {
+            return Rc::clone(name);
+        }
+        let name: Rc<str> = Rc::from(String::from_utf8_lossy(bytes).as_ref());
+        // Bound the transient lookup, accounting for the hash table and both allocations.
+        let cost = bytes.len().saturating_mul(5).saturating_add(128);
+        if self.accounted_bytes.saturating_add(cost) <= 1024 * 1024 {
+            self.names.insert(bytes.to_vec(), Rc::clone(&name));
+            self.accounted_bytes += cost;
+        }
+        name
+    }
+}
+
+fn start_node(e: &BytesStart, names: &mut NameInterner) -> Result<Node, GrammarError> {
+    let tag = names.intern(e.local_name().into_inner());
     let mut attrs = Vec::new();
     for a in e.attributes() {
         let a = a.map_err(xml_err)?;
-        let key = String::from_utf8_lossy(a.key.local_name().into_inner()).into_owned();
+        let key = names.intern(a.key.local_name().into_inner());
         let val = a.unescape_value().map_err(xml_err)?.into_owned();
         attrs.push((key, val));
     }
+    attrs.shrink_to_fit();
     Ok(Node {
         tag,
         attrs,
@@ -121,25 +143,54 @@ fn start_node(e: &BytesStart) -> Result<Node, GrammarError> {
     })
 }
 
-/// Parse the whole document into a synthetic root node (its children are the top-level elements, e.g. `HermitCrabInput`).
-fn parse_document(xml: &str) -> Result<Node, GrammarError> {
+/// Byte ranges of the outermost `PhonologicalFeatureSystem` and `CharacterDefinitionTable` elements, in document order.
+#[derive(Default)]
+struct PhonSpans {
+    ranges: Vec<(usize, usize)>,
+    open_start: usize,
+    depth: usize,
+}
+
+fn is_phon_tag(name: &[u8]) -> bool {
+    name == b"PhonologicalFeatureSystem" || name == b"CharacterDefinitionTable"
+}
+
+/// Parse the whole document into a synthetic root node (its children are the top-level elements, e.g. `HermitCrabInput`), noting where the phonology elements lie.
+fn parse_document(xml: &str) -> Result<(Node, PhonSpans), GrammarError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
     // quick_xml defaults this to false, so `--` inside a comment was silently tolerated.
     reader.config_mut().check_comments = true;
+    let mut names = NameInterner::default();
+    let mut span = PhonSpans::default();
+    // quick-xml's positions do not count a leading byte-order mark, which the text still holds.
+    let bom = if xml.starts_with('\u{feff}') { 3 } else { 0 };
 
     let mut stack: Vec<Node> = vec![Node {
-        tag: String::new(),
+        tag: Rc::from(""),
         attrs: Vec::new(),
         text: String::new(),
         children: Vec::new(),
     }];
 
     loop {
+        let before = reader.buffer_position() as usize + bom;
         match reader.read_event().map_err(xml_err)? {
-            Event::Start(e) => stack.push(start_node(&e)?),
+            Event::Start(e) => {
+                if is_phon_tag(e.local_name().into_inner()) {
+                    if span.depth == 0 {
+                        span.open_start = before;
+                    }
+                    span.depth += 1;
+                }
+                stack.push(start_node(&e, &mut names)?)
+            }
             Event::Empty(e) => {
-                let node = start_node(&e)?;
+                if is_phon_tag(e.local_name().into_inner()) && span.depth == 0 {
+                    span.ranges
+                        .push((before, reader.buffer_position() as usize + bom));
+                }
+                let node = start_node(&e, &mut names)?;
                 stack.last_mut().unwrap().children.push(node);
             }
             Event::Text(t) => {
@@ -153,16 +204,25 @@ fn parse_document(xml: &str) -> Result<Node, GrammarError> {
                     .text
                     .push_str(&String::from_utf8_lossy(t.as_ref()));
             }
-            Event::End(_) => {
+            Event::End(e) => {
+                if is_phon_tag(e.local_name().into_inner()) {
+                    span.depth -= 1;
+                    if span.depth == 0 {
+                        span.ranges
+                            .push((span.open_start, reader.buffer_position() as usize + bom));
+                    }
+                }
                 // The synthetic root never receives an End, so the stack always has a parent.
-                let node = stack.pop().unwrap();
+                let mut node = stack.pop().unwrap();
+                node.children.shrink_to_fit();
+                node.text.shrink_to_fit();
                 stack.last_mut().unwrap().children.push(node);
             }
             Event::Eof => break,
             _ => {}
         }
     }
-    Ok(stack.pop().unwrap())
+    Ok((stack.pop().unwrap(), span))
 }
 
 // Read-only resolvers (`Ro`) and mutable accumulators (`Acc`).
@@ -265,11 +325,21 @@ fn parse_is_clitic_rule(rule: &Node) -> Result<Option<bool>, GrammarError> {
 /// `GrammarError::Unsupported`; malformed references (unknown feature/symbol/natural-class ids)
 /// surface `GrammarError::Semantic`; XML errors surface `GrammarError::Xml`.
 pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
-    // Pass 1: phonological feature system + character-definition tables.
-    let phon = load_char_def_table_from_xml(xml)?;
-
-    // Pass 2: DOM of the active <Language>.
-    let root = parse_document(xml)?;
+    let (root, spans) = match parse_document(xml) {
+        Ok(parsed) => parsed,
+        Err(dom_error) => {
+            // The original phonology pass had priority when both readers failed.
+            load_char_def_table_from_xml(xml)?;
+            return Err(dom_error);
+        }
+    };
+    let phon = if spans.depth != 0 {
+        // An unfinished phonology element has no complete range to replay.
+        load_char_def_table_from_xml(xml)?
+    } else {
+        let phon_text: String = spans.ranges.iter().map(|&(a, b)| &xml[a..b]).collect();
+        load_char_def_table_from_xml(&phon_text)?
+    };
     let lang = root
         .child("HermitCrabInput")
         .and_then(|hc| hc.elems("Language").find(|l| l.is_active()))
@@ -360,7 +430,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     let mut natural_classes: Vec<NaturalClass> = Vec::new();
     let mut natclass_index: HashMap<String, NatClassId> = HashMap::new();
     for nc in lang.under("NaturalClasses").filter(|e| e.is_active()) {
-        let kind = match nc.tag.as_str() {
+        let kind = match &*nc.tag {
             "FeatureNaturalClass" => NaturalClassKind::Feature(load_phon_constraints(nc, &phon)?),
             "SegmentNaturalClass" => {
                 let mut segs = Vec::new();
@@ -426,7 +496,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         .under("PhonologicalRuleDefinitions")
         .filter(|e| e.is_active())
     {
-        match pr.tag.as_str() {
+        match &*pr.tag {
             "MetathesisRule" => {
                 let def = load_metathesis_rule(pr, &ro)?;
                 let id = pr.attr("id").unwrap_or("").to_string();
@@ -681,7 +751,7 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
 fn load_syn_feature(elem: &Node) -> Result<Option<SynFeature>, GrammarError> {
     let xml_id = elem.attr("id").unwrap_or("").to_string();
     let name = elem.text_of("Name").unwrap_or("").to_string();
-    match elem.tag.as_str() {
+    match &*elem.tag {
         "SymbolicFeature" => {
             let symbols: Vec<(String, String)> = elem
                 .elems2("Symbols", "Symbol")
@@ -927,7 +997,7 @@ fn load_one_pattern_node(
     default_table: TableId,
     ro: &Ro,
 ) -> Result<Option<PatternNode>, GrammarError> {
-    let node = match rec.tag.as_str() {
+    let node = match &*rec.tag {
         "SimpleContext" => PatternNode::Context(load_simple_context(rec, vars, ro)?),
         "Segment" => PatternNode::CharDef(resolve_chardef(ro, rec.attr("segment").unwrap_or(""))?),
         "BoundaryMarker" => {
@@ -1430,7 +1500,7 @@ fn load_stratum(
         .under("MorphologicalRuleDefinitions")
         .filter(|e| e.is_active())
     {
-        let loaded = match mr.tag.as_str() {
+        let loaded = match &*mr.tag {
             "MorphologicalRule" => try_load_affix_process_rule(mr, table, stratum_id, ro, acc)?,
             "RealizationalRule" => try_load_realizational_rule(mr, table, stratum_id, ro, acc)?,
             "CompoundingRule" => try_load_compounding_rule(mr, table, ro, acc)?,
@@ -1796,7 +1866,7 @@ fn load_morph_rhs(
 ) -> Result<Vec<OutputAction>, GrammarError> {
     let mut rhs = Vec::new();
     for part in &output.children {
-        match part.tag.as_str() {
+        match &*part.tag {
             "CopyFromInput" => {
                 let idx = part.attr("index").unwrap_or("");
                 let pr = *part_names.get(idx).ok_or_else(|| {
