@@ -10,8 +10,176 @@ use pg_rules::trace::{
     TraceType, TreeTraceSink,
 };
 use pg_rules::word::{RuntimeRoot, Word};
-use pg_snapshot::{AffixSlot, InflectionClass, Msa, PartOfSpeech, Snapshot};
+use pg_snapshot::{
+    AffixSlot, FeatureStructure, InflectionClass, Msa, PartOfSpeech, Snapshot, WsForm,
+};
 use serde_json::{json, Value};
+
+// Only data consulted while rendering trace details survives the grammar load.
+#[derive(Clone, Debug)]
+pub struct TraceSnapshot {
+    parts_of_speech: Vec<PartOfSpeech>,
+    entries: Vec<TraceEntry>,
+}
+
+#[derive(Clone, Debug)]
+struct TraceEntry {
+    guid: String,
+    citation_form: Vec<WsForm>,
+    allomorphs: Vec<TraceAllomorph>,
+    msas: Vec<TraceMsa>,
+    senses: Vec<TraceSense>,
+}
+
+#[derive(Clone, Debug)]
+struct TraceAllomorph {
+    guid: String,
+    forms: Vec<WsForm>,
+}
+
+#[derive(Clone, Debug)]
+struct TraceSense {
+    guid: String,
+    gloss: Vec<WsForm>,
+    msa: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+enum TraceMsa {
+    Stem {
+        guid: String,
+        part_of_speech: Option<String>,
+        inflection_class: Option<String>,
+        features: Option<FeatureStructure>,
+        from_parts_of_speech: Vec<String>,
+        slots: Vec<String>,
+    },
+    Inflectional {
+        guid: String,
+        part_of_speech: Option<String>,
+        slots: Vec<String>,
+        features: Option<FeatureStructure>,
+    },
+    Derivational {
+        guid: String,
+        from_part_of_speech: Option<String>,
+        to_part_of_speech: Option<String>,
+        from_inflection_class: Option<String>,
+        to_inflection_class: Option<String>,
+        from_features: Option<FeatureStructure>,
+        to_features: Option<FeatureStructure>,
+    },
+    Unclassified {
+        guid: String,
+        part_of_speech: Option<String>,
+    },
+}
+
+impl TraceMsa {
+    fn guid(&self) -> &str {
+        match self {
+            Self::Stem { guid, .. }
+            | Self::Inflectional { guid, .. }
+            | Self::Derivational { guid, .. }
+            | Self::Unclassified { guid, .. } => guid,
+        }
+    }
+}
+
+impl From<Msa> for TraceMsa {
+    fn from(msa: Msa) -> Self {
+        match msa {
+            Msa::Stem {
+                guid,
+                part_of_speech,
+                inflection_class,
+                features,
+                from_parts_of_speech,
+                slots,
+                ..
+            } => Self::Stem {
+                guid,
+                part_of_speech,
+                inflection_class,
+                features,
+                from_parts_of_speech,
+                slots,
+            },
+            Msa::Inflectional {
+                guid,
+                part_of_speech,
+                slots,
+                features,
+                ..
+            } => Self::Inflectional {
+                guid,
+                part_of_speech,
+                slots,
+                features,
+            },
+            Msa::Derivational {
+                guid,
+                from_part_of_speech,
+                to_part_of_speech,
+                from_inflection_class,
+                to_inflection_class,
+                from_features,
+                to_features,
+                ..
+            } => Self::Derivational {
+                guid,
+                from_part_of_speech,
+                to_part_of_speech,
+                from_inflection_class,
+                to_inflection_class,
+                from_features,
+                to_features,
+            },
+            Msa::Unclassified {
+                guid,
+                part_of_speech,
+            } => Self::Unclassified {
+                guid,
+                part_of_speech,
+            },
+        }
+    }
+}
+
+impl From<Snapshot> for TraceSnapshot {
+    fn from(snapshot: Snapshot) -> Self {
+        Self {
+            parts_of_speech: snapshot.morphology.parts_of_speech,
+            entries: snapshot
+                .lexicon
+                .entries
+                .into_iter()
+                .map(|entry| TraceEntry {
+                    guid: entry.guid,
+                    citation_form: entry.citation_form,
+                    allomorphs: entry
+                        .allomorphs
+                        .into_iter()
+                        .map(|form| TraceAllomorph {
+                            guid: form.guid,
+                            forms: form.forms,
+                        })
+                        .collect(),
+                    msas: entry.msas.into_iter().map(TraceMsa::from).collect(),
+                    senses: entry
+                        .senses
+                        .into_iter()
+                        .map(|sense| TraceSense {
+                            guid: sense.guid,
+                            gloss: sense.gloss,
+                            msa: sense.msa,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct TraceMetadata {
     pub grammar_name: Option<String>,
@@ -21,7 +189,7 @@ pub struct TraceMetadata {
     pub project_name: Option<String>,
     pub vernacular_writing_systems: Vec<String>,
     pub analysis_writing_systems: Vec<String>,
-    pub snapshot: Option<Snapshot>,
+    pub snapshot: Option<TraceSnapshot>,
 }
 
 impl Default for TraceMetadata {
@@ -47,7 +215,7 @@ pub fn metadata_from_snapshot(snapshot: Snapshot, source_kind: &str) -> TraceMet
         project_name: Some(snapshot.project.name.clone()),
         vernacular_writing_systems: snapshot.project.vernacular_writing_systems.clone(),
         analysis_writing_systems: snapshot.project.analysis_writing_systems.clone(),
-        snapshot: Some(snapshot),
+        snapshot: Some(snapshot.into()),
     }
 }
 pub fn metadata_from_xml(grammar: &Grammar, hash: String) -> TraceMetadata {
@@ -228,8 +396,8 @@ fn find_slot<'a>(parts: &'a [PartOfSpeech], id: &str) -> Option<&'a AffixSlot> {
     })
 }
 
-fn pos_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
-    id.and_then(|id| find_pos(&snapshot.morphology.parts_of_speech, id))
+fn pos_json(snapshot: &TraceSnapshot, id: Option<&str>) -> Value {
+    id.and_then(|id| find_pos(&snapshot.parts_of_speech, id))
         .map_or_else(
             || {
                 id.map(|id| json!({ "id": id, "quality": "source-id-only" }))
@@ -239,18 +407,18 @@ fn pos_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
         )
 }
 
-fn class_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
-    id.and_then(|id| find_infl(&snapshot.morphology.parts_of_speech, id)).map_or_else(
+fn class_json(snapshot: &TraceSnapshot, id: Option<&str>) -> Value {
+    id.and_then(|id| find_infl(&snapshot.parts_of_speech, id)).map_or_else(
         || id.map(|id| json!({ "id": id, "quality": "source-id-only" })).unwrap_or(Value::Null),
         |class| json!({ "id": class.guid, "name": class.name, "abbreviation": class.abbreviation }),
     )
 }
 
-fn slots_json(snapshot: &Snapshot, ids: &[String]) -> Value {
+fn slots_json(snapshot: &TraceSnapshot, ids: &[String]) -> Value {
     let values: Vec<Value> = ids
         .iter()
         .map(|id| {
-            find_slot(&snapshot.morphology.parts_of_speech, id).map_or_else(
+            find_slot(&snapshot.parts_of_speech, id).map_or_else(
                 || json!({ "id": id, "quality": "source-id-only" }),
                 |slot| json!({ "id": slot.guid, "name": slot.name, "optional": slot.optional }),
             )
@@ -268,18 +436,17 @@ fn features_json(features: Option<&pg_snapshot::FeatureStructure>) -> Value {
 
 /// Per-render guid indexes (first match wins) and a rich_morph memo.
 struct RichCtx<'a> {
-    snapshot: Option<&'a Snapshot>,
-    allomorph_by_guid:
-        std::collections::HashMap<&'a str, (&'a pg_snapshot::LexEntry, &'a pg_snapshot::Allomorph)>,
-    msa_by_guid: std::collections::HashMap<&'a str, &'a Msa>,
-    sense_by_msa: std::collections::HashMap<&'a str, &'a pg_snapshot::Sense>,
+    snapshot: Option<&'a TraceSnapshot>,
+    allomorph_by_guid: std::collections::HashMap<&'a str, (&'a TraceEntry, &'a TraceAllomorph)>,
+    msa_by_guid: std::collections::HashMap<&'a str, &'a TraceMsa>,
+    sense_by_msa: std::collections::HashMap<&'a str, &'a TraceSense>,
     memo: std::cell::RefCell<std::collections::HashMap<MemoKey, Value>>,
 }
 
 type MemoKey = (String, Option<String>, Option<String>, Option<String>);
 
 impl<'a> RichCtx<'a> {
-    fn new(snapshot: Option<&'a Snapshot>) -> Self {
+    fn new(snapshot: Option<&'a TraceSnapshot>) -> Self {
         let mut ctx = Self {
             snapshot,
             allomorph_by_guid: Default::default(),
@@ -288,7 +455,7 @@ impl<'a> RichCtx<'a> {
             memo: Default::default(),
         };
         if let Some(snapshot) = snapshot {
-            for entry in &snapshot.lexicon.entries {
+            for entry in &snapshot.entries {
                 for allomorph in &entry.allomorphs {
                     ctx.allomorph_by_guid
                         .entry(allomorph.guid.as_str())
@@ -308,7 +475,7 @@ impl<'a> RichCtx<'a> {
     }
 }
 
-fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> Value {
+fn msa_fields(ctx: &RichCtx<'_>, snapshot: &TraceSnapshot, msa_id: Option<&str>) -> Value {
     let Some(msa_id) = msa_id else {
         return Value::Null;
     };
@@ -317,7 +484,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
             let mut object = serde_json::Map::new();
             object.insert("id".to_string(), json!(msa_id));
             match msa {
-                Msa::Stem {
+                TraceMsa::Stem {
                     part_of_speech,
                     inflection_class,
                     features,
@@ -353,7 +520,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
                         }),
                     );
                 }
-                Msa::Inflectional {
+                TraceMsa::Inflectional {
                     part_of_speech,
                     slots,
                     features,
@@ -376,7 +543,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
                     object.insert("slots".to_string(), slots_json(snapshot, &slot_ids));
                     object.insert("features".to_string(), features_json(features.as_ref()));
                 }
-                Msa::Derivational {
+                TraceMsa::Derivational {
                     from_part_of_speech,
                     to_part_of_speech,
                     from_inflection_class,
@@ -416,7 +583,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
                     );
                     object.insert("slot".to_string(), Value::Null);
                 }
-                Msa::Unclassified { part_of_speech, .. } => {
+                TraceMsa::Unclassified { part_of_speech, .. } => {
                     object.insert("kind".to_string(), json!("unclassified"));
                     object.insert(
                         "category".to_string(),

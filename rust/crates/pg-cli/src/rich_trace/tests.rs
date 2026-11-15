@@ -259,6 +259,7 @@ fn authored_morph_keeps_lexeme_headword_when_citation_is_absent() {
     let form_id = lexeme.guid.clone();
     let expected = lexeme.forms[0].form.clone();
     let msa_id = entry.msas[0].guid().to_string();
+    let snapshot = super::TraceSnapshot::from(snapshot);
     let morph = super::rich_morph(
         &super::RichCtx::new(Some(&snapshot)),
         &pg_parse::ParseMorph {
@@ -787,8 +788,9 @@ fn render_indexes_resolve_the_first_linear_match() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../pg-fwdata/tests/data/fixture.fwdata");
     let (snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    let snapshot = super::TraceSnapshot::from(snapshot);
     let ctx = super::RichCtx::new(Some(&snapshot));
-    let entries = &snapshot.lexicon.entries;
+    let entries = &snapshot.entries;
     let mut checked = 0;
     for allomorph in entries.iter().flat_map(|entry| &entry.allomorphs) {
         let (entry, found) = entries
@@ -859,8 +861,9 @@ fn render_indexes_keep_first_match_on_duplicates() {
     empty.senses.clear();
     snapshot.lexicon.entries = vec![first, second, empty];
 
+    let snapshot = super::TraceSnapshot::from(snapshot);
     let ctx = super::RichCtx::new(Some(&snapshot));
-    let entries = &snapshot.lexicon.entries;
+    let entries = &snapshot.entries;
     for allomorph in entries.iter().flat_map(|e| &e.allomorphs) {
         let (entry, found) = entries
             .iter()

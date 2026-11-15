@@ -5,6 +5,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- Warm `serve` sessions retain only the source fields needed for rich traces, and snapshot hashes are streamed without allocating a complete JSON string (#322). On a Cebuano project, live heap after load fell from 180.8 MB to 125.2 MB; the measured whole-load heap peak was unchanged at 260.5 MB.
 - HermitCrab XML loading avoids a second full document scan, and grammar compilation avoids allocating a string for every segmentation candidate (#320).
 - Plain `.fwdata` and `.fwbackup` loads now omit facts-only recorder and lineage work, and snapshot JSON loads release the source text before the grammar-only compile. On the Cebuano project, a one-word batch process takes 25.060 to 15.709 billion instructions and its sampled useful heap peak falls from 529.9 to 338.5 MiB; `serve` loadMs median fell from 10,926 to 4,140 in five runs under shared load. Cebuano, Swahili and Tamil batch output, including reported parser work and cost, is identical apart from elapsed time.
 - A per-word parser-state memory budget defaults to 100 MiB and stops a word with `MEMCAP` while the batch continues. Set `--word-mem-cap-mib 0` to disable it; this budget is separate from the affix capture-state ceiling (#303).
