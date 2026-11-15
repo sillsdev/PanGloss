@@ -5,6 +5,12 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+**Reported parser work shifts again**, so `batch --cost-column` totals and `cost-compare` baselines from 0.19.6 must not be compared with this version: Amharic +0.5%, Indonesian +0.5%, Aweti +1.5%, Sena +1.7%, Mbugwe +1.8%, Cebuano +2.6%, Swahili +3.4% (first 300 words at a 3M cap; #301). Recalibrate any parser-work threshold. `--prefilter auto` decisions can move with it.
+
+**A word can now stop with `MEMCAP` at 100 MiB of parser state** (#303). `MEMCAP` already existed for the 256 MiB affix capture-state ceiling; the new per-word budget makes it reachable on runaway words that previously grew to many gigabytes. The batch continues past such a word. Hosts that treat `MEMCAP` like `CAP` need no change; `--word-mem-cap-mib 0` restores the old behaviour.
+
+Loading needs much less memory: on a 36,614-entry `.fwdata` project the load heap peak falls from 535 MiB (0.19.6) to 248 MiB, a loaded grammar keeps 45 MB instead of 98 MB, and a warm `serve` session keeps 119 MiB instead of 222 MiB. None of the load changes alters a parse result on the measured grammars.
+
 - Warm `serve` sessions retain only the source fields needed for rich traces, and snapshot hashes are streamed without allocating a complete JSON string (#322). On a Cebuano project, live heap after load fell from 180.8 MB to 125.2 MB; the measured whole-load heap peak was unchanged at 260.5 MB.
 - HermitCrab XML loading avoids a second full document scan, and grammar compilation avoids allocating a string for every segmentation candidate (#320).
 - Plain `.fwdata` and `.fwbackup` loads now omit facts-only recorder and lineage work, and snapshot JSON loads release the source text before the grammar-only compile. On the Cebuano project, a one-word batch process takes 25.060 to 15.709 billion instructions and its sampled useful heap peak falls from 529.9 to 338.5 MiB; `serve` loadMs median fell from 10,926 to 4,140 in five runs under shared load. Cebuano, Swahili and Tamil batch output, including reported parser work and cost, is identical apart from elapsed time.
