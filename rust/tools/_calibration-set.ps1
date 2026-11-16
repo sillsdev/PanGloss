@@ -32,9 +32,21 @@ function Read-CalibrationManifest {
             })
         if ($rows.Count -ne [int]$s.rows) { throw "set '$($s.name)': the manifest says $($s.rows) row(s), the counts file has $($rows.Count)" }
         $exclude = ($s.PSObject.Properties.Name -contains 'excludeFromMean') -and [bool]$s.excludeFromMean
-        $sets += [PSCustomObject]@{ Name = [string]$s.name; Family = [string]$s.family; Rows = $rows; ExcludeFromMean = $exclude; Gap = $(if ($s.PSObject.Properties.Name -contains 'modellingGap') { [string]$s.modellingGap } else { $null }) }
+        if ($s.PSObject.Properties.Name -contains 'driftGate' -and $s.driftGate -isnot [bool]) { throw "set '$($s.name)': driftGate must be a boolean" }
+        $driftGate = -not ($s.PSObject.Properties.Name -contains 'driftGate') -or $s.driftGate
+        $driftNote = if ($s.PSObject.Properties.Name -contains 'driftGateNote') { [string]$s.driftGateNote } else { $null }
+        if (-not $driftGate -and [string]::IsNullOrWhiteSpace($driftNote)) { throw "set '$($s.name)': report-only drift requires a reason" }
+        $sets += [PSCustomObject]@{ Name = [string]$s.name; Family = [string]$s.family; Rows = $rows; ExcludeFromMean = $exclude; Gap = $(if ($s.PSObject.Properties.Name -contains 'modellingGap') { [string]$s.modellingGap } else { $null }); DriftGate = $driftGate; DriftGateNote = $driftNote }
     }
     return [PSCustomObject]@{ Manifest = $doc; Sets = $sets }
+}
+
+function Copy-DriftGatePolicy {
+    param([Parameter(Mandatory)]$Prior, [Parameter(Mandatory)][System.Collections.IDictionary]$Entry)
+    if ($Prior.PSObject.Properties.Name -contains 'driftGate') {
+        $Entry['driftGate'] = $Prior.driftGate
+        if ($Prior.PSObject.Properties.Name -contains 'driftGateNote') { $Entry['driftGateNote'] = $Prior.driftGateNote }
+    }
 }
 
 function Get-RungOrder {
@@ -109,17 +121,19 @@ function Get-SetScore {
     param([Parameter(Mandatory)]$Sets, [Parameter(Mandatory)][double[]]$Weights, [double]$DriftPercent = $script:DefaultDriftPercent)
     $families = [ordered]@{}
     $excluded = @{}
+    $reportOnly = @{}
     foreach ($s in $Sets) {
         if (-not $families.Contains($s.Family)) { $families[$s.Family] = @() }
         $families[$s.Family] += @($s.Rows)
         if ($s.PSObject.Properties.Name -contains 'ExcludeFromMean' -and $s.ExcludeFromMean) { $excluded[$s.Family] = if ($s.Gap) { $s.Gap } else { 'excluded from the means' } }
+        if ($s.PSObject.Properties.Name -contains 'DriftGate' -and -not $s.DriftGate) { $reportOnly[$s.Family] = $s.DriftGateNote }
     }
     $first = @($families.Keys | ForEach-Object { Get-FamilyScore -Family $_ -Rows $families[$_] -Weights $Weights -DriftPercent $DriftPercent })
     $ratios = [double[]]@($first | Where-Object { $null -ne $_.Ratio -and -not $excluded.ContainsKey($_.Family) } | ForEach-Object Ratio)
     $scale = if ($ratios.Count -gt 0) { Get-GeometricMean -Values $ratios } else { 1.0 }
     $scores = @($families.Keys | ForEach-Object {
             $f = Get-FamilyScore -Family $_ -Rows $families[$_] -Weights $Weights -DriftPercent $DriftPercent -Scale $scale
-            $f | Add-Member -NotePropertyName ExcludedFromMean -NotePropertyValue $excluded.ContainsKey($_) -PassThru | Add-Member -NotePropertyName Gap -NotePropertyValue $(if ($excluded.ContainsKey($_)) { $excluded[$_] } else { $null }) -PassThru
+            $f | Add-Member -NotePropertyName ExcludedFromMean -NotePropertyValue $excluded.ContainsKey($_) -PassThru | Add-Member -NotePropertyName Gap -NotePropertyValue $(if ($excluded.ContainsKey($_)) { $excluded[$_] } else { $null }) -PassThru | Add-Member -NotePropertyName DriftReportOnly -NotePropertyValue $reportOnly.ContainsKey($_) -PassThru | Add-Member -NotePropertyName DriftGateNote -NotePropertyValue $(if ($reportOnly.ContainsKey($_)) { $reportOnly[$_] } else { $null }) -PassThru
         })
     $withError = @($scores | Where-Object { $null -ne $_.MeanError -and -not $_.ExcludedFromMean })
     return [PSCustomObject]@{
@@ -127,7 +141,7 @@ function Get-SetScore {
         MeanOfFamilyErrors = if ($withError.Count) { ($withError | ForEach-Object MeanError | Measure-Object -Average).Average } else { $null }
         MeanOfScaleFreeErrors = if ($withError.Count) { ($withError | ForEach-Object ScaleFreeMeanError | Measure-Object -Average).Average } else { $null }
         Worst = if ($withError.Count) { ($withError | Sort-Object MeanError -Descending | Select-Object -First 1).Family } else { $null }
-        Flagged = @($scores | Where-Object Flagged | ForEach-Object Family)
+        Flagged = @($scores | Where-Object { $_.Flagged -and -not $_.DriftReportOnly } | ForEach-Object Family)
     }
 }
 
@@ -181,11 +195,13 @@ function Format-FamilyTable {
     foreach ($f in $Score.Families) {
         $fmt = { param($v, $p) if ($null -eq $v) { 'n/a' } else { $v.ToString($p) } }
         $verdict = if ($null -eq $f.MaxDrift) { 'n/a' } elseif ($f.Flagged) { 'NON-LINEAR' } else { 'ok' }
+        if ($f.DriftReportOnly) { $verdict += ' (report-only)' }
         if ($f.ExcludedFromMean) { $verdict += ' (not in means)' }
         $lines += ('{0,-26} {1,5} {2,7} {3,9} {4,9} {5,10} {6,8} {7,10} {8,6} {9}' -f $f.Family, $f.Rows, $f.Scored, (& $fmt $f.MeanError '0.0'), (& $fmt $f.RmsError '0.0'), (& $fmt $f.ScaleFreeMeanError '0.0'), (& $fmt $f.Ratio '0.000'), (& $fmt $f.MaxDrift '0.0'), (& $fmt $f.Slope '0.00'), $verdict)
     }
     $lines += ('mean of family errors {0:0.0}%  (shape {1:0.0}%), set scale cost/Ir {2:0.000}, worst family {3}' -f $Score.MeanOfFamilyErrors, $Score.MeanOfScaleFreeErrors, $Score.Scale, $Score.Worst)
     foreach ($f in @($Score.Families | Where-Object ExcludedFromMean)) { $lines += ('not in the means: {0}: {1}' -f $f.Family, $f.Gap) }
+    foreach ($f in @($Score.Families | Where-Object DriftReportOnly)) { $lines += ('drift report-only: {0}: {1}' -f $f.Family, $f.DriftGateNote) }
     return $lines
 }
 
