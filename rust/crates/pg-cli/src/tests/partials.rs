@@ -133,6 +133,7 @@ fn default_writer_remains_byte_identical_with_fixed_elapsed() {
             "-",
             crate::BatchRowTail::new(
                 crate::BatchRowFlags {
+                    engine: None,
                     partials: false,
                     guess,
                     work_columns: false,

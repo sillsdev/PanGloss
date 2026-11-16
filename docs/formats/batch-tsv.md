@@ -22,7 +22,7 @@ refuse a binary that reports 5, and an older binary refuses a flag it does not h
 ## Result rows
 
 ```
-idx  word  elapsed_ms  status  signature  [guessed]  [partials]  [work_steps]  [cost]
+idx  word  elapsed_ms  status  signature  [guessed]  [partials]  [completion]  [work_steps]  [cost]
 ```
 
 | column | meaning |
@@ -34,6 +34,7 @@ idx  word  elapsed_ms  status  signature  [guessed]  [partials]  [work_steps]  [
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
 | `partials` | JSON array of up to K rejection summaries; present only with `--partials=K` (1..3). See below |
+| `completion` | JSON object present only with `--engine=hc\|fst`: `engine`, `capped`, `timedOut`, `captureCapped`, `wordMemCapped`, `invalidShape`. Every flag is a boolean. Follows partials and precedes work/cost columns |
 | `work_steps` | present only with `--work-columns`. The word's work: the total of work steps it reserved, across analysis, the inner matchers and confirmation. `--work-cap` bounds the analysis; confirmation may spend one sixteenth of the cap more (none under a cap of 16), so `work_steps` never exceeds the cap plus one sixteenth |
 | `cost` | present only with `--cost-column`, which also writes `work_steps` before it. The word's fixed-weight parse cost; see `docs/design/parse-cost.md`. Refused together with `--stats` |
 
@@ -58,6 +59,46 @@ version. It does not depend on thread count, machine or load. `cost` repeats exa
 - A `TIMEOUT` row is **not** deterministic: the deadline is wall-clock time, so its
   `work_steps` and partial result depend on how fast this computer ran. Never compare a TIMEOUT
   row's count across runs.
+
+## Engine selection
+
+**FST mode has no per-word deadline or process RSS bound. Use an external watchdog with a
+deadline and process memory ceiling.** Proposal caps do not contain HC confirmation; a word
+can stall the batch or exhaust memory. Supervise each word in a child process when per-word
+containment is required, and report killed words as incomplete.
+
+`--engine=hc|fst` (also `--engine hc|fst`) selects the engine and adds one `completion` column.
+Omitting the flag keeps HC and the existing layout and bytes for the same row values; elapsed time
+still varies. `--engine=hc` keeps all HC options and adds the completion object. Discover this
+extension through the batch `--engine` flag in `--describe`; `batchTsv` stays 5. A `STARTED`
+sentinel keeps its three fields. A `--analyses` JSONL sidecar also includes `completion` only when
+the engine flag was supplied.
+
+FST selection requires a `foma-tools` build and explicit opt-out of the HC controls the FST runtime
+cannot honour:
+
+```text
+pangloss batch grammar.xml words.txt out.tsv --engine=fst --threads 1 --work-cap unbounded --word-mem-cap-mib 0 --capture-cap-mib unbounded --guess=false
+```
+
+The FST compiles once through its own admission gate. A typed construction or representability
+refusal exits non-zero before opening the output; no HC fallback runs. Whole-word HC work, memory,
+and timeout controls are unavailable for this path. FST proposal path and candidate caps still use
+the backend runtime's finite defaults. A proposal or peel cap produces `CAP`, `capped: true`, and no
+analyses; it never appears as a complete rejection. These proposal caps do not bound confirmation
+work or process RSS. Use an external process watchdog for containment of untrusted or large inputs.
+
+FST currently requires `--threads 1`, so it writes and flushes each `STARTED`/result pair and
+honours `--start N` by appending results for indices N onward. `--no-flush` buffers these rows until
+exit, and `--phase-marks` retains its measurement meaning. As with HC, `--start` cannot accompany
+`--analyses`. Keep the engine and column flags consistent when resuming; the writer does not verify
+the provenance of existing rows. An FST start beyond the word count is an error.
+
+FST refuses `--stats`, cache options, `--partials`, `--work-columns`, `--cost-column`,
+`--word-timeout-ms`, `--always-enforce-final-templates`, per-word HC profiling diagnostics,
+`--prefilter auto|on`, and enabled root guessing (including a project's `GuessRoots` unless
+overridden with `--guess=false`). It honours the grammar's template setting through the confirming
+HC morpher. `--prefilter off` is accepted. Parse and serve continue to use HC.
 
 ## Root guessing
 

@@ -105,6 +105,7 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(flag_names.contains(&"--word-timeout-ms"));
     assert!(flag_names.contains(&"--analyses"));
     assert!(flag_names.contains(&"--stats-manifest"));
+    assert!(flag_names.contains(&"--engine"));
 }
 
 #[test]

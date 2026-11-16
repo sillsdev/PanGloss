@@ -49,8 +49,7 @@ pg-fst.workspace = true
 pg-rules.workspace = true
 pg-snapshot.workspace = true
 pg-fwdata.workspace = true
-# P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` on `batch`/`parse` routes through
-# `pg_foma::composite::FomaAnalyzer` instead of the default `pg_parse::Morpher` path.
+# Explicit batch FST selection; absent from the default dependency closure.
 pg-foma = { workspace = true, optional = true }
 pg-foma-backend = { workspace = true, optional = true }
 pg-assess.workspace = true
