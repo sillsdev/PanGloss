@@ -66,3 +66,10 @@ rows before publication. P8 still validates the manifest against its exact Snaps
 compile options, rechecks the cache digest and run metadata, and reads counters under one
 SQLite-consistent view. The manifest does not provide source GUID bridges, counter support, or a
 durable history of cache runs.
+
+With `batch --stats --cache-pack`, the exact cache digest and length cover the packed
+SQLite envelope. Packing precedes manifest publication. `pangloss stats` and facts
+export validate and expand packed facts automatically. For other direct fact
+queries, `pangloss stats-cache unpack --cache <path> --out <temporary-path>` leaves
+the frozen source and its digest unchanged. In-place pack/unpack changes bytes and
+invalidates any previously recorded digest; never mutate published evidence.

@@ -7,6 +7,9 @@ use thiserror::Error;
 /// Everything that can go wrong opening, writing, or reading the stats cache.
 #[derive(Debug, Error)]
 pub enum StatsError {
+    #[error("packed stats cache: {0}")]
+    PackedCache(String),
+
     #[error("compact stats cache: allomorph breakdown and stratum filters are unavailable; record a full cache without --stats-compact")]
     CompactViewUnavailable,
 

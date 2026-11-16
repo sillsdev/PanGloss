@@ -125,6 +125,9 @@ fn dispatch_plan_diagram(args: &[String]) -> ExitCode {
 fn dispatch_make_report(args: &[String]) -> ExitCode {
     dispatch("make-report", args, crate::make_report::run_make_report)
 }
+fn dispatch_stats_cache(args: &[String]) -> ExitCode {
+    dispatch("stats-cache", args, crate::stats_cmd::run_stats_cache)
+}
 fn dispatch_stats(args: &[String]) -> ExitCode {
     dispatch("stats", args, crate::stats_cmd::run_stats)
 }
@@ -344,6 +347,8 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         takes_value: false,
         summary: "additionally record per-object statistics into the stats cache",
     },
+    FlagSpec { name: "--cache-pack", takes_value: false, summary: "compress facts at rest, leaving word rows directly readable (requires --stats)" },
+    FlagSpec { name: "--stats-compact", takes_value: false, summary: "retain object totals without allomorph/stratum dimensions (requires --stats)" },
     FlagSpec {
         name: "--cache",
         takes_value: true,
@@ -597,6 +602,19 @@ const MAKE_REPORT_FLAGS: &[FlagSpec] = &[
         name: "--policy",
         takes_value: true,
         summary: "readiness threshold policy JSON override (default: policy_v1)",
+    },
+];
+
+const STATS_CACHE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--cache",
+        takes_value: true,
+        summary: "statistics cache path",
+    },
+    FlagSpec {
+        name: "--out",
+        takes_value: true,
+        summary: "write an unpacked copy, leaving the source unchanged",
     },
 ];
 
@@ -880,6 +898,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "out.md"],
         flags: MAKE_REPORT_FLAGS,
         handler: dispatch_make_report,
+    },
+    CommandSpec {
+        name: "stats-cache",
+        summary: "Pack statistics at rest or unpack for direct fact queries.",
+        hidden: false,
+        positionals: &["pack|unpack"],
+        flags: STATS_CACHE_FLAGS,
+        handler: dispatch_stats_cache,
     },
     CommandSpec {
         name: "stats",

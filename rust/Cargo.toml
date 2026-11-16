@@ -129,6 +129,7 @@ libc = "0.2"
 # only compression method FieldWorks itself writes.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
+zstd = { version = "0.13", default-features = false }
 # `pg-xample-oracle::fieldworks`'s hvo-blind XAMPLE-file comparison: FieldWorks' own M3 dump writes
 # every referenced object by its raw, per-load-session hvo (see that module's own doc), so a
 # base-vs-mutated-clone comparison must blind a small, closed set of hvo-bearing token shapes

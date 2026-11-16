@@ -454,7 +454,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -1396,6 +1396,7 @@ fn run_batch_with_counter(
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
     let mut stats_compact = false;
+    let mut cache_pack = false;
     // None defers to the project's own `<HC><MakePartialsFinal>` once the grammar is loaded.
     let mut always_enforce_final_templates_arg: Option<bool> = None;
     let mut cache_path_arg: Option<String> = None;
@@ -1477,6 +1478,7 @@ fn run_batch_with_counter(
             "--phase-marks" => phase_marks = true,
             "--stats" => stats_requested = true,
             "--stats-compact" => stats_compact = true,
+            "--cache-pack" => cache_pack = true,
             "--prefilter" => {
                 let v = it.next().ok_or("--prefilter requires a value")?;
                 prefilter_mode = batch_prefilter::PrefilterMode::parse(v)?;
@@ -1522,7 +1524,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
@@ -1534,6 +1536,9 @@ fn run_batch_with_counter(
             per_word_diagnostics,
         },
     )?;
+    if cache_pack && !stats_requested {
+        return Err("--cache-pack requires --stats".into());
+    }
     if stats_compact && !stats_requested {
         return Err("--stats-compact requires --stats".into());
     }
@@ -1628,7 +1633,7 @@ fn run_batch_with_counter(
         .collect();
 
     // A cache refusal must fire before the TSV below is truncated.
-    let stats_cache = if let Some(manifest_path) = stats_manifest_path {
+    let mut stats_cache = if let Some(manifest_path) = stats_manifest_path {
         let cache_path = stats_cache_path
             .as_deref()
             .expect("--stats-manifest requires --stats and --cache");
@@ -1668,6 +1673,14 @@ fn run_batch_with_counter(
     } else {
         None
     };
+
+    if cache_pack {
+        stats_cache
+            .as_mut()
+            .expect("--cache-pack requires --stats")
+            .0
+            .pack_on_finish();
+    }
 
     // start_idx=0 is a fresh run (truncate); >0 is a resume (append to the prior partial TSV).
     let file = if start_idx == 0 {
