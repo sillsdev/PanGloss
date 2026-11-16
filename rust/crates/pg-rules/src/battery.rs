@@ -61,7 +61,7 @@ impl DeltaWord {
             trace,
         } = w;
         let WordFlags {
-            is_partial,
+            partial,
             is_last_applied_rule_final,
             final_template_state,
         } = flags;
@@ -79,7 +79,7 @@ impl DeltaWord {
             && *root_allomorph == input.root_allomorph
             && extras.root_runtime_id() == input.root_runtime_id()
             && *obligatory == input.obligatory
-            && *is_partial == input.flags.is_partial
+            && *partial == input.flags.partial
             && *is_last_applied_rule_final == input.flags.is_last_applied_rule_final
             && same_source(source, &input.source)
             && alternatives.is_empty()
@@ -130,7 +130,7 @@ impl DeltaWord {
             root_allomorph: input.root_allomorph,
             obligatory: input.obligatory.clone(),
             flags: WordFlags {
-                is_partial: input.flags.is_partial,
+                partial: input.flags.partial,
                 is_last_applied_rule_final: input.flags.is_last_applied_rule_final,
                 final_template_state: self.final_template_state,
             },

@@ -42,12 +42,24 @@ pub enum FinalTemplateState {
 /// deferred rule-count/trail machinery).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WordFlags {
-    /// C# `Word.IsPartial`.
-    pub is_partial: bool,
+    /// Bit 0 is C# `Word.IsPartial`; bit 1 enables diagnostics without growing Word.
+    pub(crate) partial: u8,
     /// C# `Word.IsLastAppliedRuleFinal` (`bool?`): `None` = no template applied yet.
     pub is_last_applied_rule_final: Option<bool>,
     /// Whether the latest successful rule application was an ordinary non-template rule.
     pub final_template_state: FinalTemplateState,
+}
+
+impl WordFlags {
+    #[inline]
+    pub fn is_partial(&self) -> bool {
+        self.partial & 1 != 0
+    }
+
+    #[inline]
+    pub fn set_is_partial(&mut self, value: bool) {
+        self.partial = (self.partial & !1) | u8::from(value);
+    }
 }
 
 /// One applied allomorph, recorded in **morph order** (the batch signature is
@@ -535,6 +547,17 @@ impl Word {
         self.extras.set_root_runtime_id(id);
     }
 
+    /// Diagnostic enablement shares the partial-flag byte, preserving Word's layout and accounting.
+    #[inline]
+    pub fn collect_partials(&self) -> bool {
+        self.flags.partial & 2 != 0
+    }
+
+    #[inline]
+    pub fn set_collect_partials(&mut self, enabled: bool) {
+        self.flags.partial = (self.flags.partial & !2) | (u8::from(enabled) << 1);
+    }
+
     /// A fresh word over `shape` in `stratum` with empty FSs / MPR / morphs (the starting state a
     /// root lookup or a test harness builds on).
     pub fn new(shape: Shape, stratum: StratumId) -> Self {
@@ -714,7 +737,7 @@ impl Word {
                         alt.syn_fs = self.syn_fs.clone();
                         alt.mpr = self.mpr;
                         alt.morphs = self.morphs.clone();
-                        alt.flags.is_partial = self.flags.is_partial;
+                        alt.flags.set_is_partial(self.flags.is_partial());
                         alt.root_allomorph = self.root_allomorph;
                         alt.set_root_runtime_id(self.root_runtime_id().map(str::to_owned));
                         // The guessed-root payload rides along with root_allomorph: both change together at the exact same site, never observable in isolation.

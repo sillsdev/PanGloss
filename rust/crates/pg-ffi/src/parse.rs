@@ -78,6 +78,7 @@ pub unsafe extern "C" fn hc_parse_word(
 
 fn unified_to_parse(unified: pg_lexicon::UnifiedAnalysis) -> pg_parse::ParseOutcome {
     pg_parse::ParseOutcome {
+        partials: Vec::new(),
         analyses: unified.analyses,
         structured: unified.structured,
         capped: unified.capped,

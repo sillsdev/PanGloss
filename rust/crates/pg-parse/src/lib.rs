@@ -15,6 +15,8 @@ mod lookup_replay;
 pub mod morpher;
 pub mod overlay;
 pub mod parse_morph;
+pub mod partials;
+pub use partials::PartialAnalysis;
 pub mod phonology;
 mod root_answers;
 mod root_search_cache;

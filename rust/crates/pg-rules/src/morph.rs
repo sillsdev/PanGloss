@@ -844,7 +844,9 @@ pub(crate) fn check_blocking(g: &Grammar, w: &Word) -> Option<(LexEntryId, Word)
             continue;
         }
         if pg_featstruct::subsumes(&w.syn_fs, g.fs_interner.get(entry.syn_fs)) {
-            return Some((other, seed_from_entry(g, other, w.real_fs.clone())));
+            let mut seed = seed_from_entry(g, other, w.real_fs.clone());
+            seed.set_collect_partials(w.collect_partials());
+            return Some((other, seed));
         }
     }
     None
@@ -902,7 +904,7 @@ pub(crate) fn seed_from_entry(g: &Grammar, le: LexEntryId, real_fs: FeatureStruc
     let mut w = Word::new(shape, stratum);
     w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
     w.mpr = entry.mpr;
-    w.flags.is_partial = entry.is_partial();
+    w.flags.set_is_partial(entry.is_partial());
     w.root_allomorph = Some(allo.id);
     w.real_fs = real_fs;
     w.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
@@ -1716,7 +1718,7 @@ fn final_template_prohibits(
 ) -> bool {
     template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(true))
-        && (policy.always_enforce || (!word.flags.is_partial && !rule_partial))
+        && (policy.always_enforce || (!word.flags.is_partial() && !rule_partial))
 }
 
 // Affix process — synthesis.
@@ -1755,7 +1757,7 @@ fn synth_affix(
     // (b) After a *non-final* template, prohibit a partial rule unless the input is itself partial.
     if template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
-        && !word.flags.is_partial
+        && !word.flags.is_partial()
         && rule.is_partial()
     {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -1858,6 +1860,12 @@ fn synth_affix_cached(
 ) -> Vec<Word> {
     macro_rules! not_applied {
         ($reason:expr) => {{
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Rule(mrid),
+                );
+            }
             if trace.is_tracing() {
                 trace.morphological_rule_not_applied(parent, mrid, -1, word, $reason);
             }
@@ -1877,7 +1885,7 @@ fn synth_affix_cached(
     // (b) Non-final-template prohibition.
     if template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
-        && !word.flags.is_partial
+        && !word.flags.is_partial()
         && rule.is_partial()
     {
         not_applied!(FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate);
@@ -1906,6 +1914,12 @@ fn synth_affix_cached(
             return Vec::new();
         }
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Allomorph(allo.id),
+                );
+            }
             if trace.is_tracing() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
@@ -2122,15 +2136,33 @@ fn synth_realizational_cached(
                 FailureReason::MaxApplicationCount,
             );
         }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     let real_fs = g.fs_interner.get(rule.real_fs);
     if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     if !real_fs.is_empty() && realizational_is_blocked(real_fs, &word.syn_fs) {
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -2142,6 +2174,12 @@ fn synth_realizational_cached(
                 -1,
                 word,
                 FailureReason::RequiredSyntacticFeatureStruct,
+            );
+        }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
             );
         }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2158,6 +2196,12 @@ fn synth_realizational_cached(
             return Vec::new();
         }
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Rule(mrid),
+                );
+            }
             if trace.is_tracing() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
@@ -2435,7 +2479,7 @@ fn synth_process_allomorph(
         if !is_partial_rule {
             w.flags.is_last_applied_rule_final = None;
         } else {
-            w.flags.is_partial = true;
+            w.flags.set_is_partial(true);
         }
     }
     Some(w)
@@ -3612,6 +3656,12 @@ fn synth_compound_cached(
     role: RuleInvocationRole,
 ) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3623,6 +3673,12 @@ fn synth_compound_cached(
                 -1,
                 word,
                 FailureReason::NonHeadRequiredSyntacticFeatureStruct,
+            );
+        }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
             );
         }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -3638,6 +3694,12 @@ fn synth_compound_cached(
                 FailureReason::HeadRequiredSyntacticFeatureStruct,
             );
         }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3649,6 +3711,12 @@ fn synth_compound_cached(
                 -1,
                 word,
                 FailureReason::NonPartialRuleProhibitedAfterFinalTemplate,
+            );
+        }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
             );
         }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -3671,6 +3739,12 @@ fn synth_compound_cached(
                 word.mpr,
             );
         }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -3686,6 +3760,12 @@ fn synth_compound_cached(
             return Vec::new();
         }
         if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr) {
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Rule(mrid),
+                );
+            }
             if trace.is_tracing() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
@@ -4184,7 +4264,7 @@ fn lexicon_non_head_word(
     let mut nh = Word::new(shape, root_stratum);
     nh.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
     nh.mpr = entry.mpr;
-    nh.flags.is_partial = entry.is_partial();
+    nh.flags.set_is_partial(entry.is_partial());
     nh.root_allomorph = Some(allo_id);
     nh.morphs = vec![MorphRecord::new(allo_id, entry.morpheme, 0)];
     nh

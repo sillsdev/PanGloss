@@ -142,3 +142,20 @@ fn matches_agrees_with_key_equality() {
     }
     assert!(variants.len() > 15);
 }
+
+#[test]
+fn diagnostic_enablement_preserves_the_partial_flag_and_word_layout() {
+    let mut word = Word::new(pg_shape::ShapeBuilder::new().finish(), StratumId(0));
+    for partial in [false, true] {
+        word.flags.set_is_partial(partial);
+        for enabled in [false, true, false] {
+            word.set_collect_partials(enabled);
+            assert_eq!(word.collect_partials(), enabled);
+            assert_eq!(word.flags.is_partial(), partial);
+            word.flags.set_is_partial(!partial);
+            assert_eq!(word.collect_partials(), enabled);
+            word.flags.set_is_partial(partial);
+        }
+    }
+    assert_eq!(std::mem::size_of::<Word>(), 160);
+}

@@ -1145,6 +1145,7 @@ pub(crate) const BATCH_TSV_VERSION: u32 = 5;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
+    partials: Option<String>,
     /// `Some(guessed)` only when `--guess` or `--guess=true` was passed, never for a project's own `GuessRoots`.
     guessed: Option<bool>,
     /// `Some(work_steps)` only when `--work-columns` was passed.
@@ -1156,6 +1157,9 @@ struct BatchRowTail {
 impl BatchRowTail {
     fn new(flags: BatchRowFlags, outcome: &pg_parse::ParseOutcome) -> Self {
         Self {
+            partials: flags
+                .partials
+                .then(|| serde_json::to_string(&outcome.partials).expect("partial serialization")),
             guessed: flags.guess.then_some(outcome.guessed),
             work_steps: (flags.work_columns || flags.cost_column).then_some(outcome.work_steps),
             cost: flags.cost_column.then(|| {
@@ -1171,6 +1175,7 @@ impl BatchRowTail {
 /// The batch flags that add optional TSV columns.
 #[derive(Clone, Copy)]
 struct BatchRowFlags {
+    partials: bool,
     guess: bool,
     work_columns: bool,
     cost_column: bool,
@@ -1190,6 +1195,9 @@ fn write_batch_row<W: Write>(
     if let Some(guessed) = tail.guessed {
         write!(w, "\t{guessed}")?;
     }
+    if let Some(partials) = tail.partials {
+        write!(w, "\t{partials}")?;
+    }
     if let Some(work_steps) = tail.work_steps {
         write!(w, "\t{work_steps}")?;
     }
@@ -1197,6 +1205,13 @@ fn write_batch_row<W: Write>(
         write!(w, "\t{cost}")?;
     }
     writeln!(w)
+}
+
+fn parse_partials(value: &str) -> Result<u8, String> {
+    match value.parse::<u8>() {
+        Ok(limit @ 1..=3) => Ok(limit),
+        _ => Err("--partials must be between 1 and 3".into()),
+    }
 }
 
 /// The parallel batch dispatch for a run that guesses roots, since `hc_parse_batch` has no `ParseOptions` parameter and so cannot express "guess on"; deliberately simpler than that function's longest-surface-first scheduling, using a plain order-preserving `rayon` `par_iter`.
@@ -1372,6 +1387,7 @@ fn run_batch_with_counter(
     let mut guess_arg: Option<bool> = None;
     // Default-off so the 5/6-column contract external adapters require stays byte-identical.
     let mut work_columns = false;
+    let mut partials: u8 = 0;
     let mut cost_column = false;
     // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
     let mut flush_each_word = true;
@@ -1387,6 +1403,12 @@ fn run_batch_with_counter(
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--partials" => {
+                partials = parse_partials(it.next().ok_or("--partials requires a value")?)?;
+            }
+            s if s.starts_with("--partials=") => {
+                partials = parse_partials(&s["--partials=".len()..])?;
+            }
             "--work-cap" => {
                 let value = it.next().ok_or("--work-cap requires a value")?;
                 work_cap = parse_work_cap(value)?;
@@ -1527,6 +1549,9 @@ fn run_batch_with_counter(
             "--cost-column cannot be combined with --stats, whose collector would be counted as parse cost"
                 .into(),
         );
+    }
+    if partials != 0 && prefilter_mode != batch_prefilter::PrefilterMode::Off {
+        return Err("--partials requires --prefilter off: prefilter rejection skips the parser's diagnostic gates".into());
     }
     // The gate prices parses in full parser work, so `--prefilter auto` and `on` meter the batch with or without the column.
     if cost_column || prefilter_mode != batch_prefilter::PrefilterMode::Off {
@@ -1674,8 +1699,9 @@ fn run_batch_with_counter(
         "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
         grammar_load_ms + morpher_build_ms
     );
-    let opts = morpher.project_parse_options();
+    let opts = morpher.project_parse_options().with_partials(partials);
     let row_flags = BatchRowFlags {
+        partials: partials != 0,
         guess: guess_arg == Some(true),
         work_columns,
         cost_column,
@@ -2006,7 +2032,9 @@ fn run_batch_with_counter(
             // Without a lexical pattern the guess branch never runs, so `hc_parse_batch` returns the same rows.
             let results = if let Some(prefilter) = prefilter.as_mut() {
                 prefilter.parse_batch(&morpher, remaining, threads, &opts, parse_counter)
-            } else if opts.guess_root && !morpher.lexical_patterns().is_empty() {
+            } else if opts.partials != 0
+                || (opts.guess_root && !morpher.lexical_patterns().is_empty())
+            {
                 parse_batch_with_opts(&morpher, remaining, threads, &opts, parse_counter)
             } else {
                 hc_parse_batch(&morpher, remaining, threads)

@@ -22,7 +22,7 @@ refuse a binary that reports 5, and an older binary refuses a flag it does not h
 ## Result rows
 
 ```
-idx  word  elapsed_ms  status  signature  [guessed]  [work_steps]  [cost]
+idx  word  elapsed_ms  status  signature  [guessed]  [partials]  [work_steps]  [cost]
 ```
 
 | column | meaning |
@@ -33,6 +33,7 @@ idx  word  elapsed_ms  status  signature  [guessed]  [work_steps]  [cost]
 | `status` | `ok`, `CAP` (stopped at the work cap `--work-cap`), `MEMCAP` (stopped at a memory ceiling; the signature is partial, like `CAP`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
+| `partials` | JSON array of up to K rejection summaries; present only with `--partials=K` (1..3). See below |
 | `work_steps` | present only with `--work-columns`. The word's work: the total of work steps it reserved, across analysis, the inner matchers and confirmation. `--work-cap` bounds the analysis; confirmation may spend one sixteenth of the cap more (none under a cap of 16), so `work_steps` never exceeds the cap plus one sixteenth |
 | `cost` | present only with `--cost-column`, which also writes `work_steps` before it. The word's fixed-weight parse cost; see `docs/design/parse-cost.md`. Refused together with `--stats` |
 
@@ -76,6 +77,47 @@ column), or pass `--analyses <path>` and read each morph's `guessedString`: a gu
 the matched text there, with the lexical pattern's MoForm and MSA as `form` and `msa`, as FieldWorks
 records a guess. A project without a lexical-pattern root never guesses, so its rows are the same
 whatever the setting.
+
+## Partial analyses
+
+`--partials=K` (or `--partials K`), with K between 1 and 3, adds a JSON array column after
+`guessed` when present, before work/cost columns. Discover support through the `batch` flags
+in `--describe`; the default batch TSV version and layout remain unchanged. Without this flag,
+the writer emits exactly the existing bytes for the same row values. `elapsed_ms` still varies
+between runs. `serve` has its own JSON writer and does not share this batch extension.
+
+For a word with any accepted analysis, including a guessed analysis, the array is `[]`.
+Otherwise each element has:
+
+| key | meaning |
+|---|---|
+| `morpheme_ids` | Authored morpheme XML keys for the affixes stripped along this candidate's analysis trail, in reverse unapplication order. Repeated applications retain repeated ids. Compounding rules have no morpheme id and are omitted |
+| `residue` | The candidate's root residue at lexical lookup, rendered with the first matching spelling per segment and without boundaries. Underspecified segments use that spelling rather than regex notation |
+| `failure_kind` | `no-root`, `root-gate`, `affix-gate`, or `surface-mismatch` |
+| `rejecting_object_id` | Typed, zero-based dense id in this loaded grammar: `entry:N`, `allomorph:N`, `rule:N`, or `stratum:N`. Lookup misses and final surface comparisons identify the stratum, since no lexical object rejected them. A word-level obligatory-feature gate or an anonymous pending compounding rule also identifies its stratum |
+| `work_steps` | Cumulative search work at the observed rejection, used for ranking; collection does not consume search work |
+
+Summaries rank by the number of Unicode scalar values in `residue`, then by ascending
+`work_steps`. Equal ties retain encounter order. A repeated rejection of the same object for
+the same lookup candidate occupies one slot. Different analysis candidates may yield identical
+summaries. These are observed rejected candidates, not accepted analyses or an exhaustive trace.
+The existing batch status still identifies incomplete or invalid input; such a row may have no
+summaries or only the rejections observed before it stopped.
+
+`--guess` already produces unknown-root analyses when a lexical pattern can synthesize them.
+Those successes suppress partials. `no-root` covers lookup misses that remain unanalysed,
+including grammars without lexical patterns and unsuccessful or disabled guessing. Root/affix
+summaries come from the existing feature, stem-name, MPR, template, allomorph-validity and replay
+gates; `surface-mismatch` comes from the final surface comparison. Search decisions and work
+steps are unchanged. No second parse pass or trace sink runs.
+
+The collector prepares one compact seed per lookup candidate, shares it at rejection sites,
+and retains at most K summaries, up to K deferred evictions, plus the current seed. Preparation scales with the residue and
+trail length; each rejection compares at most three fixed-size keys and shares a reference.
+Evicted payloads are reclaimed at the next candidate boundary or parse completion, outside rejection
+hooks. It retains neither rejected `Word` objects nor their source/alternative graphs.
+`--partials` requires `--prefilter off`: prefilter refusals bypass the parser gates that supply
+these summaries. Optional parser-work and cost columns remain at the end of each result row.
 
 ## Other lines a reader must accept
 

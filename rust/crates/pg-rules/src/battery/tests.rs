@@ -91,7 +91,7 @@ pub(crate) fn edits() -> Vec<Edit> {
         Box::new(|w| w.root_allomorph = Some(AllomorphId(2))),
         Box::new(|w| w.set_root_runtime_id(Some("r".to_owned()))),
         Box::new(|w| w.obligatory.push(FeatId(4))),
-        Box::new(|w| w.flags.is_partial = true),
+        Box::new(|w| w.flags.set_is_partial(true)),
         Box::new(|w| w.flags.is_last_applied_rule_final = Some(true)),
         Box::new(|w| w.source = None),
         Box::new(|w| w.source = Some(Rc::new(Word::new(shape(1), StratumId(2))))),

@@ -78,7 +78,8 @@ impl TrailAlternative {
             && *root_allomorph == canonical.root_allomorph
             && extras.root_runtime_id() == canonical.root_runtime_id()
             && *obligatory == canonical.obligatory
-            && flags.is_partial == canonical.flags.is_partial
+            && w.collect_partials() == canonical.collect_partials()
+            && flags.is_partial() == canonical.flags.is_partial()
             && flags.is_last_applied_rule_final == canonical.flags.is_last_applied_rule_final
             && flags.final_template_state == fields.final_template_state
             && same_source(source, &canonical.source)

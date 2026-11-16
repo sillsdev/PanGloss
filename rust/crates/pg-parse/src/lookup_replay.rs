@@ -130,9 +130,25 @@ impl LookupReplay {
             };
             if stem_ok && rule.required_stem_name.is_some() && rule.required_stem_name != root_stem
             {
+                if alt.collect_partials() {
+                    pg_rules::partials::record(
+                        pg_rules::partials::FailureKind::AffixGate,
+                        pg_rules::partials::RejectingObject::Rule(
+                            entry.expect("affix rule has an id"),
+                        ),
+                    );
+                }
                 return false;
             }
             if !any_allomorph_possible(g, rule, root_mpr, extra, excluded_ok, work) {
+                if alt.collect_partials() {
+                    pg_rules::partials::record(
+                        pg_rules::partials::FailureKind::AffixGate,
+                        pg_rules::partials::RejectingObject::Rule(
+                            entry.expect("affix rule has an id"),
+                        ),
+                    );
+                }
                 return false;
             }
             for allo in &rule.allomorphs {

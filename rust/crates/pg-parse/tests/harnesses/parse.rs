@@ -1,6 +1,9 @@
 // Included test files share support modules (`mod common;`), so each is loaded once per includer.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "../partials_preservation.rs"]
+mod partials_preservation;
+
 #[path = "../adhoc_affix_copies.rs"]
 mod adhoc_affix_copies;
 #[path = "../adhoc_allomorph_copies.rs"]
