@@ -59,7 +59,10 @@ impl StatsCache {
                 std::fs::create_dir_all(parent)?;
             }
         }
-        let conn = Connection::open(cache_path)?;
+        let mut conn = Connection::open(cache_path)?;
+        if crate::pack::is_packed(&conn)? {
+            crate::pack::unpack_on(&mut conn)?;
+        }
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.busy_timeout(Duration::from_secs(5))?;
         Self::open_on_version(conn, grammar_hash, version)
@@ -220,21 +223,25 @@ impl StatsCache {
         identity_quality: IdentityQuality,
         morpheme: Option<&StructuralLocator>,
     ) -> Result<i64, StatsError> {
+        crate::pack::refuse_packed_writer(&self.conn)?;
         intern_object_on(&self.conn, key, kind, label, identity_quality, morpheme)
     }
 
     /// Returns the stable id for a stratum `key`, inserting a new row on first sight.
     pub fn intern_stratum(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
+        crate::pack::refuse_packed_writer(&self.conn)?;
         intern_stratum_on(&self.conn, locator)
     }
 
     /// Returns the stable id for an allomorph `key`, inserting a new row on first sight.
     pub fn intern_allomorph(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
+        crate::pack::refuse_packed_writer(&self.conn)?;
         intern_allomorph_on(&self.conn, locator)
     }
 
     /// Returns the stable id for a morpheme `key`, inserting a new row on first sight.
     pub fn intern_morpheme(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
+        crate::pack::refuse_packed_writer(&self.conn)?;
         intern_morpheme_on(&self.conn, locator)
     }
 
@@ -248,6 +255,7 @@ impl StatsCache {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
+        crate::pack::refuse_packed_writer(&tx)?;
         let Some((_, identity_schema_version, identity_grammar_hash, identity_engine)) =
             schema::cache_identity(&tx)?
         else {
@@ -369,10 +377,7 @@ impl StatsCache {
         cache_path: &Path,
         expected_run_id: i64,
     ) -> Result<FrozenRunSnapshot, StatsError> {
-        let mut conn = Connection::open_with_flags(
-            cache_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let mut conn = crate::pack::open_read(cache_path)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
         let run_count: i64 = tx.query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))?;
         if run_count != 1 {
@@ -502,7 +507,7 @@ impl StatsCache {
                 actual: words.len() as i64,
             })?;
         tx.commit()?;
-        conn.close().map_err(|(_, error)| error)?;
+        drop(conn);
         Ok(FrozenRunSnapshot {
             run_id,
             schema_version,

@@ -11,7 +11,9 @@ use pg_grammar::stats_identity::{
 };
 use pg_snapshot::morphology::MorphType;
 use pg_snapshot::Snapshot;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
+#[cfg(test)]
+use rusqlite::Connection;
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::Deserialize;
 
 use crate::{FactsError, ProducerIdentity};
@@ -527,11 +529,8 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
 }
 
 fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError> {
-    let mut connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(stats_db_error)?;
+    let mut connection = pg_stats::pack::open_read(path)
+        .map_err(|e| FactsError::StatsRunUnavailable(e.to_string()))?;
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Deferred)
         .map_err(stats_db_error)?;
@@ -717,9 +716,7 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         rows
     };
     tx.commit().map_err(stats_db_error)?;
-    connection
-        .close()
-        .map_err(|(_, error)| stats_db_error(error))?;
+    drop(connection);
 
     let mut actual_forms: BTreeSet<String> = BTreeSet::new();
     for word in &words {
@@ -2023,6 +2020,13 @@ mod tests {
         assert_eq!(run.counter_semantics, 3);
         assert_eq!(run.facts.len(), 1);
         assert_eq!(run.facts[0].uses, 0);
+        pg_stats::pack::pack(&path).unwrap();
+        let packed = read_cache(&path, &manifest).unwrap();
+        assert_eq!(packed.counter_semantics, run.counter_semantics);
+        assert_eq!(packed.facts.len(), run.facts.len());
+        assert_eq!(packed.facts[0].uses, run.facts[0].uses);
+        assert_eq!(packed.facts[0].work, run.facts[0].work);
+        assert_eq!(packed.facts[0].attempts, run.facts[0].attempts);
 
         let mut facts = Connection::open_in_memory().unwrap();
         facts.execute_batch(include_str!("schema.sql")).unwrap();

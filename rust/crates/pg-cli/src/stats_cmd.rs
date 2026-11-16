@@ -521,10 +521,13 @@ pub(crate) struct BatchStatsCache {
     skipped: usize,
     options: StatsOptionsRecord,
     mode: BatchStatsCacheMode,
+    pack: bool,
 }
 
 enum BatchStatsCacheMode {
-    Reusable,
+    Reusable {
+        cache_path: PathBuf,
+    },
     Frozen {
         cache_path: PathBuf,
         input_words: Vec<String>,
@@ -532,6 +535,10 @@ enum BatchStatsCacheMode {
 }
 
 impl BatchStatsCache {
+    pub(crate) fn pack_on_finish(&mut self) {
+        self.pack = true;
+    }
+
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.existing_words.contains(word)
     }
@@ -690,13 +697,14 @@ fn prepare_batch_stats_hc_inner(
         existing_words: existing,
         skipped,
         options,
+        pack: false,
         mode: if frozen {
             BatchStatsCacheMode::Frozen {
                 cache_path,
                 input_words: words.to_vec(),
             }
         } else {
-            BatchStatsCacheMode::Reusable
+            BatchStatsCacheMode::Reusable { cache_path }
         },
     })
 }
@@ -751,6 +759,16 @@ pub(crate) fn finish_batch_stats_hc(
             single_run: false,
         },
     )?;
+    if prepared.pack {
+        let BatchStatsCacheMode::Reusable { cache_path } = prepared.mode else {
+            return Err("frozen stats cache requires the manifest finalizer".into());
+        };
+        prepared
+            .cache
+            .checkpoint_and_close()
+            .map_err(|e| e.to_string())?;
+        pg_stats::pack::pack(&cache_path).map_err(|e| e.to_string())?;
+    }
     println!("{}", final_template_stats_line(prune_totals));
     Ok(prune_totals)
 }
@@ -770,6 +788,7 @@ pub(crate) fn finish_frozen_batch_stats_hc(
         skipped,
         options,
         mode,
+        pack,
     } = prepared;
     let BatchStatsCacheMode::Frozen {
         cache_path,
@@ -812,6 +831,9 @@ pub(crate) fn finish_frozen_batch_stats_hc(
         .checkpoint_and_close()
         .map_err(|error| format!("close frozen stats cache: {error}"))?;
 
+    if pack {
+        pg_stats::pack::pack(&cache_path).map_err(|e| e.to_string())?;
+    }
     let cache_snapshot = pg_stats::StatsCache::read_frozen_run(&cache_path, run_id)
         .map_err(|error| format!("inspect frozen stats cache: {error}"))?;
     validate_frozen_cache(
@@ -2488,7 +2510,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         println!("stats: no cache found at {}", cache_path.display());
         return Ok(());
     }
-    let conn = rusqlite::Connection::open(&cache_path).map_err(|e| e.to_string())?;
+    let conn = pg_stats::pack::open_read(&cache_path).map_err(|e| e.to_string())?;
     let run_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
@@ -2537,6 +2559,48 @@ fn self_time_value(kind: &str, value: i64) -> Option<i64> {
     stats_kind_to_rules_kind(stats_kind)
         .filter(|kind| pg_rules::stats::self_time_supported(*kind))
         .map(|_| value)
+}
+
+pub(crate) fn run_stats_cache(args: &[String]) -> Result<(), String> {
+    let usage = "usage: stats-cache pack|unpack --cache PATH [--out PATH (unpack only)]";
+    let Some(action) = args.first() else {
+        return Err(usage.into());
+    };
+    if !matches!(action.as_str(), "pack" | "unpack") {
+        return Err(usage.into());
+    }
+    let mut cache = None;
+    let mut out = None;
+    let mut it = args[1..].iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--cache" => cache = Some(it.next().ok_or(usage)?),
+            "--out" => out = Some(it.next().ok_or(usage)?),
+            _ => return Err(usage.into()),
+        }
+    }
+    let path = Path::new(cache.ok_or(usage)?);
+    if let Some(out) = out {
+        if action != "unpack" {
+            return Err("--out requires unpack".into());
+        }
+        if Path::new(out).exists() {
+            return Err(format!("output_exists: {out}"));
+        }
+        let source = pg_stats::pack::open_read(path).map_err(|e| e.to_string())?;
+        source
+            .execute("VACUUM INTO ?1", [out])
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    if action == "pack" {
+        pg_stats::pack::pack(path)
+    } else {
+        pg_stats::pack::unpack(path)
+    }
+    .map_err(|e| e.to_string())?;
+    eprintln!("stats-cache: storage changed; exact file digests must be recorded again (use batch --cache-pack before publishing a frozen manifest)");
+    Ok(())
 }
 
 #[cfg(test)]

@@ -199,3 +199,46 @@ coerce them to zero. A single output file cannot contain the multi-orientation d
 
 For storage schema, counter attribution, identities, and exact aggregation rules, see
 [Stats attribution semantics and aggregation format](research/pangloss-stats-attribution-and-aggregation-spec.md).
+
+### Packed caches for retention
+
+`batch --stats --cache <path> --cache-pack` keeps a SQLite cache with small,
+uncompressed word, run and identity tables. A vacuumed snapshot of the
+complete cache is stored in independently zstd-compressed 1 MiB chunks in that
+same file; the live fact and dimension tables are removed. Add `--stats-compact` when object
+cost totals are sufficient and allomorph/stratum views are unnecessary. Packing
+is opt-in. Plain caches keep the existing schema and write path.
+
+`pangloss stats` and frozen facts export expand the snapshot into a temporary
+SQLite file, validate its SHA-256, byte length and visible metadata, and remove
+it when the report connection closes. No expanded sidecar persists. Replay needs
+temporary disk space approximately equal to the vacuumed plain cache. A writer
+opening a packed cache unpacks it before resuming or changing full/compact mode;
+use `--cache-pack` on that batch to pack it again when finished. Existing stale
+writer handles refuse writes while a cache is packed.
+
+Explicit transitions are available as `pangloss stats-cache pack --cache <path>`
+and `pangloss stats-cache unpack --cache <path>`. They change exact file digests.
+For immutable evidence, use `--cache-pack` on the original batch: packing finishes
+before its frozen manifest and digest are published. To query facts directly
+without changing that evidence, use
+`pangloss stats-cache unpack --cache <path> --out <temporary-path>` and delete
+the temporary copy after use. An existing output is refused. Unsupported storage
+versions, corrupt/truncated chunks, and changed identity or visible metadata are
+errors; no numeric report is emitted for them.
+
+Direct word readers can query `word`, `run` and `cache_identity` without expanding
+facts. Packing leaves the word table's schema and values identical to the plain
+cache. Motif's `ReadWords` uses
+`SELECT form, elapsed_ns, passes, work FROM word ORDER BY word_id` and can read
+packed full caches directly with its existing schema-11 gate. To enable
+`--stats-compact`, its cache-version validator must accept both 11 and 12; counter
+semantics 8 and manifest version 2 remain unchanged. Compact caches do not provide
+allomorph breakdowns or stratum filters.
+
+Motif's object-timing queries join `fact`, `word` and `object`, including its
+bounded reader's canonical-object CTE. Packed caches archive `fact` and `object`,
+so direct fact readers must use an unpacked copy. This applies to Assess and the
+generic `Read` method even with `maxObjectTimingRows: 0`; Motif's stopped-word
+retry should use its existing `ReadWords` method instead. Trial already uses
+`ReadWords`. Statistics replay through `pangloss stats` expands transparently.

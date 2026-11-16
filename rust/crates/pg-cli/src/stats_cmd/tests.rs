@@ -3244,3 +3244,189 @@ fn jsonl_headers_advertise_compact_capabilities_and_preserve_full_output() {
         }
     }
 }
+
+#[test]
+fn packed_batch_replay_resume_and_frozen_manifest_cover_exact_packed_bytes() {
+    for compact in [false, true] {
+        let dir = scratch_dir(if compact {
+            "packed-compact"
+        } else {
+            "packed-full"
+        });
+        let (grammar_xml, word) = primary_fixture();
+        let cache = dir.join("packed.sqlite");
+        let manifest = dir.join("stats-run.json");
+        let mut extra = vec![
+            "--stats",
+            "--cache",
+            cache.to_str().unwrap(),
+            "--cache-pack",
+            "--threads",
+            "1",
+            "--stats-manifest",
+            manifest.to_str().unwrap(),
+        ];
+        if compact {
+            extra.push("--stats-compact");
+        }
+        let (args, _) = run_batch_args(&dir, &grammar_xml, &format!("{word}\n"), &extra);
+        crate::run_batch(&args).unwrap();
+        let raw = rusqlite::Connection::open(&cache).unwrap();
+        assert!(pg_stats::pack::is_packed(&raw).unwrap());
+        drop(raw);
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        let bytes = fs::read(&cache).unwrap();
+        assert_eq!(
+            value["cache"]["sha256"],
+            crate::stats_manifest::sha256_digest(&bytes)
+        );
+        assert_eq!(value["cache"]["bytes"], bytes.len() as u64);
+        assert_eq!(
+            value["cache"]["schema_version"],
+            if compact { 12 } else { 11 }
+        );
+        assert_eq!(
+            pg_stats::StatsCache::read_frozen_run(&cache, 1)
+                .unwrap()
+                .words
+                .len(),
+            1
+        );
+        let unpacked = dir.join("unpacked.sqlite");
+        run_stats_cache(&[
+            "unpack".into(),
+            "--cache".into(),
+            cache.to_string_lossy().into_owned(),
+            "--out".into(),
+            unpacked.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            fs::read(&cache).unwrap(),
+            bytes,
+            "copy-out preserves the frozen digest"
+        );
+        for group in [
+            "word",
+            "object",
+            "morpheme",
+            "group",
+            "never-fires",
+            "allomorph",
+        ] {
+            if compact && group == "allomorph" {
+                continue;
+            }
+            let packed_out = dir.join(format!("packed-{group}.jsonl"));
+            let plain_out = dir.join(format!("plain-{group}.jsonl"));
+            for (path, out) in [(&cache, &packed_out), (&unpacked, &plain_out)] {
+                run_stats(&[
+                    args[0].clone(),
+                    "--cache".into(),
+                    path.to_string_lossy().into_owned(),
+                    "--group".into(),
+                    group.into(),
+                    "--format".into(),
+                    "jsonl".into(),
+                    "--out".into(),
+                    out.to_string_lossy().into_owned(),
+                ])
+                .unwrap();
+            }
+            assert_eq!(
+                fs::read(packed_out).unwrap(),
+                fs::read(plain_out).unwrap(),
+                "{group}"
+            );
+        }
+        let resumed = dir.join("resumed");
+        fs::create_dir_all(&resumed).unwrap();
+        let mut extra = vec![
+            "--stats",
+            "--cache",
+            cache.to_str().unwrap(),
+            "--cache-pack",
+            "--threads",
+            "1",
+        ];
+        if compact {
+            extra.push("--stats-compact");
+        }
+        extra.extend(["--start", "1"]);
+        let (resume_args, _) = run_batch_args(&resumed, &grammar_xml, &format!("{word}\n"), &extra);
+        assert_eq!(
+            crate::run_batch_counted(&resume_args).unwrap(),
+            0,
+            "packed cache reuses the measured word"
+        );
+        let final_cache = rusqlite::Connection::open(&cache).unwrap();
+        assert!(pg_stats::pack::is_packed(&final_cache).unwrap());
+    }
+}
+
+#[test]
+fn cache_pack_requires_stats_before_creating_output() {
+    let dir = scratch_dir("pack-without-stats");
+    let (grammar_xml, word) = primary_fixture();
+    let (args, out) = run_batch_args(&dir, &grammar_xml, &format!("{word}\n"), &["--cache-pack"]);
+    assert!(crate::run_batch(&args)
+        .unwrap_err()
+        .contains("--cache-pack requires --stats"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn packed_stats_corruption_emits_error_before_touching_report_output() {
+    let dir = scratch_dir("packed-corrupt-cli");
+    let (grammar_xml, word) = primary_fixture();
+    let cache = dir.join("cache.sqlite");
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &format!("{word}\n"),
+        &[
+            "--stats",
+            "--cache-pack",
+            "--cache",
+            cache.to_str().unwrap(),
+        ],
+    );
+    crate::run_batch(&args).unwrap();
+    let conn = rusqlite::Connection::open(&cache).unwrap();
+    conn.execute(
+        "UPDATE stats_pack_chunk SET data = substr(data, 1, length(data) / 2) WHERE seq = 0",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let report = dir.join("report.jsonl");
+    fs::write(&report, b"preserve prior report").unwrap();
+    let error = run_stats(&[
+        args[0].clone(),
+        "--cache".into(),
+        cache.to_string_lossy().into_owned(),
+        "--group".into(),
+        "object".into(),
+        "--format".into(),
+        "jsonl".into(),
+        "--out".into(),
+        report.to_string_lossy().into_owned(),
+    ])
+    .unwrap_err();
+    assert!(
+        error.contains("packed stats cache") && error.contains("corrupt archive chunk"),
+        "{error}"
+    );
+    assert_eq!(fs::read(&report).unwrap(), b"preserve prior report");
+    assert!(run_stats_cache(&[
+        "unpack".into(),
+        "--cache".into(),
+        cache.to_string_lossy().into_owned(),
+        "--out".into(),
+        report.to_string_lossy().into_owned()
+    ])
+    .unwrap_err()
+    .contains("output_exists"));
+    assert_eq!(fs::read(report).unwrap(), b"preserve prior report");
+}

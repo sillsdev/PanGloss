@@ -14,6 +14,7 @@
 pub mod cache;
 pub mod error;
 pub mod model;
+pub mod pack;
 pub mod path;
 pub mod report;
 mod schema;
