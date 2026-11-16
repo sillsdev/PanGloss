@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- Rust CI and Release explicitly test the FST compiler, runtime, backend and CLI with `foma-tools`, including the scoreboard, faithfulness, capability and seam gates (#137).
+
 ## 0.21.0
 
 Released 2026-11-16.

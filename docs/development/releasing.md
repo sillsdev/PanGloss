@@ -51,6 +51,10 @@ locked metadata validation, and the changelog has the version section. The workf
 and macOS x64, checks the ten release files and SHA-256 values, and publishes a GitHub release on
 the existing tag. CI never commits to `main` or creates or moves a tag.
 
+The shared gates include explicit FST tests and doctests for `pg-foma`, `pg-foma-runtime`,
+`pg-foma-backend` and `pg-cli` with `foma-tools`, in addition to the default-member suite.
+The FST job exercises the scoreboard, faithfulness, capability and seam regression gates.
+
 The GitHub release body includes the authored changelog section, the coverage that passed, and the
 statement that gitignored real-language corpora are excluded from release gates. Tag annotations
 identify the version; they do not claim which checks passed.

@@ -236,6 +236,76 @@ jobs:
           path: rust/target/nextest/ci/junit.xml
           if-no-files-found: ignore
 
+  fst-test:
+    name: FST build + test (required)
+    needs: preflight
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          submodules: true
+          fetch-depth: 0
+      - name: Select FST-relevant changes
+        id: changes
+        shell: bash
+        env:
+          FST_RELEASE: ${{ inputs.include_release_gates }}
+          FST_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          run=true
+          if [[ "$FST_RELEASE" != true && -n "$FST_BASE" ]] && git cat-file -e "$FST_BASE^{commit}" 2>/dev/null; then
+            # Include all Rust dependencies and build inputs; unknown bases conservatively run.
+            if git diff --quiet "$FST_BASE" HEAD -- rust/ conformance-staging/ conformance.commit machine \
+              .github/workflows/ .github/actions/conformance-suite/ .cargo/ rust-toolchain rust-toolchain.toml \
+              docs/ .claude/ CLAUDE.md openspec/ samples/ tools/underdefined-identity-capture/; then
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "FST tests selected: $run (release=$FST_RELEASE, base=$FST_BASE)"
+      - name: Fetch the conformance suite
+        if: steps.changes.outputs.run == 'true'
+        uses: ./.github/actions/conformance-suite
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.run == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.run == 'true'
+        with:
+          workspaces: rust
+          key: fst
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
+        if: steps.changes.outputs.run == 'true'
+        with:
+          tool: nextest@0.9.100
+      # Explicit packages: the three FST crates are outside default-members. pg-cli owns foma-tools.
+      - name: FST nextest (ci profile)
+        if: steps.changes.outputs.run == 'true'
+        working-directory: rust
+        run: >-
+          cargo nextest run --profile ci --cargo-profile pg-test-opt --no-fail-fast --locked
+          -p pg-foma -p pg-foma-runtime -p pg-foma-backend -p pg-cli --features pg-cli/foma-tools
+      - name: FST doctests
+        if: steps.changes.outputs.run == 'true'
+        working-directory: rust
+        run: >-
+          cargo test --doc --profile pg-test-opt --no-fail-fast --locked
+          -p pg-foma -p pg-foma-runtime -p pg-foma-backend -p pg-cli --features pg-cli/foma-tools
+      - name: Upload FST JUnit report
+        if: ${{ !cancelled() && steps.changes.outputs.run == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fst-nextest-junit
+          path: rust/target/nextest/ci/junit.xml
+          if-no-files-found: error
+
   release-extras:
     name: release gates (hygiene, rustdoc, conformance)
     needs: preflight
