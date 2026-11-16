@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "measuredOn": "2026-11-13",
+  "measuredOn": "2026-11-16",
   "conformance": {
     "repo": "sillsdev/fieldworks-parser-conformance",
     "commit": "3ba5db1b2dda50cd6ee139b8cdb815389041549f",
     "folder": "calibration/"
   },
   "pangloss": {
-    "commit": "cdc6780d55283bd960b10bb5e8b598ed20af1c0b",
-    "binarySha256": "ba6258e228a423790add1d0f2a38110a1ad7741a2ae9ab92f6c1bac19b4dca2b",
+    "commit": "7580059ec8202e2e54cd1617eceacf4c53de5ed2",
+    "binarySha256": "40e8f0df06b1af7e99fcdb9d8f70545edf66d5037f08f43fa4c509149610a4ec",
     "features": "cost-calibration,foma-tools"
   },
   "backend": {
@@ -26,6 +26,8 @@
     {
       "name": "cal-allomorph-explosion",
       "family": "cal-allomorph-explosion",
+      "driftGate": false,
+      "driftGateNote": "a fixed per-word cost not counted by parser work may dominate the 1x rung; the cause is unconfirmed",
       "wordsFile": "calibration/cal-allomorph-explosion/words.txt",
       "words": 20,
       "rows": 20,

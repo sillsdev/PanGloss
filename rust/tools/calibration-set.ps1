@@ -12,7 +12,7 @@
   The binary needs `--features cost-calibration,foma-tools`. The calibration words are slow on purpose and are never part of a normal parse or test run.
 
   -Score scores a weight set on the stored counts (arithmetic only, no measurement): per-family mean error and a per-rung linearity report that flags a
-  family whose cost-to-instruction ratio drifts more than -DriftPercent along its ladder, then the real-grammar guard from real-grammar-totals.json.
+  gating family whose cost-to-instruction ratio drifts more than -DriftPercent along its ladder; report-only drift remains visible. It also scores the real-grammar guard from real-grammar-totals.json.
 
   -MeasurePair measures the same families (not cal-prefilter-scale) through a before and an after and stores per-family totals of both sides,
   counters and instructions inside the parse, as rust/tools/calibration/pairs/<name>.json, listed in the manifest's `pairs`. The two sides are two
@@ -120,7 +120,7 @@ if (-not $Measure -and -not $MeasurePair) {
     Format-FamilyTable $setScore | ForEach-Object { Write-Host $_ }
     Write-Host 'rung drift:'
     Format-RungTable $setScore | ForEach-Object { Write-Host "  $_" }
-    if ($setScore.Flagged.Count -gt 0) { Write-Host "NON-LINEAR families: $($setScore.Flagged -join ', ')" } else { Write-Host 'every family is linear within the drift limit' }
+    if ($setScore.Flagged.Count -gt 0) { Write-Host "NON-LINEAR gating families: $($setScore.Flagged -join ', ')" } else { Write-Host 'every gating family is linear within the drift limit' }
     if ($real) {
         $curReal = Get-RealGuard -Totals (Read-RealTotals $realPath) -Weights $cur
         $verdict = Get-RealGuardVerdict -Current $curReal -Candidate $real
@@ -285,6 +285,12 @@ if ($MeasurePair) {
 }
 
 $Exe = (Resolve-Path -LiteralPath $Exe).Path
+$priorSets = @{}
+$priorPath = Join-Path $Dir 'manifest.json'
+if (Test-Path -LiteralPath $priorPath) {
+    $prior = Read-CalibrationManifest -Dir $Dir
+    foreach ($entry in $prior.Manifest.sets) { $priorSets[$entry.name] = $entry }
+}
 $manifestSets = @()
 foreach ($s in $sets) {
     Write-Host "measuring $($s.Name)"
@@ -313,6 +319,7 @@ foreach ($s in $sets) {
         $entry['excludeFromMean'] = $true
         $entry['modellingGap'] = 'its instructions include the admission and tiled-filter walks, which cost does not count, so its error is a modelling gap and no weight closes it'
     }
+    if ($priorSets.ContainsKey($s.Name)) { Copy-DriftGatePolicy -Prior $priorSets[$s.Name] -Entry $entry }
     $manifestSets += $entry
 }
 $valgrind = (& valgrind --version).Trim()

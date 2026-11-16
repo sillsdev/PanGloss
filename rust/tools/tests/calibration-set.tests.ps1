@@ -101,6 +101,28 @@ Test-Case 'the drift limit is 7 percent, the size of the changes it exists to pr
     Assert-True $f.Flagged "max drift $($f.MaxDrift)"
 }
 
+Test-Case 'report-only drift stays visible and in family means while another drifting family fails' {
+    $rows = New-LadderRows @(1.0, 1.0, 1.0, 1.0, 1.2) $rungs
+    $sets = @(
+        [PSCustomObject]@{ Name = 'a'; Family = 'a'; Rows = $rows; DriftGate = $false; DriftGateNote = 'fixed cost suspected' },
+        [PSCustomObject]@{ Name = 'b'; Family = 'b'; Rows = $rows; DriftGate = $true; DriftGateNote = $null })
+    $score = Get-SetScore -Sets $sets -Weights $current
+    Assert-Equal 'b' ($score.Flagged -join ',')
+    Assert-True (($score.Families | Where-Object Family -eq 'a').Flagged) 'the measured drift remains flagged in the family score'
+    Assert-True ($score.MeanOfFamilyErrors -gt 0) 'report-only family remains in the means'
+    Assert-True ((Format-FamilyTable $score | Where-Object { $_ -match 'report-only.*a: fixed cost suspected' }).Count -eq 1)
+    Assert-True ((Format-RungTable $score | Where-Object { $_ -match '^a\s+1x:' }).Count -eq 1)
+    $only = Get-SetScore -Sets @($sets[0]) -Weights $current
+    Assert-Equal 0 $only.Flagged.Count
+}
+
+Test-Case 'remeasure preserves an existing drift policy and its reason' {
+    $entry = [ordered]@{ name = 'a' }
+    Copy-DriftGatePolicy -Prior ([PSCustomObject]@{ driftGate = $false; driftGateNote = 'fixed cost suspected' }) -Entry $entry
+    Assert-False $entry.driftGate
+    Assert-Equal 'fixed cost suspected' $entry.driftGateNote
+}
+
 # Totals of a pair side, as the pair files store them; instructions are chosen by the test.
 function New-Totals([long]$Work, [long]$Bytes, [long]$Allocs, [long]$Instr) { [PSCustomObject]@{ work = $Work; bytes = $Bytes; registers = 0; allocations = $Allocs; instructions = $Instr } }
 function New-Pair([string]$Name, $Families) { [PSCustomObject]@{ name = $Name; title = 'invented'; families = @($Families) } }
@@ -212,6 +234,10 @@ Test-Case 'a manifest whose row count disagrees with its counts file is refused'
         $ok = Read-CalibrationManifest -Dir $dir
         Assert-Equal '1x' $ok.Sets[0].Rows[0].Rung
         Assert-Equal 'f' $ok.Sets[0].Rows[0].Family
+        [IO.File]::WriteAllText((Join-Path $dir 'manifest.json'), $m.Replace('"rows":2', '"rows":1,"driftGate":false'))
+        $threw = $false
+        try { $null = Read-CalibrationManifest -Dir $dir } catch { $threw = $_.Exception.Message -match 'requires a reason' }
+        Assert-True $threw 'a report-only gate without a reason is refused'
     } finally { Remove-Item -Recurse -Force $dir }
 }
 
@@ -229,6 +255,8 @@ Test-Case 'the committed set loads, pins both commits, carries no words and scor
     $score = Get-SetScore -Sets $set.Sets -Weights $current
     Assert-True ($score.Families.Count -ge 12) "families: $($score.Families.Count)"
     Assert-True (@($score.Families | Where-Object { $null -eq $_.MeanError }).Count -eq 0)
+    Assert-Equal 'cal-allomorph-explosion' (@($score.Families | Where-Object DriftReportOnly | ForEach-Object Family) -join ',')
+    Assert-False (($score.Families | Where-Object Family -eq 'cal-allomorph-explosion').ExcludedFromMean)
 }
 
 Test-Case 'the committed pairs load, hold only counters, and every gating pair passes its gate at the current weights' {

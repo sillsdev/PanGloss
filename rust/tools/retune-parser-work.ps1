@@ -100,7 +100,7 @@ function Write-StoredSetReport([string]$Dir, [double[]]$Current, [double[]]$Cand
     foreach ($row in @(@('current', $Current), @('candidate', $Candidate))) {
         $sc = Get-SetScore -Sets $set.Sets -Weights $row[1]
         Write-Host ("  {0,-9} {1}: mean of family errors {2:0.0}% (shape {3:0.0}%), worst {4}, non-linear: {5}" -f $row[0], (Format-Weights $row[1]), $sc.MeanOfFamilyErrors, $sc.MeanOfScaleFreeErrors, $sc.Worst, $(if ($sc.Flagged.Count) { $sc.Flagged -join ', ' } else { 'none' }))
-        Format-FamilyTable $sc | Select-Object -Skip 1 | Select-Object -SkipLast 1 | ForEach-Object { Write-Host "    $_" }
+        Format-FamilyTable $sc | Select-Object -Skip 1 | ForEach-Object { Write-Host "    $_" }
     }
     if ($realNew) {
         $v = Get-RealGuardVerdict -Current $realCur -Candidate $realNew
