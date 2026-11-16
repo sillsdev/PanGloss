@@ -15,6 +15,7 @@ pub mod cascade;
 pub mod extras;
 pub mod metathesis;
 pub mod morph;
+pub mod partials;
 pub mod required_slots;
 pub mod rewrite;
 pub mod shape_feat;

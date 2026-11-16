@@ -169,6 +169,8 @@ impl std::fmt::Display for GenerateWordsStopReason {
 
 /// The outcome of parsing one word.
 pub struct ParseOutcome {
+    /// Best observed rejection summaries, only for words without any analysis.
+    pub partials: Vec<crate::PartialAnalysis>,
     /// The `(morpheme-id-join, surface)` pairs, one per surviving analysis, ready for
     /// `result_signature`. Empty = no analyses (signature `-`).
     pub analyses: Vec<(String, String)>,
@@ -220,6 +222,7 @@ impl ParseOutcome {
 /// The no-analyses outcome: every counter/flag except `invalid_shape` is zero/false.
 fn empty_outcome(invalid_shape: bool) -> ParseOutcome {
     ParseOutcome {
+        partials: Vec::new(),
         analyses: Vec::new(),
         structured: Vec::new(),
         capped: false,
@@ -439,9 +442,17 @@ pub struct ParseOptions {
     /// Run the lexical guesser without consulting real or supplied root lookup. Intended for
     /// orchestration after an independently confirmed total lexical miss.
     pub guess_only: bool,
+    /// Maximum rejection summaries, zero (disabled) through three.
+    pub partials: u8,
 }
 
 impl ParseOptions {
+    pub fn with_partials(mut self, limit: u8) -> Self {
+        assert!(limit <= 3, "partials must be between zero and three");
+        self.partials = limit;
+        self
+    }
+
     /// Builder-style setter for `Self::guess_root` — `#[non_exhaustive]` blocks callers outside
     /// this crate from using struct-literal syntax (even with `..Default::default()`), so this is
     /// the public construction path.
@@ -848,9 +859,19 @@ impl<'g> Morpher<'g> {
         stats: Option<&pg_rules::stats::StatsCollector>,
     ) -> ParseOutcome {
         let meter = pg_cost::Meter::start();
+        let partials = (opts.partials != 0).then(|| pg_rules::partials::enter(opts.partials));
         let mut outcome =
             self.parse_word_unmetered(word, opts, trace, lex_entry_filter, rule_filter, stats);
         outcome.cost = meter.map(|meter| meter.finish(outcome.work_steps));
+        if let Some(scope) = partials {
+            let rejections = scope.finish();
+            if outcome.analyses.is_empty() {
+                outcome.partials = rejections
+                    .into_iter()
+                    .map(crate::PartialAnalysis::from_rejection)
+                    .collect();
+            }
+        }
         outcome
     }
 
@@ -904,6 +925,7 @@ impl<'g> Morpher<'g> {
             }
         };
         let mut input = Word::new(shape, surface_stratum);
+        input.set_collect_partials(opts.partials != 0);
         let search_cache = Mutex::new(crate::root_search_cache::RootSearchCache::new(n));
 
         // `input.trace` carries the handle through every clone, so gates below find their ancestor via `w.trace`.
@@ -1046,6 +1068,9 @@ impl<'g> Morpher<'g> {
         if !opts.guess_only {
             for aw in results.iter().flat_map(Canonicals::words) {
                 let aw = &aw;
+                if opts.partials != 0 {
+                    self.prepare_partial_seed(aw, &aw.trail);
+                }
                 let dispatch_ok = {
                     let _owner = stats.map(|stats| {
                         stats.time_enter(
@@ -1110,6 +1135,9 @@ impl<'g> Morpher<'g> {
                     let expanded = syn_word.expand_alternatives();
                     alt_yield::record_expansion(expanded.len());
                     for alt in expanded {
+                        if opts.partials != 0 {
+                            self.prepare_partial_seed(aw, &alt.trail);
+                        }
                         if !consume_parser_work(
                             stats,
                             ParserWork::CandidateExpansion,
@@ -1183,6 +1211,9 @@ impl<'g> Morpher<'g> {
                 let mut guess_matches: Vec<Word> = Vec::new();
                 for aw in results.iter().flat_map(Canonicals::words) {
                     let aw = &aw;
+                    if opts.partials != 0 {
+                        self.prepare_partial_seed(aw, &aw.trail);
+                    }
                     if !consume_parser_work(
                         stats,
                         ParserWork::CandidateExpansion,
@@ -1221,6 +1252,9 @@ impl<'g> Morpher<'g> {
                         let expanded = synthesis_word.expand_alternatives();
                         alt_yield::record_expansion(expanded.len());
                         for alt in expanded {
+                            if opts.partials != 0 {
+                                self.prepare_partial_seed(aw, &alt.trail);
+                            }
                             if !consume_parser_work(
                                 stats,
                                 ParserWork::CandidateExpansion,
@@ -1282,6 +1316,7 @@ impl<'g> Morpher<'g> {
 
         search_cache.lock().expect("root cache poisoned").finish();
         ParseOutcome {
+            partials: Vec::new(),
             analyses,
             structured,
             capped: budget.capped(),
@@ -1318,6 +1353,12 @@ impl<'g> Morpher<'g> {
             stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
         }
         let matched = self.search_roots(aw.stratum, &aw.shape, stats, search_cache);
+        if aw.collect_partials() && matched.is_empty() {
+            pg_rules::partials::record(
+                pg_rules::partials::FailureKind::NoRoot,
+                pg_rules::partials::RejectingObject::Stratum(aw.stratum),
+            );
+        }
         let mut out = Vec::new();
         // C# `SearchRootAllomorphs(..).Distinct()`: a matched allomorph is proposed once.
         let mut seen: Vec<(LexEntryId, pg_grammar_model::model::AllomorphId)> = Vec::new();
@@ -1380,6 +1421,12 @@ impl<'g> Morpher<'g> {
             }
             // Lookup fails when the entry's syntactic features do not unify with the input's: no synthesis is attempted.
             if !pg_featstruct::is_unifiable(g.fs_interner.get(entry.syn_fs), &aw.syn_fs) {
+                if aw.collect_partials() {
+                    pg_rules::partials::record(
+                        pg_rules::partials::FailureKind::RootGate,
+                        pg_rules::partials::RejectingObject::Root(le),
+                    );
+                }
                 if trace.is_tracing() {
                     let mut trace_word = aw.clone_without_alternatives();
                     self.set_root_allomorph(&mut trace_word, le, allo.id, &allo.shape.text);
@@ -1435,7 +1482,7 @@ impl<'g> Morpher<'g> {
             nw.stratum = root.stratum;
             nw.syn_fs = root.syn_fs.clone();
             nw.mpr = root.mpr;
-            nw.flags.is_partial = false;
+            nw.flags.set_is_partial(false);
             nw.root_allomorph = Some(AllomorphId::GUESSED);
             nw.set_root_runtime_id(Some(root.realization_id.clone()));
             nw.morphs = vec![
@@ -1480,7 +1527,7 @@ impl<'g> Morpher<'g> {
         w.stratum = root_stratum;
         w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
         w.mpr = entry.mpr;
-        w.flags.is_partial = entry.is_partial();
+        w.flags.set_is_partial(entry.is_partial());
         w.root_allomorph = Some(allo);
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
         w.set_root_runtime_id(None);
@@ -1730,6 +1777,9 @@ impl<'g> Morpher<'g> {
     ) -> bool {
         let parent = w.trace.unwrap_or(parent);
         if w.mrule_app_index != -1 {
+            if w.collect_partials() {
+                pg_rules::partials::record_pending_rule(w.mrule_app_index as usize, w.stratum);
+            }
             // partial parse — not every unapplied rule was confirmed
             if trace.is_tracing() {
                 if trace.captures_details() {
@@ -1746,6 +1796,12 @@ impl<'g> Morpher<'g> {
         }
         for &f in &w.obligatory {
             if !contains_feature(&w.syn_fs, f) {
+                if w.collect_partials() {
+                    pg_rules::partials::record(
+                        pg_rules::partials::FailureKind::RootGate,
+                        pg_rules::partials::RejectingObject::Stratum(w.stratum),
+                    );
+                }
                 if trace.is_tracing() {
                     let event = trace.failed(parent, w, FailureReason::ObligatorySyntacticFeatures);
                     if trace.captures_failure_context() {
@@ -1796,6 +1852,12 @@ impl<'g> Morpher<'g> {
             });
             surface::is_match(surface_table, &w.shape, word)
         };
+        if w.collect_partials() && !ok {
+            pg_rules::partials::record(
+                pg_rules::partials::FailureKind::SurfaceMismatch,
+                pg_rules::partials::RejectingObject::Stratum(w.stratum),
+            );
+        }
         if trace.is_tracing() {
             if ok {
                 trace.successful(parent, w);
@@ -1815,6 +1877,28 @@ impl<'g> Morpher<'g> {
             }
         }
         ok
+    }
+
+    fn prepare_partial_seed(&self, aw: &Word, trail: &pg_rules::trail::Trail) {
+        let rules = trail.rules();
+        let ids = rules
+            .iter()
+            .rev()
+            .flatten()
+            .filter_map(|id| self.g.mrules[id.0 as usize].morpheme())
+            .map(|id| self.g.morphemes[id.0 as usize].xml_key.clone())
+            .collect();
+        pg_rules::partials::set_seed(
+            pg_rules::partials::Seed::new(
+                ids,
+                surface::to_plain_string(
+                    &self.g.char_tables[self.g.strata[aw.stratum.0 as usize].table.0 as usize],
+                    &aw.shape,
+                    false,
+                ),
+            )
+            .with_rules(rules),
+        );
     }
 
     /// The signature's surface half, rendered against `w.stratum`'s table (never reassigned during synthesis).
@@ -2537,7 +2621,7 @@ impl<'g> Morpher<'g> {
         let mut w = Word::new(shape, stratum);
         w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
         w.mpr = entry.mpr;
-        w.flags.is_partial = entry.is_partial();
+        w.flags.set_is_partial(entry.is_partial());
         w.root_allomorph = Some(allo.id);
         w.real_fs = real_fs;
         w.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
@@ -2672,3 +2756,6 @@ mod trace_tests;
 
 #[cfg(test)]
 mod root_cache_tests;
+
+#[cfg(test)]
+mod partial_tests;

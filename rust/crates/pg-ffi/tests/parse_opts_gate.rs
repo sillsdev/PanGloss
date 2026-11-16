@@ -167,6 +167,7 @@ fn assert_wire_matches_owner(
     word: &str,
 ) {
     let expected_outcome = pg_parse::ParseOutcome {
+        partials: Vec::new(),
         analyses: owner.analyses.clone(),
         structured: owner.structured.clone(),
         capped: owner.capped,

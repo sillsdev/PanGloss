@@ -29,7 +29,16 @@ fn parse_row(line: &str) -> Result<Option<(usize, Row)>, String> {
         return Err("a row has an unexpected shape".into());
     }
     let guessed = usize::from(matches!(fields.get(5), Some(&"true") | Some(&"false")));
-    if fields.len() - 5 - guessed != 2 {
+    let partials = usize::from(
+        fields
+            .get(5 + guessed)
+            .is_some_and(|field| field.starts_with('[')),
+    );
+    if partials != 0 {
+        serde_json::from_str::<Vec<serde_json::Value>>(fields[5 + guessed])
+            .map_err(|_| "a row has invalid partials JSON".to_string())?;
+    }
+    if fields.len() - 5 - guessed - partials != 2 {
         return Err("a row has no cost column; rerun `batch` with --cost-column".into());
     }
     let idx = fields[0]

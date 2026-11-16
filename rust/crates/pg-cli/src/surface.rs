@@ -315,6 +315,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser; =false turns it off; overrides the project's <HC><GuessRoots> (default true), which applies when the flag is absent",
     },
     FlagSpec {
+        name: "--partials",
+        takes_value: true,
+        summary: "append up to K same-pass rejection summaries as JSON (K=1..3); requires --prefilter off",
+    },
+    FlagSpec {
         name: "--work-columns",
         takes_value: false,
         summary: "append each word's work_steps (its deterministic work) to its TSV row",

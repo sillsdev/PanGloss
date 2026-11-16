@@ -110,7 +110,7 @@ fn a_candidate_differing_beside_its_trails_is_held_whole() {
             w.set_root_runtime_id(Some("r".to_owned()))
         }),
         ("obligatory", |w| w.obligatory.push(FeatId(4))),
-        ("is_partial", |w| w.flags.is_partial = true),
+        ("is_partial", |w| w.flags.set_is_partial(true)),
         ("is_last_applied_rule_final", |w| {
             w.flags.is_last_applied_rule_final = Some(true)
         }),

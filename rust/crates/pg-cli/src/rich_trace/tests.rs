@@ -17,6 +17,7 @@ fn details_requires_trace_and_json() {
 #[test]
 fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("root+past".into(), "sagd".into())],
         structured: Vec::new(),
         capped: false,
@@ -168,6 +169,7 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
 #[test]
 fn v2_retains_analysis_when_projection_is_unavailable() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("root".into(), "sagd".into())],
         structured: Vec::new(),
         capped: true,

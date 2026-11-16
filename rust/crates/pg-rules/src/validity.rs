@@ -560,8 +560,25 @@ pub fn allomorphs_valid_cached_traced_with_stats(
     allomorphs_valid_impl(g, w, EnvCheck::Cached(cache, stats), trace, parent)
 }
 
-/// Emits the trace failure (guarded by `is_tracing()`) and returns `false`, keeping the two in lockstep.
-fn fail(trace: &dyn TraceSink, parent: TraceHandle, w: &Word, reason: FailureReason) -> bool {
+fn record_partial_gate(g: &Grammar, object: AllomorphId) {
+    let kind = match g.allomorph_owners.get(object.0 as usize) {
+        Some(AllomorphOwner::Affix(..)) => crate::partials::FailureKind::AffixGate,
+        _ => crate::partials::FailureKind::RootGate,
+    };
+    crate::partials::record(kind, crate::partials::RejectingObject::Allomorph(object));
+}
+
+fn fail(
+    g: &Grammar,
+    object: AllomorphId,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    w: &Word,
+    reason: FailureReason,
+) -> bool {
+    if w.collect_partials() {
+        record_partial_gate(g, object);
+    }
     if trace.is_tracing() {
         trace.failed(parent, w, reason);
     }
@@ -570,12 +587,17 @@ fn fail(trace: &dyn TraceSink, parent: TraceHandle, w: &Word, reason: FailureRea
 
 /// Capture values at the already-fired gate. The closure is never evaluated for ordinary parses.
 fn fail_with_context(
+    g: &Grammar,
+    object: AllomorphId,
     trace: &dyn TraceSink,
     parent: TraceHandle,
     w: &Word,
     reason: FailureReason,
     context: impl FnOnce() -> crate::trace::FailureContext,
 ) -> bool {
+    if w.collect_partials() {
+        record_partial_gate(g, object);
+    }
     if trace.is_tracing() {
         let event = trace.failed(parent, w, reason);
         if trace.captures_failure_context() {
@@ -593,31 +615,42 @@ struct EnvironmentRejection {
 }
 
 fn fail_with_environment_context(
+    g: &Grammar,
     trace: &dyn TraceSink,
     parent: TraceHandle,
     w: &Word,
     rejection: EnvironmentRejection,
     legacy_environment: impl FnOnce() -> String,
 ) -> bool {
-    fail_with_context(trace, parent, w, FailureReason::Environments, || {
-        let (start, end) = rejection.span;
-        let allomorph = rejection.object;
-        crate::trace::FailureContext {
-            required: Some("at least one declared environment must accept this morph span".into()),
-            actual: Some(format!(
-                "allomorph {allomorph:?}, interior span {start}..={end}, shape {:?}",
-                w.shape
-            )),
-            environment: Some(legacy_environment()),
-            evidence: Some(RejectionEvidence::Environments {
-                object: TraceObject::Allomorph(allomorph),
-                constraint_owner: TraceObject::Allomorph(rejection.constraint_owner),
-                start,
-                end,
-                alternatives: rejection.alternatives,
-            }),
-        }
-    })
+    fail_with_context(
+        g,
+        rejection.constraint_owner,
+        trace,
+        parent,
+        w,
+        FailureReason::Environments,
+        || {
+            let (start, end) = rejection.span;
+            let allomorph = rejection.object;
+            crate::trace::FailureContext {
+                required: Some(
+                    "at least one declared environment must accept this morph span".into(),
+                ),
+                actual: Some(format!(
+                    "allomorph {allomorph:?}, interior span {start}..={end}, shape {:?}",
+                    w.shape
+                )),
+                environment: Some(legacy_environment()),
+                evidence: Some(RejectionEvidence::Environments {
+                    object: TraceObject::Allomorph(allomorph),
+                    constraint_owner: TraceObject::Allomorph(rejection.constraint_owner),
+                    start,
+                    end,
+                    alternatives: rejection.alternatives,
+                }),
+            }
+        },
+    )
 }
 fn allomorphs_valid_impl(
     g: &Grammar,
@@ -688,12 +721,26 @@ fn allomorphs_valid_impl(
                 .expect("guessed_root.pattern_allo must be one of its owning entry's allomorphs");
             let def = &allos[idx];
             if def.is_bound && distinct_count == 1 {
-                return fail(trace, parent, w, FailureReason::BoundRoot);
+                return fail(
+                    g,
+                    owner_id.unwrap_or(m.allomorph),
+                    trace,
+                    parent,
+                    w,
+                    FailureReason::BoundRoot,
+                );
             }
             // Primary stem-name clause only; the fabricated entry has exactly one allomorph, so the sibling-exclusion loop is a no-op here.
             if let Some(sn) = def.stem_name {
                 if !stem_name_required_match(g, sn, &w.syn_fs) {
-                    return fail(trace, parent, w, FailureReason::RequiredStemName);
+                    return fail(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::RequiredStemName,
+                    );
                 }
             }
             // Keyed on the guessed sentinel ids, which never equal any real id in the morph lists.
@@ -703,6 +750,8 @@ fn allomorphs_valid_impl(
                 &morph_list_allomorphs,
             ) {
                 return fail_with_context(
+                    g,
+                    owner_id.unwrap_or(m.allomorph),
                     trace,
                     parent,
                     w,
@@ -727,6 +776,8 @@ fn allomorphs_valid_impl(
                 &morph_list_morphemes,
             ) {
                 return fail_with_context(
+                    g,
+                    owner_id.unwrap_or(m.allomorph),
                     trace,
                     parent,
                     w,
@@ -753,6 +804,7 @@ fn allomorphs_valid_impl(
                 trace.is_tracing() && trace.captures_failure_context(),
             ) {
                 return fail_with_environment_context(
+                    g,
                     trace,
                     parent,
                     w,
@@ -774,11 +826,18 @@ fn allomorphs_valid_impl(
                 let allos = &g.entries[le.0 as usize].allomorphs;
                 let def = &allos[idx as usize];
                 if def.is_bound && distinct_count == 1 {
-                    return fail(trace, parent, w, FailureReason::BoundRoot);
+                    return fail(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::BoundRoot,
+                    );
                 }
                 // Stem-name gate sits between the bound-root gate and the co-occurrence gates, matching C#'s order.
                 if let Some(reason) = stem_name_gate_reason(g, allos, idx as usize, &w.syn_fs) {
-                    return fail(trace, parent, w, reason);
+                    return fail(g, owner_id.unwrap_or(m.allomorph), trace, parent, w, reason);
                 }
                 // Allomorph-level rules, then morpheme-level rules, both before the environments check below, matching C#'s order.
                 if let Some(rule_index) = first_failed_allomorph_co_occurrence_rule(
@@ -787,6 +846,8 @@ fn allomorphs_valid_impl(
                     &morph_list_allomorphs,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -810,6 +871,8 @@ fn allomorphs_valid_impl(
                     &morph_list_morphemes,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -835,6 +898,7 @@ fn allomorphs_valid_impl(
                     trace.is_tracing() && trace.captures_failure_context(),
                 ) {
                     return fail_with_environment_context(
+                        g,
                         trace,
                         parent,
                         w,
@@ -867,7 +931,14 @@ fn allomorphs_valid_impl(
                             &morph_list_allomorphs,
                         )
                     {
-                        return fail(trace, parent, w, FailureReason::DisjunctiveAllomorph);
+                        return fail(
+                            g,
+                            owner_id.unwrap_or(m.allomorph),
+                            trace,
+                            parent,
+                            w,
+                            FailureReason::DisjunctiveAllomorph,
+                        );
                     }
                 }
             }
@@ -879,6 +950,8 @@ fn allomorphs_valid_impl(
                 let def = &allos[idx as usize];
                 if !pg_featstruct::subsumes(g.fs_interner.get(def.required_syn_fs), &w.syn_fs) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -902,6 +975,8 @@ fn allomorphs_valid_impl(
                     &morph_list_allomorphs,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -925,6 +1000,8 @@ fn allomorphs_valid_impl(
                     &morph_list_morphemes,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -950,6 +1027,7 @@ fn allomorphs_valid_impl(
                     trace.is_tracing() && trace.captures_failure_context(),
                 ) {
                     return fail_with_environment_context(
+                        g,
                         trace,
                         parent,
                         w,
@@ -985,7 +1063,14 @@ fn allomorphs_valid_impl(
                             &morph_list_allomorphs,
                         )
                     {
-                        return fail(trace, parent, w, FailureReason::DisjunctiveAllomorph);
+                        return fail(
+                            g,
+                            owner_id.unwrap_or(m.allomorph),
+                            trace,
+                            parent,
+                            w,
+                            FailureReason::DisjunctiveAllomorph,
+                        );
                     }
                 }
             }

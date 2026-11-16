@@ -127,3 +127,12 @@ fn different_word_lists_are_refused() {
     let after = rows(&["0\tb\t1\tok\tx\t1\t100"]);
     assert!(compare(&before, &after).is_err());
 }
+#[test]
+fn cost_rows_allow_the_optional_partials_array_without_confusing_work_only_rows() {
+    for prefix in ["", "false\t"] {
+        let line = format!("0\tkat\t7\tok\t-\t{prefix}[]\t123\t456");
+        assert_eq!(super::parse_row(&line).unwrap().unwrap().1.cost, 456);
+        let work_only = format!("0\tkat\t7\tok\t-\t{prefix}[]\t123");
+        assert!(super::parse_row(&work_only).is_err());
+    }
+}

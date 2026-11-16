@@ -160,7 +160,7 @@ fn build_fixture() -> (Grammar, StratumId, MRuleId, Word, RuleCache) {
     let mut input = word(&g, "a", s);
     input.syn_fs = one_feature_fs(0b10); // disjoint from `req_fs` => the syn-FS gate fails too.
     input.flags.is_last_applied_rule_final = Some(true); // => the final-template gate fails.
-    input.flags.is_partial = false;
+    input.flags.set_is_partial(false);
     input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
 
@@ -252,7 +252,7 @@ fn syn_fs_gate_still_applies_when_every_gate_actually_passes() {
 fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
     let (g, s, _r, mut input, cache) = build_fixture();
     input.syn_fs = one_feature_fs(0b01);
-    input.flags.is_partial = true;
+    input.flags.set_is_partial(true);
     let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
     assert_eq!(
         baseline.len(),
@@ -284,7 +284,7 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
             Some(pg_grammar_model::model::PartialMorphemeReason::UnclassifiedAffix);
     }
     input.syn_fs = one_feature_fs(0b01);
-    input.flags.is_partial = false;
+    input.flags.set_is_partial(false);
     let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
     assert_eq!(
         baseline.len(),
@@ -343,7 +343,7 @@ fn synthesis_override_bypasses_partial_word_rescue_for_compounding() {
     let mut input = word(&g, "a", StratumId(0));
     input.non_head_unapplied(word(&g, "a", StratumId(0)));
     input.flags.is_last_applied_rule_final = Some(true);
-    input.flags.is_partial = true;
+    input.flags.set_is_partial(true);
 
     let baseline =
         synthesize_with_policy(&g, &input, &rule, FinalTemplateSynthesisPolicy::default());

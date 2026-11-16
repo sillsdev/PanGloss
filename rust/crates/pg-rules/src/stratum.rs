@@ -2696,6 +2696,7 @@ fn choose_inflectional_stem(g: &Grammar, input: &Word) -> Word {
         let remainder = subtract(rel_syn, &best.syn_fs);
         if !remainder.is_empty() && is_unifiable(&input.real_fs, &remainder) {
             best = crate::morph::seed_from_entry(g, rel, input.real_fs.clone());
+            best.set_collect_partials(input.collect_partials());
         }
     }
     best
@@ -2743,7 +2744,7 @@ fn synth_apply_templates(
         for w in guided_template_apply(
             g, stratum, tid, input, cache, stats, trace, parent, budget, policy,
         ) {
-            let final_flag = w.flags.is_partial || tmpl.is_final;
+            let final_flag = w.flags.is_partial() || tmpl.is_final;
             let mut w = w;
             w.flags.is_last_applied_rule_final = Some(final_flag);
             out.insert(w);
@@ -2751,7 +2752,7 @@ fn synth_apply_templates(
     }
     // No template output: pass the input through UNLESS it is non-partial AND some template was applicable, else a templateless stratum would skip the mrule recursion below entirely.
     if out.is_empty() {
-        if input.flags.is_partial || !applicable {
+        if input.flags.is_partial() || !applicable {
             let mut w = input.clone();
             // PORT-CORRESPONDENCE: `SynthesisAffixTemplatesRule.Apply` closes the passthrough only when some template was applicable.
             if applicable {
