@@ -1886,9 +1886,22 @@ fn synthetic_stats_cache_with_words(
     engine: &str,
     words: Vec<pg_stats::WordRecord>,
 ) -> pg_stats::StatsCache {
+    synthetic_stats_cache_with_mode(engine, words, false)
+}
+
+fn synthetic_stats_cache_with_mode(
+    engine: &str,
+    words: Vec<pg_stats::WordRecord>,
+    compact: bool,
+) -> pg_stats::StatsCache {
     let dir = scratch_dir("contract");
     let path = dir.join("cache.sqlite3");
-    let mut outcome = pg_stats::StatsCache::open(&path, "contract-hash").unwrap();
+    let mut outcome = if compact {
+        pg_stats::StatsCache::open_compact(&path, "contract-hash")
+    } else {
+        pg_stats::StatsCache::open(&path, "contract-hash")
+    }
+    .unwrap();
     let run = pg_stats::RunMetadata {
         build_info: "test".to_string(),
         fwdata_path: "x".to_string(),
@@ -2542,6 +2555,15 @@ fn frozen_cache_refuses_to_relabel_stale_counter_semantics() {
 
 #[test]
 fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
+    frozen_manifest_identity(false);
+}
+
+#[test]
+fn compact_frozen_manifest_records_exact_digest_and_replays() {
+    frozen_manifest_identity(true);
+}
+
+fn frozen_manifest_identity(compact: bool) {
     let dir = scratch_dir("frozen-manifest");
     let (grammar_xml, word) = primary_fixture();
     let cache_path = dir.join("frozen-cache.sqlite3");
@@ -2550,7 +2572,7 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     let words_text = format!("{}\n", words.join("\n"));
     let cache = cache_path.to_string_lossy().into_owned();
     let manifest = manifest_path.to_string_lossy().into_owned();
-    let (args, out_path) = run_batch_args(
+    let (mut args, out_path) = run_batch_args(
         &dir,
         &grammar_xml,
         &words_text,
@@ -2567,6 +2589,9 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
         ],
     );
 
+    if compact {
+        args.push("--stats-compact".into());
+    }
     crate::run_batch(&args).expect("frozen batch stats run");
     let value: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).expect("manifest JSON");
@@ -2587,7 +2612,14 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
         "sha256:".len() + 64
     );
     assert_eq!(value["compiler"]["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(value["cache"]["schema_version"], pg_stats::SCHEMA_VERSION);
+    assert_eq!(
+        value["cache"]["schema_version"],
+        if compact {
+            pg_stats::COMPACT_SCHEMA_VERSION
+        } else {
+            pg_stats::SCHEMA_VERSION
+        }
+    );
     assert_eq!(
         value["cache"]["counter_semantics_version"],
         pg_stats::COUNTER_SEMANTICS_VERSION
@@ -2634,7 +2666,55 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     assert_eq!(run_count, 1, "one manifest names one cache run");
     assert_eq!(run_word_count, 2);
     assert_eq!(owning_words, 2);
+    assert_eq!(pg_stats::is_compact(&conn).unwrap(), compact);
+    assert!(
+        !render_object(&conn, &Filters::default(), OutputFormat::Text)
+            .unwrap()
+            .is_empty()
+    );
+    if compact {
+        assert!(
+            render_allomorph(&conn, &Filters::default(), OutputFormat::Text)
+                .unwrap_err()
+                .contains("unavailable")
+        );
+        let filters = Filters {
+            stratum_key: Some("any".into()),
+            ..Filters::default()
+        };
+        assert!(render_object(&conn, &filters, OutputFormat::Text)
+            .unwrap_err()
+            .contains("unavailable"));
+    }
     drop(conn);
+
+    let replay_path = dir.join("replay.jsonl");
+    run_stats(&[
+        args[0].clone(),
+        "--cache".into(),
+        cache.clone(),
+        "--group".into(),
+        "object".into(),
+        "--format".into(),
+        "jsonl".into(),
+        "--out".into(),
+        replay_path.to_string_lossy().into_owned(),
+    ])
+    .expect("CLI replay from frozen cache");
+    let replay = fs::read_to_string(replay_path).unwrap();
+    let meta: serde_json::Value = serde_json::from_str(replay.lines().next().unwrap()).unwrap();
+    if compact {
+        assert_eq!(meta["cache_mode"], "compact");
+        assert_eq!(
+            meta["unavailable_views"],
+            serde_json::json!(["allomorph", "stratum"])
+        );
+    } else {
+        assert!(
+            meta.get("cache_mode").is_none(),
+            "default replay metadata stays unchanged"
+        );
+    }
 
     let bytes = fs::read(&cache_path).unwrap();
     assert_eq!(value["cache"]["bytes"], bytes.len() as u64);
@@ -2888,6 +2968,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
         &crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml)
             .unwrap()
             .grammar_hash,
+        false,
     )
     .expect("prepare the fresh frozen cache");
     drop(prepared);
@@ -2913,6 +2994,7 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
         &crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml)
             .unwrap()
             .grammar_hash,
+        false,
     )
     .expect("prepare the fresh frozen cache");
     let source = crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml).unwrap();
@@ -3071,4 +3153,94 @@ fn wide_object_table_shows_work_steps_and_other_views_do_not() {
     assert!(!other_headers.contains(&"work_steps"));
     let (omitted_headers, _) = render_narrow(&[object], true, &denoms, &["work_steps"]);
     assert!(!omitted_headers.contains(&"work_steps"));
+}
+
+#[test]
+fn compact_flag_requires_stats_before_output_creation() {
+    let dir = scratch_dir("compact-requires-stats");
+    let (grammar, word) = primary_fixture();
+    let (args, out) = run_batch_args(&dir, &grammar, &format!("{word}\n"), &["--stats-compact"]);
+    assert!(crate::run_batch(&args)
+        .unwrap_err()
+        .contains("--stats-compact requires --stats"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn jsonl_headers_advertise_compact_capabilities_and_preserve_full_output() {
+    for engine in ["hc", "foma"] {
+        for populated in [false, true] {
+            let words = || {
+                if !populated {
+                    return vec![];
+                }
+                let mut fact = synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 2_000);
+                fact.outputs = 0;
+                vec![pg_stats::WordRecord {
+                    form: "w".into(),
+                    elapsed_ns: 1000,
+                    work: 10,
+                    passes: 1,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts: if engine == "hc" { vec![fact] } else { vec![] },
+                }]
+            };
+            let full = synthetic_stats_cache_with_mode(engine, words(), false);
+            let compact = synthetic_stats_cache_with_mode(engine, words(), true);
+            for filters in [
+                Filters::default(),
+                Filters {
+                    word: Some("absent".into()),
+                    ..Filters::default()
+                },
+            ] {
+                for render in [
+                    render_word,
+                    render_never_fires,
+                    render_object,
+                    render_morpheme,
+                ] {
+                    let full_json =
+                        render(full.connection(), &filters, OutputFormat::Jsonl).unwrap();
+                    let compact_json =
+                        render(compact.connection(), &filters, OutputFormat::Jsonl).unwrap();
+                    let mut full_lines = full_json.lines();
+                    let mut compact_lines = compact_json.lines();
+                    let full_meta: serde_json::Value =
+                        serde_json::from_str(full_lines.next().unwrap()).unwrap();
+                    let mut compact_meta: serde_json::Value =
+                        serde_json::from_str(compact_lines.next().unwrap()).unwrap();
+                    assert_eq!(compact_meta["cache_mode"], "compact", "{compact_json}");
+                    assert_eq!(
+                        compact_meta["unavailable_views"],
+                        serde_json::json!(["allomorph", "stratum"])
+                    );
+                    assert!(full_meta.get("cache_mode").is_none());
+                    assert!(full_meta.get("unavailable_views").is_none());
+                    compact_meta.as_object_mut().unwrap().remove("cache_mode");
+                    compact_meta
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("unavailable_views");
+                    assert_eq!(compact_meta, full_meta);
+                    assert_eq!(
+                        compact_lines.collect::<Vec<_>>(),
+                        full_lines.collect::<Vec<_>>()
+                    );
+                }
+            }
+            let word_json =
+                render_word(full.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
+            assert_eq!(word_json.lines().count(), if populated { 2 } else { 1 });
+            let never_json =
+                render_never_fires(full.connection(), &Filters::default(), OutputFormat::Jsonl)
+                    .unwrap();
+            assert_eq!(
+                never_json.lines().count(),
+                if populated && engine == "hc" { 2 } else { 1 }
+            );
+        }
+    }
 }

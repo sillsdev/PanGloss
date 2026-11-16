@@ -1087,3 +1087,236 @@ fn a_reopened_cache_resolves_every_id_to_its_label() {
     want.sort();
     assert_eq!(got, want);
 }
+
+#[test]
+fn compact_schema_sums_match_full_replay_and_reject_missing_views() {
+    let mut full = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let mut compact = StatsCache::open_on_version(
+        Connection::open_in_memory().unwrap(),
+        "hash-a",
+        schema::COMPACT_SCHEMA_VERSION,
+    )
+    .unwrap()
+    .cache;
+    let mut word = sample_word("tav");
+    word.facts[0].self_time_ns = 23;
+    word.facts[0].work_steps = 19;
+    let mut named = word.facts[0].clone();
+    named.allomorph = Some(StructuralLocator::new("a1", "A1"));
+    named.not_applied = 11;
+    named.attempts = 3;
+    word.facts.push(named.clone());
+    named.stratum = Some(StructuralLocator::new("s2", "S2"));
+    word.facts.push(named.clone());
+    named.direction = Direction::Synthesis;
+    word.facts.push(named.clone());
+    named.attempts = 7;
+    word.facts.push(named); // same full key replaces rather than adds
+    let mut other = sample_word("piv");
+    other.facts[0].direction = Direction::Synthesis;
+    let mut lexical = other.facts[0].clone();
+    lexical.object_kind = ObjectKind::LexEntry;
+    lexical.object_key = "entry-a".into();
+    lexical.morpheme = Some(StructuralLocator::new("morpheme-a", "Morpheme A"));
+    other.facts.push(lexical);
+    let words = [word, other];
+    full.flush(&sample_run(), &words).unwrap();
+    compact.flush(&sample_run(), &words).unwrap();
+    let sums = |conn: &Connection| {
+        let mut stmt = conn.prepare(
+            "SELECT w.form, o.key, f.direction, SUM(attempts), SUM(self_time_ns), SUM(work_steps)
+             FROM fact f JOIN word w USING(word_id) JOIN object o USING(object_id)
+             GROUP BY w.form, o.key, o.kind, f.direction ORDER BY w.form, o.key, f.direction"
+        ).unwrap();
+        stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+    };
+    assert_eq!(sums(full.connection()), sums(compact.connection()));
+    assert_eq!(
+        crate::per_object_report(full.connection(), &Default::default()).unwrap(),
+        crate::per_object_report(compact.connection(), &Default::default()).unwrap()
+    );
+    assert_eq!(
+        crate::per_kind_report(full.connection(), &Default::default()).unwrap(),
+        crate::per_kind_report(compact.connection(), &Default::default()).unwrap()
+    );
+    assert_eq!(
+        crate::per_morpheme_report(full.connection(), &Default::default()).unwrap(),
+        crate::per_morpheme_report(compact.connection(), &Default::default()).unwrap()
+    );
+    assert!(
+        crate::per_allomorph_report(compact.connection(), &Default::default())
+            .unwrap_err()
+            .to_string()
+            .contains("unavailable")
+    );
+    let filter = crate::PerObjectFilter {
+        stratum_key: Some("s2".into()),
+        ..Default::default()
+    };
+    assert!(crate::per_object_report(compact.connection(), &filter)
+        .unwrap_err()
+        .to_string()
+        .contains("unavailable"));
+    let pk: Vec<(String, i64)> = compact
+        .connection()
+        .prepare("PRAGMA table_info(fact)")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(1)?, r.get(5)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        pk.into_iter().filter(|(_, n)| *n > 0).collect::<Vec<_>>(),
+        vec![
+            ("word_id".into(), 1),
+            ("object_id".into(), 2),
+            ("direction".into(), 3)
+        ]
+    );
+    let nonzero_dimensions: i64 = compact
+        .connection()
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM stratum WHERE stratum_id <> 0) +
+                (SELECT COUNT(*) FROM allomorph WHERE allomorph_id <> 0)",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(nonzero_dimensions, 0);
+    assert!(compact
+        .connection()
+        .execute("UPDATE fact SET stratum_id = 1", [])
+        .is_err());
+    assert!(compact
+        .connection()
+        .execute("UPDATE fact SET allomorph_id = 1", [])
+        .is_err());
+}
+
+#[test]
+fn compact_skips_only_all_zero_rows_and_preserves_words() {
+    let mut compact = StatsCache::open_on_version(
+        Connection::open_in_memory().unwrap(),
+        "hash-a",
+        schema::COMPACT_SCHEMA_VERSION,
+    )
+    .unwrap()
+    .cache;
+    let mut zero = sample_word("tav");
+    let f = &mut zero.facts[0];
+    f.attempts = 0;
+    f.work = 0;
+    f.outputs = 0;
+    f.not_applied = 0;
+    f.uses = 0;
+    let mut words = vec![zero.clone()];
+    for counter in 0..9 {
+        let mut word = zero.clone();
+        word.form = format!("tav{counter}");
+        let f = &mut word.facts[0];
+        match counter {
+            0 => f.attempts = 1,
+            1 => f.work = 1,
+            2 => f.work_steps = 1,
+            3 => f.outputs = 1,
+            4 => f.not_applied = 1,
+            5 => f.no_root = 1,
+            6 => f.surface_mismatch = 1,
+            7 => f.uses = 1,
+            _ => f.self_time_ns = 1,
+        }
+        words.push(word);
+    }
+    compact.flush(&sample_run(), &words).unwrap();
+    let counts: (i64, i64) = compact
+        .connection()
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM word), (SELECT COUNT(*) FROM fact)",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(counts, (10, 9));
+    let mut full = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    full.flush(&sample_run(), &words).unwrap();
+    assert_eq!(
+        full.connection()
+            .query_row("SELECT COUNT(*) FROM fact", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        10
+    );
+}
+
+#[test]
+fn compact_reopens_freezes_and_refuses_stale_full_handles() {
+    let dir = TempDir::new("compact-reopen");
+    let path = dir.path().join("cache.sqlite3");
+    let mut full = StatsCache::open(&path, "hash-a").unwrap().cache;
+    full.flush(&sample_run(), &[sample_word("tav")]).unwrap();
+    let mut compact = StatsCache::open_compact(&path, "hash-a").unwrap();
+    assert!(compact.wiped);
+    let id = compact
+        .cache
+        .flush(&sample_run(), &[sample_word("piv")])
+        .unwrap();
+    assert!(matches!(
+        full.flush(&sample_run(), &[sample_word("tav")]),
+        Err(StatsError::SchemaMismatch { .. })
+    ));
+    drop(full);
+    compact.cache.checkpoint_and_close().unwrap();
+    let snapshot = StatsCache::read_frozen_run(&path, id).unwrap();
+    assert_eq!(snapshot.schema_version, schema::COMPACT_SCHEMA_VERSION);
+    let reopened = StatsCache::open_compact(&path, "hash-a").unwrap();
+    assert!(!reopened.wiped);
+    assert!(reopened
+        .cache
+        .reusable_words(&["piv"], "opts-a")
+        .unwrap()
+        .contains("piv"));
+    drop(reopened);
+    assert!(StatsCache::open(&path, "hash-a").unwrap().wiped);
+}
+
+#[test]
+fn compact_aggregation_overflow_rolls_back() {
+    let mut compact = StatsCache::open_on_version(
+        Connection::open_in_memory().unwrap(),
+        "hash-a",
+        schema::COMPACT_SCHEMA_VERSION,
+    )
+    .unwrap()
+    .cache;
+    let mut word = sample_word("tav");
+    word.facts[0].attempts = i64::MAX as u64;
+    let mut other = word.facts[0].clone();
+    other.attempts = 1;
+    other.allomorph = Some(StructuralLocator::new("a1", "A1"));
+    word.facts.push(other);
+    assert!(matches!(
+        compact.flush(&sample_run(), &[word]),
+        Err(StatsError::CounterOverflow {
+            counter: "attempts",
+            ..
+        })
+    ));
+    assert_eq!(
+        compact
+            .connection()
+            .query_row("SELECT COUNT(*) FROM word", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}

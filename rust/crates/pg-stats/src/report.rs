@@ -179,6 +179,15 @@ pub fn per_object_report(
     conn: &Connection,
     filter: &PerObjectFilter,
 ) -> Result<Vec<PerObjectRow>, StatsError> {
+    if filter.stratum_key.is_some() && conn.is_autocommit() {
+        let transaction = conn.unchecked_transaction()?;
+        let report = per_object_report(&transaction, filter);
+        transaction.commit()?;
+        return report;
+    }
+    if filter.stratum_key.is_some() && crate::is_compact(conn)? {
+        return Err(StatsError::CompactViewUnavailable);
+    }
     let sql = per_object_sql();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
@@ -343,6 +352,9 @@ fn per_allomorph_report_in_snapshot(
     conn: &Connection,
     filter: &PerAllomorphFilter,
 ) -> Result<Vec<PerAllomorphRow>, StatsError> {
+    if crate::is_compact(conn)? {
+        return Err(StatsError::CompactViewUnavailable);
+    }
     let unsafe_producer = conn
         .query_row(
             &unrepresentable_allomorph_semantics_sql(),
