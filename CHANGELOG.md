@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.21.0
+
+Released 2026-11-16.
 
 - `pangloss batch --partials=K` (K 1–3) adds an opt-in JSON column with bounded rejection summaries for unanalysed words; requires `--prefilter off` (#305).
 - `batch --stats-compact` writes smaller opt-in stats caches by combining allomorph and stratum dimensions. Object, kind, morpheme and word reports remain available; allomorph views and stratum filters are unavailable. JSONL headers identify compact caches and their unavailable views; full-cache output stays unchanged (#307).
