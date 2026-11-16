@@ -551,6 +551,7 @@ pub(crate) fn prepare_batch_stats_hc(
     guess: bool,
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
+    compact: bool,
 ) -> Result<BatchStatsCache, String> {
     prepare_batch_stats_hc_inner(
         grammar_path,
@@ -563,6 +564,7 @@ pub(crate) fn prepare_batch_stats_hc(
         cache_override,
         None,
         false,
+        compact,
     )
 }
 
@@ -577,6 +579,7 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
     always_enforce_final_templates: bool,
     cache_path: &str,
     grammar_hash: &str,
+    compact: bool,
 ) -> Result<BatchStatsCache, String> {
     prepare_batch_stats_hc_inner(
         grammar_path,
@@ -589,6 +592,7 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
         Some(cache_path),
         Some(grammar_hash),
         true,
+        compact,
     )
 }
 
@@ -604,6 +608,7 @@ fn prepare_batch_stats_hc_inner(
     cache_override: Option<&str>,
     grammar_hash_override: Option<&str>,
     frozen: bool,
+    compact: bool,
 ) -> Result<BatchStatsCache, String> {
     if frozen {
         let mut seen = HashSet::with_capacity(words.len());
@@ -622,8 +627,12 @@ fn prepare_batch_stats_hc_inner(
     if frozen {
         refuse_nonempty_frozen_cache(&cache_path)?;
     }
-    let outcome =
-        pg_stats::StatsCache::open(&cache_path, &grammar_hash).map_err(|e| e.to_string())?;
+    let open = if compact {
+        pg_stats::StatsCache::open_compact
+    } else {
+        pg_stats::StatsCache::open
+    };
+    let outcome = open(&cache_path, &grammar_hash).map_err(|e| e.to_string())?;
     if frozen && outcome.wiped {
         return Err(format!(
             "stats manifest requires an initially empty cache: {}",
@@ -912,7 +921,7 @@ fn validate_frozen_cache(
     completion: &crate::stats_manifest::CompletionCensus,
 ) -> Result<(), String> {
     if snapshot.run_id != run_id
-        || snapshot.schema_version != pg_stats::SCHEMA_VERSION
+        || !pg_stats::supported_schema_version(snapshot.schema_version)
         || snapshot.counter_semantics != pg_stats::COUNTER_SEMANTICS_VERSION
         || snapshot.grammar_hash != grammar_hash
         || snapshot.engine != "hc"
@@ -989,6 +998,7 @@ pub(crate) fn run_batch_stats_hc(
         guess,
         always_enforce_final_templates,
         cache_override,
+        false,
     )?;
     finish_batch_stats_hc(prepared, stats_words)
 }
@@ -1743,7 +1753,7 @@ fn jsonl_meta_value(
 ) -> Result<serde_json::Value, String> {
     let (grammar_hash, engine) = run_identity(conn)?;
     let omitted = omitted_counters(&engine, orientation);
-    Ok(serde_json::json!({
+    let mut meta = serde_json::json!({
         "meta": true,
         "orientation": orientation,
         "grammar_hash": grammar_hash,
@@ -1751,7 +1761,20 @@ fn jsonl_meta_value(
         "filters": filters_json(filters),
         "totals": totals.to_json(),
         "unmeasured": unmeasured_json(&engine, orientation, &omitted),
-    }))
+    });
+    add_cache_capabilities(conn, &mut meta)?;
+    Ok(meta)
+}
+
+fn add_cache_capabilities(
+    conn: &rusqlite::Connection,
+    meta: &mut serde_json::Value,
+) -> Result<(), String> {
+    if pg_stats::is_compact(conn).map_err(|e| e.to_string())? {
+        meta["cache_mode"] = serde_json::json!("compact");
+        meta["unavailable_views"] = serde_json::json!(["allomorph", "stratum"]);
+    }
+    Ok(())
 }
 
 fn jsonl_meta_line(
@@ -2116,7 +2139,7 @@ fn render_word(
             Ok(out)
         }
         OutputFormat::Jsonl => {
-            let meta = serde_json::json!({
+            let mut meta = serde_json::json!({
                 "meta": true,
                 "orientation": "word",
                 "grammar_hash": grammar_hash,
@@ -2125,6 +2148,7 @@ fn render_word(
                 "totals": {"rows": rows.len(), "rows_shown": shown_rows, "time_ns": total_elapsed, "work": if work_measured { serde_json::json!(total_work) } else { serde_json::Value::Null }},
                 "unmeasured": if work_measured { serde_json::json!({}) } else { serde_json::json!({"work": "engine=foma never records it"}) },
             });
+            add_cache_capabilities(conn, &mut meta)?;
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in shown {
                 let v = serde_json::json!({
@@ -2157,7 +2181,7 @@ fn render_never_fires(
                     .to_string(),
             ),
             OutputFormat::Jsonl => {
-                let value = serde_json::json!({
+                let mut value = serde_json::json!({
                     "meta": true,
                     "orientation": "never-fires",
                     "grammar_hash": grammar_hash,
@@ -2166,6 +2190,7 @@ fn render_never_fires(
                     "totals": {"rows": 0, "attempts_by_kind": {}},
                     "unmeasured": {"never_fires": "engine=foma cannot measure it"},
                 });
+                add_cache_capabilities(conn, &mut value)?;
                 Ok(format!(
                     "{}\n",
                     serde_json::to_string(&value).map_err(|e| e.to_string())?
@@ -2231,7 +2256,7 @@ fn render_never_fires(
         }
         OutputFormat::Jsonl => {
             let (grammar_hash, engine) = run_identity(conn)?;
-            let meta = serde_json::json!({
+            let mut meta = serde_json::json!({
                 "meta": true,
                 "orientation": "never-fires",
                 "grammar_hash": grammar_hash,
@@ -2239,6 +2264,7 @@ fn render_never_fires(
                 "filters": filters_json(filters),
                 "totals": {"rows": rows.len(), "attempts_by_kind": attempts_by_kind},
             });
+            add_cache_capabilities(conn, &mut meta)?;
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in &rows {
                 let v = serde_json::json!({
@@ -2474,6 +2500,9 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
+    if pg_stats::is_compact(&conn).map_err(|e| e.to_string())? {
+        eprintln!("stats: compact cache; allomorph breakdown and stratum filters are unavailable");
+    }
     let mixed = pg_stats::mixed_settings(&conn).map_err(|e| e.to_string())?;
     if mixed.is_mixed() {
         eprintln!(

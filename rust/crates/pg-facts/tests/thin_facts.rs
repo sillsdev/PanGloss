@@ -2488,6 +2488,10 @@ struct ExportedStatsRun {
 }
 
 fn write_exported_stats_run() -> ExportedStatsRun {
+    write_exported_stats_run_mode(false)
+}
+
+fn write_exported_stats_run_mode(compact: bool) -> ExportedStatsRun {
     let temp = tempfile::tempdir().unwrap();
     let mut snapshot = snapshot();
     snapshot
@@ -2547,7 +2551,12 @@ fn write_exported_stats_run() -> ExportedStatsRun {
         .strip_prefix("sha256:")
         .unwrap()
         .to_string();
-    let cache = StatsCache::open(&cache_path, &snapshot.grammar_hash()).unwrap();
+    let open = if compact {
+        StatsCache::open_compact
+    } else {
+        StatsCache::open
+    };
+    let cache = open(&cache_path, &snapshot.grammar_hash()).unwrap();
     let mut cache = cache.cache;
     let entry_index = grammar
         .entries
@@ -2826,7 +2835,7 @@ fn write_exported_stats_run() -> ExportedStatsRun {
         "cache": {
             "sha256": pg_assess::source_sha256(&cache_bytes),
             "bytes": cache_bytes.len(),
-            "schema_version": pg_stats::SCHEMA_VERSION,
+            "schema_version": if compact { pg_stats::COMPACT_SCHEMA_VERSION } else { pg_stats::SCHEMA_VERSION },
             "counter_semantics_version": pg_stats::COUNTER_SEMANTICS_VERSION,
         },
         "run": {
@@ -7046,4 +7055,28 @@ fn a_light_file_keeps_the_stats_tables_and_their_section_when_a_run_is_attached(
         })
         .unwrap();
     assert!(rows > 0, "the light file carries the stats run");
+}
+
+#[test]
+fn compact_frozen_stats_validates_digest_and_exports_cost_facts() {
+    let run = write_exported_stats_run_mode(true);
+    let conn = rusqlite::Connection::open(&run.output).unwrap();
+    let version: i64 = conn
+        .query_row("SELECT schema_version FROM stats_cache_identity", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(version, pg_stats::COMPACT_SCHEMA_VERSION);
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM stats_fact", [], |r| r.get(0))
+        .unwrap();
+    assert!(count > 0);
+    let missing: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM stats_fact WHERE stratum_id <> 0 OR allomorph_id <> 0",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(missing, 0);
 }

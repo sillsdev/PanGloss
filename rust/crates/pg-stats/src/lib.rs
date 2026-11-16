@@ -36,5 +36,8 @@ pub use report::{
     PerAllomorphRow, PerKindFilter, PerKindRow, PerMorphemeFilter, PerMorphemeRow, PerObjectFilter,
     PerObjectRow, PerWordRow, SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
 };
-pub use schema::{COUNTER_SEMANTICS_VERSION, SCHEMA_VERSION};
+pub use schema::{
+    is_compact, supported_schema_version, COMPACT_SCHEMA_VERSION, COUNTER_SEMANTICS_VERSION,
+    SCHEMA_VERSION,
+};
 pub use work_cap::WorkCap;

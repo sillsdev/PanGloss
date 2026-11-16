@@ -576,8 +576,8 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         .optional()
         .map_err(stats_db_error)?
         .ok_or_else(|| FactsError::StatsRunUnavailable("stats run row is absent".into()))?;
-    if identity_schema != pg_stats::SCHEMA_VERSION
-        || schema_version != pg_stats::SCHEMA_VERSION
+    if !pg_stats::supported_schema_version(identity_schema)
+        || !pg_stats::supported_schema_version(schema_version)
         || identity_schema != schema_version
         || identity_grammar != grammar_hash
         || identity_grammar != manifest.source.grammar_hash

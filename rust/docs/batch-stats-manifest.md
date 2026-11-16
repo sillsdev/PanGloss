@@ -12,6 +12,14 @@ pangloss batch grammar.json words.txt results.tsv \
   --stats-manifest stats-run.json --threads 1
 ~~~
 
+Add `--stats-compact` to opt in to compact cache schema 12. Full caches remain schema 11.
+The manifest format stays version 2: `cache.schema_version` distinguishes the representations,
+and the digest still covers the exact checkpointed SQLite bytes. Both `pangloss stats` and
+`pangloss facts --stats ... --stats-manifest ...` accept a compact cache. Its stratum/allomorph
+locators are zero sentinels for compatibility with existing cost queries, not measured breakdowns;
+readers must check the schema version before offering those views. See
+[compact cache behavior](../../docs/optimize-grammar-with-stats.md) for retained counters and replay limits.
+
 The cache must be absent or an existing zero-byte file before the batch starts. The command
 refuses a populated cache, duplicate effective word forms, a nonzero --start, a preexisting
 manifest, or any alias among the grammar, word list, TSV, analyses output, cache and manifest

@@ -6,6 +6,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 ## Unreleased
 
 - `pangloss batch --partials=K` (K 1–3) adds an opt-in JSON column with bounded rejection summaries for unanalysed words; requires `--prefilter off` (#305).
+- `batch --stats-compact` writes smaller opt-in stats caches by combining allomorph and stratum dimensions. Object, kind, morpheme and word reports remain available; allomorph views and stratum filters are unavailable. JSONL headers identify compact caches and their unavailable views; full-cache output stays unchanged (#307).
 
 - Re-measured the standing parser-work calibration set after #301 without changing weights. The allomorph-explosion ladder is report-only for drift: its small 1x rung may be dominated by a fixed per-word cost the model does not count. Other ladders retain the 7% gate (part of #240).
 

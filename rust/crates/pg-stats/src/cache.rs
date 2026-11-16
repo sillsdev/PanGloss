@@ -21,6 +21,7 @@ use crate::work_cap::WorkCap;
 pub struct StatsCache {
     conn: Connection,
     grammar_hash: String,
+    schema_version: i64,
 }
 
 /// Result of `StatsCache::open`: the cache, and whether opening it wiped prior data.
@@ -40,6 +41,19 @@ impl StatsCache {
     /// `cache_path` may be `crate::path::default_cache_path`'s result or a caller-supplied
     /// override; this function does not care which.
     pub fn open(cache_path: &Path, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+        Self::open_with_version(cache_path, grammar_hash, schema::SCHEMA_VERSION)
+    }
+
+    /// Opens an opt-in compact cache, wiping incompatible full-cache data as on other mismatches.
+    pub fn open_compact(cache_path: &Path, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+        Self::open_with_version(cache_path, grammar_hash, schema::COMPACT_SCHEMA_VERSION)
+    }
+
+    fn open_with_version(
+        cache_path: &Path,
+        grammar_hash: &str,
+        version: i64,
+    ) -> Result<OpenOutcome, StatsError> {
         if let Some(parent) = cache_path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)?;
@@ -48,7 +62,7 @@ impl StatsCache {
         let conn = Connection::open(cache_path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        Self::open_on(conn, grammar_hash)
+        Self::open_on_version(conn, grammar_hash, version)
     }
 
     /// Opens an in-memory cache. Test-only: a real cache is always file-backed so it survives
@@ -60,30 +74,51 @@ impl StatsCache {
         Self::open_on(conn, grammar_hash)
     }
 
-    fn open_on(mut conn: Connection, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+    #[cfg(test)]
+    fn open_on(conn: Connection, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+        Self::open_on_version(conn, grammar_hash, schema::SCHEMA_VERSION)
+    }
+
+    fn open_on_version(
+        mut conn: Connection,
+        grammar_hash: &str,
+        version: i64,
+    ) -> Result<OpenOutcome, StatsError> {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let identity = schema::cache_identity(&tx)?;
         let run_table_exists = schema::has_run_table(&tx)?;
         let wiped = match identity {
             None if !run_table_exists => {
-                schema::create(&tx, Some(grammar_hash))?;
+                if version == schema::SCHEMA_VERSION {
+                    schema::create(&tx, Some(grammar_hash))?;
+                } else {
+                    schema::create_version(&tx, Some(grammar_hash), version)?;
+                };
                 false
             }
             None => {
-                schema::wipe_and_recreate(&tx, grammar_hash)?;
+                if version == schema::SCHEMA_VERSION {
+                    schema::wipe_and_recreate(&tx, grammar_hash)?;
+                } else {
+                    schema::wipe_and_recreate_version(&tx, grammar_hash, version)?;
+                }
                 true
             }
             Some((_, stored_schema_version, stored_grammar_hash, _)) => {
                 let latest = schema::latest_run_signature(&tx)?;
-                let run_mismatch = latest.is_some_and(|(version, hash)| {
-                    version != schema::SCHEMA_VERSION || hash != grammar_hash
+                let run_mismatch = latest.is_some_and(|(run_version, hash)| {
+                    run_version != version || hash != grammar_hash
                 });
                 if !run_table_exists
-                    || stored_schema_version != schema::SCHEMA_VERSION
+                    || stored_schema_version != version
                     || stored_grammar_hash != grammar_hash
                     || run_mismatch
                 {
-                    schema::wipe_and_recreate(&tx, grammar_hash)?;
+                    if version == schema::SCHEMA_VERSION {
+                        schema::wipe_and_recreate(&tx, grammar_hash)?;
+                    } else {
+                        schema::wipe_and_recreate_version(&tx, grammar_hash, version)?;
+                    }
                     true
                 } else {
                     false
@@ -95,6 +130,7 @@ impl StatsCache {
             cache: StatsCache {
                 conn,
                 grammar_hash: grammar_hash.to_string(),
+                schema_version: version,
             },
             wiped,
         })
@@ -217,10 +253,10 @@ impl StatsCache {
         else {
             return Err(StatsError::CacheIdentityMissing);
         };
-        if identity_schema_version != schema::SCHEMA_VERSION {
+        if identity_schema_version != self.schema_version {
             return Err(StatsError::SchemaMismatch {
                 existing: identity_schema_version,
-                requested: schema::SCHEMA_VERSION,
+                requested: self.schema_version,
             });
         }
         if identity_grammar_hash != self.grammar_hash {
@@ -278,7 +314,7 @@ impl StatsCache {
             "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns, work_cap)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
-                schema::SCHEMA_VERSION,
+                self.schema_version,
                 schema::COUNTER_SEMANTICS_VERSION,
                 run.build_info,
                 run.fwdata_path,
@@ -298,8 +334,14 @@ impl StatsCache {
         for word in words {
             let word_id = upsert_word(&tx, run_id, word)?;
             execute_cached(&tx, "DELETE FROM fact WHERE word_id = ?1", params![word_id])?;
-            for fact in &word.facts {
-                write_fact(&tx, &mut interner, word_id, fact)?;
+            if self.schema_version == schema::COMPACT_SCHEMA_VERSION {
+                for fact in compact_facts(&word.facts)? {
+                    write_fact(&tx, &mut interner, word_id, &fact, true)?;
+                }
+            } else {
+                for fact in &word.facts {
+                    write_fact(&tx, &mut interner, word_id, fact, false)?;
+                }
             }
         }
 
@@ -377,7 +419,7 @@ impl StatsCache {
                 requested: expected_run_id,
             });
         }
-        if schema_version != schema::SCHEMA_VERSION {
+        if !schema::supported_schema_version(schema_version) {
             return Err(StatsError::SchemaMismatch {
                 existing: schema_version,
                 requested: schema::SCHEMA_VERSION,
@@ -536,11 +578,106 @@ fn query_id_cached(
         .map_err(Into::into)
 }
 
+/// Collapse only at the persistence boundary: collection and parse outcomes are unchanged.
+fn compact_facts(facts: &[FactRecord]) -> Result<Vec<FactRecord>, StatsError> {
+    // Preserve full-writer replacement before summing; pinned by `duplicate_fact_keys_replace_all_counters` and `compact_schema_sums_match_full_replay_and_reject_missing_views`.
+    let source_key = |fact: &FactRecord| {
+        (
+            fact.object_key.clone(),
+            fact.object_kind.as_str(),
+            fact.stratum.as_ref().map(|s| s.key.clone()),
+            fact.allomorph.as_ref().map(|a| a.key.clone()),
+            fact.direction.as_str(),
+        )
+    };
+    let latest: HashMap<_, _> = facts
+        .iter()
+        .enumerate()
+        .map(|(index, fact)| (source_key(fact), index))
+        .collect();
+    let mut groups = HashMap::new();
+    let mut result: Vec<FactRecord> = Vec::new();
+    for (index, fact) in facts.iter().enumerate() {
+        if latest[&source_key(fact)] != index {
+            continue;
+        }
+        let key = (
+            &fact.object_key,
+            fact.object_kind.as_str(),
+            fact.direction.as_str(),
+        );
+        let target_index = *groups.entry(key).or_insert_with(|| {
+            let mut row = fact.clone();
+            row.stratum = None;
+            row.allomorph = None;
+            row.attempts = 0;
+            row.work = 0;
+            row.work_steps = 0;
+            row.outputs = 0;
+            row.not_applied = 0;
+            row.no_root = 0;
+            row.surface_mismatch = 0;
+            row.uses = 0;
+            row.self_time_ns = 0;
+            result.push(row);
+            result.len() - 1
+        });
+        let target = &mut result[target_index];
+        macro_rules! add {
+            ($field:ident, $value:expr) => {
+                target.$field =
+                    target
+                        .$field
+                        .checked_add($value)
+                        .ok_or(StatsError::CounterOverflow {
+                            counter: stringify!($field),
+                            value: u64::MAX,
+                        })?;
+                to_i64(stringify!($field), target.$field)?;
+            };
+        }
+        add!(attempts, fact.attempts);
+        add!(work, fact.work);
+        add!(work_steps, fact.work_steps);
+        add!(outputs, fact.outputs);
+        // Object/kind reports count only rule-level not_applied; pinned by `compact_schema_sums_match_full_replay_and_reject_missing_views`.
+        add!(
+            not_applied,
+            if fact.allomorph.is_none() {
+                fact.not_applied
+            } else {
+                0
+            }
+        );
+        add!(no_root, fact.no_root);
+        add!(surface_mismatch, fact.surface_mismatch);
+        add!(uses, fact.uses);
+        add!(self_time_ns, fact.self_time_ns);
+    }
+    result.retain(|f| {
+        [
+            f.attempts,
+            f.work,
+            f.work_steps,
+            f.outputs,
+            f.not_applied,
+            f.no_root,
+            f.surface_mismatch,
+            f.uses,
+            f.self_time_ns,
+        ]
+        .iter()
+        .any(|v| *v != 0)
+    });
+    Ok(result)
+}
+
 fn write_fact(
     tx: &Transaction,
     interner: &mut Interner,
     word_id: i64,
     fact: &FactRecord,
+    compact: bool,
 ) -> Result<(), StatsError> {
     let object_id = interner.object(
         tx,
@@ -558,9 +695,7 @@ fn write_fact(
         Some(locator) => interner.locator(tx, LocatorTable::Allomorph, locator)?,
         None => 0,
     };
-    execute_cached(
-        tx,
-        "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns, work_steps)
+    let sql = "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns, work_steps)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT(word_id, object_id, stratum_id, allomorph_id, direction) DO UPDATE SET
            attempts = excluded.attempts,
@@ -571,7 +706,20 @@ fn write_fact(
            surface_mismatch = excluded.surface_mismatch,
            uses = excluded.uses,
            self_time_ns = excluded.self_time_ns,
-           work_steps = excluded.work_steps",
+           work_steps = excluded.work_steps";
+    let compact_sql;
+    let sql = if compact {
+        compact_sql = sql.replace(
+            "ON CONFLICT(word_id, object_id, stratum_id, allomorph_id, direction)",
+            "ON CONFLICT(word_id, object_id, direction)",
+        );
+        &compact_sql
+    } else {
+        sql
+    };
+    execute_cached(
+        tx,
+        sql,
         params![
             word_id,
             object_id,

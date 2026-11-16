@@ -26,6 +26,28 @@ pangloss batch <grammar> <words.txt> out.tsv --stats --threads 1 --word-timeout-
 off unless `--stats` is present. The normal batch TSV remains unchanged; measurements go into the
 SQLite cache.
 
+For a smaller cache when only object costs are needed, opt in with `--stats-compact`:
+
+```text
+pangloss batch <grammar> <words.txt> out.tsv --stats --stats-compact --cache <compact.sqlite3>
+```
+
+Compact caches use schema version **12**; the default full cache keeps version **11** and its
+existing output. Compact facts have one row per `(word_id, object_id, direction)`, with
+`stratum_id` and `allomorph_id` constrained to zero. All retained counters are summed, except
+`not_applied`, which keeps only the rule-level counts used by object/kind reports. Named-allomorph
+failure counts are discarded. Rows whose retained counters are all zero are omitted; word outcomes
+and work totals remain present, including words with no nonzero facts. Missing facts mean zero
+cost, so consumers comparing dense full-cache results must treat absent compact rows as zeros.
+
+`pangloss stats` can still replay word, object, morpheme, kind, and never-fires reports, including
+direction and word filters. Allomorph breakdowns and stratum filters are unavailable and return an
+explicit error. Replay announces these limitations on stderr; JSONL metadata additionally includes
+`cache_mode: "compact"` and `unavailable_views: ["allomorph", "stratum"]`. A full/compact mode change
+on the same cache path recreates the cache, just like another schema mismatch; use separate paths
+to retain both measurements. No compression wrapper is added: the cache remains directly queryable
+SQLite for Motif.
+
 The cache accumulates new words. A word already present is not parsed again. PanGloss rejects a
 cache written by a different engine and recreates it when the grammar identity changes. Delete the
 cache or choose a new `--cache` path when you intentionally need a fresh measurement of unchanged
