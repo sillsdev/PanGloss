@@ -163,7 +163,7 @@ fn syntactic_rejection_does_not_charge_the_edge_index() {
     let MorphRuleDef::AffixProcess(rule) = &g.mrules[id.0 as usize] else {
         panic!("fixture must contain an affix rule");
     };
-    assert!(morph::ana_syn_fs(&g, rule.required_syn_fs, rule.out_syn_fs, &input).is_none());
+    assert!(morph::ana_syn_fs(&g, rule.required_syn_fs, rule.out_syn_fs, &input, None).is_none());
     let budget = WordBudget::new(10_000);
     let _scope = budget.enter();
     let values = crate::shared_values::SharedValues::default();

@@ -2633,6 +2633,7 @@ fn write_exported_stats_run_mode(compact: bool) -> ExportedStatsRun {
             },
             &[
                 WordRecord {
+                    gates: None,
                     form: "kuma".into(),
                     elapsed_ns: 23,
                     work: 0,
@@ -2767,6 +2768,7 @@ fn write_exported_stats_run_mode(compact: bool) -> ExportedStatsRun {
                     ],
                 },
                 WordRecord {
+                    gates: None,
                     form: "capped-form".into(),
                     elapsed_ns: 30,
                     work: 0,
@@ -2777,6 +2779,7 @@ fn write_exported_stats_run_mode(compact: bool) -> ExportedStatsRun {
                     facts: Vec::new(),
                 },
                 WordRecord {
+                    gates: None,
                     form: "timed-out-form".into(),
                     elapsed_ns: 40,
                     work: 0,
@@ -2787,6 +2790,7 @@ fn write_exported_stats_run_mode(compact: bool) -> ExportedStatsRun {
                     facts: Vec::new(),
                 },
                 WordRecord {
+                    gates: None,
                     form: "invalid-shape-form".into(),
                     elapsed_ns: 10,
                     work: 0,

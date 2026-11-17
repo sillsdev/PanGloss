@@ -993,9 +993,19 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         if let (Some(candidates), MorphRuleDef::AffixProcess(affix)) = (candidates, rule) {
-            if morph::ana_syn_fs(self.g, affix.required_syn_fs, affix.out_syn_fs, w).is_some()
-                && candidates.rejects(id)
-            {
+            let syn_admitted = morph::ana_syn_gate(
+                self.g,
+                affix.required_syn_fs,
+                affix.out_syn_fs,
+                w,
+                self.stats.map(|stats| crate::stats::MRuleStatsCtx {
+                    stats,
+                    stratum: self.stratum_id,
+                    id,
+                    direction: crate::stats::Direction::Analysis,
+                }),
+            );
+            if syn_admitted && candidates.rejects(id) {
                 if candidates.charge_needed() {
                     let _owner = self.stats.map(|stats| {
                         stats.time_enter(
@@ -2368,7 +2378,7 @@ pub fn synthesize_phonological_stratum_traced(
         }
         let result = match &g.prules[pid.0 as usize] {
             pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
-                rewrite::synthesize_with_mpr_cached_traced(
+                rewrite::synthesize_with_mpr_cached_traced_stats(
                     g,
                     pid,
                     r,
@@ -2376,6 +2386,7 @@ pub fn synthesize_phonological_stratum_traced(
                     cache,
                     trace,
                     rule_parent,
+                    prule_stats,
                 )
             }
             pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {

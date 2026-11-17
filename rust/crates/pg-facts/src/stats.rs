@@ -2001,6 +2001,7 @@ mod tests {
                     work_cap: Some("20000000".parse().unwrap()),
                 },
                 &[pg_stats::WordRecord {
+                    gates: None,
                     form: "kuma".into(),
                     elapsed_ns: 1,
                     work: 0,

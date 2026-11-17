@@ -44,6 +44,8 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 pub(crate) mod edge_index;
 mod edge_prefilter;
+#[cfg(test)]
+mod gate_tests;
 mod merge_captures;
 mod optional_runs;
 
@@ -134,6 +136,17 @@ fn record_mrule_invocation_end(
 
 // Public API.
 
+// Select the collector policy before entering a rule's allomorph loops.
+macro_rules! with_mrule_stats {
+    ($stats:expr, $apply:ident($($arg:expr),* $(,)?)) => {{
+        if $stats.is_some() {
+            $apply::<true>($($arg),*)
+        } else {
+            $apply::<false>($($arg),*)
+        }
+    }};
+}
+
 /// Apply `rule` forward to `word` (synthesis). Empty if the rule does not apply — gating failed, or
 /// no allomorph matched.
 ///
@@ -211,9 +224,15 @@ fn synthesize_stats_with_policy_and_role(
     role: RuleInvocationRole,
 ) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def, mstats, policy, role),
-        MorphRuleDef::Compounding(def) => synth_compound(g, word, def, mstats, policy, role),
-        MorphRuleDef::Realizational(def) => synth_realizational(g, word, def, mstats),
+        MorphRuleDef::AffixProcess(def) => {
+            with_mrule_stats!(mstats, synth_affix(g, word, def, mstats, policy, role))
+        }
+        MorphRuleDef::Compounding(def) => {
+            with_mrule_stats!(mstats, synth_compound(g, word, def, mstats, policy, role))
+        }
+        MorphRuleDef::Realizational(def) => {
+            with_mrule_stats!(mstats, synth_realizational(g, word, def, mstats))
+        }
     };
     apply_blocking(g, out, rule.blockable())
 }
@@ -278,14 +297,19 @@ pub(crate) fn synthesize_cached_traced_with_policy_and_role(
     role: RuleInvocationRole,
 ) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix_cached(
-            g, word, def, mrid, cache, mstats, trace, parent, policy, role,
+        MorphRuleDef::AffixProcess(def) => with_mrule_stats!(
+            mstats,
+            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role,)
         ),
-        MorphRuleDef::Compounding(def) => synth_compound_cached(
-            g, word, def, mrid, cache, mstats, trace, parent, policy, role,
+        MorphRuleDef::Compounding(def) => with_mrule_stats!(
+            mstats,
+            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role,)
         ),
         MorphRuleDef::Realizational(def) => {
-            synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
+            with_mrule_stats!(
+                mstats,
+                synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
+            )
         }
     };
     apply_blocking_traced(g, out, rule.blockable(), mrid, trace, parent)
@@ -319,14 +343,15 @@ fn mpr_gate_reason(
     required: pg_grammar_model::model::MprSet,
     excluded: pg_grammar_model::model::MprSet,
     have: pg_grammar_model::model::MprSet,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Option<FailureReason> {
-    if !pg_grammar_model::model::mpr_required_ok(&g.mpr_groups, required, have) {
-        return Some(FailureReason::RequiredMprFeatures);
-    }
-    if !pg_grammar_model::model::mpr_excluded_ok(&g.mpr_groups, excluded, have) {
-        return Some(FailureReason::ExcludedMprFeatures);
-    }
-    None
+    crate::gates::mpr_reason(
+        g,
+        required,
+        excluded,
+        have,
+        mstats.map(|c| (c.stats, ObjectKind::MorphRule, c.id.0)),
+    )
 }
 
 fn capture_mpr_failure(
@@ -371,11 +396,19 @@ pub(crate) fn analyze_stats(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
-        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, None, mstats),
+        MorphRuleDef::Compounding(def) => {
+            with_mrule_stats!(mstats, ana_compound(g, word, def, None, mstats))
+        }
         MorphRuleDef::Realizational(def) => {
-            ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
     }
 }
@@ -393,13 +426,22 @@ pub(crate) fn analyze_cached(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            )
         }
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached(g, word, def, mrid, cache, None, mstats)
+            with_mrule_stats!(
+                mstats,
+                ana_compound_cached(g, word, def, mrid, cache, None, mstats)
+            )
         }
         MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            )
         }
     }
 }
@@ -421,13 +463,22 @@ pub(crate) fn analyze_cached_with_root_filter(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            )
         }
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached(g, word, def, mrid, cache, Some(root_filter), mstats)
+            with_mrule_stats!(
+                mstats,
+                ana_compound_cached(g, word, def, mrid, cache, Some(root_filter), mstats)
+            )
         }
         MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            )
         }
     }
 }
@@ -454,11 +505,20 @@ pub(crate) fn analyze_with_root_filter_stats(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
-        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, Some(root_filter), mstats),
+        MorphRuleDef::Compounding(def) => with_mrule_stats!(
+            mstats,
+            ana_compound(g, word, def, Some(root_filter), mstats)
+        ),
         MorphRuleDef::Realizational(def) => {
-            ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
     }
 }
@@ -483,30 +543,39 @@ pub(crate) fn analyze_cached_traced(
         return analyze_cached(g, mrid, word, rule, cache, mstats, prune_disagreeing_copies);
     }
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::AffixProcess(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_affix_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+            )
         ),
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached_traced(g, word, def, mrid, cache, None, mstats, trace, parent)
+            with_mrule_stats!(
+                mstats,
+                ana_compound_cached_traced(g, word, def, mrid, cache, None, mstats, trace, parent)
+            )
         }
-        MorphRuleDef::Realizational(def) => ana_realizational_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::Realizational(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_realizational_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+            )
         ),
     }
 }
@@ -538,44 +607,53 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
         );
     }
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::AffixProcess(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_affix_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+            )
         ),
-        MorphRuleDef::Compounding(def) => ana_compound_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
-            Some(root_filter),
+        MorphRuleDef::Compounding(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
+            ana_compound_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                Some(root_filter),
+                mstats,
+                trace,
+                parent,
+            )
         ),
-        MorphRuleDef::Realizational(def) => ana_realizational_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::Realizational(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_realizational_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+            )
         ),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_affix_cached_traced(
+fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
@@ -586,7 +664,9 @@ fn ana_affix_cached_traced(
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         trace.morphological_rule_not_unapplied(
             parent,
             mrid,
@@ -658,7 +738,7 @@ fn ana_affix_cached_traced(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_realizational_cached_traced(
+fn ana_realizational_cached_traced<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
@@ -669,7 +749,8 @@ fn ana_realizational_cached_traced(
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
         trace.morphological_rule_not_unapplied(
             parent,
             mrid,
@@ -729,7 +810,7 @@ fn ana_realizational_cached_traced(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_compound_cached_traced(
+fn ana_compound_cached_traced<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -740,7 +821,9 @@ fn ana_compound_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         trace.compounding_rule_not_unapplied(
             parent,
             mrid,
@@ -1644,15 +1727,84 @@ fn synth_syn_fs(
 }
 
 /// C# "Exact" analysis mode (`AnalysisSyntacticFeatureMerge.CanUnapply`/`MergeRequired`): the true inverse of `synth_syn_fs`, shared by affix-process and compounding analysis.
+#[inline]
 pub(crate) fn ana_syn_fs(
     g: &Grammar,
     req: pg_featstruct::FsId,
     out: pg_featstruct::FsId,
     word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+) -> Option<FeatureStruct> {
+    if let Some(ctx) = mstats {
+        ana_syn_fs_observed(g, req, out, word, |passed| {
+            record_inverse_syn_gate(g, req, out, ctx, passed);
+        })
+    } else {
+        ana_syn_fs_observed(g, req, out, word, |_| {})
+    }
+}
+
+/// The edge precheck needs admission, without constructing and discarding the inverse result.
+#[inline]
+pub(crate) fn ana_syn_gate(
+    g: &Grammar,
+    req: pg_featstruct::FsId,
+    out: pg_featstruct::FsId,
+    word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+) -> bool {
+    let req_fs = g.fs_interner.get(req);
+    let out_fs = g.fs_interner.get(out);
+    if let Some(ctx) = mstats {
+        ana_syn_gate_observed(req_fs, out_fs, word, |passed| {
+            record_inverse_syn_gate(g, req, out, ctx, passed);
+        })
+    } else {
+        ana_syn_gate_observed(req_fs, out_fs, word, |_| {})
+    }
+}
+
+#[inline]
+fn ana_syn_gate_observed(
+    req: &FeatureStruct,
+    out: &FeatureStruct,
+    word: &Word,
+    observe: impl FnOnce(bool),
+) -> bool {
+    let passed = pg_featstruct::is_unifiable_with_priority_union(req, out, &word.syn_fs);
+    observe(passed);
+    passed
+}
+
+fn record_inverse_syn_gate(
+    g: &Grammar,
+    req: pg_featstruct::FsId,
+    out: pg_featstruct::FsId,
+    ctx: MRuleStatsCtx,
+    passed: bool,
+) {
+    if !g.fs_interner.get(req).is_empty() || !g.fs_interner.get(out).is_empty() {
+        ctx.stats.record_gate(
+            ObjectKind::MorphRule,
+            ctx.id.0,
+            crate::stats::GateFeature::InverseSyntactic(req.0, out.0),
+            passed,
+        );
+    }
+}
+
+// Keep the no-op specialization free of collector branches after inlining its caller.
+#[inline(never)]
+fn ana_syn_fs_observed(
+    g: &Grammar,
+    req: pg_featstruct::FsId,
+    out: pg_featstruct::FsId,
+    word: &Word,
+    observe: impl FnOnce(bool),
 ) -> Option<FeatureStruct> {
     let req_fs = g.fs_interner.get(req);
     let out_fs = g.fs_interner.get(out);
-    if !pg_featstruct::is_unifiable_with_priority_union(req_fs, out_fs, &word.syn_fs) {
+    if !ana_syn_gate_observed(req_fs, out_fs, word, observe) {
         return None;
     }
     let stem = pg_featstruct::remove_paths(&word.syn_fs, out_fs);
@@ -1735,7 +1887,7 @@ fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar_model::model::S
     g.entries[le.0 as usize].allomorphs[idx as usize].stem_name
 }
 
-fn synth_affix(
+fn synth_affix<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
@@ -1743,6 +1895,7 @@ fn synth_affix(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
 
     // PORT-CORRESPONDENCE: both gates carry `!IsTemplateRule && !GetIsCliticRule()` in `SynthesisAffixProcessRule`.
@@ -1765,12 +1918,22 @@ fn synth_affix(
     }
 
     // `requiredStemName` is a reference-equality gate on the WORD's root stem name, not the rule's allomorphs'; `None` on both sides passes.
-    if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
+    if rule.required_stem_name.is_some_and(|sn| {
+        !crate::gates::observe(
+            mstats.map(|c| c.stats),
+            ObjectKind::MorphRule,
+            mstats.map_or(0, |c| c.id.0),
+            crate::stats::GateFeature::StemName(sn.0, false),
+            Some(sn) == root_stem_name(g, word),
+        )
+    }) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
 
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -1791,7 +1954,7 @@ fn synth_affix(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
+        if mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats).is_some() {
             continue;
         }
         // Recompiled per call, deliberately: see `synthesize`'s doc.
@@ -1846,7 +2009,7 @@ fn synth_affix(
 
 /// `RuleCache`-aware sibling of `synth_affix`: every early return reports its own `FailureReason` at index `-1`, matching C#'s rule-level gates.
 #[allow(clippy::too_many_arguments)]
-fn synth_affix_cached(
+fn synth_affix_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
@@ -1858,6 +2021,7 @@ fn synth_affix_cached(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     macro_rules! not_applied {
         ($reason:expr) => {{
             if word.collect_partials() {
@@ -1891,11 +2055,21 @@ fn synth_affix_cached(
         not_applied!(FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate);
     }
 
-    if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
+    if rule.required_stem_name.is_some_and(|sn| {
+        !crate::gates::observe(
+            mstats.map(|c| c.stats),
+            ObjectKind::MorphRule,
+            mstats.map_or(0, |c| c.id.0),
+            crate::stats::GateFeature::StemName(sn.0, false),
+            Some(sn) == root_stem_name(g, word),
+        )
+    }) {
         not_applied!(FailureReason::RequiredStemName);
     }
 
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         not_applied!(FailureReason::RequiredSyntacticFeatureStruct);
     };
 
@@ -1913,7 +2087,9 @@ fn synth_affix_cached(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
+        if let Some(reason) =
+            mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats)
+        {
             if word.collect_partials() {
                 crate::partials::record(
                     crate::partials::FailureKind::AffixGate,
@@ -2031,18 +2207,21 @@ fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> 
 }
 
 /// C# `Apply`: cap this rule at one application, then check realizational features, blocking and required syntactic features.
-fn synth_realizational(
+fn synth_realizational<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     if word.applied_realizational_rules().contains(&rule.morpheme) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     let real_fs = g.fs_interner.get(rule.real_fs);
-    if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
+    let realizational_ok = pg_featstruct::subsumes(real_fs, &word.real_fs);
+    record_real_subsumption_gate(g, mstats, rule.real_fs, realizational_ok);
+    if !realizational_ok {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -2050,7 +2229,9 @@ fn synth_realizational(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -2065,7 +2246,7 @@ fn synth_realizational(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
+        if mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats).is_some() {
             continue;
         }
         let Ok((fst, names)) = compile_parts(g, table, &allo.lhs, "p", true) else {
@@ -2116,7 +2297,7 @@ fn synth_realizational(
 
 /// `RuleCache`-aware sibling of `synth_realizational`.
 #[allow(clippy::too_many_arguments)]
-fn synth_realizational_cached(
+fn synth_realizational_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
@@ -2126,6 +2307,7 @@ fn synth_realizational_cached(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     if word.applied_realizational_rules().contains(&rule.morpheme) {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
@@ -2146,7 +2328,9 @@ fn synth_realizational_cached(
         return Vec::new();
     }
     let real_fs = g.fs_interner.get(rule.real_fs);
-    if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
+    let realizational_ok = pg_featstruct::subsumes(real_fs, &word.real_fs);
+    record_real_subsumption_gate(g, mstats, rule.real_fs, realizational_ok);
+    if !realizational_ok {
         if word.collect_partials() {
             crate::partials::record(
                 crate::partials::FailureKind::AffixGate,
@@ -2166,7 +2350,9 @@ fn synth_realizational_cached(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
                 parent,
@@ -2195,7 +2381,9 @@ fn synth_realizational_cached(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
+        if let Some(reason) =
+            mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats)
+        {
             if word.collect_partials() {
                 crate::partials::record(
                     crate::partials::FailureKind::AffixGate,
@@ -2945,14 +3133,16 @@ pub(crate) fn build_ana_affix_lhs(
     Ok((fst, lhs))
 }
 
-fn ana_affix(
+fn ana_affix<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -2990,7 +3180,7 @@ fn ana_affix(
 }
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_affix`.
-fn ana_affix_cached(
+fn ana_affix_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
@@ -2998,7 +3188,9 @@ fn ana_affix_cached(
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3338,15 +3530,37 @@ fn ana_affix_allomorph(
 
 // Realizational affix process — analysis.
 
+fn ana_real_fs(
+    g: &Grammar,
+    required: pg_featstruct::FsId,
+    word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+) -> Option<FeatureStruct> {
+    let required_fs = g.fs_interner.get(required);
+    let unified = unify(required_fs, &word.real_fs);
+    if let Some(ctx) = mstats {
+        if !required_fs.is_empty() {
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::RealizationalUnification(required.0),
+                unified.is_some(),
+            );
+        }
+    }
+    unified
+}
+
 /// C# `Apply`: one rule-level gate (the realizational-FS unify), after which every allomorph's matches carry that same unified value; unlike `ana_affix`, no max-application or syn-FS gate exists here.
-fn ana_realizational(
+fn ana_realizational<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3384,7 +3598,7 @@ fn ana_realizational(
 }
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_realizational`.
-fn ana_realizational_cached(
+fn ana_realizational_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
@@ -3392,7 +3606,8 @@ fn ana_realizational_cached(
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3553,7 +3768,7 @@ fn effective_cd_sets_eq(a: EffectiveCdSet, b: EffectiveCdSet) -> bool {
 
 // Compounding — synthesis.
 
-fn synth_compound(
+fn synth_compound<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -3561,16 +3776,19 @@ fn synth_compound(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     let Some(nh) = word.current_non_head().cloned() else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     // Gating.
-    if !is_unifiable(g.fs_interner.get(rule.non_head_required_syn_fs), &nh.syn_fs) {
+    if !observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &nh.syn_fs) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.head_required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3578,7 +3796,7 @@ fn synth_compound(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
+    if !compound_gate(mstats, rule.head_prod_restrictions_mpr, word.mpr) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -3593,7 +3811,7 @@ fn synth_compound(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if !g.mpr_group_ok(sr.required_mpr, sr.excluded_mpr, word.mpr) {
+        if mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr, mstats).is_some() {
             continue;
         }
         // Recompiled per call for the same standalone-fixture reason as `synth_affix`.
@@ -3643,7 +3861,7 @@ fn synth_compound(
 
 /// `RuleCache`-aware sibling of `synth_compound`: gate order differs harmlessly from C#'s (independent boolean gates), and only `HeadProdRestrictMprFeatures` routes through `compounding_rule_not_applied`, matching C#'s own one-site split.
 #[allow(clippy::too_many_arguments)]
-fn synth_compound_cached(
+fn synth_compound_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -3655,6 +3873,7 @@ fn synth_compound_cached(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     let Some(nh) = word.current_non_head().cloned() else {
         if word.collect_partials() {
             crate::partials::record(
@@ -3665,7 +3884,7 @@ fn synth_compound_cached(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if !is_unifiable(g.fs_interner.get(rule.non_head_required_syn_fs), &nh.syn_fs) {
+    if !observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &nh.syn_fs) {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
                 parent,
@@ -3684,7 +3903,9 @@ fn synth_compound_cached(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.head_required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
                 parent,
@@ -3722,7 +3943,7 @@ fn synth_compound_cached(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
+    if !compound_gate(mstats, rule.head_prod_restrictions_mpr, word.mpr) {
         if trace.is_tracing() {
             let event = trace.compounding_rule_not_applied(
                 parent,
@@ -3759,7 +3980,8 @@ fn synth_compound_cached(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr) {
+        if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr, mstats)
+        {
             if word.collect_partials() {
                 crate::partials::record(
                     crate::partials::FailureKind::AffixGate,
@@ -3949,15 +4171,17 @@ fn build_ana_compound_lhs(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_compound(
+fn ana_compound<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
     root_filter: Option<NonHeadRootFilter>,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     // Same guard and adjust as `ana_affix`; the head-required/out pair plays the affix rule's required/out role exactly.
-    let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3998,7 +4222,7 @@ fn ana_compound(
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_compound`.
 #[allow(clippy::too_many_arguments)]
-fn ana_compound_cached(
+fn ana_compound_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -4007,7 +4231,9 @@ fn ana_compound_cached(
     root_filter: Option<NonHeadRootFilter>,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -4159,7 +4385,6 @@ fn resolve_non_head_roots(
     mstats: Option<MRuleStatsCtx>,
     mut prod_rejected: Option<&mut Vec<Word>>,
 ) -> Vec<Word> {
-    let req = g.fs_interner.get(rule.non_head_required_syn_fs);
     let mut out = Vec::new();
     for resolved in filter(stratum, nh_shape, mstats.map(|m| m.stats)) {
         if !pg_fst::work::consume() {
@@ -4175,8 +4400,8 @@ fn resolve_non_head_roots(
                         .record_overlay_attempt(stratum, OverlayPhase::Gate, 0);
                 }
                 let _gate_time = mstats.map(|m| m.stats.time_overlay(stratum, OverlayPhase::Gate));
-                is_unifiable(req, &root.syn_fs)
-                    && rule.non_head_prod_restrictions_mpr.compound_match(root.mpr)
+                observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &root.syn_fs)
+                    && compound_gate(mstats, rule.non_head_prod_restrictions_mpr, root.mpr)
             };
             if !admitted {
                 continue;
@@ -4209,13 +4434,15 @@ fn resolve_non_head_roots(
             continue;
         };
         let entry = &g.entries[le_id.0 as usize];
-        if !is_unifiable(req, g.fs_interner.get(entry.syn_fs)) {
+        if !observed_syn_unifiable(
+            g,
+            mstats,
+            rule.non_head_required_syn_fs,
+            g.fs_interner.get(entry.syn_fs),
+        ) {
             continue;
         }
-        if !rule
-            .non_head_prod_restrictions_mpr
-            .compound_match(entry.mpr)
-        {
+        if !compound_gate(mstats, rule.non_head_prod_restrictions_mpr, entry.mpr) {
             // C# `AnalysisCompoundingRule` reports each such root allomorph (`NonHeadProdRestrictMprFeatures`); only a traced caller asks to see them.
             if let Some(rejected) = prod_rejected.as_deref_mut() {
                 if let Some(allo) = entry.allomorphs.iter().find(|allo| allo.id == allo_id) {
@@ -4345,6 +4572,75 @@ pub(crate) fn build_allomorph_lhs_cache(
         synth_lhs: compile_parts(g, table, &allo.lhs, "p", true).ok(),
         ana_lhs: build_ana_affix_lhs(g, table, allo).ok(),
     }
+}
+
+pub(crate) fn record_syn_gate(
+    g: &Grammar,
+    ctx: Option<MRuleStatsCtx>,
+    fs: pg_featstruct::FsId,
+    passed: bool,
+) {
+    if let Some(ctx) = ctx {
+        if !g.fs_interner.get(fs).is_empty() {
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::Syntactic(fs.0),
+                passed,
+            );
+        }
+    }
+}
+
+fn record_real_subsumption_gate(
+    g: &Grammar,
+    ctx: Option<MRuleStatsCtx>,
+    fs: pg_featstruct::FsId,
+    passed: bool,
+) {
+    if let Some(ctx) = ctx {
+        if !g.fs_interner.get(fs).is_empty() {
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::RealizationalSubsumption(fs.0),
+                passed,
+            );
+        }
+    }
+}
+
+fn compound_gate(
+    ctx: Option<MRuleStatsCtx>,
+    test: pg_grammar_model::model::MprSet,
+    have: pg_grammar_model::model::MprSet,
+) -> bool {
+    let passed = test.compound_match(have);
+    if let Some(ctx) = ctx {
+        let mut bits = test.0;
+        while bits != 0 {
+            let bit = bits.trailing_zeros();
+            bits &= bits - 1;
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::CompoundMpr(bit as u8),
+                passed,
+            );
+        }
+    }
+    passed
+}
+
+fn observed_syn_unifiable(
+    g: &Grammar,
+    ctx: Option<MRuleStatsCtx>,
+    fs: pg_featstruct::FsId,
+    have: &FeatureStruct,
+) -> bool {
+    let passed = is_unifiable(g.fs_interner.get(fs), have);
+    record_syn_gate(g, ctx, fs, passed);
+    passed
 }
 
 #[cfg(test)]

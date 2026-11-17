@@ -870,10 +870,25 @@ impl<'g> Morpher<'g> {
         Vec<pg_rules::stats::StatsRow>,
         Vec<pg_rules::stats::PruneRow>,
     ) {
+        let (outcome, rows, prunes, _) = self.parse_word_with_gate_stats(word, opts);
+        (outcome, rows, prunes)
+    }
+
+    /// Stats-enabled parse with the feature predicates actually evaluated by this search.
+    pub fn parse_word_with_gate_stats(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+    ) -> (
+        ParseOutcome,
+        Vec<pg_rules::stats::StatsRow>,
+        Vec<pg_rules::stats::PruneRow>,
+        Vec<pg_rules::stats::GateRow>,
+    ) {
         let stats = pg_rules::stats::StatsCollector::new(self.g);
         let sink = NoopSink;
         let outcome = self.parse_word_core_selected(word, opts, &sink, None, None, Some(&stats));
-        (outcome, stats.rows(), stats.prune_rows())
+        (outcome, stats.rows(), stats.prune_rows(), stats.gate_rows())
     }
 
     /// Shared body behind `Self::parse_word_opts`/`Self::parse_word_traced`; every trace call here must be guarded by `trace.is_tracing()`, since `NoopSink` panics otherwise.
@@ -1207,7 +1222,7 @@ impl<'g> Morpher<'g> {
                             && self
                                 .lookup_replay
                                 .as_ref()
-                                .is_some_and(|replay| !replay.is_feasible(g, &alt))
+                                .is_some_and(|replay| !replay.is_feasible(g, &alt, stats))
                         {
                             continue;
                         }

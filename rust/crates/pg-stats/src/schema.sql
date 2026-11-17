@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS word (
   passes        INTEGER NOT NULL,
   capped        INTEGER NOT NULL,
   timed_out     INTEGER NOT NULL,
+  gates_measured INTEGER NOT NULL DEFAULT 0,
   invalid_shape INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS word_form ON word(form);
@@ -100,4 +101,22 @@ CREATE TABLE IF NOT EXISTS fact (
   uses             INTEGER NOT NULL,
   self_time_ns     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id, direction)
+) WITHOUT ROWID;
+
+-- A predicate identity includes its mechanism and polarity; its key is authored where available.
+CREATE TABLE IF NOT EXISTS feature (
+  feature_id INTEGER PRIMARY KEY,
+  key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  UNIQUE(key, kind, mode)
+);
+CREATE TABLE IF NOT EXISTS gate_fact (
+  word_id INTEGER NOT NULL,
+  object_id INTEGER NOT NULL,
+  feature_id INTEGER NOT NULL,
+  passed INTEGER NOT NULL,
+  blocked INTEGER NOT NULL,
+  PRIMARY KEY(word_id, object_id, feature_id)
 ) WITHOUT ROWID;

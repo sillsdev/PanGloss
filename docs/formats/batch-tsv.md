@@ -132,7 +132,7 @@ these summaries. Optional parser-work and cost columns remain at the end of each
 ## Relation to `batch --stats`
 
 The statistics cache's `word` table records the same count whether or not `--work-columns` is passed: `word.work` is
-`work_steps`. The cache schema version is 11 (`run.schema_version` and
+`work_steps`. The cache schema version is 13 (14 with `--stats-compact`) (`run.schema_version` and
 `cache_identity.schema_version`); a cache with another version is wiped and recreated, never
 migrated.
 

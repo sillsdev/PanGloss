@@ -14,7 +14,15 @@ use crate::{schema, StatsError};
 const CHUNK_BYTES: usize = 1024 * 1024;
 const PACK_VERSION: i64 = 1;
 const METADATA_TABLES: &[&str] = &["cache_identity", "run", "word"];
-const ARCHIVED_TABLES: &[&str] = &["object", "morpheme", "stratum", "allomorph", "fact"];
+const ARCHIVED_TABLES: &[&str] = &[
+    "object",
+    "morpheme",
+    "stratum",
+    "allomorph",
+    "fact",
+    "feature",
+    "gate_fact",
+];
 
 /// A report connection owns its expanded temporary file until the connection closes.
 /// Plain caches are opened read-only without copying or changing their bytes.
@@ -247,7 +255,9 @@ pub fn pack(path: &Path) -> Result<(), StatsError> {
         "INSERT INTO stats_pack VALUES (1, ?1, ?2, ?3)",
         params![PACK_VERSION, total, digest.finalize().to_vec()],
     )?;
-    tx.execute_batch("DROP TABLE fact; DROP TABLE object; DROP TABLE morpheme; DROP TABLE stratum; DROP TABLE allomorph;")?;
+    for table in ARCHIVED_TABLES {
+        tx.execute_batch(&format!("DROP TABLE {table};"))?;
+    }
     tx.commit()?;
     compact_file(&conn)
 }
@@ -285,8 +295,15 @@ pub(crate) fn unpack_on(conn: &mut Connection) -> Result<(), StatsError> {
     }
     let file = expand(&tx).map_err(|e| invalid(e.to_string()))?;
     let expanded = read_only(file.path())?;
+    let (_, version, _, _) =
+        schema::cache_identity(&expanded)?.ok_or(StatsError::CacheIdentityMissing)?;
+    let tables = if matches!(version, 11 | 12) {
+        &ARCHIVED_TABLES[..5]
+    } else {
+        ARCHIVED_TABLES
+    };
     let mut ddl = Vec::new();
-    for table in ARCHIVED_TABLES {
+    for table in tables {
         let table_ddl: String = expanded.query_row(
             "SELECT sql FROM sqlite_master WHERE name = ?1 AND type = 'table'",
             [table],
@@ -308,7 +325,7 @@ pub(crate) fn unpack_on(conn: &mut Connection) -> Result<(), StatsError> {
     for sql in ddl {
         tx.execute_batch(&sql)?;
     }
-    for table in ARCHIVED_TABLES {
+    for table in tables {
         tx.execute_batch(&format!(
             "INSERT INTO main.{table} SELECT * FROM unpacked_stats.{table}"
         ))?;

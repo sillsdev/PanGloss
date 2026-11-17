@@ -473,6 +473,7 @@ pub(crate) fn build_stem_names(
                 let id = StemNameId(defs.len() as u32);
                 by_guid.insert(sn.guid.clone(), id);
                 defs.push(StemNameDef {
+                    xml_id: sn.guid.clone(),
                     name: Some(sn.name.clone()),
                     regions: region_ids,
                 });

@@ -73,6 +73,7 @@ fn fact_with_self_time(
 
 fn word_record(form: &str, elapsed_ns: u64, facts: Vec<FactRecord>) -> WordRecord {
     WordRecord {
+        gates: None,
         form: form.to_string(),
         elapsed_ns,
         work: 0,
@@ -1166,6 +1167,7 @@ fn remainder_fact(work_steps: u64) -> FactRecord {
 
 fn word_with_work(form: &str, work: u64, facts: Vec<FactRecord>) -> WordRecord {
     WordRecord {
+        gates: None,
         work,
         ..word_record(form, 100, facts)
     }

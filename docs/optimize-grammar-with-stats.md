@@ -41,7 +41,7 @@ For a smaller cache when only object costs are needed, opt in with `--stats-comp
 pangloss batch <grammar> <words.txt> out.tsv --stats --stats-compact --cache <compact.sqlite3>
 ```
 
-Compact caches use schema version **12**; the default full cache keeps version **11** and its
+Compact caches use schema version **14**; the default full cache keeps version **13** and its
 existing output. Compact facts have one row per `(word_id, object_id, direction)`, with
 `stratum_id` and `allomorph_id` constrained to zero. All retained counters are summed, except
 `not_applied`, which keeps only the rule-level counts used by object/kind reports. Named-allomorph
@@ -240,8 +240,8 @@ Direct word readers can query `word`, `run` and `cache_identity` without expandi
 facts. Packing leaves the word table's schema and values identical to the plain
 cache. Motif's `ReadWords` uses
 `SELECT form, elapsed_ns, passes, work FROM word ORDER BY word_id` and can read
-packed full caches directly with its existing schema-11 gate. To enable
-`--stats-compact`, its cache-version validator must accept both 11 and 12; counter
+packed caches directly once its cache-version validator accepts schema 13 for full caches
+and 14 for `--stats-compact`; counter
 semantics 8 and manifest version 2 remain unchanged. Compact caches do not provide
 allomorph breakdowns or stratum filters.
 
@@ -251,3 +251,5 @@ so direct fact readers must use an unpacked copy. This applies to Assess and the
 generic `Read` method even with `maxObjectTimingRows: 0`; Motif's stopped-word
 retry should use its existing `ReadWords` method instead. Trial already uses
 `ReadWords`. Statistics replay through `pangloss stats` expands transparently.
+
+See [feature-gate counters](formats/stats-cache.md) for identities, measurement state, packed replay, and SQL.

@@ -9,6 +9,7 @@
 //! sparse rows sorted by `(kind, stratum, object_index, allomorph, direction)` for a deterministic,
 //! golden-testable order.
 
+pub use crate::gates::{mpr_check, GateFeature, GateRow};
 use std::cell::{Cell, RefCell};
 
 use pg_grammar_model::model::{Grammar, LexEntryId, MRuleId, PRuleId, StratumId};
@@ -458,9 +459,12 @@ impl Drop for ObjectTimeGuard<'_> {
     }
 }
 
+type GateTable = HashMap<(ObjectKind, u32, GateFeature), (u64, u64)>;
+
 /// The per-word collector. Constructed once per `parse_word` call, alongside its `WordBudget`,
 /// and threaded down by `Option<&StatsCollector>` so every instrumentation site is one branch.
 pub struct StatsCollector {
+    gates: RefCell<GateTable>,
     morph: DenseTable,
     phon: DenseTable,
     sparse: RefCell<HashMap<SparseKey, Counters>>,
@@ -471,6 +475,35 @@ pub struct StatsCollector {
 }
 
 impl StatsCollector {
+    pub fn record_gate(&self, kind: ObjectKind, object: u32, feature: GateFeature, passed: bool) {
+        let mut gates = self.gates.borrow_mut();
+        let counts = gates.entry((kind, object, feature)).or_default();
+        if passed {
+            counts.0 += 1;
+        } else {
+            counts.1 += 1;
+        }
+    }
+
+    pub fn gate_rows(&self) -> Vec<GateRow> {
+        let mut rows: Vec<_> = self
+            .gates
+            .borrow()
+            .iter()
+            .map(
+                |(&(kind, object_index, feature), &(passed, blocked))| GateRow {
+                    kind,
+                    object_index,
+                    feature,
+                    passed,
+                    blocked,
+                },
+            )
+            .collect();
+        rows.sort_by_key(|r| (r.kind, r.object_index, r.feature));
+        rows
+    }
+
     /// Attribute parser orchestration to a stable named synthetic category.
     pub fn time_parser(
         &self,
@@ -500,6 +533,7 @@ impl StatsCollector {
 
     pub fn new(g: &Grammar) -> Self {
         StatsCollector {
+            gates: RefCell::new(HashMap::default()),
             morph: DenseTable::new(g.strata.len(), g.mrules.len()),
             phon: DenseTable::new(g.strata.len(), g.prules.len()),
             sparse: RefCell::new(HashMap::default()),

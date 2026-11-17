@@ -211,13 +211,7 @@ fn fact_record_from_stats_row(
     let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
     let allomorph = stats_row_allomorph_locator(grammar, identities, row);
     // Only a `lex_entry` object realizes a single morpheme; every other kind carries no locator.
-    let morpheme = if row.kind == pg_rules::stats::ObjectKind::LexEntry {
-        let morpheme_id = grammar.entries[row.object_index as usize].morpheme;
-        let m = pg_grammar::stats_identity::morpheme_identity(grammar, morpheme_id);
-        Some(pg_stats::StructuralLocator::new(m.key, m.label))
-    } else {
-        None
-    };
+    let morpheme = stats_owner_morpheme(grammar, row.kind, row.object_index);
     let direction = match row.direction {
         pg_rules::stats::Direction::Analysis => pg_stats::Direction::Analysis,
         pg_rules::stats::Direction::Synthesis => pg_stats::Direction::Synthesis,
@@ -241,6 +235,19 @@ fn fact_record_from_stats_row(
         uses: row.counters.uses,
         self_time_ns: row.counters.self_time_ns,
     })
+}
+
+fn stats_owner_morpheme(
+    grammar: &Grammar,
+    kind: pg_rules::stats::ObjectKind,
+    index: u32,
+) -> Option<pg_stats::StructuralLocator> {
+    if kind != pg_rules::stats::ObjectKind::LexEntry {
+        return None;
+    }
+    let morpheme_id = grammar.entries[index as usize].morpheme;
+    let m = pg_grammar::stats_identity::morpheme_identity(grammar, morpheme_id);
+    Some(pg_stats::StructuralLocator::new(m.key, m.label))
 }
 
 fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> Option<pg_rules::stats::ObjectKind> {
@@ -461,6 +468,7 @@ pub(crate) fn batch_stats_word(
     });
     Ok(BatchStatsWord {
         record: pg_stats::WordRecord {
+            gates: None,
             form: word.to_string(),
             elapsed_ns: outcome.elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
             work: outcome.outcome.work_steps as u64,
@@ -472,6 +480,150 @@ pub(crate) fn batch_stats_word(
         },
         prunes,
     })
+}
+
+/// Resolve compact parser identities only after the parse; the hot loop allocates no strings.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn batch_stats_word_with_gates(
+    grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
+    word: &str,
+    outcome: &pg_parse::BatchWordOutcome,
+    rows: &[pg_rules::stats::StatsRow],
+    prune_rows: &[pg_rules::stats::PruneRow],
+    gates: &[pg_rules::stats::GateRow],
+) -> Result<BatchStatsWord, String> {
+    let mut result = batch_stats_word(grammar, identities, word, outcome, rows, prune_rows)?;
+    result.record.gates = Some(
+        gates
+            .iter()
+            .map(|row| {
+                use pg_rules::stats::{GateFeature, ObjectKind};
+                let identity = match row.kind {
+                    ObjectKind::MorphRule => identities.morph_rule(MRuleId(row.object_index)),
+                    ObjectKind::PhonRule => identities.phon_rule(PRuleId(row.object_index)),
+                    ObjectKind::LexEntry => identities.lex_entry(LexEntryId(row.object_index)),
+                    _ => panic!("a feature predicate must have a grammar object owner"),
+                };
+                let (feature_key, feature_kind, feature_label, mode) = match row.feature {
+                    GateFeature::Mpr(bit, _) | GateFeature::CompoundMpr(bit) => {
+                        let feature = &grammar.mpr_features[bit as usize];
+                        let mode = match row.feature {
+                            GateFeature::CompoundMpr(_) => "compound-required",
+                            GateFeature::Mpr(_, true) => "excluded",
+                            _ => "required",
+                        };
+                        (
+                            feature.xml_id.clone(),
+                            "mpr".into(),
+                            feature.name.clone(),
+                            mode.into(),
+                        )
+                    }
+                    GateFeature::StemName(index, exclude) => {
+                        let name = &grammar.stem_names[index as usize];
+                        (
+                            name.xml_id.clone(),
+                            "stem-name".into(),
+                            name.name.clone().unwrap_or_default(),
+                            if exclude { "excluded" } else { "required" }.into(),
+                        )
+                    }
+                    GateFeature::Syntactic(index) => {
+                        let key = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(index)),
+                        )?;
+                        (key.clone(), "syntactic".into(), key, "required".into())
+                    }
+                    GateFeature::InverseSyntactic(required, output) => {
+                        let required = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(required)),
+                        )?;
+                        let output = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(output)),
+                        )?;
+                        let key = format!(r#"{{"output":{output},"required":{required}}}"#);
+                        (
+                            key.clone(),
+                            "syntactic".into(),
+                            key,
+                            "inverse-unification".into(),
+                        )
+                    }
+                    GateFeature::RealizationalUnification(index)
+                    | GateFeature::RealizationalSubsumption(index) => {
+                        let key = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(index)),
+                        )?;
+                        let mode = match row.feature {
+                            GateFeature::RealizationalUnification(_) => "realizational-unification",
+                            _ => "realizational-subsumption",
+                        };
+                        (key.clone(), "syntactic".into(), key, mode.into())
+                    }
+                    GateFeature::Pos(bits) => {
+                        let mut builder = pg_featstruct::FeatureStructBuilder::new();
+                        builder.add(
+                            grammar.syn_features.pos,
+                            pg_featstruct::FeatureValue::Symbolic(pg_featstruct::SymbolBits(bits)),
+                        );
+                        let key = syntactic_gate_key(grammar, &builder.build())?;
+                        (key.clone(), "pos".into(), key, "required".into())
+                    }
+                };
+                Ok(pg_stats::GateRecord {
+                    object_key: identity.key.clone(),
+                    object_kind: to_stats_kind(identity.kind),
+                    object_label: identity.label.clone(),
+                    identity_quality: to_stats_quality(identity.quality),
+                    morpheme: stats_owner_morpheme(grammar, row.kind, row.object_index),
+                    feature_key,
+                    feature_kind,
+                    feature_label,
+                    mode,
+                    passed: row.passed,
+                    blocked: row.blocked,
+                })
+            })
+            .collect::<Result<_, String>>()?,
+    );
+    Ok(result)
+}
+
+/// Canonical nested feature/value IDs; values in one predicate are a collective FS comparison.
+fn syntactic_gate_key(
+    grammar: &Grammar,
+    fs: &pg_featstruct::FeatureStruct,
+) -> Result<String, String> {
+    let mut values = BTreeMap::new();
+    for (id, value) in fs.entries() {
+        let def = &grammar.syn_features.features[id.0 as usize];
+        let value = match value {
+            pg_featstruct::FeatureValue::Symbolic(bits) => {
+                let pg_grammar::model::SynFeatureKind::Symbolic { symbols, .. } = &def.kind else {
+                    return Err("symbolic gate has no symbol dictionary".into());
+                };
+                let mut ids: Vec<_> = symbols
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| bits.0 & (1u64 << i) != 0)
+                    .map(|(_, (id, _))| id)
+                    .collect();
+                ids.sort();
+                serde_json::json!(ids)
+            }
+            pg_featstruct::FeatureValue::Complex(nested) => {
+                serde_json::from_str(&syntactic_gate_key(grammar, nested)?)
+                    .map_err(|e| e.to_string())?
+            }
+        };
+        values.insert(def.xml_id.clone(), value);
+    }
+    serde_json::to_string(&values).map_err(|e| e.to_string())
 }
 
 pub(crate) struct BatchStatsCache {
@@ -1025,7 +1177,7 @@ pub(crate) fn run_batch_stats_hc(
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide (also work_steps with --group object)] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|morpheme|group|never-fires|gate] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide (also work_steps with --group object)] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
@@ -1035,6 +1187,7 @@ enum ReportGroup {
     Morpheme,
     Group,
     NeverFires,
+    Gate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2399,9 +2552,10 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some("morpheme") => Some(ReportGroup::Morpheme),
         Some("group") => Some(ReportGroup::Group),
         Some("never-fires") => Some(ReportGroup::NeverFires),
+        Some("gate") => Some(ReportGroup::Gate),
         Some(other) => {
             return Err(format!(
-            "invalid --group: {other} (expected word|object|allomorph|morpheme|group|never-fires)"
+            "invalid --group: {other} (expected word|object|allomorph|morpheme|group|never-fires|gate)"
         ))
         }
     };
@@ -2431,6 +2585,9 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             ))
         }
     };
+    if matches!(group, Some(ReportGroup::Gate)) && (filters.direction.is_some() || filters.wide) {
+        return Err("--group gate has no direction or wide dimensions".into());
+    }
     if filters.sort.is_some() && !matches!(group, None | Some(ReportGroup::Object)) {
         return Err("--sort only applies to --group object (or the default view)".to_string());
     }
@@ -2540,6 +2697,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some(ReportGroup::Morpheme) => render_morpheme(&conn, &filters, format)?,
         Some(ReportGroup::Group) => render_group(&conn, &filters, format)?,
         Some(ReportGroup::NeverFires) => render_never_fires(&conn, &filters, format)?,
+        Some(ReportGroup::Gate) => render_gate(&conn, &filters, format)?,
     };
     match out_path {
         Some(path) => std::fs::write(&path, body).map_err(|e| format!("write {path}: {e}")),
@@ -2599,6 +2757,91 @@ pub(crate) fn run_stats_cache(args: &[String]) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     eprintln!("stats-cache: storage changed; exact file digests must be recorded again (use batch --cache-pack before publishing a frozen manifest)");
     Ok(())
+}
+
+fn render_gate(
+    conn: &rusqlite::Connection,
+    filters: &Filters,
+    format: OutputFormat,
+) -> Result<String, String> {
+    let version: i64 = conn
+        .query_row(
+            "SELECT schema_version FROM cache_identity WHERE cache_id=1",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !pg_stats::supported_schema_version(version) {
+        return Err(
+            "gate statistics unmeasured in this legacy cache; record a new HC batch --stats".into(),
+        );
+    }
+    let (measured, unmeasured, censored): (i64,i64,i64) = conn.query_row(
+        "SELECT COALESCE(SUM(gates_measured),0), COALESCE(SUM(1-gates_measured),0), COALESCE(SUM(capped OR timed_out OR invalid_shape),0) FROM word WHERE (?1 IS NULL OR form=?1) AND (NOT ?2 OR NOT (capped OR timed_out OR invalid_shape))",
+        rusqlite::params![filters.word, filters.exclude_censored], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+    ).map_err(|e| e.to_string())?;
+    let mut out = match format {
+        OutputFormat::Text => format!("gate statistics: measured_words={measured}, unmeasured_words={unmeasured}, censored_words={censored}\n"),
+        OutputFormat::Jsonl => {
+            let (grammar_hash, engine) = run_identity(conn)?;
+            let mut meta = serde_json::json!({"meta":true,"orientation":"gate","grammar_hash":grammar_hash,"engine":engine,"filters":filters_json(filters),"schema_version":version,"measured_words":measured,"unmeasured_words":unmeasured,"censored_words":censored});
+            add_cache_capabilities(conn, &mut meta)?;
+            format!("{meta}\n")
+        },
+    };
+    let mut stmt = conn.prepare(
+        "SELECT o.key,o.kind,f.key,f.kind,f.label,f.mode,SUM(g.passed),SUM(g.blocked) FROM gate_fact g JOIN word w USING(word_id) JOIN object o USING(object_id) JOIN feature f USING(feature_id)
+         WHERE w.gates_measured=1 AND (?1 IS NULL OR w.form=?1) AND (?2 IS NULL OR o.key=?2) AND (?3 IS NULL OR o.kind=?3) AND (NOT ?4 OR NOT (w.capped OR w.timed_out OR w.invalid_shape))
+         GROUP BY g.object_id,g.feature_id ORDER BY SUM(g.blocked) DESC,o.kind,o.key,f.kind,f.key,f.mode LIMIT ?5"
+    ).map_err(|e|e.to_string())?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![
+                filters.word,
+                filters.object_key,
+                filters.kind,
+                filters.exclude_censored,
+                filters.top_n.map(|n| n as i64).unwrap_or(-1)
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, i64>(6)?,
+                    r.get::<_, i64>(7)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    let mut table = Vec::new();
+    for row in rows {
+        let (object, kind, feature, feature_kind, label, mode, passed, blocked) =
+            row.map_err(|e| e.to_string())?;
+        match format {
+            OutputFormat::Text => table.push(vec![object,kind,feature,feature_kind,label,mode,passed.to_string(),blocked.to_string()]),
+            OutputFormat::Jsonl => out.push_str(&format!("{}\n",serde_json::json!({"type":"row","object_key":object,"kind":kind,"feature_key":feature,"feature_kind":feature_kind,"label":label,"mode":mode,"passed":passed,"blocked":blocked}))),
+        }
+    }
+    if matches!(format, OutputFormat::Text) {
+        out.push_str(&render_table(
+            &[
+                "object",
+                "kind",
+                "feature",
+                "feature_kind",
+                "label",
+                "mode",
+                "passed",
+                "blocked",
+            ],
+            &table,
+        ));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

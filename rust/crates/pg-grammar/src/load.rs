@@ -869,6 +869,7 @@ fn load_stem_name(
         regions.push(fs_interner.intern(b.build()));
     }
     Ok(StemNameDef {
+        xml_id: sn.attr("id").unwrap_or("").to_string(),
         name: sn.text_of("Name").map(str::to_string),
         regions,
     })
