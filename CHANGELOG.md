@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.22.1
+
+Released 2026-11-17.
 
 ### Fixed
 
