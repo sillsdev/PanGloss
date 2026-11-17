@@ -271,10 +271,11 @@ if ($Scope -and $Mode -ne 'conformance-test') {
 # Dispatched before any slot is taken: preland runs child pg.ps1 calls that each take their own.
 if ($Mode -eq 'preland') {
     if ($ExtraArgs.Count -gt 0) {
-        Write-Host "[pg] -Mode preland takes only -Base and -All; it would ignore: $($ExtraArgs -join ' ')" -ForegroundColor Red
+        Write-Host "[pg] -Mode preland takes only -Base, -All and -Jobs; it would ignore: $($ExtraArgs -join ' ')" -ForegroundColor Red
         exit 2
     }
     $prelandArgs = @()
+    if ($Jobs -gt 0) { $prelandArgs += @('-Jobs', "$Jobs") }
     if ($Base) { $prelandArgs += @('-Base', $Base) }
     if ($All) { $prelandArgs += '-All' }
     & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'preland.ps1') @prelandArgs
