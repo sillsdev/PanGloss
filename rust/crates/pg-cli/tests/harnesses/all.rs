@@ -46,6 +46,9 @@ mod recipe_optimize_continuation;
 mod serve_protocol;
 #[path = "../skills_never_instruct_bare_cargo.rs"]
 mod skills_never_instruct_bare_cargo;
+#[cfg(target_os = "linux")]
+#[path = "../stats_memory.rs"]
+mod stats_memory;
 
 #[path = "../default_dependency_closure.rs"]
 mod default_dependency_closure;

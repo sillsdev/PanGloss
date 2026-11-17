@@ -53,6 +53,225 @@ fn sample_run() -> RunMetadata {
 }
 
 #[test]
+fn streamed_run_matches_slice_flush_row_for_row_in_both_schemas() {
+    for version in [schema::SCHEMA_VERSION, schema::COMPACT_SCHEMA_VERSION] {
+        let open = || {
+            StatsCache::open_on_version(Connection::open_in_memory().unwrap(), "hash-a", version)
+                .unwrap()
+                .cache
+        };
+        let mut baseline = open();
+        let words = vec![sample_word("apu"), sample_word("apa"), sample_word("apu")];
+        baseline.flush(&sample_run(), &words).unwrap();
+        let mut writer = open().into_run(&sample_run()).unwrap();
+        for word in &words {
+            writer.write_word(word).unwrap();
+            let stored: u64 = writer
+                .cache
+                .connection()
+                .query_row("SELECT COUNT(*) FROM fact", [], |r| r.get(0))
+                .unwrap();
+            assert!(stored > 0, "facts must reach SQLite before finish");
+        }
+        let (streamed, _) = writer.finish().unwrap();
+        assert_same_rows(&baseline, &streamed);
+        for capacity in [1, 4 * 1024 * 1024] {
+            let mut buffer = StatsRunBuffer::with_capacity(capacity);
+            for word in &words {
+                buffer.write_word(word).unwrap();
+            }
+            buffer.records.flush().unwrap();
+            assert_eq!(buffer.records.get_ref().is_rolled(), capacity == 1);
+            let (buffered, _) = buffer.flush(open(), &sample_run()).unwrap();
+            assert_same_rows(&baseline, &buffered);
+        }
+    }
+}
+
+fn assert_same_rows(baseline: &StatsCache, streamed: &StatsCache) {
+    for table in [
+        "run",
+        "word",
+        "object",
+        "stratum",
+        "allomorph",
+        "morpheme",
+        "fact",
+        "cache_identity",
+    ] {
+        let read = |cache: &StatsCache| {
+            let mut statement = cache
+                .connection()
+                .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
+                .unwrap();
+            let columns = statement.column_count();
+            statement
+                .query_map([], |r| {
+                    (0..columns)
+                        .map(|i| r.get::<_, rusqlite::types::Value>(i))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+        };
+        assert_eq!(read(baseline), read(streamed), "{table}");
+    }
+}
+
+#[test]
+fn buffered_runs_discard_abandoned_poisoned_and_rejected_observations() {
+    let dir = TempDir::new("stats-buffer-rollback");
+    let path = dir.path().join("stats.sqlite");
+    for capacity in [1, 4 * 1024 * 1024] {
+        let mut cache = StatsCache::open(&path, "hash-a").unwrap().cache;
+        cache.flush(&sample_run(), &[sample_word("apu")]).unwrap();
+        let before = cache
+            .connection()
+            .query_row("SELECT COUNT(*) FROM run", [], |r| r.get::<_, u64>(0))
+            .unwrap();
+        let mut replacement = sample_word("apu");
+        replacement.passes = 99;
+        for failure in ["abandon", "poison", "record", "elapsed", "decode"] {
+            let mut buffer = StatsRunBuffer::with_capacity(capacity);
+            buffer.write_word(&replacement).unwrap();
+            match failure {
+                "abandon" => {
+                    drop(buffer);
+                }
+                "poison" => {
+                    buffer.records = BufWriter::new(tempfile::spooled_tempfile_in(
+                        1,
+                        dir.path().join("missing"),
+                    ));
+                    let mut big = replacement.clone();
+                    big.form = "a".repeat(16 * 1024);
+                    assert!(buffer.write_word(&big).is_err());
+                    assert!(matches!(
+                        buffer.write_word(&replacement),
+                        Err(StatsError::RunWriteFailed)
+                    ));
+                    assert!(matches!(
+                        buffer.flush(cache, &sample_run()),
+                        Err(StatsError::RunWriteFailed)
+                    ));
+                }
+                "record" => {
+                    let mut bad = sample_word("apa");
+                    bad.facts[0].attempts = u64::MAX;
+                    buffer.write_word(&bad).unwrap();
+                    assert!(matches!(
+                        buffer.flush(cache, &sample_run()),
+                        Err(StatsError::CounterOverflow { .. })
+                    ));
+                }
+                "elapsed" => {
+                    let mut bad = sample_word("apa");
+                    bad.elapsed_ns = i64::MAX as u64;
+                    buffer.write_word(&bad).unwrap();
+                    assert!(matches!(
+                        buffer.flush(cache, &sample_run()),
+                        Err(StatsError::CounterOverflow {
+                            counter: "total_elapsed_ns",
+                            ..
+                        })
+                    ));
+                }
+                "decode" => {
+                    buffer.records.write_all(b"{invalid").unwrap();
+                    assert!(matches!(
+                        buffer.flush(cache, &sample_run()),
+                        Err(StatsError::BufferedRecord(_))
+                    ));
+                }
+                _ => unreachable!(),
+            }
+            cache = StatsCache::open(&path, "hash-a").unwrap().cache;
+            let passes: u64 = cache
+                .connection()
+                .query_row("SELECT passes FROM word WHERE form = 'apu'", [], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            let runs: u64 = cache
+                .connection()
+                .query_row("SELECT COUNT(*) FROM run", [], |r| r.get(0))
+                .unwrap();
+            let words: u64 = cache
+                .connection()
+                .query_row("SELECT COUNT(*) FROM word", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(passes, 1, "{failure}");
+            assert_eq!(runs, before, "{failure}");
+            assert_eq!(words, 1, "{failure}");
+        }
+    }
+}
+
+#[test]
+fn dropped_and_failed_streamed_runs_roll_back_without_replacing_prior_words() {
+    let dir = TempDir::new("stats-stream-rollback");
+    let path = dir.path().join("stats.sqlite");
+    for fail in [false, true] {
+        let mut cache = StatsCache::open(&path, "hash-a").unwrap().cache;
+        cache.flush(&sample_run(), &[sample_word("apu")]).unwrap();
+        let mut writer = cache.into_run(&sample_run()).unwrap();
+        let mut replacement = sample_word("apu");
+        replacement.passes = 99;
+        writer.write_word(&replacement).unwrap();
+        if fail {
+            replacement.facts[0].attempts = u64::MAX;
+            assert!(writer.write_word(&replacement).is_err());
+            assert!(matches!(
+                writer.write_word(&sample_word("apa")),
+                Err(StatsError::RunWriteFailed)
+            ));
+            assert!(matches!(writer.finish(), Err(StatsError::RunWriteFailed)));
+        } else {
+            drop(writer);
+        }
+        let restored = StatsCache::open(&path, "hash-a").unwrap().cache;
+        let passes: u64 = restored
+            .connection()
+            .query_row("SELECT passes FROM word WHERE form = 'apu'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(passes, 1);
+        let runs: u64 = restored
+            .connection()
+            .query_row("SELECT COUNT(*) FROM run", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(runs, if fail { 2 } else { 1 });
+    }
+}
+
+#[test]
+fn streamed_run_refuses_invalid_identity_and_elapsed_overflow() {
+    let cache = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let mut run = sample_run();
+    run.grammar_hash = "other".into();
+    assert!(matches!(
+        cache.into_run(&run),
+        Err(StatsError::GrammarMismatch { .. })
+    ));
+    let cache = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let mut writer = cache.into_run(&sample_run()).unwrap();
+    let mut word = sample_word("apu");
+    word.elapsed_ns = i64::MAX as u64;
+    writer.write_word(&word).unwrap();
+    word.elapsed_ns = 1;
+    assert!(matches!(
+        writer.write_word(&word),
+        Err(StatsError::CounterOverflow {
+            counter: "total_elapsed_ns",
+            ..
+        })
+    ));
+    assert!(matches!(writer.finish(), Err(StatsError::RunWriteFailed)));
+}
+
+#[test]
 fn create_write_and_read_back_exactly() {
     let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
     assert!(!outcome.wiped);

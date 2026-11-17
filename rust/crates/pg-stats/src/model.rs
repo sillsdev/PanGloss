@@ -4,11 +4,13 @@
 
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
+
 /// The kinds of object a fact row can be attributed to.
 ///
 /// `root_index`, `guesser`, and `overlay` have no authored counterpart in the grammar and get a
 /// synthetic stable id (see `IdentityQuality`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ObjectKind {
     MorphRule,
     PhonRule,
@@ -65,7 +67,7 @@ impl FromStr for ObjectKind {
 }
 
 /// The pass that produced a fact row, or `Unattributed` for the word's directionless remainder.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Direction {
     Analysis,
     Synthesis,
@@ -102,7 +104,7 @@ impl FromStr for Direction {
 }
 
 /// How trustworthy an object's `key` is as something a human can look up in FLEx.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IdentityQuality {
     /// Traceable straight to an authored id (a GUID, an xml id) in the source grammar.
     Authored,
@@ -145,7 +147,7 @@ impl FromStr for IdentityQuality {
 ///
 /// `None` in a `FactRecord` means the sentinel row (`stratum_id`/`allomorph_id` 0) applies —
 /// not applicable, or no allomorph, respectively.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuralLocator {
     pub key: String,
     pub label: String,
@@ -207,7 +209,7 @@ pub struct FrozenWordSummary {
 /// Counters are `u64` here, matching the collector; a value too large for SQLite's signed
 /// `INTEGER` storage is an error rather than a silent wraparound, pinned by
 /// `huge_counter_round_trips_and_overflow_is_rejected`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FactRecord {
     pub object_key: String,
     pub object_kind: ObjectKind,
@@ -235,7 +237,7 @@ pub struct FactRecord {
 }
 
 /// One analyzed word and every fact row it produced.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WordRecord {
     pub form: String,
     pub elapsed_ns: u64,

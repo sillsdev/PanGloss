@@ -7,6 +7,9 @@ use thiserror::Error;
 /// Everything that can go wrong opening, writing, or reading the stats cache.
 #[derive(Debug, Error)]
 pub enum StatsError {
+    #[error("stats run cannot commit after a failed word write")]
+    RunWriteFailed,
+
     #[error("packed stats cache: {0}")]
     PackedCache(String),
 
@@ -15,6 +18,9 @@ pub enum StatsError {
 
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+
+    #[error("buffered stats record: {0}")]
+    BufferedRecord(#[from] serde_json::Error),
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
