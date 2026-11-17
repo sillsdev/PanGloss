@@ -51,6 +51,7 @@ pub(crate) struct ConfirmBatchDiagnostics {
     /// HC work is bounded in (`backend_runtime::DEFAULT_ORACLE_WORK_CAP` caps the same total), so the
     /// objective and the cap speak the same language. Deterministic, like the counts beside it.
     pub confirmation_work: usize,
+    pub incomplete: bool,
 }
 
 /// What one fused confirmation chunk cost, and which candidates shared that cost.
@@ -61,8 +62,7 @@ pub(crate) struct ConfirmBatchDiagnostics {
 /// turned it away before any parse — and a candidate that is a chunk's only member owns that
 /// chunk's whole figure. Anything in between is shared and not divisible by this record.
 ///
-/// `work_steps` is `pg_parse::ParseOutcome::work_steps` and is deterministic; `elapsed` is an observation of
-/// the same call and is not.
+/// `work_steps` is the deterministic work spent in this chunk; `elapsed` measures the same call.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ConfirmChunkCost {
     /// Indices into the candidate slice that was confirmed, ascending.
@@ -476,6 +476,7 @@ fn confirm_batch_impl(
         diagnostics.confirmation_groups = fused.len();
     }
 
+    let budget = morpher.word_budget();
     for chunk in fused.values() {
         let members = &chunk.members;
         let union_rules = &chunk.union_rules;
@@ -508,25 +509,30 @@ fn confirm_batch_impl(
             diagnostics.confirmation_calls += 1;
         }
         let timer = crate::word_timer::start();
-        let outcome = morpher.parse_word_selected(
+        let work_before = budget.work_steps();
+        let outcome = morpher.parse_word_selected_with_budget(
             word,
             &ParseOptions::default(),
             Some(&lex_entry_filter),
             Some(&rule_filter),
+            &budget,
         );
         let elapsed = timer.elapsed();
         // Read BEFORE the loop below consumes `outcome`.
         if let Some(diagnostics) = diagnostics.as_deref_mut() {
-            diagnostics.confirmation_work = diagnostics
-                .confirmation_work
-                .saturating_add(outcome.work_steps);
+            diagnostics.confirmation_work = outcome.work_steps;
+            diagnostics.incomplete |= outcome.capped
+                || outcome.timed_out
+                || outcome.capture_capped
+                || outcome.word_mem_capped
+                || outcome.invalid_shape;
         }
         if let Some(costs) = costs.as_deref_mut() {
             let mut members = members.clone();
             members.sort_unstable();
             costs.push(ConfirmChunkCost {
                 members,
-                work_steps: outcome.work_steps,
+                work_steps: outcome.work_steps.saturating_sub(work_before),
                 elapsed,
                 timed_out: outcome.timed_out,
             });

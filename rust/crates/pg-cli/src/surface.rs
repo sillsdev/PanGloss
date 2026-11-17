@@ -106,6 +106,10 @@ fn dispatch_facts(args: &[String]) -> ExitCode {
 fn dispatch_fst_health(args: &[String]) -> ExitCode {
     dispatch("fst-health", args, crate::fst_health::run_fst_health)
 }
+#[cfg(feature = "foma-tools")]
+fn dispatch_fst_verify(args: &[String]) -> ExitCode {
+    dispatch("fst-verify", args, crate::fst_verify::run_fst_verify)
+}
 fn dispatch_grammar_health(args: &[String]) -> ExitCode {
     dispatch(
         "grammar-health",
@@ -502,6 +506,95 @@ const FACTS_FLAGS: &[FlagSpec] = &[
 #[cfg(feature = "foma-tools")]
 const FST_HEALTH_FLAGS: &[FlagSpec] = &[];
 
+#[cfg(feature = "foma-tools")]
+const FST_VERIFY_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--out",
+        takes_value: true,
+        summary: "per-word TSV output (default stdout)",
+    },
+    FlagSpec {
+        name: "--json",
+        takes_value: true,
+        summary: "JSON totals, identities and per-word verdicts",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "same per-word parser work allowance as batch",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "per-word deadline; stopped words are incomparable",
+    },
+    FlagSpec {
+        name: "--word-mem-cap-mib",
+        takes_value: true,
+        summary: "parser retained-state allowance, 0 disables",
+    },
+    FlagSpec {
+        name: "--capture-cap-mib",
+        takes_value: true,
+        summary: "matcher capture allowance, or unbounded",
+    },
+    FlagSpec {
+        name: "--apply-path-cap",
+        takes_value: true,
+        summary: "FST proposal path allowance (default 1000000)",
+    },
+    FlagSpec {
+        name: "--apply-candidate-cap",
+        takes_value: true,
+        summary: "FST candidate allowance (default 1000000)",
+    },
+    FlagSpec {
+        name: "--always-enforce-final-templates",
+        takes_value: false,
+        summary: "enforce final templates on both parsers; optional =true|false",
+    },
+    FlagSpec {
+        name: "--fst-strategy",
+        takes_value: true,
+        summary: "surface-enum, factored or auto",
+    },
+    FlagSpec {
+        name: "--fst-auto-order",
+        takes_value: true,
+        summary: "ordered comma-separated construction strategies",
+    },
+    FlagSpec {
+        name: "--fst-closure-work",
+        takes_value: true,
+        summary: "construction closure work allowance",
+    },
+    FlagSpec {
+        name: "--fst-structural-work",
+        takes_value: true,
+        summary: "structural closure work allowance",
+    },
+    FlagSpec {
+        name: "--fst-structural-bytes",
+        takes_value: true,
+        summary: "structural closure retained-byte allowance",
+    },
+    FlagSpec {
+        name: "--fst-closure-depth",
+        takes_value: true,
+        summary: "construction closure depth allowance",
+    },
+    FlagSpec {
+        name: "--fst-derivation-depth",
+        takes_value: true,
+        summary: "construction derivation depth allowance",
+    },
+    FlagSpec {
+        name: "--fst-compound-depth",
+        takes_value: true,
+        summary: "construction compound depth allowance",
+    },
+];
+
 const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--fst",
@@ -868,6 +961,15 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "out.json?"],
         flags: FST_HEALTH_FLAGS,
         handler: dispatch_fst_health,
+    },
+    #[cfg(feature = "foma-tools")]
+    CommandSpec {
+        name: "fst-verify",
+        summary: "Compare each word's complete FST and plain HC-Rust analysis sets.",
+        hidden: false,
+        positionals: &["grammar", "words"],
+        flags: FST_VERIFY_FLAGS,
+        handler: dispatch_fst_verify,
     },
     CommandSpec {
         name: "grammar-health",

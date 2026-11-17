@@ -97,7 +97,9 @@ pub fn measure_word(
     compile_refusal: Option<&str>,
 ) -> Result<DifferentialRow, String> {
     let hc = morpher.parse_word(word);
-    let hc_status = if hc.capped {
+    let hc_status = if hc.capture_capped || hc.word_mem_capped {
+        "memory_capped"
+    } else if hc.capped {
         "capped"
     } else if hc.timed_out {
         "timed_out"
@@ -130,6 +132,7 @@ pub fn measure_word(
     let Some(analyzer) = analyzer else {
         return Ok(row);
     };
+    let fst_started = std::time::Instant::now();
     match analyzer.analyze_word_with_diagnostics_budgeted_with_candidates(word, apply_budget) {
         ProfiledFomaApplyOutcomeWithCandidates::Incomplete {
             dimension,
@@ -151,6 +154,17 @@ pub fn measure_word(
                 .iter()
                 .map(|analysis| analysis.morph_occurrences.clone())
                 .collect();
+            if morpher
+                .word_timeout()
+                .is_some_and(|limit| fst_started.elapsed() >= limit)
+            {
+                row.fst_status = "timed_out".to_string();
+                return Ok(row);
+            }
+            if result.diagnostics.confirmation_incomplete {
+                row.fst_status = "confirmation_incomplete".to_string();
+                return Ok(row);
+            }
             if let Some(error) = result.outcome.peel_chain_depth_error {
                 row.fst_status = format!("peel_incomplete:{error}");
                 return Ok(row);
