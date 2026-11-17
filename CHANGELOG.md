@@ -5,6 +5,8 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- `batch --stats` bounds pending fact memory with a 4 MiB spill buffer and opens write transactions only when flushing, so slow parses do not lock out concurrent cache writers. Full and compact rows, 500-word reusable run groups, and atomic frozen runs are preserved. Frozen cache hashing also streams the file.
+
 - Rust CI and Release explicitly test the FST compiler, runtime, backend and CLI with `foma-tools`, including the scoreboard, faithfulness, capability and seam gates (#137).
 - Preland caches the pin-matched C# conformance driver outside worktree build folders and publishes a temporary source export on a cache miss, including source from the local Machine submodule. `-Jobs` now reaches preland child builds.
 - `pangloss fst-verify <grammar> <words>` (`foma-tools`) writes per-word FST versus plain HC-Rust analysis-set verdicts, missing/extra identities, and JSON provenance and totals. Incomplete words are incomparable; mismatches exit nonzero (#140).

@@ -10,6 +10,19 @@ use std::fs;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
+#[test]
+fn frozen_cache_digest_streams_empty_and_multiple_buffers_exactly() {
+    let dir = scratch_dir("streamed-cache-digest");
+    let path = dir.join("bytes");
+    for bytes in [vec![], (0..200_003).map(|n| (n % 251) as u8).collect()] {
+        fs::write(&path, &bytes).unwrap();
+        let (digest, size) = hash_cache_file(&path).unwrap();
+        assert_eq!(digest, crate::stats_manifest::sha256_digest(&bytes));
+        assert_eq!(size, bytes.len() as u64);
+    }
+    assert!(hash_cache_file(&dir.join("missing")).is_err());
+}
+
 fn scratch_dir(tag: &str) -> PathBuf {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -3000,7 +3013,6 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
     let source = crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml).unwrap();
     let err = finish_frozen_batch_stats_hc(
         prepared,
-        Vec::new(),
         &missing_dir.join("stats-run.json"),
         source,
         crate::stats_manifest::BatchOptions {

@@ -90,7 +90,6 @@ mod batch_prefilter;
 #[cfg(test)]
 mod test_support;
 
-use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
@@ -1253,11 +1252,6 @@ fn parse_batch_with_opts(
     })
 }
 
-struct BatchWordRun {
-    outcome: pg_parse::BatchWordOutcome,
-    stats: Option<stats_cmd::BatchStatsWord>,
-}
-
 #[allow(clippy::too_many_arguments)]
 fn parse_batch_with_stats(
     morpher: &Morpher,
@@ -1267,9 +1261,9 @@ fn parse_batch_with_stats(
     max_threads: usize,
     opts: &pg_parse::ParseOptions,
     start_idx: usize,
-    existing_words: &HashSet<String>,
+    stats_cache: &mut stats_cmd::BatchStatsCache,
     parse_counter: &BatchParseCounter,
-) -> Result<Vec<Option<BatchWordRun>>, String> {
+) -> Result<Vec<Option<pg_parse::BatchWordOutcome>>, String> {
     use rayon::prelude::*;
     if words.is_empty() {
         return Ok(Vec::new());
@@ -1281,37 +1275,51 @@ fn parse_batch_with_stats(
     let pool = pool_builder
         .build()
         .expect("build rayon pool for --stats batch dispatch");
-    pool.install(|| {
-        words
-            .par_iter()
-            .enumerate()
-            .map(|(index, word)| {
-                if index < start_idx && existing_words.contains(word.as_str()) {
-                    return Ok(None);
+    const STATS_PARSE_CHUNK: usize = 16;
+    let mut results = Vec::with_capacity(words.len());
+    for (chunk_index, chunk) in words.chunks(STATS_PARSE_CHUNK).enumerate() {
+        let existing_words = stats_cache.existing_words();
+        let chunk_results: Result<Vec<_>, String> = pool.install(|| {
+            chunk
+                .par_iter()
+                .enumerate()
+                .map(|(index, word)| {
+                    if chunk_index * STATS_PARSE_CHUNK + index < start_idx
+                        && existing_words.contains(word.as_str())
+                    {
+                        return Ok(None);
+                    }
+                    let start = Instant::now();
+                    parse_counter.record();
+                    let (outcome, rows, prune_rows) =
+                        morpher.parse_word_with_stats_and_prunes(word, opts);
+                    let result = pg_parse::BatchWordOutcome {
+                        outcome,
+                        elapsed: start.elapsed(),
+                    };
+                    let stats = stats_cmd::batch_stats_word(
+                        grammar,
+                        identities,
+                        word,
+                        &result,
+                        &rows,
+                        &prune_rows,
+                    )?;
+                    Ok(Some((result, stats)))
+                })
+                .collect()
+        });
+        for result in chunk_results? {
+            results.push(match result {
+                Some((outcome, stats)) => {
+                    stats_cache.record(stats)?;
+                    Some(outcome)
                 }
-                let start = Instant::now();
-                parse_counter.record();
-                let (outcome, rows, prune_rows) =
-                    morpher.parse_word_with_stats_and_prunes(word, opts);
-                let result = pg_parse::BatchWordOutcome {
-                    outcome,
-                    elapsed: start.elapsed(),
-                };
-                let stats = stats_cmd::batch_stats_word(
-                    grammar,
-                    identities,
-                    word,
-                    &result,
-                    &rows,
-                    &prune_rows,
-                )?;
-                Ok(Some(BatchWordRun {
-                    outcome: result,
-                    stats: Some(stats),
-                }))
-            })
-            .collect()
-    })
+                None => None,
+            });
+        }
+    }
+    Ok(results)
 }
 
 fn per_word_diagnostics_requested() -> bool {
@@ -1736,7 +1744,6 @@ fn run_batch_with_counter(
         work_columns,
         cost_column,
     };
-    let mut stats_words = Vec::new();
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
     let t_parse = Instant::now();
@@ -1788,7 +1795,7 @@ fn run_batch_with_counter(
                         outcome,
                         elapsed: start.elapsed(),
                     };
-                    stats_words.push(stats_cmd::batch_stats_word(
+                    let stats = stats_cmd::batch_stats_word(
                         &grammar,
                         stats_identities
                             .as_ref()
@@ -1797,7 +1804,8 @@ fn run_batch_with_counter(
                         &result,
                         &rows,
                         &prune_rows,
-                    )?);
+                    )?;
+                    stats_cache.as_mut().expect("stats cache").0.record(stats)?;
                 }
                 continue;
             }
@@ -1850,7 +1858,7 @@ fn run_batch_with_counter(
                 )
             };
             if let Some(stats) = stats {
-                stats_words.push(stats);
+                stats_cache.as_mut().expect("stats cache").0.record(stats)?;
             }
             let outcome = result.outcome;
             let elapsed_ms = result.elapsed.as_millis();
@@ -2054,7 +2062,7 @@ fn run_batch_with_counter(
         let remaining = &words[start_idx..];
         let (results, result_start) = if stats_requested {
             let cache = stats_cache
-                .as_ref()
+                .as_mut()
                 .expect("--stats initializes the batch stats cache before parsing");
             (
                 parse_batch_with_stats(
@@ -2067,7 +2075,7 @@ fn run_batch_with_counter(
                     threads,
                     &opts,
                     start_idx,
-                    cache.0.existing_words(),
+                    &mut cache.0,
                     parse_counter,
                 )?,
                 0,
@@ -2083,31 +2091,17 @@ fn run_batch_with_counter(
             } else {
                 hc_parse_batch(&morpher, remaining, threads)
             };
-            (
-                results
-                    .into_iter()
-                    .map(|outcome| BatchWordRun {
-                        outcome,
-                        stats: None,
-                    })
-                    .map(Some)
-                    .collect(),
-                start_idx,
-            )
+            (results.into_iter().map(Some).collect(), start_idx)
         };
         for (j, result) in results.into_iter().enumerate() {
             let i = result_start + j;
-            let Some(mut result) = result else {
+            let Some(r) = result else {
                 continue;
             };
-            if let Some(stats) = result.stats.take() {
-                stats_words.push(stats);
-            }
             if i < start_idx {
                 continue;
             }
             let word = &words[i];
-            let r = result.outcome;
             let elapsed_ms = r.elapsed.as_millis();
             let status = outcome_status(&r.outcome);
             let signature = match status {
@@ -2183,13 +2177,12 @@ fn run_batch_with_counter(
             };
             let _ = stats_cmd::finish_frozen_batch_stats_hc(
                 stats_cache,
-                stats_words,
                 std::path::Path::new(manifest_path),
                 source,
                 batch_options,
             )?;
         } else {
-            let _ = stats_cmd::finish_batch_stats_hc(stats_cache, stats_words)?;
+            let _ = stats_cmd::finish_batch_stats_hc(stats_cache)?;
         }
     }
     Ok(())

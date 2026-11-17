@@ -26,6 +26,15 @@ pangloss batch <grammar> <words.txt> out.tsv --stats --threads 1 --word-timeout-
 off unless `--stats` is present. The normal batch TSV remains unchanged; measurements go into the
 SQLite cache.
 
+Statistics are collected one word at a time with `--threads 1`, or in ordered chunks of at
+most 16 words with more threads. Pending observations use a 4 MiB encoded buffer and spill to an
+unnamed temporary file above that bound, rather than retaining the corpus's word × object rows.
+Reusable caches flush each 500 newly measured words in one atomic transaction; a frozen manifest
+keeps one atomic run, flushing after completion validation. Parsing never holds a cache write
+transaction, so another batch can use the same reusable cache while a later word parses.
+Temporary disk space scales with the pending run's observations; failures discard that run.
+Word lists, parse results and frozen completion summaries still scale with the number of words.
+
 For a smaller cache when only object costs are needed, opt in with `--stats-compact`:
 
 ```text
