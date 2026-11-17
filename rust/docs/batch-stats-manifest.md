@@ -35,7 +35,7 @@ The manifest has format pangloss-batch-stats-manifest, version 2 (version 1 carr
 | compiler | Package version and embedded build identity |
 | cache | SHA-256 and byte length of the closed SQLite file, stats schema version and counter-semantics version |
 | run | The sole cache run_id, actual engine, grammar hash, options hash and exact options JSON stored in the cache |
-| batch | Effective engine, threads, work cap (`unbounded` or a positive count), timeout, guess and final-template options, start index, and whether an analyses sidecar was requested |
+| batch | Effective engine, threads, work cap (`unbounded` or a positive count), per-word memory cap in bytes (number or `null` when disabled), search-budget semantics, timeout, guess and final-template options, start index, and whether an analyses sidecar was requested |
 | input | The ordered, trimmed, nonempty effective word list, its count and the SHA-256 of its compact JSON array encoding |
 | completion | A row for each input index with complete, incomplete, or invalid_shape status and the raw cap/timeout/shape flags; aggregate counts include missing |
 
@@ -46,6 +46,13 @@ for Snapshot inputs with `SemanticLossPolicy::Refuse`; provisional definitions a
 and have no option. The projection is
 `null` for legacy HC XML, which does not use the Snapshot compiler. Paths and cache timestamps are
 not recorded as identity.
+
+`word_mem_cap` belongs to the measurement identity because it can stop a search early.
+Facts checks it against the cache's `run.options_json` and retains it in
+`stats_run.batch_options_json`. A missing field in older version-2 manifests and run options
+means no recorded cap, as does `null`; a numeric cap must agree on both sides. Unknown fields
+remain errors. The manifest stays version 2 and the facts schema stays version 9: this repairs
+the reader of an existing writer field and preserves it in an existing JSON column.
 
 The producer writes all words through one stats transaction, commits it, checkpoints the WAL and
 closes the cache. It then opens one read transaction to confirm the sole run, its options and owner

@@ -5,6 +5,7 @@
 
   Checks, each named in the summary with its duration, or SKIPPED with the reason:
     clippy        `pg.ps1 -Mode check` (rustfmt, comment hygiene, CI's clippy). Always.
+    stats-manifest real CLI import/batch/facts round trips and stats replay. Always.
     tool-tests    every rust/tools/tests/*.tests.ps1, in parallel, as CI's Windows job runs them.
                   Always; overlaps the cargo checks below.
     conformance   the C# Machine driver over conformance with a freshly built `pangloss` as
@@ -280,6 +281,14 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $check = Invoke-PrelandPg -PgArgs @('-Mode', 'check')
 Add-Result 'clippy' $(if ($check.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "pg.ps1 -Mode check exit $($check.ExitCode)" (Get-SlotWaitSeconds $check.Lines)
 $compiles = ($check.ExitCode -eq 0)
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if ($compiles) {
+    $manifest = Invoke-PrelandPg -PgArgs @('-Mode', 'test', '-Package', 'pg-cli', '-TestTarget', 'stats_manifest_roundtrip')
+    Add-Result 'stats-manifest' $(if ($manifest.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "writer/reader compatibility and identity controls exit $($manifest.ExitCode)" (Get-SlotWaitSeconds $manifest.Lines)
+} else {
+    Add-Result 'stats-manifest' 'FAIL' 0 'not attempted: clippy failed'
+}
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
 if ($compiles) {

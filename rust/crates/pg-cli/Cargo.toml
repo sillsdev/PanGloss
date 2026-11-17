@@ -15,6 +15,10 @@ name = "all"
 path = "tests/harnesses/all.rs"
 
 [[test]]
+name = "stats_manifest_roundtrip"
+path = "tests/stats_manifest_roundtrip.rs"
+
+[[test]]
 name = "recipe_optimize_timeout"
 path = "tests/recipe_optimize_timeout.rs"
 required-features = ["foma-tools"]

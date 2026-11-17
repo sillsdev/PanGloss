@@ -2,9 +2,9 @@
 //! `Grammar` to the same output key the compiled-output table publishes, so a stats row joins to
 //! its compiled object by `output_id`.
 //!
-//! Keys for compiled objects come from [`crate::compile::CompiledOutputs`]. Only the synthetic
-//! pseudo-objects (the shared root trie, the guesser, the supplied-roots overlay) and the stratum
-//! locator are fabricated here.
+//! Keys for compiled objects come from `CompiledOutputs`. Synthetic pseudo-objects (the shared
+//! root trie, the guesser, the supplied-roots overlay), stratum locators and compound-subrule
+//! locators are constructed here.
 
 use crate::compile::{compiled_outputs, CompiledOutput, CompiledOutputs};
 use crate::model::{
@@ -66,7 +66,7 @@ pub struct StratumIdentity {
     pub quality: IdentityQuality,
 }
 
-/// An allomorph's identity: its compiled output key, or the synthetic guessed-root sentinel.
+/// A compiled allomorph, compound-subrule locator, or synthetic guessed-root identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AllomorphIdentity {
     pub key: String,
@@ -131,6 +131,17 @@ impl StatsIdentityCatalog {
     /// Returns the identity for a compiled morphological rule.
     pub fn morph_rule(&self, id: MRuleId) -> &ObjectIdentity {
         &self.morph_rules[id.0 as usize]
+    }
+
+    /// Returns the cache locator for a compound subrule at a zero-based owner-local index.
+    pub fn compound_subrule(&self, id: MRuleId, index: usize) -> AllomorphIdentity {
+        let rule = self.morph_rule(id);
+        let position = index + 1;
+        AllomorphIdentity {
+            key: format!("{}#subrule:{position}", rule.key),
+            label: format!("{} subrule {position}", rule.label),
+            quality: IdentityQuality::Structural,
+        }
     }
 
     /// Returns the identity for a compiled lexical entry.

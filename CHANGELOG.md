@@ -5,6 +5,10 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+### Fixed
+
+- `facts --stats --stats-manifest` accepts the batch writer's per-word memory cap (including disabled/null), verifies it against the cached run, and preserves it in exported batch metadata. Facts also recognizes the writer's compound-subrule locators through shared identity construction. Real CLI round-trip and rejection tests run in preland and CI.
+
 - FST compilation refuses known proposal-recall gaps with typed representability causes instead of returning incomplete analysis sets. Rewrite admission requires singleton concrete spelling closures, including all representations and partial-feature classes; unsupported variable and structural forms refuse conservatively. The backend scoreboard forbids every compile-but-miss cell, and generated small inventories check admitted proposal recall (#136; related #80, #87, #182).
 
 ## 0.22.0
