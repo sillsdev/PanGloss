@@ -11,6 +11,12 @@
   `cal-work-cap` runs at --work-cap 200000 (its cap words are kept, they stop at a fixed step count); `cal-prefilter-scale` runs with --prefilter on.
   The binary needs `--features cost-calibration,foma-tools`. The calibration words are slow on purpose and are never part of a normal parse or test run.
 
+  -MeasurePmc adds report-only Windows instructions to the existing manifest, without changing the callgrind files or gates.
+  It uses a release cost-calibration,foma-tools binary, full-list batch --phase-marks --word-phase-marks --threads 1 --no-flush,
+  and -Rounds (default 5, minimum 3). <set>.pmc.tsv stores idx, zero-based round, instructions only; the manifest pins the
+  binary/source, machine, reader/profile and data hashes. -Score reports ratios, ladder drift, current-weight PMC errors and
+  measured round spread, calling out >2% shape disagreements with the #294 scope caveat. Missing PMC files remain optional.
+
   -Score scores a weight set on the stored counts (arithmetic only, no measurement): per-family mean error and a per-rung linearity report that flags a
   gating family whose cost-to-instruction ratio drifts more than -DriftPercent along its ladder; report-only drift remains visible. It also scores the real-grammar guard from real-grammar-totals.json.
 
@@ -33,11 +39,14 @@
 [CmdletBinding(DefaultParameterSetName = 'Score')]
 param(
     [Parameter(ParameterSetName = 'Measure', Mandatory)][switch]$Measure,
+    [Parameter(ParameterSetName = 'Pmc', Mandatory)][switch]$MeasurePmc,
     [Parameter(ParameterSetName = 'Score')][switch]$Score,
     [Parameter(ParameterSetName = 'Real', Mandatory)][switch]$RealTotals,
     [Parameter(ParameterSetName = 'Pair', Mandatory)][switch]$MeasurePair,
-    [Parameter(ParameterSetName = 'Measure', Mandatory)][Parameter(ParameterSetName = 'Pair', Mandatory)][string]$Suite,
-    [Parameter(ParameterSetName = 'Measure', Mandatory)][string]$Exe,
+    [Parameter(ParameterSetName = 'Measure', Mandatory)][Parameter(ParameterSetName = 'Pair', Mandatory)][Parameter(ParameterSetName = 'Pmc', Mandatory)][string]$Suite,
+    [Parameter(ParameterSetName = 'Measure', Mandatory)][Parameter(ParameterSetName = 'Pmc', Mandatory)][string]$Exe,
+    [Parameter(ParameterSetName = 'Pmc')][ValidateRange(3, 100)][int]$Rounds = 5,
+    [Parameter(ParameterSetName = 'Pmc')][int]$Cpu = 4,
     [Parameter(ParameterSetName = 'Pair', Mandatory)][string]$PairName,
     [Parameter(ParameterSetName = 'Pair', Mandatory)][string]$PairTitle,
     [Parameter(ParameterSetName = 'Pair', Mandatory)][string]$BeforeExe,
@@ -52,8 +61,8 @@ param(
     [Parameter(ParameterSetName = 'Pair')][string]$PairNote = '',
     [Parameter(ParameterSetName = 'Pair')][switch]$ReuseSaved,
     [Parameter(ParameterSetName = 'Pair')][string]$ReportOnly = '',
-    [Parameter(ParameterSetName = 'Measure')][Parameter(ParameterSetName = 'Pair')][string]$SaveDir,
-    [Parameter(ParameterSetName = 'Measure')][Parameter(ParameterSetName = 'Pair')][string[]]$Only,
+    [Parameter(ParameterSetName = 'Measure')][Parameter(ParameterSetName = 'Pair')][Parameter(ParameterSetName = 'Pmc')][string]$SaveDir,
+    [Parameter(ParameterSetName = 'Measure')][Parameter(ParameterSetName = 'Pair')][Parameter(ParameterSetName = 'Pmc')][string[]]$Only,
     [Parameter(ParameterSetName = 'Real', Mandatory)][string[]]$RealCounts,
     [string]$Dir = (Join-Path $PSScriptRoot 'calibration'),
     [Parameter(ParameterSetName = 'Score')][double[]]$Weights,
@@ -64,6 +73,13 @@ $ErrorActionPreference = 'Stop'
 $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 . "$PSScriptRoot\_instruction-compare.ps1"
 . "$PSScriptRoot\_calibration-set.ps1"
+. "$PSScriptRoot\_calibration-pmc.ps1"
+
+if ($MeasurePmc) {
+    . "$PSScriptRoot\_calibration-pmc-measure.ps1"
+    Invoke-CalibrationPmc -Suite $Suite -Exe $Exe -Dir $Dir -Rounds $Rounds -Cpu $Cpu -Only $Only -SaveDir $SaveDir
+    exit 0
+}
 
 function Get-CurrentWeights {
     # The constants of pg-cost, in instructions: the file is the one place they are written.
@@ -111,13 +127,15 @@ if (-not $Measure -and -not $MeasurePair) {
     $drift = if ($DriftPercent -ge 0) { $DriftPercent } else { $script:DefaultDriftPercent }
     $set = Read-CalibrationManifest -Dir $Dir
     $setScore = Get-SetScore -Sets $set.Sets -Weights $w -DriftPercent $drift
+    $pmc = Get-CalibrationPmcReport -Dir $Dir -Calibration $set -Weights $cur
     $realPath = Join-Path $Dir 'real-grammar-totals.json'
     $real = if (Test-Path -LiteralPath $realPath) { Get-RealGuard -Totals (Read-RealTotals $realPath) -Weights $w } else { $null }
     $pairScores = @(Read-CalibrationPairs -Dir $Dir | ForEach-Object { Get-PairScore -Pair $_ -Weights $w })
-    if ($Json) { [PSCustomObject]@{ weights = $w; driftPercent = $drift; synthetic = $setScore; real = $real; pairs = $pairScores } | ConvertTo-Json -Depth 8; exit 0 }
+    if ($Json) { [PSCustomObject]@{ weights = $w; driftPercent = $drift; synthetic = $setScore; pmcReportOnly = $pmc; real = $real; pairs = $pairScores } | ConvertTo-Json -Depth 8; exit 0 }
     Write-Host ("calibration set: conformance {0}, PanGloss {1}, {2} sets, {3} rows" -f $set.Manifest.conformance.commit.Substring(0, 7), $set.Manifest.pangloss.commit.Substring(0, 7), $set.Sets.Count, (($set.Sets | ForEach-Object { $_.Rows.Count } | Measure-Object -Sum).Sum))
     Write-Host ("weights {0} / {1} / {2} / {3}   drift limit {4}%" -f $w[0], $w[1], $w[2], $w[3], $drift)
     Format-FamilyTable $setScore | ForEach-Object { Write-Host $_ }
+    Format-CalibrationPmcReport $pmc | ForEach-Object { Write-Host $_ }
     Write-Host 'rung drift:'
     Format-RungTable $setScore | ForEach-Object { Write-Host "  $_" }
     if ($setScore.Flagged.Count -gt 0) { Write-Host "NON-LINEAR gating families: $($setScore.Flagged -join ', ')" } else { Write-Host 'every gating family is linear within the drift limit' }

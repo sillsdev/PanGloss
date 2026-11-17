@@ -247,8 +247,8 @@ Mean / worst error 0.58 / 1.82 points with the old weights, 0.57 / 1.78 with the
 disagree with the callgrind fit: the ratio of Windows instructions to predicted cost over the words, per grammar, is more even with
 the new weights. Over the seven grammars with a count (not swh.fwdata or cebuano.json) the ratios are 1.26 to 2.28 (coefficient of
 variation 19%) with 113 / 2 / 45 and 1.59 to 2.09 (9%) with the new weights, and ceb.fwdata moves from 31% below the other
-grammars' mean to 15% below. The level is about 1.8 times callgrind's, as before. No per-word Windows count exists, so the weights
-are not fitted on Windows.
+grammars' mean to 15% below. The level is about 1.8 times callgrind's, as before. That check had no per-word Windows counts, so the weights
+were not fitted on Windows. The standing calibration set now supports separate report-only per-word PMC measurements (below).
 
 The weights before this change, with their evidence:
 
@@ -405,6 +405,60 @@ instructions (collected inside the per-word parse, the bracket `retune-parser-wo
 fixed step count, so its counts are repeatable); `cal-prefilter-scale` runs with `--prefilter on`. Measure from a build with
 `--features cost-calibration,foma-tools`.
 
+### Optional Windows PMC column (report-only)
+
+Build the Windows release binary through `pg.ps1 -Mode build -Package pg-cli --features cost-calibration,foma-tools`,
+then run (outside a sandbox that hides the scheduled tasks):
+
+```powershell
+pwsh -NoProfile -File rust/tools/pmc-setup.ps1 -Verify
+pwsh -NoProfile -File rust/tools/calibration-set.ps1 -MeasurePmc -Suite <checkout-at-calibration-pin> -Exe <release-pangloss.exe> -Rounds 5
+```
+
+`-MeasurePmc` reads the existing callgrind manifest and verifies each grammar and word-list hash. It never rewrites
+the callgrind counts or their provenance. It runs each complete original list five times by default, using
+`batch --phase-marks --word-phase-marks --threads 1 --no-flush`. The cost-calibration-only `--word-phase-marks` flag
+replaces the two whole-batch markers with two marker threads around each parse/prefilter call. Keeping the full list matters:
+the prefilter's tiled work depends on batch context. Status/signature identities must match an unmarked full-list control in
+every round; timeout, memory-cap and unexpected work-cap rows refuse measurement. The deliberate cap-word set retains its cap.
+
+The existing ETL reader's `--word-phases N` mode requires exactly N complete marker pairs in thread-creation order,
+excluding the initial process thread. Marker lifetimes remain distinct when Windows reuses a thread ID. It retains the existing
+checks for lost events, context-switch gaps, counter count and process identity; it never substitutes startup subtraction.
+`--word-phases-by-pid <json>` accepts a different positive count for each measured process, so one trace can hold every set
+and round. The global instruction-comparison mutex serializes tracing. `-Only` selects manifest set names; completed sets are stored
+individually, so a later invocation with identical provenance can collect the remaining sets.
+Changing provenance requires remeasuring all sets together (or using a separate `-Dir` containing the callgrind inputs),
+so a partial run cannot combine binaries or machines in one report.
+
+`<set>.pmc.tsv` has three tab-separated integer columns, without a header or word text: original `idx`, zero-based `round`,
+positive `instructions`. Every stored callgrind row must have exactly one PMC count in every round. The optional `pmc`
+manifest section pins the binary SHA256, release profile/features, source base commit plus hashes of changed source files,
+machine/CPU/OS and pinned logical CPU, WPR profile, reader, each data file, round count and collection time. A changed source
+file hash identifies instrumentation built before the final data commit without claiming that the base commit alone built it.
+`-SaveDir` optionally retains word-free reader JSON for diagnosis; temporary batch rows and ETLs are removed.
+
+`-Score` adds a **PMC REPORT-ONLY** table (also `pmcReportOnly` in JSON), always using the current weights. It reports:
+
+- each family's ratio of summed mean PMC instructions to summed callgrind instructions, over the same stored rows;
+- relative deviation from the geometric mean of family ratios, separating family shape from the common Windows/Linux level;
+- maximum ladder-rung ratio drift from that family's geometric mean rung ratio (`wasted`/`band` excluded);
+- mean absolute per-word weight error on PMC, with the same 1000-work floor as callgrind;
+- sample SD/mean (CV), `(max-min)/mean` of family and set round totals, and the largest per-word CV. The approximately 0.6% spread
+  observed in #260 is context, never a replacement for these measured spreads.
+
+Relative family deviation or ladder drift above 2% is called out without affecting an exit code. As in #294, the scopes differ:
+these word markers remove TSV/signature work from the whole-batch PMC bracket, but marker join/start overhead and kernel work
+remain. Windows and Linux also execute different generated code. Absolute PMC/callgrind levels are not change verdicts, and
+a discrepancy does not establish the cause behind #294; read both source pins before attributing a difference to the platform.
+Callgrind remains the calibration gate. Missing PMC files are optional
+on every platform, even when listed in the manifest; present files must match their hashes and row/round inventory.
+The separate PMC status is `available`, `partial` (some sets unavailable), `unavailable`, or `invalid`.
+Integrity errors withhold PMC results and expose the error in text and JSON; they never suppress the callgrind result
+or change its gate exit status. Missing optional data does not require Windows services.
+
+### Scoring the stored counts
+
 `calibration-set.ps1 -Score [-Weights w,b,r,a]` scores weights on the stored counts, with no measurement, and
 `retune-parser-work.ps1` prints the same report for the current and candidate weights (`-SkipStoredSet` omits it). It gives:
 
@@ -470,8 +524,8 @@ in callgrind instructions; error in points; the per-family rows print with `-Sco
   not cover, and a retune is not judged on it.
 - The older builds have no `--work-cap`, so `cal-work-cap` is not in `stratum-diff-275` or `trail-slab-284`.
 
-Not covered: Windows PMC columns for the set are deferred (a run needs a Windows binary of the same commit and
-17 grammars of traces); #299's NFA change joins the pairs once it lands; grammar-edit pairs (#240) are not stored. Instructions of a `--prefilter on` word include the filter's table walks, which cost does not count.
+Not covered: Windows PMC change pairs are not stored (the optional report-only standing column is described above);
+#299's NFA change joins the pairs once it lands; grammar-edit pairs (#240) are not stored. Instructions of a `--prefilter on` word include the filter's table walks, which cost does not count.
 
 ## Mechanism trial (machine#575), rerun 2026-11-12
 

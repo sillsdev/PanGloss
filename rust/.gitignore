@@ -16,3 +16,4 @@ dotnet-harness/**/bin/
 !/conformance/**/expected.tsv
 # The standing calibration set (word-free counts) is a test input, keep it tracked.
 !/tools/calibration/*.counts.tsv
+!/tools/calibration/*.pmc.tsv

@@ -342,6 +342,12 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         takes_value: false,
         summary: "with --threads 1, start and join a spinning thread before the first word and after the last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare",
     },
+    #[cfg(feature = "cost-calibration")]
+    FlagSpec {
+        name: "--word-phase-marks",
+        takes_value: false,
+        summary: "with --phase-marks, mark each parse/prefilter call instead of the whole batch; needs --threads 1, --start 0 and no --stats; report-only calibration PMC counts",
+    },
     FlagSpec {
         name: "--stats",
         takes_value: false,

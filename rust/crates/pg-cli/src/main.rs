@@ -1393,6 +1393,8 @@ fn run_batch_with_counter(
     let mut flush_each_word = true;
     // Measurement only: a thread starts and ends at each edge of the `--threads 1` parse loop, so a PMC trace can count the parse apart from the grammar load.
     let mut phase_marks = false;
+    #[cfg(feature = "cost-calibration")]
+    let mut word_phase_marks = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
     let mut stats_compact = false;
@@ -1476,6 +1478,8 @@ fn run_batch_with_counter(
             "--cost-column" => cost_column = true,
             "--no-flush" => flush_each_word = false,
             "--phase-marks" => phase_marks = true,
+            #[cfg(feature = "cost-calibration")]
+            "--word-phase-marks" => word_phase_marks = true,
             "--stats" => stats_requested = true,
             "--stats-compact" => stats_compact = true,
             "--cache-pack" => cache_pack = true,
@@ -1748,9 +1752,17 @@ fn run_batch_with_counter(
     if phase_marks && threads != 1 {
         return Err("--phase-marks needs --threads 1".to_string());
     }
+    #[cfg(feature = "cost-calibration")]
+    if word_phase_marks && (!phase_marks || stats_requested || start_idx != 0) {
+        return Err(
+            "--word-phase-marks needs --phase-marks, no --stats, and --start 0".to_string(),
+        );
+    }
+    #[cfg(not(feature = "cost-calibration"))]
+    let word_phase_marks = false;
     if threads == 1 {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
-        if phase_marks {
+        if phase_marks && !word_phase_marks {
             phase_mark();
         }
         for (i, word) in words.iter().enumerate() {
@@ -1813,10 +1825,16 @@ fn run_batch_with_counter(
                 (result, Some(stats))
             } else {
                 parse_counter.record();
+                if word_phase_marks {
+                    phase_mark();
+                }
                 let outcome = match prefilter.as_mut() {
                     Some(prefilter) => prefilter.parse(i, &morpher, word, &opts),
                     None => morpher.parse_word_opts(word, &opts),
                 };
+                if word_phase_marks {
+                    phase_mark();
+                }
                 (
                     pg_parse::BatchWordOutcome {
                         outcome,
@@ -2022,7 +2040,7 @@ fn run_batch_with_counter(
                 }
             }
         }
-        if phase_marks {
+        if phase_marks && !word_phase_marks {
             phase_mark();
         }
     } else {

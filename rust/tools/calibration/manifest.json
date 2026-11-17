@@ -1105,5 +1105,193 @@
       "name": "root-cache-off",
       "file": "pairs/root-cache-off.json"
     }
-  ]
+  ],
+  "pmc": {
+    "reportOnly": true,
+    "collect": "batch --phase-marks --word-phase-marks --threads 1 --no-flush; two marker threads around each parse/prefilter call; full original word lists; fresh hash layouts each round; no word text",
+    "provenance": {
+      "sourceCommit": "f77c848c1ca6527a416611d31a2a8e1882000eb8",
+      "sourceFileOverridesSha256": {
+        "rust/crates/pg-cli/src/main.rs": "c4f35169904550b8f5676010ac08c6961a3e285cd2ecf1578844b80a684a7050",
+        "rust/crates/pg-cli/src/surface.rs": "1abdcc91cc64432fd2ce93e829cce6106ed614c5ffa175e5dd393de6b7144440"
+      },
+      "binarySha256": "9207eb1c82578f137fc4152dc2b00efa190aa801912aaa43598c5999b6b2749d",
+      "features": "cost-calibration,foma-tools",
+      "profile": "release",
+      "machine": {
+        "name": "SIL-XPS",
+        "cpu": "12th Gen Intel(R) Core(TM) i7-12700",
+        "processorId": "BFEBFBFF00090672",
+        "logicalProcessors": 20,
+        "pinnedCpu": 4,
+        "os": "Microsoft Windows 11 Pro",
+        "osVersion": "10.0.26300",
+        "architecture": "X64"
+      },
+      "wprProfileSha256": "3a35a30ed452db06887ec8270e91a096e2c9d2c1cb9c875a402bc1c3bbc724dd",
+      "readerSha256": "0439176f8bc1348db6625b2020322fb9a6b1444857a04fb95fc9a67d8ef399e8",
+      "collectionReaderSha256": "7429d2d498c2e3e434ffb85bf8b809b7b5c9c6a235fdd94fc71ae5776759c84c",
+      "reExtraction": {
+        "reason": "P2 review: exclude foreign outgoing thread owners from word phases",
+        "traceSha256": "6bae470b6546a0e4b87f994781a57527e4b760d51e7c36452af113e6885a6168",
+        "samples": 4190,
+        "changedSamples": 21
+      }
+    },
+    "sets": [
+      {
+        "name": "cal-allomorph-explosion",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.2284752Z",
+        "sha256": "cb96b984945edccd6ffaec636a1458a9416d53ea462206017d19f3f14e3fc782",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-clitic-chain",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.2709627Z",
+        "sha256": "9b514b427d8da24786194f34f7b29420ee7edc78102610f404cffde6cd10edef",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-compounding-large",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.2923216Z",
+        "sha256": "474976300989c53ebbc7fef1a4d5068dbe1bfdffba8c345e53846576d512e137",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-deep-template-16",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.310341Z",
+        "sha256": "3a0f54eb54134fa2d400f553131bedb7cf37cb4b86ea9762c0f010372297daae",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-homophone-ambiguity",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.3334412Z",
+        "sha256": "9eb47fd254fabee825fb13e47a81a4d79a5068011ffb82bebb32b62a50f927f3",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-infix-simulfix",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.3525583Z",
+        "sha256": "5dac3bf55b6c1df3e2ee2c05ce3a981e56d3cbfce83c983326c33ab318c493e7",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-large-lexicon",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.3870341Z",
+        "sha256": "c43e7212d0c0f70f5b07d58bfc0b9d04caf5128e60f5fd2bb6dc22ec4393c5a5",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-lexsize-10k",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.4122427Z",
+        "sha256": "17a2488c0aa1d38319f644907b5808d62063f57c4bb1966c391ed06ed64ae2d1",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-lexsize-1k",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.4350086Z",
+        "sha256": "702b2e2875c1ceae1c722f92938b34e4fd98b80acb3bffeaf398984024d2ab54",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-lexsize-50k",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.4566657Z",
+        "sha256": "7b9248d91f988baa03558c81e3ab1bb039a1610eb65a4328050a1d260b2ce249",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-lexsize-5k",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.4755938Z",
+        "sha256": "3a6dd177c54e99deb2ff9171004a1349b8f2d961db76a2c9b411e8d71ec312b9",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-prefilter-scale",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.660161Z",
+        "sha256": "0c53a39b62946b06d9afaa9f2a3715ba6867139c6aafc48e087942693b269b46",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-redup-long-roots",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.6817056Z",
+        "sha256": "db5c0c3ce567192dda262a32fa880df1d16fca4a551e420d0c7521bc040983eb",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-rule-cascade-32",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.7021997Z",
+        "sha256": "8b1b1e4fdd3b27110e39270b95f14635ec149427df6c0c6bd3e9a072355068ce",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-templatic-nonconcat",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.7198238Z",
+        "sha256": "dbb2d9d473a550d7bf29668da4af608d158d84b658a44a91c3e918c08c07173a",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-work-cap",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.7404782Z",
+        "sha256": "2a9a22d944aed4e40d72211a9c717ce0b00bd3fae600033f275fffd4cb3ff330",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      },
+      {
+        "name": "cal-work-cap-cap-words",
+        "rounds": 5,
+        "measuredOn": "2026-11-16T23:45:10.760087Z",
+        "sha256": "8cba06c65d17238715c493b97bdcca83a0e87410c7c9a208dd66fefca632101e",
+        "contextSwitches": 3941774,
+        "eventsLost": 0,
+        "identityControl": "every marked row matched the status/signature of an unmarked full-list control in every round"
+      }
+    ]
+  }
 }
