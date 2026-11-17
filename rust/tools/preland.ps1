@@ -28,6 +28,7 @@
 param(
     [string]$Base = 'origin/main',
     [switch]$All,
+    [ValidateRange(0, 12)][int]$Jobs = 0,
     [ValidateRange(1, 32)][int]$ToolTestThrottle = 8
 )
 
@@ -186,6 +187,7 @@ function Invoke-PrelandPg {
       exit code with the captured lines.
     #>
     param([Parameter(Mandatory)][string[]]$PgArgs)
+    if ($Jobs -gt 0) { $PgArgs += @('-Jobs', "$Jobs") }
     $pg = Join-Path $PSScriptRoot 'pg.ps1'
     Write-Host "[preland] pg.ps1 $($PgArgs -join ' ')" -ForegroundColor Cyan
     $lines = [System.Collections.Generic.List[string]]::new()
@@ -201,6 +203,7 @@ function Start-PrelandPg {
       oversubscribing.
     #>
     param([Parameter(Mandatory)][string[]]$PgArgs)
+    if ($Jobs -gt 0) { $PgArgs += @('-Jobs', "$Jobs") }
     $log = Join-Path ([System.IO.Path]::GetTempPath()) "pg-preland-$PID-$([guid]::NewGuid().ToString('N')).log"
     Write-Host "[preland] started concurrently: pg.ps1 $($PgArgs -join ' ')" -ForegroundColor Cyan
     $argList = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'pg.ps1')) + $PgArgs
@@ -311,7 +314,8 @@ if (-not $conformanceGate.Run) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $verdict = $null
     $build = $null
-    $driver = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+    $driverJobs = if ($Jobs -gt 0) { $Jobs } else { 4 }
+    $driver = Find-PinMatchedConformanceDriver -PinCommit $pinCommit -Jobs $driverJobs
     if (-not $driver.Ok) {
         $verdict = $driver.Detail
     } else {

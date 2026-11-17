@@ -6,6 +6,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 ## Unreleased
 
 - Rust CI and Release explicitly test the FST compiler, runtime, backend and CLI with `foma-tools`, including the scoreboard, faithfulness, capability and seam gates (#137).
+- Preland caches the pin-matched C# conformance driver outside worktree build folders and publishes a temporary source export on a cache miss, including source from the local Machine submodule. `-Jobs` now reaches preland child builds.
 
 ## 0.21.0
 

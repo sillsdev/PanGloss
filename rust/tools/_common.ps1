@@ -1888,17 +1888,18 @@ function Get-DefaultMachineCheckouts {
     return @(Join-Path (Split-Path -Parent $mainClone) 'machine')
 }
 
+. "$PSScriptRoot/_conformance-driver.ps1"
+
 function Find-PinMatchedConformanceDriver {
     <#
       .DESCRIPTION
-      Finds an already-built conformance driver (`hc-conformance.exe` on Windows, `hc-conformance` elsewhere; see
-      Get-ConformanceDriverFileNames) whose Machine worktree HEAD is exactly
-      $PinCommit, so the driver's fixture loader matches the pinned fixture format. Probes the
-      documented `.worktrees\pin-<sha>` location first, then every worktree of each Machine checkout
-      (`PANGLOSS_MACHINE_CHECKOUTS`, `;`-separated, overrides the defaults). Returns an object with
-      Ok, ExePath, and Detail; Detail names every probed location and the build recipe on a miss.
+      Finds a validated cached driver, then clean pin-matched worktree binaries (including the
+      local submodule), then publishes a temporary export of the pin. Machine checkout defaults
+      can be overridden with PANGLOSS_MACHINE_CHECKOUTS (;-separated). Returns Ok, ExePath, Detail;
+      a failed build names the cache path and prerequisite that could not be satisfied.
     #>
-    param([Parameter(Mandatory)][string]$PinCommit)
+    param([Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$PinCommit,
+        [string]$RepoRoot = (Get-RepoRoot), [ValidateRange(1, 12)][int]$Jobs = 4)
 
     # The outer @() keeps a single checkout an array; otherwise `$checkouts[0]` below is that path's first character.
     $checkouts = @(if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
@@ -1906,9 +1907,13 @@ function Find-PinMatchedConformanceDriver {
     } else {
         Get-DefaultMachineCheckouts
     })
+    $sources = @((Join-Path $RepoRoot 'machine')) + $checkouts
+    $cached = Get-CachedConformanceDriver -PinCommit $PinCommit -Sources $sources
+    if ($cached) { return $cached }
     $driverNames = Get-ConformanceDriverFileNames
     $relative = [IO.Path]::Combine('src', 'SIL.Machine.Morphology.HermitCrab.Conformance', 'bin', '{0}', 'net10.0', '{1}')
     $worktrees = [System.Collections.Generic.List[string]]::new()
+    $worktrees.Add((Join-Path $RepoRoot 'machine'))
     foreach ($checkout in $checkouts) {
         $worktrees.Add((Join-Path (Join-Path $checkout '.worktrees') "pin-$PinCommit"))
         if (-not (Test-Path -LiteralPath $checkout)) { continue }
@@ -1945,7 +1950,8 @@ function Find-PinMatchedConformanceDriver {
                 $probed[-1] += " (not a worktree at requested pin $PinCommit; HEAD: $actualHead)"
                 continue
             }
-            if (@(& git -C $wt status --porcelain --untracked-files=no -- src 2>$null).Count -gt 0) { $probed[-1] += ' (worktree has source edits)'; continue }
+            $sourceChanges = @(& git -C $wt status --porcelain --untracked-files=no 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $sourceChanges.Count -gt 0) { $probed[-1] += ' (worktree has source edits or status unavailable)'; continue }
             $committed = & git -C $wt log -1 --format=%ct HEAD 2>$null
             if ($committed -and (Get-Item -LiteralPath $exe).LastWriteTimeUtc -lt [DateTimeOffset]::FromUnixTimeSeconds([long]$committed).UtcDateTime) {
                 $probed[-1] += ' (older than its HEAD commit)'; continue
@@ -1953,11 +1959,10 @@ function Find-PinMatchedConformanceDriver {
             return [PSCustomObject]@{ Ok = $true; ExePath = (Resolve-Path -LiteralPath $exe).Path; Detail = "pin-matched driver at $exe" }
         }
     }
-    $first = $checkouts[0]
-    $pinRel = Join-Path '.worktrees' "pin-$PinCommit"
+    $built = New-CachedConformanceDriver -PinCommit $PinCommit -Sources ($sources + @($worktrees)) -Jobs $Jobs
+    if ($built.Ok) { return $built }
     $detail = "no conformance driver ($($driverNames -join ' or ')) built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
-        "Build one: git -C $first worktree add --detach $pinRel $PinCommit; " +
-        "dotnet build $(Join-Path $first (Join-Path $pinRel (Join-Path 'src' 'SIL.Machine.Morphology.HermitCrab.Conformance'))) -c Release"
+        $built.Detail
     return [PSCustomObject]@{ Ok = $false; ExePath = $null; Detail = $detail }
 }
 

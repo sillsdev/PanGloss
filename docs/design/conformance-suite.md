@@ -10,7 +10,7 @@ suite disagree.
 | Path | Repository | What reads it | Fetched by |
 |---|---|---|---|
 | `conformance/` | `sillsdev/fieldworks-parser-conformance`, a `git clone --filter=blob:none` at the commit `conformance.commit` names; gitignored, not a submodule | every fixture gate, `pg-conformance-fixtures`, `typology_speedup`, the xample projector, the C# driver's `--fixtures` | `pg.ps1` (before Cargo starts), `rust/tools/conformance.ps1`, the `conformance-suite` CI action |
-| `machine` | `sillsdev/machine`, a submodule pinned to `1ddef2bd` | `run-conformance.sh` builds the driver from its source; everything else uses a prebuilt pin-matched driver worktree (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) and a human; `pg.ps1` never touches it |
+| `machine` | `sillsdev/machine`, a submodule pinned to `1ddef2bd` | `run-conformance.sh` builds the driver from its source; preland uses a validated pin cache, a clean pin-matched worktree binary, or publishes a temporary Git export (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) or a local clone supplies source; preland never writes to registered Machine checkouts |
 
 The suite used to live inside `machine` at `machine/conformance/`, which is why PanGloss's first
 submodule had to be initialized *sparsely*: a full `machine` checkout is 41MB of C# source that nothing

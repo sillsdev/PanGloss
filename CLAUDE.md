@@ -145,6 +145,17 @@ the staged pin. Details: `rust/tools/preland.ps1`. *Scar: in one day CI caught t
 local managed run missed: a scoreboard ratchet moved by a fixture change, a test source missing
 from the reviewed inventory, and `pangloss batch` output the conformance driver could not read.*
 
+Preland discovers the C# driver in a pin-keyed cache outside worktree `bin/obj`:
+`$XDG_CACHE_HOME/pangloss/hc-conformance/<pin>` (default `~/.cache/pangloss/hc-conformance/<pin>`)
+or `%LOCALAPPDATA%/PanGloss/hc-conformance/<pin>` on Windows. Override the root with
+`PANGLOSS_CONFORMANCE_DRIVER_CACHE`. Cache metadata must match the Machine pin, Git source-tree
+hash, and host runtime. Legacy clean, pin-matched worktree binaries remain accepted, including
+the local `machine` submodule. On a miss, a clean Machine repository containing the pin supplies
+a temporary `git archive` export; `dotnet publish` builds there under a shared build slot and
+publishes the complete driver into the cache. No registered Machine checkout is written.
+The .NET SDK and restored package access are required on a cold miss. `-Jobs` flows through
+preland to its child checks and the driver publish (four jobs by default for the driver).
+
 `-Package`/`-TestTarget` narrow compilation; `-Filter` narrows execution only and still links
 everything. `--no-fail-fast` is the default. *Scar: one trailing-newline mismatch once stopped 838
 tests from running, and a ledger recorded that run's failure count as fact — wrong by 18x.*

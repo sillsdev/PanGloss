@@ -261,7 +261,7 @@ Test-Case 'pin-matched driver accepts the platform binary name and a miss names 
         $missing = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
         Assert-False $missing.Ok 'no stub exists yet'
         Assert-True ($missing.Detail -match [regex]::Escape('hc-conformance.exe')) 'the miss names the .exe it searched for'
-        Assert-True ($missing.Detail -match [regex]::Escape("git -C $checkout worktree add")) 'the build recipe names the whole single checkout, not its first character'
+        Assert-True ($missing.Detail -match [regex]::Escape($checkout)) 'the build failure names the whole single checkout, not its first character'
         if ($IsLinux -or $IsMacOS) {
             Assert-True ($missing.Detail -match 'hc-conformance or hc-conformance\.exe') 'the miss names the native name it searched for'
             Assert-True ($missing.Detail -match [regex]::Escape((Join-Path $binDir 'hc-conformance'))) 'the miss lists the native-name path it probed'
@@ -323,6 +323,127 @@ Test-Case 'slot queue time is summed from every slot line and nothing else' {
     $lines = @('[build-env] took build slot 1 after 12.5s', 'noise after 99s', '[build-env] took run slot 0 after 0.5s')
     Assert-Equal 13 (Get-SlotWaitSeconds -Lines $lines)
     Assert-Equal 0 (Get-SlotWaitSeconds -Lines @('[pg] cargo build'))
+}
+
+Test-Case 'driver cache builds from a submodule export, survives bin cleanup, and rebuilds stale metadata' {
+    $temp = New-TestTempDir -Prefix 'pg-driver-cache'
+    $previousCheckouts = $env:PANGLOSS_MACHINE_CHECKOUTS
+    $previousCache = $env:PANGLOSS_CONFORMANCE_DRIVER_CACHE
+    $publisher = ${function:Invoke-ConformanceDriverPublish}
+    try {
+        $upstream = Join-Path $temp 'upstream'
+        $repo = Join-Path $temp 'super'
+        $project = 'src/SIL.Machine.Morphology.HermitCrab.Conformance/driver.csproj'
+        New-Item -ItemType Directory -Force -Path (Split-Path (Join-Path $upstream $project)), $repo | Out-Null
+        Set-Content (Join-Path $upstream $project) '<Project />'
+        & git -C $upstream init --quiet
+        & git -C $upstream add .
+        & git -C $upstream -c user.name=t -c user.email=t@t commit --quiet -m pin
+        $pin = (& git -C $upstream rev-parse HEAD).Trim()
+        & git -C $repo init --quiet
+        & git -C $repo -c protocol.file.allow=always submodule add --quiet $upstream machine
+        Assert-Equal 0 $LASTEXITCODE 'create a real submodule source'
+        $env:PANGLOSS_MACHINE_CHECKOUTS = Join-Path $temp 'absent'
+        $env:PANGLOSS_CONFORMANCE_DRIVER_CACHE = Join-Path $temp 'cache'
+        $script:publishCount = 0
+        function Invoke-ConformanceDriverPublish {
+            param($Project, $Output, $Jobs)
+            Assert-Equal 4 $Jobs
+            Assert-True (Test-Path $Project) 'export includes the project'
+            Assert-False ($Project.StartsWith($repo)) 'never build inside a registered source'
+            $script:publishCount++
+            Set-Content (Join-Path $Output @(Get-ConformanceDriverFileNames)[0]) 'published driver'
+            Set-Content (Join-Path $Output 'dependency.dll') 'dependency'
+        }
+        $first = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-True $first.Ok $first.Detail
+        Assert-Equal 1 $script:publishCount 'cache miss publishes once'
+        Assert-True (Test-Path (Join-Path (Split-Path $first.ExePath) 'dependency.dll')) 'whole publish output retained'
+        Assert-False (Test-Path (Join-Path $repo 'machine/src/SIL.Machine.Morphology.HermitCrab.Conformance/bin')) 'no source bin created'
+        $second = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-True $second.Ok $second.Detail
+        Assert-Equal 1 $script:publishCount 'cache hit does not publish'
+        foreach ($field in 'Pin', 'SourceTree', 'Platform') {
+            $manifestPath = Join-Path (Split-Path $first.ExePath) 'source.json'
+            $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+            $manifest.$field = 'stale'
+            $manifest | ConvertTo-Json | Set-Content $manifestPath
+            $rebuilt = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+            Assert-True $rebuilt.Ok $rebuilt.Detail
+        }
+        Assert-Equal 4 $script:publishCount 'wrong pin, source hash and platform each rebuild'
+        Remove-Item $first.ExePath
+        Assert-True (Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo).Ok 'missing apphost rebuilds'
+        Assert-Equal 5 $script:publishCount
+        Remove-Item $env:PANGLOSS_CONFORMANCE_DRIVER_CACHE -Recurse -Force
+        Set-Content (Join-Path $repo "machine/$project") 'dirty'
+        $dirty = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-False $dirty.Ok 'dirty submodule cannot supply a build'
+        Assert-Equal 5 $script:publishCount 'dirty source never invokes publisher'
+        & git -C (Join-Path $repo 'machine') checkout -- $project
+        function Invoke-ConformanceDriverPublish { param($Project, $Output, $Jobs) throw 'synthetic build error' }
+        $failed = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-False $failed.Ok 'failed publish is never admitted'
+        Assert-True ($failed.Detail -match 'synthetic build error') 'failure explains the publish error'
+        Assert-False (Test-Path (Join-Path $env:PANGLOSS_CONFORMANCE_DRIVER_CACHE "$pin/source.json")) 'failure publishes no manifest'
+        function Invoke-ConformanceDriverPublish { param($Project, $Output, $Jobs) }
+        $empty = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-False $empty.Ok 'zero-exit publish without an apphost cannot succeed'
+        Assert-True ($empty.Detail -match 'no conformance apphost') 'missing output is named'
+        $bin = Join-Path $repo 'machine/src/SIL.Machine.Morphology.HermitCrab.Conformance/bin/Release/net10.0'
+        New-Item -ItemType Directory -Force -Path $bin | Out-Null
+        $exe = Join-Path $bin @(Get-ConformanceDriverFileNames)[0]
+        Set-Content $exe 'prebuilt submodule driver'
+        [IO.File]::SetLastWriteTimeUtc($exe, [DateTime]::UtcNow.AddMinutes(1))
+        $prebuilt = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-True $prebuilt.Ok $prebuilt.Detail
+        Assert-Equal ([IO.Path]::GetFullPath($exe)) $prebuilt.ExePath 'a prebuilt submodule driver is discoverable'
+        [IO.File]::SetLastWriteTimeUtc($exe, [DateTime]::UnixEpoch)
+        $stale = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-False $stale.Ok 'an older-than-HEAD submodule binary is refused'
+        Assert-True ($stale.Detail -match 'older than its HEAD') 'stale binary is identified'
+        [IO.File]::SetLastWriteTimeUtc($exe, [DateTime]::UtcNow.AddMinutes(1))
+        Set-Content (Join-Path $repo "machine/$project") 'dirty'
+        $dirtyBinary = Find-PinMatchedConformanceDriver -PinCommit $pin -RepoRoot $repo
+        Assert-False $dirtyBinary.Ok 'a dirty submodule binary is refused'
+    } finally {
+        ${function:Invoke-ConformanceDriverPublish} = $publisher
+        $env:PANGLOSS_MACHINE_CHECKOUTS = $previousCheckouts
+        $env:PANGLOSS_CONFORMANCE_DRIVER_CACHE = $previousCache
+        Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Test-Case 'driver publish limits jobs, suppresses build-time suite fetch, and restores its environment on failure' {
+    $savedEnter = ${function:Enter-ResourceSlot}
+    $savedExit = ${function:Exit-ResourceSlot}
+    $savedMemory = ${function:Test-MemoryReserve}
+    $savedSuite = $env:HC_CONFORMANCE_SUITE
+    try {
+        function Enter-ResourceSlot { param($Pool, $MaxConcurrent, $TimeoutSeconds) return 'test-slot' }
+        function Exit-ResourceSlot { param($Slot) $script:releasedDriverSlot = $Slot }
+        function Test-MemoryReserve { param($AvailableGB) return @{ Ok = $true } }
+        function dotnet {
+            Assert-Contains $args '-maxcpucount:4' 'dotnet receives the job limit'
+            Assert-True ([bool]$env:HC_CONFORMANCE_SUITE) 'build never tries to clone the fixture suite'
+            $global:LASTEXITCODE = 1
+            'synthetic publish failure'
+        }
+        $env:HC_CONFORMANCE_SUITE = $null
+        $script:releasedDriverSlot = $null
+        $message = ''
+        try { Invoke-ConformanceDriverPublish -Project 'driver.csproj' -Output 'unused' -Jobs 4 }
+        catch { $message = $_.Exception.Message }
+        Assert-True ($message -match 'synthetic publish failure') 'failed dotnet invocation is reported'
+        Assert-Equal 'test-slot' $script:releasedDriverSlot 'failed publish releases its build slot'
+        Assert-False ([bool]$env:HC_CONFORMANCE_SUITE) 'temporary suite override is removed'
+    } finally {
+        ${function:Enter-ResourceSlot} = $savedEnter
+        ${function:Exit-ResourceSlot} = $savedExit
+        ${function:Test-MemoryReserve} = $savedMemory
+        $env:HC_CONFORMANCE_SUITE = $savedSuite
+        Remove-Item function:dotnet -ErrorAction SilentlyContinue
+    }
 }
 
 Write-TestSummary
