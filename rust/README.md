@@ -106,6 +106,27 @@ Profiles live in `rust/.config/nextest.toml`:
 | `ci` | GitHub Actions | `default` plus a JUnit report (`target/nextest/ci/junit.xml`), one process per CPU, no retries |
 | `census` | `--profile census` | 30 min ceiling for the deliberately long measurement tests |
 
+Rust CI and Release share an explicit `FST build + test (required)` job in
+`.github/workflows/rust-gates.yml`. It runs `pg-foma`, `pg-foma-runtime`, `pg-foma-backend`
+and `pg-cli` with `pg-cli/foma-tools`, including doctests, against both synthetic fixture roots.
+This reaches the backend scoreboard, faithfulness ratchet, capability and seam gates even though
+the three FST crates are outside `default-members`. Failures fail the workflow; the job uploads
+its own `fst-nextest-junit` artifact. These are finite regression gates, not a claim that every
+production grammar has zero missing or extra analyses.
+
+The repository currently has no server-side branch protection, required-check setting or rulesets.
+The `(required)` label records the merge convention: every check must be green before merging.
+An FST test failure fails the Rust CI workflow conclusion; the label does not configure server enforcement.
+
+Ordinary CI selects the job's tests when Rust sources/build inputs, synthetic fixtures, their
+suite pin, the Machine pin, or gate workflows/actions change. It also selects checked repository
+inputs: `docs/` (including `docs/research/subrecipes/` and divergence evidence), `CLAUDE.md`,
+`.claude/`, `openspec/`, `samples/` and `tools/underdefined-identity-capture/`. These inputs are
+read, included at compile time or checked for path existence by the selected tests. Release always
+runs them, and an unavailable comparison base conservatively runs them. A measured four-job cold
+managed run took 12m33s (6m13s compilation, 5m58s test execution), so documentation-only edits
+outside these inputs, such as the root `README.md`, can skip these tests.
+
 Concurrency is capped at 6 test processes (override: `-TestThreads N` or `PANGLOSS_MAX_TEST_THREADS`).
 Ignored tests: `-- --ignored` and `-- --include-ignored` are translated to nextest's
 `--run-ignored ignored-only|all`; `-Mode corpus-test` always runs them.
