@@ -87,6 +87,11 @@ pub struct Morpher<'g> {
     guess_roots: bool,
 }
 
+type ParseSelection<'a> = (
+    Option<&'a dyn Fn(LexEntryId) -> bool>,
+    Option<pg_rules::stratum::RuleFilter<'a>>,
+);
+
 /// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
 pub struct SynthesisBudget {
     work: pg_rules::stratum::WordBudget,
@@ -796,6 +801,39 @@ impl<'g> Morpher<'g> {
         self.parse_word_core_selected(word, opts, &sink, lex_entry_filter, rule_filter, None)
     }
 
+    /// A fresh word allowance using this parser's work, time and retained-memory limits.
+    pub fn word_budget(&self) -> pg_rules::stratum::WordBudget {
+        pg_rules::stratum::WordBudget::new(self.work_cap)
+            .with_timeout(self.word_timeout)
+            .with_retained_cap(self.capture_cap)
+            .with_word_cap(self.word_mem_cap)
+    }
+
+    /// The configured per-word wall-clock allowance, if any.
+    pub fn word_timeout(&self) -> Option<Duration> {
+        self.word_timeout
+    }
+
+    /// Restricted searches sharing one word's allowance across confirmation groups.
+    /// The outcome's work count is cumulative within `budget`.
+    pub fn parse_word_selected_with_budget(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+        rule_filter: Option<pg_rules::stratum::RuleFilter>,
+        budget: &pg_rules::stratum::WordBudget,
+    ) -> ParseOutcome {
+        self.parse_word_core_budgeted(
+            word,
+            opts,
+            &NoopSink,
+            (lex_entry_filter, rule_filter),
+            None,
+            Some(budget),
+        )
+    }
+
     /// `Self::parse_word_selected`'s traced sibling, on exactly the selector-restricted path
     /// `pg_foma::confirm` uses: it lets a caller classify WHY a restricted reparse produced no
     /// match — a validity-gate `FailureReason` versus no derivation at all.
@@ -858,11 +896,33 @@ impl<'g> Morpher<'g> {
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
         stats: Option<&pg_rules::stats::StatsCollector>,
     ) -> ParseOutcome {
+        self.parse_word_core_budgeted(
+            word,
+            opts,
+            trace,
+            (lex_entry_filter, rule_filter),
+            stats,
+            None,
+        )
+    }
+
+    fn parse_word_core_budgeted(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+        selection: ParseSelection<'_>,
+        stats: Option<&pg_rules::stats::StatsCollector>,
+        budget: Option<&pg_rules::stratum::WordBudget>,
+    ) -> ParseOutcome {
         let meter = pg_cost::Meter::start();
+        let fresh_budget = budget.is_none().then(|| self.word_budget());
+        let budget = budget.or(fresh_budget.as_ref()).expect("word budget");
+        let work_before = budget.work_steps();
         let partials = (opts.partials != 0).then(|| pg_rules::partials::enter(opts.partials));
-        let mut outcome =
-            self.parse_word_unmetered(word, opts, trace, lex_entry_filter, rule_filter, stats);
-        outcome.cost = meter.map(|meter| meter.finish(outcome.work_steps));
+        let mut outcome = self.parse_word_unmetered(word, opts, trace, selection, stats, budget);
+        outcome.cost =
+            meter.map(|meter| meter.finish(outcome.work_steps.saturating_sub(work_before)));
         if let Some(scope) = partials {
             let rejections = scope.finish();
             if outcome.analyses.is_empty() {
@@ -881,10 +941,11 @@ impl<'g> Morpher<'g> {
         word: &str,
         opts: &ParseOptions,
         trace: &dyn TraceSink,
-        lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
-        rule_filter: Option<pg_rules::stratum::RuleFilter>,
+        selection: ParseSelection<'_>,
         stats: Option<&pg_rules::stats::StatsCollector>,
+        budget: &pg_rules::stratum::WordBudget,
     ) -> ParseOutcome {
+        let (lex_entry_filter, rule_filter) = selection;
         let g = self.g;
         let n = g.strata.len();
         if n == 0 {
@@ -893,10 +954,6 @@ impl<'g> Morpher<'g> {
         let surface_stratum = StratumId((n - 1) as u8);
         let surface_table = &g.char_tables[g.strata[surface_stratum.0 as usize].table.0 as usize];
 
-        let budget = pg_rules::stratum::WordBudget::new(self.work_cap)
-            .with_timeout(self.word_timeout)
-            .with_retained_cap(self.capture_cap)
-            .with_word_cap(self.word_mem_cap);
         let values = pg_rules::shared_values::SharedValues::default();
         let _work_scope = budget.enter();
         for _ in word.chars() {
@@ -1017,7 +1074,7 @@ impl<'g> Morpher<'g> {
                     Some(filter),
                     rule_filter,
                     Some(&self.cache),
-                    &budget,
+                    budget,
                     &values,
                     policy,
                     stats,
@@ -1159,7 +1216,7 @@ impl<'g> Morpher<'g> {
                             trace,
                             root,
                             rule_filter,
-                            &budget,
+                            budget,
                             stats,
                             FinalTemplateSynthesisPolicy {
                                 always_enforce: self.always_enforce_final_templates,
@@ -1267,7 +1324,7 @@ impl<'g> Morpher<'g> {
                                 alt,
                                 trace,
                                 root,
-                                &budget,
+                                budget,
                                 stats,
                                 FinalTemplateSynthesisPolicy {
                                     always_enforce: self.always_enforce_final_templates,

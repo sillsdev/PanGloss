@@ -124,7 +124,23 @@ phonology into foma lexc source and compiles it in-process with a pure-Rust foma
 (no external binaries, no artifacts to manage). Compile time is interactive-scale:
 milliseconds to a few seconds on the reference grammars. The `pangloss` CLI has no flag to
 route a word batch or a single parse through this path; see the Rust API below for that, and
-`fst-health`/`make-report` for the grammar-level characterization and readiness-report uses.
+`fst-health`/`make-report` for grammar-level reports and `fst-verify` below for
+per-word comparisons of the two pipelines.
+
+Compare complete FST analysis sets with plain HC-Rust search on every word
+(build with `foma-tools`):
+
+```
+pangloss fst-verify <grammar> <words.txt> --out parity.tsv --json parity.json --word-timeout-ms 10000
+```
+
+The report records `equal`, `missing`, `extra`, or `incomparable` per occurrence,
+both difference directions by stable analysis identity, input hashes, engine
+build identity and effective options. Mismatches and FST construction refusals
+exit nonzero after writing evidence. Caps and timeouts are incomparable;
+inspect the totals before claiming full parity. This compares the two Rust
+pipelines; C# oracle replay remains separate. See
+[the FST verification format](docs/formats/fst-verify.md) for bounds and schemas.
 
 Parse one word (the only engine `parse` runs is the default HermitCrab one):
 

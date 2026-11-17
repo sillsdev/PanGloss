@@ -188,6 +188,8 @@ pub struct FomaWordDiagnostics {
     /// `confirm::ConfirmBatchDiagnostics::confirmation_work` for why this, and not the call count,
     /// is the unit worth ranking candidates on.
     pub confirmation_work: usize,
+    /// At least one restricted confirmation search stopped without a complete result.
+    pub confirmation_incomplete: bool,
     /// Raw proposer paths `apply_up` yielded for this word (direct proposal plus every proposal a
     /// reduplication peel requested), before tag-decode/dedup -- equal to `proposal.raw_paths`,
     /// duplicated at this level so a caller pricing propose-side work reads it next to
@@ -909,6 +911,7 @@ impl<'g> FomaAnalyzer<'g> {
             confirmation_groups: confirmation.confirmation_groups,
             confirmation_calls: confirmation.confirmation_calls,
             confirmation_work: confirmation.confirmation_work,
+            confirmation_incomplete: confirmation.incomplete,
             confirmed_analyses: outcome.confirmed,
             confirmation_elapsed,
             filter: run.filter,

@@ -14,6 +14,7 @@ assuming you have this repository open or know its internal vocabulary.
   unmerged derivation tree behind one word's parse or failure.
 - [`batch-tsv.md`](batch-tsv.md) — the per-word result rows `pangloss batch` writes and, with
   `--work-columns`, each word's deterministic parser work (`work_steps`).
+- [`fst-verify.md`](fst-verify.md) — per-word FST versus HC-Rust analysis-set comparison, incomplete outcomes and provenance.
 - [`serve-protocol.md`](serve-protocol.md) — the line-delimited JSON protocol of `pangloss serve`.
 - [`trace-details-v2.md`](trace-details-v2.md) — the opt-in one-word diagnostic envelope: recorded analyses, morph metadata, rejection context, provenance, and aggregate timing.
 

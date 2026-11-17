@@ -7,6 +7,7 @@ const HISTORICAL_DISPATCH_LITERALS: &[&str] = &[
     "parse",
     "import",
     "fst-health",
+    "fst-verify",
     "coverage",
     "plan-diagram",
     "make-report",
@@ -32,6 +33,7 @@ fn table_covers_every_historical_dispatch_literal() {
         let foma_only = matches!(
             *name,
             "fst-health"
+                | "fst-verify"
                 | "coverage"
                 | "plan-diagram"
                 | "make-report"

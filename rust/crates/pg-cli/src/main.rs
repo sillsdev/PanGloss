@@ -59,6 +59,9 @@
 //! measurements belong to a separate post-build operation over an explicitly completed artifact.
 //! `<out.json>` omitted prints the JSON to stdout.
 //!
+//! `fst-verify <grammar> <words> [--out <tsv>] [--json <path>]` compares complete
+//! FST-plus-confirmation and plain HC-Rust analysis sets. See `docs/formats/fst-verify.md`.
+//!
 //! ## `grammar-health` (see `grammar_health.rs`'s own doc for the full contract)
 //! `grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
 //! [--stored-analyses bounded|all|off]` runs the ported
@@ -139,6 +142,8 @@ pub mod backend_report;
 mod coverage;
 #[cfg(feature = "foma-tools")]
 mod fst_health;
+#[cfg(feature = "foma-tools")]
+mod fst_verify;
 // `pub`: see `backend_report`'s note above -- marks this bin module's long docs as interface for comment-hygiene.
 pub mod grammar_health;
 #[cfg(feature = "foma-tools")]
@@ -463,6 +468,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
          usage: pangloss fst-health <grammar> [<out.json>] [--fst-strategy surface-enum|factored|auto]\n\
+         usage: pangloss fst-verify <grammar> <words> [--out <tsv>] [--json <path>] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--fst-strategy surface-enum|factored|auto] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
          usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
