@@ -31,7 +31,11 @@ fn materialize_plans(
 #[test]
 fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_confirmation() {
     let fixture = require_fixture("edge-cases", "backend-gated-generic");
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
+    let xml = fixture.load_grammar_xml();
+    let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
+    assert_eq!(xml.matches(wide_target).count(), 1);
+    let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
+    let grammar = pg_grammar::load(&xml).expect("scalar deletion control must load");
     let words: Vec<String> = fixture
         .load_words_yaml()
         .words
@@ -50,7 +54,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
         unbounded_enough
             .iter()
             .any(|e| e.certification.selectable()),
-        "sanity check failed -- backend-gated-generic should confirm under the default oracle \
+        "sanity check failed -- the scalar deletion control should confirm under the default oracle \
          bounds, otherwise this test can't tell a real regression from a fixture that never \
          confirmed in the first place: {:?}",
         unbounded_enough

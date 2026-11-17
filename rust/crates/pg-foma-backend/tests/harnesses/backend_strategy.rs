@@ -23,6 +23,8 @@ mod backend_selection_contract;
 mod bare_root_compile_time_discharge;
 #[path = "../grammar_health_publication_gate.rs"]
 mod grammar_health_publication_gate;
+#[path = "../proposal_recall_gate.rs"]
+mod proposal_recall_gate;
 #[path = "../strategy_aware_capability_gate.rs"]
 mod strategy_aware_capability_gate;
 #[path = "../strategy_coverage_join_gate.rs"]

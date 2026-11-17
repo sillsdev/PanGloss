@@ -123,6 +123,7 @@ fn backend_seam_shape_key_table_is_pinned() {
         ("alpha-environment.tuned", NO_ADVICE),
         ("reduplication.peel-eligible-rule-kind", NO_ADVICE),
         ("surface-probe.root-spelling-cap", NO_ADVICE),
+        ("surface-probe.proposal-recall", NO_ADVICE),
     ]
     .into_iter()
     .collect();
@@ -136,6 +137,7 @@ fn backend_seam_shape_key_table_is_pinned() {
         "alpha-environment.tuned",
         "reduplication.peel-eligible-rule-kind",
         "surface-probe.root-spelling-cap",
+        "surface-probe.proposal-recall",
     ]
     .into_iter()
     .collect();
@@ -144,19 +146,26 @@ fn backend_seam_shape_key_table_is_pinned() {
         "the set of predicate ids that ever reach a Refuse diagnostic changed"
     );
 
-    let expected_partial_admissions: BTreeSet<PartialAdmissionRow> =
-        PARTIAL_CLASS_DISAGREEMENT_FIXTURES
-            .iter()
-            .map(|&fixture| (fixture, EmissionStrategy::TunedSurfaceProbed.label()))
-            .collect();
+    let expected_partial_admissions: BTreeSet<PartialAdmissionRow> = BTreeSet::new();
     assert_eq!(
         partial_fixture_admissions, expected_partial_admissions,
-        "partial-class fixture admission changed outside the approved TSP lowering"
+        "non-scalar partial-class bundles must refuse until a complete spelling route exists"
     );
-
-    assert!(
-        partial_fixture_rows.is_empty(),
-        "partial-class fixtures must not be refused by any backend: {partial_fixture_rows:?}"
+    let expected_partial_refusals: BTreeSet<PartialFixtureRow> =
+        PARTIAL_CLASS_DISAGREEMENT_FIXTURES
+            .iter()
+            .map(|&fixture| {
+                (
+                    fixture,
+                    EmissionStrategy::TunedSurfaceProbed.label(),
+                    "surface-probe.proposal-recall",
+                    NO_ADVICE,
+                )
+            })
+            .collect();
+    assert_eq!(
+        partial_fixture_rows, expected_partial_refusals,
+        "every named partial-class fixture must publish the shared representability refusal"
     );
 }
 

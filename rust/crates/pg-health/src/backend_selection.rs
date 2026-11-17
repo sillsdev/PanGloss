@@ -179,12 +179,24 @@ impl BackendReport {
                     diagnostic.refusal,
                     crate::capability::CapabilityRefusal::RootSpellingBudget { .. }
                         | crate::capability::CapabilityRefusal::AlphaEnvironment
+                        | crate::capability::CapabilityRefusal::ProposalRecall(_)
                 )
             })
             .count() as u64;
         let budget_findings: Vec<_> = diagnostics
             .iter()
             .filter_map(|diagnostic| {
+                if matches!(diagnostic.refusal, crate::capability::CapabilityRefusal::ProposalRecall(_)) {
+                    return Some(HealthFinding::new(
+                        FindingCode::BackendCoverageIncomplete,
+                        Severity::CannotRepresent,
+                        Phase::Characterization,
+                        Metric::BackendCoverageGapCount,
+                        MetricValue::Count(1),
+                        ValueProvenance::Observed,
+                        diagnostic.witness.clone(),
+                    ));
+                }
                 if diagnostic.refusal == crate::capability::CapabilityRefusal::AlphaEnvironment {
                     return Some(HealthFinding::new(
                         FindingCode::BackendCoverageIncomplete,

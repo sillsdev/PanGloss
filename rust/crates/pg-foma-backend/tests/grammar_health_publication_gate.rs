@@ -242,15 +242,28 @@ fn the_control_measures_and_stays_publishable_on_every_strategy() {
     );
 }
 
-/// READINESS claims recall, so it is measured: every backend must contain the oracle's analyses for the partial-dependent words.
+/// Partial readiness remains separate from template reentry's representability refusal.
 #[test]
-fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial() {
+fn partial_readiness_and_template_representability_are_independent() {
     let fixture = pg_conformance_fixtures::discover()
         .into_iter()
         .find(|f| f.name == "final-template-partial-discriminators")
         .expect("the partial-discriminator fixture must be discoverable");
     let label = fixture.label();
-    let grammar = load(&fixture.load_grammar_xml());
+    let mut grammar = load(&fixture.load_grammar_xml());
+    let diagnostics = pg_foma::capability_gate::refuse_unless_admitted(
+        &grammar,
+        EmissionStrategy::TunedSurfaceProbed,
+    )
+    .expect_err("the original grammar requires template reentry");
+    assert!(diagnostics.iter().any(|d| d.refusal
+        == pg_health::capability::CapabilityRefusal::ProposalRecall(
+            pg_health::capability::ProposalRecallGap::TemplateReentry
+        )));
+    // Remove reentry from this in-memory control while preserving the final templates and partial rules.
+    for template in &mut grammar.templates {
+        template.is_final = true;
+    }
     let words: Vec<String> = fixture
         .load_words_yaml()
         .words
@@ -261,6 +274,9 @@ fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial
 
     // Structural, not hardcoded: clearing every partial flag must cost these words their analyses.
     let mut cleared = load(&fixture.load_grammar_xml());
+    for template in &mut cleared.templates {
+        template.is_final = true;
+    }
     for rule in &mut cleared.mrules {
         if let pg_grammar::model::MorphRuleDef::AffixProcess(def) = rule {
             def.partial_reason = None;

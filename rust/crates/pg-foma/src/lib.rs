@@ -53,6 +53,7 @@ workbench_module! {
 }
 pub(crate) mod preexpand;
 pub mod profile;
+mod proposal_recall;
 pub mod replace;
 pub mod strategy_coverage;
 pub mod structural_allomorph;

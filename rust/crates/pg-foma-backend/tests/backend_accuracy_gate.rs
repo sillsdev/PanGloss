@@ -11,11 +11,17 @@ use pg_foma_backend::backend_runtime::{
 };
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
-const FIXTURE: &str = "backend-gated-generic";
+const FIXTURE: &str = "featureless-single-member-class-rewrite";
 
 fn fixture(name: &str) -> (Grammar, Vec<String>) {
     let fixture = require_fixture("edge-cases", name);
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar must load");
+    let mut xml = fixture.load_grammar_xml();
+    for (class, segment) in [("ncK", "cK"), ("ncS", "cS")] {
+        let context = format!(r#"<SimpleContext naturalClass="{class}" />"#);
+        assert_eq!(xml.matches(&context).count(), 1);
+        xml = xml.replace(&context, &format!(r#"<Segment segment="{segment}" />"#));
+    }
+    let grammar = pg_grammar::load(&xml).expect("literal rewrite control must load");
     let words = fixture
         .load_words_yaml()
         .words

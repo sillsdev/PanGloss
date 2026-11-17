@@ -40,16 +40,6 @@ fn accounted_pruning(report: &Value, label: &str) -> Value {
     pruning.clone()
 }
 
-/// `topology=` values naming a whole-grammar `EmissionStrategy`: these build their own composite/structural material, so they have no marker gap and the unsupported-attribution rule does not apply.
-const WHOLE_GRAMMAR_TOPOLOGIES: [&str; 1] = ["tuned-surface-probed"];
-
-fn is_whole_grammar_candidate(candidate: &Value) -> bool {
-    let backend_id = candidate["backend_id"].as_str().unwrap_or_default();
-    WHOLE_GRAMMAR_TOPOLOGIES
-        .iter()
-        .any(|topology| backend_id.ends_with(&format!("topology={topology}")))
-}
-
 fn word_file(fixture: &str, root: &Path) -> PathBuf {
     word_file_from(
         &format!("conformance/{fixture}/words.yaml"),
@@ -153,23 +143,23 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
 
-    let mpr = run_fixture("edge-cases/mpr-gated-exception", &root);
-    assert_eq!(mpr["termination"], "complete");
-    assert_eq!(mpr["counts"]["feasible"]["kind"], "exact");
+    let scalar = run_fixture("edge-cases/circumfix-non-first-allomorph-selection", &root);
+    assert_eq!(scalar["termination"], "complete");
+    assert_eq!(scalar["counts"]["feasible"]["kind"], "exact");
     // One candidate survives: the baseline. The rewrite families that made more are inapplicable here and the one whole-grammar compiler is the baseline's own, so its duplicate is dropped.
-    assert_eq!(mpr["counts"]["feasible"]["value"], 1);
-    assert_eq!(mpr["pruning"]["confirmed"], 1);
-    assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
-    assert_eq!(mpr["replay_parameters"]["beam_width"], "16");
-    assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
-    assert_eq!(mpr["replay_parameters"]["search_all_families"], "false");
-    accounted_pruning(&mpr, "mpr-gated-exception");
-    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 1);
+    assert_eq!(scalar["counts"]["feasible"]["value"], 1);
+    assert_eq!(scalar["pruning"]["confirmed"], 1);
+    assert!(scalar["usage"]["memory_peak"].as_u64().unwrap() > 0);
+    assert_eq!(scalar["replay_parameters"]["beam_width"], "16");
+    assert_eq!(scalar["replay_parameters"]["pilot_candidate_cap"], "8");
+    assert_eq!(scalar["replay_parameters"]["search_all_families"], "false");
+    accounted_pruning(&scalar, "circumfix-non-first-allomorph-selection");
+    assert_eq!(scalar["candidates"].as_array().unwrap().len(), 1);
     assert_eq!(
-        mpr["candidates"][0]["backend_id"], "surface-probe-morphology|topology=baseline",
+        scalar["candidates"][0]["backend_id"], "surface-probe-morphology|topology=baseline",
         "the baseline must be the one evaluated candidate"
     );
-    let mpr_out = root.join("edge-cases-mpr-gated-exception");
+    let scalar_out = root.join("edge-cases-circumfix-non-first-allomorph-selection");
     for artifact in [
         "report.json",
         "report.md",
@@ -178,30 +168,44 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         "winner.plan.json",
         "winner.plan.mmd",
     ] {
-        assert!(mpr_out.join(artifact).is_file(), "missing {artifact}");
+        assert!(scalar_out.join(artifact).is_file(), "missing {artifact}");
     }
     let baseline_plan: Value =
-        serde_json::from_str(&fs::read_to_string(mpr_out.join("baseline.plan.json")).unwrap())
+        serde_json::from_str(&fs::read_to_string(scalar_out.join("baseline.plan.json")).unwrap())
             .unwrap();
     let winner_plan: Value =
-        serde_json::from_str(&fs::read_to_string(mpr_out.join("winner.plan.json")).unwrap())
+        serde_json::from_str(&fs::read_to_string(scalar_out.join("winner.plan.json")).unwrap())
             .unwrap();
-    assert_eq!(mpr["baseline"], baseline_plan["root"]);
+    assert_eq!(scalar["baseline"], baseline_plan["root"]);
     // The only strategy is the baseline's own, so the winner is the baseline and its id carries no strategy suffix.
-    assert_eq!(mpr["winner_strategy"], "tuned-surface-probed");
-    let winner_id = mpr["winner"].as_str().expect("a winner id");
+    assert_eq!(scalar["winner_strategy"], "tuned-surface-probed");
+    let winner_id = scalar["winner"].as_str().expect("a winner id");
     assert_eq!(
         winner_plan["root"], baseline_plan["root"],
         "the winner must carry the baseline plan verbatim"
     );
-    assert_eq!(mpr["winner"], mpr["baseline"]);
-    assert!(mpr["candidates"]
+    assert_eq!(scalar["winner"], scalar["baseline"]);
+    assert!(scalar["candidates"]
         .as_array()
         .unwrap()
         .iter()
         .any(|candidate| candidate["id"] == winner_id));
 
-    // A recorded loss, not a dropped assertion: only the deleted Templated underlying tokens backend confirmed this fixture. Tuned surface probed misses the word `hasaasa`. If a Tuned fix makes it confirm, move it into the loop below.
+    let mpr = run_fixture("edge-cases/mpr-gated-exception", &root);
+    assert_eq!(mpr["pruning"]["confirmed"], 0);
+    assert!(mpr["winner"].is_null());
+    let candidates = mpr["candidates"].as_array().unwrap();
+    assert!(!candidates.is_empty());
+    for candidate in candidates {
+        assert_eq!(candidate["certification"]["status"], "build-failed");
+        assert!(candidate["certification"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("singleton spelling proof"));
+        assert_eq!(candidate["score"]["proposals"], 0);
+    }
+
+    // The known recall gap must refuse construction before certification can publish incomplete proposals.
     let metathesis = run_fixture("languages/metathesis-phase-isolation", &root);
     let metathesis_statuses: Vec<&str> = metathesis["candidates"]
         .as_array()
@@ -213,11 +217,16 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
         !metathesis_statuses.is_empty() && !metathesis_statuses.contains(&"full-hc-confirmed"),
         "metathesis-phase-isolation no longer confirms on the one remaining backend: {metathesis_statuses:?}"
     );
-    assert_eq!(metathesis_statuses, ["identity-mismatch"]);
+    assert_eq!(metathesis_statuses, ["build-failed"]);
+    let refusal = metathesis["candidates"][0]["certification"]["reason"]
+        .as_str()
+        .unwrap();
+    assert!(refusal.contains("surface-probe.proposal-recall"));
+    assert!(refusal.contains("surface-peeled reduplication followed by phonology"));
+    assert_eq!(metathesis["candidates"][0]["score"]["proposals"], 0);
 
-    // This fixture confirms on the baseline; assertions below require real proposals and a real hash, never an all-empty vacuous pass.
-    for (fixture, words_expected) in [("languages/polysynthetic-stratal-derivation-chain", 0usize)]
-    {
+    // Corpus accounting remains complete even when the grammar refuses construction.
+    for fixture in ["languages/polysynthetic-stratal-derivation-chain"] {
         let report = run_fixture(fixture, &root);
         let candidates = report["candidates"].as_array().unwrap();
         assert!(!candidates.is_empty(), "{fixture}: no candidates evaluated");
@@ -261,45 +270,13 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
             corpus["exclusions"]
         );
         for candidate in candidates {
-            let status = candidate["certification"]["status"].as_str().unwrap_or("");
-            if status != "full-hc-confirmed" {
-                // A whole-grammar strategy has no marker gap, so nothing to attribute; relabelling it `unsupported` would hide a real measurement.
-                if is_whole_grammar_candidate(candidate) {
-                    assert_ne!(
-                        status, "unsupported",
-                        "{fixture}: a whole-grammar strategy builds the marker material, so its                          verdict must be the real measurement rather than a limitation notice: {:?}",
-                        candidate["certification"]
-                    );
-                    continue;
-                }
-                // A non-confirming plan-rewrite candidate is legitimate but must be attributed to the builder limitation, not reported as a bare word-level fault.
-                assert_eq!(
-                    status, "unsupported",
-                    "{fixture}: a non-confirming candidate must be attributed, got {:?}",
-                    candidate["certification"]
-                );
-                continue;
-            }
-            assert!(
-                candidate["score"]["proposals"].as_u64().unwrap_or(0) > 0,
-                "{fixture}: confirmed with zero proposals is a vacuous pass: {:?}",
-                candidate["score"]
-            );
-            let hash = candidate["certification"]["corpus_hash"]
+            assert_eq!(candidate["certification"]["status"], "build-failed");
+            assert!(candidate["certification"]["reason"]
                 .as_str()
-                .unwrap_or_default();
-            assert_eq!(
-                hash.len(),
-                64,
-                "{fixture}: confirmation must carry a corpus hash"
-            );
-            if words_expected > 0 {
-                assert_eq!(
-                    candidate["certification"]["words"].as_u64().unwrap_or(0),
-                    words_expected as u64,
-                    "{fixture}: confirmation must cover every fixture word"
-                );
-            }
+                .unwrap()
+                .contains("singleton spelling proof"));
+            assert_eq!(candidate["score"]["proposals"], 0);
+            assert!(candidate["certification"]["corpus_hash"].is_null());
         }
     }
 

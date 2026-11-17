@@ -81,7 +81,10 @@ fn shared_cli_parser_rejects_unknown_strategy_and_malformed_limits() {
 #[test]
 fn zero_closure_work_has_an_effect_and_never_yields_a_partial_proposer() {
     let fixture = pg_conformance_fixtures::require_fixture("edge-cases", "circumfix-cross-product-and-infix-drop");
-    let grammar = fixture.load_grammar();
+    let mut grammar = fixture.load_grammar();
+    // Isolate one structural rule: composition is independently refused before containment.
+    let infix = (0..grammar.mrules.len()).map(|i| pg_grammar::model::MRuleId(i as u32)).find(|&mid| grammar.morphemes[pg_foma_runtime::emission_support::owning_morpheme(&grammar, mid).0 as usize].xml_key == "mrInfixDrop").unwrap();
+    for stratum in &mut grammar.strata { stratum.mrules.retain(|mid| *mid == infix); }
     let mut config = FstCompileConfig::default();
     config.bounds.closure_work = Some(0);
     let (result, profile) = compile_proposer_with_config(&grammar, &config);
@@ -125,7 +128,10 @@ fn shared_cli_parser_sets_strategy_order_and_every_construction_bound() {
 #[test]
 fn structural_config_refusals_are_typed_and_record_effective_bounds() {
     let fixture = pg_conformance_fixtures::require_fixture("edge-cases", "circumfix-cross-product-and-infix-drop");
-    let grammar = fixture.load_grammar();
+    let mut grammar = fixture.load_grammar();
+    // Isolate one structural rule: composition is independently refused before containment.
+    let infix = (0..grammar.mrules.len()).map(|i| pg_grammar::model::MRuleId(i as u32)).find(|&mid| grammar.morphemes[pg_foma_runtime::emission_support::owning_morpheme(&grammar, mid).0 as usize].xml_key == "mrInfixDrop").unwrap();
+    for stratum in &mut grammar.strata { stratum.mrules.retain(|mid| *mid == infix); }
     for (work, bytes, measure) in [(0, 16 * 1024 * 1024, "HC_STRUCTURAL_CLOSURE_WORK_LIMIT"), (100_000, 0, "HC_STRUCTURAL_CLOSURE_BYTES_LIMIT")] {
         let mut config = FstCompileConfig::default();
         config.bounds.structural_work = Some(work);

@@ -186,7 +186,10 @@ fn a_covered_composite_uses_the_same_construction_on_both_routes() {
 fn structural_bounds_and_refusals_match_on_both_compile_routes() {
     use pg_foma::construction::{FstCompileConfig, StrategyRefusal};
     let fixture = pg_conformance_fixtures::require_fixture("edge-cases", "circumfix-cross-product-and-infix-drop");
-    let grammar = fixture.load_grammar();
+    let mut grammar = fixture.load_grammar();
+    // Isolate one structural rule: composition is independently refused before containment.
+    let infix = (0..grammar.mrules.len()).map(|i| pg_grammar::model::MRuleId(i as u32)).find(|&mid| grammar.morphemes[pg_foma_runtime::emission_support::owning_morpheme(&grammar, mid).0 as usize].xml_key == "mrInfixDrop").unwrap();
+    for stratum in &mut grammar.strata { stratum.mrules.retain(|mid| *mid == infix); }
     for (work, bytes) in [(0, 16 * 1024 * 1024), (100_000, 0)] {
         let mut config = FstCompileConfig::default();
         config.bounds.structural_work = Some(work);

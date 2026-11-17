@@ -1,5 +1,4 @@
-//! "mentanukam" (machine:edge-cases/mpr-gated-exception) has two derivation orders sharing one
-//! identity; confirm's D4 recovery restores both from one deduplicated proposal. See `docs/adr/0001-honest-capability-boundary.md`.
+//! Confirms both derivation orders from one proposal in a scalar-deletion control derived from mpr-gated-exception.
 
 use std::fs;
 
@@ -15,6 +14,9 @@ fn load() -> pg_grammar::model::Grammar {
     let path =
         pg_conformance_fixtures::suite_root().join("edge-cases/mpr-gated-exception/grammar.xml");
     let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
+    assert_eq!(xml.matches(wide_target).count(), 1);
+    let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
 

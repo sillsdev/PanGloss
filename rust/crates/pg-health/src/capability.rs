@@ -8,11 +8,23 @@
 /// A predicate's stable identity (e.g. `"simultaneous.subrule-overlap"`).
 pub type PredicateId = &'static str;
 
+/// Construction gaps that can remove valid proposals before confirmation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProposalRecallGap {
+    TemplateReentry,
+    PhonologicalReduplication,
+    AmbiguousSegmentSpelling,
+    TruncationComposition,
+    NarrowingClassOutput,
+    SymbolicEpenthesis,
+}
+
 /// Compiler-owned causes; grammar-health maps these exhaustively to author findings or budgets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityRefusal {
     /// Temporary compiler refusal pending #177; never an author label.
     AlphaEnvironment,
+    ProposalRecall(ProposalRecallGap),
     CircumfixNoRoute {
         rule: Option<u32>,
     },

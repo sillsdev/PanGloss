@@ -83,7 +83,7 @@ $crateSpecs = @(
             'pk2_eliminate_flag_oracle.rs',
             'phase_c_chain_scale.rs',
             'plan_interaction_coverage_gate.rs',
-            'predicate_negative_witness_gate.rs', 'process_morphology_route_gate.rs',
+            'predicate_negative_witness_gate.rs', 'process_morphology_route_gate.rs', 'proposal_recall_gate.rs',
             'segment_natural_class_table_binding_discriminates.rs',
             'strategy_aware_capability_gate.rs',
             'strategy_coverage_join_gate.rs', 'structural_witness_gate.rs',

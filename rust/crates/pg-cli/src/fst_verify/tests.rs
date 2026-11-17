@@ -84,15 +84,30 @@ fn equal_conformance_fixture_preserves_duplicate_occurrences_and_negative_contro
 }
 
 #[test]
-fn known_epenthesis_miss_writes_identity_evidence_before_failing() {
+fn known_epenthesis_gap_refuses_before_word_comparison() {
     let xml = pg_conformance_fixtures::require_fixture("edge-cases", "rewrite-default-epenthesis")
         .load_grammar_xml();
     let (result, report, tsv) = execute(&xml, "bdt\n", &[]);
     assert!(result.is_err());
-    assert_eq!(report["rows"][0]["verdict"], "missing");
-    assert!(!report["rows"][0]["missing"].as_array().unwrap().is_empty());
-    assert_eq!(report["totals"]["missing"], 1);
-    assert!(tsv.contains("bdt\tmissing\t[{"));
+    assert_eq!(report["totals"]["fst_refused_grammar"], true);
+    assert_eq!(report["totals"]["incomparable"], 1);
+    assert_eq!(report["totals"]["missing"], 0);
+    assert_eq!(report["rows"][0]["verdict"], "incomparable");
+    assert_eq!(report["rows"][0]["missing"], json!([]));
+    assert_eq!(report["rows"][0]["extra"], json!([]));
+    assert_eq!(
+        report["rows"][0]["hc_status"],
+        "not_run_fst_refused_grammar"
+    );
+    assert_eq!(
+        report["construction"]["attempts"][0]["refusal"]["kind"],
+        "capability"
+    );
+    assert!(report["compile_refusal"]
+        .as_str()
+        .unwrap()
+        .contains("surface-probe.proposal-recall"));
+    assert!(tsv.contains("bdt\tincomparable\t[]\t[]"));
 }
 
 #[test]

@@ -1,0 +1,24 @@
+# oracle-provenance: founding-oracle
+# Oracle replay details: expectations retained from the founding-oracle fixture for unchanged AKA derivations; replayed at Machine 1ddef2bd2f1503717de95556116df8e4a63846d6 in review-admission-oracle.log.
+language: FeaturelessSegmentClassRewrite
+requires: [phonology]
+fieldworks_producible: true
+fieldworks_producible_notes: >-
+  Copied from the existing featureless-segment-class-rewrite fixture. The target
+  is a literal segment or a singleton segment class; ordinary phonological-rule
+  target and class-output shapes remain expressible by FieldWorks. No fwdata
+  round-trip witness is claimed.
+words:
+  - word: asa
+    note: First output class spelling, unchanged AKA derivation.
+    parses:
+      - signature: "AKA|a[sz]a"
+        rules: [prLen]
+  - word: aza
+    note: Second output class spelling, unchanged AKA derivation.
+    parses:
+      - signature: "AKA|a[sz]a"
+        rules: [prLen]
+  - word: aka
+    note: Obligatory rewrite prevents the unchanged root from surfacing.
+    expect_fail: true
