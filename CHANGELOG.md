@@ -7,6 +7,14 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 - `pangloss batch --engine=hc|fst` selects an engine and adds opt-in completion metadata; omitting it preserves HC output. FST requires `foma-tools`, one thread, and explicitly unbounded HC work/capture/word-memory controls. Stats/cache, partials, work/cost columns, timeouts, prefiltering, guessing, and template overrides are unsupported. **FST has no per-word deadline or process RSS bound; use an external watchdog with a deadline and memory ceiling.** See the [batch engine contract](docs/formats/batch-tsv.md#engine-selection) (part of #136).
 
+- FST confirmation retains self-compound analyses when repeated root tags collapse to one identity.
+
+- Widen MPR identities to 32 bits and share wide feature sets, admitting inflection class inventories above 64 while preserving the inline path for ordinary grammars. POS and symbolic value caps remain unchanged.
+
+- Validate host generation MPR IDs against the loaded grammar before expanding their wire lists into dense sets, including supplied-root payloads, so short invalid requests cannot force large bitmap allocations.
+
+- Add a C#-verified 303-feature grammar with 74 parse and 50 generation controls across MPR word boundaries (#150).
+
 ## 0.23.0
 
 Released 2026-11-17.
@@ -28,8 +36,6 @@ Released 2026-11-17.
 Released 2026-11-17.
 
 - `batch --stats` bounds pending fact memory with a 4 MiB spill buffer and opens write transactions only when flushing, so slow parses do not lock out concurrent cache writers. Full and compact rows, 500-word reusable run groups, and atomic frozen runs are preserved. Frozen cache hashing also streams the file.
-
-- Characterize the current 64-feature MPR limit with a C#-verified staged 303-feature grammar and explicit Rust refusal tests (part of #150).
 
 - Rust CI and Release explicitly test the FST compiler, runtime, backend and CLI with `foma-tools`, including the scoreboard, faithfulness, capability and seam gates (#137).
 - Preland caches the pin-matched C# conformance driver outside worktree build folders and publishes a temporary source export on a cache miss, including source from the local Machine submodule. `-Jobs` now reaches preland child builds.

@@ -7,7 +7,7 @@ use crate::GrammarError;
 
 pub(crate) const MAX_PARTS_OF_SPEECH: usize = 63;
 pub(crate) const MAX_FEATURE_VALUES: usize = 63;
-pub(crate) const MAX_MPR_FEATURES: usize = 64;
+pub(crate) const MAX_MPR_FEATURES: u64 = u32::MAX as u64 + 1;
 
 /// `owner` reads as "this project has"; `detail` is appended to the count noun, e.g. " including subcategories".
 pub(crate) fn parts_of_speech(count: usize, owner: &str, detail: &str) -> GrammarError {
@@ -23,7 +23,7 @@ pub(crate) fn mpr_features(count: usize, owner: &str, detail: &str) -> GrammarEr
     GrammarError::Limit {
         code: ImportWarningCode::LimitMprFeatures,
         message: format!(
-            "{owner} {count} inflection classes, exception features and entry inflection types{detail}; PanGloss supports at most {MAX_MPR_FEATURES}. Merge or delete unused ones to get to {MAX_MPR_FEATURES} or fewer."
+            "{owner} {count} inflection classes, exception features and entry inflection types{detail}; MPR feature identities support at most {MAX_MPR_FEATURES} distinct features. This inventory exceeds the 32-bit identity space."
         ),
     }
 }

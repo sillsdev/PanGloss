@@ -2036,7 +2036,7 @@ fn run_batch_with_counter(
                 eprintln!(
                     "WORDSTATS\t{i}\t{word}\t\
                      live_peak_count={}\tlive_peak_total={}\t\
-                     live_base={}\tlive_shape={}\tlive_syn_fs={}\tlive_real_fs={}\tlive_morphs={}\t\
+                     live_base={}\tlive_shape={}\tlive_syn_fs={}\tlive_real_fs={}\tlive_mpr={}\tlive_morphs={}\t\
                      live_mrule_apps={}\tlive_obligatory={}\tlive_unapplied_rule_counts={}\t\
                      live_root_runtime_id={}\tlive_non_heads={}\tlive_alternatives={}\t\
                      max_single_word_bytes={}\t\
@@ -2048,6 +2048,7 @@ fn run_batch_with_counter(
                     b.shape,
                     b.syn_fs,
                     b.real_fs,
+                    b.mpr,
                     b.morphs,
                     b.mrule_apps,
                     b.obligatory,

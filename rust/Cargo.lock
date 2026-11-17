@@ -871,6 +871,7 @@ name = "pg-ffi"
 version = "0.23.0"
 dependencies = [
  "cc",
+ "pg-conformance-fixtures",
  "pg-foma",
  "pg-foma-runtime",
  "pg-grammar",
@@ -1155,6 +1156,7 @@ version = "0.23.0"
 dependencies = [
  "console_error_panic_hook",
  "pg-analyzer",
+ "pg-conformance-fixtures",
  "pg-grammar",
  "pg-health",
  "pg-lexicon",

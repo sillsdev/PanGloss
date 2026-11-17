@@ -157,5 +157,53 @@ fn diagnostic_enablement_preserves_the_partial_flag_and_word_layout() {
             word.flags.set_is_partial(partial);
         }
     }
-    assert_eq!(std::mem::size_of::<Word>(), 160);
+    assert_eq!(std::mem::size_of::<Word>(), 168);
+}
+
+#[test]
+fn wide_mpr_memory_is_charged_without_changing_word_identity() {
+    let low = w();
+    let mut wide = low.clone();
+    wide.mpr.insert(pg_grammar_model::model::MprId(299));
+    assert_eq!(low.dedup_key(), wide.dedup_key());
+    assert!(low.dedup_key().matches(&wide));
+    let extra = wide.mpr.heap_bytes();
+    assert!(extra >= 5 * std::mem::size_of::<u64>());
+    assert_eq!(
+        estimate_word_bytes(&wide) - estimate_word_bytes(&low),
+        extra
+    );
+    assert_eq!(
+        retained_word_bytes(&wide) - retained_word_bytes(&low),
+        extra
+    );
+    let clone = wide.clone();
+    assert_eq!(estimate_word_bytes(&clone), estimate_word_bytes(&wide));
+}
+
+#[test]
+fn supplied_mpr_charges_include_each_retained_nonhead_payload() {
+    let mut word = w();
+    let mut mpr = MprSet::EMPTY;
+    mpr.insert(pg_grammar_model::model::MprId(299));
+    let charge = std::mem::size_of::<MprSet>() - 8 + mpr.heap_bytes();
+    let root = SuppliedRootData {
+        entry_id: "root".into(),
+        realization_id: "root:299".into(),
+        authority: SuppliedAuthorityData::Supplied,
+        lexical_spelling: "a".into(),
+        gloss: String::new(),
+        syn_fs: FeatureStruct::EMPTY,
+        mpr,
+        stratum: StratumId(0),
+    };
+    let record = MorphRecord::new(AllomorphId::GUESSED, MorphemeId(0), 0)
+        .with_runtime_root(RuntimeRoot::Supplied(root));
+    word.morphs = vec![record.clone(), record];
+    assert_eq!(estimate_word_bytes_breakdown(&word).mpr, 2 * charge);
+    let charged = retained_word_bytes(&word);
+    for morph in &mut word.morphs {
+        morph.runtime_root = None;
+    }
+    assert_eq!(charged - retained_word_bytes(&word), 2 * charge);
 }

@@ -1355,18 +1355,18 @@ pub(crate) fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
         any_rule = true;
         for (i, entry) in g.entries.iter().enumerate() {
             let id = LexEntryId(i as u32);
-            if rule.head_prod_restrictions_mpr.compound_match(entry.mpr)
+            if rule.head_prod_restrictions_mpr.compound_match(&entry.mpr)
                 && (rule.subrules.is_empty()
                     || rule
                         .subrules
                         .iter()
-                        .any(|sr| g.mpr_group_ok(sr.required_mpr, sr.excluded_mpr, entry.mpr)))
+                        .any(|sr| g.mpr_group_ok(&sr.required_mpr, &sr.excluded_mpr, &entry.mpr)))
             {
                 head_eligible.insert(id);
             }
             if rule
                 .non_head_prod_restrictions_mpr
-                .compound_match(entry.mpr)
+                .compound_match(&entry.mpr)
             {
                 non_head_eligible.insert(id);
             }
@@ -3072,7 +3072,7 @@ fn build_structural_composites_on_current_stack(
                 };
                 let mut word = Word::new(shape, root_stratum);
                 word.syn_fs = entry_fs.clone();
-                word.mpr = entry.mpr;
+                word.mpr = entry.mpr.clone();
                 word.root_allomorph = Some(allo.id);
                 word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
                 candidate_pairs_pruned =

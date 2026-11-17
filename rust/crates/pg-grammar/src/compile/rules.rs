@@ -275,7 +275,7 @@ fn build_subrule(
             format!("rule feature {f:?} does not resolve"),
         );
         if let Some(s) = resolved {
-            required_mpr = required_mpr.union(s);
+            required_mpr = required_mpr.union(&s);
         }
     }
     let mut excluded_mpr = crate::model::MprSet::EMPTY;
@@ -295,7 +295,7 @@ fn build_subrule(
             format!("rule feature {f:?} does not resolve"),
         );
         if let Some(s) = resolved {
-            excluded_mpr = excluded_mpr.union(s);
+            excluded_mpr = excluded_mpr.union(&s);
         }
     }
 

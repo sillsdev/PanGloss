@@ -120,7 +120,7 @@ impl DeltaWord {
             stratum: input.stratum,
             syn_fs: self.syn_fs,
             real_fs: input.real_fs.clone(),
-            mpr: input.mpr,
+            mpr: input.mpr.clone(),
             morphs: input.morphs.clone(),
             extras: input.extras.clone(),
             non_head_app_index: input.non_head_app_index,

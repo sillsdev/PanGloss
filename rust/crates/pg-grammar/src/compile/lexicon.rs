@@ -489,7 +489,7 @@ fn build_stem_entry(
             format!("MSA {guid:?}: inflection class {ic:?} does not resolve"),
         );
         if let Some(s) = resolved {
-            mpr = mpr.union(s);
+            mpr = mpr.union(&s);
         }
     }
     for f in exception_features {
@@ -508,7 +508,7 @@ fn build_stem_entry(
             format!("MSA {guid:?}: exception feature {f:?} does not resolve"),
         );
         if let Some(s) = resolved {
-            mpr = mpr.union(s);
+            mpr = mpr.union(&s);
         }
     }
     if let Some(it) = infl_type {
@@ -530,7 +530,7 @@ fn build_stem_entry(
             ),
         );
         if let Some(s) = resolved {
-            mpr = mpr.union(s);
+            mpr = mpr.union(&s);
         }
     }
 
@@ -944,17 +944,17 @@ fn build_variant_stem_entry(
     let mut mpr = crate::model::MprSet::EMPTY;
     if let Some(ic) = &infl_class_guid {
         if let Some(s) = ctx.mpr.infl_class_single(ic) {
-            mpr = mpr.union(s);
+            mpr = mpr.union(&s);
         }
     }
     for f in exception_features {
         if let Some(s) = ctx.mpr.exception_feature(f) {
-            mpr = mpr.union(s);
+            mpr = mpr.union(&s);
         }
     }
     if let Some(it) = infl_type {
         if let Some(s) = ctx.mpr.lex_entry_infl_type(&it.guid) {
-            mpr = mpr.union(s);
+            mpr = mpr.union(&s);
         }
     }
 

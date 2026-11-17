@@ -149,23 +149,15 @@ fn mpr_morphology(n: usize) -> impl FnOnce(&mut Morphology) {
 }
 
 #[test]
-fn mpr_cap_64_compiles_and_65_names_the_breakdown() {
-    assert_eq!(limit_code(&with_morphology(mpr_morphology(64))), None);
-    let (code, message) =
-        limit_code(&with_morphology(mpr_morphology(65))).expect("65 MPR features must be refused");
-    assert_eq!(code, ImportWarningCode::LimitMprFeatures);
-    assert!(
-        message.contains("65 inflection classes, exception features")
-            && message.contains(
-                "40 inflection classes including subclasses, 25 exception features, 0 entry"
-            )
-            && message.contains("at most 64"),
-        "{message}"
-    );
+fn mpr_inventory_spans_the_former_word_and_byte_boundaries() {
+    for count in [64, 65, 256, 300] {
+        let (grammar, _) = compile_project(&with_morphology(mpr_morphology(count))).unwrap();
+        assert_eq!(grammar.mpr_features.len(), count);
+    }
 }
 
 #[test]
-fn mpr_wide_nested_sibling_classes_share_the_cap_with_exceptions_and_entry_types() {
+fn mpr_wide_nested_sibling_classes_share_the_inventory_with_exceptions_and_entry_types() {
     use pg_snapshot::morphology::LexEntryInflType;
 
     let snapshot = with_morphology(|m| {
@@ -199,13 +191,12 @@ fn mpr_wide_nested_sibling_classes_share_the_cap_with_exceptions_and_entry_types
             inflection_features: None,
         }];
     });
-    let (code, message) = limit_code(&snapshot).expect("wide MPR remains refused in slice 1");
-    assert_eq!(code, ImportWarningCode::LimitMprFeatures);
-    assert!(
-        message.contains("303 inflection classes, exception features")
-            && message.contains(
-                "300 inflection classes including subclasses, 2 exception features, 1 entry"
-            ),
-        "{message}"
-    );
+    let (grammar, _) =
+        compile_project(&snapshot).expect("303 features must compile without aliasing");
+    assert_eq!(grammar.mpr_features.len(), 303);
+    let classes = &grammar.mpr_groups[0].members;
+    for id in [0, 63, 64, 127, 128, 255, 256, 299] {
+        assert!(classes.contains(pg_grammar_model::model::MprId(id)));
+    }
+    assert!(!classes.contains(pg_grammar_model::model::MprId(300)));
 }

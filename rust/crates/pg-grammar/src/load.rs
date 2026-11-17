@@ -15,7 +15,7 @@
 //! ## v1 lint surface (plan §8 layer 6; see `crate::model` docs)
 //! `FootFeatures`, `StemName`, `Family` (with entries), `MetathesisRule`, `RealizationalRule`,
 //! `MorphemeCoOccurrenceRule`, `AllomorphCoOccurrenceRule`, `AlphaVariable` in an allomorph
-//! environment, >=64 symbols in a symbolic feature, and >64 MPR features all lint
+//! environment and >=64 symbols in a symbolic feature lint
 //! `GrammarError::Unsupported` → managed fallback. The three reference grammars contain none
 //! of these, so a correct loader loads all three without an `Unsupported` error.
 
@@ -378,7 +378,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             )
             .filter(|e| e.is_active())
             .count();
-        if count > crate::limits::MAX_MPR_FEATURES {
+        if count as u64 > crate::limits::MAX_MPR_FEATURES {
             return Err(crate::limits::mpr_features(
                 count,
                 "this grammar file has",
@@ -393,7 +393,11 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             .filter(|e| e.is_active())
         {
             let id = mf.attr("id").unwrap_or("").to_string();
-            mpr_index.insert(id.clone(), MprId(mpr_names.len() as u8));
+            mpr_index.insert(
+                id.clone(),
+                MprId::try_from(mpr_names.len())
+                    .map_err(|_| crate::limits::mpr_features(count, "this grammar file has", ""))?,
+            );
             mpr_features.push(MprFeatureDef {
                 xml_id: id,
                 name: mf.text.clone(),

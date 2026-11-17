@@ -173,3 +173,142 @@ fn batch_pool_build_failure_maps_to_invalid_argument_and_handle_is_reusable() {
         crate::hc_grammar_free(raw)
     };
 }
+
+#[test]
+fn wide_mpr_native_json_round_trips_supplied_generation() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let handle = GrammarHandle::new(pg_grammar::load(&xml).unwrap(), &xml);
+    let signature = handle
+        .runtime
+        .catalog()
+        .signatures()
+        .iter()
+        .find(|s| s.mpr.iter().any(|m| m.id == "ic299"))
+        .unwrap()
+        .id
+        .clone();
+    handle
+        .runtime
+        .add(pg_lexicon::AddRequest {
+            stem: "pala".into(),
+            gloss: String::new(),
+            signatures: vec![signature],
+            expected_revision: None,
+        })
+        .unwrap();
+    let raw = Box::into_raw(handle).cast();
+    let request = br#"{"word":"palasaaaaaai"}"#;
+    let mut out = HcResultBuf::EMPTY;
+    assert_eq!(
+        unsafe { hc_analyze_word_json(raw, request.as_ptr(), request.len(), &mut out) },
+        HC_OK
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) }).unwrap();
+    unsafe { hc_buf_free(&mut out) };
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["value"]["capped"], false);
+    let analysis = parsed["value"]["structured"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| !a["suppliedRoot"].is_null())
+        .unwrap();
+    assert_eq!(
+        analysis["suppliedRoot"]["mpr"],
+        serde_json::json!({"version":1,"ids":[299]})
+    );
+    let generation = serde_json::to_vec(
+        &serde_json::json!({"revision":parsed["value"]["revision"], "analysis":analysis}),
+    )
+    .unwrap();
+    assert_eq!(
+        unsafe {
+            crate::hc_generate_words_json(raw, generation.as_ptr(), generation.len(), &mut out)
+        },
+        HC_OK
+    );
+    let generated: serde_json::Value =
+        serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) }).unwrap();
+    assert_eq!(generated["ok"], true);
+    assert_eq!(
+        generated["value"]["words"],
+        serde_json::json!(["palasaaaaaai"])
+    );
+    unsafe {
+        hc_buf_free(&mut out);
+        crate::hc_grammar_free(raw);
+    }
+}
+#[path = "../../../../test-support/mpr_allocation.rs"]
+mod mpr_allocation;
+
+#[test]
+fn untrusted_mpr_ids_do_not_expand_before_host_validation() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let raw = Box::into_raw(GrammarHandle::new(pg_grammar::load(&xml).unwrap(), &xml)).cast();
+    for handle in [std::ptr::null_mut(), raw] {
+        for id in [0, 67_108_863, 268_435_455] {
+            let request = serde_json::to_vec(&mpr_allocation::request(id)).unwrap();
+            let mut out = HcResultBuf::EMPTY;
+            let (code, largest) = mpr_allocation::measured(|| unsafe {
+                crate::hc_generate_words_json(handle, request.as_ptr(), request.len(), &mut out)
+            });
+            let response: serde_json::Value =
+                serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                    .unwrap();
+            unsafe { hc_buf_free(&mut out) };
+            assert_eq!(code, HC_OK);
+            assert!(largest < 65_536, "ID {id} allocated {largest} bytes");
+            assert_eq!(response["ok"], false);
+            assert_eq!(
+                response["error"]["code"],
+                if handle.is_null() {
+                    "null_handle"
+                } else {
+                    "revision_conflict"
+                }
+            );
+        }
+    }
+    unsafe { crate::hc_grammar_free(raw) };
+}
+
+#[test]
+fn host_generation_rejects_out_of_inventory_mpr_in_every_payload_before_expansion() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let grammar = pg_grammar::load(&xml).unwrap();
+    assert_eq!(grammar.mpr_features.len(), 303);
+    let handle = GrammarHandle::new(grammar, &xml);
+    let revision = serde_json::to_value(handle.runtime.snapshot().revision()).unwrap();
+    let raw = Box::into_raw(handle).cast();
+    for id in [303, 67_108_863, 268_435_455, u32::MAX] {
+        for location in 0..3 {
+            let mut request = mpr_allocation::request_at(id, location);
+            request["revision"] = revision.clone();
+            let request = serde_json::to_vec(&request).unwrap();
+            let mut out = HcResultBuf::EMPTY;
+            let (code, largest) = mpr_allocation::measured(|| unsafe {
+                crate::hc_generate_words_json(raw, request.as_ptr(), request.len(), &mut out)
+            });
+            let response: serde_json::Value =
+                serde_json::from_slice(unsafe { std::slice::from_raw_parts(out.data, out.len) })
+                    .unwrap();
+            unsafe { hc_buf_free(&mut out) };
+            assert_eq!(code, HC_OK);
+            assert!(
+                largest < 65_536,
+                "ID {id} at {location} allocated {largest} bytes"
+            );
+            assert_eq!(response["ok"], false);
+            assert_eq!(response["error"]["code"], "invalid_mpr_id", "{response}");
+        }
+    }
+    unsafe { crate::hc_grammar_free(raw) };
+}

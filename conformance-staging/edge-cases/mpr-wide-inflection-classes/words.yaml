@@ -126,20 +126,20 @@ words:
   - word: balunu
     note: entry type excludes slot
     expect_fail: true
-  - word: balakbala
+  - word: balabala
     note: compound high exception gates admit
     parses:
-      - signature: "eBoth|balakbala"
+      - signature: "eBoth|bala+?bala"
         rules: [compound]
-  - word: balakbali
+  - word: balabali
     note: nonhead missing high exception gate blocks
     expect_fail: true
-  - word: balikbala
+  - word: balibala
     note: head exception gate admits
     parses:
-      - signature: "eOne+eBoth|balikbala"
+      - signature: "eOne+eBoth|bali+?bala"
         rules: [compound]
-  - word: balukbala
+  - word: balubala
     note: head missing high exception gate blocks
     expect_fail: true
   - word: kibala
@@ -150,7 +150,7 @@ words:
   - word: kibalamu
     note: overwrite removes A so All group blocks
     expect_fail: true
-  - word: balakbalamu
+  - word: balabalamu
     note: compound output overwrites exception group
     expect_fail: true
   - word: balu

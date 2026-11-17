@@ -564,7 +564,7 @@ fn build_splice_composites(
                 };
                 let mut word = Word::new(shape, root_stratum);
                 word.syn_fs = entry_fs.clone();
-                word.mpr = entry.mpr;
+                word.mpr = entry.mpr.clone();
                 word.root_allomorph = Some(allo.id);
                 word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
                 let root_tag = tags::root_tag_lexc(entry.morpheme, width);

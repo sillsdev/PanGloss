@@ -202,7 +202,7 @@ fn phonological_rewrite(
     from: u32,
     to: u32,
     required_pos: Option<SymbolBits>,
-    required_mpr: MprSet,
+    required_mpr: &MprSet,
 ) -> RewriteRuleDef {
     RewriteRuleDef {
         xml_id: format!("stratum-gate-{from}-{to}"),
@@ -217,7 +217,7 @@ fn phonological_rewrite(
         },
         subrules: vec![RewriteSubruleDef {
             required_pos,
-            required_mpr,
+            required_mpr: required_mpr.clone(),
             excluded_mpr: MprSet::EMPTY,
             rhs: Pattern {
                 nodes: vec![PatternNode::CharDef(pg_grammar_model::chardef::CharDefId(
@@ -248,9 +248,9 @@ fn ordered_phonology_fixture(with_second_rule: bool, reverse_order: bool) -> (Gr
     let (p, b, g_seg) = (cd(&g, "char_p"), cd(&g, "char_b"), cd(&g, "char_g"));
     let p_to_b = push_prule(
         &mut g,
-        phonological_rewrite(p, b, Some(SymbolBits::single(0)), required),
+        phonological_rewrite(p, b, Some(SymbolBits::single(0)), &required),
     );
-    let b_to_g = push_prule(&mut g, phonological_rewrite(b, g_seg, None, MprSet::EMPTY));
+    let b_to_g = push_prule(&mut g, phonological_rewrite(b, g_seg, None, &MprSet::EMPTY));
     let stratum = push_stratum(&mut g, MorphRuleOrder::Linear, vec![], vec![]);
     g.strata[stratum.0 as usize].prules = if with_second_rule {
         if reverse_order {
@@ -1037,7 +1037,7 @@ fn final_template_state_resets_only_on_entry_to_a_blocking_stratum() {
 
     // A phonological rule makes `inner` block, which clears the state on entry.
     let p = cd(&g, "char_p");
-    let noop = push_prule(&mut g, phonological_rewrite(p, p, None, MprSet::EMPTY));
+    let noop = push_prule(&mut g, phonological_rewrite(p, p, None, &MprSet::EMPTY));
     g.strata[inner.0 as usize].prules = vec![noop];
     assert!(g.is_blocking_stratum(inner, |_| true));
     let inner_result = analyze_stratum_filtered_ruled_traced_with_policy(

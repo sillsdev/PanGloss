@@ -362,7 +362,7 @@ fn analyze_word_can_analyze_returns_correct_analysis() {
         root_morpheme_index: 0,
         pos_id: Some(want_pos),
         syn_fs: outcome.structured[0].syn_fs.clone(),
-        mpr: outcome.structured[0].mpr,
+        mpr: outcome.structured[0].mpr.clone(),
         guessed: false,
         guessed_string: outcome.structured[0].guessed_string.clone(),
         guessed_pattern: None,

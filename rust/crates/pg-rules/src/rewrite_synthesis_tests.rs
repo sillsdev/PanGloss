@@ -114,7 +114,7 @@ fn probing_a_mixed_rule_keeps_deleted_nodes_and_matches_synthesis() {
             &mut ms,
             &cache,
             &FeatureStruct::EMPTY,
-            MprSet::EMPTY
+            &MprSet::EMPTY
         ),
         ProbeOutcome::Applied
     ));
@@ -146,7 +146,7 @@ fn feeding_uses_the_same_result_for_plain_cached_and_traced_synthesis() {
         rule,
         &input,
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &cache,
     );
     let sink = TreeTraceSink::new();
@@ -157,7 +157,7 @@ fn feeding_uses_the_same_result_for_plain_cached_and_traced_synthesis() {
         rule,
         &input,
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         parent,
     );
@@ -207,7 +207,7 @@ fn rtl_epenthesis_resumes_before_the_inserted_sequence_in_every_route() {
                 rule,
                 &input,
                 &FeatureStruct::EMPTY,
-                MprSet::EMPTY,
+                &MprSet::EMPTY,
                 &cache,
             ),
             synthesize_with_mpr_traced(
@@ -216,7 +216,7 @@ fn rtl_epenthesis_resumes_before_the_inserted_sequence_in_every_route() {
                 rule,
                 &input,
                 &FeatureStruct::EMPTY,
-                MprSet::EMPTY,
+                &MprSet::EMPTY,
                 &sink,
                 parent,
             ),

@@ -61,3 +61,15 @@ fn disposition_follows_the_worst_requirement_row() {
         ExecutionDisposition::ExactFst
     );
 }
+
+#[test]
+fn mpr_wire_ids_cover_the_full_u32_identity_space() {
+    for value in [255, 256, 299, u32::MAX] {
+        let wire = WireModelId::from(MprId(value));
+        assert!(wire.has_valid_range());
+        assert_eq!(MprId::try_from(wire).unwrap(), MprId(value));
+    }
+    let invalid = WireModelId { kind: WireModelKind::Mpr, value: u32::MAX as u64 + 1 };
+    assert!(!invalid.has_valid_range());
+    assert!(MprId::try_from(invalid).is_err());
+}

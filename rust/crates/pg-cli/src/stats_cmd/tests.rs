@@ -3758,3 +3758,148 @@ fn gate_inverse_output_conflicts_have_their_own_persisted_identity() {
         }
     }
 }
+
+#[test]
+fn wide_mpr_cache_profiles_preserve_replay_and_attribution() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let words = fixture
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|w| w.word)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let mut baseline = None;
+    for compact in [false, true] {
+        for packed in [false, true] {
+            let dir = scratch_dir("wide-mpr-cache");
+            let cache = dir.join("stats.sqlite");
+            let manifest = dir.join("manifest.json");
+            let mut extra = vec![
+                "--stats",
+                "--cache",
+                cache.to_str().unwrap(),
+                "--stats-manifest",
+                manifest.to_str().unwrap(),
+                "--threads",
+                "1",
+                "--work-cap",
+                "unbounded",
+                "--prefilter",
+                "off",
+            ];
+            if compact {
+                extra.push("--stats-compact");
+            }
+            if packed {
+                extra.push("--cache-pack");
+            }
+            let (args, output) = run_batch_args(&dir, &xml, &words, &extra);
+            crate::run_batch(&args).unwrap();
+            let frozen = pg_stats::StatsCache::read_frozen_run(&cache, 1).unwrap();
+            assert_eq!(frozen.words.len(), 74);
+            assert!(frozen
+                .words
+                .iter()
+                .all(|w| !w.capped && !w.timed_out && !w.invalid_shape));
+            assert_eq!(
+                frozen.schema_version,
+                if compact {
+                    pg_stats::COMPACT_SCHEMA_VERSION
+                } else {
+                    pg_stats::SCHEMA_VERSION
+                }
+            );
+            let conn = pg_stats::pack::open_read(&cache).unwrap();
+            let mut statement = conn.prepare("SELECT o.kind,o.key,o.label,f.direction,SUM(f.attempts),SUM(f.outputs),SUM(f.uses) FROM fact f JOIN object o USING(object_id) GROUP BY o.kind,o.key,o.label,f.direction ORDER BY o.kind,o.key,o.label,f.direction").unwrap();
+            let attribution = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert!(attribution.iter().any(|row| row.2 == "r299" && row.6 > 0));
+            let gate_replay = render_gate(&conn, &Filters::default(), OutputFormat::Jsonl).unwrap();
+            let gate_rows: Vec<Value> = gate_replay
+                .lines()
+                .skip(1)
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            for key in ["ic064", "ic255", "ic256", "ic299"] {
+                assert!(
+                    gate_rows.iter().any(|row| {
+                        row["feature_key"] == key && row["passed"].as_u64().is_some_and(|n| n > 0)
+                    }),
+                    "missing wide gate {key}: compact={compact} packed={packed}"
+                );
+            }
+            let text = fs::read_to_string(output).unwrap();
+            let results = text
+                .lines()
+                .filter_map(|line| {
+                    let cells: Vec<_> = line.split('\t').collect();
+                    (cells.len() >= 5 && cells[0].parse::<usize>().is_ok() && cells[2] != "STARTED")
+                        .then(|| {
+                            (
+                                cells[0].to_owned(),
+                                cells[3].to_owned(),
+                                cells[4].to_owned(),
+                            )
+                        })
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(results.len(), 74);
+            let observed = (results, attribution, gate_rows);
+            if let Some(expected) = &baseline {
+                assert_eq!(&observed, expected, "compact={compact} packed={packed}");
+            } else {
+                baseline = Some(observed);
+            }
+            let replay_path = dir.join("replay.jsonl");
+            run_stats(&[
+                args[0].clone(),
+                "--cache".into(),
+                cache.to_string_lossy().into_owned(),
+                "--group".into(),
+                "object".into(),
+                "--format".into(),
+                "jsonl".into(),
+                "--top".into(),
+                "1000".into(),
+                "--out".into(),
+                replay_path.to_string_lossy().into_owned(),
+            ])
+            .expect("wide MPR frozen cache must replay through the CLI");
+            let replay = fs::read_to_string(replay_path).unwrap();
+            assert!(replay
+                .lines()
+                .skip(1)
+                .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+                .any(|row| {
+                    row["label"]
+                        .as_str()
+                        .is_some_and(|label| label.ends_with("r299"))
+                        && row["uses"].as_u64().is_some_and(|uses| uses > 0)
+                }));
+            let metadata: serde_json::Value =
+                serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+            assert_eq!(metadata["completion"]["complete"], 74);
+            assert_eq!(
+                metadata["cache"]["sha256"],
+                crate::stats_manifest::sha256_digest(&fs::read(cache).unwrap())
+            );
+        }
+    }
+}

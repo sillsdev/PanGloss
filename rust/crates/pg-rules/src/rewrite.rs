@@ -1586,7 +1586,7 @@ pub fn subrule_applicable(
     g: &Grammar,
     sr: &RewriteSubruleDef,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
 ) -> bool {
     subrule_gate_reason(g, sr, syn_fs, mpr, None).is_none()
 }
@@ -1678,7 +1678,7 @@ fn synthesize_sites(
     target: Option<&Fst>,
     envs: &[(&Option<EnvFst>, &Option<EnvFst>)],
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
     probe: bool,
     stats: Option<PRuleStatsCtx>,
 ) -> Vec<SubruleOutcome> {
@@ -2036,7 +2036,7 @@ fn shape_for_outcomes(ms: &MutShape, outcomes: &[SubruleOutcome]) -> Vec<Shape> 
 /// otherwise. A thin wrapper passing empty MPR and syntactic FS, so every subrule gate is vacuously
 /// satisfied. A caller that needs real gating must use `synthesize_with_mpr` directly.
 pub fn synthesize(g: &Grammar, rule: &RewriteRuleDef, input: &Shape) -> Vec<Shape> {
-    synthesize_with_mpr(g, rule, input, &FeatureStruct::EMPTY, MprSet::EMPTY)
+    synthesize_with_mpr(g, rule, input, &FeatureStruct::EMPTY, &MprSet::EMPTY)
 }
 
 /// Identical to `synthesize`, but gates each subrule against the synthesizing word's actual
@@ -2050,7 +2050,7 @@ pub fn synthesize_with_mpr(
     rule: &RewriteRuleDef,
     input: &Shape,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
 ) -> Vec<Shape> {
     let table_id = TableId(0);
     let table = &g.char_tables[table_id.0 as usize];
@@ -2083,7 +2083,7 @@ pub(crate) fn synthesize_with_mpr_cached(
     rule: &RewriteRuleDef,
     input: &Shape,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
     synthesize_with_mpr_cached_stats(g, pid, rule, input, syn_fs, mpr, cache, None)
@@ -2096,7 +2096,7 @@ pub(crate) fn synthesize_with_mpr_cached_stats(
     rule: &RewriteRuleDef,
     input: &Shape,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
     cache: &crate::cache::RuleCache,
     stats: Option<PRuleStatsCtx>,
 ) -> Vec<Shape> {
@@ -2133,7 +2133,7 @@ fn subrule_gate_reason(
     g: &Grammar,
     sr: &RewriteSubruleDef,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
     stats: Option<PRuleStatsCtx>,
 ) -> Option<FailureReason> {
     let pos_ok = required_pos_ok(g, &sr.required_pos, syn_fs);
@@ -2150,8 +2150,8 @@ fn subrule_gate_reason(
     }
     crate::gates::mpr_reason(
         g,
-        sr.required_mpr,
-        sr.excluded_mpr,
+        &sr.required_mpr,
+        &sr.excluded_mpr,
         mpr,
         stats.map(|ctx| (ctx.stats, crate::stats::ObjectKind::PhonRule, ctx.id.0)),
     )
@@ -2190,7 +2190,7 @@ pub fn synthesize_with_mpr_traced(
     rule: &RewriteRuleDef,
     input: &Shape,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Shape> {
@@ -2223,10 +2223,10 @@ pub fn synthesize_with_mpr_traced(
         StratumId(0),
     );
     out_word.syn_fs = syn_fs.clone();
-    out_word.mpr = mpr;
+    out_word.mpr = mpr.clone();
     let mut in_word = Word::new(input.clone(), StratumId(0));
     in_word.syn_fs = syn_fs.clone();
-    in_word.mpr = mpr;
+    in_word.mpr = mpr.clone();
     report_subrule_outcomes(trace, parent, pid, &outcomes, &in_word, &out_word);
     result
 }
@@ -2264,7 +2264,7 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
             rule,
             &input.shape,
             &input.syn_fs,
-            input.mpr,
+            &input.mpr,
             cache,
             stats,
         );
@@ -2281,7 +2281,7 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
         pc.syn_target.as_ref(),
         &synthesis_envs(pc),
         &input.syn_fs,
-        input.mpr,
+        &input.mpr,
         false,
         stats,
     );
@@ -3780,7 +3780,7 @@ pub(crate) fn probe_apply_rule_cached(
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
 ) -> ProbeOutcome {
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
@@ -3834,7 +3834,7 @@ pub(crate) fn probe_synthesize_stratum(
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
 ) -> ProbeOutcome {
     for &pid in prules {
         for n in ms.nodes.iter_mut() {

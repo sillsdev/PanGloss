@@ -237,7 +237,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             if let Some(ic) = from_inflection_class {
@@ -256,7 +256,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             set
@@ -281,7 +281,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             set
@@ -311,7 +311,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             if let Some(ic) = to_inflection_class {
@@ -330,7 +330,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             set
@@ -364,33 +364,35 @@ pub(crate) fn build_affix_rule(
 
     // A circumfix's allomorph set is the cross-product of its halves, not one def per stored form, so it is built from the whole bucket rather than per-allomorph.
     let pending_start = ctx.pending_rule_refusals.borrow().len();
-    let built: Vec<(Vec<String>, SourceMorphPlacement, AffixAllomorphDef)> =
-        if entry.lexeme_morph_type == MorphType::Circumfix {
-            build_circumfix_allomorphs(
-                entry,
-                &rule_form_allos,
-                msa,
-                required_mpr,
-                out_mpr,
-                mrule_id,
-                ctx,
-                acc,
-            )
-        } else {
-            rule_form_allos
-                .iter()
-                .flat_map(|allo| {
-                    let placement = match shape_of(allo.morph_type) {
-                        Some(Shape::Infix) => SourceMorphPlacement::InsertBeforeLast,
-                        _ => SourceMorphPlacement::Append,
-                    };
-                    build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, mrule_id, ctx, acc)
-                        .into_iter()
-                        .map(|def| (vec![allo.guid.clone()], placement, def))
-                        .collect::<Vec<_>>()
-                })
-                .collect()
-        };
+    let built: Vec<(Vec<String>, SourceMorphPlacement, AffixAllomorphDef)> = if entry
+        .lexeme_morph_type
+        == MorphType::Circumfix
+    {
+        build_circumfix_allomorphs(
+            entry,
+            &rule_form_allos,
+            msa,
+            &required_mpr,
+            &out_mpr,
+            mrule_id,
+            ctx,
+            acc,
+        )
+    } else {
+        rule_form_allos
+            .iter()
+            .flat_map(|allo| {
+                let placement = match shape_of(allo.morph_type) {
+                    Some(Shape::Infix) => SourceMorphPlacement::InsertBeforeLast,
+                    _ => SourceMorphPlacement::Append,
+                };
+                build_affix_allomorphs_for(allo, msa, &required_mpr, &out_mpr, mrule_id, ctx, acc)
+                    .into_iter()
+                    .map(|def| (vec![allo.guid.clone()], placement, def))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
 
     for allo in allos {
         let was_built = built
@@ -512,8 +514,8 @@ fn build_circumfix_allomorphs(
     entry: &LexEntry,
     allos: &[&Allomorph],
     msa: &Msa,
-    required_mpr: crate::model::MprSet,
-    out_mpr: crate::model::MprSet,
+    required_mpr: &crate::model::MprSet,
+    out_mpr: &crate::model::MprSet,
     mrule_id: MRuleId,
     ctx: &Ctx,
     acc: &mut Acc,
@@ -578,7 +580,7 @@ fn build_circumfix_allomorphs(
         let (prefix_infl_mpr, mut prefix_outcomes) =
             read_inflection_classes(prefix, allomorph_class_reading(msa), ctx);
         prefix_outcomes.extend(ignored_features(prefix));
-        let required_with_prefix = required_mpr.union(prefix_infl_mpr);
+        let required_with_prefix = required_mpr.union(&prefix_infl_mpr);
         for suffix in &suffixes {
             let mut suffix_outcomes = ignored_suffix_classes(suffix);
             suffix_outcomes.extend(ignored_features(suffix));
@@ -692,9 +694,9 @@ fn build_circumfix_allomorphs(
                                 .fs_interner
                                 .intern(pg_featstruct::FeatureStruct::EMPTY),
                             vars: crate::model::VarTable::default(),
-                            required_mpr: required_with_prefix,
+                            required_mpr: required_with_prefix.clone(),
                             excluded_mpr: crate::model::MprSet::EMPTY,
-                            out_mpr,
+                            out_mpr: out_mpr.clone(),
                             redup_hint: ReduplicationHint::Implicit,
                             lhs: vec![Pattern { nodes: lhs_nodes }],
                             // Leading AND trailing insert around one copy: what `pg_foma::emit::classify_affix` reads as `Role::CircumfixPrefix`.
@@ -1011,7 +1013,7 @@ fn read_inflection_classes(
             Err(reason) => (Effect::Ignored, Some(reason)),
             Ok(()) => match ctx.mpr.infl_class_with_descendants(class) {
                 Some(resolved) => {
-                    set = set.union(resolved);
+                    set = set.union(&resolved);
                     (Effect::Applied, None)
                 }
                 None => {
@@ -1097,8 +1099,8 @@ fn record_unbuilt_gates(allo: &Allomorph, ctx: &Ctx) {
 fn build_affix_allomorphs_for(
     allo: &Allomorph,
     msa: &Msa,
-    required_mpr: crate::model::MprSet,
-    out_mpr: crate::model::MprSet,
+    required_mpr: &crate::model::MprSet,
+    out_mpr: &crate::model::MprSet,
     mrule_id: MRuleId,
     ctx: &Ctx,
     acc: &mut Acc,
@@ -1113,7 +1115,7 @@ fn build_affix_allomorphs_for(
             allo,
             process,
             required_mpr,
-            allo_infl_mpr,
+            &allo_infl_mpr,
             out_mpr,
             ctx,
             acc,
@@ -1242,9 +1244,9 @@ fn build_affix_allomorphs_for(
                     co_occurrence: Vec::new(),
                     required_syn_fs,
                     vars: crate::model::VarTable::default(),
-                    required_mpr: required_mpr.union(allo_infl_mpr),
+                    required_mpr: required_mpr.union(&allo_infl_mpr),
                     excluded_mpr: crate::model::MprSet::EMPTY,
-                    out_mpr,
+                    out_mpr: out_mpr.clone(),
                     // The reduplication branch sets no hint; `[...]` and literal forms set it from the morph type.
                     redup_hint: match allo.morph_type {
                         MorphType::Prefix
@@ -1550,9 +1552,9 @@ fn resolve_environments(
 fn build_process_allomorph(
     allo: &Allomorph,
     process: &pg_snapshot::lexicon::AffixProcess,
-    required_mpr: crate::model::MprSet,
-    allo_infl_mpr: crate::model::MprSet,
-    out_mpr: crate::model::MprSet,
+    required_mpr: &crate::model::MprSet,
+    allo_infl_mpr: &crate::model::MprSet,
+    out_mpr: &crate::model::MprSet,
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Result<AffixAllomorphDef, String> {
@@ -1632,7 +1634,7 @@ fn build_process_allomorph(
         vars: crate::model::VarTable::default(),
         required_mpr: required_mpr.union(allo_infl_mpr),
         excluded_mpr: crate::model::MprSet::EMPTY,
-        out_mpr,
+        out_mpr: out_mpr.clone(),
         redup_hint,
         lhs,
         rhs,

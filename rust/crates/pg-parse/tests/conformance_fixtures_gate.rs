@@ -527,3 +527,73 @@ fn alpha_bindings_subsume_both_environment_sides_and_targets() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn mpr_wide_inventory_replays_all_csharp_statuses_and_signatures() {
+    let fixture = require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let words = fixture.load_words_yaml();
+    assert_eq!(words.words.len(), 74);
+    assert!(words.skip_in_generic_replay().is_none());
+    let grammar = fixture.load_grammar_with_settings(&words.morpher);
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    assert_eq!(
+        assert_matches_oracle(&fixture.label(), &words, &morpher),
+        74
+    );
+}
+
+#[test]
+fn mpr_wide_generation_matches_csharp_boundary_cross_product() {
+    use pg_featstruct::FeatureStruct;
+    use pg_parse::GenMorpheme;
+    let fixture = require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let ids = [63, 64, 127, 128, 255, 256, 299];
+    for (j, root) in ids.iter().enumerate() {
+        let entry = grammar
+            .entries
+            .iter()
+            .position(|e| e.authored_id == format!("e{root:03}"))
+            .unwrap();
+        for (k, rule) in ids.iter().enumerate() {
+            let rule = grammar
+                .mrules
+                .iter()
+                .position(|r| r.authored_name() == Some(format!("r{rule:03}").as_str()))
+                .unwrap();
+            let found = morpher.generate_words(
+                pg_grammar_model::model::LexEntryId(entry as u32),
+                &[GenMorpheme::Rule(pg_grammar_model::model::MRuleId(
+                    rule as u32,
+                ))],
+                FeatureStruct::EMPTY,
+            );
+            let expected = if j == k {
+                vec![format!("pa{}as{}i", "l".repeat(j), "a".repeat(k))]
+            } else {
+                vec![]
+            };
+            assert_eq!(found, expected, "root {root}, rule index {k}");
+        }
+    }
+    let root = grammar
+        .entries
+        .iter()
+        .position(|e| e.authored_id == "eBoth")
+        .unwrap();
+    let rule = grammar
+        .mrules
+        .iter()
+        .position(|r| r.authored_name() == Some("r256"))
+        .unwrap();
+    assert!(morpher
+        .generate_words(
+            pg_grammar_model::model::LexEntryId(root as u32),
+            &[GenMorpheme::Rule(pg_grammar_model::model::MRuleId(
+                rule as u32
+            ))],
+            FeatureStruct::EMPTY
+        )
+        .is_empty());
+}

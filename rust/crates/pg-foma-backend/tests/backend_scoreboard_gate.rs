@@ -46,7 +46,7 @@ impl Bucket {
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 122,
+        oracle_exact: 123,
         compiles_but_misses: 0,
         refused: 104,
         unmeasurable: 0,
@@ -95,6 +95,8 @@ const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
     "staging:edge-cases/rewrite-default-narrow",
 ];
 
+const MPR_WIDE_FIXTURE: &str = "staging:edge-cases/mpr-wide-inflection-classes";
+
 const PER_SITE_ALPHA_FIXTURE: &str = "staging:edge-cases/per-site-alpha-rewrite";
 const PROPOSING_REVIEW_FIXTURES: &[&str] = &[
     "staging:edge-cases/bounded-iterative-epenthesis",
@@ -119,6 +121,7 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
             FEATURE_CLASS_BOUNDED_RTL_FIXTURE | FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE,
             TunedSurfaceProbed,
         ) => "refused",
+        (MPR_WIDE_FIXTURE, TunedSurfaceProbed) => "oracle_exact",
         (f, TunedSurfaceProbed) if PROPOSING_REVIEW_FIXTURES.contains(&f) => "oracle_exact",
         (f, TunedSurfaceProbed)
             if f == REWRITE_DEFAULT_EPENTHESIS
@@ -217,7 +220,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                             ));
                         }
                     }
-                    if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
+                    if row.label == MPR_WIDE_FIXTURE
+                        || row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         || row.label == REALIZATIONAL_UNBOUNDED_FIXTURE
                         || row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE
                         || row.label == BOUNDARY_NARROWING_FIXTURE
@@ -231,7 +235,9 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                             .iter()
                             .any(|fixture| row.label == *fixture)
                     {
-                        let f = if row.label == PER_SITE_ALPHA_FIXTURE {
+                        let f = if row.label == MPR_WIDE_FIXTURE {
+                            MPR_WIDE_FIXTURE
+                        } else if row.label == PER_SITE_ALPHA_FIXTURE {
                             PER_SITE_ALPHA_FIXTURE
                         } else if PROPOSING_REVIEW_FIXTURES.contains(&row.label.as_str()) {
                             PROPOSING_REVIEW_FIXTURES
@@ -325,7 +331,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        (8 + PROPOSING_REVIEW_FIXTURES.len()
+        (9 + PROPOSING_REVIEW_FIXTURES.len()
             + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len()
             + REWRITE_DEFAULT_FIXTURES.len())
             * ALL_STRATEGIES.len(),

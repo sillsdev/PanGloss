@@ -19,13 +19,13 @@ pub enum RootAuthority {
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SuppliedRoot {
+pub struct SuppliedRoot<Mpr = MprSet> {
     pub entry_id: String,
     pub realization_id: String,
     pub lexical_spelling: String,
     pub gloss: String,
     pub syn_fs: FeatureStruct,
-    pub mpr: MprSet,
+    pub mpr: Mpr,
     pub stratum: StratumId,
     pub authority: RootAuthority,
 }
@@ -210,6 +210,25 @@ impl OverlayTrie {
     }
 }
 
+impl<Mpr> SuppliedRoot<Mpr> {
+    /// Converts the wire representation without duplicating the root payload's field schema.
+    pub fn try_map_mpr<E>(
+        self,
+        map: impl FnOnce(Mpr) -> Result<MprSet, E>,
+    ) -> Result<SuppliedRoot, E> {
+        Ok(SuppliedRoot {
+            entry_id: self.entry_id,
+            realization_id: self.realization_id,
+            lexical_spelling: self.lexical_spelling,
+            gloss: self.gloss,
+            syn_fs: self.syn_fs,
+            mpr: map(self.mpr)?,
+            stratum: self.stratum,
+            authority: self.authority,
+        })
+    }
+}
+
 impl SuppliedRoot {
     /// Head-analysis provenance from this canonical root's published authority.
     pub fn provenance(&self) -> crate::AnalysisProvenance {
@@ -242,7 +261,7 @@ impl SuppliedRoot {
             lexical_spelling: self.lexical_spelling.clone(),
             gloss: self.gloss.clone(),
             syn_fs: self.syn_fs.clone(),
-            mpr: self.mpr,
+            mpr: self.mpr.clone(),
             stratum: self.stratum,
         }
     }
@@ -262,7 +281,7 @@ impl SuppliedRoot {
             lexical_spelling: root.lexical_spelling.clone(),
             gloss: root.gloss.clone(),
             syn_fs: root.syn_fs.clone(),
-            mpr: root.mpr,
+            mpr: root.mpr.clone(),
             stratum: root.stratum,
             authority,
         }

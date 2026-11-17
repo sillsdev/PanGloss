@@ -360,7 +360,7 @@ pub fn lexical_guess(
             nw.shape = fab_shape;
             nw.stratum = fab_stratum;
             nw.syn_fs = g.fs_interner.get(owning_entry.syn_fs).clone();
-            nw.mpr = owning_entry.mpr;
+            nw.mpr = owning_entry.mpr.clone();
             nw.flags.set_is_partial(owning_entry.is_partial());
             nw.root_allomorph = Some(AllomorphId::GUESSED);
             let runtime = pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {

@@ -48,7 +48,7 @@ pub struct ProbeSeg {
 /// 417-segment-alphabet probing (the plan's own ~112s C# figure) into something orders of magnitude
 /// worse. See `crate::rewrite::probe_apply_rule_cached`'s doc for the measured motivation.
 pub fn probe_synthesize(g: &Grammar, shape: &Shape, cache: &RuleCache) -> Option<Vec<ProbeSeg>> {
-    probe_synthesize_for(g, shape, cache, &FeatureStruct::EMPTY, MprSet::EMPTY)
+    probe_synthesize_for(g, shape, cache, &FeatureStruct::EMPTY, &MprSet::EMPTY)
 }
 
 /// `probe_synthesize` for a word whose syntactic FS and MPR set are known, so part-of-speech and MPR gated subrules apply exactly as they would to that word.
@@ -57,7 +57,7 @@ pub fn probe_synthesize_for(
     shape: &Shape,
     cache: &RuleCache,
     syn_fs: &FeatureStruct,
-    mpr: MprSet,
+    mpr: &MprSet,
 ) -> Option<Vec<ProbeSeg>> {
     let mut ms = MutShape::from_shape(shape);
     for sd in &g.strata {

@@ -282,3 +282,66 @@ The `adjacent-nullable-copies` staged fixture adds one `TunedSurfaceProbed` `ora
 This is an inventory increase, not a changed verdict for an existing fixture. Its four word
 expectations were replayed on C#; the Rust capture-packing/folding tests separately bound retained
 state and work. The complete workspace run measured all cells before this ratchet update.
+
+## Wide MPR inventory admission (#150), historical segment-linker fixture
+
+Moving `mpr-wide-inflection-classes` from the dedicated refusal category into `edge-cases`
+adds one discoverable, loadable fixture. TunedSurfaceProbed remains at 174 oracle-exact and
+24 refused cells; known-miss cells increase from 14 to 15, with zero unmeasurable cells.
+The fixture is pinned explicitly rather than excluded. Its full HC replay matches C# on
+all 74 words (24 accepted identities), while FST propose-and-confirm retains 22 identities:
+two missing, zero extra, all 74 occurrences compared, no admission-key collisions.
+
+`mpr_wide_low_reindexing_preserves_every_backend_divergence` removes only unreferenced MPR
+declarations and group members from the same XML. The resulting inventory fits below 64;
+root/rule references and all 74 C# statuses and signature multisets remain unchanged.
+Every backend outcome and both identity-divergence directions equal the 303-feature result.
+Thus the two FST misses reproduce independently of width; widening grants no capability
+and does not claim full FST recall on this fixture.
+
+The newly observed fixture also exhibits `Compounding` and `MprGroupOverwrite`, extending
+the containment failure inventory from 11 to 13 pairs. The gate separately retains the
+11-pair ratchet over the entire prior inventory and asserts those exact two added pairs.
+The full census has a 13-pair ratchet and the unchanged zero-overgeneration invariant.
+No prior fixture is removed, no refusal or resource threshold is relaxed, and improvements
+or additional divergence still require a deliberate expectation update.
+
+## Wide MPR fixture correction after #339
+
+The zero-recall-gap gate introduced by #339 exposed the old fixture's two missing
+compound identities. Source: fixture/data. `HCLoader.LoadEndoCompoundingRule`
+(`Src/LexText/ParserCore/HCLoader.cs:1955–1957`) inserts a `+` boundary, while the
+fixture inserted the segment `k`, a compound linker FieldWorks cannot author. Under
+ADR 0014 this is no engine fix: the fixture now uses that boundary and its five
+compound input controls use the corresponding surface forms. C# at Machine pin
+`1ddef2bd2f1503717de95556116df8e4a63846d6` passes all 74 corrected expectations,
+including the two boundary-bearing signatures. The case remains at
+`conformance-staging/edge-cases/mpr-wide-inflection-classes`.
+
+The corrected fixture additionally exposed a Rust FST confirmation bug: tag decoding
+collapses adjacent repeated root tags to one identity, so an extra-root-count filter
+incorrectly disabled self-compounding. The FST runtime now allows compound rules
+under the candidate's lexical pins, with unchanged exact identity routing. The
+74-row low/wide test fails before this fix on the self-compound and passes after it.
+C# accepts the corresponding corrected row; no C# algorithm change is involved.
+
+The current scoreboard adds one oracle-exact cell to #339's inventory: 123 exact,
+zero compile-but-miss, 104 refused, zero unmeasurable. The low-ID control and the
+303-feature grammar must both be oracle-exact, measure all 74 occurrences and
+have zero identity divergence in both directions. The faithfulness gate retains
+the prior 11-pair ceiling and requires no added failure pair from this fixture.
+The historical 14-to-15 and 11-to-13 changes above describe the superseded fixture.
+
+### Confirmation grouping: retained historical measurements
+
+The old `confirm_batch` API comment recorded four Sena 40-word confirmation totals:
+400 ms per candidate; 339 ms for a global rule union (one word became 5x slower);
+233 ms for root-set groups with a full rule union (that word still 3x slower);
+356 ms for exact root-set/rule-set groups. The bounded-rule-union grouping was
+followed by cross-root fusion on identical rule filters. One recorded word had
+four distinct-root chunks sharing seven rule IDs at 50–66 ms per chunk; fusion
+kept one analysis pass. These are historical observations, not measurements of
+the self-compound fix. Lexical filters act at lookup/synthesis; exact identity
+routing remains the safety condition. The old extra-root admission flag is
+superseded because collapsed self-compound identities have no extra root tag.
+No new FST confirmation performance claim is made here.

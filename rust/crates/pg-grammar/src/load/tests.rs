@@ -1188,14 +1188,14 @@ fn empty_parts_of_speech_block_is_also_refused() {
 }
 
 #[test]
-fn mpr_wide_oracle_fixture_currently_has_a_dedicated_limit_refusal() {
+fn mpr_wide_oracle_fixture_loads_every_distinct_feature() {
     use pg_conformance_fixtures::{FixtureRef, Root};
 
     let fixture = FixtureRef {
         root: Root::Staging,
-        category: "limits".into(),
+        category: "edge-cases".into(),
         name: "mpr-wide-inflection-classes".into(),
-        dir: pg_conformance_fixtures::staging_root().join("limits/mpr-wide-inflection-classes"),
+        dir: pg_conformance_fixtures::staging_root().join("edge-cases/mpr-wide-inflection-classes"),
     };
     let words = fixture.load_words_yaml();
     assert_eq!(
@@ -1206,15 +1206,7 @@ fn mpr_wide_oracle_fixture_currently_has_a_dedicated_limit_refusal() {
     assert_eq!(words.words.iter().filter(|w| w.expect_fail).count(), 50);
     assert!(words.skip_in_generic_replay().is_none());
     let xml = fixture.load_grammar_xml();
-    // C# accepts the oracle-positive rows; slice 2 must replace this refusal with their full replay.
-    let error = load(&xml).expect_err("slice 1 must not silently widen the representation");
-    match error {
-        crate::GrammarError::Limit { code, message } => {
-            assert_eq!(code, pg_snapshot::ImportWarningCode::LimitMprFeatures);
-            assert_eq!(code.wire(), "grammar.limit.mpr-features");
-            assert!(message.contains("303 inflection classes"), "{message}");
-            assert!(message.contains("at most 64"), "{message}");
-        }
-        error => panic!("expected grammar.limit.mpr-features, got {error}"),
-    }
+    let grammar = load(&xml).expect("wide oracle inventory must load");
+    assert_eq!(grammar.mpr_features.len(), 303);
+    assert_eq!(grammar.mpr_groups[0].members.iter().count(), 300);
 }

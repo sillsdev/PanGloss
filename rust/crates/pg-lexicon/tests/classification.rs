@@ -225,7 +225,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let ordinary = morpher.synthesize_resolved_stem(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
     );
@@ -236,7 +236,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
         morpher.synthesize_resolved_stem_bounded(
             "sato",
             resolved.syn_fs,
-            resolved.mpr,
+            &resolved.mpr,
             resolved.stratum,
             &[],
             &ample
@@ -250,7 +250,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &step,
@@ -262,7 +262,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &candidates,
@@ -270,7 +270,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &candidates,
@@ -282,7 +282,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &expired,

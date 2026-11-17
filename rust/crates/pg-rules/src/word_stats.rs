@@ -23,7 +23,7 @@ thread_local! {
     static LIVE_PEAK_COUNT: Cell<u64> = const { Cell::new(0) };
     static LIVE_PEAK_BREAKDOWN: RefCell<WordByteBreakdown> = const { RefCell::new(WordByteBreakdown {
         base: 0, shape: 0, syn_fs: 0, real_fs: 0, morphs: 0, mrule_apps: 0, obligatory: 0,
-        unapplied_rule_counts: 0, root_runtime_id: 0, non_heads: 0, alternatives: 0,
+        mpr: 0, unapplied_rule_counts: 0, root_runtime_id: 0, non_heads: 0, alternatives: 0,
     }) };
     static MAX_SINGLE_WORD_BYTES: Cell<u64> = const { Cell::new(0) };
     // Per-stratum-pass samples (not deduplicated) for the p50/p90/max distribution below.

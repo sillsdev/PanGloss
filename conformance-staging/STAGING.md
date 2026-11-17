@@ -11,7 +11,6 @@ for the authoring, staging, and graduation workflow. Every fixture directory car
 |---|---|---|
 | `edge-cases/` | yes | Narrow, single-construct probes and bug pins. |
 | `languages/` | yes | Dense typologically-themed demo grammars (none staged here yet). |
-| `limits/` | **no** | Expected compiler refusals; replayed by dedicated `pg-grammar` characterization tests. |
 | `filter-passes/` | **no** | One fixture per planned candidate-filter pass; see below. |
 
 `discover` walks only `edge-cases` and `languages`, so `filter-passes/**` is **not** replayed by
