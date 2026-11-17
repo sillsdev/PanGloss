@@ -76,7 +76,10 @@ class Tally:
     second marker's first switch-in are its parse phase (`parse_instructions`), counted when the trace is reported.
     """
 
-    def __init__(self, pids):
+    def __init__(self, pids, word_phases=0):
+        self.word_phases = {p: word_phases for p in pids} if isinstance(word_phases, int) and word_phases else word_phases
+        self.tid_current = {}
+        self.thread_serial = 0
         self.wanted = set(pids)
         self.pids = list(pids)
         self.last = {}  # cpu -> (counters, thread switched in)
@@ -94,16 +97,23 @@ class Tally:
 
     def thread_start(self, pid, tid):
         owner = (pid, self.generation.get(pid, 0))
-        self.tid_owner[tid] = owner
-        if pid in self.wanted and owner + (tid,) not in self.thread_instructions:
-            self.thread_order.setdefault(owner, []).append(tid)
-            self.thread_instructions[owner + (tid,)] = 0
+        key = tid
+        if owner + (tid,) in self.thread_instructions or tid in self.tid_current:
+            self.thread_serial += 1
+            key = -self.thread_serial
+        self.tid_current[tid] = key
+        self.tid_owner[key] = owner
+        if pid in self.wanted:
+            self.thread_order.setdefault(owner, []).append(key)
+            self.thread_instructions[owner + (key,)] = 0
 
     def _measured_owner(self, tid):
         owner = self.tid_owner.get(tid)
         return owner if owner is not None and owner[0] in self.wanted else None
 
     def cswitch(self, cpu, new, old, counters):
+        new = self.tid_current.get(new, new)
+        old = self.tid_current.get(old, old)
         self.state["switches"] += 1
         self.state["counters"] = len(counters)
         prev = self.last.get(cpu)
@@ -144,6 +154,31 @@ class Tally:
             came_in_phase[new] = phase
         return total, phase
 
+    def _word_instructions(self, owner):
+        count = self.word_phases[owner[0]]
+        order = self.thread_order.get(owner, [])
+        marks = [t for t in order[1:] if MARK_MIN <= self.thread_instructions[owner + (t,)] <= MARK_MAX]
+        if len(marks) != 2 * count:
+            return []
+        begins = {t: i for i, t in enumerate(marks[::2])}
+        ends = {t: i for i, t in enumerate(marks[1::2])}
+        excluded = set(marks)
+        totals = [0] * count
+        active = None
+        completed = 0
+        came_in_phase = {}
+        for old, new, delta in self.switches.get(owner, []):
+            slot = came_in_phase.get(old)
+            if delta is not None and slot is not None and old not in excluded and self.tid_owner.get(old) == owner:
+                totals[slot] += delta
+            if old in begins and active is None and begins[old] == completed:
+                active = completed
+            if new in ends and active == ends[new]:
+                active = None
+                completed += 1
+            came_in_phase[new] = active
+        return totals if completed == count else []
+
     def report(self):
         final = {p: (p, self.generation[p]) for p in self.pids}
         self.state["earlier_processes"] = len({(pid, gen) for (pid, gen, _tid) in self.thread_instructions if (pid, gen) != final[pid]})
@@ -151,17 +186,21 @@ class Tally:
         order = {p: self.thread_order.get(final[p], []) for p in self.pids}
         per_thread = {p: [self.thread_instructions[final[p] + (t,)] for t in order[p]] for p in self.pids}
         parse = {p: self._parse_instructions(final[p]) for p in self.pids}
+        words = {p: self._word_instructions(final[p]) for p in self.pids} if self.word_phases else {}
+        if self.word_phases:
+            parse = {p: (sum(words[p]), 2 if len(words[p]) == self.word_phases[p] else 0) for p in self.pids}
         return dict(self.state, **{
             "threads": {str(p): len(order[p]) for p in self.pids},
             "instructions": {str(p): sum(per_thread[p]) for p in self.pids},
             "thread_instructions": {str(p): per_thread[p] for p in self.pids},
             "parse_instructions": {str(p): parse[p][0] for p in self.pids},
             "phase": {str(p): parse[p][1] for p in self.pids},
+            "word_instructions": {str(p): words[p] for p in words},
         })
 
 
-def totals(path, pids):
-    tally = Tally(pids)
+def totals(path, pids, word_phases=0):
+    tally = Tally(pids, word_phases)
 
     def on_event(record):
         try:
@@ -216,4 +255,21 @@ def totals(path, pids):
 
 
 if __name__ == "__main__":
-    print(json.dumps(totals(sys.argv[1], [int(x) for x in sys.argv[2:]])))
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("trace")
+    parser.add_argument("pids", type=int, nargs="+")
+    parser.add_argument("--word-phases", type=int, default=0)
+    parser.add_argument("--word-phases-by-pid")
+    args = parser.parse_args()
+    if args.word_phases < 0:
+        parser.error("--word-phases must be nonnegative")
+    phases = args.word_phases
+    if args.word_phases_by_pid:
+        if phases:
+            parser.error("choose --word-phases or --word-phases-by-pid")
+        with open(args.word_phases_by_pid, encoding="utf-8-sig") as plan:
+            phases = {int(p): n for p, n in json.load(plan).items()}
+        if set(phases) != set(args.pids) or any(type(n) is not int or n <= 0 for n in phases.values()):
+            parser.error("word phase plan must give a positive count for every measured pid, and no others")
+    print(json.dumps(totals(args.trace, args.pids, phases)))
