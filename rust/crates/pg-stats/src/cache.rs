@@ -11,8 +11,8 @@ use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::error::StatsError;
 use crate::model::{
-    FactRecord, FrozenRunSnapshot, FrozenWordSummary, IdentityQuality, ObjectKind, RunMetadata,
-    StructuralLocator, WordRecord,
+    FactRecord, FrozenRunSnapshot, FrozenWordSummary, GateRecord, IdentityQuality, ObjectKind,
+    RunMetadata, StructuralLocator, WordRecord,
 };
 use crate::schema;
 use crate::util::to_i64;
@@ -249,6 +249,13 @@ fn write_word(
         "DELETE FROM fact WHERE word_id = ?1",
         params![word_id],
     )?;
+    execute_cached(
+        conn,
+        "UPDATE word SET gates_measured = ?2 WHERE word_id = ?1",
+        params![word_id, word.gates.is_some()],
+    )?;
+    execute_cached(conn, "DELETE FROM gate_fact WHERE word_id = ?1", [word_id])?;
+
     if schema_version == schema::COMPACT_SCHEMA_VERSION {
         for fact in compact_facts(&word.facts)? {
             write_fact(conn, interner, word_id, &fact, true)?;
@@ -256,6 +263,20 @@ fn write_word(
     } else {
         for fact in &word.facts {
             write_fact(conn, interner, word_id, fact, false)?;
+        }
+    }
+    if let Some(gates) = &word.gates {
+        for gate in gates {
+            let object_id = interner.object(
+                conn,
+                &gate.object_key,
+                gate.object_kind,
+                &gate.object_label,
+                gate.identity_quality,
+                gate.morpheme.as_ref(),
+            )?;
+            let feature_id = interner.feature(conn, gate)?;
+            execute_cached(conn, "INSERT INTO gate_fact VALUES (?1,?2,?3,?4,?5) ON CONFLICT(word_id,object_id,feature_id) DO UPDATE SET passed=passed+excluded.passed, blocked=blocked+excluded.blocked", params![word_id, object_id, feature_id, to_i64("gate.passed", gate.passed)?, to_i64("gate.blocked", gate.blocked)?])?;
         }
     }
     Ok(())
@@ -415,7 +436,8 @@ impl StatsCache {
                  JOIN run AS r ON r.run_id = w.run_id \
                  WHERE w.form IN ({placeholders}) \
                    AND r.options_hash = ? \
-                   AND r.counter_semantics = ?"
+                   AND r.counter_semantics = ? \
+                   AND (r.engine <> 'hc' OR w.gates_measured = 1)"
             );
             let mut values = chunk
                 .iter()
@@ -964,12 +986,46 @@ enum LocatorTable {
 #[derive(Default)]
 struct Interner {
     objects: HashMap<&'static str, HashMap<String, i64>>,
+    features: HashMap<String, HashMap<String, HashMap<String, i64>>>,
     strata: HashMap<String, i64>,
     allomorphs: HashMap<String, i64>,
     morphemes: HashMap<String, i64>,
 }
 
 impl Interner {
+    fn feature(&mut self, conn: &Connection, gate: &GateRecord) -> Result<i64, StatsError> {
+        if let Some(&id) = self
+            .features
+            .get(&gate.feature_kind)
+            .and_then(|modes| modes.get(&gate.mode))
+            .and_then(|keys| keys.get(&gate.feature_key))
+        {
+            return Ok(id);
+        }
+        execute_cached(
+            conn,
+            "INSERT OR IGNORE INTO feature (key, kind, label, mode) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                gate.feature_key,
+                gate.feature_kind,
+                gate.feature_label,
+                gate.mode
+            ],
+        )?;
+        let id = query_id_cached(
+            conn,
+            "SELECT feature_id FROM feature WHERE key=?1 AND kind=?2 AND mode=?3",
+            params![gate.feature_key, gate.feature_kind, gate.mode],
+        )?;
+        self.features
+            .entry(gate.feature_kind.clone())
+            .or_default()
+            .entry(gate.mode.clone())
+            .or_default()
+            .insert(gate.feature_key.clone(), id);
+        Ok(id)
+    }
+
     fn object(
         &mut self,
         conn: &Connection,

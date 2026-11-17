@@ -329,12 +329,22 @@ fn legacy_stats_words(
         .iter()
         .map(|word| {
             let start = Instant::now();
-            let (outcome, rows, prune_rows) = morpher.parse_word_with_stats_and_prunes(word, opts);
+            let (outcome, rows, prune_rows, gate_rows) =
+                morpher.parse_word_with_gate_stats(word, opts);
             let result = pg_parse::BatchWordOutcome {
                 outcome,
                 elapsed: start.elapsed(),
             };
-            batch_stats_word(grammar, &identities, word, &result, &rows, &prune_rows).unwrap()
+            batch_stats_word_with_gates(
+                grammar,
+                &identities,
+                word,
+                &result,
+                &rows,
+                &prune_rows,
+                &gate_rows,
+            )
+            .unwrap()
         })
         .collect()
 }
@@ -1420,6 +1430,7 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
         "hc",
         vec![
             pg_stats::WordRecord {
+                gates: None,
                 form: "ok".to_string(),
                 elapsed_ns: 1_000,
                 work: 0,
@@ -1430,6 +1441,7 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
                 facts: vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 1)],
             },
             pg_stats::WordRecord {
+                gates: None,
                 form: "capped".to_string(),
                 elapsed_ns: 3_000,
                 work: 0,
@@ -1661,6 +1673,7 @@ fn empty_result_distinguishes_never_recorded_from_filtered_to_nothing() {
         work_cap: None,
     };
     let word_record = pg_stats::WordRecord {
+        gates: None,
         form: "onlyword".to_string(),
         elapsed_ns: 1_000,
         work: 0,
@@ -1770,6 +1783,7 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
         self_time_ns: attempts * 10,
     };
     let word_record = pg_stats::WordRecord {
+        gates: None,
         form: "w".to_string(),
         elapsed_ns: 1_000,
         work: 0,
@@ -1883,6 +1897,7 @@ fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_s
     synthetic_stats_cache_with_words(
         engine,
         vec![pg_stats::WordRecord {
+            gates: None,
             form: "w".to_string(),
             elapsed_ns: 1000,
             work: 0,
@@ -2036,6 +2051,7 @@ fn word_report_exports_invalid_shape_in_text_and_json() {
     let cache = synthetic_stats_cache_with_words(
         "hc",
         vec![pg_stats::WordRecord {
+            gates: None,
             form: "bad-shape".to_string(),
             elapsed_ns: 500,
             work: 0,
@@ -2063,6 +2079,7 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
         "hc",
         vec![
             pg_stats::WordRecord {
+                gates: None,
                 form: "ok".to_string(),
                 elapsed_ns: 100,
                 work: 0,
@@ -2073,6 +2090,7 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
                 facts: vec![],
             },
             pg_stats::WordRecord {
+                gates: None,
                 form: "capped".to_string(),
                 elapsed_ns: 500,
                 work: 0,
@@ -2083,6 +2101,7 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
                 facts: vec![],
             },
             pg_stats::WordRecord {
+                gates: None,
                 form: "timed-out".to_string(),
                 elapsed_ns: 400,
                 work: 0,
@@ -2368,6 +2387,7 @@ fn stats_read_rejects_a_cache_with_multiple_engines() {
         .flush(
             &hc,
             &[pg_stats::WordRecord {
+                gates: None,
                 form: "hc-word".to_string(),
                 elapsed_ns: 1,
                 work: 0,
@@ -2436,6 +2456,7 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
         .flush(
             &run,
             &[pg_stats::WordRecord {
+                gates: None,
                 form: "a".to_string(),
                 elapsed_ns: 1,
                 work: 0,
@@ -3189,6 +3210,7 @@ fn jsonl_headers_advertise_compact_capabilities_and_preserve_full_output() {
                 let mut fact = synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 2_000);
                 fact.outputs = 0;
                 vec![pg_stats::WordRecord {
+                    gates: None,
                     form: "w".into(),
                     elapsed_ns: 1000,
                     work: 10,
@@ -3296,7 +3318,7 @@ fn packed_batch_replay_resume_and_frozen_manifest_cover_exact_packed_bytes() {
         assert_eq!(value["cache"]["bytes"], bytes.len() as u64);
         assert_eq!(
             value["cache"]["schema_version"],
-            if compact { 12 } else { 11 }
+            if compact { 14 } else { 13 }
         );
         assert_eq!(
             pg_stats::StatsCache::read_frozen_run(&cache, 1)
@@ -3441,4 +3463,298 @@ fn packed_stats_corruption_emits_error_before_touching_report_output() {
     .unwrap_err()
     .contains("output_exists"));
     assert_eq!(fs::read(report).unwrap(), b"preserve prior report");
+}
+
+#[test]
+fn gate_stats_observe_real_exclusions_and_preserve_parse_results() {
+    let declarations = r#"<MorphologicalPhonologicalRuleFeatures><MorphologicalPhonologicalRuleFeature id="exception-tag">Exception</MorphologicalPhonologicalRuleFeature></MorphologicalPhonologicalRuleFeatures>"#;
+    for tagged in [false, true] {
+        let mut xml = PRUNE_FIRING_GRAMMAR
+            .replace("<PartsOfSpeech>", &format!("{declarations}<PartsOfSpeech>"))
+            .replace(
+                "<MorphologicalInput>",
+                "<MorphologicalInput excludedMPRFeatures=\"exception-tag\">",
+            );
+        let template_start = xml.find("<AffixTemplates>").unwrap();
+        let template_end = xml.find("</AffixTemplates>").unwrap() + "</AffixTemplates>".len();
+        xml.replace_range(template_start..template_end, "");
+        if tagged {
+            xml = xml.replace(
+                "id=\"e1\" partOfSpeech",
+                "id=\"e1\" ruleFeatures=\"exception-tag\" partOfSpeech",
+            );
+        }
+        let grammar = pg_grammar::load(&xml).unwrap();
+        for replay in [false, true] {
+            let morpher = pg_parse::Morpher::new(&grammar, usize::MAX).with_lookup_replay(replay);
+            let opts = pg_parse::ParseOptions::default();
+            let baseline = morpher.parse_word_opts("as", &opts);
+            let (outcome, _, _, gates) = morpher.parse_word_with_gate_stats("as", &opts);
+            assert_eq!(outcome.work_steps, baseline.work_steps);
+            assert_eq!(outcome.analyses, baseline.analyses);
+            assert_eq!(baseline.analyses.is_empty(), tagged);
+            let exclusions: Vec<_> = gates
+                .iter()
+                .filter(|r| matches!(r.feature, pg_rules::stats::GateFeature::Mpr(0, true)))
+                .collect();
+            assert!(!exclusions.is_empty());
+            let blocked: u64 = exclusions.iter().map(|r| r.blocked).sum();
+            let passed: u64 = exclusions.iter().map(|r| r.passed).sum();
+            if tagged {
+                assert!(blocked > 0);
+            } else {
+                assert_eq!(blocked, 0);
+                assert!(passed > 0);
+            }
+        }
+        let dir = scratch_dir("gate-layout");
+        let grammar_path = dir.join("grammar.xml");
+        fs::write(&grammar_path, &xml).unwrap();
+        for compact in [false, true] {
+            let cache_path = dir.join(if compact {
+                "compact.sqlite"
+            } else {
+                "full.sqlite"
+            });
+            let cache_str = cache_path.to_str().unwrap();
+            let extra = if compact {
+                vec![
+                    "--stats",
+                    "--stats-compact",
+                    "--cache-pack",
+                    "--cache",
+                    cache_str,
+                ]
+            } else {
+                vec!["--stats", "--cache-pack", "--cache", cache_str]
+            };
+            let (args, _) = run_batch_args(&dir, &xml, "as\n", &extra);
+            crate::run_batch(&args).unwrap();
+            let cache_pos = args.iter().position(|a| a == "--cache").unwrap();
+            let cache = pg_stats::pack::open_read(Path::new(&args[cache_pos + 1])).unwrap();
+            let replay = render_gate(&cache, &Filters::default(), OutputFormat::Jsonl).unwrap();
+            let json: Vec<Value> = replay
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(json[0]["measured_words"], 1);
+            assert_eq!(json[0]["unmeasured_words"], 0);
+            assert!(json
+                .iter()
+                .any(|row| row["feature_key"] == "exception-tag" && row["mode"] == "excluded"));
+            let blocked: u64 = json
+                .iter()
+                .filter(|row| row["mode"] == "excluded")
+                .map(|row| row["blocked"].as_u64().unwrap())
+                .sum();
+            assert_eq!(blocked > 0, tagged);
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+}
+
+#[test]
+fn gate_replay_distinguishes_unmeasured_from_measured_without_evaluations() {
+    let cache = synthetic_stats_cache("hc", Vec::new());
+    for measured in [false, true] {
+        cache
+            .connection()
+            .execute("UPDATE word SET gates_measured=?1", [measured])
+            .unwrap();
+        let replay =
+            render_gate(cache.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
+        let lines: Vec<_> = replay.lines().collect();
+        assert_eq!(lines.len(), 1);
+        let meta: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(meta["measured_words"], i64::from(measured));
+        assert_eq!(meta["unmeasured_words"], i64::from(!measured));
+    }
+}
+
+#[test]
+fn syntactic_gate_identity_sorts_authored_symbol_ids() {
+    let xml = PRUNE_FIRING_GRAMMAR.replace(
+        "</PartsOfSpeech>",
+        "<PartOfSpeech id=\"posA\"><Name>A</Name></PartOfSpeech></PartsOfSpeech>",
+    );
+    let grammar = pg_grammar::load(&xml).unwrap();
+    let mut builder = pg_featstruct::FeatureStructBuilder::new();
+    builder.add(
+        grammar.syn_features.pos,
+        pg_featstruct::FeatureValue::Symbolic(pg_featstruct::SymbolBits(3)),
+    );
+    let key: Value =
+        serde_json::from_str(&syntactic_gate_key(&grammar, &builder.build()).unwrap()).unwrap();
+    let feature = &grammar.syn_features.features[grammar.syn_features.pos.0 as usize];
+    assert_eq!(key[&feature.xml_id], serde_json::json!(["posA", "posV"]));
+}
+
+#[test]
+fn gate_stats_cover_stem_name_and_phonological_exception_checks() {
+    let mut seen = std::collections::BTreeSet::new();
+    for name in ["stem-name-restricted-root-allomorph", "mpr-gated-exception"] {
+        let fixture = pg_conformance_fixtures::require_fixture("edge-cases", name);
+        let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+        let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+        for word in fixture
+            .load_words_yaml()
+            .words
+            .iter()
+            .filter(|w| !w.expect_skip)
+        {
+            let opts = pg_parse::ParseOptions::default();
+            let mut plain = morpher.parse_word_opts(&word.word, &opts);
+            let (mut measured, _, _, gates) = morpher.parse_word_with_gate_stats(&word.word, &opts);
+            plain.analyses.sort();
+            measured.analyses.sort();
+            assert_eq!(plain.analyses, measured.analyses);
+            assert_eq!(plain.work_steps, measured.work_steps);
+            for row in gates {
+                if row.blocked == 0 {
+                    continue;
+                }
+                use pg_rules::stats::{GateFeature, ObjectKind};
+                match (row.kind, row.feature) {
+                    (_, GateFeature::StemName(_, false)) => {
+                        seen.insert("stem-required");
+                    }
+                    (_, GateFeature::StemName(_, true)) => {
+                        seen.insert("stem-excluded");
+                    }
+                    (ObjectKind::PhonRule, GateFeature::Mpr(_, true)) => {
+                        seen.insert("phon-excluded");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert_eq!(
+        seen,
+        ["phon-excluded", "stem-excluded", "stem-required"]
+            .into_iter()
+            .collect()
+    );
+}
+
+fn gate_probe_grammar() -> String {
+    let mut xml = PRUNE_FIRING_GRAMMAR.to_string();
+    let start = xml.find("<AffixTemplates>").unwrap();
+    let end = xml.find("</AffixTemplates>").unwrap() + "</AffixTemplates>".len();
+    xml.replace_range(start..end, "");
+    xml
+}
+
+fn gate_probe_replay(xml: &str, word: &str, compact: bool, packed: bool) -> Vec<Value> {
+    let grammar = pg_grammar::load(xml).unwrap();
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let opts = pg_parse::ParseOptions::default();
+    let baseline = morpher.parse_word_opts(word, &opts);
+    let (observed, _, _, _) = morpher.parse_word_with_gate_stats(word, &opts);
+    assert_eq!(observed.analyses, baseline.analyses);
+    assert_eq!(observed.work_steps, baseline.work_steps);
+    assert!(!observed.capped && !observed.timed_out);
+    let dir = scratch_dir("gate-predicate-identity");
+    let cache_path = dir.join("cache.sqlite");
+    let mut extra = vec!["--stats", "--cache", cache_path.to_str().unwrap()];
+    if compact {
+        extra.push("--stats-compact");
+    }
+    if packed {
+        extra.push("--cache-pack");
+    }
+    let (args, _) = run_batch_args(&dir, xml, &format!("{word}\n"), &extra);
+    crate::run_batch(&args).unwrap();
+    let cache = pg_stats::pack::open_read(&cache_path).unwrap();
+    let replay = render_gate(&cache, &Filters::default(), OutputFormat::Jsonl).unwrap();
+    let rows: Vec<Value> = replay
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows[0]["measured_words"], 1);
+    assert_eq!(rows[0]["unmeasured_words"], 0);
+    assert_eq!(rows[0]["censored_words"], 0);
+    drop(cache);
+    fs::remove_dir_all(dir).unwrap();
+    rows.into_iter().skip(1).collect()
+}
+
+#[test]
+fn gate_realizational_analysis_persists_the_check_before_a_shape_failure() {
+    let mut xml = gate_probe_grammar();
+    let start = xml.find("<MorphologicalRule id=\"mrTpl\"").unwrap();
+    let end =
+        start + xml[start..].find("</MorphologicalRule>").unwrap() + "</MorphologicalRule>".len();
+    xml.replace_range(start..end, "");
+    xml = xml.replace("<PartsOfSpeech>", r#"<HeadFeatures><SymbolicFeature id="tense"><Name>Tense</Name><Symbols><Symbol id="past">Past</Symbol></Symbols></SymbolicFeature></HeadFeatures><PartsOfSpeech>"#)
+        .replace(r#"<MorphologicalRule id="mrOrd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">"#, r#"<RealizationalRule id="mrOrd">"#)
+        .replace("</MorphologicalRule>", r#"<RealizationalFeatures><FeatureValue feature="tense" symbolValues="past" /></RealizationalFeatures></RealizationalRule>"#);
+    for compact in [false, true] {
+        for packed in [false, true] {
+            let rows = gate_probe_replay(&xml, "t", compact, packed);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0]["feature_key"], r#"{"__head__":{"tense":["past"]}}"#);
+            assert_eq!(rows[0]["mode"], "realizational-unification");
+            assert_eq!(rows[0]["passed"], 1);
+            assert_eq!(rows[0]["blocked"], 0);
+        }
+    }
+}
+
+#[test]
+fn gate_inverse_output_conflicts_have_their_own_persisted_identity() {
+    let xml = gate_probe_grammar()
+        .replace(
+            r#"morphologicalRules="mrOrd""#,
+            r#"morphologicalRules="mrOrd mrTpl""#,
+        )
+        .replace(
+            "</PartsOfSpeech>",
+            r#"<PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech></PartsOfSpeech>"#,
+        );
+    for compatible in [false, true] {
+        let xml = if compatible {
+            xml.clone()
+        } else {
+            xml.replace(
+                r#"id="mrOrd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV""#,
+                r#"id="mrOrd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN""#,
+            )
+        };
+        let grammar = pg_grammar::load(&xml).unwrap();
+        let owner = StatsIdentityCatalog::new(&grammar)
+            .morph_rule(MRuleId(0))
+            .key
+            .clone();
+        for compact in [false, true] {
+            for packed in [false, true] {
+                let rows = gate_probe_replay(&xml, "ast", compact, packed);
+                let inner: Vec<_> = rows
+                    .iter()
+                    .filter(|row| row["object_key"] == owner)
+                    .collect();
+                assert_eq!(inner.len(), if compatible { 2 } else { 1 }, "{inner:?}");
+                let inverse: Vec<_> = inner
+                    .iter()
+                    .filter(|row| row["mode"] == "inverse-unification")
+                    .collect();
+                assert_eq!(inverse.len(), 1);
+                if compatible {
+                    let forward = inner.iter().find(|row| row["mode"] == "required").unwrap();
+                    assert_eq!(forward["feature_key"], r#"{"__pos__":["posV"]}"#);
+                    assert_eq!(forward["passed"], 1);
+                    assert_eq!(forward["blocked"], 0);
+                }
+                let output = if compatible { "posV" } else { "posN" };
+                let key: Value =
+                    serde_json::from_str(inverse[0]["feature_key"].as_str().unwrap()).unwrap();
+                assert_eq!(
+                    key,
+                    serde_json::json!({"required":{"__pos__":["posV"]},"output":{"__pos__":[output]}})
+                );
+                assert_eq!(inverse[0]["passed"], if compatible { 3 } else { 1 });
+                assert_eq!(inverse[0]["blocked"], if compatible { 0 } else { 2 });
+            }
+        }
+    }
 }

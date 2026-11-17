@@ -92,3 +92,39 @@ fn output_touching_no_group_is_a_plain_union() {
     let result = mpr_add_output(&groups, set(&[0]), set(&[5]));
     assert_eq!(result, set(&[0, 5]));
 }
+
+#[test]
+fn observed_mpr_gates_attribute_members_and_stop_before_unreached_groups() {
+    let groups = [group(
+        MprGroupMatchType::Any,
+        MprGroupOutput::Append,
+        &[1, 2],
+    )];
+    let mut seen = Vec::new();
+    assert!(!mpr_match_observed(
+        &groups,
+        set(&[0, 1, 2]),
+        set(&[0]),
+        true,
+        |bucket, blocked| seen.push((bucket, blocked))
+    ));
+    assert_eq!(seen, vec![(set(&[0]), set(&[0]))]);
+    seen.clear();
+    assert!(mpr_match_observed(
+        &groups,
+        set(&[0, 1, 2]),
+        set(&[1]),
+        true,
+        |bucket, blocked| seen.push((bucket, blocked))
+    ));
+    assert_eq!(seen, vec![(set(&[0]), set(&[])), (set(&[1, 2]), set(&[]))]);
+    seen.clear();
+    assert!(!mpr_match_observed(
+        &groups,
+        set(&[1, 2]),
+        set(&[1, 2]),
+        true,
+        |bucket, blocked| seen.push((bucket, blocked))
+    ));
+    assert_eq!(seen.last(), Some(&(set(&[1, 2]), set(&[1, 2]))));
+}

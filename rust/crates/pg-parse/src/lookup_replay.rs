@@ -3,9 +3,9 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use pg_grammar_model::model::{
-    mpr_excluded_ok, mpr_required_ok, AffixProcessRuleDef, AllomorphId, AllomorphOwner, Grammar,
-    MorphRuleDef, MprGroupOutput, MprSet,
+    AffixProcessRuleDef, AllomorphId, AllomorphOwner, Grammar, MorphRuleDef, MprGroupOutput, MprSet,
 };
+use pg_rules::stats::{mpr_check, GateFeature, ObjectKind, StatsCollector};
 use pg_rules::word::Word;
 
 /// What the grammar's rules can add to a word's MPR set beyond the root's, computed once from the grammar and never from a word.
@@ -70,7 +70,12 @@ impl LookupReplay {
     }
 
     /// False only when no synthesis of `alt` can apply every trail rule. A root in a family is never rejected, because stem choice and blocking can replace it.
-    pub(crate) fn is_feasible(&self, g: &Grammar, alt: &Word) -> bool {
+    pub(crate) fn is_feasible(
+        &self,
+        g: &Grammar,
+        alt: &Word,
+        stats: Option<&StatsCollector>,
+    ) -> bool {
         if !self.checks_mpr {
             return true;
         }
@@ -95,6 +100,7 @@ impl LookupReplay {
             entry.mpr,
             entry.allomorphs[idx as usize].stem_name,
             &mut work,
+            stats,
         );
         if work > 0 {
             self.work.fetch_add(work, Ordering::Relaxed);
@@ -103,6 +109,7 @@ impl LookupReplay {
     }
 
     /// Required gates are checked against a superset of the real MPR set and excluded gates against a subset, so a failure is a failure of the real set.
+    #[allow(clippy::too_many_arguments)]
     fn trail_is_feasible(
         &self,
         g: &Grammar,
@@ -110,6 +117,7 @@ impl LookupReplay {
         root_mpr: MprSet,
         root_stem: Option<pg_grammar_model::model::StemNameId>,
         work: &mut u64,
+        stats: Option<&StatsCollector>,
     ) -> bool {
         let mut extra = self.realizational_out;
         let mut excluded_ok = !self.overwrite_reachable;
@@ -128,7 +136,20 @@ impl LookupReplay {
                 stem_ok = false;
                 continue;
             };
-            if stem_ok && rule.required_stem_name.is_some() && rule.required_stem_name != root_stem
+            let rule_id = entry.expect("affix rule has an id");
+            if stem_ok
+                && rule.required_stem_name.is_some_and(|stem| {
+                    let passed = Some(stem) == root_stem;
+                    if let Some(stats) = stats {
+                        stats.record_gate(
+                            ObjectKind::MorphRule,
+                            rule_id.0,
+                            GateFeature::StemName(stem.0, false),
+                            passed,
+                        );
+                    }
+                    !passed
+                })
             {
                 if alt.collect_partials() {
                     pg_rules::partials::record(
@@ -140,7 +161,15 @@ impl LookupReplay {
                 }
                 return false;
             }
-            if !any_allomorph_possible(g, rule, root_mpr, extra, excluded_ok, work) {
+            if !any_allomorph_possible(
+                g,
+                rule,
+                root_mpr,
+                extra,
+                excluded_ok,
+                work,
+                stats.map(|stats| (stats, ObjectKind::MorphRule, rule_id.0)),
+            ) {
                 if alt.collect_partials() {
                     pg_rules::partials::record(
                         pg_rules::partials::FailureKind::AffixGate,
@@ -162,6 +191,7 @@ impl LookupReplay {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn any_allomorph_possible(
     g: &Grammar,
     rule: &AffixProcessRuleDef,
@@ -169,12 +199,13 @@ fn any_allomorph_possible(
     extra: MprSet,
     excluded_ok: bool,
     work: &mut u64,
+    owner: Option<(&StatsCollector, ObjectKind, u32)>,
 ) -> bool {
     let upper = root_mpr.union(extra);
     rule.allomorphs.iter().any(|allo| {
         if !allo.required_mpr.is_empty() {
             *work += 1;
-            if !mpr_required_ok(&g.mpr_groups, allo.required_mpr, upper) {
+            if !mpr_check(g, allo.required_mpr, upper, false, owner) {
                 return false;
             }
         }
@@ -182,6 +213,6 @@ fn any_allomorph_possible(
             return true;
         }
         *work += 1;
-        mpr_excluded_ok(&g.mpr_groups, allo.excluded_mpr, root_mpr)
+        mpr_check(g, allo.excluded_mpr, root_mpr, true, owner)
     })
 }

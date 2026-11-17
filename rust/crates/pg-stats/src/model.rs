@@ -249,4 +249,22 @@ pub struct WordRecord {
     pub timed_out: bool,
     pub invalid_shape: bool,
     pub facts: Vec<FactRecord>,
+    /// None means unmeasured; Some(empty) means measured with no evaluated predicates.
+    pub gates: Option<Vec<GateRecord>>,
+}
+
+/// One feature predicate, with its owner's stable object identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateRecord {
+    pub object_key: String,
+    pub object_kind: ObjectKind,
+    pub object_label: String,
+    pub identity_quality: IdentityQuality,
+    pub morpheme: Option<StructuralLocator>,
+    pub feature_key: String,
+    pub feature_kind: String,
+    pub feature_label: String,
+    pub mode: String,
+    pub passed: u64,
+    pub blocked: u64,
 }

@@ -6,6 +6,7 @@ use std::thread;
 
 fn sample_word(form: &str) -> WordRecord {
     WordRecord {
+        gates: Some(Vec::new()),
         form: form.to_string(),
         elapsed_ns: 1_000,
         work: 37,
@@ -61,8 +62,31 @@ fn streamed_run_matches_slice_flush_row_for_row_in_both_schemas() {
                 .cache
         };
         let mut baseline = open();
-        let words = vec![sample_word("apu"), sample_word("apa"), sample_word("apu")];
+        let mut observed = sample_word("apu");
+        observed.gates = Some(vec![GateRecord {
+            object_key: "entry-a".into(),
+            object_kind: ObjectKind::LexEntry,
+            object_label: "Entry A".into(),
+            identity_quality: IdentityQuality::Authored,
+            morpheme: Some(StructuralLocator::new("morpheme-a", "Morpheme A")),
+            feature_key: "exception-guid".into(),
+            feature_kind: "mpr".into(),
+            feature_label: "Exception".into(),
+            mode: "excluded".into(),
+            passed: 7,
+            blocked: 3,
+        }]);
+        let mut unmeasured = sample_word("apa");
+        unmeasured.gates = None;
+        let words = vec![observed.clone(), unmeasured, observed];
         baseline.flush(&sample_run(), &words).unwrap();
+        let counts: (u64, u64) = baseline
+            .connection()
+            .query_row("SELECT passed,blocked FROM gate_fact", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(counts, (7, 3));
         let mut writer = open().into_run(&sample_run()).unwrap();
         for word in &words {
             writer.write_word(word).unwrap();
@@ -97,6 +121,8 @@ fn assert_same_rows(baseline: &StatsCache, streamed: &StatsCache) {
         "allomorph",
         "morpheme",
         "fact",
+        "feature",
+        "gate_fact",
         "cache_identity",
     ] {
         let read = |cache: &StatsCache| {
@@ -414,7 +440,7 @@ fn wipes_a_version_seven_cache_whose_stats_keys_predate_compiled_output() {
 /// Schema 10 is the last that stored `run.step_cap` and `word.attempts`; the literal versions are pinned so a bump is a decision.
 #[test]
 fn a_cache_written_by_schema_ten_is_wiped_not_read() {
-    assert_eq!(crate::schema::SCHEMA_VERSION, 11);
+    assert_eq!(crate::schema::SCHEMA_VERSION, 13);
     let path = TempDir::new("pg-stats-schema-ten");
     let cache_path = path.path().join("cache.sqlite3");
     let old = Connection::open(&cache_path).unwrap();
@@ -1538,4 +1564,71 @@ fn compact_aggregation_overflow_rolls_back() {
             .unwrap(),
         0
     );
+}
+
+#[test]
+fn gate_facts_replace_on_reparse_and_distinguish_unmeasured_in_both_layouts() {
+    for compact in [false, true] {
+        let dir = TempDir::new("gate-replace");
+        let path = dir.path().join("stats.sqlite");
+        let mut cache = if compact {
+            StatsCache::open_compact(&path, "hash-a")
+        } else {
+            StatsCache::open(&path, "hash-a")
+        }
+        .unwrap()
+        .cache;
+        let mut word = sample_word("synthetic");
+        word.gates = Some(vec![crate::GateRecord {
+            object_key: "entry-a".into(),
+            object_kind: ObjectKind::LexEntry,
+            object_label: "Entry A".into(),
+            identity_quality: IdentityQuality::Authored,
+            feature_key: "exception-guid".into(),
+            morpheme: Some(StructuralLocator::new("morpheme-a", "Morpheme A")),
+            feature_kind: "mpr".into(),
+            feature_label: "Exception".into(),
+            mode: "excluded".into(),
+            passed: 7,
+            blocked: 3,
+        }]);
+        cache.flush(&sample_run(), &[word.clone()]).unwrap();
+        let counts: (i64, i64, i64) = cache
+            .connection()
+            .query_row(
+                "SELECT gates_measured,passed,blocked FROM word JOIN gate_fact USING(word_id)",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(counts, (1, 7, 3));
+        let morpheme: String = cache.connection().query_row(
+            "SELECT m.key FROM object o JOIN morpheme m USING(morpheme_id) WHERE o.key='entry-a'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(morpheme, "morpheme-a");
+        word.gates = Some(Vec::new());
+        cache.flush(&sample_run(), &[word.clone()]).unwrap();
+        let measured: i64 = cache
+            .connection()
+            .query_row("SELECT gates_measured FROM word", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(measured, 1);
+        let remaining: i64 = cache
+            .connection()
+            .query_row("SELECT COUNT(*) FROM gate_fact", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0);
+        word.gates = None;
+        cache.flush(&sample_run(), &[word]).unwrap();
+        let measured: i64 = cache
+            .connection()
+            .query_row("SELECT gates_measured FROM word", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(measured, 0);
+        assert!(cache
+            .reusable_words(&["synthetic"], "opts-a")
+            .unwrap()
+            .is_empty());
+    }
 }

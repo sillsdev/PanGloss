@@ -130,6 +130,13 @@ enum EnvCheck<'a> {
 }
 
 impl EnvCheck<'_> {
+    fn stats(&self) -> Option<&StatsCollector> {
+        match self {
+            Self::Cached(_, stats) => *stats,
+            Self::Fresh => None,
+        }
+    }
+
     fn time_owner(
         &self,
         g: &Grammar,
@@ -268,26 +275,23 @@ fn stem_name_excluded_match(
         .all(|&r| !pg_featstruct::subsumes(g.fs_interner.get(r), fs))
 }
 
-/// `allo`'s stem name must required-match `fs`, and every sibling allomorph's own stem name must exclude-match it.
-fn stem_name_gates_ok(
-    g: &Grammar,
-    allos: &[RootAllomorphDef],
-    idx: usize,
-    fs: &pg_featstruct::FeatureStruct,
-) -> bool {
-    stem_name_gate_reason(g, allos, idx, fs).is_none()
-}
-
-/// Reason-reporting sibling of `stem_name_gates_ok`, which wraps this so traced and untraced paths agree.
+/// The first failing stem-name predicate, shared by normal and disjunctive validation.
 fn stem_name_gate_reason(
     g: &Grammar,
     allos: &[RootAllomorphDef],
     idx: usize,
     fs: &pg_featstruct::FeatureStruct,
+    stats: Option<&StatsCollector>,
 ) -> Option<FailureReason> {
     let allo = &allos[idx];
     if let Some(sn) = allo.stem_name {
-        if !stem_name_required_match(g, sn, fs) {
+        if !observe_allomorph(
+            g,
+            stats,
+            allo.id,
+            crate::stats::GateFeature::StemName(sn.0, false),
+            stem_name_required_match(g, sn, fs),
+        ) {
             return Some(FailureReason::RequiredStemName);
         }
     }
@@ -296,7 +300,13 @@ fn stem_name_gate_reason(
         .enumerate()
         .filter(|&(i, other)| i != idx && other.stem_name.is_some())
         .all(|(_, other)| {
-            stem_name_excluded_match(g, other.stem_name.unwrap(), fs, allo.stem_name)
+            observe_allomorph(
+                g,
+                stats,
+                allo.id,
+                crate::stats::GateFeature::StemName(other.stem_name.unwrap().0, true),
+                stem_name_excluded_match(g, other.stem_name.unwrap(), fs, allo.stem_name),
+            )
         });
     if excluded_ok {
         None
@@ -732,7 +742,13 @@ fn allomorphs_valid_impl(
             }
             // Primary stem-name clause only; the fabricated entry has exactly one allomorph, so the sibling-exclusion loop is a no-op here.
             if let Some(sn) = def.stem_name {
-                if !stem_name_required_match(g, sn, &w.syn_fs) {
+                if !observe_allomorph(
+                    g,
+                    check.stats(),
+                    def.id,
+                    crate::stats::GateFeature::StemName(sn.0, false),
+                    stem_name_required_match(g, sn, &w.syn_fs),
+                ) {
                     return fail(
                         g,
                         owner_id.unwrap_or(m.allomorph),
@@ -836,7 +852,9 @@ fn allomorphs_valid_impl(
                     );
                 }
                 // Stem-name gate sits between the bound-root gate and the co-occurrence gates, matching C#'s order.
-                if let Some(reason) = stem_name_gate_reason(g, allos, idx as usize, &w.syn_fs) {
+                if let Some(reason) =
+                    stem_name_gate_reason(g, allos, idx as usize, &w.syn_fs, check.stats())
+                {
                     return fail(g, owner_id.unwrap_or(m.allomorph), trace, parent, w, reason);
                 }
                 // Allomorph-level rules, then morpheme-level rules, both before the environments check below, matching C#'s order.
@@ -924,7 +942,7 @@ fn allomorphs_valid_impl(
                     }
                     if check.envs_ok(g, cand.id, &cand.environments, &w.shape, start, end)
                         && !(cand.is_bound && distinct_count == 1)
-                        && stem_name_gates_ok(g, allos, ci, &w.syn_fs)
+                        && stem_name_gate_reason(g, allos, ci, &w.syn_fs, check.stats()).is_none()
                         && allomorph_co_occurrence_ok(
                             &cand.co_occurrence,
                             m.allomorph,
@@ -948,7 +966,13 @@ fn allomorphs_valid_impl(
                     "compounding rules mint no AllomorphId (no per-allomorph registry entry)",
                 );
                 let def = &allos[idx as usize];
-                if !pg_featstruct::subsumes(g.fs_interner.get(def.required_syn_fs), &w.syn_fs) {
+                if !observe_syn(
+                    g,
+                    check.stats(),
+                    def.id,
+                    def.required_syn_fs,
+                    pg_featstruct::subsumes(g.fs_interner.get(def.required_syn_fs), &w.syn_fs),
+                ) {
                     return fail_with_context(
                         g,
                         owner_id.unwrap_or(m.allomorph),
@@ -1053,9 +1077,15 @@ fn allomorphs_valid_impl(
                         continue;
                     }
                     if check.envs_ok(g, cand.id, &cand.environments, &w.shape, start, end)
-                        && pg_featstruct::subsumes(
-                            g.fs_interner.get(cand.required_syn_fs),
-                            &w.syn_fs,
+                        && observe_syn(
+                            g,
+                            check.stats(),
+                            cand.id,
+                            cand.required_syn_fs,
+                            pg_featstruct::subsumes(
+                                g.fs_interner.get(cand.required_syn_fs),
+                                &w.syn_fs,
+                            ),
                         )
                         && allomorph_co_occurrence_ok(
                             &cand.co_occurrence,
@@ -1077,4 +1107,40 @@ fn allomorphs_valid_impl(
         }
     }
     true
+}
+
+fn observe_allomorph(
+    g: &Grammar,
+    stats: Option<&StatsCollector>,
+    id: AllomorphId,
+    feature: crate::stats::GateFeature,
+    passed: bool,
+) -> bool {
+    if let Some(stats) = stats {
+        let (kind, index) = match g.allomorph_owners[id.0 as usize] {
+            AllomorphOwner::Root(entry, _) => (ObjectKind::LexEntry, entry.0),
+            AllomorphOwner::Affix(rule, _) => (ObjectKind::MorphRule, rule.0),
+        };
+        stats.record_gate(kind, index, feature, passed);
+    }
+    passed
+}
+
+fn observe_syn(
+    g: &Grammar,
+    stats: Option<&StatsCollector>,
+    id: AllomorphId,
+    fs: pg_featstruct::FsId,
+    passed: bool,
+) -> bool {
+    if stats.is_some() && !g.fs_interner.get(fs).is_empty() {
+        observe_allomorph(
+            g,
+            stats,
+            id,
+            crate::stats::GateFeature::Syntactic(fs.0),
+            passed,
+        );
+    }
+    passed
 }

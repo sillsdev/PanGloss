@@ -8,10 +8,10 @@ use crate::error::StatsError;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped when `schema.sql` changes shape. A cache is wiped, never migrated, on a mismatch.
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 13;
 
-/// Compact caches discard the stratum/allomorph split; full caches retain version 11.
-pub const COMPACT_SCHEMA_VERSION: i64 = 12;
+/// Compact caches discard the stratum/allomorph split; full caches retain version 13.
+pub const COMPACT_SCHEMA_VERSION: i64 = 14;
 
 pub fn supported_schema_version(version: i64) -> bool {
     matches!(version, SCHEMA_VERSION | COMPACT_SCHEMA_VERSION)
@@ -100,7 +100,9 @@ pub(crate) fn wipe_and_recreate_version(
     version: i64,
 ) -> Result<(), StatsError> {
     conn.execute_batch(
-        "DROP TABLE IF EXISTS fact;
+        "DROP TABLE IF EXISTS gate_fact;
+         DROP TABLE IF EXISTS feature;
+         DROP TABLE IF EXISTS fact;
          DROP TABLE IF EXISTS word;
          DROP TABLE IF EXISTS coverage;
          DROP TABLE IF EXISTS allomorph;

@@ -1291,19 +1291,20 @@ fn parse_batch_with_stats(
                     }
                     let start = Instant::now();
                     parse_counter.record();
-                    let (outcome, rows, prune_rows) =
-                        morpher.parse_word_with_stats_and_prunes(word, opts);
+                    let (outcome, rows, prune_rows, gate_rows) =
+                        morpher.parse_word_with_gate_stats(word, opts);
                     let result = pg_parse::BatchWordOutcome {
                         outcome,
                         elapsed: start.elapsed(),
                     };
-                    let stats = stats_cmd::batch_stats_word(
+                    let stats = stats_cmd::batch_stats_word_with_gates(
                         grammar,
                         identities,
                         word,
                         &result,
                         &rows,
                         &prune_rows,
+                        &gate_rows,
                     )?;
                     Ok(Some((result, stats)))
                 })
@@ -1789,13 +1790,13 @@ fn run_batch_with_counter(
                     }
                     let start = Instant::now();
                     parse_counter.record();
-                    let (outcome, rows, prune_rows) =
-                        morpher.parse_word_with_stats_and_prunes(word, &opts);
+                    let (outcome, rows, prune_rows, gate_rows) =
+                        morpher.parse_word_with_gate_stats(word, &opts);
                     let result = pg_parse::BatchWordOutcome {
                         outcome,
                         elapsed: start.elapsed(),
                     };
-                    let stats = stats_cmd::batch_stats_word(
+                    let stats = stats_cmd::batch_stats_word_with_gates(
                         &grammar,
                         stats_identities
                             .as_ref()
@@ -1804,6 +1805,7 @@ fn run_batch_with_counter(
                         &result,
                         &rows,
                         &prune_rows,
+                        &gate_rows,
                     )?;
                     stats_cache.as_mut().expect("stats cache").0.record(stats)?;
                 }
@@ -1820,13 +1822,13 @@ fn run_batch_with_counter(
             let start = Instant::now();
             let (result, stats) = if stats_requested {
                 parse_counter.record();
-                let (outcome, rows, prune_rows) =
-                    morpher.parse_word_with_stats_and_prunes(word, &opts);
+                let (outcome, rows, prune_rows, gate_rows) =
+                    morpher.parse_word_with_gate_stats(word, &opts);
                 let result = pg_parse::BatchWordOutcome {
                     outcome,
                     elapsed: start.elapsed(),
                 };
-                let stats = stats_cmd::batch_stats_word(
+                let stats = stats_cmd::batch_stats_word_with_gates(
                     &grammar,
                     stats_identities
                         .as_ref()
@@ -1835,6 +1837,7 @@ fn run_batch_with_counter(
                     &result,
                     &rows,
                     &prune_rows,
+                    &gate_rows,
                 )?;
                 (result, Some(stats))
             } else {

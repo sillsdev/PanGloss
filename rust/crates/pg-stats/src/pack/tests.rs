@@ -10,15 +10,17 @@ fn seed(path: &Path, compact: bool) {
     }
     .unwrap()
     .cache;
-    cache.connection().execute_batch("INSERT INTO run VALUES (1, 11, 1, 'build', 'test.xml', 'hash-a', 'hc', 'opts', '{}', 'now', 1, 7, -1);
+    cache.connection().execute_batch("INSERT INTO run VALUES (1, 13, 1, 'build', 'test.xml', 'hash-a', 'hc', 'opts', '{}', 'now', 1, 7, -1);
         UPDATE cache_identity SET engine = 'hc';
-        INSERT INTO word VALUES (1, 1, 'tok', 7, 9, 2, 0, 0, 0);
+        INSERT INTO word VALUES (1, 1, 'tok', 7, 9, 2, 0, 0, 1, 0);
         INSERT INTO object VALUES (1, 'rule', 'morph_rule', 'Rule', 'authored', 0);
+        INSERT INTO feature VALUES (1, 'exception-id', 'mpr', 'Exception', 'excluded');
+        INSERT INTO gate_fact VALUES (1, 1, 1, 17, 3);
         INSERT INTO fact VALUES (1, 1, 0, 0, 'analysis', 3, 4, 9, 2, 1, 0, 0, 2, 7);").unwrap();
     if compact {
         cache
             .connection()
-            .execute("UPDATE run SET schema_version = 12", [])
+            .execute("UPDATE run SET schema_version = 14", [])
             .unwrap();
     }
     cache.checkpoint_and_close().unwrap();
@@ -48,6 +50,7 @@ fn packed_round_trip_preserves_both_schemas_and_direct_word_query() {
         seed(&path, compact);
         let plain = open_read(&path).unwrap();
         let before = facts(&plain);
+        let gates = query_rows(&plain, "SELECT * FROM gate_fact");
         let meta = metadata_digest(&plain).unwrap();
         let word_schema: String = plain
             .query_row(
@@ -81,6 +84,7 @@ fn packed_round_trip_preserves_both_schemas_and_direct_word_query() {
         drop(outer);
         let expanded = open_read(&path).unwrap();
         assert_eq!(facts(&expanded), before);
+        assert_eq!(query_rows(&expanded, "SELECT * FROM gate_fact"), gates);
         assert_eq!(metadata_digest(&expanded).unwrap(), meta);
         drop(expanded);
         unpack(&path).unwrap();
@@ -296,7 +300,7 @@ fn current_motif_fact_queries_require_expansion_and_preserve_results() {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(version, if compact { 12 } else { 11 });
+        assert_eq!(version, if compact { 14 } else { 13 });
         let semantics: i64 = outer
             .query_row("SELECT counter_semantics FROM run", [], |r| r.get(0))
             .unwrap();

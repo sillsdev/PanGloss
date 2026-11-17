@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- HC `batch --stats` records required and excluded feature gates in schema 13/14 caches, with authored feature identities (including inverse required/output predicates and realizational comparisons), explicit measurement state, compact/packed support, and `stats --group gate` replay (#306).
+
 ## 0.22.1
 
 Released 2026-11-17.

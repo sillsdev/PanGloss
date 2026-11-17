@@ -957,6 +957,7 @@ pub struct RootAllomorphDef {
 /// top doc).
 #[derive(Debug)]
 pub struct StemNameDef {
+    pub xml_id: String,
     pub name: Option<String>,
     /// At least one region (C# ctor throws `ArgumentException` on an empty region list; the
     /// loader always supplies `<Regions><Region+>`, so this is never empty in practice).
@@ -1022,35 +1023,44 @@ fn mpr_group_buckets(
 /// distinct group actually referenced) is ANDed together, matching C#'s `foreach` loop returning
 /// `false` on the first failing group.
 pub fn mpr_required_ok(groups: &[MprGroup], required: MprSet, have: MprSet) -> bool {
-    if required.is_empty() {
-        return true;
-    }
-    let (ungrouped, buckets) = mpr_group_buckets(groups, required);
-    if !ungrouped.is_subset_of(have) {
-        return false;
-    }
-    buckets.into_iter().all(|(mt, bucket)| match mt {
-        MprGroupMatchType::All => bucket.is_subset_of(have),
-        MprGroupMatchType::Any => bucket.overlaps(have),
-    })
+    mpr_match_observed(groups, required, have, false, |_, _| {})
 }
 
 /// C# `MprFeatureSet.IsMatchExcluded` (`MprFeatureSet.cs:72-96`): the dual of
-/// `mpr_required_ok` — ungrouped features and `All`-type group members must ALL be *absent*; an
-/// `Any`-type group only needs one member absent (fails only when every member of that group is
-/// present).
+/// `mpr_required_ok` — ungrouped features and `All`-type group members must ALL be absent; an
+/// `Any`-type group only needs one member absent (fails only when every member is present).
 pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> bool {
-    if excluded.is_empty() {
+    mpr_match_observed(groups, excluded, have, true, |_, _| {})
+}
+
+/// Observe only evaluated buckets. For an All bucket, `blocked` contains the failing members;
+/// for an Any bucket, every member shares the collective decision. The callback never decides admission.
+pub fn mpr_match_observed(
+    groups: &[MprGroup],
+    test: MprSet,
+    have: MprSet,
+    excluded: bool,
+    mut observe: impl FnMut(MprSet, MprSet),
+) -> bool {
+    if test.is_empty() {
         return true;
     }
-    let (ungrouped, buckets) = mpr_group_buckets(groups, excluded);
-    if ungrouped.overlaps(have) {
+    let (ungrouped, buckets) = mpr_group_buckets(groups, test);
+    let mut evaluate = |mt, bucket: MprSet| {
+        let blocked = match (mt, excluded) {
+            (MprGroupMatchType::All, false) => MprSet(bucket.0 & !have.0),
+            (MprGroupMatchType::All, true) => MprSet(bucket.0 & have.0),
+            (MprGroupMatchType::Any, false) if !bucket.overlaps(have) => bucket,
+            (MprGroupMatchType::Any, true) if bucket.is_subset_of(have) => bucket,
+            (MprGroupMatchType::Any, _) => MprSet::EMPTY,
+        };
+        observe(bucket, blocked);
+        blocked.is_empty()
+    };
+    if !evaluate(MprGroupMatchType::All, ungrouped) {
         return false;
     }
-    buckets.into_iter().all(|(mt, bucket)| match mt {
-        MprGroupMatchType::All => !bucket.overlaps(have),
-        MprGroupMatchType::Any => !bucket.is_subset_of(have),
-    })
+    buckets.into_iter().all(|(mt, bucket)| evaluate(mt, bucket))
 }
 
 /// C# `MprFeatureSet.AddOutput` (`MprFeatureSet.cs:29-44`): group-aware MPR output accumulation.
@@ -1059,7 +1069,7 @@ pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> b
 /// `current` first; only then is `output` unioned in. `Append`-policy groups (and any group
 /// `output` doesn't touch at all) are pure union, same as ungrouped features — matching every
 /// reference-grammar allomorph today (singleton groups, so Overwrite-vs-Append is unobservable
-/// there; this is exactly the W3.1 gap).
+/// there).
 pub fn mpr_add_output(groups: &[MprGroup], current: MprSet, output: MprSet) -> MprSet {
     if output.is_empty() {
         return current;

@@ -868,7 +868,7 @@ impl<'f> Transduce<'f> {
         }
     }
 
-    /// C# `Advance` (TraversalMethodBase.cs:248-351), linear acceptor path. Returns the produced continuation instances.
+    /// C# `Advance` (TraversalMethodBase.cs:248-351), appending continuations before the caller visits them.
     fn advance(
         &self,
         mut inst: Inst,
@@ -876,9 +876,10 @@ impl<'f> Transduce<'f> {
         guard: u32,
         optional: bool,
         cur_results: &mut Vec<FstResult>,
-    ) -> Vec<Inst> {
+        out: &mut Vec<Inst>,
+    ) {
         if !crate::work::consume() {
-            return Vec::new();
+            return;
         }
         let next_index = inst.ann_index + 1; // GetNextNonoverlappingAnnotationIndex, linear
         let end = self.ann_end(inst.ann_index);
@@ -889,18 +890,17 @@ impl<'f> Transduce<'f> {
         if next_index < self.n() {
             let next_offset = self.ann_start(next_index);
             let next_start = true;
-            let mut out: Vec<Inst> = Vec::new();
 
             // optional next annotation -> also spawn the "skip it" path (registers pre-command).
             if self.seg(next_index).optional {
                 let mut ti = inst.clone(); // O(1): registers shared, deep-copied only on write
                 ti.ann_index = next_index;
-                out.extend(self.advance(ti, arc, guard, true, cur_results));
+                self.advance(ti, arc, guard, true, cur_results, out);
             }
 
             // A skip that stops inside the run the consumed node belongs to is a non-canonical tiling.
             if optional && (next_index as u32) < guard {
-                return out;
+                return;
             }
 
             if !arc_cmds.is_empty() {
@@ -926,7 +926,6 @@ impl<'f> Transduce<'f> {
             inst.state = arc.target as usize;
             inst.ann_index = next_index;
             out.push(inst);
-            out
         } else {
             let next_offset = self.end_pos();
             if !arc_cmds.is_empty() {
@@ -944,7 +943,7 @@ impl<'f> Transduce<'f> {
             self.check_accepting(self.n(), &inst.registers, arc.target as usize, cur_results);
             inst.state = arc.target as usize;
             inst.ann_index = self.n();
-            vec![inst]
+            out.push(inst);
         }
     }
 
@@ -1017,6 +1016,8 @@ impl<'f> Transduce<'f> {
         let seeds = self.initialize(ann_index, init_registers, cmds, init_anns);
         let mut stack: Vec<Inst> = seeds;
         let mut cur_results: Vec<FstResult> = Vec::new();
+        // Reuse storage across arcs, draining only after all optional successors have been evaluated.
+        let mut continuations = Vec::new();
 
         if deterministic {
             let __o2_det_start = profile::start();
@@ -1032,7 +1033,15 @@ impl<'f> Transduce<'f> {
                     }
                     if self.check_input_match(arc, inst.ann_index) {
                         let guard = self.run_guard(inst.ann_index, arc_index);
-                        for ni in self.advance(inst, arc, guard, false, &mut cur_results) {
+                        self.advance(
+                            inst,
+                            arc,
+                            guard,
+                            false,
+                            &mut cur_results,
+                            &mut continuations,
+                        );
+                        for ni in continuations.drain(..) {
                             stack.push(ni);
                         }
                         advanced = true;
@@ -1080,9 +1089,15 @@ impl<'f> Transduce<'f> {
                             }
                         }
                         let guard = self.run_guard(inst.ann_index, arc_index);
-                        for mut new_inst in
-                            self.advance(inst.clone(), arc, guard, false, &mut cur_results)
-                        {
+                        self.advance(
+                            inst.clone(),
+                            arc,
+                            guard,
+                            false,
+                            &mut cur_results,
+                            &mut continuations,
+                        );
+                        for mut new_inst in continuations.drain(..) {
                             let parent = inst.record.map(|r| (r, &*inst.registers));
                             match traversed.insert(&new_inst, parent, fst_states, n, slots) {
                                 Insert::New(record) => {

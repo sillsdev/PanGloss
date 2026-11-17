@@ -721,7 +721,7 @@ const STATS_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--group",
         takes_value: true,
-        summary: "word|object|allomorph|morpheme|group|never-fires (default: object)",
+        summary: "word|object|allomorph|morpheme|group|never-fires|gate (default: object)",
     },
     FlagSpec {
         name: "--kind",

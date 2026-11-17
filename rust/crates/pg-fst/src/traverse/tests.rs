@@ -1,5 +1,41 @@
 use super::*;
 
+/// Continuation storage is reused across arcs without truncating optional fanout or changing skip-first order.
+#[test]
+fn advance_reuses_storage_and_preserves_optional_fanout() {
+    let fst = crate::CompileInput::new(vec![crate::CompileNode::Constraint(vec![1])]).compile();
+    let arc = &fst.arcs[fst.states[fst.start as usize].arc_lo as usize];
+    let inst = || Inst {
+        state: fst.start as usize,
+        ann_index: 0,
+        registers: Rc::from(vec![Packed::UNSET; fst.register_count as usize * 2]),
+        record: None,
+    };
+    for optional_count in [0, 1, 8] {
+        let mut segments = vec![Segment::new(vec![1])];
+        segments.extend((0..optional_count).map(|_| Segment::optional(vec![1])));
+        let transduce = Transduce::new(&fst, segments);
+        let mut successors = Vec::new();
+        let mut storage = None;
+        for _ in 0..2 {
+            let mut results = Vec::new();
+            transduce.advance(inst(), arc, 0, false, &mut results, &mut successors);
+            assert_eq!(
+                successors.iter().map(|s| s.ann_index).collect::<Vec<_>>(),
+                (1..=optional_count + 1).rev().collect::<Vec<_>>()
+            );
+            assert!(successors.iter().all(|s| s.state == arc.target as usize));
+            assert!(!results.is_empty());
+            let allocated = (successors.as_ptr(), successors.capacity());
+            if let Some(previous) = storage {
+                assert_eq!(allocated, previous);
+            }
+            storage = Some(allocated);
+            successors.clear();
+        }
+    }
+}
+
 /// `Visited::insert` gives the same answer as a `HashSet` of `(state, ann_index, registers)` keys for every call, at every byte width, for keys reached through many different parent chains (diff records and snapshots), including keys that differ only in the high bytes of a wide value.
 #[test]
 fn visited_answers_exactly_as_a_hash_set_of_keys() {

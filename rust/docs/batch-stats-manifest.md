@@ -12,7 +12,7 @@ pangloss batch grammar.json words.txt results.tsv \
   --stats-manifest stats-run.json --threads 1
 ~~~
 
-Add `--stats-compact` to opt in to compact cache schema 12. Full caches remain schema 11.
+Add `--stats-compact` to opt in to compact cache schema 14. Full caches remain schema 13.
 The manifest format stays version 2: `cache.schema_version` distinguishes the representations,
 and the digest still covers the exact checkpointed SQLite bytes. Both `pangloss stats` and
 `pangloss facts --stats ... --stats-manifest ...` accept a compact cache. Its stratum/allomorph
@@ -80,3 +80,5 @@ export validate and expand packed facts automatically. For other direct fact
 queries, `pangloss stats-cache unpack --cache <path> --out <temporary-path>` leaves
 the frozen source and its digest unchanged. In-place pack/unpack changes bytes and
 invalidates any previously recorded digest; never mutate published evidence.
+
+Feature predicates are collected with HC `--stats`; see [feature gates](../../docs/formats/stats-cache.md).
