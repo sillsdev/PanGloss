@@ -35,10 +35,10 @@ fn slot_gate_fixture(vacuous: bool) -> String {
     <PhonologicalRuleDefinitions>
       <PhonologicalRule id="pr1">
         <Name>PR</Name>
-        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticInput>
+        <PhoneticInput><PhoneticSequence><Segment segment="cK" /></PhoneticSequence></PhoneticInput>
         <PhonologicalSubrules>
           <PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticOutput>
+            <PhoneticOutput><PhoneticSequence><Segment segment="cK" /></PhoneticSequence></PhoneticOutput>
           </PhonologicalSubrule>
         </PhonologicalSubrules>
       </PhonologicalRule>

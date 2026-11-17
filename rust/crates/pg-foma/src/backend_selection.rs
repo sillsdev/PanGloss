@@ -23,6 +23,7 @@ pub fn capability_shape_key_for_test(
     use crate::capability::CapabilityRefusal;
     match diagnostic.refusal {
         CapabilityRefusal::AlphaEnvironment
+        | CapabilityRefusal::ProposalRecall(_)
         | CapabilityRefusal::CircumfixNoRoute { .. }
         | CapabilityRefusal::ReduplicationNoRoute { .. }
         | CapabilityRefusal::PatternRootShape { .. }

@@ -49,9 +49,24 @@ fn tag_sequences_for(g: &Grammar, morpher: &Morpher, surface: &str) -> Vec<Vec<S
         .collect()
 }
 
+/// Isolates one rule so candidate-selection tests do not claim complete support for the refused mixed-rule grammar.
+fn load_single_rule(key: &str) -> Grammar {
+    let mut g = load_fixture();
+    let mid = mrule_id_of(&g, key);
+    for stratum in &mut g.strata {
+        stratum.mrules.retain(|&id| id == mid);
+    }
+    g
+}
+
 /// The standard containment shape: `emit::emit`'s compiled net must fully cover every analysis the real confirm engine finds for `surface`.
 fn assert_full_containment(g: &Grammar, surface: &str) {
     let emit_result = emit::emit(g);
+    assert!(
+        !emit_result.lexc_source.is_empty(),
+        "isolated rule must produce a network: {:?}",
+        emit_result.report.tier
+    );
     assert!(
         emit_result.report.uncovered.is_empty(),
         "{surface:?}: grammar must be fully covered by the enumeration path: {:?}",
@@ -81,7 +96,7 @@ fn assert_full_containment(g: &Grammar, surface: &str) {
 /// All 4 `mrCross` subrule words, plus the bare-root control, reachable in the compiled net.
 #[test]
 fn mr_cross_all_four_subrule_words_reachable() {
-    let g = load_fixture();
+    let g = load_single_rule("mrCross");
     assert_full_containment(&g, "batid");
     assert_full_containment(&g, "pabatidan"); // subCrossAA
     assert_full_containment(&g, "pabatidin"); // subCrossAB
@@ -130,6 +145,6 @@ fn mr_infix_drop_leaves_preexpand_candidates_after_the_structural_widening() {
 /// UPDATED by census C4: `bumat` is now reachable via `build_structural_composites`, not `crate::preexpand` -- see `docs/research/circumfix-composite-precedence-census.md`, C4.
 #[test]
 fn mr_infix_drop_word_reachable_via_build_structural_composites_now() {
-    let g = load_fixture();
+    let g = load_single_rule("mrInfixDrop");
     assert_full_containment(&g, "bumat");
 }

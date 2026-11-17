@@ -1629,7 +1629,9 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 
 /// `PredicateId` and `CapabilityDiagnostic` are plain data the pack format also reads, so they
 /// live in `pg-health`; re-exported here at their historical path.
-pub use pg_health::capability::{CapabilityDiagnostic, CapabilityRefusal, PredicateId};
+pub use pg_health::capability::{
+    CapabilityDiagnostic, CapabilityRefusal, PredicateId, ProposalRecallGap,
+};
 
 /// Where a predicate's evidence comes from.
 ///
@@ -3187,10 +3189,30 @@ impl GrammarWideCheck for EagerRouteDropsRootSpellingsCheck {
 /// applies, named and strategy-scoped rather than threaded as a growing positional argument list.
 pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
     vec![
+        Box::new(ProposalRecallCheck),
         Box::new(AlphaEnvironmentCheck(EmissionStrategy::TunedSurfaceProbed)),
         Box::new(TunedSurfaceMixedCircumfixZoneCheck),
         Box::new(EagerRouteDropsRootSpellingsCheck),
     ]
+}
+
+/// Refuses grammar shapes whose surface proposal construction can lose analyses.
+pub struct ProposalRecallCheck;
+
+impl GrammarWideCheck for ProposalRecallCheck {
+    fn id(&self) -> PredicateId {
+        crate::proposal_recall::PREDICATE
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TunedSurfaceProbed
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        let diagnostics = crate::proposal_recall::refusals(semantics.grammar());
+        (!diagnostics.is_empty()).then_some(CompileDecision::Refuse(diagnostics))
+    }
 }
 
 /// The grammar-wide checks every caller other than `crate::backend_selection` applies: none. The one check this held (the templated route's shape floor) went with that backend.

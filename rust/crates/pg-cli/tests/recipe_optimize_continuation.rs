@@ -6,33 +6,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// The staged fixture, chosen because one unbounded run produces the exact mix every test here needs.
+/// The source fixture for a literal rewrite control that reaches confirmation.
 /// See docs/research/pg-cli-recipe-optimize-continuation-test-notes.md for the measured evaluation order this file's bounds are derived against.
-const FIXTURE: &str = "conformance-staging/edge-cases/backend-strata-generic/grammar.xml";
+const FIXTURE: &str =
+    "conformance-staging/edge-cases/featureless-single-member-class-rewrite/grammar.xml";
 
 /// Verbatim from that fixture's `words.yaml`, duplicated rather than parsed so the test needs no YAML round trip; the non-vacuity assertions below fail loudly if the fixture drifts.
-const WORDS: &[&str] = &[
-    "nuna",
-    "nunaliq",
-    "nunaliqvuq",
-    "nunavuq",
-    "akutat",
-    "pitat",
-    "akupitat",
-    "akutas",
-    "silanuk",
-    "silamanuk",
-    "silamak",
-    "takuvuq",
-    "bubu",
-    "buibu",
-    "kuuukuuu",
-    "kuiikuii",
-    "buuubuuu",
-    "buiibuii",
-    "mau",
-    "matu",
-];
+const WORDS: &[&str] = &["asa", "aka", "ita", "isa", "aska", "kaa", "aki"];
 
 /// Generous enough that no assertion here can be decided by the machine's load; these runs measure ~0.3s of work.
 const ELAPSED_NS: &str = "600000000000";
@@ -98,10 +78,18 @@ fn optimize(tag: &str, extra: &[String]) -> Run {
     fs::create_dir_all(&root).unwrap();
     fs::write(&words, format!("{}\n", WORDS.join("\n"))).unwrap();
 
+    let grammar = root.join("grammar.xml");
+    let mut xml = fs::read_to_string(repo_file(FIXTURE)).unwrap();
+    for (class, segment) in [("ncK", "cK"), ("ncS", "cS")] {
+        let context = format!(r#"<SimpleContext naturalClass="{class}" />"#);
+        assert_eq!(xml.matches(&context).count(), 1);
+        xml = xml.replace(&context, &format!(r#"<Segment segment="{segment}" />"#));
+    }
+    fs::write(&grammar, xml).unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_pangloss"));
     command.args([
         "recipe-optimize".to_owned(),
-        repo_file(FIXTURE).to_str().unwrap().to_owned(),
+        grammar.to_str().unwrap().to_owned(),
         words.to_str().unwrap().to_owned(),
         out.to_str().unwrap().to_owned(),
         "--seed".to_owned(),

@@ -182,7 +182,8 @@ fn structural_segment_interaction_keeps_both_orders() {
 
 #[test]
 fn structural_production_work_budget_is_a_typed_refusal() {
-    let g = pg_grammar::load(&commuting_structural_xml(2)).unwrap();
+    // A single structural rule isolates containment from the refused truncation composition.
+    let g = pg_grammar::load(&commuting_structural_xml(1)).unwrap();
     let emitted = emit_with_structural_limits(
         &g,
         StructuralClosureLimits {
@@ -242,19 +243,20 @@ fn structural_boundary_graph_grows_linearly() {
 
 #[test]
 fn structural_boundary_graph_is_used_by_the_production_emitter() {
-    let g = load("languages/metathesis-phase-isolation/grammar.xml");
+    let g = metathesis_without_reduplication_or_truncation();
     let emitted = emit(&g);
     assert!(emitted.report.counts.composite_structural_entries > 0);
     assert!(
         emitted.lexc_source.contains("LEXICON SC"),
         "shared boundary continuations must be reachable"
     );
-    assert_confirms("languages/metathesis-phase-isolation", &["mu+i"]);
+    assert_grammar_confirms(&g, &["mu+i"]);
 }
 
 #[test]
 fn structural_production_retained_bytes_budget_is_a_typed_refusal() {
-    let g = pg_grammar::load(&commuting_structural_xml(2)).unwrap();
+    // A single structural rule isolates containment from the refused truncation composition.
+    let g = pg_grammar::load(&commuting_structural_xml(1)).unwrap();
     let emitted = emit_with_structural_limits(
         &g,
         StructuralClosureLimits {
@@ -312,7 +314,7 @@ fn load(path: &str) -> Grammar {
     pg_grammar::load(&xml).unwrap()
 }
 
-fn load_without_realizational_rules(path: &str) -> Grammar {
+fn load_without_realizational_or_reduplication_rules(path: &str) -> Grammar {
     let full = fixture_grammar_path(path);
     let mut xml =
         std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
@@ -328,7 +330,18 @@ fn load_without_realizational_rules(path: &str) -> Grammar {
         let end = start + relative_end + "</RealizationalRule>".len();
         xml.replace_range(start..end, "");
     }
-    pg_grammar::load(&xml).unwrap()
+    let mut g = pg_grammar::load(&xml).unwrap();
+    // These controls measure phonology/profiling independently of the fixture's refused reduplication composition.
+    let peeled: Vec<_> = g
+        .strata
+        .iter()
+        .flat_map(|s| s.mrules.iter().copied())
+        .filter(|&mid| pg_foma_runtime::emission_support::reduplication_rule_is_peelable(&g, mid))
+        .collect();
+    for stratum in &mut g.strata {
+        stratum.mrules.retain(|mid| !peeled.contains(mid));
+    }
+    g
 }
 
 /// Loads a samples/data/*.xml reference grammar; None (test skips) if not present on disk.
@@ -362,10 +375,22 @@ fn pattern_variants_enumerates_mandatory_class_members() {
     assert_eq!(sorted, vec!["bat".to_string(), "bet".to_string()]);
 }
 
+fn scalar_polysynthetic_control() -> Grammar {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "languages",
+        "polysynthetic-stratal-derivation-chain",
+    );
+    let xml = fixture.load_grammar_xml();
+    let target = r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHighVowel" /><SimpleContext naturalClass="ncHighVowel" /></PhoneticSequence></PhoneticInput>"#;
+    assert_eq!(xml.matches(target).count(), 2);
+    let xml = xml.replace(target, r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuVowel" /><SimpleContext naturalClass="ncHfuVowel" /></PhoneticSequence></PhoneticInput>"#);
+    pg_grammar::load(&xml).expect("scalar vowel control must load")
+}
+
 /// The compiled TSP network accepts a NOVEL spelling through an unbounded (`[Any]*`) pattern root via its regex entry, and decodes to that pattern entry's own tag identity -- the point of a guesser pattern: representing a language, not a spelling list.
 #[test]
 fn pattern_route_accepts_a_novel_spelling_under_the_pattern_entrys_own_tag() {
-    let g = load("languages/polysynthetic-stratal-derivation-chain/grammar.xml");
+    let g = scalar_polysynthetic_control();
     let pattern_entry = entry_id_of(&g, "eGuessPat");
     let pattern_morpheme = g.entries[pattern_entry.0 as usize].morpheme;
     let mut proposer =
@@ -412,18 +437,16 @@ fn truncation_rules_classify_as_structural() {
     );
 }
 
-/// End-to-end: FomaProposer must actually propose every one of the fixture's analyses, not just classify correctly.
+/// A finite exact sample does not establish complete support for truncation composition.
 #[test]
-fn truncation_composites_are_proposable() {
+fn truncation_composites_refuse_with_the_known_recall_cause() {
     let g = load("edge-cases/truncate-morphotactic/grammar.xml");
-    let mut proposer = crate::analyzer::compile_proposer(&g).expect("compiles");
-    for (word, min_candidates) in [("sa", 1), ("ag", 1), ("as", 1), ("gas", 2), ("gbubibi", 1)] {
-        let n = proposer.propose(word).len();
-        assert!(
-            n >= min_candidates,
-            "{word:?}: expected >= {min_candidates} candidate(s), got {n}"
-        );
-    }
+    let (result, profile) = crate::analyzer::compile_proposer_with_profile(&g);
+    assert!(
+        matches!(result, Err(crate::analyzer::FomaError::CapabilityRefused(ref diagnostics))
+        if diagnostics.iter().any(|d| d.refusal == pg_health::capability::CapabilityRefusal::ProposalRecall(pg_health::capability::ProposalRecallGap::TruncationComposition)))
+    );
+    assert_eq!(profile.final_state_count, None);
 }
 
 /// probe_would_refuse must detect an empty-PhoneticInput (epenthesis-kind) rewrite subrule.
@@ -443,7 +466,7 @@ fn probe_would_refuse_is_false_for_ordinary_rewrite_rules() {
 /// A bare root whose surface exists only via an obligatory phonological rule, no morphological rule involved, must become proposable via collect_roots' bare-root phonology enrichment.
 #[test]
 fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
-    let g = load_without_realizational_rules(
+    let g = load_without_realizational_or_reduplication_rules(
         "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
     );
     // This checks a proposal path, not completeness of the broader fixture.
@@ -458,7 +481,7 @@ fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
 /// probe_surface is POS-blind, so a bare root in a grammar that scopes different phonological rules to different POS in the same stratum needs generate_words' genuinely POS-gated pipeline instead.
 #[test]
 fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
-    let g = load("languages/polysynthetic-stratal-derivation-chain/grammar.xml");
+    let g = scalar_polysynthetic_control();
     let table = surface_table(&g);
     let cache = RuleCache::build(&g);
     let entry = &g.entries[entry_id_of(&g, "eBuiibuii").0 as usize];
@@ -506,18 +529,40 @@ fn suffixing_vowel_harmony_uses_the_full_parser() {
     assert!(emitted.lexc_source.is_empty());
 }
 
+fn metathesis_without_reduplication_or_truncation() -> Grammar {
+    let mut g = load("languages/metathesis-phase-isolation/grammar.xml");
+    let allowed: Vec<_> = g
+        .strata
+        .iter()
+        .flat_map(|s| s.mrules.iter().copied())
+        .filter(|&mid| {
+            !pg_foma_runtime::emission_support::reduplication_rule_is_peelable(&g, mid)
+                && g.morphemes[owning_morpheme(&g, mid).0 as usize].xml_key != "mrTrunc"
+        })
+        .collect();
+    for stratum in &mut g.strata {
+        stratum.mrules.retain(|mid| allowed.contains(mid));
+    }
+    g
+}
+
 /// Every proposed candidate must survive confirm end-to-end via the real conformance path.
 fn assert_confirms(fixture: &str, words: &[&str]) {
     let g = load(&format!("{fixture}/grammar.xml"));
-    // These broad fixtures provide proposal-path evidence, not artifact certification.
-    let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(&g);
-    let proposer = proposer.unwrap_or_else(|e| panic!("{fixture} compiles for development: {e}"));
-    let mut analyzer = crate::composite::FomaAnalyzer::from_precompiled_proposer(&g, proposer);
+    assert_grammar_confirms(&g, words);
+}
+
+fn assert_grammar_confirms(g: &Grammar, words: &[&str]) {
+    // These controls provide proposal-path evidence, not artifact certification.
+    let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(g);
+    let proposer =
+        proposer.unwrap_or_else(|e| panic!("isolated grammar compiles for development: {e}"));
+    let mut analyzer = crate::composite::FomaAnalyzer::from_precompiled_proposer(g, proposer);
     for &word in words {
         let outcome = analyzer.analyze_word(word);
         assert!(
             outcome.confirmed >= 1,
-            "{fixture}/{word:?}: expected >= 1 confirmed analysis, got {}; candidates={}",
+            "{word:?}: expected >= 1 confirmed analysis, got {}; candidates={}",
             outcome.confirmed,
             outcome.candidates_generated
         );
@@ -583,25 +628,30 @@ fn metathesis_probe_refusal_keeps_affix_candidates_per_root() {
 
 #[test]
 fn compound_head_prefix_confirms_polysynthetic_fixture() {
-    assert_confirms(
-        "languages/polysynthetic-stratal-derivation-chain",
-        &["silamanuk"],
-    );
+    assert_grammar_confirms(&scalar_polysynthetic_control(), &["silamanuk"]);
 }
 
 /// redupMorphType="prefix" reduplication needs the peel to prepend the redup morpheme, not append it, or confirm's positional match fails.
 #[test]
 fn prefix_reduplication_confirms() {
-    assert_confirms(
-        "languages/metathesis-phase-isolation",
-        &["tutula", "tulatula"],
-    );
+    let mut g = load("languages/metathesis-phase-isolation/grammar.xml");
+    let allowed: Vec<_> = g
+        .strata
+        .iter()
+        .flat_map(|s| s.mrules.iter().copied())
+        .filter(|&mid| pg_foma_runtime::emission_support::reduplication_rule_is_peelable(&g, mid))
+        .collect();
+    for stratum in &mut g.strata {
+        stratum.prules.clear();
+        stratum.mrules.retain(|mid| allowed.contains(mid));
+    }
+    assert_grammar_confirms(&g, &["tutula", "tulatula"]);
 }
 
 /// Metathesis that leaves a boundary char inside the surface: generate_words strips it, with_boundary_insertions must re-introduce it so the boundary-bearing query is reachable.
 #[test]
 fn metathesis_boundary_in_surface_confirms() {
-    assert_confirms("languages/metathesis-phase-isolation", &["mu+i"]);
+    assert_grammar_confirms(&metathesis_without_reduplication_or_truncation(), &["mu+i"]);
 }
 
 /// A no-op without boundary reps; enumerates every interior gap with them.
@@ -836,7 +886,7 @@ fn explicit_default_surface_strategy_matches_profiled_wrapper() {
 /// The profile must collect real per-stage data, not all-zero placeholders, including a stage only a real-phonology grammar exercises.
 #[test]
 fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
-    let g = load_without_realizational_rules(
+    let g = load_without_realizational_or_reduplication_rules(
         "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
     );
     let mut builder = crate::profile::CompileProfileBuilder::production();
@@ -869,7 +919,7 @@ fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
 /// Profiling must never change the emitted artifact: byte-identical lexc_source and EmitCounts with profiling on vs. off.
 #[test]
 fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
-    let g = load_without_realizational_rules(
+    let g = load_without_realizational_or_reduplication_rules(
         "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
     );
     let without_profile = emit_with_budget_profiled(&g, PrecisionConfig::Strip, None);
@@ -957,7 +1007,7 @@ fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
 /// Every group must report a nonzero line count, and the per-group counts must sum to no more than the total.
 #[test]
 fn fst_profile_group_line_counts_are_real_and_bounded_by_the_total() {
-    let g = load_without_realizational_rules(
+    let g = load_without_realizational_or_reduplication_rules(
         "languages/suffixing-extension-slot-ordering-single-stem-name/grammar.xml",
     );
     let mut builder = crate::profile::CompileProfileBuilder::production();

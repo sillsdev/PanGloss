@@ -1,0 +1,21 @@
+# oracle-provenance: founding-oracle
+# Replayed on Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; raw batch and source receipt retained in review-admission2-evidence.
+language: FeaturelessSegmentClassRewrite
+requires: [phonology]
+fieldworks_producible: true
+fieldworks_producible_notes: >-
+  Single-valued feature structures and an omitted segment feature, as emitted by HCLoader LoadFeatureStruct and LoadNaturalClass. No multi-valued feature specification is used. No fwdata round-trip witness is claimed.
+words:
+  - word: asa
+    note: First output spelling is a positive control.
+    parses:
+      - signature: "AKA|a[sz]a"
+        rules: [prLen]
+  - word: aza
+    note: Second output spelling retains the same root identity in pinned C#.
+    parses:
+      - signature: "AKA|a[sz]a"
+        rules: [prLen]
+  - word: aka
+    note: Obligatory rewrite prevents the unchanged root from surfacing.
+    expect_fail: true

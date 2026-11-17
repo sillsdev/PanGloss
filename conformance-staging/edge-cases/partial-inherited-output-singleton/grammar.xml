@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>FeaturelessSegmentClassRewrite</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV">
+        <Name>V</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="f0">
+        <Name>f0</Name>
+        <Symbols>
+          <Symbol id="f0K">K</Symbol>
+          <Symbol id="f0T">T</Symbol>
+          <Symbol id="f0S">S</Symbol>
+          <Symbol id="f0Z">Z</Symbol>
+          <Symbol id="f0A">A</Symbol>
+          <Symbol id="f0I">I</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="voice">
+        <Name>voice</Name>
+        <Symbols>
+          <Symbol id="voiceplus">plus</Symbol>
+          <Symbol id="voiceminus">minus</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK">
+          <Representations>
+            <Representation>k</Representation>
+          </Representations>
+          <FeatureValue feature="f0" symbolValues="f0K" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT">
+          <Representations>
+            <Representation>t</Representation>
+          </Representations>
+          <FeatureValue feature="f0" symbolValues="f0T" />
+          <FeatureValue feature="voice" symbolValues="voiceminus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cS">
+          <Representations>
+            <Representation>s</Representation>
+          </Representations>
+          <FeatureValue feature="f0" symbolValues="f0S" />
+          <FeatureValue feature="voice" symbolValues="voiceminus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cZ">
+          <Representations>
+            <Representation>z</Representation>
+          </Representations>
+          <FeatureValue feature="f0" symbolValues="f0S" />
+          <FeatureValue feature="voice" symbolValues="voiceplus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+          <FeatureValue feature="f0" symbolValues="f0A" />
+          <FeatureValue feature="voice" symbolValues="voiceminus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cI">
+          <Representations>
+            <Representation>i</Representation>
+          </Representations>
+          <FeatureValue feature="f0" symbolValues="f0I" />
+          <FeatureValue feature="voice" symbolValues="voiceminus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncV">
+        <Name>V</Name>
+        <Segment segment="cA" />
+        <Segment segment="cI" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncK">
+        <Name>K</Name>
+        <Segment segment="cK" />
+      </SegmentNaturalClass>
+      <FeatureNaturalClass id="ncS">
+        <Name>S</Name>
+        <FeatureValue feature="f0" symbolValues="f0S" />
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prLen">
+        <Name>intervocalicLenition</Name>
+        <PhoneticInput>
+          <PhoneticSequence>
+            <SimpleContext naturalClass="ncK" />
+          </PhoneticSequence>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <SimpleContext naturalClass="ncS" />
+              </PhoneticSequence>
+            </PhoneticOutput>
+            <Environment>
+              <LeftEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <SimpleContext naturalClass="ncV" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </LeftEnvironment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <SimpleContext naturalClass="ncV" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered" phonologicalRules="prLen">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eAka" partOfSpeech="posV">
+            <Allomorphs>
+              <Allomorph id="aAka">
+                <PhoneticShape>aka</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>AKA</MorphemeId>
+            <Gloss>aka</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eIta" partOfSpeech="posV">
+            <Allomorphs>
+              <Allomorph id="aIta">
+                <PhoneticShape>ita</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>ITA</MorphemeId>
+            <Gloss>ita</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

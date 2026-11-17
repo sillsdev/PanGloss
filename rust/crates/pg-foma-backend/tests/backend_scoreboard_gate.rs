@@ -42,13 +42,13 @@ impl Bucket {
     }
 }
 
-// Named comparison preserves all 189 prior cells; #196 and this lane add seven cells. #199's conformance-staging/edge-cases/cascade-symbolic-output fixture adds three oracle-exact cells (159 -> 162); the #189 nullable-copy-partition fixtures add six more; the lexical-lookup-sibling-allomorphs fixture (machine#627, port #263) adds three more (168 -> 171); the infix-ambiguous-site fixture adds one more now that infix site selection matches C# (171 -> 172, #297); the pin bump to 24c62b3a graduates that fixture to the suite and brings in the suite fixture infix-split-root-allomorph-environment (conformance #39), one oracle-exact cell net (172 -> 173); the literal-allomorph-environment fixture adds one (173 -> 174); deliberate update per the reconciliation note.
+// Both divergence directions remain visible; recall and soundness are hard zero-defect invariants.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 174,
-        compiles_but_misses: 14,
-        refused: 24,
+        oracle_exact: 122,
+        compiles_but_misses: 0,
+        refused: 104,
         unmeasurable: 0,
     },
 )];
@@ -75,7 +75,7 @@ const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
     "machine:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
 
-// Tuned-surface misses two words here (a rewritten second copy and a second spelling of one vowel), each by one identity; see the reconciliation note's altered-copy gap.
+// Phonology-altered copies require a typed refusal until the proposal relation preserves them.
 const COPY_AGREEMENT_FEATURELESS_REDUP: &str =
     "machine:edge-cases/copy-agreement-featureless-redup";
 
@@ -85,7 +85,7 @@ const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
 const FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE: &str =
     "machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
 
-// The tuned-surface epenthesis cells miss C#-accepted words; see the reconciliation note. The full-set fixture (GH#85) is measured and recorded as it stands: FST behaviour is deferred.
+// Symbolic epenthesis must refuse rather than silently omit C#-accepted analyses.
 const REWRITE_DEFAULT_EPENTHESIS: &str = "staging:edge-cases/rewrite-default-epenthesis";
 const REWRITE_DEFAULT_FULL_SET: &str = "staging:edge-cases/rewrite-default-full-set";
 const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
@@ -110,22 +110,32 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
     use EmissionStrategy::TunedSurfaceProbed;
     match (fixture, strategy) {
         (PER_SITE_ALPHA_FIXTURE, TunedSurfaceProbed) => "refused",
+        (
+            "staging:edge-cases/unattested-intermediate-bundle"
+            | "staging:edge-cases/rewrite-default-narrow",
+            TunedSurfaceProbed,
+        ) => "refused",
+        (
+            FEATURE_CLASS_BOUNDED_RTL_FIXTURE | FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE,
+            TunedSurfaceProbed,
+        ) => "refused",
         (f, TunedSurfaceProbed) if PROPOSING_REVIEW_FIXTURES.contains(&f) => "oracle_exact",
         (f, TunedSurfaceProbed)
-            if f == REWRITE_DEFAULT_EPENTHESIS || f == REWRITE_DEFAULT_FULL_SET =>
+            if f == REWRITE_DEFAULT_EPENTHESIS
+                || f == REWRITE_DEFAULT_FULL_SET
+                || f == COPY_AGREEMENT_FEATURELESS_REDUP
+                || f == REALIZATIONAL_UNBOUNDED_FIXTURE
+                || f == AMBIGUOUS_DISAGREEMENT_FIXTURE
+                || PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) =>
         {
-            "compiles_but_misses"
+            "refused"
         }
-        (f, TunedSurfaceProbed) if f == COPY_AGREEMENT_FEATURELESS_REDUP => "compiles_but_misses",
         (f, TunedSurfaceProbed)
             if f == BOUNDARY_NARROWING_FIXTURE
                 || REWRITE_DEFAULT_FIXTURES.contains(&f)
                 || f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
-                || f == REALIZATIONAL_UNBOUNDED_FIXTURE
-                || f == AMBIGUOUS_DISAGREEMENT_FIXTURE
                 || f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
-                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
-                || PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) =>
+                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
         {
             "oracle_exact"
         }
@@ -159,6 +169,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
     let mut excluded: Vec<String> = Vec::new();
     let mut scored_fixtures = 0usize;
     let mut soundness_violations: Vec<String> = Vec::new();
+    let mut recall_violations: Vec<String> = Vec::new();
     let mut pinned_outcomes: Vec<(&'static str, EmissionStrategy, &'static str)> = Vec::new();
     // Named, not only counted, so a moved ratchet says WHICH fixture moved.
     let mut not_exact: Vec<String> = Vec::new();
@@ -178,6 +189,9 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         "SCOREBOARD_CELL\t{}\t{:?}\t{}",
                         row.label, cell.strategy, label
                     );
+                    if let CellOutcome::Refused { reason, .. } = &cell.outcome {
+                        eprintln!("SCOREBOARD_REFUSAL\t{}\t{reason}", row.label);
+                    }
                     if label != "oracle_exact" {
                         not_exact.push(format!("{} [{:?}]: {label}", row.label, cell.strategy));
                     }
@@ -187,6 +201,12 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         "refused" => bucket.refused += 1,
                         "unmeasurable" => bucket.unmeasurable += 1,
                         other => panic!("unhandled CellOutcome label {other}"),
+                    }
+                    if let CellOutcome::CompilesButMisses { recall_deficit } = &cell.outcome {
+                        recall_violations.push(format!(
+                            "{} [{:?}]: {recall_deficit} missing identities",
+                            row.label, cell.strategy
+                        ));
                     }
                     if let Some(divergence) = cell.divergence {
                         if divergence.candidate_only_identities > 0 {
@@ -258,6 +278,10 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
         soundness_violations.is_empty(),
         "soundness violation(s) found (ADR-0001's propose-and-confirm invariant is one-directional \
          -- overgeneration must never survive confirm): {soundness_violations:?}"
+    );
+    assert!(
+        recall_violations.is_empty(),
+        "admitted grammars must never lose analyses: {recall_violations:#?}"
     );
 
     excluded.sort();

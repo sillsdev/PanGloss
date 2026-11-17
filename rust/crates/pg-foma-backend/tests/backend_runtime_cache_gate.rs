@@ -10,7 +10,11 @@ use pg_foma_backend::backend_runtime::{
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     let fixture = require_fixture("edge-cases", "backend-gated-generic");
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar");
+    let xml = fixture.load_grammar_xml();
+    let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
+    assert_eq!(xml.matches(wide_target).count(), 1);
+    let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
+    let grammar = pg_grammar::load(&xml).expect("scalar deletion control must load");
     let words = fixture
         .load_words_yaml()
         .words
@@ -94,6 +98,10 @@ fn cached_and_uncached_scores_and_winner_are_invariant() {
             .min_by_key(|(index, evaluation)| evaluation.score.key(&index.to_string()))
             .map(|(index, _)| index)
     };
+    assert!(
+        winner(&uncached).is_some(),
+        "the cache control must confirm a candidate"
+    );
     assert_eq!(winner(&uncached), winner(&cached));
 }
 
@@ -263,6 +271,13 @@ fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
         },
     )
     .expect("oracle preparation must succeed for this fixture");
+
+    assert_eq!(
+        cache.corpus_evidence(&prepared).excluded,
+        1,
+        "the unrelated row must actually be excluded"
+    );
+    assert_eq!(cache.corpus_evidence(&requested).excluded, 0);
 
     let evaluations = evaluate_plans_with_cache(
         &grammar,

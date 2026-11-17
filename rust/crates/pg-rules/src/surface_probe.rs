@@ -119,7 +119,7 @@ pub fn render_shape(table: &CharDefTable, shape: &Shape) -> Option<String> {
 }
 
 // Cross-table character indices are unrelated; feature bundles provide the correspondence.
-fn matching_cd_ids(
+pub(crate) fn matching_cd_ids(
     table: &CharDefTable,
     char_def: u32,
     cd_set: &CdSet,
@@ -147,6 +147,18 @@ fn matching_cd_ids(
         }
     }
     out
+}
+
+/// Whether the resolver's complete spelling set is a singleton, including every representation.
+pub fn has_single_spelling(
+    table: &CharDefTable,
+    char_def: u32,
+    cd_set: &CdSet,
+    lanes: &[u64],
+) -> bool {
+    let reps = matching_reps(table, char_def, cd_set, lanes);
+    reps.first()
+        .is_some_and(|first| reps.iter().all(|rep| rep == first))
 }
 
 /// Every representation of every char-def `matching_cd_ids` selects, in table document order.

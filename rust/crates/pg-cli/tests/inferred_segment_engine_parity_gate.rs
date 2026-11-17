@@ -1,4 +1,4 @@
-//! Checks provisional segment engine parity, CLI diagnostics, and parse completion status.
+//! Checks provisional segment parser parity, typed FST refusal, CLI diagnostics and completion status.
 
 use pg_grammar::compile::CompileOptions;
 use pg_grammar::compile_project_with;
@@ -272,15 +272,18 @@ fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
 }
 
 #[cfg(feature = "foma-tools")]
-fn analyze_fst_confirm(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
-    let mut analyzer =
-        pg_foma::composite::compile_analyzer(grammar).expect("fixture grammar must foma-compile");
-    let outcome = analyzer.analyze_word(word);
+fn assert_fst_refuses_ambiguous_spelling(grammar: &pg_grammar::model::Grammar) {
+    let result = pg_foma::composite::compile_analyzer(grammar);
+    let Err(pg_foma::analyzer::FomaError::CapabilityRefused(diagnostics)) = result else {
+        panic!("the non-scalar segment alphabet must refuse before FST construction");
+    };
     assert!(
-        outcome.peel_chain_depth_error.is_none(),
-        "FST analysis of {word:?} must complete"
+        diagnostics.iter().any(|d| d.refusal
+            == pg_foma::capability::CapabilityRefusal::ProposalRecall(
+                pg_foma::capability::ProposalRecallGap::AmbiguousSegmentSpelling
+            )),
+        "expected the shared spelling refusal, got {diagnostics:?}"
     );
-    pg_parse::result_signature(&outcome.analyses)
 }
 
 #[test]
@@ -316,6 +319,11 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
     });
     let valued = compile(&valued_snapshot);
 
+    #[cfg(feature = "foma-tools")]
+    for grammar in [&inferred, &explicit, &valued] {
+        assert_fst_refuses_ambiguous_spelling(grammar);
+    }
+
     for (word, unvalued_has_analysis, valued_has_analysis) in [
         ("qta", false, true),
         ("kumata", false, false),
@@ -349,36 +357,6 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
             unvalued_has_analysis == valued_has_analysis,
             "the constrained q environment and its blocking effect distinguish the valued grammar for {word:?}"
         );
-        #[cfg(feature = "foma-tools")]
-        {
-            let inferred_fst = analyze_fst_confirm(&inferred, word);
-            let explicit_fst = analyze_fst_confirm(&explicit, word);
-            let valued_fst = analyze_fst_confirm(&valued, word);
-            assert_eq!(
-                inferred_fst, inferred_direct,
-                "provisional engine parity for {word:?}"
-            );
-            assert_eq!(
-                explicit_fst, explicit_direct,
-                "featureless engine parity for {word:?}"
-            );
-            assert_eq!(
-                valued_fst, valued_direct,
-                "feature-valued engine parity for {word:?}"
-            );
-            assert_eq!(
-                inferred_fst, explicit_fst,
-                "provisional/featureless FST parity for {word:?}"
-            );
-            assert_eq!(
-                inferred_fst == valued_fst,
-                unvalued_has_analysis == valued_has_analysis,
-                "feature-valued FST contrast for {word:?}"
-            );
-            eprintln!(
-                "{word}: HC/foma agree; provisional={inferred_fst:?}; featureless={explicit_fst:?}; valued={valued_fst:?}"
-            );
-        }
     }
 }
 

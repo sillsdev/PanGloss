@@ -3564,6 +3564,35 @@ fn with_class_identity(
     node
 }
 
+/// Whether every node has one concrete spelling before inheritance or variable binding.
+///
+/// The fresh node precedes class identity or inherited refinements, so singleton output is
+/// sufficient even for partial-feature classes. Variables and structural pattern forms
+/// are refused until their possible outputs have an explicit spelling proof.
+pub fn pattern_has_single_spellings(
+    g: &Grammar,
+    table: &CharDefTable,
+    nodes: &[PatternNode],
+) -> bool {
+    nodes.iter().all(|pattern| {
+        match pattern {
+            PatternNode::CharDef(cd)
+                if table.get(*cd).kind() == pg_grammar_model::chardef::CharDefKind::Boundary =>
+            {
+                return true;
+            }
+            PatternNode::CharDef(_) => {}
+            PatternNode::Context(context) if context.vars.is_empty() => {}
+            PatternNode::Context(_)
+            | PatternNode::Quantifier { .. }
+            | PatternNode::Segments { .. }
+            | PatternNode::Anchor(_) => return false,
+        }
+        let node = new_seg_node(g, table, pattern, false);
+        crate::surface_probe::has_single_spelling(table, node.char_def, &node.cd_set, &node.lanes)
+    })
+}
+
 /// Like `new_seg_node` but lets `dirty` differ from `optional` (C#'s `AddAfter` + separate `SetDirty`). `kind` must resolve from the char-def table for `PatternNode::CharDef` (a `BoundaryMarker` is a real top-level LHS/RHS element, e.g. Amharic `prule7`) rather than defaulting to `Segment`: a boundary char-def has no phonological features, so mis-kinding it as `Segment` makes it a wildcard that unifies with any affix material, corrupting analysis-side matching.
 fn new_seg_node_dirty(
     g: &Grammar,

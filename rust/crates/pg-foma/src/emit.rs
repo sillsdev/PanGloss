@@ -2325,6 +2325,26 @@ pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     !eager_route_root_spelling_refusals(g).is_empty()
 }
 
+/// Whether the referenced alphabet has only singleton spelling closures when emitting material.
+pub(crate) fn eager_route_has_single_segment_spellings(g: &Grammar) -> bool {
+    let emits_material = g.strata.iter().any(|stratum| {
+        !stratum.entries.is_empty() || !stratum.mrules.is_empty() || !stratum.templates.is_empty()
+    });
+    !emits_material
+        || g.strata.iter().all(|stratum| {
+            let table = &g.char_tables[stratum.table.0 as usize];
+            table.iter().all(|(cd, definition)| {
+                definition.kind() != pg_grammar::chardef::CharDefKind::Segment
+                    || pg_rules::surface_probe::has_single_spelling(
+                        table,
+                        cd.0,
+                        &pg_shape::CdSet::Unrestricted,
+                        &definition.matching_lanes(),
+                    )
+            })
+        })
+}
+
 /// The root-spelling decision with its semantic or budget cause, shared with the selector.
 pub fn eager_route_root_spelling_refusals(
     g: &Grammar,
@@ -3519,6 +3539,22 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
 ) -> EmitResult {
     if alpha_environment_refusal(g) {
         return alpha_environment_emit_refusal(g);
+    }
+    let recall_refusals = crate::proposal_recall::refusals(g);
+    if !recall_refusals.is_empty() {
+        return EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                tier: FomaTier::CannotRepresent {
+                    reason: crate::capability_gate::render_refusal(&recall_refusals),
+                },
+                uncovered: Vec::new(),
+                counts: EmitCounts::default(),
+                enum_budget_exceeded: None,
+                closure_refusal: None,
+                closure_evidence: None,
+            },
+        };
     }
     let structural_limits = match strategy
         .structural_limits

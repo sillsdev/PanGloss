@@ -62,6 +62,10 @@ pub fn extend_diagnostics(
                     ));
                     continue;
                 }
+                CapabilityRefusal::ProposalRecall(_) => {
+                    errors.push(message);
+                    continue;
+                }
                 CapabilityRefusal::RootSpellingBudget { .. } => {
                     errors.push(message);
                     continue;
