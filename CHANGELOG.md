@@ -3,12 +3,16 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.22.0
+
+Released 2026-11-17.
 
 - `batch --stats` bounds pending fact memory with a 4 MiB spill buffer and opens write transactions only when flushing, so slow parses do not lock out concurrent cache writers. Full and compact rows, 500-word reusable run groups, and atomic frozen runs are preserved. Frozen cache hashing also streams the file.
 
 - Rust CI and Release explicitly test the FST compiler, runtime, backend and CLI with `foma-tools`, including the scoreboard, faithfulness, capability and seam gates (#137).
 - Preland caches the pin-matched C# conformance driver outside worktree build folders and publishes a temporary source export on a cache miss, including source from the local Machine submodule. `-Jobs` now reaches preland child builds.
+- Calibration tooling adds report-only Windows PMC instruction counts alongside saved callgrind measurements, with per-word phase markers and reports of ratios, ladder drift and round spread.
+  Parser-work weights and existing calibration gates stay unchanged (part of #240; #333).
 - `pangloss fst-verify <grammar> <words>` (`foma-tools`) writes per-word FST versus plain HC-Rust analysis-set verdicts, missing/extra identities, and JSON provenance and totals. Incomplete words are incomparable; mismatches exit nonzero (#140).
 
 ## 0.21.0
