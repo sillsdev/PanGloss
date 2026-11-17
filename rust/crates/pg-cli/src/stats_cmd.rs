@@ -142,10 +142,10 @@ fn stats_row_allomorph_locator(
                         row.allomorph, row.object_index
                     )
                 });
-                let identity = identities.morph_rule(rule_id);
+                let identity = identities.compound_subrule(rule_id, local_index);
                 return Some(pg_stats::StructuralLocator::new(
-                    format!("{}#subrule:{}", identity.key, row.allomorph),
-                    format!("{} subrule {}", identity.label, row.allomorph),
+                    identity.key,
+                    identity.label,
                 ));
             }
             rule.affix_allomorphs()

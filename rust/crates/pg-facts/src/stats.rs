@@ -130,6 +130,7 @@ struct ManifestBatch {
     engine: String,
     threads: usize,
     work_cap: String,
+    word_mem_cap: Option<usize>,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -173,6 +174,7 @@ struct ManifestWordCompletion {
 struct RunOptions {
     engine: String,
     work_cap: Option<String>,
+    word_mem_cap: Option<usize>,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -501,6 +503,7 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
     let option_work_cap = options.work_cap.as_deref();
     if options.engine != manifest.batch.engine
         || option_work_cap != expected_work_cap
+        || options.word_mem_cap != manifest.batch.word_mem_cap
         || options.search_budget_semantics != manifest.batch.search_budget_semantics
         || options.word_timeout_ms != manifest.batch.word_timeout_ms
         || options.guess != manifest.batch.guess
@@ -614,6 +617,7 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
             "engine": manifest.batch.engine,
             "threads": manifest.batch.threads,
             "work_cap": manifest.batch.work_cap,
+            "word_mem_cap": manifest.batch.word_mem_cap,
             "search_budget_semantics": manifest.batch.search_budget_semantics,
             "word_timeout_ms": manifest.batch.word_timeout_ms,
             "guess": manifest.batch.guess,
@@ -1189,6 +1193,23 @@ fn expected_dimensions(
             },
         );
         allomorph_sources.insert(identity.key, sources);
+    }
+    for (index, rule) in grammar.mrules.iter().enumerate() {
+        if let MorphRuleDef::Compounding(compound) = rule {
+            for subrule in 0..compound.subrules.len() {
+                let identity =
+                    identities.compound_subrule(pg_grammar::model::MRuleId(index as u32), subrule);
+                allomorphs.insert(
+                    identity.key.clone(),
+                    ExpectedLocator {
+                        key: identity.key.clone(),
+                        label: identity.label,
+                        quality: quality(identity.quality),
+                    },
+                );
+                allomorph_sources.insert(identity.key, Vec::new());
+            }
+        }
     }
     let guessed_allomorph = identities.allomorph(pg_grammar::model::AllomorphId::GUESSED);
     allomorphs.insert(
