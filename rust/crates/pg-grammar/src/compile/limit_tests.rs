@@ -163,3 +163,49 @@ fn mpr_cap_64_compiles_and_65_names_the_breakdown() {
         "{message}"
     );
 }
+
+#[test]
+fn mpr_wide_nested_sibling_classes_share_the_cap_with_exceptions_and_entry_types() {
+    use pg_snapshot::morphology::LexEntryInflType;
+
+    let snapshot = with_morphology(|m| {
+        let families = (0..10)
+            .map(|family| {
+                let parent = family * 30;
+                class(
+                    format!("ic{parent:03}"),
+                    (parent + 1..parent + 30)
+                        .map(|id| class(format!("ic{id:03}"), Vec::new()))
+                        .collect(),
+                )
+            })
+            .collect();
+        m.parts_of_speech = vec![pos("posN".into(), Vec::new(), families)];
+        m.exception_features = ["exA", "exB"]
+            .into_iter()
+            .map(|id| ExceptionFeature {
+                guid: id.into(),
+                name: id.into(),
+                abbreviation: id.into(),
+            })
+            .collect();
+        m.lex_entry_infl_types = vec![LexEntryInflType {
+            guid: "variant".into(),
+            name: "irregular".into(),
+            abbreviation: "irr".into(),
+            gloss_prepend: String::new(),
+            gloss_append: String::new(),
+            slots: Vec::new(),
+            inflection_features: None,
+        }];
+    });
+    let (code, message) = limit_code(&snapshot).expect("wide MPR remains refused in slice 1");
+    assert_eq!(code, ImportWarningCode::LimitMprFeatures);
+    assert!(
+        message.contains("303 inflection classes, exception features")
+            && message.contains(
+                "300 inflection classes including subclasses, 2 exception features, 1 entry"
+            ),
+        "{message}"
+    );
+}

@@ -1,0 +1,278 @@
+# oracle-provenance: founding-oracle
+# C# self-check at Machine 1ddef2bd2f1503717de95556116df8e4a63846d6.
+language: MprWide
+inspired_by: [synthetic inflection-class families]
+sources: [PanGloss issue 150]
+requires: []
+fieldworks_producible: true
+words:
+  - word: paa
+    note: bare boundary class
+    parses:
+      - signature: "e063|paa"
+        rules: []
+  - word: paasi
+    note: matching boundary class admits
+    parses:
+      - signature: "e063+r063|paasi"
+        rules: [r063]
+  - word: paasai
+    note: neighbor boundary class blocks
+    expect_fail: true
+  - word: pala
+    note: bare boundary class
+    parses:
+      - signature: "e064|pala"
+        rules: []
+  - word: palasai
+    note: matching boundary class admits
+    parses:
+      - signature: "e064+r064|palasai"
+        rules: [r064]
+  - word: palasaai
+    note: neighbor boundary class blocks
+    expect_fail: true
+  - word: palla
+    note: bare boundary class
+    parses:
+      - signature: "e127|palla"
+        rules: []
+  - word: pallasaai
+    note: matching boundary class admits
+    parses:
+      - signature: "e127+r127|pallasaai"
+        rules: [r127]
+  - word: pallasaaai
+    note: neighbor boundary class blocks
+    expect_fail: true
+  - word: pallla
+    note: bare boundary class
+    parses:
+      - signature: "e128|pallla"
+        rules: []
+  - word: palllasaaai
+    note: matching boundary class admits
+    parses:
+      - signature: "e128+r128|palllasaaai"
+        rules: [r128]
+  - word: palllasaaaai
+    note: neighbor boundary class blocks
+    expect_fail: true
+  - word: palllla
+    note: bare boundary class
+    parses:
+      - signature: "e255|palllla"
+        rules: []
+  - word: pallllasaaaai
+    note: matching boundary class admits
+    parses:
+      - signature: "e255+r255|pallllasaaaai"
+        rules: [r255]
+  - word: pallllasaaaaai
+    note: neighbor boundary class blocks
+    expect_fail: true
+  - word: pallllla
+    note: bare boundary class
+    parses:
+      - signature: "e256|pallllla"
+        rules: []
+  - word: palllllasaaaaai
+    note: matching boundary class admits
+    parses:
+      - signature: "e256+r256|palllllasaaaaai"
+        rules: [r256]
+  - word: palllllasaaaaaai
+    note: neighbor boundary class blocks
+    expect_fail: true
+  - word: palllllla
+    note: bare boundary class
+    parses:
+      - signature: "e299|palllllla"
+        rules: []
+  - word: pallllllasaaaaaai
+    note: matching boundary class admits
+    parses:
+      - signature: "e299+r299|pallllllasaaaaaai"
+        rules: [r299]
+  - word: pallllllasi
+    note: neighbor boundary class blocks
+    expect_fail: true
+  - word: paatu
+    note: descendant meets parent class
+    parses:
+      - signature: "e063+rFamily|paatu"
+        rules: [rFamily]
+  - word: palatu
+    note: sibling descendant meets parent class
+    parses:
+      - signature: "e064+rFamily|palatu"
+        rules: [rFamily]
+  - word: kalatu
+    note: unrelated family blocks
+    expect_fail: true
+  - word: balamu
+    note: All group has both exceptions
+    parses:
+      - signature: "eBoth+rAll|balamu"
+        rules: [rAll]
+  - word: balimu
+    note: All group missing one exception
+    expect_fail: true
+  - word: balanu
+    note: regular entry admits slot
+    parses:
+      - signature: "eBoth+rVariant|balanu"
+        rules: [rVariant]
+  - word: balunu
+    note: entry type excludes slot
+    expect_fail: true
+  - word: balakbala
+    note: compound high exception gates admit
+    parses:
+      - signature: "eBoth|balakbala"
+        rules: [compound]
+  - word: balakbali
+    note: nonhead missing high exception gate blocks
+    expect_fail: true
+  - word: balikbala
+    note: head exception gate admits
+    parses:
+      - signature: "eOne+eBoth|balikbala"
+        rules: [compound]
+  - word: balukbala
+    note: head missing high exception gate blocks
+    expect_fail: true
+  - word: kibala
+    note: derivation writes high exception B
+    parses:
+      - signature: "rOverwrite+eBoth|kibala"
+        rules: [rOverwrite]
+  - word: kibalamu
+    note: overwrite removes A so All group blocks
+    expect_fail: true
+  - word: balakbalamu
+    note: compound output overwrites exception group
+    expect_fail: true
+  - word: balu
+    note: irregular root exists independently of excluded slot
+    parses:
+      - signature: "eVariant|balu"
+        rules: []
+  - word: kala
+    note: unrelated class root exists independently of blocked family suffix
+    parses:
+      - signature: "eOutside|kala"
+        rules: []
+  - word: bali
+    note: one-exception root exists independently of blocked All suffix
+    parses:
+      - signature: "eOne|bali"
+        rules: []
+  - word: paasaai
+    note: class 63 must not alias class 127
+    expect_fail: true
+  - word: paasaaai
+    note: class 63 must not alias class 128
+    expect_fail: true
+  - word: paasaaaai
+    note: class 63 must not alias class 255
+    expect_fail: true
+  - word: paasaaaaai
+    note: class 63 must not alias class 256
+    expect_fail: true
+  - word: paasaaaaaai
+    note: class 63 must not alias class 299
+    expect_fail: true
+  - word: palasi
+    note: class 64 must not alias class 63
+    expect_fail: true
+  - word: palasaaai
+    note: class 64 must not alias class 128
+    expect_fail: true
+  - word: palasaaaai
+    note: class 64 must not alias class 255
+    expect_fail: true
+  - word: palasaaaaai
+    note: class 64 must not alias class 256
+    expect_fail: true
+  - word: palasaaaaaai
+    note: class 64 must not alias class 299
+    expect_fail: true
+  - word: pallasi
+    note: class 127 must not alias class 63
+    expect_fail: true
+  - word: pallasai
+    note: class 127 must not alias class 64
+    expect_fail: true
+  - word: pallasaaaai
+    note: class 127 must not alias class 255
+    expect_fail: true
+  - word: pallasaaaaai
+    note: class 127 must not alias class 256
+    expect_fail: true
+  - word: pallasaaaaaai
+    note: class 127 must not alias class 299
+    expect_fail: true
+  - word: palllasi
+    note: class 128 must not alias class 63
+    expect_fail: true
+  - word: palllasai
+    note: class 128 must not alias class 64
+    expect_fail: true
+  - word: palllasaai
+    note: class 128 must not alias class 127
+    expect_fail: true
+  - word: palllasaaaaai
+    note: class 128 must not alias class 256
+    expect_fail: true
+  - word: palllasaaaaaai
+    note: class 128 must not alias class 299
+    expect_fail: true
+  - word: pallllasi
+    note: class 255 must not alias class 63
+    expect_fail: true
+  - word: pallllasai
+    note: class 255 must not alias class 64
+    expect_fail: true
+  - word: pallllasaai
+    note: class 255 must not alias class 127
+    expect_fail: true
+  - word: pallllasaaai
+    note: class 255 must not alias class 128
+    expect_fail: true
+  - word: pallllasaaaaaai
+    note: class 255 must not alias class 299
+    expect_fail: true
+  - word: palllllasi
+    note: class 256 must not alias class 63
+    expect_fail: true
+  - word: palllllasai
+    note: class 256 must not alias class 64
+    expect_fail: true
+  - word: palllllasaai
+    note: class 256 must not alias class 127
+    expect_fail: true
+  - word: palllllasaaai
+    note: class 256 must not alias class 128
+    expect_fail: true
+  - word: palllllasaaaai
+    note: class 256 must not alias class 255
+    expect_fail: true
+  - word: pallllllasai
+    note: class 299 must not alias class 64
+    expect_fail: true
+  - word: pallllllasaai
+    note: class 299 must not alias class 127
+    expect_fail: true
+  - word: pallllllasaaai
+    note: class 299 must not alias class 128
+    expect_fail: true
+  - word: pallllllasaaaai
+    note: class 299 must not alias class 255
+    expect_fail: true
+  - word: pallllllasaaaaai
+    note: class 299 must not alias class 256
+    expect_fail: true
+  - word: balasaaaaai
+    note: class 0 must not alias class 256 after an 8-bit ID wrap
+    expect_fail: true

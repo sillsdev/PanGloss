@@ -1,0 +1,352 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput><Language><Name>MprWide</Name>
+<PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+<MorphologicalPhonologicalRuleFeatures>
+<!-- 10 sibling families: ic000, ic030, ... are parents of the following 29 classes. HCLoader flattens class declarations; roots carry their own class; allomorph requirements contain descendant closures. -->
+<MorphologicalPhonologicalRuleFeature id="ic000">class000</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic001">class001</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic002">class002</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic003">class003</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic004">class004</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic005">class005</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic006">class006</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic007">class007</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic008">class008</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic009">class009</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic010">class010</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic011">class011</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic012">class012</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic013">class013</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic014">class014</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic015">class015</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic016">class016</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic017">class017</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic018">class018</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic019">class019</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic020">class020</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic021">class021</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic022">class022</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic023">class023</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic024">class024</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic025">class025</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic026">class026</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic027">class027</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic028">class028</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic029">class029</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic030">class030</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic031">class031</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic032">class032</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic033">class033</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic034">class034</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic035">class035</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic036">class036</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic037">class037</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic038">class038</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic039">class039</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic040">class040</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic041">class041</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic042">class042</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic043">class043</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic044">class044</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic045">class045</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic046">class046</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic047">class047</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic048">class048</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic049">class049</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic050">class050</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic051">class051</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic052">class052</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic053">class053</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic054">class054</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic055">class055</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic056">class056</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic057">class057</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic058">class058</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic059">class059</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic060">class060</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic061">class061</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic062">class062</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic063">class063</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic064">class064</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic065">class065</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic066">class066</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic067">class067</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic068">class068</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic069">class069</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic070">class070</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic071">class071</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic072">class072</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic073">class073</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic074">class074</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic075">class075</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic076">class076</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic077">class077</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic078">class078</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic079">class079</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic080">class080</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic081">class081</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic082">class082</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic083">class083</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic084">class084</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic085">class085</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic086">class086</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic087">class087</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic088">class088</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic089">class089</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic090">class090</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic091">class091</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic092">class092</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic093">class093</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic094">class094</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic095">class095</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic096">class096</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic097">class097</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic098">class098</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic099">class099</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic100">class100</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic101">class101</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic102">class102</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic103">class103</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic104">class104</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic105">class105</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic106">class106</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic107">class107</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic108">class108</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic109">class109</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic110">class110</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic111">class111</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic112">class112</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic113">class113</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic114">class114</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic115">class115</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic116">class116</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic117">class117</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic118">class118</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic119">class119</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic120">class120</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic121">class121</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic122">class122</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic123">class123</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic124">class124</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic125">class125</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic126">class126</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic127">class127</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic128">class128</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic129">class129</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic130">class130</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic131">class131</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic132">class132</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic133">class133</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic134">class134</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic135">class135</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic136">class136</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic137">class137</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic138">class138</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic139">class139</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic140">class140</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic141">class141</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic142">class142</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic143">class143</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic144">class144</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic145">class145</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic146">class146</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic147">class147</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic148">class148</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic149">class149</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic150">class150</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic151">class151</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic152">class152</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic153">class153</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic154">class154</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic155">class155</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic156">class156</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic157">class157</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic158">class158</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic159">class159</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic160">class160</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic161">class161</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic162">class162</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic163">class163</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic164">class164</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic165">class165</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic166">class166</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic167">class167</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic168">class168</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic169">class169</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic170">class170</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic171">class171</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic172">class172</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic173">class173</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic174">class174</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic175">class175</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic176">class176</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic177">class177</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic178">class178</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic179">class179</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic180">class180</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic181">class181</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic182">class182</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic183">class183</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic184">class184</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic185">class185</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic186">class186</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic187">class187</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic188">class188</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic189">class189</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic190">class190</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic191">class191</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic192">class192</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic193">class193</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic194">class194</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic195">class195</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic196">class196</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic197">class197</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic198">class198</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic199">class199</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic200">class200</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic201">class201</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic202">class202</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic203">class203</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic204">class204</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic205">class205</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic206">class206</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic207">class207</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic208">class208</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic209">class209</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic210">class210</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic211">class211</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic212">class212</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic213">class213</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic214">class214</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic215">class215</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic216">class216</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic217">class217</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic218">class218</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic219">class219</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic220">class220</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic221">class221</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic222">class222</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic223">class223</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic224">class224</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic225">class225</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic226">class226</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic227">class227</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic228">class228</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic229">class229</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic230">class230</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic231">class231</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic232">class232</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic233">class233</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic234">class234</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic235">class235</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic236">class236</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic237">class237</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic238">class238</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic239">class239</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic240">class240</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic241">class241</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic242">class242</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic243">class243</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic244">class244</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic245">class245</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic246">class246</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic247">class247</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic248">class248</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic249">class249</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic250">class250</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic251">class251</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic252">class252</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic253">class253</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic254">class254</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic255">class255</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic256">class256</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic257">class257</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic258">class258</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic259">class259</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic260">class260</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic261">class261</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic262">class262</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic263">class263</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic264">class264</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic265">class265</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic266">class266</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic267">class267</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic268">class268</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic269">class269</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic270">class270</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic271">class271</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic272">class272</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic273">class273</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic274">class274</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic275">class275</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic276">class276</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic277">class277</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic278">class278</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic279">class279</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic280">class280</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic281">class281</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic282">class282</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic283">class283</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic284">class284</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic285">class285</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic286">class286</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic287">class287</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic288">class288</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic289">class289</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic290">class290</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic291">class291</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic292">class292</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic293">class293</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic294">class294</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic295">class295</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic296">class296</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic297">class297</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic298">class298</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="ic299">class299</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="exA">exceptionA</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="exB">exceptionB</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="variant">irregular</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeatureGroup matchType="any" outputType="overwrite" features="ic000 ic001 ic002 ic003 ic004 ic005 ic006 ic007 ic008 ic009 ic010 ic011 ic012 ic013 ic014 ic015 ic016 ic017 ic018 ic019 ic020 ic021 ic022 ic023 ic024 ic025 ic026 ic027 ic028 ic029 ic030 ic031 ic032 ic033 ic034 ic035 ic036 ic037 ic038 ic039 ic040 ic041 ic042 ic043 ic044 ic045 ic046 ic047 ic048 ic049 ic050 ic051 ic052 ic053 ic054 ic055 ic056 ic057 ic058 ic059 ic060 ic061 ic062 ic063 ic064 ic065 ic066 ic067 ic068 ic069 ic070 ic071 ic072 ic073 ic074 ic075 ic076 ic077 ic078 ic079 ic080 ic081 ic082 ic083 ic084 ic085 ic086 ic087 ic088 ic089 ic090 ic091 ic092 ic093 ic094 ic095 ic096 ic097 ic098 ic099 ic100 ic101 ic102 ic103 ic104 ic105 ic106 ic107 ic108 ic109 ic110 ic111 ic112 ic113 ic114 ic115 ic116 ic117 ic118 ic119 ic120 ic121 ic122 ic123 ic124 ic125 ic126 ic127 ic128 ic129 ic130 ic131 ic132 ic133 ic134 ic135 ic136 ic137 ic138 ic139 ic140 ic141 ic142 ic143 ic144 ic145 ic146 ic147 ic148 ic149 ic150 ic151 ic152 ic153 ic154 ic155 ic156 ic157 ic158 ic159 ic160 ic161 ic162 ic163 ic164 ic165 ic166 ic167 ic168 ic169 ic170 ic171 ic172 ic173 ic174 ic175 ic176 ic177 ic178 ic179 ic180 ic181 ic182 ic183 ic184 ic185 ic186 ic187 ic188 ic189 ic190 ic191 ic192 ic193 ic194 ic195 ic196 ic197 ic198 ic199 ic200 ic201 ic202 ic203 ic204 ic205 ic206 ic207 ic208 ic209 ic210 ic211 ic212 ic213 ic214 ic215 ic216 ic217 ic218 ic219 ic220 ic221 ic222 ic223 ic224 ic225 ic226 ic227 ic228 ic229 ic230 ic231 ic232 ic233 ic234 ic235 ic236 ic237 ic238 ic239 ic240 ic241 ic242 ic243 ic244 ic245 ic246 ic247 ic248 ic249 ic250 ic251 ic252 ic253 ic254 ic255 ic256 ic257 ic258 ic259 ic260 ic261 ic262 ic263 ic264 ic265 ic266 ic267 ic268 ic269 ic270 ic271 ic272 ic273 ic274 ic275 ic276 ic277 ic278 ic279 ic280 ic281 ic282 ic283 ic284 ic285 ic286 ic287 ic288 ic289 ic290 ic291 ic292 ic293 ic294 ic295 ic296 ic297 ic298 ic299"><Name>inflClasses</Name></MorphologicalPhonologicalRuleFeatureGroup>
+<MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="exA exB"><Name>exceptionFeatures</Name></MorphologicalPhonologicalRuleFeatureGroup>
+<MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="variant"><Name>lexEntryInflTypes</Name></MorphologicalPhonologicalRuleFeatureGroup>
+</MorphologicalPhonologicalRuleFeatures>
+<CharacterDefinitionTable id="table"><Name>Main</Name><SegmentDefinitions>
+<SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cl"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cm"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cn"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+</SegmentDefinitions></CharacterDefinitionTable>
+<NaturalClasses><FeatureNaturalClass id="any"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+<Strata><Stratum characterDefinitionTable="table" morphologicalRuleOrder="unordered" morphologicalRules="compound rOverwrite"><Name>Main</Name><MorphologicalRuleDefinitions>
+<MorphologicalRule id="r063" requiredPartsOfSpeech="posN"><Name>r063</Name><MorphologicalSubrules><MorphologicalSubrule id="ar063"><MorphologicalInput requiredMPRFeatures="ic063"><PhoneticSequence id="sr063"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="sr063" /><InsertSegments><PhoneticShape>si</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>r063</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="r064" requiredPartsOfSpeech="posN"><Name>r064</Name><MorphologicalSubrules><MorphologicalSubrule id="ar064"><MorphologicalInput requiredMPRFeatures="ic064"><PhoneticSequence id="sr064"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="sr064" /><InsertSegments><PhoneticShape>sai</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>r064</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="r127" requiredPartsOfSpeech="posN"><Name>r127</Name><MorphologicalSubrules><MorphologicalSubrule id="ar127"><MorphologicalInput requiredMPRFeatures="ic127"><PhoneticSequence id="sr127"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="sr127" /><InsertSegments><PhoneticShape>saai</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>r127</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="r128" requiredPartsOfSpeech="posN"><Name>r128</Name><MorphologicalSubrules><MorphologicalSubrule id="ar128"><MorphologicalInput requiredMPRFeatures="ic128"><PhoneticSequence id="sr128"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="sr128" /><InsertSegments><PhoneticShape>saaai</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>r128</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="r255" requiredPartsOfSpeech="posN"><Name>r255</Name><MorphologicalSubrules><MorphologicalSubrule id="ar255"><MorphologicalInput requiredMPRFeatures="ic255"><PhoneticSequence id="sr255"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="sr255" /><InsertSegments><PhoneticShape>saaaai</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>r255</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="r256" requiredPartsOfSpeech="posN"><Name>r256</Name><MorphologicalSubrules><MorphologicalSubrule id="ar256"><MorphologicalInput requiredMPRFeatures="ic256"><PhoneticSequence id="sr256"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="sr256" /><InsertSegments><PhoneticShape>saaaaai</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>r256</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="r299" requiredPartsOfSpeech="posN"><Name>r299</Name><MorphologicalSubrules><MorphologicalSubrule id="ar299"><MorphologicalInput requiredMPRFeatures="ic299"><PhoneticSequence id="sr299"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="sr299" /><InsertSegments><PhoneticShape>saaaaaai</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>r299</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="rFamily" requiredPartsOfSpeech="posN"><Name>rFamily</Name><MorphologicalSubrules><MorphologicalSubrule id="arFamily"><MorphologicalInput requiredMPRFeatures="ic060 ic061 ic062 ic063 ic064 ic065 ic066 ic067 ic068 ic069 ic070 ic071 ic072 ic073 ic074 ic075 ic076 ic077 ic078 ic079 ic080 ic081 ic082 ic083 ic084 ic085 ic086 ic087 ic088 ic089"><PhoneticSequence id="srFamily"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="srFamily" /><InsertSegments><PhoneticShape>tu</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>rFamily</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="rAll" requiredPartsOfSpeech="posN"><Name>rAll</Name><MorphologicalSubrules><MorphologicalSubrule id="arAll"><MorphologicalInput requiredMPRFeatures="exA exB"><PhoneticSequence id="srAll"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="srAll" /><InsertSegments><PhoneticShape>mu</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>rAll</MorphemeId></MorphologicalRule>
+<MorphologicalRule id="rVariant" requiredPartsOfSpeech="posN"><Name>rVariant</Name><MorphologicalSubrules><MorphologicalSubrule id="arVariant"><MorphologicalInput excludedMPRFeatures="variant"><PhoneticSequence id="srVariant"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="srVariant" /><InsertSegments><PhoneticShape>nu</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>rVariant</MorphemeId></MorphologicalRule>
+<CompoundingRule id="compound" headPartsOfSpeech="posN" nonHeadPartsOfSpeech="posN" outputPartOfSpeech="posN" headProdRestrictionsMprFeatures="exA" nonHeadProdRestrictionsMprFeatures="exB" outputProdRestrictionsMprFeatures="exB"><Name>compound</Name><CompoundingSubrules><CompoundingSubrule><HeadMorphologicalInput><PhoneticSequence id="head"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput><NonHeadMorphologicalInput><PhoneticSequence id="nonhead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput><MorphologicalOutput><CopyFromInput index="head" /><InsertSegments><PhoneticShape>k</PhoneticShape></InsertSegments><CopyFromInput index="nonhead" /></MorphologicalOutput></CompoundingSubrule></CompoundingSubrules></CompoundingRule>
+<MorphologicalRule id="rOverwrite" requiredPartsOfSpeech="posN"><Name>rOverwrite</Name><MorphologicalSubrules><MorphologicalSubrule id="aOverwrite"><MorphologicalInput requiredMPRFeatures="exA"><PhoneticSequence id="sOverwrite"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput MPRFeatures="exB"><InsertSegments><PhoneticShape>ki</PhoneticShape></InsertSegments><CopyFromInput index="sOverwrite" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>rOverwrite</MorphemeId></MorphologicalRule>
+</MorphologicalRuleDefinitions><AffixTemplates><AffixTemplate final="true" requiredPartsOfSpeech="posN"><Name>Inflection</Name><Slot optional="true" morphologicalRules="r063 r064 r127 r128 r255 r256 r299 rFamily rAll rVariant"><Name>Ending</Name></Slot></AffixTemplate></AffixTemplates><LexicalEntries>
+<LexicalEntry id="e063" partOfSpeech="posN" ruleFeatures="ic063"><Allomorphs><Allomorph id="ae063"><PhoneticShape>paa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>e063</MorphemeId><Gloss>e063</Gloss></LexicalEntry>
+<LexicalEntry id="e064" partOfSpeech="posN" ruleFeatures="ic064"><Allomorphs><Allomorph id="ae064"><PhoneticShape>pala</PhoneticShape></Allomorph></Allomorphs><MorphemeId>e064</MorphemeId><Gloss>e064</Gloss></LexicalEntry>
+<LexicalEntry id="e127" partOfSpeech="posN" ruleFeatures="ic127"><Allomorphs><Allomorph id="ae127"><PhoneticShape>palla</PhoneticShape></Allomorph></Allomorphs><MorphemeId>e127</MorphemeId><Gloss>e127</Gloss></LexicalEntry>
+<LexicalEntry id="e128" partOfSpeech="posN" ruleFeatures="ic128"><Allomorphs><Allomorph id="ae128"><PhoneticShape>pallla</PhoneticShape></Allomorph></Allomorphs><MorphemeId>e128</MorphemeId><Gloss>e128</Gloss></LexicalEntry>
+<LexicalEntry id="e255" partOfSpeech="posN" ruleFeatures="ic255"><Allomorphs><Allomorph id="ae255"><PhoneticShape>palllla</PhoneticShape></Allomorph></Allomorphs><MorphemeId>e255</MorphemeId><Gloss>e255</Gloss></LexicalEntry>
+<LexicalEntry id="e256" partOfSpeech="posN" ruleFeatures="ic256"><Allomorphs><Allomorph id="ae256"><PhoneticShape>pallllla</PhoneticShape></Allomorph></Allomorphs><MorphemeId>e256</MorphemeId><Gloss>e256</Gloss></LexicalEntry>
+<LexicalEntry id="e299" partOfSpeech="posN" ruleFeatures="ic299"><Allomorphs><Allomorph id="ae299"><PhoneticShape>palllllla</PhoneticShape></Allomorph></Allomorphs><MorphemeId>e299</MorphemeId><Gloss>e299</Gloss></LexicalEntry>
+<LexicalEntry id="eBoth" partOfSpeech="posN" ruleFeatures="ic000 exA exB"><Allomorphs><Allomorph id="aeBoth"><PhoneticShape>bala</PhoneticShape></Allomorph></Allomorphs><MorphemeId>eBoth</MorphemeId><Gloss>eBoth</Gloss></LexicalEntry>
+<LexicalEntry id="eOne" partOfSpeech="posN" ruleFeatures="ic000 exA"><Allomorphs><Allomorph id="aeOne"><PhoneticShape>bali</PhoneticShape></Allomorph></Allomorphs><MorphemeId>eOne</MorphemeId><Gloss>eOne</Gloss></LexicalEntry>
+<LexicalEntry id="eVariant" partOfSpeech="posN" ruleFeatures="ic000 variant"><Allomorphs><Allomorph id="aeVariant"><PhoneticShape>balu</PhoneticShape></Allomorph></Allomorphs><MorphemeId>eVariant</MorphemeId><Gloss>eVariant</Gloss></LexicalEntry>
+<LexicalEntry id="eOutside" partOfSpeech="posN" ruleFeatures="ic091"><Allomorphs><Allomorph id="aeOutside"><PhoneticShape>kala</PhoneticShape></Allomorph></Allomorphs><MorphemeId>eOutside</MorphemeId><Gloss>eOutside</Gloss></LexicalEntry>
+</LexicalEntries></Stratum></Strata></Language></HermitCrabInput>

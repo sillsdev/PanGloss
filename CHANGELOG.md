@@ -29,6 +29,8 @@ Released 2026-11-17.
 
 - `batch --stats` bounds pending fact memory with a 4 MiB spill buffer and opens write transactions only when flushing, so slow parses do not lock out concurrent cache writers. Full and compact rows, 500-word reusable run groups, and atomic frozen runs are preserved. Frozen cache hashing also streams the file.
 
+- Characterize the current 64-feature MPR limit with a C#-verified staged 303-feature grammar and explicit Rust refusal tests (part of #150).
+
 - Rust CI and Release explicitly test the FST compiler, runtime, backend and CLI with `foma-tools`, including the scoreboard, faithfulness, capability and seam gates (#137).
 - Preland caches the pin-matched C# conformance driver outside worktree build folders and publishes a temporary source export on a cache miss, including source from the local Machine submodule. `-Jobs` now reaches preland child builds.
 - Calibration tooling adds report-only Windows PMC instruction counts alongside saved callgrind measurements, with per-word phase markers and reports of ratios, ladder drift and round spread.
