@@ -5,11 +5,14 @@
 //! registry, `GrammarWideCheck`) stays in `pg_foma::capability`, which re-exports these three
 //! items at their historical path.
 
+use serde::{Deserialize, Serialize};
+
 /// A predicate's stable identity (e.g. `"simultaneous.subrule-overlap"`).
 pub type PredicateId = &'static str;
 
 /// Construction gaps that can remove valid proposals before confirmation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ProposalRecallGap {
     TemplateReentry,
     PhonologicalReduplication,
@@ -20,7 +23,8 @@ pub enum ProposalRecallGap {
 }
 
 /// Compiler-owned causes; grammar-health maps these exhaustively to author findings or budgets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "details", rename_all = "snake_case")]
 pub enum CapabilityRefusal {
     /// Temporary compiler refusal pending #177; never an author label.
     AlphaEnvironment,
@@ -40,6 +44,15 @@ pub enum CapabilityRefusal {
         limit: usize,
     },
     StrategyCoverage,
+}
+
+/// Owner-produced witnesses before diagnostic deduplication, grouped in first-witness order.
+/// These count owner checks, not syntax nodes, lexemes or analyses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusalOccurrenceCount {
+    pub strategy: crate::strategy::EmissionStrategy,
+    pub cause: CapabilityRefusal,
+    pub occurrences: usize,
 }
 
 /// A `Refuse` verdict's typed payload: which predicate refused, what construct/config, and a
@@ -77,3 +90,6 @@ pub enum CompileDecision {
     /// at a time.
     Refuse(Vec<CapabilityDiagnostic>),
 }
+
+#[cfg(test)]
+mod tests;

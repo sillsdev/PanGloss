@@ -51,6 +51,28 @@ and the resolved runtime `peel_chain_depth_cap` (null when unconfigured);
 refusals from the compiler. `compile_refusal` is its human-readable error or null.
 When construction refuses, all words are incomparable and HC is not run.
 
+Construction attempts also expose `capability_causes`, the typed causes from the
+existing deduplicated diagnostics, and `proposal_recall_occurrences`. The latter
+is an array of `{strategy, cause, occurrences}` records, or null when the proposal
+recall admission check was not evaluated (for example, factored dispatch or a
+developer measurement bypass). An evaluated
+check with no witnesses produces `[]`. Each cause uses an adjacently tagged
+object such as `{"kind":"proposal_recall","details":"ambiguous_segment_spelling"}`;
+the emission strategy uses its stable label, `"tuned-surface-probed"`. Other
+capability causes, including `{"kind":"alpha_environment"}`, remain in
+`capability_causes`; no occurrence count is inferred for them.
+
+Occurrences count witness production in the owning proposal-recall check, before
+deduplication. A table-closure failure contributes one grammar-wide witness;
+template reentry likewise contributes one. Reduplication and truncation contribute
+one per affected stratum; rewrite spelling contributes one per referenced rewrite
+per stratum, even if both sides fail. Symbolic epenthesis and narrowing class
+outputs contribute one per affected subrule reference. Repeated stratum references
+are counted separately. These are not counts of rules, syntax nodes, analyses or
+input words. The first-witness diagnostic list and its text remain unchanged.
+These are additive fields in schema version 1; old construction reports decode
+with an empty cause list and an unevaluated (null) occurrence field.
+
 ## Bounds and exit status
 
 `--work-cap N|unbounded`, `--word-timeout-ms N`, `--word-mem-cap-mib N` and

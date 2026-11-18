@@ -6,6 +6,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 ## Unreleased
 
 - `pangloss batch --engine=hc|fst` selects an engine and adds opt-in completion metadata; omitting it preserves HC output. FST requires `foma-tools`, one thread, and explicitly unbounded HC work/capture/word-memory controls. Stats/cache, partials, work/cost columns, timeouts, prefiltering, guessing, and template overrides are unsupported. **FST has no per-word deadline or process RSS bound; use an external watchdog with a deadline and memory ceiling.** See the [batch engine contract](docs/formats/batch-tsv.md#engine-selection) (part of #136).
+- FST compile diagnostics and `fst-verify` JSON publish typed capability causes and strategy-tagged proposal-recall witness occurrence counts before deduplication, while preserving the first-witness diagnostics and admission decisions (part of #136).
 
 ## 0.23.0
 

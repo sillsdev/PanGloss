@@ -8,3 +8,6 @@ mod profile_tests;
 
 #[path = "analyzer_compile_tests/construction_tests.rs"]
 mod construction_tests;
+
+#[path = "analyzer_compile_tests/refusal_occurrence_tests.rs"]
+mod refusal_occurrence_tests;

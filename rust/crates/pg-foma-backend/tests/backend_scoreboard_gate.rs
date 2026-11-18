@@ -173,6 +173,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
     let mut pinned_outcomes: Vec<(&'static str, EmissionStrategy, &'static str)> = Vec::new();
     // Named, not only counted, so a moved ratchet says WHICH fixture moved.
     let mut not_exact: Vec<String> = Vec::new();
+    let mut admission_outcomes = Vec::new();
 
     for fixture in &fixtures {
         match load_and_measure(fixture) {
@@ -185,6 +186,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         .find(|(s, _)| *s == cell.strategy)
                         .expect("every EmissionStrategy has a bucket entry");
                     let label = outcome_label(&cell.outcome);
+                    admission_outcomes
+                        .push(format!("{}\t{:?}\t{}", row.label, cell.strategy, label));
                     eprintln!(
                         "SCOREBOARD_CELL\t{}\t{:?}\t{}",
                         row.label, cell.strategy, label
@@ -293,6 +296,12 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
          gaining or losing expect_crash is a real, reviewable event, not just a count)"
     );
 
+    admission_outcomes.sort();
+    assert_eq!(
+        admission_outcomes.join("\n") + "\n",
+        include_str!("admission-outcomes.txt"),
+        "fixture admission/artifact outcomes changed; inspect both transition directions"
+    );
     not_exact.sort();
     eprintln!("backend_scoreboard_gate: cells that are not oracle_exact:");
     for line in &not_exact {
