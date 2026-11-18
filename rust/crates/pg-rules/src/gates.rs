@@ -6,8 +6,8 @@ use pg_grammar_model::model::{Grammar, MprSet};
 /// Identity of a declared predicate, including polarity and the comparison mechanism.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum GateFeature {
-    Mpr(u8, bool),
-    CompoundMpr(u8),
+    Mpr(u32, bool),
+    CompoundMpr(u32),
     StemName(u32, bool),
     Syntactic(u32),
     InverseSyntactic(u32, u32),
@@ -43,9 +43,9 @@ pub(crate) fn observe(
 /// Gate the same required-then-excluded walk used by uninstrumented callers.
 pub(crate) fn mpr_reason(
     g: &Grammar,
-    required: MprSet,
-    excluded: MprSet,
-    have: MprSet,
+    required: &MprSet,
+    excluded: &MprSet,
+    have: &MprSet,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
 ) -> Option<crate::trace::FailureReason> {
     use crate::trace::FailureReason;
@@ -61,8 +61,8 @@ pub(crate) fn mpr_reason(
 /// Evaluate the owning MPR predicate and observe its evaluated buckets, including lookup replay.
 pub fn mpr_check(
     g: &Grammar,
-    test: MprSet,
-    have: MprSet,
+    test: &MprSet,
+    have: &MprSet,
     excluded: bool,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
 ) -> bool {
@@ -79,15 +79,12 @@ pub fn mpr_check(
         have,
         excluded,
         |bucket, blocked| {
-            let mut bits = bucket.0;
-            while bits != 0 {
-                let bit = bits.trailing_zeros();
-                bits &= bits - 1;
+            for id in bucket.iter() {
                 stats.record_gate(
                     kind,
                     object,
-                    GateFeature::Mpr(bit as u8, excluded),
-                    blocked.0 & (1 << bit) == 0,
+                    GateFeature::Mpr(id.0, excluded),
+                    !blocked.contains(id),
                 );
             }
         },

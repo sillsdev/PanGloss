@@ -247,18 +247,28 @@ fn all_type_group_excludes_partial_match_like_confirm() {
 fn append_output_is_order_invariant_overwrite_output_is_not() {
     use pg_grammar::model::{mpr_add_output, MprGroup, MprGroupMatchType, MprGroupOutput, MprSet};
 
-    let x = MprSet(0b01);
-    let y = MprSet(0b10);
+    let mut x = MprSet::EMPTY;
+    x.insert(pg_grammar::model::MprId(256));
+    let mut y = MprSet::EMPTY;
+    y.insert(pg_grammar::model::MprId(299));
     let base = MprSet::EMPTY;
 
     let append_groups = [MprGroup {
         name: None,
         match_type: MprGroupMatchType::All,
         output: MprGroupOutput::Append,
-        members: x.union(y),
+        members: x.union(&y),
     }];
-    let append_xy = mpr_add_output(&append_groups, mpr_add_output(&append_groups, base, x), y);
-    let append_yx = mpr_add_output(&append_groups, mpr_add_output(&append_groups, base, y), x);
+    let append_xy = mpr_add_output(
+        &append_groups,
+        &mpr_add_output(&append_groups, &base, &x),
+        &y,
+    );
+    let append_yx = mpr_add_output(
+        &append_groups,
+        &mpr_add_output(&append_groups, &base, &y),
+        &x,
+    );
     assert_eq!(
         append_xy, append_yx,
         "Append accumulation must be order-invariant: X-then-Y and Y-then-X must reach the same \
@@ -266,7 +276,7 @@ fn append_output_is_order_invariant_overwrite_output_is_not() {
     );
     assert_eq!(
         append_xy,
-        x.union(y),
+        x.union(&y),
         "both members must be present after either order"
     );
 
@@ -274,17 +284,17 @@ fn append_output_is_order_invariant_overwrite_output_is_not() {
         name: None,
         match_type: MprGroupMatchType::All,
         output: MprGroupOutput::Overwrite,
-        members: x.union(y),
+        members: x.union(&y),
     }];
     let overwrite_xy = mpr_add_output(
         &overwrite_groups,
-        mpr_add_output(&overwrite_groups, base, x),
-        y,
+        &mpr_add_output(&overwrite_groups, &base, &x),
+        &y,
     );
     let overwrite_yx = mpr_add_output(
         &overwrite_groups,
-        mpr_add_output(&overwrite_groups, base, y),
-        x,
+        &mpr_add_output(&overwrite_groups, &base, &y),
+        &x,
     );
     assert_ne!(
         overwrite_xy, overwrite_yx,
@@ -324,4 +334,154 @@ fn overwrite_group_composes_to_confirm_only() {
         CompileDecision::ConfirmOnly,
         "Overwrite must use the non-tracking proposal superset and exact confirmation"
     );
+}
+
+#[test]
+fn wide_group_propose_confirm_preserves_both_rejection_and_acceptance() {
+    let padding = (0..256).map(|id| format!(r#"<MorphologicalPhonologicalRuleFeature id="unused{id}">unused</MorphologicalPhonologicalRuleFeature>"#)).collect::<String>();
+    let xml = fixture_xml().replace(
+        "<MorphologicalPhonologicalRuleFeatures>",
+        &format!("<MorphologicalPhonologicalRuleFeatures>{padding}"),
+    );
+    let grammar = load(&xml);
+    assert!(grammar.mpr_groups[0]
+        .members
+        .contains(pg_grammar::model::MprId(256)));
+    assert!(grammar.mpr_groups[0]
+        .members
+        .contains(pg_grammar::model::MprId(257)));
+    let mut analyzer = pg_foma::composite::compile_analyzer(&grammar).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    for (word, accept) in [("kpq", true), ("kqp", false), ("lq", false), ("mq", true)] {
+        let outcome = assert_confirm_matches_oracle(&mut analyzer, &morpher, word, accept);
+        assert!(outcome.candidates_generated > 0);
+    }
+}
+
+#[test]
+fn mpr_wide_low_reindexing_preserves_every_backend_divergence() {
+    use pg_foma_backend::scoreboard;
+    use pg_grammar::model::{MorphRuleDef, MprSet};
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let wide = pg_grammar::load(&xml).unwrap();
+    assert!(wide.prules.is_empty());
+    let mut used = MprSet::EMPTY;
+    for entry in &wide.entries {
+        used = used.union(&entry.mpr);
+    }
+    for rule in &wide.mrules {
+        if let Some(allomorphs) = rule.affix_allomorphs() {
+            for allo in allomorphs {
+                used = used
+                    .union(&allo.required_mpr)
+                    .union(&allo.excluded_mpr)
+                    .union(&allo.out_mpr);
+            }
+        }
+        if let MorphRuleDef::Compounding(rule) = rule {
+            used = used
+                .union(&rule.head_prod_restrictions_mpr)
+                .union(&rule.non_head_prod_restrictions_mpr)
+                .union(&rule.output_prod_restrictions_mpr);
+            for sub in &rule.subrules {
+                used = used
+                    .union(&sub.required_mpr)
+                    .union(&sub.excluded_mpr)
+                    .union(&sub.out_mpr);
+            }
+        }
+    }
+    let keep: std::collections::BTreeSet<_> = used
+        .iter()
+        .map(|id| wide.mpr_feature(id).unwrap().xml_id.as_str())
+        .collect();
+    assert!(keep.len() < 64);
+    let low_xml = xml
+        .lines()
+        .filter_map(|line| {
+            if line
+                .trim_start()
+                .starts_with("<MorphologicalPhonologicalRuleFeature id=")
+            {
+                let id = line
+                    .split("id=\"")
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap();
+                if !keep.contains(id) {
+                    return None;
+                }
+            }
+            if line.contains("<MorphologicalPhonologicalRuleFeatureGroup ") {
+                let ids = line
+                    .split("features=\"")
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap();
+                let retained = ids
+                    .split_whitespace()
+                    .filter(|id| keep.contains(id))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                return Some(line.replace(
+                    &format!("features=\"{ids}\""),
+                    &format!("features=\"{retained}\""),
+                ));
+            }
+            Some(line.to_owned())
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let low = pg_grammar::load(&low_xml).unwrap();
+    assert!(low.mpr_features.len() < 64);
+    assert_eq!(wide.mpr_features.len(), 303);
+    let words = fixture.load_words_yaml();
+    for grammar in [&low, &wide] {
+        assert_eq!(
+            pg_conformance_fixtures::assert_matches_oracle(
+                &fixture.label(),
+                &words,
+                &pg_parse::Morpher::new(grammar, usize::MAX)
+            ),
+            74
+        );
+    }
+    let inputs: Vec<_> = words.words.into_iter().map(|w| w.word).collect();
+    let mut analyzer = pg_foma::composite::compile_analyzer(&wide).unwrap();
+    let morpher = Morpher::new(&wide, usize::MAX);
+    for word in &inputs {
+        let oracle = morpher.parse_word_opts(word, &ParseOptions::default());
+        let outcome = analyzer.analyze_word(word);
+        assert_eq!(
+            analysis_set(&outcome.structured),
+            analysis_set(&oracle.structured),
+            "word {word}: expected {:?}, got {:?}",
+            oracle.structured,
+            outcome.structured
+        );
+    }
+    let before = scoreboard::measure("low-control", &low, &inputs);
+    let after = scoreboard::measure("wide", &wide, &inputs);
+    assert_eq!(before.cells.len(), after.cells.len());
+    for (low, wide) in before.cells.iter().zip(&after.cells) {
+        eprintln!(
+            "MPR_WIDTH_CONTROL {:?}: low={:?} wide={:?}; divergence={:?}",
+            wide.strategy, low.outcome, wide.outcome, wide.divergence
+        );
+        assert_eq!(low.strategy, wide.strategy);
+        assert_eq!(low.outcome, wide.outcome);
+        assert!(
+            matches!(wide.outcome, scoreboard::CellOutcome::OracleExact),
+            "{wide:?}"
+        );
+        assert_eq!(low.divergence, wide.divergence);
+        assert_eq!(wide.words_measured, Some(74));
+        assert_eq!(wide.divergence.unwrap().candidate_only_identities, 0);
+    }
 }

@@ -340,9 +340,9 @@ pub fn synthesize_cached(
 /// Reports which of `g.mpr_group_ok`'s required/excluded MPR gates actually failed, checked required-then-excluded.
 fn mpr_gate_reason(
     g: &Grammar,
-    required: pg_grammar_model::model::MprSet,
-    excluded: pg_grammar_model::model::MprSet,
-    have: pg_grammar_model::model::MprSet,
+    required: &pg_grammar_model::model::MprSet,
+    excluded: &pg_grammar_model::model::MprSet,
+    have: &pg_grammar_model::model::MprSet,
     mstats: Option<MRuleStatsCtx>,
 ) -> Option<FailureReason> {
     crate::gates::mpr_reason(
@@ -358,9 +358,9 @@ fn capture_mpr_failure(
     trace: &dyn TraceSink,
     event: TraceHandle,
     object: crate::trace::TraceObject,
-    required: pg_grammar_model::model::MprSet,
-    excluded: pg_grammar_model::model::MprSet,
-    actual: pg_grammar_model::model::MprSet,
+    required: &pg_grammar_model::model::MprSet,
+    excluded: &pg_grammar_model::model::MprSet,
+    actual: &pg_grammar_model::model::MprSet,
 ) {
     if trace.captures_failure_context() {
         trace.set_failure_context(
@@ -370,9 +370,9 @@ fn capture_mpr_failure(
                 actual: Some(format!("{actual:?}")),
                 evidence: Some(crate::trace::RejectionEvidence::MprFeatures {
                     object,
-                    required,
-                    excluded,
-                    actual,
+                    required: required.clone(),
+                    excluded: excluded.clone(),
+                    actual: actual.clone(),
                 }),
                 ..Default::default()
             },
@@ -986,7 +986,7 @@ pub(crate) fn seed_from_entry(g: &Grammar, le: LexEntryId, real_fs: FeatureStruc
         .unwrap_or_else(|_| allo.shape.shape.clone());
     let mut w = Word::new(shape, stratum);
     w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-    w.mpr = entry.mpr;
+    w.mpr = entry.mpr.clone();
     w.flags.set_is_partial(entry.is_partial());
     w.root_allomorph = Some(allo.id);
     w.real_fs = real_fs;
@@ -1954,7 +1954,7 @@ fn synth_affix<const COLLECT_STATS: bool>(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats).is_some() {
+        if mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats).is_some() {
             continue;
         }
         // Recompiled per call, deliberately: see `synthesize`'s doc.
@@ -2088,7 +2088,7 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
             return Vec::new();
         }
         if let Some(reason) =
-            mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats)
+            mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats)
         {
             if word.collect_partials() {
                 crate::partials::record(
@@ -2103,9 +2103,9 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
                     trace,
                     event,
                     crate::trace::TraceObject::Allomorph(allo.id),
-                    allo.required_mpr,
-                    allo.excluded_mpr,
-                    word.mpr,
+                    &allo.required_mpr,
+                    &allo.excluded_mpr,
+                    &word.mpr,
                 );
             }
             continue;
@@ -2246,7 +2246,7 @@ fn synth_realizational<const COLLECT_STATS: bool>(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats).is_some() {
+        if mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats).is_some() {
             continue;
         }
         let Ok((fst, names)) = compile_parts(g, table, &allo.lhs, "p", true) else {
@@ -2382,7 +2382,7 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
             return Vec::new();
         }
         if let Some(reason) =
-            mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr, mstats)
+            mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats)
         {
             if word.collect_partials() {
                 crate::partials::record(
@@ -2397,9 +2397,9 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
                     trace,
                     event,
                     crate::trace::TraceObject::Allomorph(allo.id),
-                    allo.required_mpr,
-                    allo.excluded_mpr,
-                    word.mpr,
+                    &allo.required_mpr,
+                    &allo.excluded_mpr,
+                    &word.mpr,
                 );
             }
             continue;
@@ -2659,7 +2659,7 @@ fn synth_process_allomorph(
     w.shape = freeze_out(g, &out);
     w.syn_fs = new_syn.clone();
     if apply_out_mpr {
-        w.mpr = g.mpr_add_output(word.mpr, allo.out_mpr);
+        w.mpr = g.mpr_add_output(&word.mpr, &allo.out_mpr);
     }
     w.morphs = morphs;
     w.obligatory.extend_from_slice(obligatory);
@@ -3796,7 +3796,7 @@ fn synth_compound<const COLLECT_STATS: bool>(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    if !compound_gate(mstats, rule.head_prod_restrictions_mpr, word.mpr) {
+    if !compound_gate(mstats, &rule.head_prod_restrictions_mpr, &word.mpr) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -3811,7 +3811,7 @@ fn synth_compound<const COLLECT_STATS: bool>(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr, mstats).is_some() {
+        if mpr_gate_reason(g, &sr.required_mpr, &sr.excluded_mpr, &word.mpr, mstats).is_some() {
             continue;
         }
         // Recompiled per call for the same standalone-fixture reason as `synth_affix`.
@@ -3943,7 +3943,7 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    if !compound_gate(mstats, rule.head_prod_restrictions_mpr, word.mpr) {
+    if !compound_gate(mstats, &rule.head_prod_restrictions_mpr, &word.mpr) {
         if trace.is_tracing() {
             let event = trace.compounding_rule_not_applied(
                 parent,
@@ -3955,9 +3955,9 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
                 trace,
                 event,
                 crate::trace::TraceObject::MorphRule(mrid),
-                rule.head_prod_restrictions_mpr,
-                pg_grammar_model::model::MprSet::EMPTY,
-                word.mpr,
+                &rule.head_prod_restrictions_mpr,
+                &pg_grammar_model::model::MprSet::EMPTY,
+                &word.mpr,
             );
         }
         if word.collect_partials() {
@@ -3980,7 +3980,8 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr, mstats)
+        if let Some(reason) =
+            mpr_gate_reason(g, &sr.required_mpr, &sr.excluded_mpr, &word.mpr, mstats)
         {
             if word.collect_partials() {
                 crate::partials::record(
@@ -3995,9 +3996,9 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
                     trace,
                     event,
                     crate::trace::TraceObject::MorphRule(mrid),
-                    sr.required_mpr,
-                    sr.excluded_mpr,
-                    word.mpr,
+                    &sr.required_mpr,
+                    &sr.excluded_mpr,
+                    &word.mpr,
                 );
             }
             continue;
@@ -4132,8 +4133,8 @@ fn synth_compound_subrule(
     w.shape = freeze_out(g, &out);
     w.syn_fs = new_syn.clone();
     w.mpr = g.mpr_add_output(
-        g.mpr_add_output(word.mpr, sr.out_mpr),
-        rule.output_prod_restrictions_mpr,
+        &g.mpr_add_output(&word.mpr, &sr.out_mpr),
+        &rule.output_prod_restrictions_mpr,
     );
     w.morphs = morphs;
     w.obligatory.extend_from_slice(&rule.obligatory_features);
@@ -4401,7 +4402,7 @@ fn resolve_non_head_roots(
                 }
                 let _gate_time = mstats.map(|m| m.stats.time_overlay(stratum, OverlayPhase::Gate));
                 observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &root.syn_fs)
-                    && compound_gate(mstats, rule.non_head_prod_restrictions_mpr, root.mpr)
+                    && compound_gate(mstats, &rule.non_head_prod_restrictions_mpr, &root.mpr)
             };
             if !admitted {
                 continue;
@@ -4423,7 +4424,7 @@ fn resolve_non_head_roots(
             }
             let mut nh = Word::new(shape, root.stratum);
             nh.syn_fs = root.syn_fs.clone();
-            nh.mpr = root.mpr;
+            nh.mpr = root.mpr.clone();
             nh.root_allomorph = Some(AllomorphId::GUESSED);
             nh.set_root_runtime_id(Some(root.realization_id.clone()));
             nh.morphs = vec![
@@ -4442,7 +4443,7 @@ fn resolve_non_head_roots(
         ) {
             continue;
         }
-        if !compound_gate(mstats, rule.non_head_prod_restrictions_mpr, entry.mpr) {
+        if !compound_gate(mstats, &rule.non_head_prod_restrictions_mpr, &entry.mpr) {
             // C# `AnalysisCompoundingRule` reports each such root allomorph (`NonHeadProdRestrictMprFeatures`); only a traced caller asks to see them.
             if let Some(rejected) = prod_rejected.as_deref_mut() {
                 if let Some(allo) = entry.allomorphs.iter().find(|allo| allo.id == allo_id) {
@@ -4490,7 +4491,7 @@ fn lexicon_non_head_word(
         .unwrap_or_else(|_| allo.shape.shape.clone());
     let mut nh = Word::new(shape, root_stratum);
     nh.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-    nh.mpr = entry.mpr;
+    nh.mpr = entry.mpr.clone();
     nh.flags.set_is_partial(entry.is_partial());
     nh.root_allomorph = Some(allo_id);
     nh.morphs = vec![MorphRecord::new(allo_id, entry.morpheme, 0)];
@@ -4612,19 +4613,16 @@ fn record_real_subsumption_gate(
 
 fn compound_gate(
     ctx: Option<MRuleStatsCtx>,
-    test: pg_grammar_model::model::MprSet,
-    have: pg_grammar_model::model::MprSet,
+    test: &pg_grammar_model::model::MprSet,
+    have: &pg_grammar_model::model::MprSet,
 ) -> bool {
     let passed = test.compound_match(have);
     if let Some(ctx) = ctx {
-        let mut bits = test.0;
-        while bits != 0 {
-            let bit = bits.trailing_zeros();
-            bits &= bits - 1;
+        for id in test.iter() {
             ctx.stats.record_gate(
                 ObjectKind::MorphRule,
                 ctx.id.0,
-                crate::stats::GateFeature::CompoundMpr(bit as u8),
+                crate::stats::GateFeature::CompoundMpr(id.0),
                 passed,
             );
         }

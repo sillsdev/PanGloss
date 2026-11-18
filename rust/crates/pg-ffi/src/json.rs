@@ -266,8 +266,8 @@ grammar_api!(hc_analyze_word_json, WordRequest, |h, r| {
 // The runtime owns revision and canonical-root validation; the ABI only transports its result.
 grammar_api!(
     hc_generate_words_json,
-    pg_lexicon::GenerationRequest,
-    |h, r| h.runtime.generate_analysis(r)
+    pg_lexicon::HostGenerationRequest,
+    |h, r| h.runtime.generate_host_analysis(r)
 );
 
 #[no_mangle]

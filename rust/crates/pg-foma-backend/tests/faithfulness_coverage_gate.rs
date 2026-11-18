@@ -52,13 +52,39 @@ fn report() -> FaithfulnessReport {
 
 #[test]
 fn report_faithfulness_coverage() {
-    let report = report();
+    let (discovered, observations) = collect();
+    let wide = "edge-cases/mpr-wide-inflection-classes";
+    let prior: Vec<_> = observations
+        .iter()
+        .filter(|observation| !observation.label.ends_with(wide))
+        .cloned()
+        .collect();
+    assert_eq!(
+        observations.len() - prior.len(),
+        1,
+        "wide fixture must be observed"
+    );
+    let prior = build_report(claimed_scope().label(), discovered - 1, &prior);
+    prior
+        .check(REQUIREMENT)
+        .expect("the prior inventory must retain its 11-pair ratchet");
+    let report = build_report(claimed_scope().label(), discovered, &observations);
+    let added: Vec<_> = report
+        .failed
+        .iter()
+        .filter(|pair| !prior.failed.contains(pair))
+        .copied()
+        .collect();
+    assert!(
+        added.is_empty(),
+        "wide MPR inventories must add no containment gaps: {added:?}"
+    );
     println!("{}", report.render());
     // "fixtures discovered" is not one FieldWorks-facing population; report the three separately.
     let census = producibility_census(&discover());
     println!("fieldworks_producible -- {}", census.summary_line());
 
-    if let Err(violations) = report.check(REQUIREMENT) {
+    if let Err(violations) = report.check(FaithfulnessRequirement::NoMoreThan { failures: 11 }) {
         panic!(
             "the faithfulness-coverage collection measured nothing usable ({SCOPE_ENV}={}): {:#?}",
             report.scope, violations

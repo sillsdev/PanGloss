@@ -755,7 +755,7 @@ impl SuppliedLexiconRuntime {
                         lexical_spelling: entry.stem.clone(),
                         gloss: entry.gloss.clone(),
                         syn_fs: self.grammar.fs_interner.get(resolved.syn_fs).clone(),
-                        mpr: resolved.mpr,
+                        mpr: resolved.mpr.clone(),
                         stratum: resolved.stratum,
                         authority,
                     });

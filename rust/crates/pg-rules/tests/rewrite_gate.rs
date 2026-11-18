@@ -1295,7 +1295,7 @@ fn traced_synthesis_pattern_fallback_when_nothing_matches() {
         &r,
         &seg(&g, "aaa"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         root,
     );
@@ -1324,7 +1324,7 @@ fn traced_synthesis_applied_carries_no_reason_and_the_rewritten_output() {
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         root,
     );
@@ -1369,7 +1369,7 @@ fn traced_synthesis_required_mpr_gate_reports_reason_before_the_pattern_is_tried
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY, // the synthesizing word has NONE of the required MPR features
+        &MprSet::EMPTY, // the synthesizing word has NONE of the required MPR features
         &sink,
         root,
     );
@@ -1406,7 +1406,7 @@ fn traced_synthesis_retains_indices_when_an_earlier_subrule_is_gated() {
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         root,
     );
@@ -1454,7 +1454,7 @@ fn traced_synthesis_excluded_mpr_gate_reports_reason() {
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        have,
+        &have,
         &sink,
         root,
     );
@@ -1493,7 +1493,7 @@ fn traced_synthesis_multi_subrule_readout_reports_failure_then_applied_in_order(
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         root,
     );

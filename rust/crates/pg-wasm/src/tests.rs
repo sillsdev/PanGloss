@@ -124,3 +124,48 @@ fn without_work_limits_removes_the_cap_that_new_keeps() {
         pg_lexicon::AnalysisPolicy::without_limits()
     );
 }
+
+#[test]
+fn wide_mpr_browser_payload_round_trips_supplied_generation() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let host = PanGlossGrammar::without_work_limits(&xml, None).unwrap();
+    let signature = host
+        .runtime
+        .catalog()
+        .signatures()
+        .iter()
+        .find(|s| s.mpr.iter().any(|m| m.id == "ic299"))
+        .unwrap()
+        .id
+        .clone();
+    host.runtime
+        .add(pg_lexicon::AddRequest {
+            stem: "pala".into(),
+            gloss: String::new(),
+            signatures: vec![signature],
+            expected_revision: None,
+        })
+        .unwrap();
+    let parsed = host.runtime.analyze_word("palasaaaaaai", None);
+    let analysis = parsed
+        .structured
+        .iter()
+        .find(|a| a.supplied_root.is_some())
+        .unwrap();
+    let json = serde_json::to_value(analysis).unwrap();
+    assert_eq!(
+        json["suppliedRoot"]["mpr"],
+        serde_json::json!({"version":1,"ids":[299]})
+    );
+    let decoded = serde_json::from_value(json).unwrap();
+    let generated = host
+        .runtime
+        .generate_host_analysis(pg_lexicon::GenerationRequest {
+            revision: parsed.revision,
+            analysis: decoded,
+        })
+        .unwrap();
+    assert_eq!(generated.words, vec!["palasaaaaaai"]);
+}

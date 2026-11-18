@@ -735,7 +735,7 @@ impl Word {
                         alt.shape = self.shape.clone();
                         alt.stratum = self.stratum;
                         alt.syn_fs = self.syn_fs.clone();
-                        alt.mpr = self.mpr;
+                        alt.mpr = self.mpr.clone();
                         alt.morphs = self.morphs.clone();
                         alt.flags.set_is_partial(self.flags.is_partial());
                         alt.root_allomorph = self.root_allomorph;
@@ -834,6 +834,8 @@ pub struct WordByteBreakdown {
     pub shape: usize,
     pub syn_fs: usize,
     pub real_fs: usize,
+    /// Wide words and supplied-root MPR field growth, charged per retained owner.
+    pub mpr: usize,
     pub morphs: usize,
     pub mrule_apps: usize,
     pub obligatory: usize,
@@ -854,6 +856,7 @@ impl WordByteBreakdown {
             + self.shape
             + self.syn_fs
             + self.real_fs
+            + self.mpr
             + self.morphs
             + self.mrule_apps
             + self.obligatory
@@ -869,6 +872,7 @@ impl WordByteBreakdown {
         self.shape += other.shape;
         self.syn_fs += other.syn_fs;
         self.real_fs += other.real_fs;
+        self.mpr += other.mpr;
         self.morphs += other.morphs;
         self.mrule_apps += other.mrule_apps;
         self.obligatory += other.obligatory;
@@ -902,10 +906,13 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
             + pg_shape::INLINE_COLUMNS_BYTES
             // `Word` holds two inline feature structures (`syn_fs`, `real_fs`); each keeps its old 24-byte weight.
             + 2 * (pg_featstruct::FEATURE_STRUCT_INLINE_BYTES
-                - std::mem::size_of::<FeatureStruct>()),
+                - std::mem::size_of::<FeatureStruct>())
+            + std::mem::size_of::<MprSet>()
+            - std::mem::size_of::<u64>(),
         shape: estimate_shape_bytes(&w.shape),
         syn_fs: estimate_fs_bytes(&w.syn_fs),
         real_fs: estimate_fs_bytes(&w.real_fs),
+        mpr: mpr_extra_bytes(w),
         morphs: w.morphs.len() * std::mem::size_of::<MorphRecord>(),
         mrule_apps: w.trail.len() * std::mem::size_of::<Option<MRuleId>>()
             + w.trail.len() * std::mem::size_of::<Option<AllomorphId>>()
@@ -926,6 +933,21 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
     b
 }
 
+/// Charges every retained supplied payload, including non-head roots flattened into morph records.
+fn mpr_extra_bytes(w: &Word) -> usize {
+    w.mpr.heap_bytes()
+        + w.morphs
+            .iter()
+            .map(|m| match m.runtime_root.as_deref() {
+                Some(RuntimeRoot::Supplied(root)) => {
+                    std::mem::size_of::<MprSet>() - std::mem::size_of::<u64>()
+                        + root.mpr.heap_bytes()
+                }
+                _ => 0,
+            })
+            .sum::<usize>()
+}
+
 /// Approximate heap-byte cost of one `Word` (see `estimate_word_bytes_breakdown` for the
 /// per-field decomposition this sums).
 pub fn estimate_word_bytes(w: &Word) -> usize {
@@ -941,6 +963,7 @@ pub fn estimate_words_bytes(words: &[Word]) -> usize {
 /// Fixed weights account for spare collection capacity; the trail slab is charged separately.
 pub(crate) fn retained_word_bytes(w: &Word) -> usize {
     512usize
+        .saturating_add(mpr_extra_bytes(w))
         .saturating_add(w.shape.len().saturating_mul(8))
         .saturating_add(w.morphs.len().saturating_mul(64))
         .saturating_add(w.obligatory.len().saturating_mul(16))

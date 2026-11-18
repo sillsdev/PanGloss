@@ -155,16 +155,16 @@ pub struct GatedSubrule {
 /// `true` iff `sr` declares a restriction this module partitions on; `Any`-type MPR group bits are masked out before testing emptiness.
 pub(crate) fn is_gated(g: &Grammar, sr: &RewriteSubruleDef) -> bool {
     sr.required_pos.is_some()
-        || !ungrouped_or_all(g, sr.required_mpr).is_empty()
-        || !ungrouped_or_all(g, sr.excluded_mpr).is_empty()
+        || !ungrouped_or_all(g, &sr.required_mpr).is_empty()
+        || !ungrouped_or_all(g, &sr.excluded_mpr).is_empty()
 }
 
 /// `mpr` with every bit belonging to an `Any`-type group cleared, since `Any`-type restrictions are not partitioned on here; ungrouped and `All`-type-group bits pass through unchanged.
-fn ungrouped_or_all(g: &Grammar, mpr: pg_grammar::model::MprSet) -> pg_grammar::model::MprSet {
-    let mut keep = mpr;
+fn ungrouped_or_all(g: &Grammar, mpr: &pg_grammar::model::MprSet) -> pg_grammar::model::MprSet {
+    let mut keep = mpr.clone();
     for group in &g.mpr_groups {
         if group.match_type == MprGroupMatchType::Any {
-            keep = pg_grammar::model::MprSet(keep.0 & !group.members.0);
+            keep = keep.difference(&group.members);
         }
     }
     keep
@@ -207,7 +207,7 @@ pub fn entry_gate_key(
                 )
             };
             let sr = &rule.subrules[gs.sub_idx];
-            pg_rules::rewrite::subrule_applicable(g, sr, syn_fs, entry.mpr)
+            pg_rules::rewrite::subrule_applicable(g, sr, syn_fs, &entry.mpr)
         })
         .collect()
 }

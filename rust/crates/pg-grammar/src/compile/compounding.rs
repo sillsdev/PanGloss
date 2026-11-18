@@ -283,7 +283,7 @@ fn build_endo(
                 vars: crate::model::VarTable::default(),
                 required_mpr: crate::model::MprSet::EMPTY,
                 excluded_mpr: crate::model::MprSet::EMPTY,
-                out_mpr,
+                out_mpr: out_mpr.clone(),
                 head_lhs,
                 non_head_lhs,
                 rhs,
@@ -365,15 +365,15 @@ fn build_exo(
                 head_required_syn_fs: right_fs,
                 non_head_required_syn_fs: left_fs,
                 out_syn_fs,
-                head_prod_restrictions_mpr: right_mpr,
-                non_head_prod_restrictions_mpr: left_mpr,
+                head_prod_restrictions_mpr: right_mpr.clone(),
+                non_head_prod_restrictions_mpr: left_mpr.clone(),
                 output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
                 obligatory_features: Vec::new(),
                 subrules: vec![CompoundingSubruleDef {
                     vars: crate::model::VarTable::default(),
                     required_mpr: crate::model::MprSet::EMPTY,
                     excluded_mpr: crate::model::MprSet::EMPTY,
-                    out_mpr,
+                    out_mpr: out_mpr.clone(),
                     head_lhs,
                     non_head_lhs,
                     rhs,
@@ -396,15 +396,15 @@ fn build_exo(
                 head_required_syn_fs: left_fs,
                 non_head_required_syn_fs: right_fs,
                 out_syn_fs,
-                head_prod_restrictions_mpr: left_mpr,
-                non_head_prod_restrictions_mpr: right_mpr,
+                head_prod_restrictions_mpr: left_mpr.clone(),
+                non_head_prod_restrictions_mpr: right_mpr.clone(),
                 output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
                 obligatory_features: Vec::new(),
                 subrules: vec![CompoundingSubruleDef {
                     vars: crate::model::VarTable::default(),
                     required_mpr: crate::model::MprSet::EMPTY,
                     excluded_mpr: crate::model::MprSet::EMPTY,
-                    out_mpr,
+                    out_mpr: out_mpr.clone(),
                     head_lhs,
                     non_head_lhs,
                     rhs,
@@ -477,7 +477,7 @@ fn side_mpr(
             format!("compound rule: exception feature {f:?} does not resolve"),
         );
         if let Some(s) = resolved {
-            set = set.union(s);
+            set = set.union(&s);
         }
     }
     set

@@ -35,26 +35,26 @@ impl LookupReplay {
                     for allo in &rule.allomorphs {
                         checks_mpr |=
                             !allo.required_mpr.is_empty() || !allo.excluded_mpr.is_empty();
-                        all_out = all_out.union(allo.out_mpr);
+                        all_out = all_out.union(&allo.out_mpr);
                     }
                 }
                 MorphRuleDef::Realizational(rule) => {
                     for allo in &rule.allomorphs {
-                        realizational_out = realizational_out.union(allo.out_mpr);
-                        all_out = all_out.union(allo.out_mpr);
+                        realizational_out = realizational_out.union(&allo.out_mpr);
+                        all_out = all_out.union(&allo.out_mpr);
                     }
                 }
                 MorphRuleDef::Compounding(rule) => {
-                    compounding_out = compounding_out.union(rule.output_prod_restrictions_mpr);
+                    compounding_out = compounding_out.union(&rule.output_prod_restrictions_mpr);
                     for sub in &rule.subrules {
-                        compounding_out = compounding_out.union(sub.out_mpr);
+                        compounding_out = compounding_out.union(&sub.out_mpr);
                     }
-                    all_out = all_out.union(compounding_out);
+                    all_out = all_out.union(&compounding_out);
                 }
             }
         }
         let overwrite_reachable = g.mpr_groups.iter().any(|group| {
-            group.output == MprGroupOutput::Overwrite && group.members.overlaps(all_out)
+            group.output == MprGroupOutput::Overwrite && group.members.overlaps(&all_out)
         });
         LookupReplay {
             checks_mpr,
@@ -97,7 +97,7 @@ impl LookupReplay {
         let feasible = self.trail_is_feasible(
             g,
             alt,
-            entry.mpr,
+            &entry.mpr,
             entry.allomorphs[idx as usize].stem_name,
             &mut work,
             stats,
@@ -114,12 +114,12 @@ impl LookupReplay {
         &self,
         g: &Grammar,
         alt: &Word,
-        root_mpr: MprSet,
+        root_mpr: &MprSet,
         root_stem: Option<pg_grammar_model::model::StemNameId>,
         work: &mut u64,
         stats: Option<&StatsCollector>,
     ) -> bool {
-        let mut extra = self.realizational_out;
+        let mut extra = self.realizational_out.clone();
         let mut excluded_ok = !self.overwrite_reachable;
         let mut stem_ok = true;
         for (entry, _) in alt.trail.slots_rev() {
@@ -130,7 +130,7 @@ impl LookupReplay {
             let Some(rule) = rule else {
                 if !self.compounding_out.is_empty() {
                     *work += 1;
-                    extra = extra.union(self.compounding_out);
+                    extra = extra.union(&self.compounding_out);
                 }
                 excluded_ok = false;
                 stem_ok = false;
@@ -165,7 +165,7 @@ impl LookupReplay {
                 g,
                 rule,
                 root_mpr,
-                extra,
+                &extra,
                 excluded_ok,
                 work,
                 stats.map(|stats| (stats, ObjectKind::MorphRule, rule_id.0)),
@@ -183,7 +183,7 @@ impl LookupReplay {
             for allo in &rule.allomorphs {
                 if !allo.out_mpr.is_empty() {
                     *work += 1;
-                    extra = extra.union(allo.out_mpr);
+                    extra = extra.union(&allo.out_mpr);
                 }
             }
         }
@@ -195,8 +195,8 @@ impl LookupReplay {
 fn any_allomorph_possible(
     g: &Grammar,
     rule: &AffixProcessRuleDef,
-    root_mpr: MprSet,
-    extra: MprSet,
+    root_mpr: &MprSet,
+    extra: &MprSet,
     excluded_ok: bool,
     work: &mut u64,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
@@ -205,7 +205,7 @@ fn any_allomorph_possible(
     rule.allomorphs.iter().any(|allo| {
         if !allo.required_mpr.is_empty() {
             *work += 1;
-            if !mpr_check(g, allo.required_mpr, upper, false, owner) {
+            if !mpr_check(g, &allo.required_mpr, &upper, false, owner) {
                 return false;
             }
         }
@@ -213,6 +213,6 @@ fn any_allomorph_possible(
             return true;
         }
         *work += 1;
-        mpr_check(g, allo.excluded_mpr, root_mpr, true, owner)
+        mpr_check(g, &allo.excluded_mpr, root_mpr, true, owner)
     })
 }

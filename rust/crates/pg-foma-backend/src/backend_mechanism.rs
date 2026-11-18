@@ -189,7 +189,7 @@ wire_id_conversions!(StemNameId, WireModelKind::StemName, u32::MAX);
 wire_id_conversions!(FamilyId, WireModelKind::Family, u32::MAX);
 wire_id_conversions!(TableId, WireModelKind::Table, u16::MAX);
 wire_id_conversions!(VarId, WireModelKind::Var, u16::MAX);
-wire_id_conversions!(MprId, WireModelKind::Mpr, u8::MAX);
+wire_id_conversions!(MprId, WireModelKind::Mpr, u32::MAX);
 
 impl WireModelId {
     fn has_valid_range(&self) -> bool {
@@ -203,8 +203,9 @@ impl WireModelId {
             | WireModelKind::Allomorph
             | WireModelKind::NatClass
             | WireModelKind::StemName
-            | WireModelKind::Family => u32::MAX as u64,
-            WireModelKind::Stratum | WireModelKind::Mpr => u8::MAX as u64,
+            | WireModelKind::Family
+            | WireModelKind::Mpr => u32::MAX as u64,
+            WireModelKind::Stratum => u8::MAX as u64,
             WireModelKind::Table | WireModelKind::Var => u16::MAX as u64,
             WireModelKind::MprGroup
             | WireModelKind::SubruleIndex

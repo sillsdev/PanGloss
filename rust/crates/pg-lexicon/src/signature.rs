@@ -7,7 +7,7 @@
 //! `pos` is persistently encoded as one authored ID; entries with multiple POS bits are rejected.
 
 use pg_featstruct::{FeatureStruct, FeatureValue, FsId};
-use pg_grammar::model::{Grammar, MprId, SynFeatureKind};
+use pg_grammar::model::{Grammar, SynFeatureKind};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -146,16 +146,14 @@ impl ClassCatalog {
             let features = resolve_features(grammar, fs)?;
             let pos = resolve_pos(grammar, fs)?;
             let mut mpr = Vec::new();
-            for bit in 0..grammar.mpr_features.len() {
-                if entry.mpr.contains(MprId(bit as u8)) {
-                    let def = grammar
-                        .mpr_feature(MprId(bit as u8))
-                        .ok_or_else(|| format!("MPR id {bit} has no authored identity"))?;
-                    mpr.push(AuthoredRef {
-                        id: def.xml_id.clone(),
-                        label: def.name.clone(),
-                    });
-                }
+            for id in entry.mpr.iter() {
+                let def = grammar
+                    .mpr_feature(id)
+                    .ok_or_else(|| format!("MPR id {} has no authored identity", id.0))?;
+                mpr.push(AuthoredRef {
+                    id: def.xml_id.clone(),
+                    label: def.name.clone(),
+                });
             }
             mpr.sort_by(|a, b| a.id.cmp(&b.id));
             let canonical_encoding = encode_identity(pos.as_ref(), &features, &mpr)?;
@@ -183,7 +181,7 @@ impl ClassCatalog {
             resolved.push(ResolvedSignature {
                 signature,
                 syn_fs: entry.syn_fs,
-                mpr: entry.mpr,
+                mpr: entry.mpr.clone(),
                 stratum: grammar.morphemes[entry.morpheme.0 as usize].stratum,
             });
         }

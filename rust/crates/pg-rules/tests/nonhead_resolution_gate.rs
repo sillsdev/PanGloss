@@ -156,18 +156,18 @@ fn clone_def(def: &CompoundingRuleDef) -> CompoundingRuleDef {
         head_required_syn_fs: def.head_required_syn_fs,
         non_head_required_syn_fs: def.non_head_required_syn_fs,
         out_syn_fs: def.out_syn_fs,
-        head_prod_restrictions_mpr: def.head_prod_restrictions_mpr,
-        non_head_prod_restrictions_mpr: def.non_head_prod_restrictions_mpr,
-        output_prod_restrictions_mpr: def.output_prod_restrictions_mpr,
+        head_prod_restrictions_mpr: def.head_prod_restrictions_mpr.clone(),
+        non_head_prod_restrictions_mpr: def.non_head_prod_restrictions_mpr.clone(),
+        output_prod_restrictions_mpr: def.output_prod_restrictions_mpr.clone(),
         obligatory_features: def.obligatory_features.clone(),
         subrules: def
             .subrules
             .iter()
             .map(|sr| pg_grammar_model::model::CompoundingSubruleDef {
                 vars: sr.vars.clone(),
-                required_mpr: sr.required_mpr,
-                excluded_mpr: sr.excluded_mpr,
-                out_mpr: sr.out_mpr,
+                required_mpr: sr.required_mpr.clone(),
+                excluded_mpr: sr.excluded_mpr.clone(),
+                out_mpr: sr.out_mpr.clone(),
                 head_lhs: sr.head_lhs.clone(),
                 non_head_lhs: sr.non_head_lhs.clone(),
                 rhs: sr.rhs.clone(),

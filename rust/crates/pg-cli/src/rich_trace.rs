@@ -843,10 +843,11 @@ fn trace_object_identity(grammar: &Grammar, object: TraceObject) -> Value {
     }
 }
 
-fn mpr_operands(grammar: &Grammar, set: pg_grammar::model::MprSet) -> Value {
-    json!((0..64)
-        .filter(|&index| set.0 & (1u64 << index) != 0)
-        .map(|index| {
+fn mpr_operands(grammar: &Grammar, set: &pg_grammar::model::MprSet) -> Value {
+    json!(set
+        .iter()
+        .map(|id| {
+            let index = id.0 as usize;
             match grammar.mpr_features.get(index) {
                 Some(feature) => {
                     json!({"id": feature.xml_id, "name": feature.name, "quality": "authored"})
@@ -874,7 +875,7 @@ fn rejection_evidence(grammar: &Grammar, evidence: &RejectionEvidence) -> Value 
             actual,
         } => json!({
             "kind": "mprFeatures", "failedObject": trace_object_identity(grammar, *object),
-            "operands": {"required": mpr_operands(grammar, *required), "excluded": mpr_operands(grammar, *excluded), "actual": mpr_operands(grammar, *actual)},
+            "operands": {"required": mpr_operands(grammar, required), "excluded": mpr_operands(grammar, excluded), "actual": mpr_operands(grammar, actual)},
         }),
         RejectionEvidence::CoOccurrence {
             object,

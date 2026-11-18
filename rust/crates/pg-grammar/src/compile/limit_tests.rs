@@ -149,17 +149,54 @@ fn mpr_morphology(n: usize) -> impl FnOnce(&mut Morphology) {
 }
 
 #[test]
-fn mpr_cap_64_compiles_and_65_names_the_breakdown() {
-    assert_eq!(limit_code(&with_morphology(mpr_morphology(64))), None);
-    let (code, message) =
-        limit_code(&with_morphology(mpr_morphology(65))).expect("65 MPR features must be refused");
-    assert_eq!(code, ImportWarningCode::LimitMprFeatures);
-    assert!(
-        message.contains("65 inflection classes, exception features")
-            && message.contains(
-                "40 inflection classes including subclasses, 25 exception features, 0 entry"
-            )
-            && message.contains("at most 64"),
-        "{message}"
-    );
+fn mpr_inventory_spans_the_former_word_and_byte_boundaries() {
+    for count in [64, 65, 256, 300] {
+        let (grammar, _) = compile_project(&with_morphology(mpr_morphology(count))).unwrap();
+        assert_eq!(grammar.mpr_features.len(), count);
+    }
+}
+
+#[test]
+fn mpr_wide_nested_sibling_classes_share_the_inventory_with_exceptions_and_entry_types() {
+    use pg_snapshot::morphology::LexEntryInflType;
+
+    let snapshot = with_morphology(|m| {
+        let families = (0..10)
+            .map(|family| {
+                let parent = family * 30;
+                class(
+                    format!("ic{parent:03}"),
+                    (parent + 1..parent + 30)
+                        .map(|id| class(format!("ic{id:03}"), Vec::new()))
+                        .collect(),
+                )
+            })
+            .collect();
+        m.parts_of_speech = vec![pos("posN".into(), Vec::new(), families)];
+        m.exception_features = ["exA", "exB"]
+            .into_iter()
+            .map(|id| ExceptionFeature {
+                guid: id.into(),
+                name: id.into(),
+                abbreviation: id.into(),
+            })
+            .collect();
+        m.lex_entry_infl_types = vec![LexEntryInflType {
+            guid: "variant".into(),
+            name: "irregular".into(),
+            abbreviation: "irr".into(),
+            gloss_prepend: String::new(),
+            gloss_append: String::new(),
+            slots: Vec::new(),
+            inflection_features: None,
+        }];
+    });
+    let (grammar, _) =
+        compile_project(&snapshot).expect("303 features must compile without aliasing");
+    assert_eq!(grammar.mpr_features.len(), 303);
+    let classes = &grammar.mpr_groups[0].members;
+    for id in [0, 63, 64, 127, 128, 255, 256, 299] {
+        assert!(classes.contains(pg_grammar_model::model::MprId(id)));
+    }
+    assert!(!classes.contains(pg_grammar_model::model::MprId(300)));
 }

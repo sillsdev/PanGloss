@@ -1553,7 +1553,7 @@ impl<'g> Morpher<'g> {
             nw.shape = shape;
             nw.stratum = root.stratum;
             nw.syn_fs = root.syn_fs.clone();
-            nw.mpr = root.mpr;
+            nw.mpr = root.mpr.clone();
             nw.flags.set_is_partial(false);
             nw.root_allomorph = Some(AllomorphId::GUESSED);
             nw.set_root_runtime_id(Some(root.realization_id.clone()));
@@ -1598,7 +1598,7 @@ impl<'g> Morpher<'g> {
         w.shape = root_shape;
         w.stratum = root_stratum;
         w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-        w.mpr = entry.mpr;
+        w.mpr = entry.mpr.clone();
         w.flags.set_is_partial(entry.is_partial());
         w.root_allomorph = Some(allo);
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
@@ -2062,7 +2062,7 @@ impl<'g> Morpher<'g> {
             root_morpheme_index,
             pos_id,
             syn_fs: w.syn_fs.clone(),
-            mpr: w.mpr,
+            mpr: w.mpr.clone(),
             guessed,
             guessed_string: w
                 .morphs
@@ -2623,7 +2623,7 @@ impl<'g> Morpher<'g> {
         let shape = segment_with_features(g, table, &data.lexical_spelling).ok()?;
         let mut w = Word::new(shape, data.stratum);
         w.syn_fs = data.syn_fs.clone();
-        w.mpr = data.mpr;
+        w.mpr = data.mpr.clone();
         w.root_allomorph = Some(AllomorphId::GUESSED);
         w.set_root_runtime_id(Some(data.realization_id.clone()));
         w.morphs = vec![
@@ -2692,7 +2692,7 @@ impl<'g> Morpher<'g> {
             .unwrap_or_else(|_| allo.shape.shape.clone());
         let mut w = Word::new(shape, stratum);
         w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-        w.mpr = entry.mpr;
+        w.mpr = entry.mpr.clone();
         w.flags.set_is_partial(entry.is_partial());
         w.root_allomorph = Some(allo.id);
         w.real_fs = real_fs;
@@ -2724,7 +2724,7 @@ impl<'g> Morpher<'g> {
         &self,
         shape_text: &str,
         syn_fs: FsId,
-        mpr: MprSet,
+        mpr: &MprSet,
         stratum: StratumId,
         rules: &[MRuleId],
     ) -> Vec<String> {
@@ -2737,7 +2737,7 @@ impl<'g> Morpher<'g> {
         &self,
         shape_text: &str,
         syn_fs: FsId,
-        mpr: MprSet,
+        mpr: &MprSet,
         stratum: StratumId,
         rules: &[MRuleId],
         budget: &SynthesisBudget,
@@ -2749,7 +2749,7 @@ impl<'g> Morpher<'g> {
         &self,
         shape_text: &str,
         syn_fs: FsId,
-        mpr: MprSet,
+        mpr: &MprSet,
         stratum: StratumId,
         rules: &[MRuleId],
         work_budget: Option<&SynthesisBudget>,
@@ -2766,7 +2766,7 @@ impl<'g> Morpher<'g> {
             lexical_spelling: shape_text.to_string(),
             gloss: String::new(),
             syn_fs: g.fs_interner.get(syn_fs).clone(),
-            mpr,
+            mpr: mpr.clone(),
             stratum,
         };
         let Some(mut word) = self.supplied_root_seed(supplied) else {

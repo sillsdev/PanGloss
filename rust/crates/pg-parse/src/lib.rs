@@ -45,7 +45,7 @@ pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};
 /// optional part-of-speech id — the Rust mirror of C# `WordAnalysis` (Morpher.cs:637).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WordAnalysis {
+pub struct WordAnalysis<Mpr = pg_grammar_model::model::MprSet> {
     pub morpheme_ids: Vec<u32>,
     /// Every final annotation record in surface order, including repeated applications and
     /// multiple runs emitted by a circumfix.
@@ -53,7 +53,7 @@ pub struct WordAnalysis {
     pub root_morpheme_index: i32,
     pub pos_id: Option<u32>,
     pub syn_fs: pg_featstruct::FeatureStruct,
-    pub mpr: pg_grammar_model::model::MprSet,
+    pub mpr: Mpr,
     /// P11 §4.1: whether this analysis came from the guess branch (`Morpher::parse_word_opts`
     /// with `ParseOptions.guess_root = true`, on a total normal-lexicon miss). Always equal to
     /// the owning `ParseOutcome.guessed` today (the branch is all-or-nothing), but carried
@@ -70,9 +70,39 @@ pub struct WordAnalysis {
     pub guessed_pattern: Option<GuessedPattern>,
     pub provenance: AnalysisProvenance,
     /// Self-contained root payload for regeneration when provenance is supplied.
-    pub supplied_root: Option<SuppliedRoot>,
+    pub supplied_root: Option<SuppliedRoot<Mpr>>,
     /// Runtime supplied payload aligned one-for-one with `morpheme_ids`.
-    pub morpheme_roots: Vec<Option<SuppliedRoot>>,
+    pub morpheme_roots: Vec<Option<SuppliedRoot<Mpr>>>,
+}
+
+impl<Mpr> WordAnalysis<Mpr> {
+    /// Converts every MPR field, including both nested root payload locations.
+    pub fn try_map_mpr<E>(
+        self,
+        mut map: impl FnMut(Mpr) -> Result<pg_grammar_model::model::MprSet, E>,
+    ) -> Result<WordAnalysis, E> {
+        Ok(WordAnalysis {
+            morpheme_ids: self.morpheme_ids,
+            morph_occurrences: self.morph_occurrences,
+            root_morpheme_index: self.root_morpheme_index,
+            pos_id: self.pos_id,
+            syn_fs: self.syn_fs,
+            mpr: map(self.mpr)?,
+            guessed: self.guessed,
+            guessed_string: self.guessed_string,
+            guessed_pattern: self.guessed_pattern,
+            provenance: self.provenance,
+            supplied_root: self
+                .supplied_root
+                .map(|root| root.try_map_mpr(&mut map))
+                .transpose()?,
+            morpheme_roots: self
+                .morpheme_roots
+                .into_iter()
+                .map(|root| root.map(|root| root.try_map_mpr(&mut map)).transpose())
+                .collect::<Result<_, E>>()?,
+        })
+    }
 }
 
 /// Dense ids of the lexical-pattern root allomorph and its owning morpheme behind a guessed root.

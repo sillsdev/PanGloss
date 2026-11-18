@@ -1,15 +1,19 @@
 //! Revision-bound generation from complete structured analyses, sharing runtime root authority.
 
-use crate::{Revision, StructuredError, SuppliedLexiconRuntime};
+use crate::{LexiconSnapshot, Revision, StructuredError, SuppliedLexiconRuntime};
+use pg_grammar::model::{MprIds, MprSet};
 use pg_parse::{AnalysisProvenance, WordAnalysis};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct GenerationRequest {
+pub struct GenerationRequest<Mpr = MprSet> {
     pub revision: Revision,
-    pub analysis: WordAnalysis,
+    pub analysis: WordAnalysis<Mpr>,
 }
+
+/// Host decoding must retain sparse IDs until revision and grammar inventory validation.
+pub type HostGenerationRequest = GenerationRequest<MprIds>;
 
 /// The synthesis owner currently returns surfaces without publishing its independent cap stops.
 /// This explicitly prevents callers from treating an empty or partial result as complete.
@@ -29,6 +33,24 @@ pub struct GenerationResult {
 }
 
 impl SuppliedLexiconRuntime {
+    /// Decodes host MPR IDs against the loaded grammar before any dense bitmap expansion.
+    /// Revision validation and synthesis use the same immutable runtime snapshot.
+    pub fn generate_host_analysis(
+        &self,
+        request: HostGenerationRequest,
+    ) -> Result<GenerationResult, StructuredError> {
+        let snapshot = self.generation_snapshot(&request.revision)?;
+        let analysis = request.analysis.try_map_mpr(|ids| {
+            ids.into_set(self.grammar.mpr_features.len()).map_err(|id| {
+                error(
+                    "invalid_mpr_id",
+                    &format!("MPR ID {} is outside the grammar inventory", id.0),
+                )
+            })
+        })?;
+        self.generate_analysis_in_snapshot(analysis, &snapshot)
+    }
+
     /// Regenerates using one immutable snapshot for revision, active identities and synthesis.
     /// Supplied payloads must exactly match the canonical roots already published by the import
     /// owner; numeric sentinel slots cannot recreate missing or forged runtime identities.
@@ -38,14 +60,29 @@ impl SuppliedLexiconRuntime {
         &self,
         request: GenerationRequest,
     ) -> Result<GenerationResult, StructuredError> {
+        let snapshot = self.generation_snapshot(&request.revision)?;
+        self.generate_analysis_in_snapshot(request.analysis, &snapshot)
+    }
+
+    fn generation_snapshot(
+        &self,
+        revision: &Revision,
+    ) -> Result<std::sync::Arc<LexiconSnapshot>, StructuredError> {
         let snapshot = self.snapshot();
-        if &request.revision != snapshot.revision() {
+        if revision != snapshot.revision() {
             return Err(error(
                 "revision_conflict",
                 "generation revision does not match the runtime snapshot",
             ));
         }
-        let mut analysis = request.analysis;
+        Ok(snapshot)
+    }
+
+    fn generate_analysis_in_snapshot(
+        &self,
+        mut analysis: WordAnalysis,
+        snapshot: &LexiconSnapshot,
+    ) -> Result<GenerationResult, StructuredError> {
         if analysis.guessed
             || analysis.guessed_string.is_some()
             || matches!(analysis.provenance, AnalysisProvenance::Guessed)
@@ -119,7 +156,7 @@ impl SuppliedLexiconRuntime {
         }
         analysis.supplied_root = head.clone();
         let words = self
-            .morpher(&snapshot)
+            .morpher(snapshot)
             .generate_words_from_analysis(&analysis);
         Ok(GenerationResult {
             revision: snapshot.revision().clone(),
@@ -135,5 +172,47 @@ fn error(code: &str, message: &str) -> StructuredError {
         code: code.into(),
         message: message.into(),
         details: serde_json::Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sparse_host_ids_preserve_wire_validation_and_inventory_boundaries() {
+        use pg_grammar::model::{MprId, MprIds, MprSet};
+        let decode = |value| serde_json::from_value::<MprIds>(value);
+        let high = decode(serde_json::json!({"version":1,"ids":[302,64,302]})).unwrap();
+        assert_eq!(high.clone().into_set(302), Err(MprId(302)));
+        assert_eq!(
+            high.into_set(303)
+                .unwrap()
+                .iter()
+                .map(|id| id.0)
+                .collect::<Vec<_>>(),
+            vec![64, 302]
+        );
+        assert_eq!(
+            decode(serde_json::json!(0)).unwrap().into_set(0).unwrap(),
+            MprSet::EMPTY
+        );
+        assert_eq!(
+            decode(serde_json::json!(1u64 << 63)).unwrap().into_set(63),
+            Err(MprId(63))
+        );
+        assert_eq!(
+            decode(serde_json::json!(1u64 << 63))
+                .unwrap()
+                .into_set(64)
+                .unwrap(),
+            MprSet::from_bits(1u64 << 63)
+        );
+        for invalid in [
+            serde_json::json!({"version":2,"ids":[0]}),
+            serde_json::json!({"version":1,"ids":[4294967296u64]}),
+            serde_json::json!({"version":1,"ids":[-1]}),
+            serde_json::json!({"version":1,"ids":[0],"extra":0}),
+        ] {
+            assert!(decode(invalid).is_err());
+        }
     }
 }

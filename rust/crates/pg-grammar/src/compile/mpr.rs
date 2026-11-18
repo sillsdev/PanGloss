@@ -1,4 +1,4 @@
-//! MPR feature groups: inflection classes, exception features, and lexEntryInflTypes, all populating one shared bit space capped at 64 total — the entire set of `MprGroup`s a `compile_project`-built grammar ever has.
+//! MPR feature groups: inflection classes, exception features, and lexEntryInflTypes, all populating one shared feature space — the entire set of `MprGroup`s a `compile_project`-built grammar ever has.
 
 use hashbrown::HashMap;
 
@@ -119,7 +119,7 @@ pub(crate) fn build(
     let exceptions = snapshot.morphology.exception_features.len();
     let entry_types = snapshot.morphology.lex_entry_infl_types.len();
     let total = infl_classes + exceptions + entry_types;
-    if total > crate::limits::MAX_MPR_FEATURES {
+    if total as u64 > crate::limits::MAX_MPR_FEATURES {
         return Err(crate::limits::mpr_features(
             total,
             "this project has",
@@ -214,11 +214,8 @@ fn next_bit(
     xml_id: &str,
     name: &str,
 ) -> Result<MprId, GrammarError> {
-    assert!(
-        mpr_names.len() < crate::limits::MAX_MPR_FEATURES,
-        "build() counts every MPR feature against the cap before allocating bits"
-    );
-    let id = MprId(mpr_names.len() as u8);
+    let id = MprId::try_from(mpr_names.len())
+        .map_err(|_| crate::limits::mpr_features(mpr_names.len(), "this project has", ""))?;
     mpr_names.push(name.to_string());
     mpr_features.push(MprFeatureDef {
         xml_id: xml_id.to_string(),

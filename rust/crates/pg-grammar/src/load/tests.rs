@@ -1186,3 +1186,27 @@ fn empty_parts_of_speech_block_is_also_refused() {
         .expect_err("<PartsOfSpeech> with zero <PartOfSpeech> children violates PartOfSpeech+ and must be refused");
     assert!(matches!(err, GrammarError::Xml(_)));
 }
+
+#[test]
+fn mpr_wide_oracle_fixture_loads_every_distinct_feature() {
+    use pg_conformance_fixtures::{FixtureRef, Root};
+
+    let fixture = FixtureRef {
+        root: Root::Staging,
+        category: "edge-cases".into(),
+        name: "mpr-wide-inflection-classes".into(),
+        dir: pg_conformance_fixtures::staging_root().join("edge-cases/mpr-wide-inflection-classes"),
+    };
+    let words = fixture.load_words_yaml();
+    assert_eq!(
+        fixture.oracle_provenance(),
+        Some(pg_conformance_fixtures::OracleProvenance::FoundingOracle)
+    );
+    assert_eq!(words.words.len(), 74);
+    assert_eq!(words.words.iter().filter(|w| w.expect_fail).count(), 50);
+    assert!(words.skip_in_generic_replay().is_none());
+    let xml = fixture.load_grammar_xml();
+    let grammar = load(&xml).expect("wide oracle inventory must load");
+    assert_eq!(grammar.mpr_features.len(), 303);
+    assert_eq!(grammar.mpr_groups[0].members.iter().count(), 300);
+}

@@ -106,7 +106,7 @@ pub(crate) const MORPHER_SETTINGS: &[&str] = &[
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
 /// allomorphs/entries — see the module doc). A handful of hard limits inherited from
-/// `mod@crate::load` (>64 symbols in a feature, >64 total MPR features) surface as `Err`, and so
+/// `mod@crate::load` (symbolic-feature or MPR identity space exhaustion) surface as `Err`, and so
 /// does [`SemanticLossPolicy::Refuse`]'s own fatal-conversion-issue check — see
 /// [`compile_project_with`], which this is a thin, source-compatible wrapper over.
 pub fn compile_project(

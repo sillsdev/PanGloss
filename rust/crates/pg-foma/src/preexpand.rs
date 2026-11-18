@@ -494,7 +494,7 @@ fn extend(
         }
         for w in synth_out {
             let Some(segs) =
-                surface_probe::probe_synthesize_for(ctx.g, &w.shape, ctx.cache, &w.syn_fs, w.mpr)
+                surface_probe::probe_synthesize_for(ctx.g, &w.shape, ctx.cache, &w.syn_fs, &w.mpr)
             else {
                 continue;
             };
@@ -660,7 +660,7 @@ fn process_root_work(
         };
         let mut word = Word::new(shape, root_stratum);
         word.syn_fs = entry_fs.clone();
-        word.mpr = entry.mpr;
+        word.mpr = entry.mpr.clone();
         word.root_allomorph = Some(allo.id);
         word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
 

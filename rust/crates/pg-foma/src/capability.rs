@@ -325,7 +325,7 @@ pub enum ModelLocation {
 /// Gate flags are facts about the grammar and belong in a characteristics projection. A
 /// lowered span is a compiled artifact and does not: the predicate lowers what it needs, when
 /// it needs it, from the grammar it is now handed. See `CONTEXT.md`, Artifact and Lowering.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SubruleGateInfo {
     pub index: usize,
     pub required_mpr: MprSet,
@@ -1417,8 +1417,8 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                             .enumerate()
                             .map(|(si, sr)| SubruleGateInfo {
                                 index: si,
-                                required_mpr: sr.required_mpr,
-                                excluded_mpr: sr.excluded_mpr,
+                                required_mpr: sr.required_mpr.clone(),
+                                excluded_mpr: sr.excluded_mpr.clone(),
                                 self_opaquing: sr.self_opaquing,
                             })
                             .collect();
@@ -1841,7 +1841,7 @@ pub trait CapabilityPredicate {
 
 /// The cheap orthogonality early-out: a sufficient, not necessary, condition for MPR-gate disjointness.
 fn mpr_gates_disjoint(a: &SubruleGateInfo, b: &SubruleGateInfo) -> bool {
-    a.required_mpr.overlaps(b.excluded_mpr) || b.required_mpr.overlaps(a.excluded_mpr)
+    a.required_mpr.overlaps(&b.excluded_mpr) || b.required_mpr.overlaps(&a.excluded_mpr)
 }
 
 /// The per-pair decision, shared by the gate and the compiler so the two cannot disagree.
@@ -1855,8 +1855,8 @@ fn subrules_pairwise_verdict(
         (0..subrules.len()).map(|_| None).collect();
     for i in 0..subrules.len() {
         for j in (i + 1)..subrules.len() {
-            let a = subrules[i];
-            let b = subrules[j];
+            let a = &subrules[i];
+            let b = &subrules[j];
 
             // If either subrule is self_opaquing, do not attempt Admit; checked before the mpr-gate early-out.
             if a.self_opaquing || b.self_opaquing {
@@ -1871,7 +1871,7 @@ fn subrules_pairwise_verdict(
                 ));
             }
 
-            if mpr_gates_disjoint(&a, &b) {
+            if mpr_gates_disjoint(a, b) {
                 continue;
             }
 
@@ -1987,8 +1987,8 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
         .enumerate()
         .map(|(si, sr)| SubruleGateInfo {
             index: si,
-            required_mpr: sr.required_mpr,
-            excluded_mpr: sr.excluded_mpr,
+            required_mpr: sr.required_mpr.clone(),
+            excluded_mpr: sr.excluded_mpr.clone(),
             self_opaquing: sr.self_opaquing,
         })
         .collect();

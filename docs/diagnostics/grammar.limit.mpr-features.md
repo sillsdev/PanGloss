@@ -6,11 +6,11 @@ Level: **error**
 
 ## Explanation
 
-PanGloss supports at most 64 inflection classes (every subclass counted), exception features and entry inflection types together. This project has more, so no parser is built.
+PanGloss assigns 32-bit identities to inflection classes (every subclass counted), exception features and entry inflection types together. This project exceeds that identity space, so no parser is built.
 
 ## What to do
 
-Merge or delete unused items until the total is 64 or fewer: inflection classes and subclasses in Grammar > Category Edit > Inflection Class Info, exception features in the Exception Features list, entry inflection types in Lists > Variant Types.
+Report the inventory count and diagnostic to the parser maintainers. Inspect inflection classes in Grammar > Category Edit > Inflection Class Info, exception features in the Exception Features list, and entry inflection types in Lists > Variant Types.
 
 ## FieldWorks places
 

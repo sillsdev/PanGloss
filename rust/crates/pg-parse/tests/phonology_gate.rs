@@ -84,7 +84,7 @@ fn char_def(g: &Grammar, xml_id: &str) -> u32 {
         .unwrap_or_else(|| panic!("no char def {xml_id}"))
 }
 
-fn rewrite(id: &str, from: u32, to: u32, pos: Option<SymbolBits>, mpr: MprSet) -> RewriteRuleDef {
+fn rewrite(id: &str, from: u32, to: u32, pos: Option<SymbolBits>, mpr: &MprSet) -> RewriteRuleDef {
     let node = |c| Pattern {
         nodes: vec![PatternNode::CharDef(CharDefId(c))],
     };
@@ -97,7 +97,7 @@ fn rewrite(id: &str, from: u32, to: u32, pos: Option<SymbolBits>, mpr: MprSet) -
         lhs: node(from),
         subrules: vec![RewriteSubruleDef {
             required_pos: pos,
-            required_mpr: mpr,
+            required_mpr: mpr.clone(),
             excluded_mpr: MprSet::EMPTY,
             rhs: node(to),
             left_env: None,
@@ -120,8 +120,8 @@ fn grammar_with(order: &[&str], entries: &str) -> Grammar {
     let mut ids = Vec::new();
     for name in order {
         let rule = match *name {
-            "p>b" => rewrite("p>b", p, b, Some(SymbolBits::single(0)), mpr),
-            "b>g" => rewrite("b>g", b, gg, None, MprSet::EMPTY),
+            "p>b" => rewrite("p>b", p, b, Some(SymbolBits::single(0)), &mpr),
+            "b>g" => rewrite("b>g", b, gg, None, &MprSet::EMPTY),
             other => panic!("unknown rule {other}"),
         };
         ids.push(PRuleId(g.prules.len() as u32));

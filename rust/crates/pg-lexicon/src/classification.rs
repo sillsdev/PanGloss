@@ -186,7 +186,7 @@ pub fn classify(
         let produced = morpher.synthesize_resolved_stem_bounded(
             &request.stem,
             resolved.syn_fs,
-            resolved.mpr,
+            &resolved.mpr,
             resolved.stratum,
             &work.rules,
             &engine_budget,

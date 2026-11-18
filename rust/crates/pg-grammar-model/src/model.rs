@@ -13,8 +13,7 @@
 //! **zero** of: `RealizationalRule`, `StemName`, `Family` (with entries),
 //! `MorphemeCoOccurrenceRule`, `AllomorphCoOccurrenceRule`, `FootFeatures`. `FootFeatures`
 //! (language-level) lints as unsupported-v1 → managed fallback (the plan's pre-agreed §5.7 cut
-//! line), never a silent wrong parse. Also linted: >64 symbols in any symbolic feature, >64 MPR
-//! features, `AlphaVariable` in an allomorph environment (C# would throw KeyNotFound there too —
+//! line), never a silent wrong parse. Also linted: >63 symbols in any symbolic feature, `AlphaVariable` in an allomorph environment (C# would throw KeyNotFound there too —
 //! the per-environment variable scope is always empty in `LoadAllomorphEnvironment`).
 //!
 //! `MetathesisRule` (phase 2, W4), `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule`
@@ -106,10 +105,7 @@ pub struct TableId(pub u16);
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct VarId(pub u16);
 
-/// Bit position in an `MprSet` (max 6 MPR features across the reference grammars; the
-/// loader lints >64).
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
-pub struct MprId(pub u8);
+pub use crate::mpr::{MprId, MprIds, MprSet};
 
 /// Stable authored identity and current display label for one MPR feature. Indexed in the same
 /// order as `Grammar::mpr_names`, so `MprId` remains the compact hot-path representation.
@@ -119,49 +115,8 @@ pub struct MprFeatureDef {
     pub name: String,
 }
 
-/// A set of morphological/phonological rule (MPR) features as a bitset (C# `HashSet<MprFeature>`); sets here are tiny (≤6 members).
-#[derive(
-    Copy, Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize,
-)]
-pub struct MprSet(pub u64);
-
-impl MprSet {
-    pub const EMPTY: MprSet = MprSet(0);
-    #[inline]
-    pub fn insert(&mut self, id: MprId) {
-        self.0 |= 1u64 << id.0;
-    }
-    #[inline]
-    pub fn contains(self, id: MprId) -> bool {
-        self.0 & (1u64 << id.0) != 0
-    }
-    /// C# `HashSet.Overlaps`.
-    #[inline]
-    pub fn overlaps(self, other: MprSet) -> bool {
-        self.0 & other.0 != 0
-    }
-    /// C# `HashSet.IsSubsetOf` (self ⊆ other).
-    #[inline]
-    pub fn is_subset_of(self, other: MprSet) -> bool {
-        self.0 & !other.0 == 0
-    }
-    #[inline]
-    pub fn union(self, other: MprSet) -> MprSet {
-        MprSet(self.0 | other.0)
-    }
-    #[inline]
-    pub fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-    /// C# `MprFeatureSet.CompoundMprFeaturesMatch` (`MprFeatureSet.cs:98-101`): `self` (a rule's
-    /// productivity-restriction set) is satisfied by `stem` (a candidate stem's MPR features) when
-    /// `self` declares no restriction at all, or `self` and `stem` share at least one feature
-    /// (`Count == 0 || this.Intersect(stemMprFeatures).Any()`).
-    #[inline]
-    pub fn compound_match(self, stem: MprSet) -> bool {
-        self.is_empty() || self.overlaps(stem)
-    }
-}
+#[cfg(test)]
+mod mpr_set_tests;
 
 // --- Syntactic feature system ----------------------------------------------------------------
 
@@ -997,22 +952,27 @@ pub struct MprGroup {
     pub members: MprSet,
 }
 
-/// Partitions `test`'s bits into per-`MprGroup` buckets plus an ungrouped remainder.
-/// See `docs/research/mpr-group-bucket-partition.md` for why this mirrors C#'s `GroupBy` and the deliberate first-group-wins simplification.
-fn mpr_group_buckets(
-    groups: &[MprGroup],
-    test: MprSet,
-) -> (MprSet, Vec<(MprGroupMatchType, MprSet)>) {
+// See `docs/research/mpr-group-bucket-partition.md` for ordering and first-group ownership.
+fn mpr_group_buckets<'a>(
+    groups: &'a [MprGroup],
+    test: &'a MprSet,
+) -> (
+    MprSet,
+    impl Iterator<Item = (MprGroupMatchType, MprSet)> + 'a,
+) {
+    let ungrouped = groups.iter().fold(test.clone(), |remaining, group| {
+        remaining.difference(&group.members)
+    });
     let mut owned = MprSet::EMPTY;
-    let mut buckets = Vec::new();
-    for group in groups {
-        let bucket = MprSet(test.0 & group.members.0 & !owned.0);
-        if !bucket.is_empty() {
-            buckets.push((group.match_type, bucket));
-            owned = owned.union(bucket);
+    let buckets = groups.iter().filter_map(move |group| {
+        let bucket = test.intersection(&group.members).difference(&owned);
+        if bucket.is_empty() {
+            None
+        } else {
+            owned = owned.union(&bucket);
+            Some((group.match_type, bucket))
         }
-    }
-    let ungrouped = MprSet(test.0 & !owned.0);
+    });
     (ungrouped, buckets)
 }
 
@@ -1022,45 +982,65 @@ fn mpr_group_buckets(
 /// member present. Every bucket (there is always at most one "ungrouped" bucket plus one per
 /// distinct group actually referenced) is ANDed together, matching C#'s `foreach` loop returning
 /// `false` on the first failing group.
-pub fn mpr_required_ok(groups: &[MprGroup], required: MprSet, have: MprSet) -> bool {
-    mpr_match_observed(groups, required, have, false, |_, _| {})
+pub fn mpr_required_ok(groups: &[MprGroup], required: &MprSet, have: &MprSet) -> bool {
+    mpr_match(groups, required, have, false, None::<fn(MprSet, MprSet)>)
 }
 
 /// C# `MprFeatureSet.IsMatchExcluded` (`MprFeatureSet.cs:72-96`): the dual of
 /// `mpr_required_ok` — ungrouped features and `All`-type group members must ALL be absent; an
 /// `Any`-type group only needs one member absent (fails only when every member is present).
-pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> bool {
-    mpr_match_observed(groups, excluded, have, true, |_, _| {})
+pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: &MprSet, have: &MprSet) -> bool {
+    mpr_match(groups, excluded, have, true, None::<fn(MprSet, MprSet)>)
 }
 
 /// Observe only evaluated buckets. For an All bucket, `blocked` contains the failing members;
 /// for an Any bucket, every member shares the collective decision. The callback never decides admission.
 pub fn mpr_match_observed(
     groups: &[MprGroup],
-    test: MprSet,
-    have: MprSet,
+    test: &MprSet,
+    have: &MprSet,
     excluded: bool,
-    mut observe: impl FnMut(MprSet, MprSet),
+    observe: impl FnMut(MprSet, MprSet),
+) -> bool {
+    mpr_match(groups, test, have, excluded, Some(observe))
+}
+
+fn mpr_match(
+    groups: &[MprGroup],
+    test: &MprSet,
+    have: &MprSet,
+    excluded: bool,
+    mut observe: Option<impl FnMut(MprSet, MprSet)>,
 ) -> bool {
     if test.is_empty() {
         return true;
     }
-    let (ungrouped, buckets) = mpr_group_buckets(groups, test);
+    let (ungrouped, mut buckets) = mpr_group_buckets(groups, test);
     let mut evaluate = |mt, bucket: MprSet| {
-        let blocked = match (mt, excluded) {
-            (MprGroupMatchType::All, false) => MprSet(bucket.0 & !have.0),
-            (MprGroupMatchType::All, true) => MprSet(bucket.0 & have.0),
-            (MprGroupMatchType::Any, false) if !bucket.overlaps(have) => bucket,
-            (MprGroupMatchType::Any, true) if bucket.is_subset_of(have) => bucket,
-            (MprGroupMatchType::Any, _) => MprSet::EMPTY,
+        let passed = match (mt, excluded) {
+            (MprGroupMatchType::All, false) => bucket.is_subset_of(have),
+            (MprGroupMatchType::All, true) => !bucket.overlaps(have),
+            (MprGroupMatchType::Any, false) => bucket.overlaps(have),
+            (MprGroupMatchType::Any, true) => !bucket.is_subset_of(have),
         };
-        observe(bucket, blocked);
-        blocked.is_empty()
+        if let Some(observe) = observe.as_mut() {
+            let blocked = if passed {
+                MprSet::EMPTY
+            } else {
+                match (mt, excluded) {
+                    (MprGroupMatchType::All, false) => bucket.difference(have),
+                    (MprGroupMatchType::All, true) => bucket.intersection(have),
+                    (MprGroupMatchType::Any, _) => bucket.clone(),
+                }
+            };
+            observe(bucket, blocked);
+        }
+        passed
     };
     if !evaluate(MprGroupMatchType::All, ungrouped) {
         return false;
     }
-    buckets.into_iter().all(|(mt, bucket)| evaluate(mt, bucket))
+    buckets.all(|(mt, bucket)| evaluate(mt, bucket))
 }
 
 /// C# `MprFeatureSet.AddOutput` (`MprFeatureSet.cs:29-44`): group-aware MPR output accumulation.
@@ -1070,15 +1050,15 @@ pub fn mpr_match_observed(
 /// `output` doesn't touch at all) are pure union, same as ungrouped features — matching every
 /// reference-grammar allomorph today (singleton groups, so Overwrite-vs-Append is unobservable
 /// there).
-pub fn mpr_add_output(groups: &[MprGroup], current: MprSet, output: MprSet) -> MprSet {
+pub fn mpr_add_output(groups: &[MprGroup], current: &MprSet, output: &MprSet) -> MprSet {
     if output.is_empty() {
-        return current;
+        return current.clone();
     }
-    let mut result = current;
+    let mut result = current.clone();
     for group in groups {
         if group.output == MprGroupOutput::Overwrite && group.members.overlaps(output) {
-            let to_remove = MprSet(group.members.0 & !output.0);
-            result = MprSet(result.0 & !to_remove.0);
+            let to_remove = group.members.difference(output);
+            result = result.difference(&to_remove);
         }
     }
     result.union(output)
@@ -1089,13 +1069,13 @@ impl Grammar {
     /// `requiredMPRFeatures`/`excludedMPRFeatures` check (`AffixProcessAllomorph`,
     /// `CompoundingSubrule`, `RewriteSubrule` — every C# call site that dispatches through
     /// `IsMatchRequired`/`IsMatchExcluded`, never `CompoundMprFeaturesMatch`).
-    pub fn mpr_group_ok(&self, required: MprSet, excluded: MprSet, have: MprSet) -> bool {
+    pub fn mpr_group_ok(&self, required: &MprSet, excluded: &MprSet, have: &MprSet) -> bool {
         mpr_required_ok(&self.mpr_groups, required, have)
             && mpr_excluded_ok(&self.mpr_groups, excluded, have)
     }
 
     /// See the free function `mpr_add_output` (this grammar's own `mpr_groups`).
-    pub fn mpr_add_output(&self, current: MprSet, output: MprSet) -> MprSet {
+    pub fn mpr_add_output(&self, current: &MprSet, output: &MprSet) -> MprSet {
         mpr_add_output(&self.mpr_groups, current, output)
     }
 }
@@ -1808,7 +1788,7 @@ impl Grammar {
             let _ = writeln!(
                 out,
                 "  group[{i}] name={:?} match={:?} output={:?} members={:#b}",
-                g.name, g.match_type, g.output, g.members.0
+                g.name, g.match_type, g.output, g.members
             );
         }
 

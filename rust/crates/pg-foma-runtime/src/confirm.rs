@@ -121,18 +121,8 @@ fn analyses_match(wa: &EngineAnalysis, candidate: &Candidate) -> bool {
             .all(|(&a, &b)| a == b.0)
 }
 
-/// D4 multiplicity recovery over `replay.rs::confirm`'s lex_entry_filter/rule_filter construction
-/// (`replay.rs:118-192`; quirk-8 mapping in that module's own doc — `Stratum`/`Template` always
-/// admitted, an `MRule` admitted iff it's one of the candidate's own rules or a `Compounding` rule
-/// with extra roots present). `morpher` MUST be built uncapped (`Morpher::new(g, usize::MAX)`,
-/// `replay.rs:106-110`'s rationale carries over unchanged: a Rust-side cap here could silently drop
-/// a result the full engine would find, which would look like a parity bug rather than the
-/// deliberate absence of a work budget it actually is).
-///
-/// Returns every matching `(engine analysis, morpheme-join string, surface string)` triple in the
-/// pinned outcome's own order — empty (never panics) when the candidate's root position isn't a
-/// `LexEntry`, when any non-root morpheme resolves to neither a `LexEntry` nor an `MRule`, or when
-/// the restricted re-analysis simply confirms nothing.
+/// Confirms one candidate with the same lexical pins and exact identity routing as `confirm_batch`.
+/// The morpher must be uncapped so confirmation cannot silently discard an accepted derivation.
 pub fn confirm_all(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -212,17 +202,9 @@ pub fn confirm_one_traced(
     trace: &dyn TraceSink,
 ) -> Option<ParseOutcome> {
     let pins = resolve_pins(owners, candidate)?;
-    let any_extra_roots = !pins.extra_roots.is_empty();
     let lex_entry_filter =
         move |le: LexEntryId| le == pins.root_entry || pins.extra_roots.contains(&le);
-    let rule_filter = move |r: RuleRef| match r {
-        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
-        RuleRef::MRule(id) => {
-            pins.rules.contains(&id)
-                || (any_extra_roots
-                    && matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
-        }
-    };
+    let rule_filter = move |r: RuleRef| rule_is_allowed(g, &pins.rules, r);
     Some(morpher.parse_word_selected_traced(
         word,
         &ParseOptions::default(),
@@ -237,65 +219,10 @@ pub fn confirm_one_traced(
 /// ROOT SET (designated root + extra compound
 /// roots), and each group gets ONE `parse_word_selected` run whose filters admit the union of
 /// that group's rules; returned analyses are routed to the candidate they positionally match.
-/// Returns one bucket per input candidate (parallel by index), each bucket in its group
-/// outcome's own order — content-identical to calling `confirm_all` per candidate.
-///
-/// Grouping granularity — four strategies measured on the Sena 40-word set (confirm totals):
-/// per-candidate 400ms; one global union 339ms but REDISTRIBUTED cost (`kutongera` 5x slower —
-/// every homograph root + 28 candidates' rules in one parse is a near-cross-product search);
-/// per-root-set groups with full rule union 233ms but `kutongera` still 3x slower; exact
-/// (root set, rule set) groups 356ms — never regresses but rarely merges, because real FST
-/// candidates mostly differ in rule SETS, not just morpheme order.
-///
-/// **What this implements — root-set groups, sub-chunked by bounded rule-union slack, THEN
-/// fused across root sets on an exact rule-filter match:**
-/// 1. candidates are grouped by root set (designated root + extra compound roots — the lexicon
-///    pin stays exactly as tight as per-candidate confirm), then greedily sub-chunked so that a
-///    chunk's rule-set UNION never exceeds its largest member's own rule set by more than
-///    `RULE_UNION_SLACK` rules. Homogeneous candidate families (shared rule core, the antumira/
-///    kakamwe shape) merge into a few parses; rule-diverse families (the kutongera shape) fall
-///    back toward tight per-candidate parses automatically.
-/// 2. **Cross-root-set fusion** (the "identical morpheme-derivation, different
-///    proposed root" redundancy a tracer found costing ~1.8s of one Amharic word's *unbatched*
-///    confirm, and — measured after step 1 above already existed — still ~54% of the *batched*
-///    Sena confirm total): the analysis-phase mrule/template unapplication cascade
-///    (`pg_parse::Morpher::parse_word_core_selected`'s step 2) never reads `lex_entry_filter` —
-///    that closure is threaded into exactly one place, the step-3 `lexical_lookup_filtered` call
-///    — so two chunks from *different* root-set groups that happen to need the exact same
-///    `rule_filter` predicate (same admitted-`MRuleId` SET, same `Compounding`-admission flag)
-///    are provably computing the byte-identical analysis-phase result; they differ only in which
-///    root entries get admitted at the cheap step-3/4 lexical-lookup+synthesis stage. Such chunks
-///    are fused into ONE `parse_word_selected` call whose `lex_entry_filter` is the union of the
-///    constituent root keys and whose `rule_filter` set is left untouched (carried through
-///    explicitly as `any_extra_roots`, never re-derived from the fused root key's length — see
-///    the loop below). Measured on Sena's `cinagumanika`: 4 chunks across 4 distinct root keys
-///    shared `rule_ids=[15,21,51,54,58,120,134]` at ~50-66ms apiece; fusing them into one call
-///    keeps one ~50ms analysis pass instead of four.
-///
-///    Deliberately EXACT rule-SET equality only, no slack: approximating here (the way step 1's
-///    RULE_UNION_SLACK does within one root set) would re-admit the broadened-rule-filter search
-///    blowup that step 1's slack bound exists to avoid, and would demote this fusion from "the
-///    analysis phase is provably identical" to merely "safe by downstream positional routing" —
-///    the weaker argument the unfused case already relies on for its own correctness.
-///
-/// **Why a chunk's union parse preserves its members' per-candidate results exactly** (both the
-/// within-root-set union of step 1 and the cross-root-set fusion of step 2 — the argument is the
-/// same shape for both, since fusion only ever *widens* `lex_entry_filter`, never the rule set):
-/// - *No loss:* each member's own filters are a subset of the chunk's (wider admits more, the
-///   morpher is uncapped so nothing truncates).
-/// - *No spurious gain:* a derivation admitted by the chunk but not by some member's own filters
-///   uses a rule or root outside that member's pins — and every such rule/root contributes its
-///   own morpheme to the analysis's sequence, so the analysis fails that member's positional
-///   match and routes elsewhere (or nowhere). The one morpheme-less rule kind, `Compounding`, is
-///   gated per root set: it is admitted iff the root set has extra roots, identical to every
-///   member's own flag, and a compound derivation carries the extra root's MORPHEME in its
-///   sequence anyway. Fusion carries `any_extra_roots` through unchanged (never recomputed from
-///   the fused/union root key), so this gate is untouched by fusion.
-/// - *At most one bucket per analysis:* buckets are keyed by exact `(morpheme sequence,
-///   root_index)`, distinct after the caller's dedup, so routing is a map lookup. Two fused
-///   members always come from *different* root sets, hence different designated root
-///   `LexEntryId`s, hence different root `MorphemeId`s at their own `root_index` (`owner_of` is a
-///   pure function of morpheme id) — so fused members can never collide on this key either.
+/// Returns one bucket per candidate, preserving exact morpheme order and root position.
+/// Candidates share a reparse when their rule sets match, with lexical pins unioned across roots.
+/// Compounding remains available even for a single-root identity: repeated use of one allomorph
+/// collapses to one identity in the full parser. Exact identity routing rejects unrelated results.
 pub fn confirm_batch(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -375,6 +302,15 @@ pub(crate) fn confirm_batch_attributed_with_diagnostics(
     (buckets, diagnostics, chunks)
 }
 
+fn rule_is_allowed(g: &Grammar, rules: &HashSet<MRuleId>, rule: RuleRef) -> bool {
+    match rule {
+        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
+        RuleRef::MRule(id) => {
+            rules.contains(&id) || matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_))
+        }
+    }
+}
+
 fn confirm_batch_impl(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -439,23 +375,19 @@ fn confirm_batch_impl(
         }
     }
 
-    // 3) Cross-root-set fusion: merge `work` entries with byte-identical rule_filter predicates (same rule set + any_extra_roots flag), keyed exactly, never slack-based.
+    // Exact rule-set keys keep fused analysis searches identical.
     struct FusedChunk {
         /// Union of every fused member's own root set, sorted+deduped; widens only `lex_entry_filter`.
         root_keys: Vec<u32>,
         members: Vec<usize>,
         union_rules: HashSet<MRuleId>,
-        /// Carried through from the original chunk, never recomputed from `root_keys` post-fusion, or `Compounding` admission would flip for members that never asked for it.
-        any_extra_roots: bool,
     }
-    let mut fused: rustc_hash::FxHashMap<(Vec<u32>, bool), FusedChunk> =
-        rustc_hash::FxHashMap::default();
+    let mut fused: rustc_hash::FxHashMap<Vec<u32>, FusedChunk> = rustc_hash::FxHashMap::default();
     for (root_key, chunk) in work {
-        let any_extra_roots = root_key.len() > 1;
         let mut rule_ids: Vec<u32> = chunk.union_rules.iter().map(|r| r.0).collect();
         rule_ids.sort_unstable();
         fused
-            .entry((rule_ids, any_extra_roots))
+            .entry(rule_ids)
             .and_modify(|f| {
                 for r in &root_key {
                     if let Err(pos) = f.root_keys.binary_search(r) {
@@ -468,7 +400,6 @@ fn confirm_batch_impl(
                 root_keys: root_key,
                 members: chunk.members,
                 union_rules: chunk.union_rules,
-                any_extra_roots,
             });
     }
 
@@ -480,7 +411,6 @@ fn confirm_batch_impl(
     for chunk in fused.values() {
         let members = &chunk.members;
         let union_rules = &chunk.union_rules;
-        let any_extra_roots = chunk.any_extra_roots;
         let root_key = &chunk.root_keys;
 
         // Routes each outcome analysis to the group member it positionally matches; `entry().or_insert()` keeps first-wins semantics for any duplicate key.
@@ -496,14 +426,7 @@ fn confirm_batch_impl(
         }
 
         let lex_entry_filter = |le: LexEntryId| root_key.binary_search(&le.0).is_ok();
-        let rule_filter = |r: RuleRef| match r {
-            RuleRef::Stratum(_) | RuleRef::Template(_) => true,
-            RuleRef::MRule(id) => {
-                union_rules.contains(&id)
-                    || (any_extra_roots
-                        && matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
-            }
-        };
+        let rule_filter = |r: RuleRef| rule_is_allowed(g, union_rules, r);
 
         if let Some(diagnostics) = diagnostics.as_deref_mut() {
             diagnostics.confirmation_calls += 1;

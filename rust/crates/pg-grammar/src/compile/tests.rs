@@ -1672,7 +1672,7 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
         assert_eq!(grammar.mpr_names[id], feature.name);
     }
     let first = grammar
-        .mpr_feature(crate::model::MprId(class_bit as u8))
+        .mpr_feature(crate::model::MprId::try_from(class_bit).expect("compiled MPR index fits u32"))
         .expect("default class bit must resolve");
     assert_eq!(first.xml_id, class_guid);
     let second = grammar
@@ -1683,9 +1683,9 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
     assert_ne!(class_bit, second);
     assert_eq!(grammar.mpr_names[class_bit], grammar.mpr_names[second]);
     assert!(
-        grammar.entries[0]
-            .mpr
-            .contains(crate::model::MprId(class_bit as u8)),
+        grammar.entries[0].mpr.contains(
+            crate::model::MprId::try_from(class_bit).expect("compiled MPR index fits u32")
+        ),
         "the stem entry's MPR set must carry the POS's defaulted inflection class"
     );
     let (_, _, decisions) = recorder.finish_with_load_decisions();

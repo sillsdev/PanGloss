@@ -243,10 +243,10 @@ fn build_template(
             let mut excl = crate::model::MprSet::EMPTY;
             for it in &infl_types_for_slot {
                 if let Some(s) = ctx.mpr.lex_entry_infl_type(&it.guid) {
-                    excl = excl.union(s);
+                    excl = excl.union(&s);
                 }
             }
-            exclude_from_rules(&rules, excl, acc);
+            exclude_from_rules(&rules, &excl, acc);
 
             // Null-affix synthesis, unless the slot is optional (an irregular form can leave it empty).
             if !affix_slot.optional {
@@ -347,7 +347,7 @@ fn build_template(
     Ok(Some(id))
 }
 
-fn exclude_from_rules(rule_ids: &[MRuleId], excl: crate::model::MprSet, acc: &mut Acc) {
+fn exclude_from_rules(rule_ids: &[MRuleId], excl: &crate::model::MprSet, acc: &mut Acc) {
     for &rid in rule_ids {
         if let MorphRuleDef::AffixProcess(def) = &mut acc.mrules[rid.0 as usize] {
             for allo in &mut def.allomorphs {
