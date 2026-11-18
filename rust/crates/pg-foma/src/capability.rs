@@ -3210,7 +3210,7 @@ impl GrammarWideCheck for ProposalRecallCheck {
         EvidenceProvenance::Structural
     }
     fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
-        let diagnostics = crate::proposal_recall::refusals(semantics.grammar());
+        let diagnostics = semantics.proposal_recall().diagnostics.clone();
         (!diagnostics.is_empty()).then_some(CompileDecision::Refuse(diagnostics))
     }
 }

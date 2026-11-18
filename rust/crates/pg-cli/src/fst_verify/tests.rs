@@ -73,6 +73,14 @@ fn equal_conformance_fixture_preserves_duplicate_occurrences_and_negative_contro
     result.unwrap();
     assert_eq!(report["totals"]["equal"], 3);
     assert_eq!(report["totals"]["words"], 3);
+    assert_eq!(
+        report["construction"]["attempts"][0]["capability_causes"],
+        json!([])
+    );
+    assert_eq!(
+        report["construction"]["attempts"][0]["proposal_recall_occurrences"],
+        json!([])
+    );
     assert_eq!(report["rows"][0]["word"], report["rows"][2]["word"]);
     assert_eq!(report["rows"][2]["index"], 2);
     assert_eq!(tsv.lines().count(), 4);
@@ -108,6 +116,37 @@ fn known_epenthesis_gap_refuses_before_word_comparison() {
         .unwrap()
         .contains("surface-probe.proposal-recall"));
     assert!(tsv.contains("bdt\tincomparable\t[]\t[]"));
+}
+
+#[test]
+fn refusal_json_preserves_typed_witness_counts_without_expanding_the_diagnostics() {
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "featureless-literal-target")
+        .load_grammar_xml()
+        .replace(
+            "<Representation>k</Representation>",
+            "<Representation>k</Representation><Representation>x</Representation>",
+        );
+    let (result, report, _) = execute(&xml, "aka\naka\n", &[]);
+    assert!(result.is_err());
+    let cause = json!({"kind": "proposal_recall", "details": "ambiguous_segment_spelling"});
+    let attempt = &report["construction"]["attempts"][0];
+    assert_eq!(attempt["capability_causes"], json!([cause]));
+    assert_eq!(
+        attempt["proposal_recall_occurrences"],
+        json!([{
+            "strategy": "tuned-surface-probed", "cause": cause, "occurrences": 2
+        }])
+    );
+    assert_eq!(attempt["states"], serde_json::Value::Null);
+    assert_eq!(
+        attempt["detail"]
+            .as_str()
+            .unwrap()
+            .matches("construct=")
+            .count(),
+        1
+    );
+    assert_eq!(report["totals"]["incomparable"], 2);
 }
 
 #[test]

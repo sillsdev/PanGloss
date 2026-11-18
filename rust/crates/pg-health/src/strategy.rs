@@ -31,5 +31,19 @@ impl EmissionStrategy {
     }
 }
 
+impl serde::Serialize for EmissionStrategy {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.label())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EmissionStrategy {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let label = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Self::from_label(&label)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown emission strategy {label:?}")))
+    }
+}
+
 #[cfg(test)]
 mod tests;

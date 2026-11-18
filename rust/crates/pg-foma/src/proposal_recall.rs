@@ -2,9 +2,18 @@
 
 use pg_foma_runtime::emission_support::{reduplication_rule_is_peelable, rhs_drops_lhs_material};
 use pg_grammar::model::{Grammar, NaturalClassKind, OutputAction, PatternNode, PhonRuleDef};
-use pg_health::capability::{CapabilityDiagnostic, CapabilityRefusal, ProposalRecallGap};
+use pg_health::capability::{
+    CapabilityDiagnostic, CapabilityRefusal, ProposalRecallGap, RefusalOccurrenceCount,
+};
+use pg_health::strategy::EmissionStrategy;
 
 pub(crate) const PREDICATE: &str = "surface-probe.proposal-recall";
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RefusalReport {
+    pub diagnostics: Vec<CapabilityDiagnostic>,
+    pub occurrences: Vec<RefusalOccurrenceCount>,
+}
 
 fn has_class(g: &Grammar, nodes: &[PatternNode], segment_list: bool) -> bool {
     nodes.iter().any(|node| match node {
@@ -20,7 +29,7 @@ fn has_class(g: &Grammar, nodes: &[PatternNode], segment_list: bool) -> bool {
 }
 
 /// These checks never parse words or infer capability from emitted diagnostic text.
-pub(crate) fn refusals(g: &Grammar) -> Vec<CapabilityDiagnostic> {
+pub(crate) fn refusals(g: &Grammar) -> RefusalReport {
     let mut gaps = Vec::new();
     if !crate::emit::eager_route_has_single_segment_spellings(g) {
         gaps.push((ProposalRecallGap::AmbiguousSegmentSpelling,
@@ -103,7 +112,18 @@ pub(crate) fn refusals(g: &Grammar) -> Vec<CapabilityDiagnostic> {
         }
     }
     let mut diagnostics = Vec::new();
+    let mut occurrences: Vec<RefusalOccurrenceCount> = Vec::new();
     for (gap, construct, witness) in gaps {
+        let cause = CapabilityRefusal::ProposalRecall(gap);
+        if let Some(count) = occurrences.iter_mut().find(|count| count.cause == cause) {
+            count.occurrences += 1;
+        } else {
+            occurrences.push(RefusalOccurrenceCount {
+                strategy: EmissionStrategy::TunedSurfaceProbed,
+                cause,
+                occurrences: 1,
+            });
+        }
         if diagnostics
             .iter()
             .any(|d: &CapabilityDiagnostic| d.refusal == CapabilityRefusal::ProposalRecall(gap))
@@ -117,5 +137,8 @@ pub(crate) fn refusals(g: &Grammar) -> Vec<CapabilityDiagnostic> {
             witness: witness.to_string(),
         });
     }
-    diagnostics
+    RefusalReport {
+        diagnostics,
+        occurrences,
+    }
 }

@@ -125,14 +125,20 @@ fn compile_configured(
     for strategy in strategies {
         let attempt_start = Instant::now();
         let mut profile = CompileProfileBuilder::production();
+        let mut proposal_recall_occurrences = None;
         let (result, mut finished) = if strategy == ConstructionStrategy::Factored {
             (
                 Err(FomaError::StrategyNotImplemented(strategy)),
                 profile.finish(None, None),
             )
         } else if check_capability {
-            match crate::capability_gate::refuse_unless_admitted(g, FomaProposer::EMISSION_STRATEGY)
-            {
+            let (admission, occurrences) =
+                crate::capability_gate::refuse_unless_admitted_with_occurrences(
+                    g,
+                    FomaProposer::EMISSION_STRATEGY,
+                );
+            proposal_recall_occurrences = Some(occurrences);
+            match admission {
                 Err(diagnostics) => (
                     Err(FomaError::CapabilityRefused(diagnostics)),
                     profile.finish(None, None),
@@ -195,6 +201,13 @@ fn compile_configured(
             states: finished.final_state_count,
             arcs: finished.final_arc_count,
             refusal,
+            capability_causes: match &result {
+                Err(FomaError::CapabilityRefused(diagnostics)) => {
+                    diagnostics.iter().map(|d| d.refusal).collect()
+                }
+                _ => Vec::new(),
+            },
+            proposal_recall_occurrences,
             detail: if strategy == ConstructionStrategy::Factored {
                 Some("factored construction is not implemented".to_string())
             } else {

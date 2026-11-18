@@ -29,8 +29,19 @@ pub fn refuse_unless_admitted(
     g: &Grammar,
     strategy: EmissionStrategy,
 ) -> Result<(), Vec<CapabilityDiagnostic>> {
+    refuse_unless_admitted_with_occurrences(g, strategy).0
+}
+
+pub(crate) fn refuse_unless_admitted_with_occurrences(
+    g: &Grammar,
+    strategy: EmissionStrategy,
+) -> (
+    Result<(), Vec<CapabilityDiagnostic>>,
+    Vec<pg_health::capability::RefusalOccurrenceCount>,
+) {
     let semantics = GrammarSemantics::derive(g);
-    refuse_unless_admitted_in(&select_backends(&semantics), strategy)
+    let decision = refuse_unless_admitted_in(&select_backends(&semantics), strategy);
+    (decision, semantics.proposal_recall().occurrences.clone())
 }
 
 /// `refuse_unless_admitted` over an already-computed `BackendSelection` -- the one owner of "is

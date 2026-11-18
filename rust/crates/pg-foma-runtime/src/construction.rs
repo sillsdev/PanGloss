@@ -290,6 +290,13 @@ pub struct ConstructionAttempt {
     pub states: Option<i64>,
     pub arcs: Option<i64>,
     pub refusal: Option<StrategyRefusal>,
+    /// Causes from the unchanged, deduplicated capability diagnostics.
+    #[serde(default)]
+    pub capability_causes: Vec<pg_health::capability::CapabilityRefusal>,
+    /// Admission proposal-recall witnesses before deduplication. None means admission was not evaluated;
+    /// Some(empty) means evaluated without witnesses. Other capability checks are not counted.
+    #[serde(default)]
+    pub proposal_recall_occurrences: Option<Vec<pg_health::capability::RefusalOccurrenceCount>>,
     pub detail: Option<String>,
     pub closure: Option<crate::emit_report::CharacterizationResult>,
     pub bound_refusal: Option<ConstructionLimit>,

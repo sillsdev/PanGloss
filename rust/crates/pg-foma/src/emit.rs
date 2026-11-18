@@ -3540,7 +3540,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
     if alpha_environment_refusal(g) {
         return alpha_environment_emit_refusal(g);
     }
-    let recall_refusals = crate::proposal_recall::refusals(g);
+    let recall_refusals = crate::proposal_recall::refusals(g).diagnostics;
     if !recall_refusals.is_empty() {
         return EmitResult {
             lexc_source: String::new(),
