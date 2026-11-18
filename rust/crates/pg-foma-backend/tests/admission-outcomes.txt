@@ -173,6 +173,7 @@ staging:edge-cases/metathesis-featureless-phonemes	TunedSurfaceProbed	oracle_exa
 staging:edge-cases/metathesis-middle-context	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/mpr-group-overwrite-without-realizational	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/mpr-overwrite-order-dependence	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/mpr-wide-inflection-classes	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/multi-table-metathesis-shared-representation	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/narrowing-boundary-first-alpha-lhs	TunedSurfaceProbed	refused
 staging:edge-cases/narrowing-boundary-order-alpha-lhs	TunedSurfaceProbed	refused
