@@ -184,3 +184,29 @@ Behaviour: the proposer is a proposal, never a verdict. A language is proposed o
 5 Occurrences are explained by it alone; shorter input and words shared by several languages stay
 ambiguous. The thresholds (5 Occurrences, 80% trigram coverage, a 20-point lead, 4 characters) are
 untuned initial values, set against tiny fixtures and not yet checked on real text. Thresholds and the result fields are in `docs/text-analysis-format.md`.
+
+
+## Addendum: spelling evidence and joined grammar coverage
+
+This addendum qualifies Q6′ and the Occurrence misspelling rule above. A Dictionary pack flags a
+rejection when it returns any correction suggestion. Its per-language summary uses that flag under
+the existing valid-evidence precedence and Q6′ rules. Each suggestion carries the pack identity
+and its method. A bounded edit is a suggestion generated with n-gram fallback disabled whose
+edit distance is within the pack's configured bound.
+
+If no reading is analysed and a joined grammar check completed with a miss, a Dictionary pack for
+a different language cannot supply an Occurrence spelling flag, even with a bounded edit. In the
+absence of a competing grammar miss, any suggestion can support an Occurrence spelling flag. The
+joined grammar check remains independently queryable.
+
+Q6′ still treats an analysed alternative as a spelling success and suppresses competing spelling
+flags when only an alternative is analysed. For each loaded grammar, the host can query whether
+every part of an analysed alternative is grammar-backed, some parts require contact evidence, or
+all parts require it. A completed joined grammar miss counts once in that language's per-language
+`no_analysis` when any analysed alternative depends on contact evidence for the grammar, including
+when a vernacular-only alternative also succeeds. A mixed reading can also supply positive
+evidence for its analysed parts. The primary check continues to record the joined Wordform's
+actual grammar result in every case.
+
+These are resource-relative observations. Intended language and borrowing remain separate
+questions for the host or reader. The text-level detection proposer stays advisory.

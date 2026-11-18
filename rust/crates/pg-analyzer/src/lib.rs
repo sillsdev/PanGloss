@@ -19,7 +19,8 @@ pub use statistics::{LanguageCounts, Pair, Statistics};
 pub use text::{
     analyze_text, AnalyzeOptions, CheckStatus, EvidenceKind, LanguagePack, LimitReason,
     OccurrenceOutcome, OccurrenceResult, PackCheck, Part, Reading, ReadingKind, ResourceIdentity,
-    ResourceKind, Span, TextAnalysis, TextInput, TextRequest, TextResult, SCHEMA,
+    ResourceKind, Span, SplitSupport, SuggestionMethod, TextAnalysis, TextInput, TextRequest,
+    TextResult, SCHEMA,
 };
 
 /// A profile derived from LDML or supplied as its serialized representation.

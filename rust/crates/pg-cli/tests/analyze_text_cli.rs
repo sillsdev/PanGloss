@@ -168,13 +168,14 @@ fn cli_loads_a_dictionary_pack_and_reports_misspelling_with_suggestions() {
     )
     .unwrap();
     let dictionary = format!("en={}", dir.join("en").display());
-    let output = cli(&[
+    let args = [
         "--profile".as_ref(),
         ldml.as_os_str(),
         "--dictionary".as_ref(),
         dictionary.as_ref(),
         text.as_os_str(),
-    ]);
+    ];
+    let output = cli(&args);
     assert!(
         output.status.success(),
         "{}",
@@ -190,6 +191,30 @@ fn cli_loads_a_dictionary_pack_and_reports_misspelling_with_suggestions() {
     assert_eq!(identity.licence.as_deref(), Some("MIT"));
     assert_eq!(identity.version.as_deref(), Some("1.0"));
     assert_eq!(identity.source_sha256.len(), 64);
+    assert_eq!(identity.max_edit_distance, Some(2));
+    assert_eq!(
+        o[0].checks[0].suggestion_methods,
+        [pg_analyzer::SuggestionMethod::EditDistance]
+    );
+
+    std::fs::write(
+        dir.join("en.pgdict.json"),
+        r#"{"version":"1.0","licence":"MIT","word_list":"en.words","max_edit_distance":1}"#,
+    )
+    .unwrap();
+    let output = cli(&args);
+    assert!(output.status.success());
+    let result: TextAnalysis = serde_json::from_slice(&output.stdout).unwrap();
+    let typo = &result.texts[0].occurrences[0];
+    assert_eq!(result.resources[1].max_edit_distance, Some(1));
+    assert_eq!(typo.outcome, pg_analyzer::OccurrenceOutcome::Misspelled);
+    assert_eq!(typo.misspelled_languages, ["en"]);
+    assert_eq!(typo.checks[0].status, pg_analyzer::CheckStatus::Misspelled);
+    assert_eq!(typo.checks[0].suggestions, ["the"]);
+    assert_eq!(
+        typo.checks[0].suggestion_methods,
+        [pg_analyzer::SuggestionMethod::HunspellRule]
+    );
 }
 
 #[test]

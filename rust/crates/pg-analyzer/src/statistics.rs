@@ -1,4 +1,4 @@
-use crate::text::{CheckStatus, OccurrenceOutcome, OccurrenceResult};
+use crate::text::{CheckStatus, OccurrenceOutcome, OccurrenceResult, Reading, SplitSupport};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,17 +9,17 @@ pub struct Pair {
     pub wordforms: usize,
 }
 
-/// Counts for one language code; valid beats misspelled beats unfinished beats no-analysis.
+/// Counts for one language code, including joined grammar misses behind contact-dependent splits.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LanguageCounts {
     pub valid: Pair,
-    /// Rejected with suggestions by a pack of this language; counted even if valid elsewhere.
+    /// Primary spelling evidence for this language after valid-evidence precedence and Q6′.
     #[serde(default)]
     pub misspelled: Pair,
     /// Valid in this language and in at least one other.
     #[serde(default)]
     pub ambiguous: Pair,
-    /// Every check for this language finished and found nothing.
+    /// Completed primary misses, including joined grammar misses behind contact-dependent splits.
     #[serde(default)]
     pub no_analysis: Pair,
 }
@@ -29,7 +29,7 @@ pub struct LanguageCounts {
 pub struct Statistics {
     pub total: Pair,
     pub valid: Pair,
-    /// No valid evidence, and a Dictionary pack offered suggestions. Part of the partition.
+    /// No valid evidence and an eligible Occurrence spelling flag. Part of the partition.
     #[serde(default)]
     pub misspelled: Pair,
     pub no_analysis: Pair,
@@ -82,6 +82,7 @@ pub(crate) fn summarize<'a>(results: impl IntoIterator<Item = &'a OccurrenceResu
             .map(|c| c.language.as_str())
             .chain(item.valid_languages.iter().map(String::as_str))
             .collect();
+        let alternative_only_win = Reading::alternative_only_win(&item.readings);
         for language in languages {
             let counts = stats.languages.entry(language.to_owned()).or_default();
             let words = forms.languages.entry(language).or_default();
@@ -90,10 +91,8 @@ pub(crate) fn summarize<'a>(results: impl IntoIterator<Item = &'a OccurrenceResu
                     .iter()
                     .any(|c| c.language == language && c.status == status)
             };
-            let primary_analysed = item.readings.first().is_none_or(|r| r.analysed);
             let valid = item.valid_languages.iter().any(|l| l == language);
-            let misspelled = item.misspelled_languages.iter().any(|l| l == language);
-            // Valid wins over misspelled for one language; other languages keep their own state.
+            let misspelled = !alternative_only_win && primary(CheckStatus::Misspelled);
             if valid {
                 counts.valid.occurrences += 1;
                 words.valid.insert(word);
@@ -104,13 +103,13 @@ pub(crate) fn summarize<'a>(results: impl IntoIterator<Item = &'a OccurrenceResu
             } else if misspelled {
                 counts.misspelled.occurrences += 1;
                 words.misspelled.insert(word);
-            } else if primary(CheckStatus::Unattempted)
+            }
+            let primary_miss = !(valid
+                || misspelled
+                || primary(CheckStatus::Unattempted)
                 || primary(CheckStatus::Incomplete)
-                || (item.outcome == OccurrenceOutcome::Valid && !primary_analysed)
-            {
-                // Unfinished checks and primary misses behind an analysed alternative are no miss.
-                continue;
-            } else {
+                || alternative_only_win);
+            if primary_miss || joined_miss_behind_contact_split(item, language) {
                 counts.no_analysis.occurrences += 1;
                 words.no_analysis.insert(word);
             }
@@ -136,6 +135,18 @@ pub(crate) fn summarize<'a>(results: impl IntoIterator<Item = &'a OccurrenceResu
         }
     }
     stats
+}
+
+fn joined_miss_behind_contact_split(item: &OccurrenceResult, language: &str) -> bool {
+    item.checks
+        .iter()
+        .any(|c| c.language == language && c.is_completed_grammar_miss())
+        && item.readings.iter().any(|r| {
+            matches!(
+                r.grammar_support.get(language),
+                Some(SplitSupport::Mixed | SplitSupport::AllContact)
+            )
+        })
 }
 
 /// Languages that analyse some reading by themselves; a mixed-language reading adds none.

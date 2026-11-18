@@ -192,7 +192,7 @@ fn result_round_trips_through_json_and_rejects_bad_requests() {
         &[("t", "kibes zozozo")],
         AnalyzeOptions::default(),
     );
-    assert_eq!(result.schema, "pangloss-text-analysis/v1");
+    assert_eq!(result.schema, "pangloss-text-analysis/v2");
     let json = serde_json::to_string(&result).unwrap();
     assert_eq!(serde_json::from_str::<TextAnalysis>(&json).unwrap(), result);
 
