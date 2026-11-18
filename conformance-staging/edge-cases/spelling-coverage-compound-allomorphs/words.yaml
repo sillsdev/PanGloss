@@ -1,0 +1,87 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: SpellingCompoundAllomorphs
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Fully specified literal segments with partial-feature aliases and ordinary non-recursive compounding or affix rules; no fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei]"
+        rules: []
+  - word: "á"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei]"
+        rules: []
+  - word: "xy"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei]"
+        rules: []
+  - word: "p"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|p"
+        rules: []
+  - word: "aa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]"
+        rules: ["cr1"]
+  - word: "ap"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+ROOT|[aá(xy)ei]p"
+        rules: ["cr1"]
+  - word: "pa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+ROOT|p[aá(xy)ei]"
+        rules: ["cr1"]
+  - word: "pp"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|pp"
+        rules: ["cr1"]
+  - word: "áp"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+ROOT|[aá(xy)ei]p"
+        rules: ["cr1"]
+  - word: "pxy"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+ROOT|p[aá(xy)ei]"
+        rules: ["cr1"]
+  - word: "xyxy"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]"
+        rules: ["cr1"]
+  - word: "aáp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "app"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "a^0p"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "e"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei]"
+        rules: []
+  - word: "ae"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]"
+        rules: ["cr1"]

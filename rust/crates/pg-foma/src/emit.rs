@@ -1312,6 +1312,39 @@ pub(crate) struct CompoundLicense {
     pub(crate) non_head_eligible: HashSet<LexEntryId>,
 }
 
+/// One rule's HEAD license for a stem with MPR set `stem`: the rule-level restriction plus at least one subrule's gate. `compound_license` and the spelling route's order proof both read this one computation.
+pub(crate) fn compound_rule_licenses_head(
+    g: &Grammar,
+    rule: &pg_grammar::model::CompoundingRuleDef,
+    stem: &pg_grammar::model::MprSet,
+) -> bool {
+    rule.head_prod_restrictions_mpr.compound_match(stem)
+        && (rule.subrules.is_empty()
+            || rule
+                .subrules
+                .iter()
+                .any(|sr| compound_subrule_licenses_head(g, rule, sr, stem)))
+}
+
+/// One subrule's head gate (rule-level restriction included), group-aware on the subrule's own MPR sets.
+pub(crate) fn compound_subrule_licenses_head(
+    g: &Grammar,
+    rule: &pg_grammar::model::CompoundingRuleDef,
+    sr: &pg_grammar::model::CompoundingSubruleDef,
+    stem: &pg_grammar::model::MprSet,
+) -> bool {
+    rule.head_prod_restrictions_mpr.compound_match(stem)
+        && g.mpr_group_ok(&sr.required_mpr, &sr.excluded_mpr, stem)
+}
+
+/// One rule's NON-HEAD license: only the rule-level restriction, never a subrule gate.
+pub(crate) fn compound_rule_licenses_non_head(
+    rule: &pg_grammar::model::CompoundingRuleDef,
+    stem: &pg_grammar::model::MprSet,
+) -> bool {
+    rule.non_head_prod_restrictions_mpr.compound_match(stem)
+}
+
 /// Computes `CompoundLicense` for `g`, or `None` if `g` declares no `CompoundingRuleDef` at all
 /// (the overwhelmingly common case — this function, and every call site consuming its result, is a
 /// pure no-op for a grammar that never uses compounding).
@@ -1365,19 +1398,10 @@ pub(crate) fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
         any_rule = true;
         for (i, entry) in g.entries.iter().enumerate() {
             let id = LexEntryId(i as u32);
-            if rule.head_prod_restrictions_mpr.compound_match(&entry.mpr)
-                && (rule.subrules.is_empty()
-                    || rule
-                        .subrules
-                        .iter()
-                        .any(|sr| g.mpr_group_ok(&sr.required_mpr, &sr.excluded_mpr, &entry.mpr)))
-            {
+            if compound_rule_licenses_head(g, rule, &entry.mpr) {
                 head_eligible.insert(id);
             }
-            if rule
-                .non_head_prod_restrictions_mpr
-                .compound_match(&entry.mpr)
-            {
+            if compound_rule_licenses_non_head(rule, &entry.mpr) {
                 non_head_eligible.insert(id);
             }
         }
@@ -1389,6 +1413,24 @@ pub(crate) fn compound_license(g: &Grammar) -> Option<CompoundLicense> {
         head_eligible,
         non_head_eligible,
     })
+}
+
+/// Records that a compound chain is being built from a proved plan. A spelling plan always carries the proof when the grammar has compounding rules, so a missing one is a construction bug and panics rather than reading as an uncertified success.
+fn consume_compound_proof(spelling: Option<&SpellingRoutePlan<'_>>, counts: &mut EmitCounts) {
+    if let Some(plan) = spelling {
+        assert!(
+            plan.compound.is_some(),
+            "a spelling plan reached a compound chain without a compound proof"
+        );
+        counts.compound_certificate_uses += 1;
+    }
+}
+
+/// The proved boundary spellings between compound stems; empty without a spelling plan, where the singleton route never wrote any.
+fn compound_boundary_spellings<'a>(spelling: Option<&'a SpellingRoutePlan<'_>>) -> &'a [String] {
+    spelling
+        .and_then(|plan| plan.compound.as_ref())
+        .map_or(&[], |proof| proof.boundary_spellings.as_slice())
 }
 
 /// Resolves a `RootRec`'s owning `LexEntryId` via `g.allomorph_owners`; `None` only if the registry doesn't classify this id as a root — defensive, not expected to fire in practice.
@@ -1472,6 +1514,7 @@ pub(crate) fn build_compound_chain<R, C>(
     counts: &mut EmitCounts,
     ctx: &mut C,
     emit_stripped: bool,
+    boundary_spellings: &[String],
     write_prefix_hop: CompoundPrefixHop<'_, C>,
     write_root_entries: RootEntryWriter<'_, R, C>,
     write_stripped_root_entries: RootEntryWriter<'_, R, C>,
@@ -1501,6 +1544,9 @@ pub(crate) fn build_compound_chain<R, C>(
 
         write_lexicon_header(out, &entry_name);
         write_bare(out, &format!("{pfx_base}0"), counts);
+        for spelling in boundary_spellings {
+            write_untagged_entry(out, spelling, &format!("{pfx_base}0"), counts);
+        }
         write_prefix_hop(out, &pfx_base, &roots_name, counts, ctx);
         write_lexicon_header(out, &roots_name);
         write_root_entries(out, non_head_roots, &continuation, counts, ctx);
@@ -1563,7 +1609,7 @@ fn compound_chain_depth_and_budget_check(
 }
 
 /// The grammar-wide total-stem bound `crate::capability::characterize` already computed for every `CompoundingRuleDef`, defaulting to 2 (head + one non-head) for a grammar whose rules declare nothing deeper.
-fn compound_depth_bound(g: &Grammar) -> usize {
+pub(crate) fn compound_depth_bound(g: &Grammar) -> usize {
     crate::capability::characterize(g)
         .compounding_details()
         .map(|d| d.max_depth)
@@ -3622,6 +3668,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 .map(Vec::len)
                 .sum()
         }),
+        compound_certificate_subrules: spelling_plan
+            .as_ref()
+            .and_then(|p| p.compound.as_ref())
+            .map_or(0, |c| c.subrules),
         ..Default::default()
     };
 
@@ -4217,6 +4267,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                     spelling_plan.as_ref(),
                 );
             };
+            consume_compound_proof(spelling_plan.as_ref(), &mut counts);
             build_compound_chain(
                 &mut out,
                 "TLCmp",
@@ -4227,6 +4278,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut counts,
                 &mut pk,
                 phon.is_some(),
+                compound_boundary_spellings(spelling_plan.as_ref()),
                 &mut tl_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,
@@ -4342,6 +4394,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                         spelling_plan.as_ref(),
                     );
                 };
+            consume_compound_proof(spelling_plan.as_ref(), &mut counts);
             build_compound_chain(
                 &mut out,
                 &cmp_name,
@@ -4352,6 +4405,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut counts,
                 &mut pk,
                 phon.is_some(),
+                compound_boundary_spellings(spelling_plan.as_ref()),
                 &mut group_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,

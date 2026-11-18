@@ -98,6 +98,10 @@ pub struct EmitCounts {
     pub spelling_certificate_paths: usize,
     /// Root/affix emission sites that consumed a prepared spelling set.
     pub spelling_certificate_uses: usize,
+    /// Compound subrules the spelling plan proved plain head/non-head concatenations.
+    pub compound_certificate_subrules: usize,
+    /// Compound chain builds that consumed that proof.
+    pub compound_certificate_uses: usize,
     /// `Grammar::entries.len()` (grammar-wide lexical entry count).
     pub entries: usize,
     /// `Grammar::mrules.len()` (grammar-wide morphological rule count).

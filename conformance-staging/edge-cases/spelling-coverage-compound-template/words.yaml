@@ -1,0 +1,97 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: SpellingCompoundTemplate
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Fully specified literal segments with partial-feature aliases and ordinary non-recursive compounding or affix rules; no fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ai"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sai"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+ROOT+TSUF|s[aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "TSUF"]
+  - word: "aa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+ROOT+TSUF|s[aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "TSUF"]
+  - word: "aai"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saai"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+ROOT+TSUF|s[aá(xy)ei][aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "cr1", "TSUF"]
+  - word: "asa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aia"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "asai"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "xy"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sxy"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "xyi"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sasa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aiai"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saaai"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saaii"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saxyi"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+ROOT+TSUF|s[aá(xy)ei][aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "cr1", "TSUF"]
+  - word: "sxyai"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+ROOT+TSUF|s[aá(xy)ei][aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "cr1", "TSUF"]
+  - word: "sxyxyi"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+ROOT+TSUF|s[aá(xy)ei][aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "cr1", "TSUF"]
+  - word: "saaxyi"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sxyaxyi"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saxyxyi"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saaaxyi"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
