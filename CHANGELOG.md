@@ -3,13 +3,15 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.25.0
 
-- HC batch stats overlaps parsing with bounded reusable cache writes, uses a smaller temporary spool encoding, and streams the frozen model fingerprint. Recorded counters, cache schemas, and manifest fields retain their existing contracts.
-- `pangloss parse` and `pangloss batch` can publish bounded HC rejection observations and accepted output identities with `--trace-rejections`. The opt-in [JSONL artifact](docs/formats/rejection-trace-v1.md) records owner decisions, output counts, search stops, and capture omissions (part of sillsdev/motif#277).
+Released 2026-11-18.
+
+- HC batch stats overlaps parsing with bounded reusable cache writes, uses a smaller temporary spool encoding, and streams the frozen model fingerprint. Recorded counters, cache schemas, and manifest fields retain their existing contracts (#359).
+- `pangloss parse` and `pangloss batch` can publish bounded HC rejection observations and accepted output identities with `--trace-rejections`. The opt-in [JSONL artifact](docs/formats/rejection-trace-v1.md) records owner decisions, output counts, search stops, and capture omissions (#358; part of sillsdev/motif#277).
 
 - Preland runs the package set of CI's `FST nextest (ci profile)` and doctest steps (pg-foma, pg-foma-runtime, pg-foma-backend and pg-cli with `--features pg-cli/foma-tools`, nextest `ci` profile) whenever the diff touches those crates' dependency closures, the data pg-cli's tests read, or shared build inputs, so a dependency change can no longer pass preland and fail `inferred_segment_engine_parity_gate` in CI; `preland.ps1 -Plan` prints each gate's decision without running anything (#351; follows #336, #348).
-- Text analysis v2 attributes Dictionary suggestions by method and keeps them from turning a completed joined grammar miss for another language into a misspelled Occurrence. A completed joined miss counts once in the grammar's summary whenever any accepted split depends on contact evidence, including when a grammar-only split also succeeds (part of #200).
+- Text analysis v2 attributes Dictionary suggestions by method and keeps them from turning a completed joined grammar miss for another language into a misspelled Occurrence. A completed joined miss counts once in the grammar's summary whenever any accepted split depends on contact evidence, including when a grammar-only split also succeeds (#357; part of #200).
 
 - FST spelling admission now covers proved compound routes: compounds whose subrules copy the head and non-head parts once each in order (boundary insertions only, non-recursive, either output order when each stem is licensed in both slots, MPR-restricted only when no rule adds MPR features) are admitted, and emission carries the proof, including explicit boundary spellings between stems. Anything outside the proof keeps the typed spelling refusal; no default limit changes (part of #136).
 - FST compound admission is bounded by HermitCrab's own stem limit instead of the rule-count ceiling: a proved compound route is built and proved for `min(ceiling, max stem count)` stems, so grammars with many distinct compounding rules in one stratum (default stem limit 2) are admitted, a suffix applied to the head before it compounds is now proposed, and a confirming parser whose stem cap exceeds what the proposer was built for reports every word incomplete (`stem cap above the proposer's stem bound`) instead of complete-with-misses. Grammars whose stem limit is three or more keep the typed spelling refusal.
