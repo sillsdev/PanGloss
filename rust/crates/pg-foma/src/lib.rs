@@ -55,6 +55,7 @@ pub(crate) mod preexpand;
 pub mod profile;
 mod proposal_recall;
 pub mod replace;
+mod spelling_route;
 pub mod strategy_coverage;
 pub mod structural_allomorph;
 #[cfg(feature = "test-support")]

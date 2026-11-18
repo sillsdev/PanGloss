@@ -162,7 +162,7 @@ pub fn has_single_spelling(
 }
 
 /// Every representation of every char-def `matching_cd_ids` selects, in table document order.
-fn matching_reps(
+pub fn matching_reps(
     table: &CharDefTable,
     char_def: u32,
     cd_set: &CdSet,

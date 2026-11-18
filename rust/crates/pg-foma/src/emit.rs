@@ -211,6 +211,7 @@ use crate::plan::{FragmentSpec, Plan, PlanNodeKind};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::profile::{CompileProfileBuilder, CompileStage};
 use crate::replace::SegAlphabet;
+use crate::spelling_route::SpellingRoutePlan;
 use crate::tags;
 pub use pg_foma_runtime::emission_support::*;
 pub use pg_foma_runtime::emit_report::{
@@ -1109,6 +1110,7 @@ fn collect_roots(
     cache: &RuleCache,
     morpher: Option<&Morpher>,
     allowed_entries: Option<&HashSet<LexEntryId>>,
+    spelling: Option<&SpellingRoutePlan<'_>>,
 ) -> Vec<RootRec> {
     let mut roots = Vec::new();
     // Stratum order then entry order, mirroring trie.rs's own roots collection — deterministic Vec walks only.
@@ -1134,7 +1136,15 @@ fn collect_roots(
                     entry_id.0
                 );
                 // Routes every root uniformly through the Shape-based `pattern_variants` path rather than re-segmenting literal text: a mandatory (non-optional) `[ClassName]` node doesn't set `is_pattern`, but its literal text (e.g. `"b[Vowel]t"`) still can't re-segment, so text-based re-segmentation alone would miss it.
-                let (variants, limit) = pattern_variants(stratum_table, &allo.shape.shape);
+                let (variants, limit) = if let Some(spelling) = spelling {
+                    counts.spelling_certificate_uses += 1;
+                    (
+                        spelling.roots[&allo.id].clone(),
+                        VariantLimit::Complete { warn: false },
+                    )
+                } else {
+                    pattern_variants(stratum_table, &allo.shape.shape)
+                };
                 // Unbounded shapes route to a regex entry instead of an enumerated list, scoped to allomorphs with no `<RequiredEnvironments>` (`crate::precision`'s owner-require flags need a literal surface, which an unbounded pattern has none of).
                 let pattern_regex_body = (limit == VariantLimit::Unbounded
                     && allo.environments.is_empty())
@@ -1632,6 +1642,7 @@ fn emit_rule_allomorphs(
     phon: Option<&PhonologyProbe>,
     junction_target: Option<&str>,
     pk: &mut PrecisionEmit,
+    spelling: Option<&SpellingRoutePlan<'_>>,
 ) {
     let morpheme = owning_morpheme(g, mid);
     let tag_lexc = tags::morph_tag_lexc(morpheme, width);
@@ -1709,7 +1720,16 @@ fn emit_rule_allomorphs(
             }
             InsertText::Text { texts } => {
                 let mut emitted_any = false;
-                match surface_variants_concat_boundary_optional(table, &texts) {
+                match spelling.map_or_else(
+                    || surface_variants_concat_boundary_optional(table, &texts),
+                    |plan| {
+                        counts.spelling_certificate_uses += 1;
+                        Some((
+                            plan.affixes[&allo.id].clone(),
+                            VariantLimit::Complete { warn: false },
+                        ))
+                    },
+                ) {
                     Some((variants, limit)) => {
                         if limit.drops_spellings() {
                             uncovered.push(UncoveredItem {
@@ -1808,6 +1828,7 @@ fn build_deriv_chain(
     phon: Option<&PhonologyProbe>,
     exit_is_roots: bool,
     pk: &mut PrecisionEmit,
+    spelling: Option<&SpellingRoutePlan<'_>>,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if rules.is_empty() {
@@ -1855,6 +1876,7 @@ fn build_deriv_chain(
                 phon,
                 junction_here,
                 pk,
+                spelling,
             );
         }
     }
@@ -1934,6 +1956,7 @@ fn build_slot_chain(
     counts: &mut EmitCounts,
     phon: Option<&PhonologyProbe>,
     pk: &mut PrecisionEmit,
+    spelling: Option<&SpellingRoutePlan<'_>>,
 ) -> String {
     let entry_name = format!("{prefix}0");
     if slots.is_empty() {
@@ -1964,7 +1987,7 @@ fn build_slot_chain(
             }
             emit_rule_allomorphs(
                 out, g, table, mid, zone_role, width, &next, None, uncovered, counts, phon, None,
-                pk,
+                pk, spelling,
             );
         }
     }
@@ -2327,22 +2350,7 @@ pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
 
 /// Whether the referenced alphabet has only singleton spelling closures when emitting material.
 pub(crate) fn eager_route_has_single_segment_spellings(g: &Grammar) -> bool {
-    let emits_material = g.strata.iter().any(|stratum| {
-        !stratum.entries.is_empty() || !stratum.mrules.is_empty() || !stratum.templates.is_empty()
-    });
-    !emits_material
-        || g.strata.iter().all(|stratum| {
-            let table = &g.char_tables[stratum.table.0 as usize];
-            table.iter().all(|(cd, definition)| {
-                definition.kind() != pg_grammar::chardef::CharDefKind::Segment
-                    || pg_rules::surface_probe::has_single_spelling(
-                        table,
-                        cd.0,
-                        &pg_shape::CdSet::Unrestricted,
-                        &definition.matching_lanes(),
-                    )
-            })
-        })
+    referenced_tables_have_single_segment_spellings(g)
 }
 
 /// The root-spelling decision with its semantic or budget cause, shared with the selector.
@@ -2611,6 +2619,7 @@ fn struct_morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<S
 /// `struct_extend`'s shared, read-only recursion context — mirrors `crate::preexpand::ExtendCtx`, re-derived here because that struct is private to its own file.
 struct StructCtx<'a> {
     g: &'a Grammar,
+    spelling: Option<&'a SpellingRoutePlan<'a>>,
     root_table: &'a CharDefTable,
     root_entry: LexEntryId,
     rules: &'a [MRuleId],
@@ -2918,7 +2927,23 @@ fn struct_extend(
                 .shape
                 .interior()
                 .any(|(_, kind, _, _)| kind == pg_shape::NodeKind::Boundary);
-            let (surfaces, boundary_insertions): (Vec<String>, bool) =
+            let (surfaces, boundary_insertions): (Vec<String>, bool) = if let Some(spelling) =
+                ctx.spelling
+            {
+                let Some(variants) = spelling.shape_variants(&w.shape, true) else {
+                    ctx.structural_trace
+                        .state
+                        .lock()
+                        .expect("structural trace poisoned")
+                        .refusal = Some(EnumBudgetExceeded {
+                        measure: "spelling relation bytes",
+                        value: REP_VARIANT_BYTE_BUDGET.saturating_add(1),
+                        limit: REP_VARIANT_BYTE_BUDGET,
+                    });
+                    return;
+                };
+                (variants, false)
+            } else {
                 match probe_surface_on_current_stack(ctx.g, ctx.root_table, &w.shape, ctx.cache) {
                     // A rendered-away boundary needs speculative positions for confirmation.
                     Some(s) => (vec![s], shape_has_boundary && !ctx.boundary_reps.is_empty()),
@@ -2936,7 +2961,8 @@ fn struct_extend(
                             !ctx.boundary_reps.is_empty(),
                         )
                     }
-                };
+                }
+            };
 
             let tag_lexc = struct_morph_order_tags(&w, &next_chain);
             for s in &surfaces {
@@ -3027,6 +3053,7 @@ fn build_structural_composites_on_current_stack(
     phon: Option<&PhonologyProbe>,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     structural_trace: &StructuralTrace,
+    spelling: Option<&SpellingRoutePlan<'_>>,
 ) -> (
     Vec<crate::preexpand::CompositeRec>,
     BTreeSet<u32>,
@@ -3092,6 +3119,7 @@ fn build_structural_composites_on_current_stack(
                     .collect();
                 let ctx = StructCtx {
                     g,
+                    spelling,
                     root_table,
                     root_entry: entry_id,
                     rules: &root_rules,
@@ -3181,6 +3209,7 @@ fn build_structural_composites(
         phon,
         None,
         &structural_trace,
+        None,
     );
     let state = structural_trace
         .state
@@ -3205,6 +3234,7 @@ pub(crate) fn build_structural_composites_with_trace(
     phon: Option<&PhonologyProbe>,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     structural_trace: &StructuralTrace,
+    spelling: Option<&SpellingRoutePlan<'_>>,
 ) -> (
     Vec<crate::preexpand::CompositeRec>,
     BTreeSet<u32>,
@@ -3226,6 +3256,7 @@ pub(crate) fn build_structural_composites_with_trace(
             phon,
             closure_trace,
             structural_trace,
+            spelling,
         );
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -3245,6 +3276,7 @@ pub(crate) fn build_structural_composites_with_trace(
                     phon,
                     closure_trace,
                     structural_trace,
+                    spelling,
                 )
             })
             .expect("spawning the structural-composite worker")
@@ -3540,7 +3572,15 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
     if alpha_environment_refusal(g) {
         return alpha_environment_emit_refusal(g);
     }
-    let recall_refusals = crate::proposal_recall::refusals(g).diagnostics;
+    let singleton_spelling = eager_route_has_single_segment_spellings(g);
+    let spelling_plan = (!singleton_spelling)
+        .then(|| SpellingRoutePlan::prepare(g))
+        .flatten();
+    let recall_refusals = crate::proposal_recall::refusals_with_spelling(
+        g,
+        singleton_spelling || spelling_plan.is_some(),
+    )
+    .diagnostics;
     if !recall_refusals.is_empty() {
         return EmitResult {
             lexc_source: String::new(),
@@ -3575,6 +3615,13 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
     let mut counts = EmitCounts {
         entries: g.entries.len(),
         rules: g.mrules.len(),
+        spelling_certificate_paths: spelling_plan.as_ref().map_or(0, |p| {
+            p.roots
+                .values()
+                .chain(p.affixes.values())
+                .map(Vec::len)
+                .sum()
+        }),
         ..Default::default()
     };
 
@@ -3620,6 +3667,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
         &rule_cache,
         morpher.as_ref(),
         allowed_entries,
+        spelling_plan.as_ref(),
     );
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
@@ -3699,6 +3747,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 phon.as_ref(),
                 closure_trace,
                 &structural_trace,
+                spelling_plan.as_ref(),
             );
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
@@ -4061,6 +4110,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
+            spelling_plan.as_ref(),
         );
         // Deduped: templates with no prefix slots all point straight at their group's prefix-derivation entry. classify_template here only probes prefix-emptiness; its uncovered routing happens on the real pass below.
         write_lexicon_header(&mut out, "TmplDispatch");
@@ -4093,6 +4143,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
+            spelling_plan.as_ref(),
         );
     }
 
@@ -4112,6 +4163,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             true,
             &mut pk,
+            spelling_plan.as_ref(),
         );
         write_lexicon_header(&mut out, "TLRoots");
         // Splits into head-eligible (TLPost: both TLSfx0 and TLCmp) vs. head-ineligible (TLPostNoCmp: TLSfx0 only); both reach TLSfx0, so plain-word recall never regresses, only the TLCmp option is withheld from an unlicensed head.
@@ -4162,6 +4214,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                     phon.as_ref(),
                     true,
                     pk,
+                    spelling_plan.as_ref(),
                 );
             };
             build_compound_chain(
@@ -4198,6 +4251,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
+            spelling_plan.as_ref(),
         );
     }
 
@@ -4226,6 +4280,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                     &mut counts,
                     phon.as_ref(),
                     &mut pk,
+                    spelling_plan.as_ref(),
                 );
                 join_lines.insert(entry);
             }
@@ -4250,6 +4305,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
+            spelling_plan.as_ref(),
         );
 
         let post_name = format!("G{gi}Post");
@@ -4283,6 +4339,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                         phon.as_ref(),
                         true,
                         pk,
+                        spelling_plan.as_ref(),
                     );
                 };
             build_compound_chain(
@@ -4354,6 +4411,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             true,
             &mut pk,
+            spelling_plan.as_ref(),
         );
 
         for &ti in &group_templates[gi] {
@@ -4376,6 +4434,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut counts,
                 phon.as_ref(),
                 &mut pk,
+                spelling_plan.as_ref(),
             );
         }
 

@@ -185,7 +185,7 @@ staging:edge-cases/nullable-copy-partition-reject-rtl	TunedSurfaceProbed	oracle_
 staging:edge-cases/nullable-copy-partition-rtl	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/partial-feature-literal-output	TunedSurfaceProbed	refused
 staging:edge-cases/partial-feature-literal-rewrite	TunedSurfaceProbed	refused
-staging:edge-cases/partial-feature-no-rewrite	TunedSurfaceProbed	refused
+staging:edge-cases/partial-feature-no-rewrite	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/partial-feature-singleton-rewrite	TunedSurfaceProbed	refused
 staging:edge-cases/partial-inherited-output-feature	TunedSurfaceProbed	refused
 staging:edge-cases/partial-inherited-output-literal	TunedSurfaceProbed	refused
@@ -209,6 +209,13 @@ staging:edge-cases/rtl-expansion-context	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rtl-expansion-final-anchor	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/segment-natural-class-table-binding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/simultaneous-overlap-expansion	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-repeated-root	TunedSurfaceProbed	refused
+staging:edge-cases/spelling-coverage-copy-slots	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-copy-slots-alias-deleted	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-copy-slots-completed	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-copy-slots-one	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-copy-slots-reversed	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-copy-slots-zero	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/subrule-morphosyntactic-gating-linear-order	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/synthesis-stratum-render-stale-table	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/two-table-shared-representation-recall	TunedSurfaceProbed	oracle_exact

@@ -287,7 +287,7 @@ fn assert_fst_refuses_ambiguous_spelling(grammar: &pg_grammar::model::Grammar) {
 }
 
 #[test]
-fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() {
+fn inferred_q_analyzes_like_an_authored_featureless_q_except_for_letter_unification() {
     let inferred_snapshot = base_snapshot();
     let inferred = compile(&inferred_snapshot);
     assert!(
@@ -324,38 +324,43 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
         assert_fst_refuses_ambiguous_spelling(grammar);
     }
 
-    for (word, unvalued_has_analysis, valued_has_analysis) in [
-        ("qta", false, true),
-        ("kumata", false, false),
-        // A front-valued q admits the earlier ta allomorph, which disjunctively blocks tu.
-        ("qtu", true, false),
-        ("kumatu", true, true),
-        ("q", false, false),
-        ("kuma", false, false),
-        ("taku", false, false),
+    // Pinned C# HermitCrab parses the t-final words in all three grammars, and kuma and taku with an authored featureless q.
+    for (word, inferred_has, explicit_has, valued_has) in [
+        ("qta", true, true, true),
+        ("kumata", true, true, true),
+        ("qtu", true, true, true),
+        ("kumatu", true, true, true),
+        ("q", false, false, false),
+        ("kuma", false, true, false),
+        ("taku", false, true, false),
     ] {
         let inferred_direct = analyze_direct(&inferred, word);
         let explicit_direct = analyze_direct(&explicit, word);
         let valued_direct = analyze_direct(&valued, word);
         assert_eq!(
-            inferred_direct, explicit_direct,
-            "direct-HC analysis of {word:?} must match between the inferred and \
-             explicit-featureless grammars"
+            inferred_direct != "-",
+            inferred_has,
+            "provisional analysis presence for {word:?}"
         );
         assert_eq!(
-            inferred_direct != "-",
-            unvalued_has_analysis,
-            "provisional and featureless analysis presence for {word:?}"
+            explicit_direct != "-",
+            explicit_has,
+            "featureless analysis presence for {word:?}"
         );
         assert_eq!(
             valued_direct != "-",
-            valued_has_analysis,
+            valued_has,
             "feature-valued analysis presence for {word:?}"
         );
         assert_eq!(
+            inferred_direct == explicit_direct,
+            inferred_has == explicit_has,
+            "provisional and featureless analyses must agree whenever both exist for {word:?}"
+        );
+        assert_eq!(
             inferred_direct == valued_direct,
-            unvalued_has_analysis == valued_has_analysis,
-            "the constrained q environment and its blocking effect distinguish the valued grammar for {word:?}"
+            inferred_has == valued_has,
+            "provisional and valued analyses must agree whenever both exist for {word:?}"
         );
     }
 }
@@ -518,7 +523,10 @@ fn cli_plain_and_ordinary_trace_report_owner_completion_status() {
                 "complete positive control must have an analysis"
             );
         }
-        if matches!(word, "qta" | "kumata" | "taku") {
+        if matches!(word, "qta" | "kumata") {
+            assert!(!expected.structured.is_empty());
+        }
+        if word == "taku" {
             assert!(expected.structured.is_empty());
         }
         for trace in [false, true] {

@@ -1,8 +1,11 @@
 # Partial-feature root spelling without a rewrite
 
 Sibling of #136's class-bundle admission review. Deleting all phonological rules
-still leaves two C# root identities on aka, but the FST proposes only AKA. This
-pins the root spelling projection independently of rewrite syntax. Source: Rust
+still leaves two C# root identities on aka. The baseline FST proposed only AKA,
+pinning root spelling projection independently of rewrite syntax. The witnessed
+no-phonology spelling route admits this fixture and recovers both identities;
+the exhaustive six-symbol, three-node gate checks every surface plus length controls.
+Source: Rust
 FST proposal/admission. No parser algorithm change is requested.
 
 Oracle: founding C# HermitCrab, Machine 1ddef2bd2f1503717de95556116df8e4a63846d6.

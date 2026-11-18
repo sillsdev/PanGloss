@@ -94,6 +94,10 @@ pub struct UncoveredItem {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmitCounts {
+    /// Prepared root and insertion spelling alternatives retained by the coverage plan.
+    pub spelling_certificate_paths: usize,
+    /// Root/affix emission sites that consumed a prepared spelling set.
+    pub spelling_certificate_uses: usize,
     /// `Grammar::entries.len()` (grammar-wide lexical entry count).
     pub entries: usize,
     /// `Grammar::mrules.len()` (grammar-wide morphological rule count).

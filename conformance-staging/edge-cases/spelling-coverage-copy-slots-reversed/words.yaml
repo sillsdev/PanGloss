@@ -1,0 +1,268 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch replay via managed pg.ps1.
+language: SpellingCoverage
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Literal stems, affix processes, copy morphology, optional final slot and null-affix boundary; partial features follow ADR 0009. No fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[ie(xy)áa]"
+        rules: []
+  - word: "á"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[ie(xy)áa]"
+        rules: []
+  - word: "xy"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[ie(xy)áa]"
+        rules: []
+  - word: "e"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[ie(xy)áa]"
+        rules: []
+  - word: "i"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[ie(xy)áa]"
+        rules: []
+  - word: "p"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "s"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pa"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?[ie(xy)áa]"
+        rules: ["PRE"]
+  - word: "pá"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?[ie(xy)áa]"
+        rules: ["PRE"]
+  - word: "pxy"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?[ie(xy)áa]"
+        rules: ["PRE"]
+  - word: "pe"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?[ie(xy)áa]"
+        rules: ["PRE"]
+  - word: "pi"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?[ie(xy)áa]"
+        rules: ["PRE"]
+  - word: "as"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+SUF|[ie(xy)áa]s"
+        rules: ["SUF"]
+  - word: "ás"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+SUF|[ie(xy)áa]s"
+        rules: ["SUF"]
+  - word: "xys"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+SUF|[ie(xy)áa]s"
+        rules: ["SUF"]
+  - word: "es"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+SUF|[ie(xy)áa]s"
+        rules: ["SUF"]
+  - word: "is"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+SUF|[ie(xy)áa]s"
+        rules: ["SUF"]
+  - word: "pas"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+  - word: "pes"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+  - word: "pis"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+  - word: "aa"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "aá"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "áa"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "axy"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "xya"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "ae"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "ai"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+  - word: "ea"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "ia"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "ee"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+      - signature: "ROOT+SLOT|[ie(xy)áa][e(xy)áa]"
+        rules: ["SLOT"]
+  - word: "ii"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+DUP|[ie(xy)áa][ie(xy)áa]"
+        rules: ["DUP"]
+  - word: "paás"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+DUP+SUF|p(^0)?[ie(xy)áa][ie(xy)áa]s"
+        rules: ["DUP", "PRE", "SUF"]
+      - signature: "PRE+ROOT+DUP+SUF|p(^0)?[ie(xy)áa][ie(xy)áa]s"
+        rules: ["DUP", "PRE", "SUF"]
+  - word: "paes"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+DUP+SUF|p(^0)?[ie(xy)áa][ie(xy)áa]s"
+        rules: ["DUP", "PRE", "SUF"]
+      - signature: "PRE+ROOT+DUP+SUF|p(^0)?[ie(xy)áa][ie(xy)áa]s"
+        rules: ["DUP", "PRE", "SUF"]
+  - word: "aeis"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ass"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+SUF|[ie(xy)áa]ss"
+        rules: ["SUF"]
+  - word: "pass"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]ss"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]ss"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]ss"
+        rules: ["PRE", "SUF"]
+  - word: "aaas"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ap"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sa"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ps"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pp"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sss"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "p^0a"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?[ie(xy)áa]"
+        rules: ["PRE"]
+  - word: "p^0ás"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+  - word: "p^0es"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+  - word: "a^0"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "^0a"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "p^0xys"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+      - signature: "PRE+ROOT+SUF|p(^0)?[ie(xy)áa]s"
+        rules: ["PRE", "SUF"]
+  - word: "á"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[ie(xy)áa]"
+        rules: []

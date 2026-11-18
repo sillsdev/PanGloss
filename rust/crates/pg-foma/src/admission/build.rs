@@ -164,6 +164,15 @@ pub(super) fn orthography(
             }
         }
     }
+    // A surface prefilter must also retain explicitly written boundary spellings.
+    for (_, def) in table
+        .iter()
+        .filter(|(_, def)| def.kind() == CharDefKind::Boundary)
+    {
+        for rep in def.representations_nfd() {
+            arcs.push(relate("", &spelling_symbols(rep)));
+        }
+    }
     let net = union_all(meter, opts, arcs)
         .map(|net| meter.star(opts, net))
         .unwrap_or_else(fsm_empty_string);

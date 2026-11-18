@@ -85,6 +85,7 @@ $crateSpecs = @(
             'plan_interaction_coverage_gate.rs',
             'predicate_negative_witness_gate.rs', 'process_morphology_route_gate.rs', 'proposal_recall_gate.rs',
             'segment_natural_class_table_binding_discriminates.rs',
+            'spelling_coverage_gate.rs',
             'strategy_aware_capability_gate.rs',
             'strategy_coverage_join_gate.rs', 'structural_witness_gate.rs',
             'subrecipe_dossier_contract.rs', 'trusted_selected_build_gate.rs', 'typology_speedup.rs', 'witnessed_strategy_coverage_gate.rs', 'worker_execution_limits_contract.rs'

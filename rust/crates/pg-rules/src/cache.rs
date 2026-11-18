@@ -255,13 +255,14 @@ impl RuleCache {
 
     pub(crate) fn edge_candidates(
         &self,
+        g: &Grammar,
         table: TableId,
         shape: &pg_shape::Shape,
     ) -> Option<crate::morph::edge_index::EdgeCandidates<'_>> {
         if !self.edge_prefilter || !self.edge_index_enabled {
             return None;
         }
-        self.edge_index.candidates(table, shape)
+        self.edge_index.candidates(g, table, shape)
     }
 
     /// Turns the rule-level edge index on or off independently of the allomorph prefilter.

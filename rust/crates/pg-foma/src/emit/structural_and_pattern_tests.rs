@@ -70,6 +70,7 @@ fn structural_walk(
         None,
         Some(&trace),
         &structural_trace,
+        None,
     );
     assert_eq!(pending, 0);
     let outputs = records
@@ -1274,6 +1275,7 @@ fn structural_walk_if_complete(
         None,
         Some(&trace),
         &structural_trace,
+        None,
     );
     let stats = structural_trace.state.lock().unwrap().clone();
     let complete = matches!(
