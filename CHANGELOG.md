@@ -5,6 +5,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- FST spelling admission now covers proved compound routes: compounds whose subrules copy the head and non-head parts once each in order (boundary insertions only, non-recursive, either output order when each stem is licensed in both slots, MPR-restricted only when no rule adds MPR features) are admitted, and emission carries the proof, including explicit boundary spellings between stems. Anything outside the proof keeps the typed spelling refusal; no default limit changes (part of #136).
 - FST proposal recovers identities lost by repeat normalization: tag paths that repeat a morpheme (two allomorphs of one entry, a reused or alternative affix allomorph, a root separated by other tags) now propose every tag-preserving merge, so HC confirmation keeps the parser's multi-occurrence identities that were previously erased. The extra alternatives are counted against the existing candidate allowance as a named `repeat-normalization alternatives` dimension; no default limit changes and the compound spelling refusal is unchanged (part of #136).
 
 ## 0.24.0
