@@ -1669,3 +1669,233 @@ fn gate_facts_replace_on_reparse_and_distinguish_unmeasured_in_both_layouts() {
             .is_empty());
     }
 }
+
+fn word_only_record() -> WordRecord {
+    WordRecord {
+        facts: Vec::new(),
+        gates: None,
+        ..sample_word("synthetic-01")
+    }
+}
+
+#[test]
+fn word_only_run_freezes_and_reuses_word_measurements_without_fact_storage() {
+    let dir = TempDir::new("word-only");
+    let path = dir.path().join("cache.sqlite3");
+    let cache = StatsCache::open_word_only(&path, "hash-a").unwrap().cache;
+    let mut writer = cache.into_run(&sample_run()).unwrap();
+    let word = word_only_record();
+    writer.write_word(&word).unwrap();
+    let (cache, run_id) = writer.finish().unwrap();
+    let conn = cache.connection();
+    let mut tables = conn
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+        .unwrap();
+    let names = tables
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(names, ["cache_identity", "run", "word"]);
+    drop(tables);
+    assert_eq!(
+        conn.query_row("SELECT gates_measured FROM word", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    cache.checkpoint_and_close().unwrap();
+    let frozen = StatsCache::read_frozen_run(&path, run_id).unwrap();
+    assert_eq!(frozen.schema_version, schema::WORD_ONLY_SCHEMA_VERSION);
+    assert_eq!(frozen.words[0].form, word.form);
+    assert_eq!(frozen.words[0].elapsed_ns, word.elapsed_ns);
+    let reopened = StatsCache::open_word_only(&path, "hash-a").unwrap();
+    assert!(!reopened.wiped);
+    let cache = reopened.cache;
+    assert_eq!(
+        cache.reusable_words(&[&word.form], "opts-a").unwrap(),
+        HashSet::from([word.form.clone()])
+    );
+    assert!(cache
+        .reusable_words(&[&word.form], "opts-b")
+        .unwrap()
+        .is_empty());
+    assert!(matches!(
+        crate::pack::pack(&path),
+        Err(StatsError::WordOnlyFactsUnavailable)
+    ));
+    assert!(!crate::pack::is_packed(cache.connection()).unwrap());
+}
+
+#[test]
+fn word_only_refuses_unexpected_collector_output_and_rolls_back() {
+    let dir = TempDir::new("word-only-write");
+    let path = dir.path().join("cache.sqlite3");
+    let mut cache = StatsCache::open_word_only(&path, "hash-a").unwrap().cache;
+    for word in [
+        WordRecord {
+            gates: Some(Vec::new()),
+            ..word_only_record()
+        },
+        WordRecord {
+            gates: None,
+            ..sample_word("synthetic-02")
+        },
+    ] {
+        assert!(matches!(
+            cache.flush(&sample_run(), &[word_only_record(), word]),
+            Err(StatsError::WordOnlyFactsUnavailable)
+        ));
+        assert_eq!(
+            cache
+                .connection()
+                .query_row("SELECT COUNT(*) FROM run", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert!(crate::per_word_report(cache.connection())
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[test]
+fn word_only_preserves_populated_legacy_caches() {
+    let dir = TempDir::new("legacy-profile");
+    for has_identity in [true, false] {
+        let path = dir.path().join(format!("legacy-{has_identity}.sqlite"));
+        let mut full = StatsCache::open(&path, "hash-a").unwrap().cache;
+        full.flush(&sample_run(), &[sample_word("synthetic-01")])
+            .unwrap();
+        let conn = full.connection();
+        conn.execute("UPDATE run SET schema_version=12", [])
+            .unwrap();
+        if has_identity {
+            conn.execute("UPDATE cache_identity SET schema_version=12", [])
+                .unwrap();
+        } else {
+            conn.execute("DROP TABLE cache_identity", []).unwrap();
+        }
+        assert!(matches!(
+            StatsCache::open_word_only(&path, "hash-a"),
+            Err(StatsError::ProfileMismatch { .. })
+        ));
+        assert_eq!(crate::per_word_report(conn).unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn crossing_collection_profiles_refuses_before_unpack_or_wipe() {
+    let dir = TempDir::new("profile-mismatch");
+    let path = dir.path().join("word.sqlite3");
+    let mut cache = StatsCache::open_word_only(&path, "hash-a").unwrap().cache;
+    cache.flush(&sample_run(), &[word_only_record()]).unwrap();
+    for open_full in [StatsCache::open, StatsCache::open_compact] {
+        assert!(matches!(
+            open_full(&path, "hash-b"),
+            Err(StatsError::ProfileMismatch { .. })
+        ));
+        let dir = TempDir::new("profile-mismatch-full");
+        let full_path = dir.path().join("full.sqlite3");
+        let mut full = open_full(&full_path, "hash-a").unwrap().cache;
+        full.flush(&sample_run(), &[sample_word("synthetic-01")])
+            .unwrap();
+        assert!(matches!(
+            StatsCache::open_word_only(&full_path, "hash-a"),
+            Err(StatsError::ProfileMismatch { .. })
+        ));
+        assert_eq!(crate::per_word_report(full.connection()).unwrap().len(), 1);
+        full.checkpoint_and_close().unwrap();
+        crate::pack::pack(&full_path).unwrap();
+        let bytes = std::fs::read(&full_path).unwrap();
+        assert!(matches!(
+            StatsCache::open_word_only(&full_path, "hash-a"),
+            Err(StatsError::ProfileMismatch { .. })
+        ));
+        assert_eq!(bytes, std::fs::read(&full_path).unwrap());
+        assert!(crate::pack::is_packed(&Connection::open(&full_path).unwrap()).unwrap());
+    }
+    assert_eq!(crate::per_word_report(cache.connection()).unwrap().len(), 1);
+    cache
+        .connection()
+        .execute("DELETE FROM cache_identity", [])
+        .unwrap();
+    assert_eq!(
+        crate::collection_profile(cache.connection()).unwrap(),
+        crate::StatsProfile::WordOnly
+    );
+    assert!(matches!(
+        StatsCache::open(&path, "hash-a"),
+        Err(StatsError::ProfileMismatch { .. })
+    ));
+}
+
+#[test]
+fn scoped_open_reports_its_requested_schema_for_an_unknown_version() {
+    let dir = TempDir::new("unknown-profile");
+    let path = dir.path().join("cache.sqlite3");
+    let cache = StatsCache::open(&path, "hash-a").unwrap().cache;
+    let unknown = schema::WORD_ONLY_SCHEMA_VERSION + 1;
+    cache
+        .connection()
+        .execute("UPDATE cache_identity SET schema_version = ?1", [unknown])
+        .unwrap();
+    cache.checkpoint_and_close().unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let error = StatsCache::open_word_only(&path, "hash-a").err().unwrap();
+    assert!(matches!(
+        error,
+        StatsError::SchemaMismatch {
+            existing,
+            requested: schema::WORD_ONLY_SCHEMA_VERSION,
+        } if existing == unknown
+    ));
+    assert_eq!(before, std::fs::read(&path).unwrap());
+    assert!(StatsCache::open(&path, "hash-a").unwrap().wiped);
+}
+
+#[test]
+fn stale_handles_cannot_reuse_or_write_after_external_profile_replacement() {
+    let dir = TempDir::new("stale-profile");
+    let path = dir.path().join("cache.sqlite3");
+    let mut stale = StatsCache::open_word_only(&path, "hash-a").unwrap().cache;
+    let conn = Connection::open(&path).unwrap();
+    schema::wipe_and_recreate_version(&conn, "hash-a", schema::SCHEMA_VERSION).unwrap();
+    let mut full = StatsCache::open(&path, "hash-a").unwrap().cache;
+    full.flush(&sample_run(), &[sample_word("synthetic-01")])
+        .unwrap();
+    assert!(matches!(
+        stale.existing_words(&["synthetic-01"]),
+        Err(StatsError::SchemaMismatch { .. })
+    ));
+    assert!(matches!(
+        stale.reusable_words(&["synthetic-01"], "opts-a"),
+        Err(StatsError::SchemaMismatch { .. })
+    ));
+    assert!(matches!(
+        stale.flush(&sample_run(), &[word_only_record()]),
+        Err(StatsError::SchemaMismatch { .. })
+    ));
+    assert!(matches!(
+        stale.intern_stratum(&StructuralLocator::new("id-1", "label")),
+        Err(StatsError::SchemaMismatch { .. })
+    ));
+    assert_eq!(
+        crate::per_object_report(full.connection(), &Default::default())
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn file_backed_open_enters_wal_journal_mode() {
+    let dir = TempDir::new("wal-mode");
+    let path = dir.path().join("cache.sqlite3");
+    let cache = StatsCache::open(&path, "hash-a").unwrap().cache;
+    let mode: String = cache
+        .connection()
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(mode, "wal");
+}

@@ -7,6 +7,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 - HC rejection diagnostics match GUID selectors against ordinary parse results and retain bounded lineage for terminal decisions and deduplication. The [v1 format](docs/formats/rejection-trace-v1.md) covers split morphs, merged senses, interrupted searches, independent capture limits, and the unavailable cost marker in traced batches (part of sillsdev/motif#277).
 - FST spelling admission covers proved recursive compounds up to four stems and checks junction tokenization. Singleton-spelling grammars now emit proved boundary spellings at two stems and require the recursive proof from three stems onward. Unsupported recursive shapes and unproved spellings receive typed refusals. Reusing a compiled proposer with a confirming parser above its covered stem cap yields typed incompleteness (part of #136).
+- HC `batch --stats --stats-profile word-only` records word timing, work and completion for correctness runs. Frozen manifests identify the profile, and object and gate queries report when those facts were not collected. The default full profile keeps its existing cache format (#361).
 
 ## 0.25.0
 

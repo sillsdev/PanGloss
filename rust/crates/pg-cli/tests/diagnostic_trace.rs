@@ -677,11 +677,13 @@ fn batch_marks_traced_cost_and_refuses_stats_before_loading() {
 
     let artifact_before = fs::read(&artifact).unwrap();
     fs::remove_file(&grammar).unwrap();
-    let refused = run(&[args.as_slice(), &trace, &["--stats"]].concat());
-    assert!(!refused.status.success());
-    let stderr = String::from_utf8(refused.stderr).unwrap();
-    assert!(stderr.starts_with("PANGLOSS_DIAGNOSTIC_ERROR "));
-    assert!(stderr.contains(r#""code":"unsupported""#));
+    for stats_args in [&["--stats"][..], &["--stats-profile", "word-only"][..]] {
+        let refused = run(&[args.as_slice(), &trace, stats_args].concat());
+        assert!(!refused.status.success());
+        let stderr = String::from_utf8(refused.stderr).unwrap();
+        assert!(stderr.starts_with("PANGLOSS_DIAGNOSTIC_ERROR "));
+        assert!(stderr.contains(r#""code":"unsupported""#));
+    }
     assert_eq!(fs::read(&artifact).unwrap(), artifact_before);
     assert_eq!(fs::read_to_string(&tsv).unwrap(), traced);
 }

@@ -636,7 +636,8 @@ fn the_removed_step_cap_flag_is_refused_like_any_unknown_option() {
         run_batch(&to_args(&["g.xml", "w.txt", "o.tsv", "--step-cap=5"])),
         super::run_parse(&to_args(&["g.xml", "kat", "--step-cap", "5"])),
         super::run_parse(&to_args(&["g.xml", "kat", "--step-cap=5"])),
-        super::stats_cmd::run_stats(&to_args(&["g.xml", "--step-cap", "5"])),
+        super::stats_cmd::run_stats(&to_args(&["g.xml", "--step-cap", "5"]))
+            .map_err(|e| e.to_string()),
         super::serve::parse_args(&to_args(&["--project", "p.fwdata", "--step-cap", "5"]))
             .map(|_| ()),
     ];
@@ -671,6 +672,80 @@ fn capture_cap_is_typed_in_both_batch_writer_paths_and_can_be_disabled() {
             "the word must parse when the cap is disabled"
         );
     }
+}
+
+#[test]
+fn word_only_reuse_matches_fresh_cache_after_search_settings_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let grammar = dir.path().join("grammar.xml");
+    let words = dir.path().join("words.txt");
+    let out = dir.path().join("out.tsv");
+    let reused = dir.path().join("reused.sqlite");
+    let fresh = dir.path().join("fresh.sqlite");
+    fs::write(&grammar, homophonous_suffix_grammar_xml(1)).unwrap();
+    fs::write(&words, "kadd\n").unwrap();
+
+    let batch = |cache: &std::path::Path, capture, partials| {
+        let mut args = vec![
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            out.to_str().unwrap(),
+            "--threads",
+            "1",
+            "--work-columns",
+            "--stats",
+            "--stats-profile=word-only",
+            "--cache",
+            cache.to_str().unwrap(),
+            capture,
+        ];
+        if let Some(partials) = partials {
+            args.extend([partials, "--prefilter=off"]);
+        }
+        run_batch(&args.into_iter().map(str::to_owned).collect::<Vec<_>>()).unwrap();
+        fs::read_to_string(&out).unwrap()
+    };
+    let cached_word = |cache| {
+        rusqlite::Connection::open(cache)
+            .unwrap()
+            .query_row("SELECT capped, passes, work, run_id FROM word", [], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .unwrap()
+    };
+
+    let tsv = batch(&reused, "--capture-cap-mib=0", None);
+    assert_eq!(
+        tsv.lines().last().unwrap().split('\t').nth(3),
+        Some("MEMCAP")
+    );
+    let capped = cached_word(&reused);
+    let tsv = batch(&reused, "--capture-cap-mib=unbounded", None);
+    let fields: Vec<_> = tsv.lines().last().unwrap().split('\t').collect();
+    assert_eq!(fields[3], "ok");
+    batch(&fresh, "--capture-cap-mib=unbounded", None);
+    let fresh_word = cached_word(&fresh);
+    let updated = cached_word(&reused);
+    assert_eq!(
+        (updated.0, updated.1, updated.2),
+        (fresh_word.0, fresh_word.1, fresh_word.2)
+    );
+    assert_eq!((updated.0, updated.2), (0, fields[5].parse().unwrap()));
+    assert_ne!(updated.3, capped.3);
+
+    batch(&reused, "--capture-cap-mib=unbounded", Some("--partials=1"));
+    let partial = cached_word(&reused);
+    assert_ne!(
+        partial.3, updated.3,
+        "the partial limit changes the owning measurement"
+    );
+    batch(&reused, "--capture-cap-mib=unbounded", Some("--partials=1"));
+    assert_eq!(cached_word(&reused), partial);
 }
 
 #[test]

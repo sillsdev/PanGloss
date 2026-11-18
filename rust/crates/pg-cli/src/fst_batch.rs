@@ -22,6 +22,7 @@ pub(crate) fn validate(
         if matches!(
             name,
             "--stats"
+                | "--stats-profile"
                 | "--stats-compact"
                 | "--cache-pack"
                 | "--cache"

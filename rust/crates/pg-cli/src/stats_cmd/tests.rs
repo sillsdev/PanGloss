@@ -38,6 +38,8 @@ fn reusable_replay_failure_rolls_back_only_its_chunk_and_reaches_the_caller() {
         false,
         path.to_str(),
         false,
+        StatsProfile::Full,
+        WordOnlySearchOptions::default(),
     )
     .unwrap();
     for i in 0..2 * STATS_FLUSH_BATCH {
@@ -58,7 +60,7 @@ fn reusable_replay_failure_rolls_back_only_its_chunk_and_reaches_the_caller() {
                     facts: Vec::new(),
                     gates: Some(Vec::new()),
                 },
-                prunes: pg_rules::stats::PruneCounters::default(),
+                prunes: Some(pg_rules::stats::PruneCounters::default()),
             })
             .unwrap();
     }
@@ -113,7 +115,7 @@ mod flag_spec_drives_the_parser {
         let mut args = base_args(&dir);
         args.push("--bogus-flag".to_string());
         let error = run_stats(&args).expect_err("an undeclared flag must be rejected");
-        assert_eq!(error, "unknown option: --bogus-flag");
+        assert_eq!(error.to_string(), "unknown option: --bogus-flag");
     }
 
     /// Drives `run_stats` with each declared flag; acceptance means "not rejected as unknown".
@@ -130,6 +132,7 @@ mod flag_spec_drives_the_parser {
             if flag.takes_value {
                 let value = match flag.name {
                     "--group" => "object",
+                    "--stats-profile" => "full",
                     "--direction" => "analysis",
                     "--sort" => "time",
                     "--format" => "text",
@@ -140,7 +143,7 @@ mod flag_spec_drives_the_parser {
             }
             let result = run_stats(&args);
             assert!(
-                !matches!(&result, Err(e) if e.starts_with("unknown option:")),
+                !matches!(&result, Err(e) if e.to_string().starts_with("unknown option:")),
                 "{}: expected the parser to accept this declared flag, got {result:?}",
                 flag.name
             );
@@ -1048,6 +1051,155 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
 }
 
 #[test]
+fn word_only_stats_preserve_batch_rows_analyses_and_word_measurements() {
+    let dir = tempfile::tempdir().unwrap();
+    let xml = root_allomorph_grammar(&[("entry", &["a", "b"])]);
+    let mut baseline = None;
+    let mut measured_words = None;
+    for (profile, threads) in [
+        ("off", "1"),
+        ("full", "2"),
+        ("word-only", "1"),
+        ("word-only", "2"),
+    ] {
+        let cache = dir.path().join(format!("{profile}-{threads}.sqlite"));
+        let analyses = dir.path().join("analyses.jsonl");
+        let mut flags = vec![
+            "--threads",
+            threads,
+            "--work-columns",
+            "--analyses",
+            analyses.to_str().unwrap(),
+        ];
+        if profile != "off" {
+            flags.extend([
+                "--stats",
+                "--stats-profile",
+                profile,
+                "--cache",
+                cache.to_str().unwrap(),
+            ]);
+        }
+        let (args, tsv) = run_batch_args(dir.path(), &xml, "a\nb\naa\n?\n", &flags);
+        crate::run_batch(&args).unwrap();
+        let rows = stable_batch_fields(&fs::read_to_string(tsv).unwrap());
+        let analyses: Vec<Value> = fs::read_to_string(analyses)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                let mut row: Value = serde_json::from_str(line).unwrap();
+                assert!(row
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("elapsedMs")
+                    .unwrap()
+                    .is_number());
+                row
+            })
+            .collect();
+        assert_eq!(rows.len(), 4);
+        assert_eq!(analyses.len(), 4);
+        let outputs = (rows, analyses);
+        if let Some(expected) = &baseline {
+            assert_eq!(expected, &outputs, "{profile} with {threads} thread(s)");
+        } else {
+            baseline = Some(outputs);
+        }
+        if profile != "off" {
+            let conn = rusqlite::Connection::open(cache).unwrap();
+            let mut query = conn.prepare("SELECT form,work,passes,capped,timed_out,invalid_shape,gates_measured,elapsed_ns FROM word ORDER BY form").unwrap();
+            let rows = query
+                .query_map([], |r| {
+                    assert!(r.get::<_, i64>(7)? > 0);
+                    assert_eq!(r.get::<_, bool>(6)?, profile == "full");
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, bool>(3)?,
+                        r.get::<_, bool>(4)?,
+                        r.get::<_, bool>(5)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(rows.len(), 4);
+            if let Some(expected) = &measured_words {
+                assert_eq!(expected, &rows);
+            } else {
+                measured_words = Some(rows);
+            }
+        }
+    }
+}
+
+#[test]
+fn word_only_resume_backfills_missing_prefix_and_reuses_compatible_rows() {
+    let xml = root_allomorph_grammar(&[("entry", &["a", "b"])]);
+    for threads in ["1", "2"] {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache.sqlite");
+        let flags = [
+            "--stats",
+            "--stats-profile=word-only",
+            "--cache",
+            cache.to_str().unwrap(),
+            "--threads",
+            threads,
+        ];
+        let (args, _) = run_batch_args(dir.path(), &xml, "a\n", &flags);
+        assert_eq!(crate::run_batch_counted(&args).unwrap(), 1);
+        let owner = cached_run_id(&cache, "a");
+        let mut resumed = flags.to_vec();
+        resumed.extend(["--start", "2"]);
+        let (args, tsv) = run_batch_args(dir.path(), &xml, "a\nb\naa\n", &resumed);
+        assert_eq!(crate::run_batch_counted(&args).unwrap(), 2);
+        assert_eq!(cached_run_id(&cache, "a"), owner);
+        assert!(cached_run_id(&cache, "b") > owner);
+        assert_eq!(cached_run_id(&cache, "aa"), cached_run_id(&cache, "b"));
+        let rows = stable_batch_fields(&fs::read_to_string(tsv).unwrap());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1][0], "2");
+        assert_eq!(rows[1][1], "aa");
+    }
+}
+
+#[test]
+fn invalid_stats_profiles_leave_cache_and_outputs_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let xml = root_allomorph_grammar(&[("entry", &["a"])]);
+    let cache = dir.path().join("cache.sqlite");
+    for (flags, diagnostic) in [
+        (
+            vec!["--stats-profile=full"],
+            "--stats-profile requires --stats",
+        ),
+        (vec!["--stats-profile="], "expected full or word-only"),
+        (
+            vec!["--stats", "--stats-profile", "typo"],
+            "expected full or word-only",
+        ),
+        (
+            vec!["--stats", "--stats-profile=word-only", "--stats-compact"],
+            "require full stats",
+        ),
+        (
+            vec!["--stats", "--stats-profile=word-only", "--cache-pack"],
+            "require full stats",
+        ),
+    ] {
+        let mut options = vec!["--cache", cache.to_str().unwrap()];
+        options.extend(flags);
+        let (args, tsv) = run_batch_args(dir.path(), &xml, "a\n", &options);
+        let error = crate::run_batch(&args).unwrap_err();
+        assert!(error.contains(diagnostic), "{error}");
+        assert!(!tsv.exists());
+        assert!(!cache.exists());
+    }
+}
+
+#[test]
 fn batch_stats_cache_refusal_leaves_the_previous_tsv_intact() {
     let (grammar_xml, word) = primary_fixture();
     let dir = scratch_dir("cache-refusal-keeps-tsv");
@@ -1929,7 +2081,7 @@ fn jsonl_format_requires_group() {
         "jsonl".to_string(),
     ];
     let err = run_stats(&args).expect_err("--format jsonl with no --group must be refused");
-    assert!(err.contains("--format jsonl requires --group"));
+    assert!(err.to_string().contains("--format jsonl requires --group"));
 }
 
 #[test]
@@ -1943,7 +2095,10 @@ fn public_stats_groups_do_not_expose_internal_stratum_or_direction_orientations(
             removed.to_string(),
         ];
         let err = run_stats(&args).expect_err("removed report groups must be rejected");
-        assert!(err.contains("invalid --group"), "{removed}: {err}");
+        assert!(
+            err.to_string().contains("invalid --group"),
+            "{removed}: {err}"
+        );
     }
 }
 
@@ -2417,7 +2572,7 @@ fn counter_sort_requires_one_kind() {
         args.extend(group_args.into_iter().map(str::to_string));
         args.extend(["--sort".to_string(), "attempts".to_string()]);
         let err = run_stats(&args).expect_err("cross-kind attempt sorting must be rejected");
-        assert!(err.contains("--kind"), "{err}");
+        assert!(err.to_string().contains("--kind"), "{err}");
     }
 }
 
@@ -2487,7 +2642,7 @@ fn stats_read_rejects_a_cache_with_multiple_engines() {
         path.to_string_lossy().into_owned(),
     ];
     let err = run_stats(&args).expect_err("mixed-engine cache reads must be hard errors");
-    assert!(err.contains("engine"), "{err}");
+    assert!(err.to_string().contains("engine"), "{err}");
 }
 
 #[test]
@@ -2540,7 +2695,7 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
         path.to_string_lossy().into_owned(),
     ];
     let err = run_stats(&args).expect_err("mixed-grammar cache reads must be hard errors");
-    assert!(err.contains("grammar"), "{err}");
+    assert!(err.to_string().contains("grammar"), "{err}");
 }
 
 #[test]
@@ -3057,6 +3212,8 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
             .unwrap()
             .grammar_hash,
         false,
+        StatsProfile::Full,
+        WordOnlySearchOptions::default(),
     )
     .expect("prepare the fresh frozen cache");
     drop(prepared);
@@ -3083,6 +3240,8 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
             .unwrap()
             .grammar_hash,
         false,
+        StatsProfile::Full,
+        WordOnlySearchOptions::default(),
     )
     .expect("prepare the fresh frozen cache");
     let source = crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml).unwrap();
@@ -3503,7 +3662,8 @@ fn packed_stats_corruption_emits_error_before_touching_report_output() {
     ])
     .unwrap_err();
     assert!(
-        error.contains("packed stats cache") && error.contains("corrupt archive chunk"),
+        error.to_string().contains("packed stats cache")
+            && error.to_string().contains("corrupt archive chunk"),
         "{error}"
     );
     assert_eq!(fs::read(&report).unwrap(), b"preserve prior report");

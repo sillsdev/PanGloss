@@ -16,6 +16,15 @@ pub enum StatsError {
     #[error("compact stats cache: allomorph breakdown and stratum filters are unavailable; record a full cache without --stats-compact")]
     CompactViewUnavailable,
 
+    #[error("word-only stats cache: per-object and feature-gate facts were not collected. Record a full cache with --stats-profile full")]
+    WordOnlyFactsUnavailable,
+
+    #[error("stats cache has the {existing} profile, requested {requested}. Use a different --cache path for the requested profile")]
+    ProfileMismatch {
+        existing: crate::StatsProfile,
+        requested: crate::StatsProfile,
+    },
+
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
 
@@ -47,6 +56,9 @@ pub enum StatsError {
 
     #[error("stats cache schema version {existing} is incompatible with {requested}")]
     SchemaMismatch { existing: i64, requested: i64 },
+
+    #[error("unknown stats cache schema version {0}")]
+    UnknownSchemaVersion(i64),
 
     #[error("stats cache has no cache identity row")]
     CacheIdentityMissing,

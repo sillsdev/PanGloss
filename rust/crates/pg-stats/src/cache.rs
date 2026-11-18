@@ -313,23 +313,7 @@ fn insert_run(
     run: &RunMetadata,
 ) -> Result<i64, StatsError> {
     crate::pack::refuse_packed_writer(conn)?;
-    let Some((_, identity_schema_version, identity_grammar_hash, identity_engine)) =
-        schema::cache_identity(conn)?
-    else {
-        return Err(StatsError::CacheIdentityMissing);
-    };
-    if identity_schema_version != schema_version {
-        return Err(StatsError::SchemaMismatch {
-            existing: identity_schema_version,
-            requested: schema_version,
-        });
-    }
-    if identity_grammar_hash != grammar_hash {
-        return Err(StatsError::GrammarMismatch {
-            existing: identity_grammar_hash,
-            requested: grammar_hash.to_string(),
-        });
-    }
+    let identity_engine = validate_identity(conn, schema_version, grammar_hash)?;
     if run.grammar_hash != grammar_hash {
         return Err(StatsError::GrammarMismatch {
             existing: grammar_hash.to_string(),
@@ -396,6 +380,54 @@ fn insert_run(
     Ok(conn.last_insert_rowid())
 }
 
+/// Checks a handle against the identity visible inside its current transaction.
+fn validate_identity(
+    conn: &Connection,
+    schema_version: i64,
+    grammar_hash: &str,
+) -> Result<Option<String>, StatsError> {
+    let (_, version, hash, engine) =
+        schema::cache_identity(conn)?.ok_or(StatsError::CacheIdentityMissing)?;
+    if version != schema_version {
+        return Err(StatsError::SchemaMismatch {
+            existing: version,
+            requested: schema_version,
+        });
+    }
+    if hash != grammar_hash {
+        return Err(StatsError::GrammarMismatch {
+            existing: hash,
+            requested: grammar_hash.to_string(),
+        });
+    }
+    Ok(engine)
+}
+
+fn refuse_profile_change(existing_version: i64, requested_version: i64) -> Result<(), StatsError> {
+    let requested = schema::StatsProfile::from_schema_version(requested_version)?;
+    let existing = match schema::StatsProfile::including_legacy(existing_version) {
+        Ok(profile) => profile,
+        // Full writers historically recreate incompatible cache versions.
+        Err(StatsError::UnknownSchemaVersion(_)) => {
+            if requested == schema::StatsProfile::Full {
+                return Ok(());
+            }
+            return Err(StatsError::SchemaMismatch {
+                existing: existing_version,
+                requested: requested_version,
+            });
+        }
+        Err(error) => return Err(error),
+    };
+    if existing != requested {
+        return Err(StatsError::ProfileMismatch {
+            existing,
+            requested,
+        });
+    }
+    Ok(())
+}
+
 fn write_word(
     conn: &Connection,
     schema_version: i64,
@@ -403,7 +435,18 @@ fn write_word(
     run_id: i64,
     word: &WordRecord,
 ) -> Result<(), StatsError> {
-    let word_id = upsert_word(conn, run_id, word)?;
+    if schema_version == schema::WORD_ONLY_SCHEMA_VERSION {
+        if !word.facts.is_empty() || word.gates.is_some() {
+            return Err(StatsError::WordOnlyFactsUnavailable);
+        }
+        return upsert_word(conn, run_id, word);
+    }
+    upsert_word(conn, run_id, word)?;
+    let word_id = query_id_cached(
+        conn,
+        "SELECT word_id FROM word WHERE form = ?1",
+        params![word.form],
+    )?;
     execute_cached(
         conn,
         "DELETE FROM fact WHERE word_id = ?1",
@@ -464,17 +507,25 @@ pub struct OpenOutcome {
 impl StatsCache {
     /// Opens (creating if absent) the cache at `cache_path` for the given grammar hash.
     ///
-    /// Wipes and recreates when the stored `grammar_hash` differs from `grammar_hash`, or when
-    /// the stored `schema_version` differs from this build's — a cache is never migrated.
+    /// Refuses a different collection profile. Within the profile, grammar or schema mismatches
+    /// wipe and recreate the cache.
     /// `cache_path` may be `crate::path::default_cache_path`'s result or a caller-supplied
     /// override; this function does not care which.
     pub fn open(cache_path: &Path, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
         Self::open_with_version(cache_path, grammar_hash, schema::SCHEMA_VERSION)
     }
 
-    /// Opens an opt-in compact cache, wiping incompatible full-cache data as on other mismatches.
+    /// Opens compact storage for the full collection profile, wiping a non-compact full cache.
     pub fn open_compact(cache_path: &Path, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
         Self::open_with_version(cache_path, grammar_hash, schema::COMPACT_SCHEMA_VERSION)
+    }
+
+    /// Opens a cache for word measurements. Each collection profile requires its own cache path.
+    pub fn open_word_only(
+        cache_path: &Path,
+        grammar_hash: &str,
+    ) -> Result<OpenOutcome, StatsError> {
+        Self::open_with_version(cache_path, grammar_hash, schema::WORD_ONLY_SCHEMA_VERSION)
     }
 
     fn open_with_version(
@@ -488,12 +539,28 @@ impl StatsCache {
             }
         }
         let mut conn = Connection::open(cache_path)?;
+        conn.busy_timeout(Duration::from_secs(5))?;
         if crate::pack::is_packed(&conn)? {
+            if let Some((_, stored_version, _, _)) = schema::cache_identity(&conn)? {
+                refuse_profile_change(stored_version, version)?;
+            }
+            if let Some(run_version) = schema::legacy_run_version(&conn)? {
+                refuse_profile_change(run_version, version)?;
+            }
             crate::pack::unpack_on(&mut conn)?;
         }
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.busy_timeout(Duration::from_secs(5))?;
-        Self::open_on_version(conn, grammar_hash, version)
+        let outcome = Self::open_on_version(conn, grammar_hash, version)?;
+        let mode: String =
+            outcome
+                .cache
+                .conn
+                .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
+        if !mode.eq_ignore_ascii_case("wal") {
+            return Err(StatsError::PackedCache(format!(
+                "stats cache could not enter WAL journal mode (got {mode})"
+            )));
+        }
+        Ok(outcome)
     }
 
     /// Opens an in-memory cache. Test-only: a real cache is always file-backed so it survives
@@ -516,6 +583,7 @@ impl StatsCache {
         version: i64,
     ) -> Result<OpenOutcome, StatsError> {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        crate::pack::refuse_packed_writer(&tx)?;
         let identity = schema::cache_identity(&tx)?;
         let run_table_exists = schema::has_run_table(&tx)?;
         let wiped = match identity {
@@ -528,6 +596,9 @@ impl StatsCache {
                 false
             }
             None => {
+                if let Some(run_version) = schema::legacy_run_version(&tx)? {
+                    refuse_profile_change(run_version, version)?;
+                }
                 if version == schema::SCHEMA_VERSION {
                     schema::wipe_and_recreate(&tx, grammar_hash)?;
                 } else {
@@ -536,7 +607,11 @@ impl StatsCache {
                 true
             }
             Some((_, stored_schema_version, stored_grammar_hash, _)) => {
+                refuse_profile_change(stored_schema_version, version)?;
                 let latest = schema::latest_run_signature(&tx)?;
+                if let Some((run_version, _)) = &latest {
+                    refuse_profile_change(*run_version, version)?;
+                }
                 let run_mismatch = latest.is_some_and(|(run_version, hash)| {
                     run_version != version || hash != grammar_hash
                 });
@@ -572,58 +647,83 @@ impl StatsCache {
         &self.conn
     }
 
+    fn with_identity<T>(
+        &self,
+        behavior: TransactionBehavior,
+        action: impl FnOnce(&Connection) -> Result<T, StatsError>,
+    ) -> Result<T, StatsError> {
+        let checked = |conn: &Connection| {
+            validate_identity(conn, self.schema_version, &self.grammar_hash)?;
+            action(conn)
+        };
+        if !self.conn.is_autocommit() {
+            return checked(&self.conn);
+        }
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, behavior)?;
+        let result = checked(&tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
     /// Which of `forms` already have a `word` row, so a caller can skip recomputing them.
     pub fn existing_words(&self, forms: &[&str]) -> Result<HashSet<String>, StatsError> {
-        if forms.is_empty() {
-            return Ok(HashSet::new());
-        }
-        let placeholders = vec!["?"; forms.len()].join(",");
-        let sql = format!("SELECT form FROM word WHERE form IN ({placeholders})");
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(forms.iter()), |row| {
-            row.get::<_, String>(0)
-        })?;
-        rows.collect::<Result<HashSet<_>, _>>().map_err(Into::into)
+        self.with_identity(TransactionBehavior::Deferred, |conn| {
+            if forms.is_empty() {
+                return Ok(HashSet::new());
+            }
+            let placeholders = vec!["?"; forms.len()].join(",");
+            let sql = format!("SELECT form FROM word WHERE form IN ({placeholders})");
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(forms.iter()), |row| {
+                row.get::<_, String>(0)
+            })?;
+            rows.collect::<Result<HashSet<_>, _>>().map_err(Into::into)
+        })
     }
 
     /// Which requested words are still reusable under the owning run's measurement identity.
     ///
     /// A cache can accumulate words measured under different options. Reuse is therefore decided
     /// per word by joining its current owner run, never by comparing against a cache-global latest
-    /// run. Build revision remains provenance; the reusable measurement contract is options plus
-    /// counter semantics.
+    /// run. Reuse requires matching schema, options and counter semantics. Full HC measurements
+    /// additionally require feature-gate coverage.
     pub fn reusable_words(
         &self,
         forms: &[&str],
         options_hash: &str,
     ) -> Result<HashSet<String>, StatsError> {
-        const QUERY_FORM_LIMIT: usize = 500;
-        let mut reusable = HashSet::new();
-        for chunk in forms.chunks(QUERY_FORM_LIMIT) {
-            let placeholders = vec!["?"; chunk.len()].join(",");
-            let sql = format!(
-                "SELECT w.form FROM word AS w \
-                 JOIN run AS r ON r.run_id = w.run_id \
-                 WHERE w.form IN ({placeholders}) \
-                   AND r.options_hash = ? \
-                   AND r.counter_semantics = ? \
-                   AND (r.engine <> 'hc' OR w.gates_measured = 1)"
-            );
-            let mut values = chunk
-                .iter()
-                .map(|form| rusqlite::types::Value::Text((*form).to_string()))
-                .collect::<Vec<_>>();
-            values.push(rusqlite::types::Value::Text(options_hash.to_string()));
-            values.push(rusqlite::types::Value::Integer(
-                schema::COUNTER_SEMANTICS_VERSION,
-            ));
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
-                row.get::<_, String>(0)
-            })?;
-            reusable.extend(rows.collect::<Result<HashSet<_>, _>>()?);
-        }
-        Ok(reusable)
+        self.with_identity(TransactionBehavior::Deferred, |conn| {
+            const QUERY_FORM_LIMIT: usize = 500;
+            let mut reusable = HashSet::new();
+            for chunk in forms.chunks(QUERY_FORM_LIMIT) {
+                let placeholders = vec!["?"; chunk.len()].join(",");
+                let sql = format!(
+                    "SELECT w.form FROM word AS w \
+                     JOIN run AS r ON r.run_id = w.run_id \
+                     WHERE w.form IN ({placeholders}) \
+                       AND r.schema_version = ? \
+                       AND r.options_hash = ? \
+                       AND r.counter_semantics = ? \
+                       AND (r.schema_version = {} OR r.engine <> 'hc' OR w.gates_measured = 1)",
+                    schema::WORD_ONLY_SCHEMA_VERSION
+                );
+                let mut values = chunk
+                    .iter()
+                    .map(|form| rusqlite::types::Value::Text((*form).to_string()))
+                    .collect::<Vec<_>>();
+                values.push(rusqlite::types::Value::Integer(self.schema_version));
+                values.push(rusqlite::types::Value::Text(options_hash.to_string()));
+                values.push(rusqlite::types::Value::Integer(
+                    schema::COUNTER_SEMANTICS_VERSION,
+                ));
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    row.get::<_, String>(0)
+                })?;
+                reusable.extend(rows.collect::<Result<HashSet<_>, _>>()?);
+            }
+            Ok(reusable)
+        })
     }
 
     /// Errors when this cache already holds a run recorded under a work cap other than
@@ -641,6 +741,18 @@ impl StatsCache {
         }
     }
 
+    fn intern(
+        &self,
+        insert: impl FnOnce(&Connection) -> Result<i64, StatsError>,
+    ) -> Result<i64, StatsError> {
+        self.with_identity(TransactionBehavior::Immediate, |conn| {
+            crate::pack::refuse_packed_writer(conn)?;
+            schema::StatsProfile::from_schema_version(self.schema_version)?
+                .require_object_facts()?;
+            insert(conn)
+        })
+    }
+
     /// Returns the stable id for `(key, kind)`, inserting a new `object` row on first sight.
     /// `morpheme` is only ever `Some` for a `lex_entry` object; every other kind interns the
     /// `morpheme` sentinel (id 0).
@@ -652,26 +764,22 @@ impl StatsCache {
         identity_quality: IdentityQuality,
         morpheme: Option<&StructuralLocator>,
     ) -> Result<i64, StatsError> {
-        crate::pack::refuse_packed_writer(&self.conn)?;
-        intern_object_on(&self.conn, key, kind, label, identity_quality, morpheme)
+        self.intern(|conn| intern_object_on(conn, key, kind, label, identity_quality, morpheme))
     }
 
     /// Returns the stable id for a stratum `key`, inserting a new row on first sight.
     pub fn intern_stratum(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
-        crate::pack::refuse_packed_writer(&self.conn)?;
-        intern_stratum_on(&self.conn, locator)
+        self.intern(|conn| intern_stratum_on(conn, locator))
     }
 
     /// Returns the stable id for an allomorph `key`, inserting a new row on first sight.
     pub fn intern_allomorph(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
-        crate::pack::refuse_packed_writer(&self.conn)?;
-        intern_allomorph_on(&self.conn, locator)
+        self.intern(|conn| intern_allomorph_on(conn, locator))
     }
 
     /// Returns the stable id for a morpheme `key`, inserting a new row on first sight.
     pub fn intern_morpheme(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
-        crate::pack::refuse_packed_writer(&self.conn)?;
-        intern_morpheme_on(&self.conn, locator)
+        self.intern(|conn| intern_morpheme_on(conn, locator))
     }
 
     /// Writes one run's metadata and every word/fact row it produced, in a single transaction.
@@ -886,7 +994,7 @@ fn read_frozen_bool(field: &'static str, value: i64) -> Result<bool, StatsError>
     }
 }
 
-fn upsert_word(tx: &Connection, run_id: i64, word: &WordRecord) -> Result<i64, StatsError> {
+fn upsert_word(tx: &Connection, run_id: i64, word: &WordRecord) -> Result<(), StatsError> {
     execute_cached(
         tx,
         "INSERT INTO word (run_id, form, elapsed_ns, work, passes, capped, timed_out, invalid_shape)
@@ -909,11 +1017,6 @@ fn upsert_word(tx: &Connection, run_id: i64, word: &WordRecord) -> Result<i64, S
             i64::from(word.timed_out),
             i64::from(word.invalid_shape),
         ],
-    )?;
-    query_id_cached(
-        tx,
-        "SELECT word_id FROM word WHERE form = ?1",
-        params![word.form],
     )
 }
 

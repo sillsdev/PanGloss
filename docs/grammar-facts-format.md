@@ -706,7 +706,9 @@ was dropped. The closure tables add an index on `ancestor_guid` for the descenda
 Stats are optional and immutable in a facts file. Without both stats flags, all run-specific tables
 are empty, `artifact_meta.run_manifest_sha256` is NULL, and `artifact_section.stats` is
 `not_requested`. `stats_counter_support` is still populated because it describes what the current
-collector can measure. With a valid cache/manifest pair, the stats section is `complete` even when
+collector can measure. Object projection requires the full collection profile. Supplying a
+word-only cache and its matching manifest returns `missing_object_facts`.
+With a valid full-profile cache/manifest pair, the stats section is `complete` even when
 some requested words are incomplete; word-level completion is represented explicitly and must be
 checked before using those words as completed parser evidence.
 
@@ -731,7 +733,8 @@ allomorph source records. Structural and synthetic identities are never presente
 GUIDs. No counter is inferred, backfilled, or fabricated for a collector path that does not publish
 it.
 
-The version 1 manifest is closed JSON. It carries `format`, `version`, and source, compiler, cache,
+The version 2 manifest is closed JSON. Its optional `profile` defaults to `full` and must
+agree with the cache schema. It carries `format`, `version`, and source, compiler, cache,
 run, batch, input, and completion objects. Source identity includes source kind, exact source digest,
 grammar hash, model fingerprint, and canonical production compile options. Cache identity includes
 the closed-file digest, byte count, schema version, and counter-semantics version. Run identity

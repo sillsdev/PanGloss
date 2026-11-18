@@ -20,6 +20,13 @@ locators are zero sentinels for compatibility with existing cost queries, not me
 readers must check the schema version before offering those views. See
 [compact cache behavior](../../docs/optimize-grammar-with-stats.md) for retained counters and replay limits.
 
+For word timing and correctness runs, add `--stats-profile word-only`. The manifest declares
+the top-level field `"profile": "word-only"` and cache schema 15. A missing profile denotes
+`full` and must match schema 13 or 14. Readers must verify this pairing against the cache.
+Word-only manifests retain the source, ordered input and completion identities. Read their
+word measurements with `pangloss stats --group word`. The object projection in
+`pangloss facts --stats` returns `missing_object_facts` for this profile.
+
 The cache must be absent or an existing zero-byte file before the batch starts. The command
 refuses a populated cache, duplicate effective word forms, a nonzero --start, a preexisting
 manifest, or any alias among the grammar, word list, TSV, analyses output, cache and manifest
@@ -81,4 +88,4 @@ queries, `pangloss stats-cache unpack --cache <path> --out <temporary-path>` lea
 the frozen source and its digest unchanged. In-place pack/unpack changes bytes and
 invalidates any previously recorded digest; never mutate published evidence.
 
-Feature predicates are collected with HC `--stats`; see [feature gates](../../docs/formats/stats-cache.md).
+The full profile collects feature predicates. [Feature gates](../../docs/formats/stats-cache.md)

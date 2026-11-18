@@ -207,9 +207,9 @@ pub fn pack(path: &Path) -> Result<(), StatsError> {
     }
     let (_, version, _, _) =
         schema::cache_identity(&tx)?.ok_or(StatsError::CacheIdentityMissing)?;
-    if !schema::supported_schema_version(version) {
-        return Err(invalid(format!("unsupported logical schema {version}")));
-    }
+    schema::StatsProfile::from_schema_version(version)
+        .map_err(|_| invalid(format!("unsupported logical schema {version}")))?
+        .require_object_facts()?;
     let snapshot = NamedTempFile::new()?;
     let source = read_only(path)?;
     source.execute(

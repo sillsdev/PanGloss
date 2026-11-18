@@ -137,7 +137,20 @@ fn dispatch_stats_cache(args: &[String]) -> ExitCode {
     dispatch("stats-cache", args, crate::stats_cmd::run_stats_cache)
 }
 fn dispatch_stats(args: &[String]) -> ExitCode {
-    dispatch("stats", args, crate::stats_cmd::run_stats)
+    match crate::stats_cmd::run_stats(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("pangloss stats: {error}");
+            if matches!(
+                error,
+                crate::stats_cmd::StatsCommandError::MissingObjectFacts
+            ) {
+                ExitCode::from(3)
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+    }
 }
 fn dispatch_phonology_examples(args: &[String]) -> ExitCode {
     dispatch(
@@ -372,10 +385,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--stats",
         takes_value: false,
-        summary: "additionally record per-object statistics into the stats cache",
+        summary: "record batch statistics in the stats cache (full profile by default)",
     },
-    FlagSpec { name: "--cache-pack", takes_value: false, summary: "compress facts at rest, leaving word rows directly readable (requires --stats)" },
-    FlagSpec { name: "--stats-compact", takes_value: false, summary: "retain object totals without allomorph/stratum dimensions (requires --stats)" },
+    FlagSpec { name: "--stats-profile", takes_value: true, summary: "full|word-only (requires --stats); word-only records per-word timing, work and outcomes, omitting object, gate and prune counters" },
+    FlagSpec { name: "--cache-pack", takes_value: false, summary: "compress facts at rest, leaving word rows directly readable (requires full stats)" },
+    FlagSpec { name: "--stats-compact", takes_value: false, summary: "retain object totals without allomorph/stratum dimensions (requires full stats)" },
     FlagSpec {
         name: "--cache",
         takes_value: true,
@@ -741,6 +755,11 @@ const STATS_CACHE_FLAGS: &[FlagSpec] = &[
 ];
 
 const STATS_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--stats-profile",
+        takes_value: true,
+        summary: "full|word-only, selects the default cache file when --cache is omitted",
+    },
     FlagSpec {
         name: "--group",
         takes_value: true,
