@@ -101,7 +101,14 @@ pub fn environments_ok(
     end: u32,
 ) -> bool {
     EnvCheck::Fresh
-        .evaluate(g, AllomorphId::GUESSED, envs, shape, (start, end), false)
+        .evaluate(
+            g,
+            AllomorphId::GUESSED,
+            envs,
+            shape,
+            (start, end),
+            EnvironmentCapture::Off,
+        )
         .is_ok()
 }
 
@@ -128,6 +135,13 @@ fn env_side_ok(
 enum EnvCheck<'a> {
     Fresh,
     Cached(&'a RuleCache, Option<&'a StatsCollector>),
+}
+
+#[derive(Clone, Copy)]
+enum EnvironmentCapture {
+    Off,
+    Observe,
+    Tree,
 }
 
 impl EnvCheck<'_> {
@@ -179,7 +193,7 @@ impl EnvCheck<'_> {
         start: u32,
         end: u32,
     ) -> bool {
-        self.evaluate(g, id, envs, shape, (start, end), false)
+        self.evaluate(g, id, envs, shape, (start, end), EnvironmentCapture::Off)
             .is_ok()
     }
 
@@ -191,7 +205,7 @@ impl EnvCheck<'_> {
         envs: &[EnvironmentDef],
         shape: &Shape,
         span: (u32, u32),
-        capture: bool,
+        capture: EnvironmentCapture,
     ) -> Result<(), Vec<EnvironmentResult>> {
         let (start, end) = span;
         if envs.is_empty() {
@@ -222,8 +236,11 @@ impl EnvCheck<'_> {
             if accepted {
                 return Ok(());
             }
-            if capture {
-                let source = env.source.as_ref();
+            if !matches!(capture, EnvironmentCapture::Off) {
+                let source = match capture {
+                    EnvironmentCapture::Tree => env.source.as_ref(),
+                    _ => None,
+                };
                 results.push(EnvironmentResult {
                     index,
                     require: env.require,
@@ -597,8 +614,9 @@ fn fail(
         crate::trace::TraceMode::Observe(recorder)
             if matches!(reason, FailureReason::BoundRoot) =>
         {
-            recorder.record(Decision::BoundRoot { allomorph: object });
+            recorder.record_terminal(w, Decision::BoundRoot { allomorph: object });
         }
+        crate::trace::TraceMode::Observe(recorder) => recorder.unobserved_terminal(w),
         _ => {}
     }
     false
@@ -617,11 +635,19 @@ fn fail_with_context(
     if w.collect_partials() {
         record_partial_gate(g, object);
     }
-    if trace.is_tracing() {
-        let event = trace.failed(parent, w, reason);
-        if trace.captures_failure_context() {
-            trace.set_failure_context(event, context());
+    match trace.mode() {
+        crate::trace::TraceMode::Tree => {
+            let event = trace.failed(parent, w, reason);
+            if trace.captures_failure_context() {
+                trace.set_failure_context(event, context());
+            }
         }
+        crate::trace::TraceMode::Observe(recorder)
+            if !matches!(reason, FailureReason::Environments) =>
+        {
+            recorder.unobserved_terminal(w);
+        }
+        _ => {}
     }
     false
 }
@@ -641,6 +667,21 @@ fn fail_with_environment_context(
     rejection: EnvironmentRejection,
     legacy_environment: impl FnOnce() -> String,
 ) -> bool {
+    if let Some(recorder) = trace.mode().recorder() {
+        if pg_fst::work::active_budget()
+            .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+        {
+            recorder.record_terminal(
+                w,
+                Decision::Environment {
+                    constraint_owner: rejection.constraint_owner,
+                    allomorph: rejection.object,
+                    span: rejection.span,
+                    alternatives: &rejection.alternatives,
+                },
+            );
+        }
+    }
     fail_with_context(
         g,
         rejection.constraint_owner,
@@ -682,6 +723,13 @@ fn allomorphs_valid_impl(
     if w.morphs.is_empty() {
         return true;
     }
+    let environment_capture = match trace.mode() {
+        crate::trace::TraceMode::Observe(_) => EnvironmentCapture::Observe,
+        crate::trace::TraceMode::Tree if trace.captures_failure_context() => {
+            EnvironmentCapture::Tree
+        }
+        _ => EnvironmentCapture::Off,
+    };
     let layout = MorphLayout::decode(&w.morphs, w.shape.len());
     let mut sorted_indices: Vec<usize> = (0..w.morphs.len()).collect();
     sorted_indices.sort_by_key(|&index| w.morphs[index].order);
@@ -826,7 +874,7 @@ fn allomorphs_valid_impl(
                 &def.environments,
                 &w.shape,
                 (start, end),
-                trace.is_tracing() && trace.captures_failure_context(),
+                environment_capture,
             ) {
                 return fail_with_environment_context(
                     g,
@@ -922,7 +970,7 @@ fn allomorphs_valid_impl(
                     &def.environments,
                     &w.shape,
                     (start, end),
-                    trace.is_tracing() && trace.captures_failure_context(),
+                    environment_capture,
                 ) {
                     return fail_with_environment_context(
                         g,
@@ -1057,7 +1105,7 @@ fn allomorphs_valid_impl(
                     &def.environments,
                     &w.shape,
                     (start, end),
-                    trace.is_tracing() && trace.captures_failure_context(),
+                    environment_capture,
                 ) {
                     return fail_with_environment_context(
                         g,

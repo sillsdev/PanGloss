@@ -27,6 +27,7 @@ pub struct TrailAlternative {
     /// The folded word's own trail, sharing its steps with the search.
     trail: Trail,
     syn_fs: FeatureStruct,
+    trace: crate::trace::TraceOverride,
 }
 
 fn same_source(a: &Option<Rc<Word>>, b: &Option<Rc<Word>>) -> bool {
@@ -84,11 +85,12 @@ impl TrailAlternative {
             && flags.final_template_state == fields.final_template_state
             && same_source(source, &canonical.source)
             && alternatives.is_empty()
-            && *trace == canonical.trace;
+            && (*trace == canonical.trace || trace.is_some_and(crate::trace::TraceHandle::is_observation));
         // The stored trail carries its own unapplication counts, so they need no comparison with the canonical's.
         rebuilds.then(|| TrailAlternative {
             trail: trail.clone(),
             syn_fs: syn_fs.clone(),
+            trace: crate::trace::TraceOverride::from_word(*trace),
         })
     }
 
@@ -96,6 +98,7 @@ impl TrailAlternative {
         let mut w = canonical.clone_without_alternatives();
         w.trail = self.trail.clone();
         w.syn_fs = self.syn_fs.clone();
+        w.trace = self.trace.resolve(canonical.trace);
         if !w.applied_phonological_rules().is_empty() {
             w.applied_phonological_rules_mut().clear();
         }
@@ -122,6 +125,16 @@ impl Alternative {
         match self {
             Alternative::Trail(trail) => Rc::new(trail.rebuild(canonical)),
             Alternative::Whole(w) => w.clone(),
+        }
+    }
+
+    pub(crate) fn trace(
+        &self,
+        canonical: Option<crate::trace::TraceHandle>,
+    ) -> Option<crate::trace::TraceHandle> {
+        match self {
+            Self::Trail(trail) => trail.trace.resolve(canonical),
+            Self::Whole(word) => word.trace,
         }
     }
 

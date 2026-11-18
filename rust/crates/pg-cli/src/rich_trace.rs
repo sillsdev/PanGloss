@@ -207,14 +207,17 @@ impl Default for TraceMetadata {
     }
 }
 impl TraceMetadata {
-    pub(crate) fn diagnostic_senses(&self) -> std::collections::HashMap<(&str, &str), Vec<&str>> {
+    pub(crate) fn diagnostic_senses<'a>(
+        &'a self,
+        grammar: &'a Grammar,
+    ) -> std::collections::HashMap<(&'a str, &'a str), Vec<&'a str>> {
         let mut by_owner = std::collections::HashMap::<_, Vec<_>>::new();
         if let Some(snapshot) = &self.snapshot {
             for entry in &snapshot.entries {
                 for sense in &entry.senses {
                     if let Some(msa) = &sense.msa {
                         by_owner
-                            .entry((entry.guid.as_str(), msa.as_str()))
+                            .entry((entry.guid.as_str(), grammar.representative_msa(msa)))
                             .or_default()
                             .push(sense.guid.as_str());
                     }

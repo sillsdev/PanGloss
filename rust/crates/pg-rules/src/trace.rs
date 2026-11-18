@@ -48,10 +48,47 @@ impl TraceHandle {
     /// all `unreachable!()`, so this value is never actually looked up.
     pub const DUMMY: TraceHandle = TraceHandle(u32::MAX);
 
+    /// An observation cursor whose ancestry exceeded the capture budget.
+    pub const OMITTED_OBSERVATION: TraceHandle = TraceHandle(u32::MAX - 1);
+
+    const OBSERVATION_BIT: u32 = 1 << 31;
+
+    pub fn observation(index: u32) -> Option<Self> {
+        (index < Self::OBSERVATION_BIT - 2).then_some(Self(index | Self::OBSERVATION_BIT))
+    }
+
+    pub(crate) fn is_observation(self) -> bool {
+        self.0 & Self::OBSERVATION_BIT != 0 && self != Self::DUMMY
+    }
+
     /// The document-local arena index, for linking published events within one trace.
     pub fn index(self) -> u32 {
-        assert_ne!(self, Self::DUMMY, "a dummy handle has no document identity");
-        self.0
+        assert!(
+            self != Self::DUMMY && self != Self::OMITTED_OBSERVATION,
+            "a sentinel handle has no document identity"
+        );
+        self.0 & !Self::OBSERVATION_BIT
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TraceOverride(u32);
+
+impl TraceOverride {
+    pub(crate) fn from_word(trace: Option<TraceHandle>) -> Self {
+        Self(
+            trace
+                .filter(|handle| handle.is_observation())
+                .map_or(0, |handle| handle.0),
+        )
+    }
+
+    pub(crate) fn resolve(self, inherited: Option<TraceHandle>) -> Option<TraceHandle> {
+        if self.0 == 0 {
+            inherited
+        } else {
+            Some(TraceHandle(self.0))
+        }
     }
 }
 

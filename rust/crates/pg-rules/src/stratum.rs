@@ -9,7 +9,7 @@
 //! matcher calls consume that same allowance inside traversal and candidate expansion.
 //! Exhaustion unwinds the descent and marks the result incomplete.
 
-use crate::observations::Decision;
+use crate::observations::{Decision, Recorder};
 use std::cell::Cell;
 use std::rc::Rc;
 use web_time::Duration;
@@ -1126,6 +1126,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     matches!(rule, MorphRuleDef::Realizational(_)),
                 );
             }
+            if let Some(recorder) = self.trace_mode.recorder() {
+                o.trace = recorder.advance(w.trace);
+            }
         }
         outs
     }
@@ -1291,9 +1294,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 let key = w.dedup_key(input);
                 match union.position(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
-                    Some(idx) => widen_syn_fs(union.get_mut(idx).syn_fs_mut(), w.syn_fs(), &|f| {
-                        self.g.syn_features.mask(f)
-                    }),
+                    Some(idx) => {
+                        let retained = union.get_mut(idx);
+                        widen_syn_fs(retained.syn_fs_mut(), w.syn_fs(), &|f| {
+                            self.g.syn_features.mask(f)
+                        });
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.merged(&w.into_word(input), retained.trace(input), true);
+                        }
+                    }
                     None => union.push_new(&key, w),
                 }
             }
@@ -1417,7 +1426,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         for &pos in &here.terminal {
             if walk.admitted[pos] && !walk.dead[pos] {
                 self.shadow_completed(fired_of(fired, pos));
-                walk.outs[pos].insert(w);
+                walk.outs[pos].insert(w, self.trace_mode.recorder());
             }
         }
         for &child in &here.children {
@@ -1432,7 +1441,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             let slot = trie.slot(self.g, child);
             if self.slot_fully_excluded(slot) {
                 // The batch would be empty; an optional slot is passed over, a required one ends the path.
-                if slot_optional(slot) {
+                let optional = slot_optional(slot);
+                self.observe_shared_slot(&trie.nodes[child], walk, w, optional);
+                if optional {
                     self.walk_slot_trie(trie, child, w, walk, fired, false);
                 }
                 continue;
@@ -1460,11 +1471,51 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 self.walk_slot_trie(trie, child, &ow, walk, fired, true);
             }
             if slot_optional(slot) {
+                self.observe_shared_slot(&trie.nodes[child], walk, w, true);
                 self.walk_slot_trie(trie, child, w, walk, fired, false);
+            } else {
+                self.observe_shared_slot(&trie.nodes[child], walk, w, false);
             }
         }
         for pos in marked {
             walk.dead[pos] = false;
+        }
+    }
+
+    fn observe_shared_slot(
+        &self,
+        node: &SlotTrieNode,
+        walk: &TrieWalk<'_>,
+        word: &Word,
+        optional: bool,
+    ) {
+        if let Some(recorder) = self.trace_mode.recorder() {
+            if self.budget.search_stopped() {
+                return;
+            }
+            for &pos in &node.below {
+                if !walk.live(pos) {
+                    continue;
+                }
+                let template = self.stratum.templates[pos];
+                let slot = self.g.templates[template.0 as usize].slots.len() - node.depth;
+                recorder.record_at(
+                    word,
+                    if optional {
+                        Decision::OptionalSlotSkipped {
+                            template,
+                            slot,
+                            analysis: true,
+                        }
+                    } else {
+                        Decision::RequiredSlotUnfilled {
+                            template,
+                            slot,
+                            analysis: true,
+                        }
+                    },
+                );
+            }
         }
     }
 
@@ -1535,11 +1586,14 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 // This level's `in_word` could not get past a non-optional slot.
                 if let Some(recorder) = self.trace_mode.recorder() {
                     if !self.budget.search_stopped() {
-                        recorder.record(Decision::RequiredSlotUnfilled {
-                            template: tid,
-                            slot: slot_index,
-                            analysis: true,
-                        });
+                        recorder.record_at(
+                            in_word,
+                            Decision::RequiredSlotUnfilled {
+                                template: tid,
+                                slot: slot_index,
+                                analysis: true,
+                            },
+                        );
                     }
                 }
                 if let Some(outcomes) = &mut slot_outcomes {
@@ -1573,7 +1627,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         self.end_unapply_template(tid, in_word, true, slot_outcomes.as_deref());
         self.shadow_completed(&fired);
-        out.insert(in_word);
+        out.insert(in_word, self.trace_mode.recorder());
     }
 
     /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
@@ -1605,6 +1659,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 match seen.find(&key, |at| &out[at].0) {
                     // Same FS-blind collapse as `run_template_batch_raw`, one slot rule down: widen rather than drop.
                     Some(idx) => {
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.merged(&w, out[idx].0.trace, true);
+                        }
                         generalize_syn_fs(&mut out[idx].0, &w, &|f| self.g.syn_features.mask(f))
                     }
                     None => {
@@ -1657,27 +1714,41 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             });
             let _phon_time = prule_stats.map(PRuleStatsCtx::time);
             let result = match &self.g.prules[pid.0 as usize] {
-                pg_grammar_model::model::PhonRuleDef::Rewrite(r) => match self.cache {
-                    Some(cache) => rewrite::analyze_cached_traced(
-                        self.g,
-                        pid,
-                        r,
-                        &input.shape,
-                        cache,
-                        prule_stats,
-                        self.trace,
-                        self.parent,
-                    ),
-                    None => rewrite::analyze_traced(
-                        self.g,
-                        pid,
-                        r,
-                        &input.shape,
-                        prule_stats,
-                        self.trace,
-                        self.parent,
-                    ),
-                },
+                pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
+                    let rewritten = match self.cache {
+                        Some(cache) => rewrite::analyze_cached_traced(
+                            self.g,
+                            pid,
+                            r,
+                            &input.shape,
+                            cache,
+                            prule_stats,
+                            self.trace,
+                            self.parent,
+                        ),
+                        None => rewrite::analyze_traced(
+                            self.g,
+                            pid,
+                            r,
+                            &input.shape,
+                            prule_stats,
+                            self.trace,
+                            self.parent,
+                        ),
+                    };
+                    if let Some(recorder) = self.trace_mode.recorder() {
+                        if rewritten.is_empty() && !self.budget.search_stopped() {
+                            recorder.record_at(
+                                &input,
+                                Decision::RewriteNoOutput {
+                                    rule: pid,
+                                    analysis: true,
+                                },
+                            );
+                        }
+                    }
+                    rewritten
+                }
                 pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
                     // `rewrite` records its own counters; `metathesis` takes no stats context.
                     if let Some(ctx) = prule_stats {
@@ -1716,6 +1787,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             }
             if let Some(s) = result.into_iter().next() {
                 input.shape = s;
+                if let Some(recorder) = self.trace_mode.recorder() {
+                    input.trace = recorder.advance(input.trace);
+                }
             }
         }
         self.values.share(&mut input);
@@ -1802,15 +1876,19 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 if let Some(idx) = state_canonical {
                     if !keeps_alternatives(&mut rooted, &words, idx) {
                         if let Some(recorder) = self.trace_mode.recorder() {
-                            recorder.record(Decision::RootNotViable { stratum: w.stratum });
+                            recorder.record_at(&w, Decision::RootNotViable { stratum: w.stratum });
                         }
                         return;
                     }
-                    if let Some(w) =
-                        dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
-                            self.g.syn_features.mask(f)
-                        })
-                    {
+                    if let Some(w) = dedup_alternative(
+                        &mut words,
+                        &mut alt_keys,
+                        idx,
+                        &dedup_key,
+                        w,
+                        &|f| self.g.syn_features.mask(f),
+                        self.trace_mode.recorder(),
+                    ) {
                         words.fold_alternative(idx, w);
                         let stored = words.alternatives(idx).iter().next_back();
                         live_bytes.set(
@@ -1823,15 +1901,19 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 if let Some(idx) = words.position(&dedup_key) {
                     if !keeps_alternatives(&mut rooted, &words, idx) {
                         if let Some(recorder) = self.trace_mode.recorder() {
-                            recorder.record(Decision::RootNotViable { stratum: w.stratum });
+                            recorder.record_at(&w, Decision::RootNotViable { stratum: w.stratum });
                         }
                         return;
                     }
-                    if let Some(w) =
-                        dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
-                            self.g.syn_features.mask(f)
-                        })
-                    {
+                    if let Some(w) = dedup_alternative(
+                        &mut words,
+                        &mut alt_keys,
+                        idx,
+                        &dedup_key,
+                        w,
+                        &|f| self.g.syn_features.mask(f),
+                        self.trace_mode.recorder(),
+                    ) {
                         words.fold_alternative(idx, w);
                         let stored = words.alternatives(idx).iter().next_back();
                         live_bytes.set(
@@ -1847,7 +1929,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 self.trace
                     .end_unapply_stratum(w_parent, self.stratum_id, &w);
             }
-            if words.position(&dedup_key).is_none() {
+            if let Some(idx) = words.position(&dedup_key) {
+                if let Some(recorder) = self.trace_mode.recorder() {
+                    recorder.merged(&w, words.trace_at(idx), true);
+                }
+            } else {
                 // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
                 if let Some((_, state_hash)) = state_key {
                     state_words.insert(state_hash, words.len());
@@ -1937,6 +2023,7 @@ fn dedup_alternative(
     dedup_key: &WordKey,
     w: Word,
     mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
+    recorder: Option<&dyn Recorder>,
 ) -> Option<Word> {
     fn spread(h: u32) -> u64 {
         u64::from(h) << 32 | u64::from(h)
@@ -1976,6 +2063,17 @@ fn dedup_alternative(
         *alt.syn_fs() == w.syn_fs && alt.matches_fields(dedup_key, &w.obligatory, &canonical)
     });
     let novel = found.is_none();
+    if let (Some(recorder), Some(&(_, at))) = (recorder, found) {
+        let retained = if at == AltIndex::CANONICAL {
+            words.trace_at(idx)
+        } else {
+            words
+                .alternatives(idx)
+                .get(at as usize)
+                .and_then(|alternative| alternative.trace(words.trace_at(idx)))
+        };
+        recorder.merged(&w, retained, true);
+    }
     if novel {
         let next = u32::try_from(words.alternatives(idx).len())
             .expect("a canonical holds fewer than 2^32 alternatives");
@@ -2051,6 +2149,14 @@ fn guided_template_apply(
 ) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
     let mut out = WordSet::default();
+    let mut observed_input;
+    let input = if let Some(recorder) = trace.mode().recorder() {
+        observed_input = input.clone();
+        observed_input.trace = recorder.advance(input.trace);
+        &observed_input
+    } else {
+        input
+    };
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
         guided_synth(
             g,
@@ -2131,45 +2237,63 @@ fn synth_slots_generic<F>(
         }
         let slot = &tmpl.slots[i];
         // The slot's non-disjunctive `RuleBatch`, in the synthesis direction.
+        let recorder = trace.mode().recorder();
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
+        let mut observed = recorder.map(|recorder| (recorder, HashMap::default()));
         for &rid in &slot.rules {
             if budget.synthesis_over_budget() {
                 return;
             }
             for w in apply(g, rid, input) {
-                if seen.insert(w.dedup_key(), ()).is_none() {
-                    let mut applied_outcomes = slot_outcomes.clone();
-                    if let Some(outcomes) = &mut applied_outcomes {
-                        outcomes.push(TemplateSlotOutcome {
-                            slot_index: i,
-                            status: TemplateSlotStatus::Applied,
-                            selected_rule: Some(rid),
-                        });
+                let key = w.dedup_key();
+                if let Some((recorder, seen)) = &mut observed {
+                    use std::collections::hash_map::Entry;
+                    match seen.entry(key) {
+                        Entry::Occupied(retained) => {
+                            recorder.merged(&w, *retained.get(), false);
+                            continue;
+                        }
+                        Entry::Vacant(vacant) => {
+                            vacant.insert(w.trace);
+                        }
                     }
-                    synth_slots_generic(
-                        g,
-                        tmpl,
-                        &w,
-                        i + 1,
-                        out,
-                        apply,
-                        trace,
-                        tid,
-                        parent,
-                        budget,
-                        applied_outcomes,
-                    );
+                } else if seen.insert(key, ()).is_some() {
+                    continue;
                 }
+                let mut applied_outcomes = slot_outcomes.clone();
+                if let Some(outcomes) = &mut applied_outcomes {
+                    outcomes.push(TemplateSlotOutcome {
+                        slot_index: i,
+                        status: TemplateSlotStatus::Applied,
+                        selected_rule: Some(rid),
+                    });
+                }
+                synth_slots_generic(
+                    g,
+                    tmpl,
+                    &w,
+                    i + 1,
+                    out,
+                    apply,
+                    trace,
+                    tid,
+                    parent,
+                    budget,
+                    applied_outcomes,
+                );
             }
         }
         if !slot_optional(slot) {
             if let Some(recorder) = trace.mode().recorder() {
                 if !budget.search_stopped() {
-                    recorder.record(Decision::RequiredSlotUnfilled {
-                        template: tid,
-                        slot: i,
-                        analysis: false,
-                    });
+                    recorder.record_at(
+                        input,
+                        Decision::RequiredSlotUnfilled {
+                            template: tid,
+                            slot: i,
+                            analysis: false,
+                        },
+                    );
                 }
             }
             if let Some(outcomes) = &mut slot_outcomes {
@@ -2197,13 +2321,43 @@ fn synth_slots_generic<F>(
                 selected_rule: None,
             });
         }
+        if let Some(recorder) = trace.mode().recorder() {
+            if !budget.search_stopped() {
+                recorder.record_at(
+                    input,
+                    Decision::OptionalSlotSkipped {
+                        template: tid,
+                        slot: i,
+                        analysis: false,
+                    },
+                );
+            }
+        }
         i += 1;
     }
     if let Some(outcomes) = &mut slot_outcomes {
         outcomes.sort_by_key(|outcome| outcome.slot_index);
     }
     end_apply_template(trace, tid, input, parent, true, slot_outcomes.as_deref());
-    out.insert_with(input.dedup_key(), || input.clone());
+    let (at, inserted) = out.insert_with(input.dedup_key(), || input.clone());
+    if !inserted {
+        if let Some(recorder) = trace.mode().recorder() {
+            recorder.merged(input, out.get(at).trace, false);
+        }
+    }
+}
+
+fn insert_synthesis_word(out: &mut WordSet, word: Word, recorder: Option<&dyn Recorder>) {
+    if let Some(recorder) = recorder {
+        let key = word.dedup_key();
+        let mut pending = Some(word);
+        let (at, _) = out.insert_with(key, || pending.take().expect("word awaiting insertion"));
+        if let Some(discarded) = pending {
+            recorder.merged(&discarded, out.get(at).trace, false);
+        }
+    } else {
+        out.insert(word);
+    }
 }
 
 // Synthesis stratum rule.
@@ -2274,6 +2428,9 @@ fn guided_synth(
         o.mrule_app_index -= 1;
         if is_compound {
             o.non_head_app_index -= 1;
+        }
+        if let Some(recorder) = trace.mode().recorder() {
+            o.trace = recorder.advance(w.trace);
         }
     }
     outs
@@ -2445,6 +2602,9 @@ pub fn synthesize_phonological_stratum_traced(
         if let Some(shape) = result.into_iter().next() {
             applied_prule_ids.push(pid);
             input.shape = shape;
+            if let Some(recorder) = trace.mode().recorder() {
+                input.trace = recorder.advance(input.trace);
+            }
         }
     }
 
@@ -2559,7 +2719,7 @@ pub fn synthesize_stratum_traced_with_policy(
             if trace_mode.is_tree() {
                 trace.end_apply_stratum(w_parent, stratum, &w);
             }
-            out.insert(w);
+            insert_synthesis_word(&mut out, w, trace_mode.recorder());
             continue;
         }
         // Only a word whose last applied template was non-final is refused; `None` (no template) proceeds.
@@ -2567,7 +2727,7 @@ pub fn synthesize_stratum_traced_with_policy(
             if trace_mode.is_tree() {
                 trace.non_final_template_applied_last(w_parent, stratum, &w);
             } else if let Some(recorder) = trace_mode.recorder() {
-                recorder.record(Decision::NonfinalTemplateLast { stratum });
+                recorder.record_at(&w, Decision::NonfinalTemplateLast { stratum });
             }
             continue;
         }
@@ -2584,7 +2744,7 @@ pub fn synthesize_stratum_traced_with_policy(
                     trace.failed(w_parent, &w, FailureReason::PartialParse);
                 }
             } else if let Some(recorder) = trace_mode.recorder() {
-                recorder.record(Decision::RemainingRulesInStratum { stratum });
+                recorder.record_at(&w, Decision::RemainingRulesInStratum { stratum });
             }
             continue;
         }
@@ -2606,7 +2766,7 @@ pub fn synthesize_stratum_traced_with_policy(
         if trace_mode.is_tree() {
             trace.end_apply_stratum(w_parent, stratum, &nw);
         }
-        out.insert(nw);
+        insert_synthesis_word(&mut out, nw, trace_mode.recorder());
     }
     if trace_mode.is_tree() && out.is_empty() {
         trace.end_apply_stratum(node_parent, stratum, &input);
@@ -2717,7 +2877,7 @@ fn root_is_partial(g: &Grammar, word: &Word) -> bool {
 }
 
 /// Walks the root's family (if any) in document order for the most specific applicable relative, swapping in against `best`'s CURRENT (possibly already-swapped) FS, never the original `input`; a guessed root returns unchanged, faithfully (C#'s fabrication never sets a family either).
-fn choose_inflectional_stem(g: &Grammar, input: &Word) -> Word {
+fn choose_inflectional_stem(g: &Grammar, input: &Word, recorder: Option<&dyn Recorder>) -> Word {
     let Some(root_id) = input.root_allomorph else {
         return input.clone();
     };
@@ -2749,8 +2909,12 @@ fn choose_inflectional_stem(g: &Grammar, input: &Word) -> Word {
         }
         let remainder = subtract(rel_syn, &best.syn_fs);
         if !remainder.is_empty() && is_unifiable(&input.real_fs, &remainder) {
+            let parent = best.trace;
             best = crate::morph::seed_from_entry(g, rel, input.real_fs.clone());
             best.set_collect_partials(input.collect_partials());
+            if let Some(recorder) = recorder {
+                best.trace = recorder.advance(parent);
+            }
         }
     }
     best
@@ -2778,7 +2942,8 @@ fn synth_apply_templates(
         return Vec::new();
     }
     // Shadowed so every use below reads the POST-swap word.
-    let input = choose_inflectional_stem(g, input);
+    let recorder = trace.mode().recorder();
+    let input = choose_inflectional_stem(g, input, recorder);
     let input = &input;
     let in_key = input.dedup_key();
     let mut out = WordSet::default();
@@ -2792,7 +2957,17 @@ fn synth_apply_templates(
         }
         let tmpl = &g.templates[tid.0 as usize];
         let req = g.fs_interner.get(tmpl.required_syn_fs);
-        if !is_unifiable(&input.syn_fs, req) || root_partial {
+        let syntactic_eligible = is_unifiable(&input.syn_fs, req);
+        if !syntactic_eligible || root_partial {
+            if let Some(recorder) = recorder {
+                recorder.record_at(
+                    input,
+                    Decision::TemplateIneligible {
+                        template: tid,
+                        partial_root: syntactic_eligible,
+                    },
+                );
+            }
             continue;
         }
         unique_applicable = if applicable { None } else { Some(tid) };
@@ -2803,7 +2978,7 @@ fn synth_apply_templates(
             let final_flag = w.flags.is_partial() || tmpl.is_final;
             let mut w = w;
             w.flags.is_last_applied_rule_final = Some(final_flag);
-            out.insert(w);
+            insert_synthesis_word(&mut out, w, recorder);
         }
     }
     // No template output: pass the input through UNLESS it is non-partial AND some template was applicable, else a templateless stratum would skip the mrule recursion below entirely.
@@ -2822,10 +2997,13 @@ fn synth_apply_templates(
                     trace.applicable_templates_not_applied(node_parent, stratum, input);
                 }
                 crate::trace::TraceMode::Observe(recorder) if !budget.search_stopped() => {
-                    recorder.record(Decision::ApplicableTemplatesNotApplied {
-                        stratum,
-                        template: unique_applicable,
-                    });
+                    recorder.record_at(
+                        input,
+                        Decision::ApplicableTemplatesNotApplied {
+                            stratum,
+                            template: unique_applicable,
+                        },
+                    );
                 }
                 _ => {}
             }
@@ -2845,7 +3023,7 @@ fn synth_apply_templates(
                     for m in synth_apply_mrules(
                         g, stratum, sd, admitted, &t, cache, stats, trace, parent, budget, policy,
                     ) {
-                        out.insert(m);
+                        insert_synthesis_word(&mut out, m, recorder);
                     }
                 }
             }

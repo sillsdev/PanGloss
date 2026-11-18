@@ -33,7 +33,7 @@ fn a_byte_identical_alternative_is_pruned() {
     let dup = bare_word();
     let key = dup.dedup_key();
 
-    let kept = dedup_alternative(&mut words, &mut alt_keys, 0, &key, dup, &mask_none);
+    let kept = dedup_alternative(&mut words, &mut alt_keys, 0, &key, dup, &mask_none, None);
 
     assert!(
         kept.is_none(),
@@ -51,7 +51,7 @@ fn same_word_key_but_different_syn_fs_is_kept() {
     alt.syn_fs = fs_with(0b01);
     let key = alt.dedup_key();
 
-    let kept = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none);
+    let kept = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none, None);
 
     assert!(kept.is_some(), "a differing syn_fs must not be pruned");
 }
@@ -64,12 +64,20 @@ fn a_second_identical_alternative_is_pruned_after_the_first_is_kept() {
     alt.obligatory.push(FeatId(1));
     let key = alt.dedup_key();
 
-    let first = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt.clone(), &mask_none);
+    let first = dedup_alternative(
+        &mut words,
+        &mut alt_keys,
+        0,
+        &key,
+        alt.clone(),
+        &mask_none,
+        None,
+    );
     assert!(first.is_some());
     if let Some(w) = first {
         words.fold_alternative(0, w);
     }
-    let second = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none);
+    let second = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none, None);
 
     assert!(
         second.is_none(),

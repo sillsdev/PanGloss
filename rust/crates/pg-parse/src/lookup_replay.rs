@@ -6,7 +6,7 @@ use pg_grammar_model::model::{
     AffixProcessRuleDef, AllomorphId, AllomorphOwner, Grammar, MorphRuleDef, MprGroupOutput, MprSet,
 };
 use pg_rules::observations::{Decision, Recorder};
-use pg_rules::stats::{mpr_check, GateFeature, ObjectKind, StatsCollector};
+use pg_rules::stats::{mpr_check, mpr_check_observed, GateFeature, ObjectKind, StatsCollector};
 use pg_rules::word::Word;
 
 /// What the grammar's rules can add to a word's MPR set beyond the root's, computed once from the grammar and never from a word.
@@ -103,7 +103,7 @@ impl LookupReplay {
             entry.allomorphs[idx as usize].stem_name,
             &mut work,
             stats,
-            recorder.map(|recorder| (recorder, root_id)),
+            recorder.map(|recorder| (recorder, root_id, alt)),
         );
         if work > 0 {
             self.work.fetch_add(work, Ordering::Relaxed);
@@ -121,7 +121,7 @@ impl LookupReplay {
         root_stem: Option<pg_grammar_model::model::StemNameId>,
         work: &mut u64,
         stats: Option<&StatsCollector>,
-        observation: Option<(&dyn Recorder, AllomorphId)>,
+        observation: Option<(&dyn Recorder, AllomorphId, &Word)>,
     ) -> bool {
         let mut extra = self.realizational_out.clone();
         let mut excluded_ok = !self.overwrite_reachable;
@@ -153,13 +153,16 @@ impl LookupReplay {
                         );
                     }
                     if !passed {
-                        if let Some((recorder, candidate)) = observation {
-                            recorder.record(Decision::LookupStemName {
-                                candidate,
-                                rule: rule_id,
-                                required: stem,
-                                actual: root_stem,
-                            });
+                        if let Some((recorder, candidate, word)) = observation {
+                            recorder.record_at(
+                                word,
+                                Decision::LookupStemName {
+                                    candidate,
+                                    rule: rule_id,
+                                    required: stem,
+                                    actual: root_stem,
+                                },
+                            );
                         }
                     }
                     !passed
@@ -215,22 +218,32 @@ fn any_allomorph_possible(
     excluded_ok: bool,
     work: &mut u64,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
-    observation: Option<(&dyn Recorder, AllomorphId)>,
+    observation: Option<(&dyn Recorder, AllomorphId, &Word)>,
 ) -> bool {
     let upper = root_mpr.union(extra);
     rule.allomorphs.iter().any(|allo| {
+        let check = |test: &MprSet, actual: &MprSet, excluded| {
+            if let Some((recorder, candidate, word)) = observation {
+                mpr_check_observed(g, test, actual, excluded, owner, |group, bucket| {
+                    recorder.record_at(
+                        word,
+                        Decision::LookupMpr {
+                            candidate,
+                            allomorph: allo.id,
+                            tested: bucket,
+                            actual,
+                            excluded,
+                            group,
+                        },
+                    );
+                })
+            } else {
+                mpr_check(g, test, actual, excluded, owner)
+            }
+        };
         if !allo.required_mpr.is_empty() {
             *work += 1;
-            if !mpr_check(g, &allo.required_mpr, &upper, false, owner) {
-                if let Some((recorder, candidate)) = observation {
-                    recorder.record(Decision::LookupMpr {
-                        candidate,
-                        allomorph: allo.id,
-                        tested: &allo.required_mpr,
-                        actual: &upper,
-                        excluded: false,
-                    });
-                }
+            if !check(&allo.required_mpr, &upper, false) {
                 return false;
             }
         }
@@ -238,18 +251,6 @@ fn any_allomorph_possible(
             return true;
         }
         *work += 1;
-        let passed = mpr_check(g, &allo.excluded_mpr, root_mpr, true, owner);
-        if !passed {
-            if let Some((recorder, candidate)) = observation {
-                recorder.record(Decision::LookupMpr {
-                    candidate,
-                    allomorph: allo.id,
-                    tested: &allo.excluded_mpr,
-                    actual: root_mpr,
-                    excluded: true,
-                });
-            }
-        }
-        passed
+        check(&allo.excluded_mpr, root_mpr, true)
     })
 }

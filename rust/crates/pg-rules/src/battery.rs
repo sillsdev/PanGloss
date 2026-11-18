@@ -27,6 +27,7 @@ pub(crate) struct DeltaWord {
     trail: Trail,
     mrule_app_index: i32,
     final_template_state: FinalTemplateState,
+    trace: crate::trace::TraceOverride,
 }
 
 fn same_source(a: &Option<Rc<Word>>, b: &Option<Rc<Word>>) -> bool {
@@ -84,13 +85,14 @@ impl DeltaWord {
             && same_source(source, &input.source)
             && alternatives.is_empty()
             && input.alternatives.is_empty()
-            && *trace == input.trace;
+            && (*trace == input.trace || trace.is_some_and(crate::trace::TraceHandle::is_observation));
         rebuilds.then(|| DeltaWord {
             shape: shape.clone(),
             syn_fs: syn_fs.clone(),
             trail: trail.clone(),
             mrule_app_index: *mrule_app_index,
             final_template_state: *final_template_state,
+            trace: crate::trace::TraceOverride::from_word(*trace),
         })
     }
 
@@ -102,6 +104,10 @@ impl DeltaWord {
             final_template_state: self.final_template_state,
             rest: input,
         }
+    }
+
+    pub(crate) fn trace(&self, input: &Word) -> Option<crate::trace::TraceHandle> {
+        self.trace.resolve(input.trace)
     }
 
     pub(crate) fn syn_fs(&self) -> &FeatureStruct {
@@ -136,12 +142,19 @@ impl DeltaWord {
             },
             source: input.source.clone(),
             alternatives: input.alternatives.clone(),
-            trace: input.trace,
+            trace: self.trace.resolve(input.trace),
         }
     }
 }
 
 impl BatteryWord {
+    pub(crate) fn trace(&self, input: &Word) -> Option<crate::trace::TraceHandle> {
+        match self {
+            Self::Delta(delta) => delta.trace(input),
+            Self::Whole(word) => word.trace,
+        }
+    }
+
     fn retained_bytes(&self) -> usize {
         match self {
             BatteryWord::Delta(delta) => {
@@ -250,9 +263,17 @@ impl<'i> BatterySet<'i> {
     }
 
     /// Inserts `w` unless an equal-keyed output is present.
-    pub(crate) fn insert(&mut self, w: &Word) {
+    pub(crate) fn insert(
+        &mut self,
+        w: &Word,
+        recorder: Option<&dyn crate::observations::Recorder>,
+    ) {
         let key = w.dedup_key();
-        if self.position(&key).is_none() {
+        if let Some(at) = self.position(&key) {
+            if let Some(recorder) = recorder {
+                recorder.merged(w, self.words[at].trace(self.input), true);
+            }
+        } else {
             self.push_new(&key, BatteryWord::of(w, self.input));
         }
     }

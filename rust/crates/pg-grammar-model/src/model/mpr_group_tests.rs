@@ -145,36 +145,36 @@ fn observed_wide_mpr_buckets_preserve_member_attribution_and_short_circuits() {
             set(&[1, 64, 128]),
             false,
             vec![
-                (set(&[1]), MprSet::EMPTY),
-                (set(&[64, 299]), MprSet::EMPTY),
-                (set(&[128, 300]), set(&[300])),
+                (None, set(&[1]), MprSet::EMPTY),
+                (Some(0), set(&[64, 299]), MprSet::EMPTY),
+                (Some(1), set(&[128, 300]), set(&[300])),
             ],
         ),
         (
             set(&[128]),
             true,
             vec![
-                (set(&[1]), MprSet::EMPTY),
-                (set(&[64, 299]), MprSet::EMPTY),
-                (set(&[128, 300]), set(&[128])),
+                (None, set(&[1]), MprSet::EMPTY),
+                (Some(0), set(&[64, 299]), MprSet::EMPTY),
+                (Some(1), set(&[128, 300]), set(&[128])),
             ],
         ),
         (
             set(&[64, 299]),
             true,
             vec![
-                (set(&[1]), MprSet::EMPTY),
-                (set(&[64, 299]), set(&[64, 299])),
+                (None, set(&[1]), MprSet::EMPTY),
+                (Some(0), set(&[64, 299]), set(&[64, 299])),
             ],
         ),
     ] {
         let mut seen = Vec::new();
-        assert!(!mpr_match_observed(
+        assert!(!mpr_match_grouped_observed(
             &groups,
             &test,
             &have,
             excluded,
-            |bucket, blocked| seen.push((bucket, blocked))
+            |group, bucket, blocked| seen.push((group, bucket, blocked))
         ));
         assert_eq!(seen, expected);
     }

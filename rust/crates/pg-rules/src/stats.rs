@@ -9,7 +9,7 @@
 //! sparse rows sorted by `(kind, stratum, object_index, allomorph, direction)` for a deterministic,
 //! golden-testable order.
 
-pub use crate::gates::{mpr_check, GateFeature, GateRow};
+pub use crate::gates::{mpr_check, mpr_check_observed, GateFeature, GateRow};
 use std::cell::{Cell, RefCell};
 
 use pg_grammar_model::model::{Grammar, LexEntryId, MRuleId, PRuleId, StratumId};
