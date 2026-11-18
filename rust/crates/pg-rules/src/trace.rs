@@ -303,6 +303,15 @@ pub trait TraceSink {
     /// Mirrors C# `ITraceManager.IsTracing`.
     fn is_tracing(&self) -> bool;
 
+    /// Select the trace consumer once at owners that already check for tree tracing.
+    fn mode(&self) -> TraceMode<'_> {
+        if self.is_tracing() {
+            TraceMode::Tree
+        } else {
+            TraceMode::Off
+        }
+    }
+
     /// Rich diagnostic evidence is separately opt-in; ordinary tracing does not format it.
     fn captures_failure_context(&self) -> bool {
         false
@@ -356,223 +365,15 @@ pub trait TraceSink {
 
     /// Mint the root node for one `parse_word` call (`AnalyzeWord`). Returns the handle later events
     /// thread through as `parent`.
-    fn analyze_word(&self, input: &Word) -> TraceHandle;
-
-    /// Mint the root node for one `GenerateWords` call (a distinct root from `AnalyzeWord`'s).
-    fn generate_words(&self) -> TraceHandle;
-
-    fn begin_unapply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_unapply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        output: &Word,
-    ) -> TraceHandle;
-    fn begin_apply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_apply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        output: &Word,
-    ) -> TraceHandle;
-
-    fn begin_unapply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_unapply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        output: &Word,
-        unapplied: bool,
-    ) -> TraceHandle;
-    fn begin_apply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_apply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        output: &Word,
-        applied: bool,
-    ) -> TraceHandle;
-
-    /// `NonFinalTemplateAppliedLast` — always `FailureReason::PartialParse` (§1.1/§4.2's last note).
-    /// P12 chunk 5 correction (verified against `ITraceManager.cs:72`/`TraceManager.cs:145-153`):
-    /// C#'s actual signature is `(Stratum stratum, Word word)` -- the SOURCE is the enclosing
-    /// stratum, not a template (chunk 0's original `TemplateId` param was never checked against the
-    /// oracle at landing time; fixed here at chunk 5, its first real call site, before any caller
-    /// existed to break).
-    fn non_final_template_applied_last(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        output: &Word,
-    ) -> TraceHandle;
-    /// `ApplicableTemplatesNotApplied` — always `FailureReason::PartialParse`, but a DISTINCT trace
-    /// event from `Self::non_final_template_applied_last` (§3.2's last row / §4.2's third bullet).
-    /// P12 chunk 5 correction: C#'s actual signature (`ITraceManager.cs:73`) is also `(Stratum
-    /// stratum, Word word)` -- chunk 0 omitted the stratum source entirely; added here.
-    fn applicable_templates_not_applied(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        input: &Word,
-    ) -> TraceHandle;
-
-    fn phonological_rule_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        output: &Word,
-    ) -> TraceHandle;
-    fn phonological_rule_not_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        input: &Word,
-    ) -> TraceHandle;
-    fn phonological_rule_applied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        input: &Word,
-        output: &Word,
-    ) -> TraceHandle;
-    fn phonological_rule_not_applied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-
-    fn morphological_rule_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        output: &Word,
-    ) -> TraceHandle;
-    /// Dead-end-attribution census addition (`deadend_census.rs`): unlike the
-    /// synthesis-side `Self::morphological_rule_not_applied` (which has carried a `FailureReason`
-    /// since P12 chunk 4), this method originally carried none — there was no call site at all
-    /// (`pg_rules::stratum::StratumAnalyzer`'s analysis cascade has never been traced; confirmed by
-    /// grep, zero production or test callers before this census). Adding the `reason` parameter here
-    /// is therefore a pure signature change on dead code, not a behavior change to anything that
-    /// exists today — see `crate::morph::analyze_cached_traced`'s doc for the first real caller.
-    fn morphological_rule_not_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-    fn morphological_rule_applied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        output: &Word,
-    ) -> TraceHandle;
-    fn morphological_rule_not_applied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-
-    fn compounding_rule_not_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-    fn compounding_rule_unapplied(
-        &self,
-        _parent: TraceHandle,
-        _rule: MRuleId,
-        _subrule: i32,
-        _output: &Word,
-    ) -> TraceHandle {
-        panic!("this trace sink cannot record compound analysis results");
-    }
-    fn compounding_rule_not_applied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-
-    /// `LexicalLookup(stratum, input)` — one per stratum's root-allomorph search (both the real
-    /// lexicon path and P11's guesser pattern-match path reuse this exact hook).
-    fn lexical_lookup(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle;
-
-    /// An applied rule's output was replaced by `by_entry`, an entry in the root's lexical family
-    /// whose syntactic features the output subsumes (C# `Word.CheckBlocking`). `output` is the
-    /// replacement word.
-    fn blocked(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        output: &Word,
-        by_entry: LexEntryId,
-    ) -> TraceHandle;
-
-    fn successful(&self, parent: TraceHandle, word: &Word) -> TraceHandle;
-    fn failed(&self, parent: TraceHandle, word: &Word, reason: FailureReason) -> TraceHandle;
-
-    /// C#'s subtlest cursor move (§1.2): appends **two levels deep** —
-    /// `parent`'s LAST child's children, not `parent`'s own children directly — because by the time
-    /// `SynthesizeWord` fires the cursor logically needs to descend into the just-appended
-    /// `LexicalLookup` node's children. `parent` here is the cursor BEFORE this call (unchanged by
-    /// `LexicalLookup`, which does not reassign it) — see this module's tests.
-    fn synthesize_word(&self, parent: TraceHandle, input: &Word) -> TraceHandle;
-}
-
-/// The always-present no-op `TraceSink` (see the `impl` below for why every method but
-/// [`is_tracing`](TraceSink::is_tracing) panics). Kept as a concrete (not `dyn`) type at call sites
-/// where possible so `is_tracing()` can const-fold away; some call sites accept `&dyn TraceSink`
-/// at the boundary instead.
-pub struct NoopSink;
-
-impl TraceSink for NoopSink {
-    #[inline(always)]
-    fn is_tracing(&self) -> bool {
-        false
-    }
     fn analyze_word(&self, _input: &Word) -> TraceHandle {
         unreachable!("NoopSink methods are never called; every call site checks is_tracing() first")
     }
+
+    /// Mint the root node for one `GenerateWords` call (a distinct root from `AnalyzeWord`'s).
     fn generate_words(&self) -> TraceHandle {
         unreachable!()
     }
+
     fn begin_unapply_stratum(&self, _p: TraceHandle, _s: StratumId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
@@ -585,6 +386,7 @@ impl TraceSink for NoopSink {
     fn end_apply_stratum(&self, _p: TraceHandle, _s: StratumId, _o: &Word) -> TraceHandle {
         unreachable!()
     }
+
     fn begin_unapply_template(&self, _p: TraceHandle, _t: TemplateId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
@@ -609,6 +411,13 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
+    /// `NonFinalTemplateAppliedLast` — always `FailureReason::PartialParse` (§1.1/§4.2's last note).
+    /// P12 chunk 5 correction (verified against `ITraceManager.cs:72`/`TraceManager.cs:145-153`):
+    /// C#'s actual signature is `(Stratum stratum, Word word)` -- the SOURCE is the enclosing
+    /// stratum, not a template (chunk 0's original `TemplateId` param was never checked against the
+    /// oracle at landing time; fixed here at chunk 5, its first real call site, before any caller
+    /// existed to break).
     fn non_final_template_applied_last(
         &self,
         _p: TraceHandle,
@@ -617,6 +426,10 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+    /// `ApplicableTemplatesNotApplied` — always `FailureReason::PartialParse`, but a DISTINCT trace
+    /// event from `Self::non_final_template_applied_last` (§3.2's last row / §4.2's third bullet).
+    /// P12 chunk 5 correction: C#'s actual signature (`ITraceManager.cs:73`) is also `(Stratum
+    /// stratum, Word word)` -- chunk 0 omitted the stratum source entirely; added here.
     fn applicable_templates_not_applied(
         &self,
         _p: TraceHandle,
@@ -625,6 +438,7 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
     fn phonological_rule_unapplied(
         &self,
         _p: TraceHandle,
@@ -663,6 +477,7 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
     fn morphological_rule_unapplied(
         &self,
         _p: TraceHandle,
@@ -672,6 +487,13 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+    /// Dead-end-attribution census addition (`deadend_census.rs`): unlike the
+    /// synthesis-side `Self::morphological_rule_not_applied` (which has carried a `FailureReason`
+    /// since P12 chunk 4), this method originally carried none — there was no call site at all
+    /// (`pg_rules::stratum::StratumAnalyzer`'s analysis cascade has never been traced; confirmed by
+    /// grep, zero production or test callers before this census). Adding the `reason` parameter here
+    /// is therefore a pure signature change on dead code, not a behavior change to anything that
+    /// exists today — see `crate::morph::analyze_cached_traced`'s doc for the first real caller.
     fn morphological_rule_not_unapplied(
         &self,
         _p: TraceHandle,
@@ -701,6 +523,7 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
     fn compounding_rule_not_unapplied(
         &self,
         _p: TraceHandle,
@@ -711,6 +534,15 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+    fn compounding_rule_unapplied(
+        &self,
+        _parent: TraceHandle,
+        _rule: MRuleId,
+        _subrule: i32,
+        _output: &Word,
+    ) -> TraceHandle {
+        panic!("this trace sink cannot record compound analysis results");
+    }
     fn compounding_rule_not_applied(
         &self,
         _p: TraceHandle,
@@ -720,20 +552,70 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
+    /// `LexicalLookup(stratum, input)` — one per stratum's root-allomorph search (both the real
+    /// lexicon path and P11's guesser pattern-match path reuse this exact hook).
     fn lexical_lookup(&self, _p: TraceHandle, _s: StratumId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
+
+    /// An applied rule's output was replaced by `by_entry`, an entry in the root's lexical family
+    /// whose syntactic features the output subsumes (C# `Word.CheckBlocking`). `output` is the
+    /// replacement word.
     fn blocked(&self, _p: TraceHandle, _r: MRuleId, _o: &Word, _e: LexEntryId) -> TraceHandle {
         unreachable!()
     }
+
     fn successful(&self, _p: TraceHandle, _w: &Word) -> TraceHandle {
         unreachable!()
     }
     fn failed(&self, _p: TraceHandle, _w: &Word, _reason: FailureReason) -> TraceHandle {
         unreachable!()
     }
+
+    /// C#'s subtlest cursor move (§1.2): appends **two levels deep** —
+    /// `parent`'s LAST child's children, not `parent`'s own children directly — because by the time
+    /// `SynthesizeWord` fires the cursor logically needs to descend into the just-appended
+    /// `LexicalLookup` node's children. `parent` here is the cursor BEFORE this call (unchanged by
+    /// `LexicalLookup`, which does not reassign it) — see this module's tests.
     fn synthesize_word(&self, _p: TraceHandle, _i: &Word) -> TraceHandle {
         unreachable!()
+    }
+}
+
+/// Tree capture and ordinary-path observations use different search policies.
+#[derive(Clone, Copy)]
+pub enum TraceMode<'a> {
+    Off,
+    Tree,
+    Observe(&'a dyn crate::observations::Recorder),
+}
+
+impl<'a> TraceMode<'a> {
+    #[inline]
+    pub fn recorder(self) -> Option<&'a dyn crate::observations::Recorder> {
+        match self {
+            Self::Observe(recorder) => Some(recorder),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn is_tree(self) -> bool {
+        matches!(self, Self::Tree)
+    }
+}
+
+/// The always-present no-op `TraceSink` (see the `impl` below for why every method but
+/// [`is_tracing`](TraceSink::is_tracing) panics). Kept as a concrete (not `dyn`) type at call sites
+/// where possible so `is_tracing()` can const-fold away; some call sites accept `&dyn TraceSink`
+/// at the boundary instead.
+pub struct NoopSink;
+
+impl TraceSink for NoopSink {
+    #[inline(always)]
+    fn is_tracing(&self) -> bool {
+        false
     }
 }
 

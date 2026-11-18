@@ -149,6 +149,7 @@ mod fst_health;
 #[cfg(feature = "foma-tools")]
 mod fst_verify;
 // `pub`: see `backend_report`'s note above -- marks this bin module's long docs as interface for comment-hygiene.
+mod diagnostic;
 pub mod grammar_health;
 #[cfg(feature = "foma-tools")]
 mod make_report;
@@ -610,6 +611,8 @@ pub(crate) struct ImportCapture {
     /// The successful compile's results, kept only when the snapshot JSON parses back to an equal Snapshot.
     pub compiled: Option<pg_facts::CompiledParts>,
     reuse_compile: bool,
+    capture_diagnostic_slots: bool,
+    diagnostic_slots: diagnostic::SlotBindings,
 }
 
 fn load_grammar_impl(
@@ -647,17 +650,32 @@ pub(crate) fn load_grammar_capturing(
                 .transpose()?;
             drop(json);
             let t_compile = Instant::now();
-            let output = pg_grammar::compile_project_grammar_only_with_import_warnings(
-                &snapshot,
-                Default::default(),
-                std::iter::empty(),
-            )
+            let output = if capture
+                .as_ref()
+                .is_some_and(|capture| capture.capture_diagnostic_slots)
+            {
+                pg_grammar::compile_project_with_options_and_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    std::iter::empty(),
+                )
+            } else {
+                pg_grammar::compile_project_grammar_only_with_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    std::iter::empty(),
+                )
+            }
             .map_err(|error| {
                 compile_failure::GrammarLoadError::Compile(Box::new(
                     compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
                 ))
             })?;
             serve::record_ms(&serve::COMPILE_MS, t_compile);
+            if let Some(capture) = capture.filter(|capture| capture.capture_diagnostic_slots) {
+                capture.diagnostic_slots =
+                    diagnostic::SlotBindings::from_decisions(&output.load_decisions);
+            }
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "snapshot"));
             Ok(LoadedGrammar {
@@ -676,14 +694,21 @@ pub(crate) fn load_grammar_capturing(
                 None
             };
             // The facts export (a capture) and the stats manifest fingerprint the full snapshot, provenance included, so only a plain load goes lean.
-            let imported = if capture.is_some() || capture_stats_identity {
+            let imported = if capture
+                .as_ref()
+                .is_some_and(|capture| !capture.capture_diagnostic_slots)
+                || capture_stats_identity
+            {
                 pg_fwdata::import_file(std::path::Path::new(path))
             } else {
                 pg_fwdata::import_file_lean(std::path::Path::new(path))
             };
             let (snapshot, report) = imported.map_err(|e| format!("import {path}: {e}"))?;
             serve::record_ms(&serve::IMPORT_MS, t_phase);
-            if let Some(capture) = capture.as_deref_mut() {
+            if let Some(capture) = capture
+                .as_deref_mut()
+                .filter(|capture| !capture.capture_diagnostic_slots)
+            {
                 capture.import_refused = compile_failure::CompileFailure::import_has_fatal_issues(
                     &snapshot.conversion_provenance,
                 );
@@ -717,7 +742,7 @@ pub(crate) fn load_grammar_capturing(
             let t_compile = Instant::now();
             let compiled = if capture
                 .as_ref()
-                .is_some_and(|capture| capture.reuse_compile)
+                .is_some_and(|capture| capture.reuse_compile || capture.capture_diagnostic_slots)
             {
                 pg_grammar::compile_project_with_options_and_import_warnings(
                     &snapshot,
@@ -737,6 +762,13 @@ pub(crate) fn load_grammar_capturing(
                 ))
             })?;
             serve::record_ms(&serve::COMPILE_MS, t_compile);
+            if let Some(capture) = capture
+                .as_deref_mut()
+                .filter(|capture| capture.capture_diagnostic_slots)
+            {
+                capture.diagnostic_slots =
+                    diagnostic::SlotBindings::from_decisions(&output.load_decisions);
+            }
             if let Some(capture) = capture.filter(|capture| capture.reuse_compile) {
                 capture.compiled = Some(pg_facts::CompiledParts {
                     inventory: output.inventory,
@@ -838,6 +870,19 @@ pub(crate) fn load_grammar_with_trace_metadata(
     print_substrate_report(&loaded.substrate);
     Ok((loaded.grammar, loaded.warnings, metadata))
 }
+fn load_diagnostic_grammar(
+    path: &str,
+) -> Result<(LoadedGrammar, diagnostic::SlotBindings), String> {
+    let mut capture = ImportCapture {
+        capture_diagnostic_slots: true,
+        ..Default::default()
+    };
+    let loaded = load_grammar_capturing(path, true, false, Some(&mut capture))
+        .map_err(|error| diagnostic::error("compile", error))?;
+    print_substrate_report(&loaded.substrate);
+    Ok((loaded, capture.diagnostic_slots))
+}
+
 fn print_substrate_report(report: &pg_grammar::compile::issues::SubstrateReport) {
     for inferred in &report.inferred_segments {
         eprintln!(
@@ -868,6 +913,13 @@ pub(crate) fn print_grammar_warnings(warnings: &[pg_snapshot::Warning]) {
 
 /// `parse <grammar> <word> [flags...]`: traces, glosses, and/or realizes exactly one word's analyses. Flag semantics are detailed in the top-level usage banner; `--gloss`/`--natural-gloss` never touch the `word\tsignature` parity line, and a missing default-resolved realize-map sidecar degrades to empty while an explicitly named one failing is a hard error.
 fn run_parse(args: &[String]) -> Result<(), String> {
+    diagnostic::with_options(args, run_parse_impl)
+}
+
+fn run_parse_impl(
+    args: &[String],
+    diagnostic: Option<diagnostic::Options<'_>>,
+) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut trace_dest: Option<Option<String>> = None; // None = --trace not given; Some(None) = stdout; Some(Some(path)) = file
     let mut trace_format = "text".to_string();
@@ -948,6 +1000,12 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             }
         }
     }
+    if diagnostic.is_some() && (trace_dest.is_some() || trace_details) {
+        return Err(diagnostic::error(
+            "unsupported",
+            "legacy trace cannot be combined with rejection trace",
+        ));
+    }
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
             "invalid --trace-format: {trace_format} (expected text|json)"
@@ -970,7 +1028,17 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]".into());
     };
 
-    let (grammar, warnings, trace_metadata) = if trace_details {
+    let mut diagnostic_slots = None;
+    let (grammar, warnings, trace_metadata) = if let Some(options) = &diagnostic {
+        options.distinct_from(std::iter::once(grammar_path).chain(realize_map_arg.as_deref()))?;
+        let (loaded, slots) = load_diagnostic_grammar(grammar_path)?;
+        diagnostic_slots = Some(slots);
+        (
+            loaded.grammar,
+            loaded.warnings,
+            loaded.metadata.expect("diagnostic grammar identity"),
+        )
+    } else if trace_details {
         load_grammar_with_trace_metadata(grammar_path)?
     } else {
         let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -1043,8 +1111,36 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
         require_complete_parse(&outcome)?;
     } else {
-        // No --trace: behave like a minimal, single-word `batch` (the parse result only).
-        let outcome = morpher.parse_word_opts(word, &opts);
+        let outcome = if let Some(options) = diagnostic {
+            let identity = diagnostic::identity(
+                &grammar,
+                &trace_metadata,
+                diagnostic_slots.as_ref().expect("diagnostic slot bindings"),
+            )?;
+            let mut trace = diagnostic::Run::begin(
+                options,
+                identity,
+                diagnostic::SearchOptions {
+                    guess: opts.guess_root,
+                    final_templates: grammar.always_enforce_final_templates,
+                    work_cap,
+                    timeout_ms: word_timeout.map(|time| time.as_millis() as u64),
+                    memory_bytes: word_mem_cap,
+                    capture_bytes: None,
+                },
+                diagnostic::Scope {
+                    source: word,
+                    row_count: 1,
+                    start: 0,
+                },
+            )?;
+            let (outcome, row) = trace.parse(&morpher, &opts, 0, word);
+            trace.write_row(row)?;
+            trace.finish()?;
+            outcome
+        } else {
+            morpher.parse_word_opts(word, &opts)
+        };
         println!("{}\t{}", word, outcome.signature());
         print_guessed_line(guess, outcome.guessed);
         print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
@@ -1250,7 +1346,22 @@ fn parse_batch_with_opts(
     opts: &pg_parse::ParseOptions,
     parse_counter: &BatchParseCounter,
 ) -> Vec<pg_parse::BatchWordOutcome> {
+    parse_batch_in_order(words, max_threads, |_, word| {
+        let start = Instant::now();
+        parse_counter.record();
+        let outcome = morpher.parse_word_opts(word, opts);
+        let elapsed = start.elapsed();
+        pg_parse::BatchWordOutcome { outcome, elapsed }
+    })
+}
+
+fn parse_batch_in_order<T: Send>(
+    words: &[String],
+    max_threads: usize,
+    parse: impl Fn(usize, &str) -> T + Sync,
+) -> Vec<T> {
     use rayon::prelude::*;
+
     if words.is_empty() {
         return Vec::new();
     }
@@ -1260,17 +1371,12 @@ fn parse_batch_with_opts(
     }
     let pool = pool_builder
         .build()
-        .expect("build rayon pool for --guess batch dispatch");
+        .expect("build rayon pool for ordered batch dispatch");
     pool.install(|| {
         words
             .par_iter()
-            .map(|word| {
-                let start = Instant::now();
-                parse_counter.record();
-                let outcome = morpher.parse_word_opts(word, opts);
-                let elapsed = start.elapsed();
-                pg_parse::BatchWordOutcome { outcome, elapsed }
-            })
+            .enumerate()
+            .map(|(index, word)| parse(index, word))
             .collect()
     })
 }
@@ -1405,6 +1511,16 @@ fn phase_mark() {
 fn run_batch_with_counter(
     args: &[String],
     parse_counter: &BatchParseCounter,
+) -> Result<(), String> {
+    diagnostic::with_options(args, |args, diagnostic| {
+        run_batch_impl(args, parse_counter, diagnostic)
+    })
+}
+
+fn run_batch_impl(
+    args: &[String],
+    parse_counter: &BatchParseCounter,
+    diagnostic: Option<diagnostic::Options<'_>>,
 ) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut engine = None;
@@ -1579,6 +1695,23 @@ fn run_batch_with_counter(
                 .into(),
         );
     };
+    if let Some(options) = &diagnostic {
+        if prefilter_mode != batch_prefilter::PrefilterMode::Off
+            || stats_requested
+            || cache_path_arg.is_some()
+            || stats_manifest_path_arg.is_some()
+        {
+            return Err(diagnostic::error(
+                "unsupported",
+                "rejection trace requires prefilter off and no stats or cache",
+            ));
+        }
+        options.distinct_from(
+            [*grammar_path, *words_path, *out_path]
+                .into_iter()
+                .chain(analyses_path_arg.as_deref()),
+        )?;
+    }
     if engine == Some(engine::Engine::Fst) {
         #[cfg(feature = "foma-tools")]
         {
@@ -1649,7 +1782,14 @@ fn run_batch_with_counter(
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
     let t_load = Instant::now();
-    let (grammar, warnings, stats_source_identity) = if stats_manifest_path_arg.is_some() {
+    let mut diagnostic_metadata = None;
+    let mut diagnostic_slots = None;
+    let (grammar, warnings, stats_source_identity) = if diagnostic.is_some() {
+        let (loaded, slots) = load_diagnostic_grammar(grammar_path)?;
+        diagnostic_metadata = loaded.metadata;
+        diagnostic_slots = Some(slots);
+        (loaded.grammar, loaded.warnings, None)
+    } else if stats_manifest_path_arg.is_some() {
         let (grammar, warnings, identity) = load_grammar_with_stats_identity(grammar_path)?;
         (grammar, warnings, Some(identity))
     } else {
@@ -1700,12 +1840,47 @@ fn run_batch_with_counter(
             ));
         }
     }
-    let words: Vec<String> = fs::read_to_string(words_path)
-        .map_err(|e| format!("read {words_path}: {e}"))?
+    let source = fs::read_to_string(words_path).map_err(|e| {
+        if diagnostic.is_some() {
+            diagnostic::io_error(e)
+        } else {
+            format!("read {words_path}: {e}")
+        }
+    })?;
+    let words: Vec<String> = source
         .lines()
         .map(|w| w.trim().to_string())
         .filter(|w| !w.is_empty())
         .collect();
+    let mut diagnostic_run = if let Some(options) = diagnostic {
+        let identity = diagnostic::identity(
+            &grammar,
+            diagnostic_metadata
+                .as_ref()
+                .expect("diagnostic grammar identity"),
+            diagnostic_slots.as_ref().expect("diagnostic slot bindings"),
+        )?;
+        Some(diagnostic::Run::begin(
+            options,
+            identity,
+            diagnostic::SearchOptions {
+                guess,
+                final_templates: always_enforce_final_templates,
+                work_cap,
+                timeout_ms: word_timeout_ms,
+                memory_bytes: word_mem_cap,
+                capture_bytes: Some(capture_cap),
+            },
+            diagnostic::Scope {
+                source: &source,
+                row_count: words.len(),
+                start: start_idx,
+            },
+        )?)
+    } else {
+        None
+    };
+    drop(source);
 
     // A cache refusal must fire before the TSV below is truncated.
     let mut stats_cache = if let Some(manifest_path) = stats_manifest_path {
@@ -1905,7 +2080,15 @@ fn run_batch_with_counter(
                 }
                 let outcome = match prefilter.as_mut() {
                     Some(prefilter) => prefilter.parse(i, &morpher, word, &opts),
-                    None => morpher.parse_word_opts(word, &opts),
+                    None => {
+                        if let Some(trace) = diagnostic_run.as_mut() {
+                            let (outcome, row) = trace.parse(&morpher, &opts, i, word);
+                            trace.write_row(row)?;
+                            outcome
+                        } else {
+                            morpher.parse_word_opts(word, &opts)
+                        }
+                    }
                 };
                 if word_phase_marks {
                     phase_mark();
@@ -2123,7 +2306,13 @@ fn run_batch_with_counter(
         }
     } else {
         // Parallel path: hc_parse_batch parallelizes internally and returns results already reindexed to original word order; buffered and written once, no STARTED lines, so --start only skips work with no per-word crash-resume in this mode.
-        let remaining = &words[start_idx..];
+        let start = if diagnostic_run.is_some() {
+            start_idx.min(words.len())
+        } else {
+            start_idx
+        };
+        let remaining = &words[start..];
+        let mut diagnostic_rows = None;
         let (results, result_start) = if stats_requested {
             let cache = stats_cache
                 .as_mut()
@@ -2148,6 +2337,24 @@ fn run_batch_with_counter(
             // Without a lexical pattern the guess branch never runs, so `hc_parse_batch` returns the same rows.
             let results = if let Some(prefilter) = prefilter.as_mut() {
                 prefilter.parse_batch(&morpher, remaining, threads, &opts, parse_counter)
+            } else if let Some(trace) = &diagnostic_run {
+                let (results, rows): (Vec<_>, Vec<_>) =
+                    parse_batch_in_order(remaining, threads, |index, word| {
+                        let started = Instant::now();
+                        parse_counter.record();
+                        let (outcome, row) = trace.parse(&morpher, &opts, start + index, word);
+                        (
+                            pg_parse::BatchWordOutcome {
+                                outcome,
+                                elapsed: started.elapsed(),
+                            },
+                            row,
+                        )
+                    })
+                    .into_iter()
+                    .unzip();
+                diagnostic_rows = Some(rows.into_iter());
+                results
             } else if opts.partials != 0
                 || (opts.guess_root && !morpher.lexical_patterns().is_empty())
             {
@@ -2155,7 +2362,7 @@ fn run_batch_with_counter(
             } else {
                 hc_parse_batch(&morpher, remaining, threads)
             };
-            (results.into_iter().map(Some).collect(), start_idx)
+            (results.into_iter().map(Some).collect(), start)
         };
         for (j, result) in results.into_iter().enumerate() {
             let i = result_start + j;
@@ -2164,6 +2371,9 @@ fn run_batch_with_counter(
             };
             if i < start_idx {
                 continue;
+            }
+            if let (Some(trace), Some(rows)) = (&mut diagnostic_run, &mut diagnostic_rows) {
+                trace.write_row(rows.next().expect("diagnostic row for each parse"))?;
             }
             let word = &words[i];
             let elapsed_ms = r.elapsed.as_millis();
@@ -2213,6 +2423,9 @@ fn run_batch_with_counter(
         analyses_w.flush().map_err(|e| e.to_string())?;
     }
 
+    if let Some(trace) = diagnostic_run {
+        trace.finish()?;
+    }
     eprintln!("PARSEELAPSED\tengine={timing_engine}\telapsed_ms={parse_elapsed_ms:.3}");
     if let Some(prefilter) = &prefilter {
         eprintln!("PREFILTER-TOTAL\t{}", prefilter.total_line());

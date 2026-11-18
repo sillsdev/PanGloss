@@ -9,6 +9,7 @@
 //! matcher calls consume that same allowance inside traversal and candidate expansion.
 //! Exhaustion unwinds the descent and marks the result incomplete.
 
+use crate::observations::Decision;
 use std::cell::Cell;
 use std::rc::Rc;
 use web_time::Duration;
@@ -417,6 +418,15 @@ impl WordBudget {
         self.analysis_capped.get() || self.work.capped()
     }
 
+    pub fn search_stopped(&self) -> bool {
+        self.capped() || self.capture_capped() || self.word_capped() || self.timed_out()
+    }
+
+    pub fn work_limit_reached(&self) -> bool {
+        self.analysis_capped.get()
+            || (self.work.capped() && !self.work.retained_capped() && !self.work.word_capped())
+    }
+
     pub fn timed_out(&self) -> bool {
         self.work.timed_out()
     }
@@ -731,6 +741,7 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     policy: FinalTemplateAnalysisPolicy,
     /// The analysis-side trace sink; every entry point but `analyze_stratum_filtered_ruled_traced` passes `NoopSink`.
     trace: &'t dyn TraceSink,
+    trace_mode: crate::trace::TraceMode<'t>,
     /// The ambient trace cursor; call sites resolve `word.trace.unwrap_or(parent)` so successful (un)applications nest under the deepest event on that branch.
     parent: TraceHandle,
     /// The stratum's templates' reversed slot sequences, built on the first untraced battery.
@@ -876,6 +887,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             stats,
             policy,
             trace,
+            trace_mode: trace.mode(),
             parent,
             slot_trie: std::cell::OnceCell::new(),
             fallback_material: std::cell::OnceCell::new(),
@@ -923,7 +935,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         w: &Word,
         mut rules: impl Iterator<Item = MRuleId>,
     ) -> Option<crate::morph::edge_index::EdgeCandidates<'a>> {
-        if self.trace.is_tracing() || self.over_budget() {
+        if self.trace_mode.is_tree() || self.over_budget() {
             return None;
         }
         let candidates = self
@@ -1250,7 +1262,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             stats.record_template_battery(self.stratum_id, crate::stats::Direction::Analysis);
         }
         // Tracing keeps the per-template walk, whose begin/end events and slot outcomes are per template.
-        let per_template: Vec<BatterySet<'i>> = if self.trace.is_tracing() {
+        let per_template: Vec<BatterySet<'i>> = if self.trace_mode.is_tree() {
             let outputs: Vec<_> = self
                 .stratum
                 .templates
@@ -1302,12 +1314,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let tmpl = &self.g.templates[tid.0 as usize];
         // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
         let node_parent = input.trace.unwrap_or(self.parent);
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             self.trace.begin_unapply_template(node_parent, tid, input);
         }
         let mut out = BatterySet::new(input);
         let slot_outcomes =
-            (self.trace.is_tracing() && self.trace.captures_details()).then(Vec::new);
+            (self.trace_mode.is_tree() && self.trace.captures_details()).then(Vec::new);
         let last_slot = tmpl.slots.len() as isize - 1;
         let mut fired = Vec::new();
         if self.required_slot_cannot_unapply(tid, input, last_slot, &mut fired, &mut None) {
@@ -1326,7 +1338,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         let tmpl = &self.g.templates[tid.0 as usize];
         // A required slot whose rules are all excluded leaves the template no path to an output; tracing keeps the walk for its events.
-        if !self.trace.is_tracing()
+        if !self.trace_mode.is_tree()
             && tmpl
                 .slots
                 .iter()
@@ -1464,7 +1476,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         unapplied: bool,
         slot_outcomes: Option<&[TemplateSlotOutcome]>,
     ) {
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             let node_parent = w.trace.unwrap_or(self.parent);
             if let Some(slot_outcomes) = slot_outcomes.filter(|_| self.trace.captures_details()) {
                 self.trace.end_unapply_template_with_slots(
@@ -1521,6 +1533,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             }
             if !slot_optional(slot) {
                 // This level's `in_word` could not get past a non-optional slot.
+                if let Some(recorder) = self.trace_mode.recorder() {
+                    if !self.budget.search_stopped() {
+                        recorder.record(Decision::RequiredSlotUnfilled {
+                            template: tid,
+                            slot: slot_index,
+                            analysis: true,
+                        });
+                    }
+                }
                 if let Some(outcomes) = &mut slot_outcomes {
                     outcomes.push(TemplateSlotOutcome {
                         slot_index,
@@ -1605,7 +1626,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let received = census.then(|| crate::branch_census::node(&input));
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
         let node_parent = input.trace.unwrap_or(self.parent);
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             self.trace
                 .begin_unapply_stratum(node_parent, self.stratum_id, &input);
         }
@@ -1700,7 +1721,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         self.values.share(&mut input);
 
         // The first end-event, for `input` itself, placed before any nested template/mrule event since C#'s lazy evaluation reaches it first there and this port is eager.
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             self.trace
                 .end_unapply_stratum(node_parent, self.stratum_id, &input);
         }
@@ -1780,6 +1801,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
                 if let Some(idx) = state_canonical {
                     if !keeps_alternatives(&mut rooted, &words, idx) {
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.record(Decision::RootNotViable { stratum: w.stratum });
+                        }
                         return;
                     }
                     if let Some(w) =
@@ -1798,6 +1822,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
                 if let Some(idx) = words.position(&dedup_key) {
                     if !keeps_alternatives(&mut rooted, &words, idx) {
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.record(Decision::RootNotViable { stratum: w.stratum });
+                        }
                         return;
                     }
                     if let Some(w) =
@@ -1815,7 +1842,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
             }
             // The second end-event, once per surviving candidate; must NOT be gated on the `output_keys` insert below, since a key-duplicate still fires it.
-            if self.trace.is_tracing() {
+            if self.trace_mode.is_tree() {
                 let w_parent = w.trace.unwrap_or(node_parent);
                 self.trace
                     .end_unapply_stratum(w_parent, self.stratum_id, &w);
@@ -2136,6 +2163,15 @@ fn synth_slots_generic<F>(
             }
         }
         if !slot_optional(slot) {
+            if let Some(recorder) = trace.mode().recorder() {
+                if !budget.search_stopped() {
+                    recorder.record(Decision::RequiredSlotUnfilled {
+                        template: tid,
+                        slot: i,
+                        analysis: false,
+                    });
+                }
+            }
             if let Some(outcomes) = &mut slot_outcomes {
                 outcomes.push(TemplateSlotOutcome {
                     slot_index: i,
@@ -2475,7 +2511,8 @@ pub fn synthesize_stratum_traced_with_policy(
 
     let sd = &g.strata[stratum.0 as usize];
     let node_parent = input.trace.unwrap_or(parent);
-    if trace.is_tracing() {
+    let trace_mode = trace.mode();
+    if trace_mode.is_tree() {
         trace.begin_apply_stratum(node_parent, stratum, &input);
     }
 
@@ -2519,7 +2556,7 @@ pub fn synthesize_stratum_traced_with_policy(
         let w_parent = w.trace.unwrap_or(node_parent);
         // PORT-CORRESPONDENCE: `SynthesisStratumRule.Apply` passes a non-blocking stratum's words on unchecked and still open.
         if !blocking {
-            if trace.is_tracing() {
+            if trace_mode.is_tree() {
                 trace.end_apply_stratum(w_parent, stratum, &w);
             }
             out.insert(w);
@@ -2527,14 +2564,16 @@ pub fn synthesize_stratum_traced_with_policy(
         }
         // Only a word whose last applied template was non-final is refused; `None` (no template) proceeds.
         if w.flags.is_last_applied_rule_final == Some(false) {
-            if trace.is_tracing() {
+            if trace_mode.is_tree() {
                 trace.non_final_template_applied_last(w_parent, stratum, &w);
+            } else if let Some(recorder) = trace_mode.recorder() {
+                recorder.record(Decision::NonfinalTemplateLast { stratum });
             }
             continue;
         }
         // Drop partial parses that still owe this stratum a rule.
         if has_remaining_rules_from_stratum(g, &w, stratum) {
-            if trace.is_tracing() {
+            if trace_mode.is_tree() {
                 if trace.captures_details() {
                     trace.failed_partial_parse(
                         w_parent,
@@ -2544,6 +2583,8 @@ pub fn synthesize_stratum_traced_with_policy(
                 } else {
                     trace.failed(w_parent, &w, FailureReason::PartialParse);
                 }
+            } else if let Some(recorder) = trace_mode.recorder() {
+                recorder.record(Decision::RemainingRulesInStratum { stratum });
             }
             continue;
         }
@@ -2562,12 +2603,12 @@ pub fn synthesize_stratum_traced_with_policy(
             return Vec::new();
         };
         nw.flags.is_last_applied_rule_final = None;
-        if trace.is_tracing() {
+        if trace_mode.is_tree() {
             trace.end_apply_stratum(w_parent, stratum, &nw);
         }
         out.insert(nw);
     }
-    if trace.is_tracing() && out.is_empty() {
+    if trace_mode.is_tree() && out.is_empty() {
         trace.end_apply_stratum(node_parent, stratum, &input);
     }
     out.into_vec()
@@ -2744,6 +2785,7 @@ fn synth_apply_templates(
     // The root does not change across templates, so this check is hoisted out of the loop.
     let root_partial = root_is_partial(g, input);
     let mut applicable = false;
+    let mut unique_applicable = None;
     for &tid in &sd.templates {
         if !pg_fst::work::consume() {
             return Vec::new();
@@ -2753,6 +2795,7 @@ fn synth_apply_templates(
         if !is_unifiable(&input.syn_fs, req) || root_partial {
             continue;
         }
+        unique_applicable = if applicable { None } else { Some(tid) };
         applicable = true;
         for w in guided_template_apply(
             g, stratum, tid, input, cache, stats, trace, parent, budget, policy,
@@ -2772,10 +2815,20 @@ fn synth_apply_templates(
                 w.flags.is_last_applied_rule_final = Some(true);
             }
             out.insert(w);
-        } else if trace.is_tracing() {
-            // Unlike the passthrough above, this branch drops the word, recording only a trace event.
-            let node_parent = input.trace.unwrap_or(parent);
-            trace.applicable_templates_not_applied(node_parent, stratum, input);
+        } else {
+            match trace.mode() {
+                crate::trace::TraceMode::Tree => {
+                    let node_parent = input.trace.unwrap_or(parent);
+                    trace.applicable_templates_not_applied(node_parent, stratum, input);
+                }
+                crate::trace::TraceMode::Observe(recorder) if !budget.search_stopped() => {
+                    recorder.record(Decision::ApplicableTemplatesNotApplied {
+                        stratum,
+                        template: unique_applicable,
+                    });
+                }
+                _ => {}
+            }
         }
     }
 

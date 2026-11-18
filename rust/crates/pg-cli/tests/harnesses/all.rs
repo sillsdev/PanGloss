@@ -61,3 +61,6 @@ mod slotted_suffix_left_environment;
 
 #[path = "../wide_table_segment_identity.rs"]
 mod wide_table_segment_identity;
+
+#[path = "../diagnostic_trace.rs"]
+mod diagnostic_trace;

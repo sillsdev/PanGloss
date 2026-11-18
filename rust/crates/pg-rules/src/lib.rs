@@ -16,6 +16,7 @@ pub mod extras;
 mod gates;
 pub mod metathesis;
 pub mod morph;
+pub mod observations;
 pub mod partials;
 pub mod required_slots;
 pub mod rewrite;

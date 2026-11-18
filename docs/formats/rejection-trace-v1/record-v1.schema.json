@@ -1,0 +1,5333 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "selectorMorph": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "authored"
+            },
+            "entryGuid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "msaGuid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "senseGuid": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "formGuids": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "inflTypeGuid": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "parts": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "formGuid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "placement": {
+                        "enum": [
+                          "prefix",
+                          "suffix",
+                          "infix",
+                          "root",
+                          "circumfix_left",
+                          "circumfix_right"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "formGuid",
+                      "placement"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "entryGuid",
+            "msaGuid"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "structural_zero"
+            },
+            "inflTypeGuid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          "required": [
+            "kind",
+            "inflTypeGuid"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "guessed"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "unavailable"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "featureSelector": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "enum": [
+            "syntactic",
+            "realizational"
+          ]
+        },
+        "featurePathGuids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 1
+        },
+        "valueGuids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "match": {
+          "const": "exact"
+        }
+      },
+      "required": [
+        "domain",
+        "featurePathGuids",
+        "valueGuids",
+        "match"
+      ],
+      "additionalProperties": false
+    },
+    "targetSelector": {
+      "type": "object",
+      "properties": {
+        "rootIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "morphs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/selectorMorph"
+          },
+          "minItems": 1
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/featureSelector"
+          }
+        }
+      },
+      "required": [
+        "rootIndex",
+        "morphs"
+      ],
+      "additionalProperties": false
+    },
+    "generationSelector": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "exact_chain"
+            },
+            "root": {
+              "$ref": "#/$defs/selectorMorph"
+            },
+            "chain": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/selectorMorph"
+              }
+            },
+            "expectedSurface": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "root",
+            "chain"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "cell"
+            },
+            "root": {
+              "$ref": "#/$defs/selectorMorph"
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/featureSelector"
+              },
+              "minItems": 1
+            },
+            "expectedSurface": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "root",
+            "features"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "objectRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "scope",
+            "stratum",
+            "character_table",
+            "template",
+            "slot",
+            "rule",
+            "subrule",
+            "allomorph",
+            "form",
+            "environment",
+            "entry",
+            "sense",
+            "msa",
+            "feature",
+            "value",
+            "category",
+            "inflection_type",
+            "stem_name"
+          ]
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "eventRef": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "enum": [
+            "subject",
+            "candidate",
+            "constraint_owner",
+            "tested_template",
+            "selected_rule",
+            "required_value",
+            "blocking_entry"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "scope",
+            "stratum",
+            "character_table",
+            "template",
+            "slot",
+            "rule",
+            "subrule",
+            "allomorph",
+            "form",
+            "environment",
+            "entry",
+            "sense",
+            "msa",
+            "feature",
+            "value",
+            "category",
+            "inflection_type",
+            "stem_name"
+          ]
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "mapping": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": [
+                "scope",
+                "stratum",
+                "character_table",
+                "template",
+                "rule",
+                "allomorph",
+                "form",
+                "environment",
+                "entry",
+                "sense",
+                "msa",
+                "feature",
+                "value",
+                "category",
+                "inflection_type",
+                "stem_name"
+              ]
+            },
+            "key": {
+              "type": "string"
+            },
+            "quality": {
+              "enum": [
+                "authored",
+                "compiled",
+                "synthetic",
+                "xml",
+                "unavailable"
+              ]
+            },
+            "bindingStatus": {
+              "enum": [
+                "exact",
+                "multiple",
+                "structural",
+                "unavailable"
+              ]
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "scope",
+                      "stratum",
+                      "character_table",
+                      "template",
+                      "slot",
+                      "rule",
+                      "subrule",
+                      "allomorph",
+                      "form",
+                      "environment",
+                      "entry",
+                      "sense",
+                      "msa",
+                      "feature",
+                      "value",
+                      "category",
+                      "inflection_type",
+                      "stem_name"
+                    ]
+                  },
+                  "guid": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "relation": {
+                    "enum": [
+                      "authored",
+                      "owning_entry",
+                      "msa",
+                      "representative_msa",
+                      "merged_msa",
+                      "form_part",
+                      "environment",
+                      "inflection_type",
+                      "feature",
+                      "category",
+                      "template",
+                      "slot",
+                      "rule",
+                      "subrule",
+                      "sense",
+                      "stem_name"
+                    ]
+                  },
+                  "ordinal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709551615
+                  }
+                },
+                "required": [
+                  "kind",
+                  "guid",
+                  "relation",
+                  "ordinal"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "key",
+            "quality",
+            "bindingStatus",
+            "sources"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "slot"
+            },
+            "key": {
+              "type": "string"
+            },
+            "quality": {
+              "enum": [
+                "authored",
+                "compiled",
+                "synthetic",
+                "xml",
+                "unavailable"
+              ]
+            },
+            "bindingStatus": {
+              "enum": [
+                "exact",
+                "multiple",
+                "structural",
+                "unavailable"
+              ]
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "scope",
+                      "stratum",
+                      "character_table",
+                      "template",
+                      "slot",
+                      "rule",
+                      "subrule",
+                      "allomorph",
+                      "form",
+                      "environment",
+                      "entry",
+                      "sense",
+                      "msa",
+                      "feature",
+                      "value",
+                      "category",
+                      "inflection_type",
+                      "stem_name"
+                    ]
+                  },
+                  "guid": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "relation": {
+                    "enum": [
+                      "authored",
+                      "owning_entry",
+                      "msa",
+                      "representative_msa",
+                      "merged_msa",
+                      "form_part",
+                      "environment",
+                      "inflection_type",
+                      "feature",
+                      "category",
+                      "template",
+                      "slot",
+                      "rule",
+                      "subrule",
+                      "sense",
+                      "stem_name"
+                    ]
+                  },
+                  "ordinal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709551615
+                  }
+                },
+                "required": [
+                  "kind",
+                  "guid",
+                  "relation",
+                  "ordinal"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "address": {
+              "type": "object",
+              "properties": {
+                "templateKey": {
+                  "type": "string"
+                },
+                "compiledSlotIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "templateKey",
+                "compiledSlotIndex"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind",
+            "key",
+            "quality",
+            "bindingStatus",
+            "sources",
+            "address"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "subrule"
+            },
+            "key": {
+              "type": "string"
+            },
+            "quality": {
+              "enum": [
+                "authored",
+                "compiled",
+                "synthetic",
+                "xml",
+                "unavailable"
+              ]
+            },
+            "bindingStatus": {
+              "enum": [
+                "exact",
+                "multiple",
+                "structural",
+                "unavailable"
+              ]
+            },
+            "sources": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "scope",
+                      "stratum",
+                      "character_table",
+                      "template",
+                      "slot",
+                      "rule",
+                      "subrule",
+                      "allomorph",
+                      "form",
+                      "environment",
+                      "entry",
+                      "sense",
+                      "msa",
+                      "feature",
+                      "value",
+                      "category",
+                      "inflection_type",
+                      "stem_name"
+                    ]
+                  },
+                  "guid": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "relation": {
+                    "enum": [
+                      "authored",
+                      "owning_entry",
+                      "msa",
+                      "representative_msa",
+                      "merged_msa",
+                      "form_part",
+                      "environment",
+                      "inflection_type",
+                      "feature",
+                      "category",
+                      "template",
+                      "slot",
+                      "rule",
+                      "subrule",
+                      "sense",
+                      "stem_name"
+                    ]
+                  },
+                  "ordinal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 18446744073709551615
+                  }
+                },
+                "required": [
+                  "kind",
+                  "guid",
+                  "relation",
+                  "ordinal"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "address": {
+              "type": "object",
+              "properties": {
+                "ruleKey": {
+                  "type": "string"
+                },
+                "compiledSubruleIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                }
+              },
+              "required": [
+                "ruleKey",
+                "compiledSubruleIndex"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind",
+            "key",
+            "quality",
+            "bindingStatus",
+            "sources",
+            "address"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "entryRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "entry"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "msaRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "msa"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "formRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "form"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "inflection_typeRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "inflection_type"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "allomorphRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "allomorph"
+        },
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "morph": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "authored"
+            },
+            "entry": {
+              "$ref": "#/$defs/entryRef"
+            },
+            "msa": {
+              "$ref": "#/$defs/msaRef"
+            },
+            "forms": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/formRef"
+              }
+            },
+            "inflectionType": {
+              "$ref": "#/$defs/inflection_typeRef"
+            },
+            "parts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "form": {
+                    "$ref": "#/$defs/formRef"
+                  },
+                  "placement": {
+                    "enum": [
+                      "prefix",
+                      "suffix",
+                      "infix",
+                      "root",
+                      "circumfix_left",
+                      "circumfix_right"
+                    ]
+                  }
+                },
+                "required": [
+                  "form",
+                  "placement"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "senseResolution": {
+              "enum": [
+                "unique_association",
+                "shared_msa",
+                "unavailable"
+              ]
+            },
+            "associatedSenseGuids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "entry",
+            "msa",
+            "forms",
+            "senseResolution",
+            "associatedSenseGuids"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "structural_zero"
+            },
+            "inflectionType": {
+              "$ref": "#/$defs/inflection_typeRef"
+            }
+          },
+          "required": [
+            "kind",
+            "inflectionType"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "guessed"
+            },
+            "allomorph": {
+              "$ref": "#/$defs/allomorphRef"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "unavailable"
+            },
+            "allomorph": {
+              "$ref": "#/$defs/allomorphRef"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "feature": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "enum": [
+            "syntactic",
+            "realizational",
+            "mpr",
+            "phonological"
+          ]
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "minItems": 1
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/objectRef"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "domain",
+        "path",
+        "values"
+      ],
+      "additionalProperties": false
+    },
+    "predicate": {
+      "type": "object",
+      "properties": {
+        "feature": {
+          "$ref": "#/$defs/feature"
+        },
+        "polarity": {
+          "enum": [
+            "required",
+            "excluded"
+          ]
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "group": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "feature",
+        "polarity",
+        "order",
+        "group"
+      ],
+      "additionalProperties": false
+    },
+    "operand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "none"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "features"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "required": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/predicate"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "actual": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/feature"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "actualBasis": {
+              "enum": [
+                "root_upper_bound",
+                "root_lower_bound"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "required",
+            "actual"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "stem_name"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "required": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/objectRef"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "actual": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/objectRef"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "polarity": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "required",
+                    "excluded"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "required",
+            "actual",
+            "polarity"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "template_slot"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "template": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/objectRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "slot": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/objectRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "eligibleTemplates": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/objectRef"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clause": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "required_slot",
+                    "optional_slot",
+                    "syntactic",
+                    "partial_root",
+                    "applicable",
+                    "finality",
+                    "realizational",
+                    "pending_rules"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "template",
+            "slot",
+            "eligibleTemplates",
+            "clause"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "environment"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "alternatives": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/objectRef"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "span": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 18446744073709551615
+                    },
+                    "endExclusive": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 18446744073709551615
+                    },
+                    "unit": {
+                      "const": "interior_segment"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "endExclusive",
+                    "unit"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "polarity": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "required",
+                    "excluded"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "alternatives",
+            "span",
+            "polarity"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "cooccurrence"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "anchor": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/objectRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "others": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/objectRef"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "polarity": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "required",
+                    "excluded"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "adjacency": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "anywhere",
+                    "adjacent_left",
+                    "adjacent_right",
+                    "somewhere_left",
+                    "somewhere_right"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "anchor",
+            "others",
+            "polarity",
+            "adjacency"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "shape"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "requested": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "built": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "enum": [
+                        "literal",
+                        "pattern"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "requested",
+            "built"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "count"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "required": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "actual": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "required",
+            "actual"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "lookup"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "materializedCount": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "root": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/objectRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "materializedCount",
+            "root"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "seed"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "materializedCount": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "occurrences": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/morph"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "materializedCount",
+            "occurrences"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "merge"
+            },
+            "status": {
+              "enum": [
+                "captured",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "retainedPathId": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 18446744073709551615
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "selectorPreserved": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status",
+            "retainedPathId",
+            "selectorPreserved"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "count": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "accuracy": {
+              "enum": [
+                "exact",
+                "lowerBound"
+              ]
+            }
+          },
+          "required": [
+            "value",
+            "accuracy"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "value": {
+              "const": null
+            },
+            "accuracy": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "value",
+            "accuracy"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "bad_request",
+            "unsupported",
+            "unsupported_selector",
+            "grammar_mismatch",
+            "compile",
+            "resource",
+            "io"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 512,
+          "x-maxEncodedJsonBytes": 512
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "resource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "bounded"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          },
+          "required": [
+            "state",
+            "value"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unbounded"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unsupported"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "searchOptions": {
+      "type": "object",
+      "properties": {
+        "guessRoots": {
+          "type": "boolean"
+        },
+        "alwaysEnforceFinalTemplates": {
+          "type": "boolean"
+        },
+        "prefilter": {
+          "enum": [
+            "off",
+            "on",
+            "auto"
+          ]
+        },
+        "workCap": {
+          "$ref": "#/$defs/resource"
+        },
+        "wordTimeoutMs": {
+          "$ref": "#/$defs/resource"
+        },
+        "wordMemoryCapBytes": {
+          "$ref": "#/$defs/resource"
+        },
+        "searchCaptureCapBytes": {
+          "$ref": "#/$defs/resource"
+        }
+      },
+      "required": [
+        "guessRoots",
+        "alwaysEnforceFinalTemplates",
+        "prefilter",
+        "workCap",
+        "wordTimeoutMs",
+        "wordMemoryCapBytes",
+        "searchCaptureCapBytes"
+      ],
+      "additionalProperties": false
+    },
+    "captureLimits": {
+      "type": "object",
+      "properties": {
+        "maxPaths": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "maxEvents": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "maxDepth": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 67108864
+        }
+      },
+      "required": [
+        "maxPaths",
+        "maxEvents",
+        "maxDepth",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "startRow": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "sourceRowCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "requestedRowCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "passId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 128,
+              "x-maxUtf8Bytes": 128,
+              "x-maxEncodedJsonBytes": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inputSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "writingSystem": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "spellingPolicy": {
+          "const": "exact"
+        }
+      },
+      "required": [
+        "startRow",
+        "sourceRowCount",
+        "requestedRowCount",
+        "passId",
+        "inputSha256",
+        "writingSystem",
+        "spellingPolicy"
+      ],
+      "additionalProperties": false
+    },
+    "search": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "stopped",
+            "invalid",
+            "refused"
+          ]
+        },
+        "stopReasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "work_limit",
+              "time_limit",
+              "search_capture_limit",
+              "word_memory_limit",
+              "seed_product_limit",
+              "cancelled"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "workUnits": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outputCount": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outputCensus": {
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "stopReasons",
+        "workUnits",
+        "outputCount",
+        "outputCensus",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "capture": {
+      "type": "object",
+      "properties": {
+        "coverage": {
+          "enum": [
+            "observations",
+            "lineage",
+            "none"
+          ]
+        },
+        "truncatedBy": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "paths",
+              "depth",
+              "events",
+              "bytes"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "omittedPaths": {
+          "$ref": "#/$defs/count"
+        },
+        "omittedEvents": {
+          "$ref": "#/$defs/count"
+        },
+        "omittedOutputs": {
+          "$ref": "#/$defs/count"
+        },
+        "omittedInputs": {
+          "$ref": "#/$defs/count"
+        }
+      },
+      "required": [
+        "coverage",
+        "truncatedBy",
+        "omittedPaths",
+        "omittedEvents",
+        "omittedOutputs",
+        "omittedInputs"
+      ],
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "found",
+            "absent",
+            "rejected",
+            "unknown",
+            "not_requested"
+          ]
+        },
+        "membership": {
+          "enum": [
+            "found",
+            "absent",
+            "unknown",
+            "not_requested"
+          ]
+        },
+        "coverage": {
+          "enum": [
+            "exhausted",
+            "incomplete",
+            "not_assessed"
+          ]
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "search_stopped",
+              "identity_unavailable",
+              "lineage_lost",
+              "owner_unobserved",
+              "selector_unassessed",
+              "witness_truncated",
+              "sense_ambiguous"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "matchedOutputIds": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "matchCount": {
+          "$ref": "#/$defs/count"
+        }
+      },
+      "required": [
+        "status",
+        "membership",
+        "coverage",
+        "limitations",
+        "error"
+      ],
+      "additionalProperties": false,
+      "dependentRequired": {
+        "matchedOutputIds": [
+          "matchCount"
+        ]
+      }
+    },
+    "pathTarget": {
+      "type": "object",
+      "properties": {
+        "relation": {
+          "enum": [
+            "exact",
+            "compatible_partial",
+            "different",
+            "unknown",
+            "not_requested"
+          ]
+        },
+        "boundOccurrences": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "identity": {
+                "$ref": "#/$defs/morph"
+              }
+            },
+            "required": [
+              "index",
+              "identity"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "incompatibleOccurrences": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 18446744073709551615
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "relation",
+        "boundOccurrences",
+        "incompatibleOccurrences"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "header"
+        },
+        "schemaVersion": {
+          "const": "pangloss.diagnostic.v1"
+        },
+        "operation": {
+          "enum": [
+            "parse",
+            "generate"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "observations",
+            "lineage"
+          ]
+        },
+        "engine": {
+          "const": "hc"
+        },
+        "parserVersion": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[ -~]+$"
+        },
+        "parserBuild": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[ -~]+$"
+        },
+        "grammar": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "semantics": {
+                  "enum": [
+                    "snapshot-semantic-sha256-v1",
+                    "source-bytes-sha256-v1"
+                  ]
+                },
+                "sourceKind": {
+                  "enum": [
+                    "snapshot",
+                    "project",
+                    "xml"
+                  ]
+                }
+              },
+              "required": [
+                "hash",
+                "semantics",
+                "sourceKind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "searchOptions": {
+          "$ref": "#/$defs/searchOptions"
+        },
+        "captureLimits": {
+          "$ref": "#/$defs/captureLimits"
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        }
+      },
+      "required": [
+        "type",
+        "schemaVersion",
+        "operation",
+        "mode",
+        "engine",
+        "parserVersion",
+        "parserBuild",
+        "grammar",
+        "searchOptions",
+        "captureLimits",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "input"
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "requestId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 128,
+              "x-maxUtf8Bytes": 128,
+              "x-maxEncodedJsonBytes": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "parse"
+                },
+                "spelling": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "spelling"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "generate"
+                },
+                "selector": {
+                  "$ref": "#/$defs/generationSelector"
+                }
+              },
+              "required": [
+                "kind",
+                "selector"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "row",
+        "requestId",
+        "input"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "mapping"
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "object": {
+          "$ref": "#/$defs/mapping"
+        }
+      },
+      "required": [
+        "type",
+        "row",
+        "object"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "output"
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "outputId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "surface": {
+          "type": "string"
+        },
+        "rootIndex": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "morphs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/morph"
+          }
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        },
+        "projection": {
+          "enum": [
+            "exact",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "expectedSurfaceMatch": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestedCell": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/featureSelector"
+          }
+        },
+        "realizedCell": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "row",
+        "outputId",
+        "surface",
+        "expectedSurfaceMatch"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "path"
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "pathId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "parentPathId": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parentStatus": {
+          "enum": [
+            "root",
+            "retained",
+            "omitted",
+            "unavailable"
+          ]
+        },
+        "depth": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "intermediate",
+            "accepted",
+            "rejected",
+            "merged",
+            "unresolved"
+          ]
+        },
+        "outputId": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outputStatus": {
+          "enum": [
+            "retained",
+            "omitted",
+            "unavailable",
+            "not_applicable"
+          ]
+        },
+        "firstRejectEventId": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mergedIntoPathId": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mergeStatus": {
+          "enum": [
+            "retained",
+            "omitted",
+            "unavailable",
+            "not_applicable"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/pathTarget"
+        },
+        "derivation": {
+          "type": "object",
+          "properties": {
+            "morphs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/morph"
+              }
+            },
+            "realizedFeatures": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/feature"
+              }
+            },
+            "projection": {
+              "enum": [
+                "exact",
+                "partial",
+                "unavailable"
+              ]
+            }
+          },
+          "required": [
+            "morphs",
+            "realizedFeatures",
+            "projection"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "row",
+        "pathId",
+        "parentPathId",
+        "parentStatus",
+        "depth",
+        "outcome",
+        "outputId",
+        "outputStatus",
+        "firstRejectEventId",
+        "mergedIntoPathId",
+        "mergeStatus",
+        "target"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "event"
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "eventId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "pathId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "parentPathId": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evaluationOrder": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "direction": {
+          "enum": [
+            "analysis",
+            "synthesis",
+            "none"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "reject",
+            "observe",
+            "apply"
+          ]
+        },
+        "stage": {
+          "enum": [
+            "input",
+            "prefilter",
+            "lookup",
+            "template",
+            "completion",
+            "morphology",
+            "phonology",
+            "validity",
+            "surface",
+            "merge",
+            "generation_seed"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "allomorph_cooccurrence",
+            "allomorph_not_applicable",
+            "applicable_templates_not_applied",
+            "applied",
+            "bound_root",
+            "disjunctive_allomorph",
+            "environment",
+            "equivalent_history",
+            "excluded_mpr_features",
+            "excluded_stem_name",
+            "head_pattern",
+            "head_productivity_features",
+            "head_required_syntactic_features",
+            "invalid_shape",
+            "lexical_family_replacement",
+            "lookup_completed",
+            "lookup_features",
+            "lookup_no_seed",
+            "max_application_count",
+            "morpheme_cooccurrence",
+            "no_generation_seed",
+            "nonfinal_template_last",
+            "nonhead_pattern",
+            "nonhead_productivity_features",
+            "nonhead_required_syntactic_features",
+            "nonpartial_rule_prohibited_after_final_template",
+            "nonpartial_rule_required_after_nonfinal_template",
+            "obligatory_syntactic_features",
+            "optional_slot_skipped",
+            "pattern_no_match",
+            "pattern_no_output",
+            "prefilter_rejected",
+            "realizational_syntactic_clash",
+            "remaining_analyzed_rules",
+            "remaining_rules_in_stratum",
+            "required_mpr_features",
+            "required_pos",
+            "required_slot_unfilled",
+            "required_stem_name",
+            "required_syntactic_features",
+            "root_not_viable",
+            "surface_mismatch",
+            "template_ineligible"
+          ]
+        },
+        "objectRefs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/eventRef"
+          }
+        },
+        "operands": {
+          "$ref": "#/$defs/operand"
+        }
+      },
+      "required": [
+        "type",
+        "row",
+        "eventId",
+        "pathId",
+        "parentPathId",
+        "evaluationOrder",
+        "direction",
+        "kind",
+        "stage",
+        "reason",
+        "objectRefs",
+        "operands"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "direction": {
+                  "const": "none"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "input"
+                },
+                "reason": {
+                  "const": "invalid_shape"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "prefilter"
+                },
+                "reason": {
+                  "const": "prefilter_rejected"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "lookup"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "lookup_completed"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "lookup"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "root_not_viable"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "lookup"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "lookup_no_seed"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "lookup"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "lookup_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "required_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "excluded_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "required_stem_name"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "stem_name"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "required_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "excluded_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "lookup"
+                },
+                "reason": {
+                  "const": "required_stem_name"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "stem_name"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "required_slot_unfilled"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "required_slot_unfilled"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "optional_slot_skipped"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "optional_slot_skipped"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "template_ineligible"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "realizational_syntactic_clash"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "apply"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "applied"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "apply"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "applied"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "completion"
+                },
+                "reason": {
+                  "const": "applicable_templates_not_applied"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "completion"
+                },
+                "reason": {
+                  "const": "nonfinal_template_last"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "completion"
+                },
+                "reason": {
+                  "const": "remaining_rules_in_stratum"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "count"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "completion"
+                },
+                "reason": {
+                  "const": "remaining_analyzed_rules"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "count"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "completion"
+                },
+                "reason": {
+                  "const": "obligatory_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonpartial_rule_prohibited_after_final_template"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonpartial_rule_required_after_nonfinal_template"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "max_application_count"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "count"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "max_application_count"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "count"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "max_application_count"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "count"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "max_application_count"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "count"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "allomorph_not_applicable"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "allomorph_not_applicable"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "allomorph_not_applicable"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "allomorph_not_applicable"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_productivity_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "excluded_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "excluded_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "excluded_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "excluded_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_stem_name"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "stem_name"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "required_stem_name"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "stem_name"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_match"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_match"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_match"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_match"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_output"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_output"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_output"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "pattern_no_output"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "head_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "nonhead_pattern"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "apply"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "applied"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "apply"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "applied"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "lexical_family_replacement"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "lexical_family_replacement"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "required_pos"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "required_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "excluded_mpr_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "pattern_no_match"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "pattern_no_match"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "pattern_no_output"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "pattern_no_output"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "apply"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "applied"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "apply"
+                },
+                "stage": {
+                  "const": "phonology"
+                },
+                "reason": {
+                  "const": "applied"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "required_syntactic_features"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "features"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "required_stem_name"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "stem_name"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "excluded_stem_name"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "stem_name"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "bound_root"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "disjunctive_allomorph"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "environment"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "environment"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "allomorph_cooccurrence"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "cooccurrence"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "morpheme_cooccurrence"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "cooccurrence"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "surface"
+                },
+                "reason": {
+                  "const": "surface_mismatch"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "shape"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "merge"
+                },
+                "reason": {
+                  "const": "equivalent_history"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "merge"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "observe"
+                },
+                "stage": {
+                  "const": "merge"
+                },
+                "reason": {
+                  "const": "equivalent_history"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "merge"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "generation_seed"
+                },
+                "reason": {
+                  "const": "no_generation_seed"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "seed"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "reject"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "objectRefs": {
+                "contains": {
+                  "properties": {
+                    "role": {
+                      "const": "subject"
+                    }
+                  }
+                },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "word_end"
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "requestId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 128,
+              "x-maxUtf8Bytes": 128,
+              "x-maxEncodedJsonBytes": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "search": {
+          "$ref": "#/$defs/search"
+        },
+        "capture": {
+          "$ref": "#/$defs/capture"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "expectedSurfaceComparison": {
+          "enum": [
+            "matched",
+            "different",
+            "partial",
+            "not_requested",
+            "unavailable"
+          ]
+        },
+        "enumeration": {
+          "type": "object",
+          "properties": {
+            "selectorResolution": {
+              "enum": [
+                "complete",
+                "partial",
+                "unavailable"
+              ]
+            },
+            "chains": {
+              "enum": [
+                "complete",
+                "partial",
+                "unavailable"
+              ]
+            }
+          },
+          "required": [
+            "selectorResolution",
+            "chains"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "row",
+        "requestId",
+        "search",
+        "capture",
+        "target"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "footer"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "refused"
+          ]
+        },
+        "processedRows": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "unprocessedRows": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "searchStatuses": {
+          "type": "object",
+          "properties": {
+            "complete": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "stopped": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "invalid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "refused": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            }
+          },
+          "required": [
+            "complete",
+            "stopped",
+            "invalid",
+            "refused"
+          ],
+          "additionalProperties": false
+        },
+        "error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capture": {
+          "type": "object",
+          "properties": {
+            "evidenceBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551615
+            },
+            "truncatedBy": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "paths",
+                  "depth",
+                  "events",
+                  "bytes"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "omittedPaths": {
+              "$ref": "#/$defs/count"
+            },
+            "omittedEvents": {
+              "$ref": "#/$defs/count"
+            },
+            "omittedOutputs": {
+              "$ref": "#/$defs/count"
+            },
+            "omittedInputs": {
+              "$ref": "#/$defs/count"
+            }
+          },
+          "required": [
+            "evidenceBytes",
+            "truncatedBy",
+            "omittedPaths",
+            "omittedEvents",
+            "omittedOutputs",
+            "omittedInputs"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "type",
+        "status",
+        "processedRows",
+        "unprocessedRows",
+        "searchStatuses",
+        "error",
+        "capture"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

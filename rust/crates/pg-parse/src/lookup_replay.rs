@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use pg_grammar_model::model::{
     AffixProcessRuleDef, AllomorphId, AllomorphOwner, Grammar, MorphRuleDef, MprGroupOutput, MprSet,
 };
+use pg_rules::observations::{Decision, Recorder};
 use pg_rules::stats::{mpr_check, GateFeature, ObjectKind, StatsCollector};
 use pg_rules::word::Word;
 
@@ -75,6 +76,7 @@ impl LookupReplay {
         g: &Grammar,
         alt: &Word,
         stats: Option<&StatsCollector>,
+        recorder: Option<&dyn Recorder>,
     ) -> bool {
         if !self.checks_mpr {
             return true;
@@ -101,6 +103,7 @@ impl LookupReplay {
             entry.allomorphs[idx as usize].stem_name,
             &mut work,
             stats,
+            recorder.map(|recorder| (recorder, root_id)),
         );
         if work > 0 {
             self.work.fetch_add(work, Ordering::Relaxed);
@@ -118,6 +121,7 @@ impl LookupReplay {
         root_stem: Option<pg_grammar_model::model::StemNameId>,
         work: &mut u64,
         stats: Option<&StatsCollector>,
+        observation: Option<(&dyn Recorder, AllomorphId)>,
     ) -> bool {
         let mut extra = self.realizational_out.clone();
         let mut excluded_ok = !self.overwrite_reachable;
@@ -148,6 +152,16 @@ impl LookupReplay {
                             passed,
                         );
                     }
+                    if !passed {
+                        if let Some((recorder, candidate)) = observation {
+                            recorder.record(Decision::LookupStemName {
+                                candidate,
+                                rule: rule_id,
+                                required: stem,
+                                actual: root_stem,
+                            });
+                        }
+                    }
                     !passed
                 })
             {
@@ -169,6 +183,7 @@ impl LookupReplay {
                 excluded_ok,
                 work,
                 stats.map(|stats| (stats, ObjectKind::MorphRule, rule_id.0)),
+                observation,
             ) {
                 if alt.collect_partials() {
                     pg_rules::partials::record(
@@ -200,12 +215,22 @@ fn any_allomorph_possible(
     excluded_ok: bool,
     work: &mut u64,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
+    observation: Option<(&dyn Recorder, AllomorphId)>,
 ) -> bool {
     let upper = root_mpr.union(extra);
     rule.allomorphs.iter().any(|allo| {
         if !allo.required_mpr.is_empty() {
             *work += 1;
             if !mpr_check(g, &allo.required_mpr, &upper, false, owner) {
+                if let Some((recorder, candidate)) = observation {
+                    recorder.record(Decision::LookupMpr {
+                        candidate,
+                        allomorph: allo.id,
+                        tested: &allo.required_mpr,
+                        actual: &upper,
+                        excluded: false,
+                    });
+                }
                 return false;
             }
         }
@@ -213,6 +238,18 @@ fn any_allomorph_possible(
             return true;
         }
         *work += 1;
-        mpr_check(g, &allo.excluded_mpr, root_mpr, true, owner)
+        let passed = mpr_check(g, &allo.excluded_mpr, root_mpr, true, owner);
+        if !passed {
+            if let Some((recorder, candidate)) = observation {
+                recorder.record(Decision::LookupMpr {
+                    candidate,
+                    allomorph: allo.id,
+                    tested: &allo.excluded_mpr,
+                    actual: root_mpr,
+                    excluded: true,
+                });
+            }
+        }
+        passed
     })
 }

@@ -127,3 +127,40 @@ fn a_trace_keeps_every_node_whatever_the_setting() {
     }
     assert!(nodes > 100, "the traces held {nodes} nodes");
 }
+
+#[test]
+fn rejection_observer_keeps_the_early_root_gate_and_ordinary_cost() {
+    use pg_rules::observations::{Decision, Recorder};
+
+    struct RootPrunes(std::cell::Cell<usize>);
+    impl Recorder for RootPrunes {
+        fn record(&self, decision: Decision<'_>) {
+            if matches!(decision, Decision::RootNotViable { .. }) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+    }
+
+    let witness = RootPrunes(std::cell::Cell::new(0));
+    let options = ParseOptions::default();
+    for fixture in discover() {
+        let cases = fixture.load_words_yaml();
+        if cases.skip_in_generic_replay().is_some() {
+            continue;
+        }
+        let grammar = fixture.load_grammar_with_settings(&cases.morpher);
+        let morpher = Morpher::new(&grammar, usize::MAX).with_early_root_check_from(0);
+        for case in &cases.words {
+            let ordinary = morpher.parse_word_opts(&case.word, &options);
+            let (observed, stopped) = morpher.parse_word_observed(&case.word, &options, &witness);
+            assert!(!stopped);
+            assert_eq!(observed.analyses, ordinary.analyses);
+            assert_eq!(observed.structured, ordinary.structured);
+            assert_eq!(observed.work_steps, ordinary.work_steps);
+        }
+    }
+    assert!(
+        witness.0.get() > 0,
+        "fixtures must exercise root viability pruning"
+    );
+}

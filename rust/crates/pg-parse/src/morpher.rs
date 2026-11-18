@@ -2,6 +2,7 @@
 //! (confirm) → validity/surface filter → dedup → signature. Analysis chains strata
 //! surface→deepest; synthesis chains them deepest→surface. Ports C# `Morpher.ParseWord`.
 
+use pg_rules::observations::{Decision, ObservationTrace, Recorder};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Mutex;
@@ -760,9 +761,26 @@ impl<'g> Morpher<'g> {
         self.parse_word_core(word, opts, &sink)
     }
 
-    /// The tracing entry point (`pangloss parse --trace`): `Self::parse_word_opts` with a real
-    /// sink. This function mints only the root `WordAnalysis` node, as C# `AnalyzeWord` does at
-    /// `ParseWord` entry; every node beneath it is emitted by the cascades and gates themselves.
+    /// Run the ordinary evaluator with an observer and report the independent work stop.
+    pub fn parse_word_observed(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        recorder: &dyn Recorder,
+    ) -> (ParseOutcome, bool) {
+        let budget = self.word_budget();
+        let outcome = self.parse_word_core_budgeted(
+            word,
+            opts,
+            &ObservationTrace(recorder),
+            (None, None),
+            None,
+            Some(&budget),
+        );
+        (outcome, budget.work_limit_reached())
+    }
+
+    /// The legacy tree trace emits the root and the rule cascade's descendant nodes.
     pub fn parse_word_traced(
         &self,
         word: &str,
@@ -983,10 +1001,19 @@ impl<'g> Morpher<'g> {
             }
         }
 
+        let trace_mode = trace.mode();
+        let tree_tracing = trace_mode.is_tree();
+        let recorder = trace_mode.recorder();
         // 1. Segment the surface word against the surface stratum's table (Morpher.cs:115).
         let shape = match segment_with_features(g, surface_table, word) {
             Ok(s) => s,
             Err(_) => {
+                if let Some(recorder) = recorder {
+                    recorder.record(Decision::InvalidShape {
+                        table: g.strata[surface_stratum.0 as usize].table,
+                        spelling: word,
+                    });
+                }
                 let mut outcome = empty_outcome(true);
                 outcome.capped = budget.capped();
                 outcome.capture_capped = budget.capture_capped();
@@ -1001,7 +1028,7 @@ impl<'g> Morpher<'g> {
         let search_cache = Mutex::new(crate::root_search_cache::RootSearchCache::new(n));
 
         // `input.trace` carries the handle through every clone, so gates below find their ancestor via `w.trace`.
-        let root = if trace.is_tracing() {
+        let root = if tree_tracing {
             let h = trace.analyze_word(&input);
             input.trace = Some(h);
             h
@@ -1011,7 +1038,7 @@ impl<'g> Morpher<'g> {
 
         // PORT-CORRESPONDENCE: `AnalysisStratumRule.Apply` merges only when `MergeEquivalentAnalyses && !IsTracing`.
         let cfg = AnalyzerConfig {
-            merge_equivalent: self.merge_equivalent_analyses && !trace.is_tracing(),
+            merge_equivalent: self.merge_equivalent_analyses && !tree_tracing,
             max_unapplications: 0,
             max_stem_count: self.max_stem_count,
             prune_disagreeing_copies: self.prune_disagreeing_copies,
@@ -1032,7 +1059,7 @@ impl<'g> Morpher<'g> {
         let mut results: Vec<Canonicals> = Vec::new();
         // Stratum 0 is analysed last and its outputs feed no other stratum, so a word of it that no root matches is never read again. Not where something does read such a word: a trace, the root guesser, and the census and alternative-yield diagnostics.
         let early_lookup = self.early_root_check_from.is_some()
-            && !trace.is_tracing()
+            && !tree_tracing
             && !opts.guess_only
             && !(opts.guess_root && !self.lexical_patterns.is_empty())
             && !pg_rules::branch_census::enabled()
@@ -1072,7 +1099,7 @@ impl<'g> Morpher<'g> {
                     Some(inputs) => inputs.word(at),
                     None => input.clone(),
                 };
-                // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
+                // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `tree_tracing` is false.
                 let node_parent = w.trace.unwrap_or(root);
                 let enforce = self.always_enforce_final_templates
                     || (self.prune_final_templates
@@ -1171,9 +1198,11 @@ impl<'g> Morpher<'g> {
                     aw,
                     lex_entry_filter,
                     trace,
+                    trace_mode,
                     root,
                     stats,
                     &search_cache,
+                    budget,
                 );
                 if looked_up.is_empty() {
                     self.record_no_root(stats, aw);
@@ -1218,11 +1247,11 @@ impl<'g> Morpher<'g> {
                         ) {
                             break;
                         }
-                        if !trace.is_tracing()
+                        if !tree_tracing
                             && self
                                 .lookup_replay
                                 .as_ref()
-                                .is_some_and(|replay| !replay.is_feasible(g, &alt, stats))
+                                .is_some_and(|replay| !replay.is_feasible(g, &alt, stats, recorder))
                         {
                             continue;
                         }
@@ -1404,28 +1433,34 @@ impl<'g> Morpher<'g> {
     }
 
     /// C# `Morpher.LexicalLookup` (machine#627): one clone per root allomorph the search matched, never its siblings; `lex_entry_filter` and the entry's syntactic-feature unification run per matched allomorph, in search order.
+    #[allow(clippy::too_many_arguments)]
     fn lexical_lookup_filtered(
         &self,
         aw: &Word,
         lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
         trace: &dyn TraceSink,
+        trace_mode: pg_rules::trace::TraceMode<'_>,
         parent: TraceHandle,
         stats: Option<&pg_rules::stats::StatsCollector>,
         search_cache: &Mutex<crate::root_search_cache::RootSearchCache>,
+        budget: &pg_rules::stratum::WordBudget,
     ) -> Vec<Word> {
-        // Fires once per call before any root-allomorph search; `aw.trace` resolves to its own node, not the parse root.
         let node_parent = aw.trace.unwrap_or(parent);
-        let lookup = if trace.is_tracing() {
-            Some(trace.lexical_lookup(node_parent, aw.stratum, aw))
-        } else {
-            None
+        let (lookup, recorder) = match trace_mode {
+            pg_rules::trace::TraceMode::Tree => (
+                Some(trace.lexical_lookup(node_parent, aw.stratum, aw)),
+                None,
+            ),
+            pg_rules::trace::TraceMode::Observe(recorder) => (None, Some(recorder)),
+            pg_rules::trace::TraceMode::Off => (None, None),
         };
         let g = self.g;
         if let Some(stats) = stats {
             stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
         }
         let matched = self.search_roots(aw.stratum, &aw.shape, stats, search_cache);
-        if aw.collect_partials() && matched.is_empty() {
+        let no_matches = matched.is_empty();
+        if aw.collect_partials() && no_matches {
             pg_rules::partials::record(
                 pg_rules::partials::FailureKind::NoRoot,
                 pg_rules::partials::RejectingObject::Stratum(aw.stratum),
@@ -1499,12 +1534,14 @@ impl<'g> Morpher<'g> {
                         pg_rules::partials::RejectingObject::Root(le),
                     );
                 }
-                if trace.is_tracing() {
+                if lookup.is_some() {
                     let mut trace_word = aw.clone_without_alternatives();
                     self.set_root_allomorph(&mut trace_word, le, allo.id, &allo.shape.text);
                     // The Failed trace follows a SynthesizeWord trace, as in C#.
                     let synthesis = trace.synthesize_word(node_parent, &trace_word);
                     trace.failed(synthesis, &trace_word, FailureReason::LexicalLookupFeatures);
+                } else if let Some(recorder) = recorder {
+                    recorder.record(Decision::LookupFeatures { entry: le });
                 }
                 continue;
             }
@@ -1571,6 +1608,20 @@ impl<'g> Morpher<'g> {
                     match_count: out.len(),
                 },
             );
+        }
+        if let Some(recorder) = recorder {
+            if !budget.search_stopped() {
+                recorder.record(Decision::LookupCompleted {
+                    stratum: aw.stratum,
+                    materialized: out.len(),
+                    root: if out.len() == 1 {
+                        out[0].root_allomorph
+                    } else {
+                        None
+                    },
+                    no_matches,
+                });
+            }
         }
         out
     }
@@ -1853,7 +1904,8 @@ impl<'g> Morpher<'g> {
                 pg_rules::partials::record_pending_rule(w.mrule_app_index as usize, w.stratum);
             }
             // partial parse — not every unapplied rule was confirmed
-            if trace.is_tracing() {
+            let trace_mode = trace.mode();
+            if trace_mode.is_tree() {
                 if trace.captures_details() {
                     trace.failed_partial_parse(
                         parent,
@@ -1863,6 +1915,11 @@ impl<'g> Morpher<'g> {
                 } else {
                     trace.failed(parent, w, FailureReason::PartialParse);
                 }
+            } else if let Some(recorder) = trace_mode.recorder() {
+                recorder.record(Decision::RemainingAnalyzedRules {
+                    stratum: w.stratum,
+                    remaining: w.mrule_app_index as usize + 1,
+                });
             }
             return false;
         }
@@ -1930,7 +1987,8 @@ impl<'g> Morpher<'g> {
                 pg_rules::partials::RejectingObject::Stratum(w.stratum),
             );
         }
-        if trace.is_tracing() {
+        let trace_mode = trace.mode();
+        if trace_mode.is_tree() {
             if ok {
                 trace.successful(parent, w);
             } else {
@@ -1946,6 +2004,17 @@ impl<'g> Morpher<'g> {
                         },
                     );
                 }
+            }
+        } else if !ok {
+            if let Some(recorder) = trace_mode.recorder() {
+                recorder.record(Decision::SurfaceMismatch {
+                    table: g.strata[n - 1].table,
+                    requested: word,
+                    morphs: &w.morphs,
+                    built: &|limit| {
+                        surface::to_regex_display_bounded(surface_table, &w.shape, limit)
+                    },
+                });
             }
         }
         ok
