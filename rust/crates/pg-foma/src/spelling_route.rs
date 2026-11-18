@@ -94,7 +94,7 @@ impl<'g> SpellingRoutePlan<'g> {
             }
         }
         if compound.rules > 0 {
-            if crate::emit::compound_depth_bound(g) > 2 || !morphology_leaves_mpr_alone(g) {
+            if crate::emit::effective_compound_stems(g) > 2 || !morphology_leaves_mpr_alone(g) {
                 return None;
             }
             compound.boundary_spellings.sort_unstable();

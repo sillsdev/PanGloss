@@ -234,6 +234,7 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
         ApplyDimension::Candidates | ApplyDimension::NormalizedCandidates => {
             Metric::ProposalCandidateCount
         }
+        ApplyDimension::StemBound => Metric::BackendCoverageGapCount,
     };
     HealthFinding::new(
         FindingCode::ResourceBudgetReached,
@@ -242,23 +243,35 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
         metric,
         MetricValue::Count(trip.value as u64),
         ValueProvenance::Observed,
-        format!(
-            "Apply-time {label} reached {value} (limit {limit}) before this word completed; the \
-             word is incomplete, never a definitive partial analysis -- other words in the same \
-             batch remain valid and this word may be explicitly resubmitted with a larger apply \
-             budget.",
-            label = trip.dimension.label(),
-            value = trip.value,
-            limit = trip.limit,
-        ),
+        if trip.dimension == ApplyDimension::StemBound {
+            format!(
+                "The confirming parser accepts {value} stems per word but the compound construction covers {limit}; every word is incomplete, never a definitive analysis.",
+                value = trip.value,
+                limit = trip.limit,
+            )
+        } else {
+            format!(
+                "Apply-time {label} reached {value} (limit {limit}) before this word completed; the \
+                 word is incomplete, never a definitive partial analysis -- other words in the same \
+                 batch remain valid and this word may be explicitly resubmitted with a larger apply \
+                 budget.",
+                label = trip.dimension.label(),
+                value = trip.value,
+                limit = trip.limit,
+            )
+        },
     )
     .affecting(trip.word.iter().cloned().collect())
     .against_threshold(MetricValue::Count(trip.limit as u64))
     .with_remedies(vec![Remedy {
         rank: 1,
-        description: "Explicitly retry this word alone with a larger caller-selected apply-time \
+        description: if trip.dimension == ApplyDimension::StemBound {
+            "Compile the proposer for the parser's stem cap, or lower the parser's stem cap to the proposer's bound."
+        } else {
+            "Explicitly retry this word alone with a larger caller-selected apply-time \
                 budget."
-            .to_string(),
+        }
+        .to_string(),
         requires_linguistic_equivalence: false,
         caveat: None,
     }])

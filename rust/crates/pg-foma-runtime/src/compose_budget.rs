@@ -115,6 +115,8 @@ pub enum ApplyDimension {
     /// counted before deduplication so that many raw paths revisiting the same alternatives are
     /// bounded too.
     NormalizedCandidates,
+    /// Not a magnitude cap: the confirming parser accepts more stems per word than the compound construction was built to propose (`value` is its effective cap, `limit` the stem bound), so no word can be called complete.
+    StemBound,
 }
 
 impl ApplyDimension {
@@ -123,6 +125,7 @@ impl ApplyDimension {
             ApplyDimension::DecodedPaths => "decoded apply_up paths",
             ApplyDimension::Candidates => "distinct candidates",
             ApplyDimension::NormalizedCandidates => "repeat-normalization alternatives",
+            ApplyDimension::StemBound => "stem cap above the proposer's stem bound",
         }
     }
 }

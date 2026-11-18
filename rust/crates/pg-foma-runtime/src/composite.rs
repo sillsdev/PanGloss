@@ -329,6 +329,9 @@ pub fn propose_union_peel_with_diagnostics(
                         .normalization_cap()
                         .expect("normalization trip requires a normalization cap"),
                 ),
+                ApplyDimension::StemBound => {
+                    unreachable!("a proposer never trips the stem bound; assembly checks it")
+                }
             };
             return Err((dimension, value, limit, proposal, proposal_calls));
         }
@@ -373,6 +376,9 @@ pub fn propose_union_peel_with_diagnostics(
                     .normalization_cap()
                     .expect("normalization trip requires a normalization cap"),
             ),
+            ApplyDimension::StemBound => {
+                unreachable!("a proposer never trips the stem bound; assembly checks it")
+            }
         };
         return Err((dimension, value, limit, proposal, proposal_calls));
     }
@@ -617,6 +623,16 @@ impl<'g> FomaAnalyzer<'g> {
         )
     }
 
+    /// `(effective cap, built bound)` when the confirming `Morpher` accepts more stems per word than the compound construction covers, else `None`. The effective cap is the `Morpher`'s limited by the rule-count ceiling, since no derivation can use more stems than that.
+    pub fn stem_bound_trip(&self) -> Option<(usize, usize)> {
+        let counts = &self.proposer.report.as_ref()?.counts;
+        if counts.compound_stem_bound == 0 {
+            return None;
+        }
+        let cap = (self.morpher.max_stem_count() as usize).min(counts.compound_depth_ceiling);
+        (cap > counts.compound_stem_bound).then_some((cap, counts.compound_stem_bound))
+    }
+
     /// Effective peel bound, exposed for reproducible differential manifests.
     pub fn peel_chain_depth_cap(&self) -> Option<usize> {
         self.peel_budget.chain_depth_cap
@@ -750,6 +766,9 @@ impl<'g> FomaAnalyzer<'g> {
         (Vec<Candidate>, bool, Option<ComposeError>),
         (ApplyDimension, usize, usize),
     > {
+        if let Some((cap, bound)) = self.stem_bound_trip() {
+            return Err((ApplyDimension::StemBound, cap, bound));
+        }
         let mut used = ProposalCounts::default();
         let trip = |dimension: ApplyDimension, used: &ProposalCounts| match dimension {
             ApplyDimension::DecodedPaths => (
@@ -771,6 +790,9 @@ impl<'g> FomaAnalyzer<'g> {
                     .normalization_cap()
                     .expect("normalization trip requires a normalization cap"),
             ),
+            ApplyDimension::StemBound => {
+                unreachable!("a proposer never trips the stem bound; assembly checks it")
+            }
         };
 
         let direct_budget = remaining_apply_budget_from_counts(budget, &used);
@@ -943,6 +965,15 @@ impl<'g> FomaAnalyzer<'g> {
         word: &str,
         budget: &ApplyBudget,
     ) -> std::result::Result<ProposeCandidatesOk, ProposeCandidatesErr> {
+        if let Some((cap, bound)) = self.stem_bound_trip() {
+            return Err((
+                ApplyDimension::StemBound,
+                cap,
+                bound,
+                ProposalDiagnostics::default(),
+                0,
+            ));
+        }
         propose_union_peel_with_diagnostics(
             self.g,
             &mut self.proposer,
@@ -955,6 +986,12 @@ impl<'g> FomaAnalyzer<'g> {
 
     /// `propose(word)` union `peel_candidates(word, propose)`, deduped by `(morphemes, root_index)`; the pre-confirm half of `Self::analyze_word`/`Self::analyze_words`, factored out to run sequentially over every word.
     fn propose_candidates(&mut self, word: &str) -> (Vec<Candidate>, bool, Option<ComposeError>) {
+        // The unbudgeted result type has no incomplete channel, so a mismatched cap must stop here rather than yield a complete-looking row.
+        if let Some((cap, bound)) = self.stem_bound_trip() {
+            panic!(
+                "the confirming parser accepts {cap} stems per word but this proposer was built for {bound}; use a budgeted analysis, which reports the word incomplete"
+            );
+        }
         let mut candidates: Vec<Candidate> = self.proposer.propose(word);
 
         // Disjoint field borrows: `proposer` and the `peel_candidates` call below touch different fields, so no conflict; `self.peel_budget` is `Copy`, copied out for the same reason.

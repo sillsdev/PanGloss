@@ -1570,15 +1570,17 @@ fn compound_chain_depth_and_budget_check(
     uncovered: &[UncoveredItem],
     counts: &EmitCounts,
     chain_depth_cap: Option<usize>,
+    stem_bound: Option<usize>,
 ) -> Result<usize, EmitResult> {
-    let compound_depth_bound = compound_depth_bound(g);
-    let (depth, limit) = match compound_extra_levels_checked_with_cap(g, chain_depth_cap) {
-        Ok(levels) => return Ok(levels),
-        Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
-        Err(ComposeError::CannotRepresent { reason }) => {
-            unreachable!("chain depth check: {reason}")
-        }
-    };
+    let compound_depth_bound = stem_bound.unwrap_or_else(|| compound_depth_bound(g));
+    let (depth, limit) =
+        match compound_extra_levels_checked_with_cap(g, chain_depth_cap, stem_bound) {
+            Ok(levels) => return Ok(levels),
+            Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
+            Err(ComposeError::CannotRepresent { reason }) => {
+                unreachable!("chain depth check: {reason}")
+            }
+        };
     {
         let reason = format!(
             "compound chain depth ({depth} extra non-head compound-root level(s), from a computed \
@@ -1617,11 +1619,20 @@ pub(crate) fn compound_depth_bound(g: &Grammar) -> usize {
         .unwrap_or(2)
 }
 
+/// The operative stem bound `S`: HC accepts at most `Grammar::max_stem_count` stems in one word, and no derivation exceeds the rule-count ceiling `compound_depth_bound`, so `min` of the two bounds every word the grammar can analyze. At least 1.
+pub fn effective_compound_stems(g: &Grammar) -> usize {
+    let ceiling = compound_depth_bound(g);
+    ceiling.min(g.max_stem_count as usize).max(1)
+}
+
+/// `stem_bound` is `Some(S)` only for a construction whose spelling proof covers `S` stems; every other construction keeps the ceiling-sized unrolling.
 fn compound_extra_levels_checked_with_cap(
     g: &Grammar,
     chain_depth_cap: Option<usize>,
+    stem_bound: Option<usize>,
 ) -> Result<usize, ComposeError> {
-    let compound_extra_levels = compound_depth_bound(g).saturating_sub(1).max(1);
+    let stems = stem_bound.unwrap_or_else(|| compound_depth_bound(g));
+    let compound_extra_levels = stems.saturating_sub(1).max(1);
     let budget = match chain_depth_cap {
         Some(cap) => ComposeBudget {
             chain_depth_cap: Some(crate::compose_budget::clamp_chain_depth_cap(cap)),
@@ -4108,12 +4119,22 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
     } else {
         None
     };
+    // Only a proved compound route is cut to the operative stem bound; the artifact records both bounds so assembly can refuse a confirming parser whose cap exceeds what was built.
+    let proved_stem_bound = spelling_plan
+        .as_ref()
+        .is_some_and(|plan| plan.compound.is_some())
+        .then(|| effective_compound_stems(g));
+    if let Some(stems) = proved_stem_bound {
+        counts.compound_stem_bound = stems;
+        counts.compound_depth_ceiling = compound_depth_bound(g);
+    }
     if compound_license.is_some() {
         compound_extra_levels = match compound_chain_depth_and_budget_check(
             g,
             &uncovered,
             &counts,
             closure_trace.map(crate::characterization::ClosureTrace::compound_chain_depth_cap),
+            proved_stem_bound,
         ) {
             Ok(levels) => levels,
             Err(mut early_return) => {
@@ -4238,7 +4259,8 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
         write_lexicon_header(&mut out, "TLPost");
         write_bare(&mut out, "TLSfx0", &mut counts);
         if has_compounding_rules {
-            write_bare(&mut out, "TLCmp", &mut counts);
+            // A suffix rule can apply to the head before it compounds, so the compound is entered through a suffix-derivation chain that includes the empty path; the compound-then-suffix order is the chain after the compound.
+            write_bare(&mut out, "TLSfxC0", &mut counts);
             // build_compound_chain wires a prefix-derivation chain before every extra root, since a bare slot would under-generate a prefixed compound head; narrowed to the licensed non-head subset, or all_roots when no license was computed.
             let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
@@ -4282,6 +4304,22 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut tl_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,
+            );
+            build_deriv_chain(
+                &mut out,
+                g,
+                table,
+                "TLSfxC",
+                Role::Suffix,
+                &deriv_suffix,
+                width,
+                "TLCmp",
+                &mut uncovered,
+                &mut counts,
+                phon.as_ref(),
+                false,
+                &mut pk,
+                spelling_plan.as_ref(),
             );
         }
         if !tl_head_no.is_empty() {
@@ -4365,7 +4403,8 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
         write_bare(&mut out, &sfx_deriv_entry, &mut counts);
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
-            write_bare(&mut out, &cmp_name, &mut counts);
+            // Same head-suffix-then-compound entry as the template-less section.
+            write_bare(&mut out, &format!("G{gi}SfxC0"), &mut counts);
             // Same prefix-derivation fix per group as the template-less TLCmp section above; the head side here is deliberately left ungated, since template+compounding interaction is an unproven composition node.
             let group_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
@@ -4409,6 +4448,22 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut group_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,
+            );
+            build_deriv_chain(
+                &mut out,
+                g,
+                table,
+                &format!("G{gi}SfxC"),
+                Role::Suffix,
+                &deriv_suffix,
+                width,
+                &cmp_name,
+                &mut uncovered,
+                &mut counts,
+                phon.as_ref(),
+                false,
+                &mut pk,
+                spelling_plan.as_ref(),
             );
         }
 

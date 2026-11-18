@@ -271,19 +271,62 @@ fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
     outcome.signature()
 }
 
+/// The grammar's two default compounds are proved at its two-stem cap, so the multi-character segment spellings are admitted; every word up to four letters over the lexicon's alphabet must come back complete with exactly the HC analyses (no missing identity, no surviving extra).
 #[cfg(feature = "foma-tools")]
-fn assert_fst_refuses_ambiguous_spelling(grammar: &pg_grammar::model::Grammar) {
-    let result = pg_foma::composite::compile_analyzer(grammar);
-    let Err(pg_foma::analyzer::FomaError::CapabilityRefused(diagnostics)) = result else {
-        panic!("the non-scalar segment alphabet must refuse before FST construction");
-    };
-    assert!(
-        diagnostics.iter().any(|d| d.refusal
-            == pg_foma::capability::CapabilityRefusal::ProposalRecall(
-                pg_foma::capability::ProposalRecallGap::AmbiguousSegmentSpelling
-            )),
-        "expected the shared spelling refusal, got {diagnostics:?}"
-    );
+fn assert_fst_matches_hc(grammar: &pg_grammar::model::Grammar) -> (usize, Vec<String>) {
+    let mut analyzer = pg_foma::composite::compile_analyzer(grammar)
+        .unwrap_or_else(|e| panic!("the proved compound route must be admitted: {e:?}"));
+    let morpher = pg_parse::Morpher::new(grammar, usize::MAX);
+    let mut words: Vec<String> = [
+        "qta", "kumata", "qtu", "kumatu", "q", "kuma", "taku", "kumaq", "qkuma", "kumakuma",
+    ]
+    .iter()
+    .map(|w| w.to_string())
+    .collect();
+    let tokens = ["k", "u", "m", "a", "q", "t", "s"];
+    let mut frontier = vec![String::new()];
+    for _ in 0..4 {
+        let mut next = Vec::new();
+        for base in &frontier {
+            for token in tokens {
+                next.push(format!("{base}{token}"));
+            }
+        }
+        words.extend(next.iter().cloned());
+        frontier = next;
+    }
+    words.sort_unstable();
+    words.dedup();
+    let mut compared = 0;
+    let mut analysed_compounds = Vec::new();
+    for (index, word) in words.iter().enumerate() {
+        let row = pg_foma::differential::measure_word(
+            grammar,
+            &morpher,
+            Some(&mut analyzer),
+            index,
+            word,
+            &pg_foma_backend::compose_budget::ApplyBudget::unbounded(),
+            None,
+        )
+        .unwrap();
+        if row.hc_status == "invalid_shape" {
+            continue;
+        }
+        assert!(!row.incomplete, "{word}: {row:?}");
+        assert_eq!(row.proposal_misses.as_deref(), Some(&[][..]), "{word}");
+        assert_eq!(row.spurious_confirmed.as_deref(), Some(&[][..]), "{word}");
+        assert_eq!(row.confirmed_multiset_equal, Some(true), "{word}");
+        if matches!(word.as_str(), "kumaq" | "qkuma" | "kumakuma") {
+            assert!(row.oracle.is_empty() && row.confirmed.is_empty(), "{word}");
+        }
+        if word.len() >= 5 && !row.oracle.is_empty() {
+            assert!(!row.confirmed.is_empty(), "{word}");
+            analysed_compounds.push(word.clone());
+        }
+        compared += 1;
+    }
+    (compared, analysed_compounds)
 }
 
 #[test]
@@ -320,8 +363,17 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_except_for_letter_unificat
     let valued = compile(&valued_snapshot);
 
     #[cfg(feature = "foma-tools")]
-    for grammar in [&inferred, &explicit, &valued] {
-        assert_fst_refuses_ambiguous_spelling(grammar);
+    {
+        let mut covered = Vec::new();
+        for grammar in [&inferred, &explicit, &valued] {
+            let (compared, analysed) = assert_fst_matches_hc(grammar);
+            assert!(compared > 1000);
+            covered.extend(analysed);
+        }
+        // Only the suffixed stems have analyses at five letters or more; the compound-shaped words are HC non-words.
+        covered.sort_unstable();
+        covered.dedup();
+        assert_eq!(covered, ["kumata", "kumatu"]);
     }
 
     // Pinned C# HermitCrab parses the t-final words in all three grammars, and kuma and taku with an authored featureless q.

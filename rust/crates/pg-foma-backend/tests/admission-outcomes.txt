@@ -214,6 +214,7 @@ staging:edge-cases/rtl-expansion-context	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rtl-expansion-final-anchor	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/segment-natural-class-table-binding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/simultaneous-overlap-expansion	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-affix-feeds	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-affixes	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-alias-deleted	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-allomorphs	TunedSurfaceProbed	oracle_exact
@@ -223,13 +224,19 @@ staging:edge-cases/spelling-coverage-compound-boundary-explicit	TunedSurfaceProb
 staging:edge-cases/spelling-coverage-compound-boundary-lead	TunedSurfaceProbed	refused
 staging:edge-cases/spelling-coverage-compound-boundary-trail	TunedSurfaceProbed	refused
 staging:edge-cases/spelling-coverage-compound-completed	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-multirule	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-multirule-affixes	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-orders	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-orders-asymmetric	TunedSurfaceProbed	refused
 staging:edge-cases/spelling-coverage-compound-orders-pos	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-prefix-feeds	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-repeated-root	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-reversed-table	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-strata	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-suffix-feeds	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-compound-template	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-template-feeds	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/spelling-coverage-compound-template-free-feeds	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-copy-slots	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-copy-slots-alias-deleted	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/spelling-coverage-copy-slots-completed	TunedSurfaceProbed	oracle_exact

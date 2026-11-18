@@ -1,0 +1,303 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: SpellingCompoundTemplateFreeFeeds
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Fully specified literal segments with partial-feature aliases and ordinary non-recursive compounding or affix rules; no fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "p"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "s"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "e"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "as"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ae"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ps"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pe"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ss"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "se"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ea"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ep"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "es"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ee"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aas"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aae"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "apa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "app"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aps"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ape"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "asa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "asp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ass"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ase"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aea"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aep"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aes"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aee"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "paa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pas"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pae"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ppa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ppp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pps"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ppe"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "psa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "psp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pss"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pse"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pea"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pep"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pes"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pee"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+X+TSUF|s[aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "TSUF"]
+  - word: "sap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sas"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sae"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "spa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+Y+TSUF|sp[aá(xy)i]"
+        rules: ["TPRE", "TSUF"]
+  - word: "spp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sps"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "spe"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ssa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ssp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sss"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sse"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sea"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+X+TSUF|s[aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "TSUF"]
+  - word: "sep"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ses"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "see"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eas"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eae"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "epa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "epp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eps"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "epe"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "esa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "esp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ess"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ese"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eea"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eep"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ees"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "eee"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saep"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sape"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saepi"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+X+DSUF+Y+TSUF|s[aá(xy)ei][aá(xy)e]p[aá(xy)i]"
+        rules: ["DSUF", "TPRE", "TSUF", "cr1"]
+  - word: "sapei"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+X+Y+DSUF+TSUF|s[aá(xy)ei]p[aá(xy)e][aá(xy)i]"
+        rules: ["DSUF", "TPRE", "TSUF", "cr1"]
+  - word: "saipe"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aepi"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "xy"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "sxye"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "saexy"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "TPRE+X+DSUF+TSUF|s[aá(xy)ei][aá(xy)e][aá(xy)i]"
+        rules: ["DSUF", "TPRE", "TSUF"]
+      - signature: "TPRE+X+TSUF|s[aá(xy)ei][aá(xy)ei][aá(xy)i]"
+        rules: ["TPRE", "TSUF", "cr1"]
+  - word: "sxyep"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
