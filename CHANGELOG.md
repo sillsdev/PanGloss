@@ -3,22 +3,26 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.24.0
 
-- Preland runs pg-cli’s source and dependency guards through the same Cargo test target as CI, including fixture pin checks (#336).
+Released 2026-11-18.
+
+- Preland runs pg-cli’s source and dependency guards through the same Cargo test target as CI, including fixture pin checks (#336, #348).
 
 - FST admission accepts witnessed spelling coverage for supported no-phonology literal/copy routes, including aliases and compatible partial-feature definitions. Emission consumes the certified spellings; ambiguous copies use bounded structural synthesis, and spelling prefilters retain explicit boundaries. The new certificate excludes compounding; independent recall gaps retain their refusals (part of #136).
-- HC analysis matches featured literal insertions by feature unification, retaining C# affix/slot analyses for compatible omitted-feature and same-bundle spellings. Featureless literal identity remains enforced; the spelling-coverage fixtures reproduce the lost analyses (part of #136).
+- **Default HC parsing can now return more analyses.** Featured literal insertions are matched by feature unification instead of being pinned to one char-def ID, recovering C# affix/slot analyses that HC previously lost for compatible omitted-feature and same-bundle spellings. This is a behaviour change for every grammar with featured literal insertions, with no flag. Featureless literal identity remains enforced; the spelling-coverage fixtures reproduce the lost analyses (#350; part of #136).
 - `pangloss batch --engine=hc|fst` selects an engine and adds opt-in completion metadata; omitting it preserves HC output. FST requires `foma-tools`, one thread, and explicitly unbounded HC work/capture/word-memory controls. Stats/cache, partials, work/cost columns, timeouts, prefiltering, guessing, and template overrides are unsupported. **FST has no per-word deadline or process RSS bound; use an external watchdog with a deadline and memory ceiling.** See the [batch engine contract](docs/formats/batch-tsv.md#engine-selection) (part of #136).
 - FST compile diagnostics and `fst-verify` JSON publish typed capability causes and strategy-tagged proposal-recall witness occurrence counts before deduplication, while preserving the first-witness diagnostics and admission decisions (part of #136).
 
 - FST confirmation retains self-compound analyses when repeated root tags collapse to one identity.
 
-- Widen MPR identities to 32 bits and share wide feature sets, admitting inflection class inventories above 64 while preserving the inline path for ordinary grammars. POS and symbolic value caps remain unchanged.
+- **Grammars may now declare more than 64 MPR features.** MPR identities widen to 32 bits and wide feature sets are shared, admitting inflection class inventories above 64 while preserving the inline path for ordinary grammars. POS and symbolic value caps remain unchanged (#150, #340).
 
 - Validate host generation MPR IDs against the loaded grammar before expanding their wire lists into dense sets, including supplied-root payloads, so short invalid requests cannot force large bitmap allocations.
 
 - Add a C#-verified 303-feature grammar with 74 parse and 50 generation controls across MPR word boundaries (#150).
+
+- The backend ratchet golden records the mpr-wide fixture's admission outcome (#347). The FST gotchas doc is restored with current runtime and admission guidance (#349).
 
 ## 0.23.0
 
