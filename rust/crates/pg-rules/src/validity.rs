@@ -58,6 +58,7 @@
 //! rejects both because the environment fails at the *second* piece) and pinned by
 //! `pg-parse/tests/discontinuous_env_gate.rs`.
 
+use crate::observations::Decision;
 use pg_grammar_model::model::{
     AllomorphCoOccurrenceRuleDef, AllomorphId, AllomorphOwner, CoOccurrenceAdjacency,
     EnvironmentDef, Grammar, MorphemeCoOccurrenceRuleDef, MorphemeId, RootAllomorphDef, StemNameId,
@@ -589,8 +590,16 @@ fn fail(
     if w.collect_partials() {
         record_partial_gate(g, object);
     }
-    if trace.is_tracing() {
-        trace.failed(parent, w, reason);
+    match trace.mode() {
+        crate::trace::TraceMode::Tree => {
+            trace.failed(parent, w, reason);
+        }
+        crate::trace::TraceMode::Observe(recorder)
+            if matches!(reason, FailureReason::BoundRoot) =>
+        {
+            recorder.record(Decision::BoundRoot { allomorph: object });
+        }
+        _ => {}
     }
     false
 }

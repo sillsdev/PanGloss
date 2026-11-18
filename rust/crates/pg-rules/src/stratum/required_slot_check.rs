@@ -40,6 +40,13 @@ impl StratumAnalyzer<'_, '_, '_, '_, '_, '_> {
                 });
                 if material.cannot_unapply(j, rows, &mut walk) {
                     if mode == RequiredSlotLookahead::On {
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.record(Decision::RequiredSlotUnfilled {
+                                template: tid,
+                                slot: j,
+                                analysis: true,
+                            });
+                        }
                         return true;
                     }
                     fired.push(j);

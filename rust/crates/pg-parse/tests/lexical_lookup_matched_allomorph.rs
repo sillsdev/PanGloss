@@ -89,3 +89,30 @@ fn homographs_both_parse_when_no_part_of_speech_is_asked() {
         "nothing should be skipped for the bare word, got {reasons:?}"
     );
 }
+
+#[test]
+fn rejection_observer_uses_the_same_lookup_as_the_ordinary_parser() {
+    use pg_rules::observations::{Decision, Recorder};
+
+    struct RejectedRoot(std::cell::Cell<usize>);
+    impl Recorder for RejectedRoot {
+        fn record(&self, decision: Decision<'_>) {
+            if matches!(decision, Decision::LookupFeatures { .. }) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+    }
+
+    let grammar =
+        pg_grammar::load(&require_fixture("edge-cases", FIXTURE).load_grammar_xml()).unwrap();
+    let parser = Morpher::new(&grammar, usize::MAX);
+    let options = ParseOptions::default();
+    let witness = RejectedRoot(std::cell::Cell::new(0));
+    let (observed, stopped) = parser.parse_word_observed("takt", &options, &witness);
+    let ordinary = parser.parse_word_opts("takt", &options);
+    assert!(!stopped);
+    assert_eq!(witness.0.get(), 1);
+    assert_eq!(observed.analyses, ordinary.analyses);
+    assert_eq!(observed.structured, ordinary.structured);
+    assert_eq!(observed.work_steps, ordinary.work_steps);
+}

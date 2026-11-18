@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 /// One flag a subcommand's hand-rolled parser recognizes.
-#[derive(Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub(crate) struct FlagSpec {
     pub(crate) name: &'static str,
     pub(crate) takes_value: bool,
@@ -60,7 +60,11 @@ fn dispatch(
     match f(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{}", crate::compile_failure::command_error(name, &e));
+            if e.starts_with(crate::diagnostic::ERROR_PREFIX) {
+                eprintln!("{e}");
+            } else {
+                eprintln!("{}", crate::compile_failure::command_error(name, &e));
+            }
             ExitCode::FAILURE
         }
     }
@@ -205,12 +209,14 @@ pub(crate) const DESCRIBE_SCHEMA_VERSION: u32 = 1;
 struct InterfacesDescribe {
     serve_protocol: u32,
     batch_tsv: u32,
+    diagnostic: serde_json::Value,
 }
 
 fn interfaces() -> InterfacesDescribe {
     InterfacesDescribe {
         serve_protocol: crate::serve::SERVE_PROTOCOL_VERSION,
         batch_tsv: crate::BATCH_TSV_VERSION,
+        diagnostic: crate::diagnostic::describe(),
     }
 }
 
@@ -285,6 +291,12 @@ const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
 ];
 
 const BATCH_FLAGS: &[FlagSpec] = &[
+    crate::diagnostic::FLAGS[0],
+    crate::diagnostic::FLAGS[1],
+    crate::diagnostic::FLAGS[2],
+    crate::diagnostic::FLAGS[3],
+    crate::diagnostic::FLAGS[4],
+
     FlagSpec {
         name: "--engine",
         takes_value: true,
@@ -423,6 +435,12 @@ const SERVE_FLAGS: &[FlagSpec] = &[
 ];
 
 const PARSE_FLAGS: &[FlagSpec] = &[
+    crate::diagnostic::FLAGS[0],
+    crate::diagnostic::FLAGS[1],
+    crate::diagnostic::FLAGS[2],
+    crate::diagnostic::FLAGS[3],
+    crate::diagnostic::FLAGS[4],
+
     FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
     FlagSpec {
         name: "--work-cap",

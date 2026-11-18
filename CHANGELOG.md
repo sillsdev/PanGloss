@@ -5,6 +5,8 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- `pangloss parse` and `pangloss batch` can publish bounded HC rejection observations and accepted output identities with `--trace-rejections`. The opt-in [JSONL artifact](docs/formats/rejection-trace-v1.md) records owner decisions, output counts, search stops, and capture omissions (part of sillsdev/motif#277).
+
 - Preland runs the package set of CI's `FST nextest (ci profile)` and doctest steps (pg-foma, pg-foma-runtime, pg-foma-backend and pg-cli with `--features pg-cli/foma-tools`, nextest `ci` profile) whenever the diff touches those crates' dependency closures, the data pg-cli's tests read, or shared build inputs, so a dependency change can no longer pass preland and fail `inferred_segment_engine_parity_gate` in CI; `preland.ps1 -Plan` prints each gate's decision without running anything (#351; follows #336, #348).
 - Text analysis v2 attributes Dictionary suggestions by method and keeps them from turning a completed joined grammar miss for another language into a misspelled Occurrence. A completed joined miss counts once in the grammar's summary whenever any accepted split depends on contact evidence, including when a grammar-only split also succeeds (part of #200).
 
