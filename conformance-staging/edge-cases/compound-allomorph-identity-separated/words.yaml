@@ -1,0 +1,84 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: CompoundIdentity
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Fully specified literal segments and ordinary compounding or affix rules; no fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|a"
+        rules: []
+  - word: "p"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|p"
+        rules: []
+  - word: "pa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?a"
+        rules: ["PRE"]
+      - signature: "ROOT+ROOT|pa"
+        rules: ["cr1"]
+  - word: "pp"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?p"
+        rules: ["PRE"]
+      - signature: "ROOT|pp"
+        rules: ["cr1"]
+  - word: "aa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|aa"
+        rules: ["cr1"]
+  - word: "ap"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+ROOT|ap"
+        rules: ["cr1"]
+  - word: "ppa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+ROOT|p(^0)?pa"
+        rules: ["PRE", "cr1"]
+      - signature: "PRE+ROOT+ROOT|p(^0)?pa"
+        rules: ["PRE", "cr1"]
+  - word: "pap"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT+ROOT|p(^0)?ap"
+        rules: ["PRE", "cr1"]
+      - signature: "PRE+ROOT+ROOT|p(^0)?ap"
+        rules: ["PRE", "cr1"]
+  - word: "app"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pppp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "apa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "paa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?aa"
+        rules: ["PRE", "cr1"]
+      - signature: "PRE+ROOT|p(^0)?aa"
+        rules: ["PRE", "cr1"]
+  - word: "ppp"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "PRE+ROOT|p(^0)?pp"
+        rules: ["PRE", "cr1"]
+      - signature: "PRE+ROOT|p(^0)?pp"
+        rules: ["PRE", "cr1"]
+  - word: "aapp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true

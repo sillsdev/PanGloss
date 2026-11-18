@@ -151,6 +151,11 @@ staging:edge-cases/bounded-iterative-epenthesis	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/bracket-pattern-reduplication-affix	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cascade-symbolic-output	TunedSurfaceProbed	refused
 staging:edge-cases/clitic-rule-designation-iscliticrule	TunedSurfaceProbed	refused
+staging:edge-cases/compound-allomorph-identity	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/compound-allomorph-identity-affix-reuse	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/compound-allomorph-identity-distinct-entries	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/compound-allomorph-identity-same-spelling	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/compound-allomorph-identity-separated	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-subrule-feeding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-table-root-respelling	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/do-not-use-for-parsing-flag-ignored	TunedSurfaceProbed	oracle_exact

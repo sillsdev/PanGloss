@@ -1,0 +1,34 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: CompoundIdentity
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Fully specified literal segments and ordinary compounding or affix rules; no fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|a"
+        rules: []
+      - signature: "ROOT|a"
+        rules: []
+  - word: "aa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT+ROOT|aa"
+        rules: ["cr1"]
+      - signature: "ROOT+ROOT|aa"
+        rules: ["cr1"]
+      - signature: "ROOT|aa"
+        rules: ["cr1"]
+      - signature: "ROOT|aa"
+        rules: ["cr1"]
+  - word: "aaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "p"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "ap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true

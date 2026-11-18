@@ -259,16 +259,14 @@ pub enum FomaApplyOutcome {
 fn accumulate_proposal_counts(total: &mut ProposalCounts, next: ProposalCounts) {
     total.raw_paths += next.raw_paths;
     total.unique_candidates += next.unique_candidates;
+    total.normalized_alternatives += next.normalized_alternatives;
 }
 
 fn remaining_apply_budget_from_counts(budget: &ApplyBudget, used: &ProposalCounts) -> ApplyBudget {
-    ApplyBudget::with_caps(
-        budget
-            .path_cap()
-            .map(|limit| limit.saturating_sub(used.raw_paths)),
-        budget
-            .candidate_cap()
-            .map(|limit| limit.saturating_sub(used.unique_candidates)),
+    budget.remaining(
+        used.raw_paths,
+        used.unique_candidates,
+        used.normalized_alternatives,
     )
 }
 
@@ -278,6 +276,7 @@ fn accumulate_proposal_diagnostics(total: &mut ProposalDiagnostics, next: Propos
     total.decoded_paths += next.decoded_paths;
     total.malformed_paths += next.malformed_paths;
     total.unique_candidates += next.unique_candidates;
+    total.normalized_alternatives += next.normalized_alternatives;
     total.traversal_elapsed += next.traversal_elapsed;
     total.decode_dedup_elapsed += next.decode_dedup_elapsed;
 }
@@ -324,6 +323,12 @@ pub fn propose_union_peel_with_diagnostics(
                         .candidate_cap()
                         .expect("candidate trip requires a candidate cap"),
                 ),
+                ApplyDimension::NormalizedCandidates => (
+                    proposal.normalized_alternatives,
+                    budget
+                        .normalization_cap()
+                        .expect("normalization trip requires a normalization cap"),
+                ),
             };
             return Err((dimension, value, limit, proposal, proposal_calls));
         }
@@ -362,6 +367,12 @@ pub fn propose_union_peel_with_diagnostics(
                     .candidate_cap()
                     .expect("candidate trip requires a candidate cap"),
             ),
+            ApplyDimension::NormalizedCandidates => (
+                proposal.normalized_alternatives,
+                budget
+                    .normalization_cap()
+                    .expect("normalization trip requires a normalization cap"),
+            ),
         };
         return Err((dimension, value, limit, proposal, proposal_calls));
     }
@@ -390,13 +401,10 @@ pub fn propose_union_peel_with_diagnostics(
 }
 
 fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> ApplyBudget {
-    ApplyBudget::with_caps(
-        budget
-            .path_cap()
-            .map(|limit| limit.saturating_sub(used.raw_paths)),
-        budget
-            .candidate_cap()
-            .map(|limit| limit.saturating_sub(used.unique_candidates)),
+    budget.remaining(
+        used.raw_paths,
+        used.unique_candidates,
+        used.normalized_alternatives,
     )
 }
 
@@ -755,6 +763,13 @@ impl<'g> FomaAnalyzer<'g> {
                 budget
                     .candidate_cap()
                     .expect("candidate trip requires a candidate cap"),
+            ),
+            ApplyDimension::NormalizedCandidates => (
+                dimension,
+                used.normalized_alternatives,
+                budget
+                    .normalization_cap()
+                    .expect("normalization trip requires a normalization cap"),
             ),
         };
 

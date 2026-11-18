@@ -1,0 +1,65 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: CompoundIdentity
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Fully specified literal segments and ordinary compounding or affix rules; no fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X|a"
+        rules: []
+  - word: "p"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X|p"
+        rules: []
+  - word: "pp"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X|pp"
+        rules: ["cr1"]
+      - signature: "Y|pp"
+        rules: []
+  - word: "aa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X|aa"
+        rules: ["cr1"]
+  - word: "ap"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X+X|ap"
+        rules: ["cr1"]
+  - word: "pa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X+X|pa"
+        rules: ["cr1"]
+  - word: "app"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X+Y|app"
+        rules: ["cr1"]
+  - word: "ppa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "Y+X|ppa"
+        rules: ["cr1"]
+  - word: "ppp"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "X+Y|ppp"
+        rules: ["cr1"]
+      - signature: "Y+X|ppp"
+        rules: ["cr1"]
+  - word: "pap"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "a^0pp"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
