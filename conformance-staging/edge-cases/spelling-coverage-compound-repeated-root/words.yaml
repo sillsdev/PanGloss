@@ -1,0 +1,42 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: SpellingCoverageCompound
+requires: []
+fieldworks_producible: true
+fieldworks_producible_notes: Literal stem, partial feature definition and ordinary non-recursive compounding rule; no fwdata round-trip witness is claimed.
+words:
+  - word: "a"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei]"
+        rules: []
+  - word: "aa"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]"
+        rules: ["cr1"]
+  - word: "aá"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]"
+        rules: ["cr1"]
+  - word: "ae"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]"
+        rules: ["cr1"]
+  - word: "ap"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aaa"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "p"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "pa"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "a^0a"
+    note: Spelling and morphology control; every observed C# signature occurrence is retained.
+    expect_fail: true

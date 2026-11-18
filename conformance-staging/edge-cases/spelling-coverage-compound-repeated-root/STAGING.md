@@ -1,0 +1,3 @@
+# Repeated-root compound spelling control
+
+C# HermitCrab (Machine `1ddef2bd2f1503717de95556116df8e4a63846d6`) accepts the two-node self-compounds and rejects the structural neighbors in all nine transcribed batch rows. Receipt: external lane `fst-readmit-2-compound/`. This is a Rust FST candidate/confirmation coverage gap, not a Machine semantic defect. Adjacent repeated root tags are collapsed by the candidate decoder, and the batch confirmation root-set key does not retain the second occurrence. The new spelling certificate therefore excludes compounding; the existing singleton proof is unchanged. This fixture pins that correctness refusal rather than claiming a compound repair. No upstream Machine issue is indicated; suite PR pending publication outside the lane.

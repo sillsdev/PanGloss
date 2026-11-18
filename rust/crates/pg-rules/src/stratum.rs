@@ -926,7 +926,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if self.trace.is_tracing() || self.over_budget() {
             return None;
         }
-        let candidates = self.cache?.edge_candidates(self.stratum.table, &w.shape)?;
+        let candidates = self
+            .cache?
+            .edge_candidates(self.g, self.stratum.table, &w.shape)?;
         rules.any(|id| candidates.rejects(id)).then_some(candidates)
     }
 

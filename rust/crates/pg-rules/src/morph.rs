@@ -2897,8 +2897,9 @@ fn build_analysis_lhs(
                 for (_, kind, char_def, _) in shape.shape.interior() {
                     if kind == NodeKind::Segment {
                         let mut lanes = to_fst(g, &cd_lanes(g, table, char_def));
-                        // The analysis-side consumer must find and consume this exact inserted segment, matching the full char-def FS rather than any unifiable one, as C# does.
-                        if char_def != NO_CHAR_DEF {
+                        if char_def != NO_CHAR_DEF
+                            && StrRepMatcher::new(g, &g.char_tables[table.0 as usize]).is_some()
+                        {
                             if let Some(w) = id_width {
                                 crate::bridge::push_id_lane(&mut lanes, w, 1u64 << char_def);
                             } else if let Some(strrep) = wide_strrep {

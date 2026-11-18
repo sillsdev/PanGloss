@@ -33,10 +33,6 @@ const RECALL_REGRESSIONS: &[(&str, ProposalRecallGap)] = &[
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/partial-feature-no-rewrite",
-        ProposalRecallGap::AmbiguousSegmentSpelling,
-    ),
-    (
         "staging:edge-cases/partial-feature-literal-rewrite",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
@@ -117,6 +113,33 @@ const RECALL_REGRESSIONS: &[(&str, ProposalRecallGap)] = &[
         ProposalRecallGap::SymbolicEpenthesis,
     ),
 ];
+
+#[test]
+fn no_phonology_partial_feature_spellings_recover_complete_identities() {
+    let fixture = discover()
+        .into_iter()
+        .find(|f| f.label() == "staging:edge-cases/partial-feature-no-rewrite")
+        .expect("partial feature fixture");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let mut words = Vec::new();
+    for a in ["k", "t", "s", "z", "a", "i"] {
+        for b in ["k", "t", "s", "z", "a", "i"] {
+            for c in ["k", "t", "s", "z", "a", "i"] {
+                words.push(format!("{a}{b}{c}"));
+            }
+        }
+    }
+    words.extend(["aa".into(), "aaaa".into()]);
+    let row = pg_foma_backend::scoreboard::measure("partial feature exhaustive", &grammar, &words);
+    assert!(
+        matches!(
+            row.cells[0].outcome,
+            pg_foma_backend::scoreboard::CellOutcome::OracleExact
+        ),
+        "{:?}",
+        row.cells[0]
+    );
+}
 
 const COLLATERAL_REFUSALS: &[(&str, ProposalRecallGap)] = &[
     (

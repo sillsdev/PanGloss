@@ -30,8 +30,14 @@ fn has_class(g: &Grammar, nodes: &[PatternNode], segment_list: bool) -> bool {
 
 /// These checks never parse words or infer capability from emitted diagnostic text.
 pub(crate) fn refusals(g: &Grammar) -> RefusalReport {
+    let spelling_covered = crate::emit::eager_route_has_single_segment_spellings(g)
+        || crate::spelling_route::SpellingRoutePlan::prepare(g).is_some();
+    refusals_with_spelling(g, spelling_covered)
+}
+
+pub(crate) fn refusals_with_spelling(g: &Grammar, spelling_covered: bool) -> RefusalReport {
     let mut gaps = Vec::new();
-    if !crate::emit::eager_route_has_single_segment_spellings(g) {
+    if !spelling_covered {
         gaps.push((ProposalRecallGap::AmbiguousSegmentSpelling,
             "referenced character table lacks a singleton spelling closure",
             "literal root and affix emission do not preserve every spelling accepted by the character table's feature-unification closure"));

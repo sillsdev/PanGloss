@@ -84,7 +84,7 @@ fn edge_index_falls_back_for_optional_and_unknown_intermediate_edges() {
     let table = pg_grammar_model::model::TableId(0);
     let rejects = |shape: &pg_shape::Shape| {
         cache
-            .edge_candidates(table, shape)
+            .edge_candidates(&g, table, shape)
             .is_some_and(|c| c.rejects(id))
     };
     assert!(rejects(&plain));
@@ -204,8 +204,110 @@ fn an_undecidable_allomorph_keeps_the_whole_rule() {
     let g = pg_grammar::load(&xml).unwrap();
     let cache = RuleCache::build(&g);
     assert!(cache
-        .edge_candidates(pg_grammar_model::model::TableId(0), &word(&g, "mi").shape)
+        .edge_candidates(
+            &g,
+            pg_grammar_model::model::TableId(0),
+            &word(&g, "mi").shape
+        )
         .is_none_or(|c| !c.rejects(MRuleId(0))));
+}
+
+#[test]
+fn featured_edge_index_prunes_incompatible_features_without_pinning_spellings() {
+    let g = pg_conformance_fixtures::require_fixture("edge-cases", "spelling-coverage-copy-slots")
+        .load_grammar();
+    let cache = RuleCache::build(&g);
+    let table = pg_grammar_model::model::TableId(0);
+    let rejects = |text: &str, rule: usize| {
+        let shape = crate::shape_feat::segment_with_features(&g, &g.char_tables[0], text).unwrap();
+        cache
+            .edge_candidates(&g, table, &shape)
+            .is_some_and(|c| c.rejects(MRuleId(rule as u32)))
+    };
+    assert!(rejects("ae", 1), "the s suffix cannot match f+ on e");
+    assert!(!rejects("as", 1), "the s suffix must remain a candidate");
+    assert!(rejects("ap", 2), "the e slot cannot match f- on p");
+    assert!(
+        !rejects("aa", 2),
+        "the e slot unifies with a's omitted g feature despite its different identity"
+    );
+    assert!(cache.edge_index_allocated_bytes() > 0);
+    assert!(
+        cache
+            .edge_candidates(&g, table, &word(&g, "ap").shape)
+            .is_none(),
+        "a bare shape has no feature evidence for an indexed exclusion"
+    );
+}
+
+#[test]
+fn indexed_feature_rejections_imply_compiled_rejections_on_intermediate_shapes() {
+    use pg_shape::{NodeFlags, ShapeBuilder, NO_CHAR_DEF};
+
+    let xml =
+        pg_conformance_fixtures::require_fixture("edge-cases", "spelling-coverage-copy-slots")
+            .load_grammar_xml();
+    for wide in [false, true] {
+        let padding = (0..65)
+            .map(|i| format!("<SegmentDefinition id=\"pad{i}\"><Representations><Representation>z{i}z</Representation></Representations></SegmentDefinition>"))
+            .collect::<String>();
+        let xml = if wide {
+            xml.replace(
+                "</SegmentDefinitions>",
+                &(padding + "</SegmentDefinitions>"),
+            )
+        } else {
+            xml.to_owned()
+        };
+        let g = pg_grammar::load(&xml).unwrap();
+        let cache = RuleCache::build(&g);
+        let table = pg_grammar_model::model::TableId(0);
+        let mut rejected = 0;
+        let mut widened_kept = 0;
+        // Keep each concrete id while changing or widening its feature lanes, as rewrite analysis can do.
+        for cd in (0..g.char_tables[0].len() as u32).chain([NO_CHAR_DEF]) {
+            for f in [1, 2, 3, u64::MAX] {
+                for h in [1, 2, 3, u64::MAX] {
+                    for optional in [false, true] {
+                        let mut lanes = g.char_tables[0]
+                            .get(pg_grammar_model::chardef::CharDefId(0))
+                            .matching_lanes();
+                        lanes[0] = f;
+                        lanes[1] = h;
+                        let mut shape = ShapeBuilder::with_features(lanes.len() as u32);
+                        shape.push_segment_with_lanes(cd, &lanes);
+                        if optional {
+                            shape.set_last_flags(NodeFlags::OPTIONAL);
+                        }
+                        let shape = shape.freeze();
+                        let candidates = cache.edge_candidates(&g, table, &shape);
+                        let (segments, _) = morph::segs_of(&g, table, &shape, false);
+                        for (r, rule) in g.mrules.iter().enumerate() {
+                            if candidates
+                                .as_ref()
+                                .is_some_and(|c| c.rejects(MRuleId(r as u32)))
+                            {
+                                rejected += 1;
+                                assert!(!optional && cd != NO_CHAR_DEF);
+                                for allo in rule.affix_allomorphs().unwrap() {
+                                    let (_, lhs) =
+                                        cache.allomorph(allo.id).ana_lhs.as_deref().unwrap();
+                                    assert!(
+                                        lhs.edge_rejects(&segments),
+                                        "indexed exclusion must imply compiled rejection"
+                                    );
+                                }
+                            } else if f == u64::MAX && h == u64::MAX {
+                                widened_kept += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(rejected > 0, "featured index must actually exclude rules");
+        assert!(widened_kept > 0, "widened edges must retain candidates");
+    }
 }
 
 fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word> {

@@ -1,12 +1,14 @@
 //! A conservative index of mandatory inserted allomorph edges for analysis rule dispatch.
 //!
 //! A rule is excluded only when every allomorph fails the existing edge prefilter on the same
-//! concrete identity, with unconstrained feature lanes. The real segment can only be more
-//! restrictive, so no excluded allomorph could match. Unknown, optional, or non-concrete edges
-//! remain candidates; surviving rules still run the original matcher and confirmation. Preparing
-//! rows from each intermediate shape preserves this argument throughout the cascade.
+//! concrete identity and its authored feature lanes. A row is used only when the real edge's
+//! features are equal or narrower, so no excluded allomorph could match. Other feature edits,
+//! unknown, optional, or non-concrete edges remain candidates; surviving rules still run the
+//! original matcher and confirmation. Every intermediate shape is checked before using a row.
+//! Featureless grammars retain identity-only rows with unconstrained feature lanes.
 
 use pg_fst::Segment;
+use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::model::{Grammar, MRuleId, MorphRuleDef, OutputAction, TableId};
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
 
@@ -89,7 +91,12 @@ impl EdgeIndex {
             let mut useful = false;
             for cd in 0..defs.len() {
                 let width = pg_grammar_model::membership::width(&g.phon_features);
-                let mut lanes = vec![u64::MAX; width];
+                let mut lanes = if g.phon_features.is_empty() {
+                    Vec::new()
+                } else {
+                    defs.get(CharDefId(cd as u32)).feature_lanes().to_vec()
+                };
+                lanes.resize(width, u64::MAX);
                 if let Some(w) = id_lane_width(g, table) {
                     push_id_lane(&mut lanes, w, 1u64 << cd);
                 } else {
@@ -133,7 +140,12 @@ impl EdgeIndex {
         self.offsets.len() * 4 + self.tables.len() * 4 + self.candidates.len() * 8
     }
 
-    pub(crate) fn candidates(&self, table: TableId, shape: &Shape) -> Option<EdgeCandidates<'_>> {
+    pub(crate) fn candidates(
+        &self,
+        g: &Grammar,
+        table: TableId,
+        shape: &Shape,
+    ) -> Option<EdgeCandidates<'_>> {
         let table = table.0 as usize;
         let start = *self.offsets.get(table)? as usize;
         let end = *self.offsets.get(table + 1)? as usize;
@@ -148,6 +160,18 @@ impl EdgeIndex {
             }
             let row = start + cd as usize * 2 + side;
             if row >= end {
+                continue;
+            }
+            // Identity can survive feature edits. A stale id must not select a more restrictive row than the actual edge.
+            let authored = g.char_tables[table].get(CharDefId(cd)).feature_lanes();
+            let actual = shape.node_lanes(i);
+            if !g.phon_features.is_empty()
+                && (actual.len() < authored.len()
+                    || authored
+                        .iter()
+                        .zip(actual)
+                        .any(|(&expected, &value)| value & !expected != 0))
+            {
                 continue;
             }
             let bits = &self.candidates[row * self.row_words..(row + 1) * self.row_words];

@@ -40,8 +40,9 @@ fn each_stratum_reference_counts_without_replacing_the_first_witness() {
     let (_, profile) = compile_proposer_with_profile(&grammar);
     assert_eq!(profile.construction.attempts[0].proposal_recall_occurrences.as_ref().unwrap()[0].occurrences, 2);
     grammar.strata[1].prules.clear();
-    let (_, profile) = compile_proposer_with_profile(&grammar);
-    assert_eq!(profile.construction.attempts[0].proposal_recall_occurrences.as_ref().unwrap()[0].occurrences, 1);
+    let (result, profile) = compile_proposer_with_profile(&grammar);
+    assert!(result.is_ok(), "a complete literal spelling plan now covers the table witness");
+    assert!(profile.construction.attempts[0].proposal_recall_occurrences.as_ref().unwrap().is_empty());
 }
 
 #[test]

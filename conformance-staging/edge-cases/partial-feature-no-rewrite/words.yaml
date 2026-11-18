@@ -9,7 +9,7 @@ fieldworks_producible_notes: >-
   partial-feature grammar shape supported by ADR 0009; no fwdata witness is claimed.
 words:
   - word: aka
-    note: Both roots unify with the underspecified output shape; FST loses ITA.
+    note: Both roots unify with the underspecified output shape.
     parses:
       - signature: "AKA|[ktszai][ktszai][ktszai]"
         rules: []
