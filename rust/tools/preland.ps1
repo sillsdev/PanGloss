@@ -13,6 +13,11 @@
                   its adapter, filtered by known-conformance-divergences.txt exactly as
                   run-conformance.sh does in Conformance CI. `pangloss` is built with the
                   pg-test-opt profile check and test share. Path-gated.
+    pg-cli-gates  the package set of CI's `FST nextest (ci profile)` and its doctests: pg-foma,
+                  pg-foma-runtime, pg-foma-backend and pg-cli with `--features pg-cli/foma-tools`, nextest
+                  `ci` profile, pg-test-opt, --locked, conformance scope all (#351). Path-gated on the
+                  union of those four crates' closures (`cargo metadata`, optional deps included), the
+                  non-crate inputs pg-cli tests read, and the shared build inputs.
     scoreboard    pg-foma-backend's backend_scoreboard_gate. Path-gated on its crate closure
                   (read from `cargo metadata`), conformance-staging/, and the `machine` pin.
 
@@ -22,6 +27,7 @@
   Usage:
     rust\tools\pg.ps1 -Mode preland
     rust\tools\pg.ps1 -Mode preland -Base origin/main -All
+    pwsh rust/tools/preland.ps1 -Plan    # print each check's gate decision and the pg.ps1 args, run nothing
 
   Exit codes: 0 every check that ran passed; $script:ExitCodePrelandFailed (42) otherwise,
   including a check that could not run (missing driver, unmatched pin, unresolvable binary).
@@ -30,6 +36,7 @@
 param(
     [string]$Base = 'origin/main',
     [switch]$All,
+    [switch]$Plan,
     [ValidateRange(0, 12)][int]$Jobs = 0,
     [ValidateRange(1, 32)][int]$ToolTestThrottle = 8
 )
@@ -110,6 +117,21 @@ function Get-WorkspaceCrateClosure {
         }
     }
     return @($dirs | Sort-Object)
+}
+
+# Mirrors the fst-test job in rust-gates.yml (`--package=x`: pg.ps1 binds -p and --package to its own -Package); pg.ps1 adds --locked, pg-test-opt, the doctests and the conformance scope.
+$script:PgCliGatePackages = @('pg-foma', 'pg-foma-runtime', 'pg-foma-backend', 'pg-cli')
+$script:PgCliGateArgs = @('-Mode', 'test') + @($script:PgCliGatePackages | ForEach-Object { "--package=$_" }) + @('--features', 'pg-cli/foma-tools', '--profile', 'ci')
+# Files pg-cli's tests read from outside the crate closure.
+$script:PgCliGateInputs = @('samples/data/', 'conformance-staging/underdefined/', 'docs/divergences/', 'docs/formats/', 'rust/tools/fixtures/', 'rust/.config/nextest.toml')
+
+function Get-PrelandPlan {
+    <#
+      .DESCRIPTION
+      Pure: one line per path-gated check, naming whether it runs, why, and the pg.ps1 arguments.
+    #>
+    param([Parameter(Mandatory)]$Gates)
+    foreach ($g in $Gates) { "{0,-13} {1,-7} {2}  [pg.ps1 {3}]" -f $g.Check, $(if ($g.Run) { 'RUN' } else { 'SKIP' }), $g.Reason, ($g.PgArgs -join ' ') }
 }
 
 function Get-PrelandChangedPaths {
@@ -251,10 +273,32 @@ try {
     $scoreboardRoots = @()
     if (-not $force) { $force = "forced: crate closure unavailable ($($_.Exception.Message))" }
 }
+$pgCliRoots = $null
+$pgCliLabel = ''
+$pgCliForce = $force
+try {
+    $pgCliClosure = @($script:PgCliGatePackages | ForEach-Object { Get-WorkspaceCrateClosure -RustRoot $rustRoot -RepoRoot $repoRoot -Package $_ } | Sort-Object -Unique)
+    $pgCliRoots = $pgCliClosure + $script:PgCliGateInputs + $shared
+    $pgCliLabel = "the $($pgCliClosure.Count)-crate closure of $($script:PgCliGatePackages -join ', '), $($script:PgCliGateInputs -join ', '), $($shared -join ', ')"
+} catch {
+    $pgCliRoots = @()
+    if (-not $pgCliForce) { $pgCliForce = "forced: pg-cli crate closure unavailable ($($_.Exception.Message))" }
+}
 $conformanceRoots = @('rust/crates/pg-cli/', 'docs/formats/', 'rust/tools/run-conformance.sh',
     'rust/tools/known-conformance-divergences.txt', '.github/workflows/conformance-ci.yml') + $shared
 $scoreboardGate = Get-PrelandGateDecision -ChangedPaths $changes.Paths -Roots $scoreboardRoots -ForceReason $force -RootsLabel $scoreboardLabel
 $conformanceGate = Get-PrelandGateDecision -ChangedPaths $changes.Paths -Roots $conformanceRoots -ForceReason $force
+$pgCliGate = Get-PrelandGateDecision -ChangedPaths $changes.Paths -Roots $pgCliRoots -ForceReason $pgCliForce -RootsLabel $pgCliLabel
+
+if ($Plan) {
+    Write-Host '[preland] plan (nothing is run):' -ForegroundColor Cyan
+    Get-PrelandPlan -Gates @(
+        [PSCustomObject]@{ Check = 'pg-cli-gates'; Run = $pgCliGate.Run; Reason = $pgCliGate.Reason; PgArgs = $script:PgCliGateArgs },
+        [PSCustomObject]@{ Check = 'scoreboard'; Run = $scoreboardGate.Run; Reason = $scoreboardGate.Reason; PgArgs = @('-Mode', 'test', '-Package', 'pg-foma-backend', '-TestTarget', 'backend_scoreboard_gate') },
+        [PSCustomObject]@{ Check = 'conformance'; Run = $conformanceGate.Run; Reason = $conformanceGate.Reason; PgArgs = @('-Mode', 'build', '-Package', 'pg-cli', '-TestOptBuild') }
+    ) | ForEach-Object { Write-Host "  $_" }
+    exit 0
+}
 
 # Tool tests take no build slot and touch no cargo state, so they overlap the cargo checks.
 $toolTestFiles = @(Get-ChildItem -Path (Join-Path $PSScriptRoot 'tests') -Filter '*.tests.ps1' | Sort-Object Name)
@@ -297,6 +341,16 @@ if ($compiles) {
     Add-Result 'stats-manifest' $(if ($manifest.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "writer/reader compatibility and identity controls exit $($manifest.ExitCode)" (Get-SlotWaitSeconds $manifest.Lines)
 } else {
     Add-Result 'stats-manifest' 'FAIL' 0 'not attempted: clippy failed'
+}
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if (-not $pgCliGate.Run) {
+    Add-Result 'pg-cli-gates' 'SKIPPED' 0 $pgCliGate.Reason
+} elseif ($compiles) {
+    $cliGates = Invoke-PrelandPg -PgArgs $script:PgCliGateArgs
+    Add-Result 'pg-cli-gates' $(if ($cliGates.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "$($pgCliGate.Reason); CI FST features, ci profile exit $($cliGates.ExitCode)" (Get-SlotWaitSeconds $cliGates.Lines)
+} else {
+    Add-Result 'pg-cli-gates' 'FAIL' 0 'not attempted: clippy failed'
 }
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
