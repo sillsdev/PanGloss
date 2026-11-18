@@ -10,8 +10,17 @@ pub enum StatsError {
     #[error("stats run cannot commit after a failed word write")]
     RunWriteFailed,
 
+    #[error("{0}")]
+    IncompatibleRunOptions(String),
+
     #[error("packed stats cache: {0}")]
     PackedCache(String),
+
+    #[error("stats cache busy: {operation} at {path}")]
+    CacheBusy {
+        operation: &'static str,
+        path: PathBuf,
+    },
 
     #[error("compact stats cache: allomorph breakdown and stratum filters are unavailable; record a full cache without --stats-compact")]
     CompactViewUnavailable,
@@ -116,4 +125,11 @@ pub enum StatsError {
         #[source]
         source: std::io::Error,
     },
+}
+
+impl StatsError {
+    pub(crate) fn is_busy(&self) -> bool {
+        matches!(self, Self::Sqlite(error)
+            if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy))
+    }
 }

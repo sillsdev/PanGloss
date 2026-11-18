@@ -24,59 +24,187 @@ fn frozen_cache_digest_streams_empty_and_multiple_buffers_exactly() {
 }
 
 #[test]
-fn reusable_replay_failure_rolls_back_only_its_chunk_and_reaches_the_caller() {
+fn writer_failure_in_any_chunk_preserves_only_prior_runs() {
+    exercise_batch_rollback(StatsProfile::Full);
+}
+
+#[test]
+fn word_only_writer_is_atomic_across_chunks() {
+    exercise_batch_rollback(StatsProfile::WordOnly);
+}
+
+fn exercise_batch_rollback(profile: StatsProfile) {
+    let full = profile == StatsProfile::Full;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("cache.sqlite3");
-    let mut prepared = prepare_batch_stats_hc(
-        "unused.xml",
-        "test-grammar",
-        &[],
-        crate::DEFAULT_WORK_CAP,
-        None,
-        None,
-        false,
-        false,
-        path.to_str(),
-        false,
-        StatsProfile::Full,
-        WordOnlySearchOptions::default(),
-    )
-    .unwrap();
-    for i in 0..2 * STATS_FLUSH_BATCH {
-        prepared
-            .record(BatchStatsWord {
-                record: pg_stats::WordRecord {
-                    form: format!("word-{i}"),
-                    elapsed_ns: 0,
-                    work: if i + 1 == 2 * STATS_FLUSH_BATCH {
-                        u64::MAX
-                    } else {
-                        0
-                    },
-                    passes: 0,
-                    capped: false,
-                    timed_out: false,
-                    invalid_shape: false,
-                    facts: Vec::new(),
-                    gates: Some(Vec::new()),
-                },
-                prunes: Some(pg_rules::stats::PruneCounters::default()),
+    let prepare = || {
+        prepare_batch_stats_hc(
+            "unused.xml",
+            "test-grammar",
+            &[],
+            crate::DEFAULT_WORK_CAP,
+            None,
+            None,
+            false,
+            false,
+            path.to_str(),
+            false,
+            profile,
+            WordOnlySearchOptions::default(),
+        )
+        .unwrap()
+    };
+    let word = |i, work| BatchStatsWord {
+        record: pg_stats::WordRecord {
+            form: format!("word-{i}"),
+            elapsed_ns: 0,
+            work,
+            passes: 0,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: full
+                .then(|| pg_stats::FactRecord {
+                    object_key: "r".into(),
+                    object_kind: pg_stats::ObjectKind::MorphRule,
+                    object_label: "Rule".into(),
+                    identity_quality: pg_stats::IdentityQuality::Authored,
+                    stratum: None,
+                    allomorph: None,
+                    morpheme: None,
+                    direction: pg_stats::Direction::Analysis,
+                    attempts: work,
+                    work,
+                    work_steps: work,
+                    outputs: 0,
+                    not_applied: 0,
+                    no_root: 0,
+                    surface_mismatch: 0,
+                    uses: 0,
+                    self_time_ns: 0,
+                })
+                .into_iter()
+                .collect(),
+            gates: full.then(|| {
+                vec![pg_stats::GateRecord {
+                    object_key: "r".into(),
+                    object_kind: pg_stats::ObjectKind::MorphRule,
+                    object_label: "Rule".into(),
+                    identity_quality: pg_stats::IdentityQuality::Authored,
+                    morpheme: None,
+                    feature_key: "f".into(),
+                    feature_kind: "mpr".into(),
+                    feature_label: "F".into(),
+                    mode: "required".into(),
+                    passed: work,
+                    blocked: 0,
+                }]
+            }),
+        },
+        prunes: full.then(pg_rules::stats::PruneCounters::default),
+    };
+
+    let snapshot = |conn: &rusqlite::Connection| {
+        let mut tables = vec!["run", "word", "cache_identity"];
+        if full {
+            tables.extend(["fact", "gate_fact"]);
+        }
+        tables
+            .into_iter()
+            .map(|table| {
+                let mut stmt = conn
+                    .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
+                    .unwrap();
+                let columns = stmt.column_count();
+                stmt.query_map([], |row| {
+                    (0..columns)
+                        .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
             })
-            .unwrap();
+            .collect::<Vec<_>>()
+    };
+
+    for seeded in [false, true] {
+        let mut initial = prepare();
+        if seeded {
+            initial.record(word(0, 7)).unwrap();
+            finish_batch_stats_hc(initial).unwrap();
+        } else {
+            drop(initial);
+        }
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let before = snapshot(&conn);
+        for failing_word in [
+            0,
+            STATS_FLUSH_BATCH,
+            2 * STATS_FLUSH_BATCH + 1,
+            3 * STATS_FLUSH_BATCH,
+        ] {
+            let mut batch = prepare();
+            conn.execute_batch(&format!(
+                "DROP TRIGGER IF EXISTS fail_write; CREATE TRIGGER fail_write BEFORE INSERT ON word WHEN NEW.form = 'word-{failing_word}'
+                 BEGIN SELECT RAISE(ABORT, 'injected stats write failure'); END;"
+            )).unwrap();
+            let error = (0..=3 * STATS_FLUSH_BATCH)
+                .try_for_each(|i| batch.record(word(i, 1)))
+                .and_then(|()| finish_batch_stats_hc(batch))
+                .unwrap_err();
+            assert!(error.contains("injected stats write failure"), "{error}");
+            assert_eq!(
+                snapshot(&conn),
+                before,
+                "seeded={seeded}, failing word={failing_word}"
+            );
+        }
+        conn.execute_batch("DROP TRIGGER fail_write").unwrap();
     }
-    let error = finish_batch_stats_hc(prepared).unwrap_err();
-    assert!(
-        error.contains("`work`") && error.contains("i64::MAX"),
-        "{error}"
-    );
-    let conn = rusqlite::Connection::open(path).unwrap();
-    let runs: usize = conn
-        .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
-        .unwrap();
-    let words: usize = conn
-        .query_row("SELECT COUNT(*) FROM word", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!((runs, words), (1, STATS_FLUSH_BATCH));
+}
+
+#[test]
+fn batch_rechecks_search_budget_before_appending() {
+    for populated in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.sqlite3");
+        let prepare = || {
+            prepare_batch_stats_hc(
+                "unused.xml",
+                "test-grammar",
+                &[],
+                crate::DEFAULT_WORK_CAP,
+                None,
+                None,
+                false,
+                false,
+                path.to_str(),
+                false,
+                StatsProfile::Full,
+                WordOnlySearchOptions::default(),
+            )
+            .unwrap()
+        };
+        let seed = prepare();
+        let waiting = if populated {
+            finish_batch_stats_hc(seed).unwrap();
+            prepare()
+        } else {
+            let fresh = prepare();
+            finish_batch_stats_hc(seed).unwrap();
+            fresh
+        };
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute("UPDATE run SET options_json = '{}'", [])
+            .unwrap();
+        let error = finish_batch_stats_hc(waiting).unwrap_err();
+        assert!(error.contains("search-budget semantics"), "{error}");
+        let runs: u64 = conn
+            .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(runs, 1);
+    }
 }
 
 fn scratch_dir(tag: &str) -> PathBuf {
@@ -278,9 +406,9 @@ fn final_template_policy_cache_treats_legacy_missing_field_as_false() {
     let dir = scratch_dir("policy-legacy");
     let path = dir.join("cache.sqlite3");
     let cache = seed_policy_cache(&path, "{}");
-    refuse_if_final_template_policy_differs(&cache, &path, false)
+    refuse_if_final_template_policy_differs(cache.connection(), &path, false)
         .expect("legacy rows must remain compatible with the default policy");
-    let err = refuse_if_final_template_policy_differs(&cache, &path, true)
+    let err = refuse_if_final_template_policy_differs(cache.connection(), &path, true)
         .expect_err("legacy rows must refuse the result-changing policy");
     assert!(err.contains(path.to_str().unwrap()), "error: {err}");
     assert!(
@@ -303,7 +431,7 @@ fn final_template_policy_cache_rejects_malformed_prior_options() {
         let dir = scratch_dir(&format!("policy-malformed-{name}"));
         let path = dir.join("cache.sqlite3");
         let cache = seed_policy_cache(&path, json);
-        let err = refuse_if_final_template_policy_differs(&cache, &path, false)
+        let err = refuse_if_final_template_policy_differs(cache.connection(), &path, false)
             .expect_err("invalid cached options must fail loudly");
         assert!(err.contains(path.to_str().unwrap()), "error: {err}");
         assert!(err.contains(expected), "error: {err}");
@@ -319,8 +447,10 @@ fn final_template_policies_accept_separate_caches() {
         seed_policy_cache(&default_path, r#"{"always_enforce_final_templates":false}"#);
     let override_cache =
         seed_policy_cache(&override_path, r#"{"always_enforce_final_templates":true}"#);
-    refuse_if_final_template_policy_differs(&default_cache, &default_path, false).unwrap();
-    refuse_if_final_template_policy_differs(&override_cache, &override_path, true).unwrap();
+    refuse_if_final_template_policy_differs(default_cache.connection(), &default_path, false)
+        .unwrap();
+    refuse_if_final_template_policy_differs(override_cache.connection(), &override_path, true)
+        .unwrap();
 }
 
 /// A second, structurally different fixture, for the grammar-change/wipe test.
@@ -2711,7 +2841,7 @@ fn a_cache_from_an_older_search_budget_is_refused() {
         let dir = scratch_dir("old-work-budget");
         let path = dir.join("cache.sqlite3");
         let cache = seed_policy_cache(&path, &options);
-        let err = refuse_if_search_budget_semantics_differ(&cache, &path).unwrap_err();
+        let err = refuse_if_search_budget_semantics_differ(cache.connection(), &path).unwrap_err();
         assert!(err.contains("search-budget semantics"), "{err}");
     }
     let dir = scratch_dir("work-budget-policy");
@@ -2719,7 +2849,7 @@ fn a_cache_from_an_older_search_budget_is_refused() {
     let current =
         format!(r#"{{"search_budget_semantics":{SEARCH_BUDGET_SEMANTICS},"work_cap":"100"}}"#);
     let cache = seed_policy_cache(&path, &current);
-    refuse_if_search_budget_semantics_differ(&cache, &path).unwrap();
+    refuse_if_search_budget_semantics_differ(cache.connection(), &path).unwrap();
 }
 
 #[test]

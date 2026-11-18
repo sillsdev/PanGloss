@@ -439,6 +439,19 @@ static GLOBAL_ALLOC: alloc_trace::CountingAlloc = alloc_trace::CountingAlloc;
 static GLOBAL_ALLOC: pg_cost::CountingAllocator = pg_cost::CountingAllocator;
 
 fn main() -> ExitCode {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() == Some(pg_stats::cache::staged::STAGE_CLEANUP_ARG.as_ref()) {
+        let Some(directory) = args.next().filter(|_| args.next().is_none()) else {
+            return ExitCode::FAILURE;
+        };
+        return match pg_stats::cache::staged::clean_up_stage(std::path::Path::new(&directory)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("stats staging cleanup: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on heavy corpus words exceeds the default 8 MiB main-thread stack, so the whole batch runs on a worker thread with a generous stack.
     std::thread::Builder::new()
         .stack_size(1 << 30) // 1 GiB

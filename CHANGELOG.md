@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- HC `batch --stats` batches fact inserts and overlaps writing with parsing. A batch killed or failed before the cache commit keeps none of its newly measured words, including earlier 500-word chunks. Previously committed words survive (#362).
+
 ## 0.26.0
 
 Released 2026-11-19.

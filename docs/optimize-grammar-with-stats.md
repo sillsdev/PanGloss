@@ -26,16 +26,35 @@ pangloss batch <grammar> <words.txt> out.tsv --stats --threads 1 --word-timeout-
 off unless `--stats` is present. The normal batch TSV remains unchanged; measurements go into the
 SQLite cache.
 
-Full statistics are collected one word at a time with `--threads 1`, or in ordered groups of at
-most 15 words with more threads. Pending observations use a 4 MiB encoded buffer and spill to an
-unnamed temporary file above that bound, rather than retaining the corpus's word × object rows.
-Reusable caches flush each 500 newly measured words in one atomic transaction. A writer thread
-replays the previous completed spool while parsing fills the next, with a combined 4 MiB spool
-limit in memory. Replay of a spilled spool overlaps decoding one record with writing the previous
-one. Each transaction can finish independently of parsing. A frozen manifest keeps one atomic run
-and flushes after completion validation. Temporary disk space scales with the pending observations.
-A failed transaction discards that run.
-Word lists, parse results and frozen completion summaries still scale with the number of words.
+Statistics are collected one word at a time with `--threads 1`. With more threads, the full profile
+uses ordered groups of up to 15 words and the word-only profile uses groups of up to 500.
+A background writer accepts up to 500 queued words and batches
+inserts of ordinary and gate facts. After 16 MiB of queued raw records, new records use one
+temporary spill file beside the cache. The writer drains and resets the spill after it reaches
+64 MiB, plus at most one record. For a fresh cache the writer creates a private SQLite database
+beside the cache and attaches it for publication. A separate cleanup process owns that file and
+removes it when the batch exits, including on Ctrl-C. If both processes are killed (power loss,
+`docker stop`, a cancelled CI job or a job-object kill), a file named `pangloss-stats-XXXXXX` stays
+in the cache's directory, up to the size of the staged data. It is private to the dead batch, so
+deleting it is safe once no `batch --stats` is running against that cache.
+
+For a populated cache the writer holds the destination write lock and writes to its WAL in one
+transaction while parsing continues. Readers can see the prior commit during that transaction.
+Another `batch --stats` reports on stderr when it has to wait for the lock. `stats-cache pack`
+reports that the cache is busy if it cannot acquire the lock within five seconds.
+
+A fresh reusable batch also keeps a compressed binary record of the observations, spilling
+to a temporary file beyond 2 MiB. If another writer populates the cache first, the batch replays
+its observations against the current IDs and first-seen labels. Publication waits for other
+writers and rechecks parser policy under the destination write lock. Fresh publication can
+temporarily hold the private database, destination database and destination WAL, roughly three
+cache copies, plus the compressed record. Word lists, parse results and frozen completion
+summaries still scale with the number of words.
+
+A run killed or failed before the cache commit keeps none of its newly measured words. Earlier
+committed observations survive. Reusable caches still record one run row per 500 measured words
+and one for the final partial chunk, with all rows committed together. A frozen cache records
+one run after completion validation.
 
 For callers that retain word timing and correctness measurements in SQLite, use the word-only profile.
 Motif's `ParseTime, Correctness` Trial scope already uses the TSV and analyses sidecar directly.
