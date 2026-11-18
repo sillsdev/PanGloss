@@ -400,7 +400,7 @@ fn run_stored_analysis_health_with_synthesis_cap(
     )
     .expect("write capped stored-analysis project");
     let path = project_path.to_string_lossy().into_owned();
-    let loaded = crate::load_grammar_impl(&path, false, false)
+    let loaded = crate::load_grammar_impl(&path, false, crate::StatsIdentityRequest::None)
         .unwrap_or_else(|error| panic!("load capped stored-analysis fixture: {error}"));
     let diagnostics = crate::stored_analysis_health::check_with_options(
         &loaded.grammar,
@@ -437,7 +437,7 @@ fn compare_stored_analyses_at(
     )
     .expect("write threaded stored-analysis project");
     let path = project_path.to_string_lossy().into_owned();
-    let loaded = crate::load_grammar_impl(&path, false, false)
+    let loaded = crate::load_grammar_impl(&path, false, crate::StatsIdentityRequest::None)
         .unwrap_or_else(|error| panic!("load threaded stored-analysis fixture: {error}"));
     assert_eq!(loaded.stored_analyses.len(), analyses.len());
     let results = thread_counts
@@ -1006,8 +1006,12 @@ fn stored_analysis_naming_a_merged_msa_matches_its_representatives_parse() {
         append_stored_analyses(&fixture, "fx", &analyses),
     )
     .expect("write merged-MSA project");
-    let mut loaded = crate::load_grammar_impl(&project_path.to_string_lossy(), false, false)
-        .unwrap_or_else(|error| panic!("load merged-MSA fixture: {error}"));
+    let mut loaded = crate::load_grammar_impl(
+        &project_path.to_string_lossy(),
+        false,
+        crate::StatsIdentityRequest::None,
+    )
+    .unwrap_or_else(|error| panic!("load merged-MSA fixture: {error}"));
     fs::remove_dir_all(&scratch).expect("remove merged-MSA fixture directory");
     let compare = |grammar: &Grammar| {
         crate::stored_analysis_health::check_with_options(

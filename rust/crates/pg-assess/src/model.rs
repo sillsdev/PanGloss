@@ -27,10 +27,10 @@
 //! a difference where none exists semantically, rather than hiding one — and closing it needs real
 //! XML canonicalization, which is deferred rather than faked.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::digest::{digest_projection, sha256_bytes};
-use crate::jcs::JcsError;
+use crate::digest::{digest_with_projection, sha256_bytes};
+use crate::jcs::{self, CanonicalSink, JcsError};
 
 /// The projection that binds a model fingerprint to its meaning.
 pub const MODEL_PROJECTION: &str = "pangloss.model/v1";
@@ -69,8 +69,17 @@ pub fn model_fingerprint(
     source: &str,
     compiler_version: &str,
 ) -> Result<String, JcsError> {
-    let canonical = canonical_source(kind, source)?;
-    fingerprint_of_canonical(kind, canonical, compiler_version)
+    if kind == SourceKind::Snapshot {
+        if let Ok(value) = serde_json::from_str::<Value>(source) {
+            return snapshot_value_fingerprint(&value, compiler_version);
+        }
+    }
+    // Failed Snapshot assessments still fingerprint the original text with normalized line endings.
+    let normalized = normalize_line_endings(source);
+    fingerprint_of_canonical(kind, compiler_version, |out| {
+        jcs::write_string(&normalized, out);
+        Ok(())
+    })
 }
 
 /// `model_fingerprint(SourceKind::Snapshot, text, ..)` for a `text` that was already parsed into `value`.
@@ -78,36 +87,29 @@ pub fn snapshot_value_fingerprint(
     value: &Value,
     compiler_version: &str,
 ) -> Result<String, JcsError> {
-    let canonical = crate::jcs::canonicalize(value)?;
-    fingerprint_of_canonical(SourceKind::Snapshot, canonical, compiler_version)
+    fingerprint_of_canonical(SourceKind::Snapshot, compiler_version, |out| {
+        out.push('"');
+        jcs::write_value(value, &mut jcs::StringContents(out))?;
+        out.push('"');
+        Ok(())
+    })
 }
 
 fn fingerprint_of_canonical(
     kind: SourceKind,
-    canonical: String,
     compiler_version: &str,
+    write_source: impl FnOnce(&mut crate::digest::ProjectionWriter) -> Result<(), JcsError>,
 ) -> Result<String, JcsError> {
-    digest_projection(
-        MODEL_PROJECTION,
-        &json!({
-            "sourceKind": kind.as_str(),
-            "canonicalSource": canonical,
-            "compilerVersion": compiler_version,
-        }),
-    )
-}
-
-/// The source reduced to the content that determines the compiled model.
-fn canonical_source(kind: SourceKind, source: &str) -> Result<String, JcsError> {
-    match kind {
-        SourceKind::Snapshot => match serde_json::from_str::<Value>(source) {
-            // A snapshot is JSON, so JCS absorbs key order and every kind of whitespace.
-            Ok(value) => crate::jcs::canonicalize(&value),
-            // Unparsable input is not this function's problem to diagnose; fall back to line-ending normalization so a fingerprint still exists for the failure artifact.
-            Err(_) => Ok(normalize_line_endings(source)),
-        },
-        SourceKind::HcXml => Ok(normalize_line_endings(source)),
-    }
+    digest_with_projection(MODEL_PROJECTION, |out| {
+        out.push_str("{\"canonicalSource\":");
+        write_source(out)?;
+        out.push_str(",\"compilerVersion\":");
+        jcs::write_string(compiler_version, out);
+        out.push_str(",\"sourceKind\":");
+        jcs::write_string(kind.as_str(), out);
+        out.push('}');
+        Ok(())
+    })
 }
 
 fn normalize_line_endings(source: &str) -> String {

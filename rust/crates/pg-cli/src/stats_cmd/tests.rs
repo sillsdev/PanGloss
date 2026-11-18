@@ -23,6 +23,60 @@ fn frozen_cache_digest_streams_empty_and_multiple_buffers_exactly() {
     assert!(hash_cache_file(&dir.join("missing")).is_err());
 }
 
+#[test]
+fn reusable_replay_failure_rolls_back_only_its_chunk_and_reaches_the_caller() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cache.sqlite3");
+    let mut prepared = prepare_batch_stats_hc(
+        "unused.xml",
+        "test-grammar",
+        &[],
+        crate::DEFAULT_WORK_CAP,
+        None,
+        None,
+        false,
+        false,
+        path.to_str(),
+        false,
+    )
+    .unwrap();
+    for i in 0..2 * STATS_FLUSH_BATCH {
+        prepared
+            .record(BatchStatsWord {
+                record: pg_stats::WordRecord {
+                    form: format!("word-{i}"),
+                    elapsed_ns: 0,
+                    work: if i + 1 == 2 * STATS_FLUSH_BATCH {
+                        u64::MAX
+                    } else {
+                        0
+                    },
+                    passes: 0,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts: Vec::new(),
+                    gates: Some(Vec::new()),
+                },
+                prunes: pg_rules::stats::PruneCounters::default(),
+            })
+            .unwrap();
+    }
+    let error = finish_batch_stats_hc(prepared).unwrap_err();
+    assert!(
+        error.contains("`work`") && error.contains("i64::MAX"),
+        "{error}"
+    );
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let runs: usize = conn
+        .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+        .unwrap();
+    let words: usize = conn
+        .query_row("SELECT COUNT(*) FROM word", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!((runs, words), (1, STATS_FLUSH_BATCH));
+}
+
 fn scratch_dir(tag: &str) -> PathBuf {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);

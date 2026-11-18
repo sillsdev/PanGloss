@@ -23,37 +23,21 @@ pub(crate) struct SourceIdentity {
 }
 
 impl SourceIdentity {
-    pub(crate) fn from_snapshot_source(source: &str, snapshot: &Snapshot) -> Result<Self, String> {
-        let fingerprint =
-            model_fingerprint(SourceKind::Snapshot, source, env!("CARGO_PKG_VERSION"))
-                .map_err(|error| format!("fingerprint Snapshot source: {error}"))?;
-        Ok(Self {
-            kind: SourceKind::Snapshot.as_str(),
-            source_sha256: source_sha256(source.as_bytes()),
-            grammar_hash: snapshot.grammar_hash(),
-            model_fingerprint: fingerprint,
-            compile_options_json: Some(production_compile_options_json()),
-        })
-    }
-
     pub(crate) fn from_imported_snapshot(
         source_bytes: &[u8],
         snapshot: &Snapshot,
     ) -> Result<Self, String> {
-        let fingerprint_source = snapshot.to_json();
-        let fingerprint = model_fingerprint(
-            SourceKind::Snapshot,
-            &fingerprint_source,
-            env!("CARGO_PKG_VERSION"),
-        )
-        .map_err(|error| format!("fingerprint imported Snapshot: {error}"))?;
-        Ok(Self {
-            kind: SourceKind::Snapshot.as_str(),
+        let value = serde_json::to_value(snapshot)
+            .map_err(|error| format!("serialize imported Snapshot: {error}"))?;
+        let model_fingerprint =
+            pg_assess::snapshot_value_fingerprint(&value, env!("CARGO_PKG_VERSION"))
+                .map_err(|error| format!("fingerprint imported Snapshot: {error}"))?;
+        drop(value);
+        Ok(SnapshotSourceHashes {
             source_sha256: source_sha256(source_bytes),
-            grammar_hash: snapshot.grammar_hash(),
-            model_fingerprint: fingerprint,
-            compile_options_json: Some(production_compile_options_json()),
-        })
+            model_fingerprint,
+        }
+        .with_snapshot(snapshot))
     }
 
     pub(crate) fn from_hc_xml(source: &str) -> Result<Self, String> {
@@ -71,6 +55,33 @@ impl SourceIdentity {
             model_fingerprint: fingerprint,
             compile_options_json: None,
         })
+    }
+}
+
+pub(crate) struct SnapshotSourceHashes {
+    source_sha256: String,
+    model_fingerprint: String,
+}
+
+impl SnapshotSourceHashes {
+    pub(crate) fn from_source(source: &str) -> Result<Self, String> {
+        let model_fingerprint =
+            model_fingerprint(SourceKind::Snapshot, source, env!("CARGO_PKG_VERSION"))
+                .map_err(|error| format!("fingerprint Snapshot source: {error}"))?;
+        Ok(Self {
+            source_sha256: source_sha256(source.as_bytes()),
+            model_fingerprint,
+        })
+    }
+
+    pub(crate) fn with_snapshot(self, snapshot: &Snapshot) -> SourceIdentity {
+        SourceIdentity {
+            kind: SourceKind::Snapshot.as_str(),
+            source_sha256: self.source_sha256,
+            grammar_hash: snapshot.grammar_hash(),
+            model_fingerprint: self.model_fingerprint,
+            compile_options_json: Some(production_compile_options_json()),
+        }
     }
 }
 
@@ -251,7 +262,9 @@ mod tests {
             pg_snapshot::Morphology::default(),
             pg_snapshot::Lexicon::default(),
         );
-        let identity = SourceIdentity::from_snapshot_source("{}", &snapshot).unwrap();
+        let identity = SnapshotSourceHashes::from_source("{}")
+            .unwrap()
+            .with_snapshot(&snapshot);
         let options = pg_grammar::compile::CompileOptions::default();
 
         assert_eq!(

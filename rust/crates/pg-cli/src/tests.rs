@@ -777,7 +777,9 @@ fn work_cap_unbounded_parses_and_batch_completes_ok() {
 }
 
 #[test]
-fn batch_stats_identity_for_fwdata_matches_the_full_import_fingerprint() {
+fn batch_stats_identities_match_full_import_and_legacy_fingerprints() {
+    use super::{stats_manifest, LoadedStatsIdentity, StatsIdentityRequest};
+
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../pg-fwdata/tests/data/fixture.fwdata");
     let xml = fs::read_to_string(&fixture).expect("read synthetic fixture");
@@ -785,18 +787,64 @@ fn batch_stats_identity_for_fwdata_matches_the_full_import_fingerprint() {
         "guid=\"00000000-0000-0000-0000-0000000000ff\"",
         "guid=\"00000000-0000-0000-0000-000000000017\"",
     );
-    let path = scratch_dir("stats-identity-fwdata").join("fixture.fwdata");
+    let scratch = tempfile::tempdir().expect("stats identity scratch");
+    let path = scratch.path().join("fixture.fwdata");
     fs::write(&path, &xml).expect("write adjusted synthetic fixture");
 
-    let loaded = super::load_grammar_impl(&path.to_string_lossy(), false, true)
-        .unwrap_or_else(|e| panic!("fixture loads: {e}"));
-    let identity = loaded.stats_source_identity.expect("identity captured");
+    let loaded =
+        super::load_grammar_impl(&path.to_string_lossy(), false, StatsIdentityRequest::Frozen)
+            .unwrap_or_else(|e| panic!("fixture loads: {e}"));
+    let LoadedStatsIdentity::Frozen(identity) = loaded.stats_identity else {
+        panic!("frozen stats identity must be captured");
+    };
     let (snapshot, _) = pg_fwdata::import_file(&path).expect("full import");
     let expected =
-        super::stats_manifest::SourceIdentity::from_imported_snapshot(xml.as_bytes(), &snapshot)
+        stats_manifest::SourceIdentity::from_imported_snapshot(xml.as_bytes(), &snapshot)
             .expect("full identity");
     assert_eq!(identity.model_fingerprint, expected.model_fingerprint);
     assert_eq!(identity.grammar_hash, expected.grammar_hash);
+
+    let words = scratch.path().join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let tsv = scratch.path().join("out.tsv");
+    let cases = [
+        ("fixture.fwdata", xml.as_str(), snapshot.grammar_hash()),
+        (
+            "raw.FWDATA",
+            xml.as_str(),
+            stats_manifest::sha256_hex(xml.as_bytes()),
+        ),
+        ("fixture.json", &snapshot.to_json(), snapshot.grammar_hash()),
+        (
+            "fixture.xml",
+            MINI_GRAMMAR_XML,
+            stats_manifest::sha256_hex(MINI_GRAMMAR_XML.as_bytes()),
+        ),
+    ];
+    for (name, source, expected_hash) in cases {
+        let grammar = scratch.path().join(name);
+        fs::write(&grammar, source).unwrap();
+        let cache = scratch.path().join(format!("{name}.sqlite"));
+        let args = [
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            tsv.to_str().unwrap(),
+            "--threads",
+            "1",
+            "--stats",
+            "--cache",
+            cache.to_str().unwrap(),
+        ]
+        .map(str::to_string);
+        run_batch(&args).unwrap_or_else(|error| panic!("{name} failed: {error}"));
+        let db = rusqlite::Connection::open(&cache).unwrap();
+        let captured_hash: String = db
+            .query_row("SELECT grammar_hash FROM cache_identity", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(captured_hash, expected_hash, "{name}");
+    }
 }
 
 #[test]

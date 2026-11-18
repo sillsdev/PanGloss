@@ -145,7 +145,7 @@ pub(crate) fn run_grammar_health_with_limits(
     let loaded = crate::load_grammar_capturing(
         grammar_path,
         false,
-        false,
+        crate::StatsIdentityRequest::None,
         artifacts.requested().then_some(&mut capture),
     );
     // Written even when the compile fails.

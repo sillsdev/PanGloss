@@ -594,8 +594,21 @@ struct LoadedGrammar {
     warnings: Vec<pg_snapshot::Warning>,
     stored_analyses: Vec<pg_fwdata::StoredAnalysis>,
     metadata: Option<rich_trace::TraceMetadata>,
-    stats_source_identity: Option<stats_manifest::SourceIdentity>,
+    stats_identity: LoadedStatsIdentity,
     substrate: pg_grammar::compile::issues::SubstrateReport,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatsIdentityRequest {
+    None,
+    Reusable,
+    Frozen,
+}
+
+enum LoadedStatsIdentity {
+    None,
+    Reusable(String),
+    Frozen(stats_manifest::SourceIdentity),
 }
 
 /// What a FieldWorks import produced, kept for `grammar-health --snapshot-out`/`--facts-out` so the
@@ -618,15 +631,15 @@ pub(crate) struct ImportCapture {
 fn load_grammar_impl(
     path: &str,
     capture_metadata: bool,
-    capture_stats_identity: bool,
+    stats_request: StatsIdentityRequest,
 ) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
-    load_grammar_capturing(path, capture_metadata, capture_stats_identity, None)
+    load_grammar_capturing(path, capture_metadata, stats_request, None)
 }
 
 pub(crate) fn load_grammar_capturing(
     path: &str,
     capture_metadata: bool,
-    capture_stats_identity: bool,
+    stats_request: StatsIdentityRequest,
     mut capture: Option<&mut ImportCapture>,
 ) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
     let ext = std::path::Path::new(path)
@@ -642,13 +655,24 @@ pub(crate) fn load_grammar_capturing(
             } else {
                 fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?
             };
+            // Release the fingerprint's generic JSON tree before allocating the typed Snapshot.
+            let frozen_hashes = (stats_request == StatsIdentityRequest::Frozen)
+                .then(|| stats_manifest::SnapshotSourceHashes::from_source(&json));
             let snapshot = pg_snapshot::Snapshot::from_json(&json)
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
-            serve::record_ms(&serve::IMPORT_MS, t_phase);
-            let stats_source_identity = capture_stats_identity
-                .then(|| stats_manifest::SourceIdentity::from_snapshot_source(&json, &snapshot))
-                .transpose()?;
             drop(json);
+            serve::record_ms(&serve::IMPORT_MS, t_phase);
+            let stats_identity = match stats_request {
+                StatsIdentityRequest::None => LoadedStatsIdentity::None,
+                StatsIdentityRequest::Reusable => {
+                    LoadedStatsIdentity::Reusable(snapshot.grammar_hash())
+                }
+                StatsIdentityRequest::Frozen => LoadedStatsIdentity::Frozen(
+                    frozen_hashes
+                        .expect("frozen stats computed source hashes")?
+                        .with_snapshot(&snapshot),
+                ),
+            };
             let t_compile = Instant::now();
             let output = if capture
                 .as_ref()
@@ -683,21 +707,21 @@ pub(crate) fn load_grammar_capturing(
                 warnings: output.warnings,
                 stored_analyses: Vec::new(),
                 metadata,
-                stats_source_identity,
+                stats_identity,
                 substrate: output.substrate,
             })
         }
         _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
-            let source_bytes = if capture_stats_identity {
+            let source_bytes = if stats_request == StatsIdentityRequest::Frozen {
                 Some(fs::read(path).map_err(|e| format!("read {path}: {e}"))?)
             } else {
                 None
             };
-            // The facts export (a capture) and the stats manifest fingerprint the full snapshot, provenance included, so only a plain load goes lean.
+            // The facts export (a capture) and frozen stats fingerprint the full snapshot, provenance included, so only a plain load goes lean.
             let imported = if capture
                 .as_ref()
                 .is_some_and(|capture| !capture.capture_diagnostic_slots)
-                || capture_stats_identity
+                || source_bytes.is_some()
             {
                 pg_fwdata::import_file(std::path::Path::new(path))
             } else {
@@ -731,12 +755,25 @@ pub(crate) fn load_grammar_capturing(
                     .into());
                 }
             }
-            let stats_source_identity = source_bytes
-                .as_deref()
-                .map(|bytes| {
-                    stats_manifest::SourceIdentity::from_imported_snapshot(bytes, &snapshot)
-                })
-                .transpose()?;
+            let stats_identity = match stats_request {
+                StatsIdentityRequest::None => LoadedStatsIdentity::None,
+                StatsIdentityRequest::Reusable if ext == "fwdata" => {
+                    LoadedStatsIdentity::Reusable(snapshot.grammar_hash())
+                }
+                StatsIdentityRequest::Reusable => {
+                    // Reusable archive and mixed-case project identities hash the original file.
+                    let bytes = fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+                    LoadedStatsIdentity::Reusable(stats_manifest::sha256_hex(&bytes))
+                }
+                StatsIdentityRequest::Frozen => LoadedStatsIdentity::Frozen(
+                    stats_manifest::SourceIdentity::from_imported_snapshot(
+                        source_bytes
+                            .as_deref()
+                            .expect("frozen stats read source bytes"),
+                        &snapshot,
+                    )?,
+                ),
+            };
             let mut import_warnings = report.warnings;
             import_warnings.extend(snapshot.validate());
             let t_compile = Instant::now();
@@ -789,7 +826,7 @@ pub(crate) fn load_grammar_capturing(
                 warnings: output.warnings,
                 stored_analyses,
                 metadata,
-                stats_source_identity,
+                stats_identity,
                 substrate: output.substrate,
             })
         }
@@ -805,10 +842,14 @@ pub(crate) fn load_grammar_capturing(
                     None,
                 )
             };
-            let stats_source_identity = if capture_stats_identity {
-                Some(stats_manifest::SourceIdentity::from_hc_xml(&xml)?)
-            } else {
-                None
+            let stats_identity = match stats_request {
+                StatsIdentityRequest::None => LoadedStatsIdentity::None,
+                StatsIdentityRequest::Reusable => {
+                    LoadedStatsIdentity::Reusable(stats_manifest::sha256_hex(xml.as_bytes()))
+                }
+                StatsIdentityRequest::Frozen => {
+                    LoadedStatsIdentity::Frozen(stats_manifest::SourceIdentity::from_hc_xml(&xml)?)
+                }
             };
             let grammar = pg_grammar::load(&xml).map_err(|error| {
                 compile_failure::GrammarLoadError::Compile(Box::new(
@@ -821,7 +862,7 @@ pub(crate) fn load_grammar_capturing(
                 warnings: Vec::new(),
                 stored_analyses: Vec::new(),
                 metadata,
-                stats_source_identity,
+                stats_identity,
                 substrate: Default::default(),
             })
         }
@@ -829,28 +870,10 @@ pub(crate) fn load_grammar_capturing(
 }
 
 pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
-    let loaded = load_grammar_impl(path, false, false).map_err(|error| error.to_string())?;
+    let loaded = load_grammar_impl(path, false, StatsIdentityRequest::None)
+        .map_err(|error| error.to_string())?;
     print_substrate_report(&loaded.substrate);
     Ok((loaded.grammar, loaded.warnings))
-}
-
-fn load_grammar_with_stats_identity(
-    path: &str,
-) -> Result<
-    (
-        Grammar,
-        Vec<pg_snapshot::Warning>,
-        stats_manifest::SourceIdentity,
-    ),
-    String,
-> {
-    let mut loaded = load_grammar_impl(path, true, true).map_err(|error| error.to_string())?;
-    let source_identity = loaded
-        .stats_source_identity
-        .take()
-        .ok_or_else(|| "stats source identity was not captured".to_string())?;
-    print_substrate_report(&loaded.substrate);
-    Ok((loaded.grammar, loaded.warnings, source_identity))
 }
 
 pub(crate) fn load_grammar_with_trace_metadata(
@@ -863,7 +886,8 @@ pub(crate) fn load_grammar_with_trace_metadata(
     ),
     String,
 > {
-    let loaded = load_grammar_impl(path, true, false).map_err(|error| error.to_string())?;
+    let loaded = load_grammar_impl(path, true, StatsIdentityRequest::None)
+        .map_err(|error| error.to_string())?;
     let metadata = loaded
         .metadata
         .ok_or_else(|| "rich trace metadata was not captured".to_string())?;
@@ -877,7 +901,7 @@ fn load_diagnostic_grammar(
         capture_diagnostic_slots: true,
         ..Default::default()
     };
-    let loaded = load_grammar_capturing(path, true, false, Some(&mut capture))
+    let loaded = load_grammar_capturing(path, true, StatsIdentityRequest::None, Some(&mut capture))
         .map_err(|error| diagnostic::error("compile", error))?;
     print_substrate_report(&loaded.substrate);
     Ok((loaded, capture.diagnostic_slots))
@@ -1404,7 +1428,8 @@ fn parse_batch_with_stats(
     let pool = pool_builder
         .build()
         .expect("build rayon pool for --stats batch dispatch");
-    const STATS_PARSE_CHUNK: usize = 16;
+    // Leave room for the spool decoder to stage one word while SQLite writes the previous one.
+    const STATS_PARSE_CHUNK: usize = 15;
     let mut results = Vec::with_capacity(words.len());
     for (chunk_index, chunk) in words.chunks(STATS_PARSE_CHUNK).enumerate() {
         let existing_words = stats_cache.existing_words();
@@ -1782,20 +1807,32 @@ fn run_batch_impl(
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
     let t_load = Instant::now();
-    let mut diagnostic_metadata = None;
     let mut diagnostic_slots = None;
-    let (grammar, warnings, stats_source_identity) = if diagnostic.is_some() {
+    let loaded = if diagnostic.is_some() {
         let (loaded, slots) = load_diagnostic_grammar(grammar_path)?;
-        diagnostic_metadata = loaded.metadata;
         diagnostic_slots = Some(slots);
-        (loaded.grammar, loaded.warnings, None)
-    } else if stats_manifest_path_arg.is_some() {
-        let (grammar, warnings, identity) = load_grammar_with_stats_identity(grammar_path)?;
-        (grammar, warnings, Some(identity))
+        loaded
     } else {
-        let (grammar, warnings) = load_grammar(grammar_path)?;
-        (grammar, warnings, None)
+        let stats_request = if stats_manifest_path_arg.is_some() {
+            StatsIdentityRequest::Frozen
+        } else if stats_requested {
+            StatsIdentityRequest::Reusable
+        } else {
+            StatsIdentityRequest::None
+        };
+        let loaded = load_grammar_impl(grammar_path, false, stats_request)
+            .map_err(|error| error.to_string())?;
+        print_substrate_report(&loaded.substrate);
+        loaded
     };
+    let LoadedGrammar {
+        grammar,
+        warnings,
+        stats_identity,
+        metadata,
+        ..
+    } = loaded;
+    let diagnostic_metadata = metadata;
     let stats_identities =
         stats_requested.then(|| pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar));
     print_grammar_warnings(&warnings);
@@ -1883,14 +1920,8 @@ fn run_batch_impl(
     drop(source);
 
     // A cache refusal must fire before the TSV below is truncated.
-    let mut stats_cache = if let Some(manifest_path) = stats_manifest_path {
-        let cache_path = stats_cache_path
-            .as_deref()
-            .expect("--stats-manifest requires --stats and --cache");
-        let source = stats_source_identity
-            .as_ref()
-            .expect("--stats-manifest captures a source identity with the grammar");
-        Some((
+    let mut stats_cache = match &stats_identity {
+        LoadedStatsIdentity::Frozen(source) => Some((
             stats_cmd::prepare_frozen_batch_stats_hc(
                 grammar_path,
                 &words,
@@ -1899,16 +1930,18 @@ fn run_batch_impl(
                 word_timeout_ms,
                 guess,
                 always_enforce_final_templates,
-                cache_path,
+                stats_cache_path
+                    .as_deref()
+                    .expect("--stats-manifest requires --stats and --cache"),
                 &source.grammar_hash,
                 stats_compact,
             )?,
-            Some(manifest_path),
-        ))
-    } else if stats_requested {
-        Some((
+            stats_manifest_path,
+        )),
+        LoadedStatsIdentity::Reusable(grammar_hash) => Some((
             stats_cmd::prepare_batch_stats_hc(
                 grammar_path,
+                grammar_hash,
                 &words,
                 work_cap,
                 word_mem_cap,
@@ -1919,9 +1952,8 @@ fn run_batch_impl(
                 stats_compact,
             )?,
             None,
-        ))
-    } else {
-        None
+        )),
+        LoadedStatsIdentity::None => None,
     };
 
     if cache_pack {
@@ -2440,8 +2472,9 @@ fn run_batch_impl(
     );
     if let Some((stats_cache, manifest_path)) = stats_cache {
         if let Some(manifest_path) = manifest_path {
-            let source = stats_source_identity
-                .expect("--stats-manifest captures a source identity with the grammar");
+            let LoadedStatsIdentity::Frozen(source) = stats_identity else {
+                return Err("missing grammar identity for frozen stats manifest".into());
+            };
             let batch_options = stats_manifest::BatchOptions {
                 engine: "hc",
                 threads,

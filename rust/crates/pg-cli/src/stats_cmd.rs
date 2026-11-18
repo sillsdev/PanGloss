@@ -39,31 +39,6 @@ fn canonical_or_raw(path: &str) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
-/// The cache's grammar-change fingerprint: `.json`/`.fwdata` hash their `Snapshot`; `.xml` (no `Snapshot` exists) hashes its own raw bytes.
-fn grammar_hash_for(path: &str) -> Result<String, String> {
-    let ext = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    match ext {
-        "json" => {
-            let json = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-            let snapshot = pg_snapshot::Snapshot::from_json(&json)
-                .map_err(|e| format!("parse snapshot {path}: {e}"))?;
-            Ok(snapshot.grammar_hash())
-        }
-        "fwdata" => {
-            let (snapshot, _report) = pg_fwdata::import_file(std::path::Path::new(path))
-                .map_err(|e| format!("import {path}: {e}"))?;
-            Ok(snapshot.grammar_hash())
-        }
-        _ => {
-            let bytes = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
-            Ok(sha256_hex(&bytes))
-        }
-    }
-}
-
 pub(crate) fn resolve_cache_path(
     project_path: &str,
     cache_override: Option<&str>,
@@ -629,6 +604,7 @@ fn syntactic_gate_key(
 pub(crate) struct BatchStatsCache {
     cache: Option<pg_stats::StatsCache>,
     buffer: Option<pg_stats::cache::StatsRunBuffer>,
+    replay: Option<BatchStatsReplay>,
     run: pg_stats::RunMetadata,
     last_run_id: Option<i64>,
     analyzed: usize,
@@ -653,6 +629,59 @@ enum BatchStatsCacheMode {
     },
 }
 
+type ReplayResult = Result<(pg_stats::StatsCache, i64), String>;
+
+struct BatchStatsReplay {
+    sender: Option<std::sync::mpsc::SyncSender<pg_stats::cache::StatsRunBuffer>>,
+    worker: Option<std::thread::JoinHandle<ReplayResult>>,
+}
+
+impl BatchStatsReplay {
+    fn start(cache: pg_stats::StatsCache, run: pg_stats::RunMetadata) -> Result<Self, String> {
+        let (sender, receiver) =
+            std::sync::mpsc::sync_channel::<pg_stats::cache::StatsRunBuffer>(0);
+        let worker = std::thread::Builder::new()
+            .name("stats-replay".into())
+            .spawn(move || {
+                let mut cache = cache;
+                let mut last_run_id = None;
+                for buffer in receiver {
+                    let (next_cache, run_id) =
+                        buffer.flush(cache, &run).map_err(|e| e.to_string())?;
+                    cache = next_cache;
+                    last_run_id = Some(run_id);
+                }
+                Ok((
+                    cache,
+                    last_run_id.ok_or("stats replay did not create a run")?,
+                ))
+            })
+            .map_err(|e| format!("start stats replay: {e}"))?;
+        Ok(Self {
+            sender: Some(sender),
+            worker: Some(worker),
+        })
+    }
+
+    fn join(&mut self) -> ReplayResult {
+        drop(self.sender.take());
+        self.worker
+            .take()
+            .expect("stats replay joined once")
+            .join()
+            .map_err(|_| "stats replay thread panicked".to_string())?
+    }
+}
+
+impl Drop for BatchStatsReplay {
+    fn drop(&mut self) {
+        if self.worker.is_some() {
+            // Complete the most recent handoff even if parsing or TSV output subsequently failed.
+            let _ = self.join();
+        }
+    }
+}
+
 impl BatchStatsCache {
     pub(crate) fn pack_on_finish(&mut self) {
         self.pack = true;
@@ -670,8 +699,16 @@ impl BatchStatsCache {
         if self.contains(&word.record.form) {
             return Ok(());
         }
+        let reusable = matches!(self.mode, BatchStatsCacheMode::Reusable { .. });
         self.buffer
-            .get_or_insert_with(pg_stats::cache::StatsRunBuffer::default)
+            .get_or_insert_with(|| {
+                if reusable {
+                    // One spool can be replaying while the next is filled, so split the 4 MiB cap.
+                    pg_stats::cache::StatsRunBuffer::with_capacity(2 * 1024 * 1024)
+                } else {
+                    pg_stats::cache::StatsRunBuffer::default()
+                }
+            })
             .write_word(&word.record)
             .map_err(|e| e.to_string())?;
         self.analyzed += 1;
@@ -693,21 +730,47 @@ impl BatchStatsCache {
     }
 
     fn commit_run(&mut self) -> Result<(), String> {
-        if let Some(buffer) = self.buffer.take() {
+        let Some(buffer) = self.buffer.take() else {
+            return Ok(());
+        };
+        if matches!(self.mode, BatchStatsCacheMode::Frozen { .. }) {
             let (cache, run_id) = buffer
                 .flush(self.cache.take().expect("idle stats cache"), &self.run)
                 .map_err(|e| e.to_string())?;
             self.cache = Some(cache);
             self.last_run_id = Some(run_id);
+            return Ok(());
+        }
+        if self.replay.is_none() {
+            self.replay = Some(BatchStatsReplay::start(
+                self.cache.take().expect("idle stats cache"),
+                self.run.clone(),
+            )?);
+        }
+        let replay = self.replay.as_mut().expect("stats replay started");
+        if replay
+            .sender
+            .as_ref()
+            .expect("stats replay sender")
+            .send(buffer)
+            .is_err()
+        {
+            replay.join()?;
+            return Err("stats replay stopped accepting runs".into());
         }
         Ok(())
     }
 
     fn finish_writing(&mut self) -> Result<i64, String> {
-        if self.buffer.is_none() && self.last_run_id.is_none() {
+        if self.buffer.is_none() && self.replay.is_none() && self.last_run_id.is_none() {
             self.buffer = Some(pg_stats::cache::StatsRunBuffer::default());
         }
         self.commit_run()?;
+        if let Some(mut replay) = self.replay.take() {
+            let (cache, run_id) = replay.join()?;
+            self.cache = Some(cache);
+            self.last_run_id = Some(run_id);
+        }
         let elapsed = Duration::from_nanos(self.elapsed_ns.min(u128::from(u64::MAX)) as u64);
         println!(
             "stats: analyzed={} skipped={} summed_word_ms={:.3}",
@@ -723,6 +786,7 @@ impl BatchStatsCache {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_batch_stats_hc(
     grammar_path: &str,
+    grammar_hash: &str,
     words: &[String],
     work_cap: WorkCap,
     word_mem_cap: Option<usize>,
@@ -734,6 +798,7 @@ pub(crate) fn prepare_batch_stats_hc(
 ) -> Result<BatchStatsCache, String> {
     prepare_batch_stats_hc_inner(
         grammar_path,
+        grammar_hash,
         words,
         work_cap,
         word_mem_cap,
@@ -741,7 +806,6 @@ pub(crate) fn prepare_batch_stats_hc(
         guess,
         always_enforce_final_templates,
         cache_override,
-        None,
         false,
         compact,
     )
@@ -762,6 +826,7 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
 ) -> Result<BatchStatsCache, String> {
     prepare_batch_stats_hc_inner(
         grammar_path,
+        grammar_hash,
         words,
         work_cap,
         word_mem_cap,
@@ -769,7 +834,6 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
         guess,
         always_enforce_final_templates,
         Some(cache_path),
-        Some(grammar_hash),
         true,
         compact,
     )
@@ -778,6 +842,7 @@ pub(crate) fn prepare_frozen_batch_stats_hc(
 #[allow(clippy::too_many_arguments)]
 fn prepare_batch_stats_hc_inner(
     grammar_path: &str,
+    grammar_hash: &str,
     words: &[String],
     work_cap: WorkCap,
     word_mem_cap: Option<usize>,
@@ -785,7 +850,6 @@ fn prepare_batch_stats_hc_inner(
     guess: bool,
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
-    grammar_hash_override: Option<&str>,
     frozen: bool,
     compact: bool,
 ) -> Result<BatchStatsCache, String> {
@@ -798,10 +862,6 @@ fn prepare_batch_stats_hc_inner(
             );
         }
     }
-    let grammar_hash = match grammar_hash_override {
-        Some(hash) => hash.to_string(),
-        None => grammar_hash_for(grammar_path)?,
-    };
     let cache_path = resolve_cache_path(grammar_path, cache_override)?;
     if frozen {
         refuse_nonempty_frozen_cache(&cache_path)?;
@@ -811,7 +871,7 @@ fn prepare_batch_stats_hc_inner(
     } else {
         pg_stats::StatsCache::open
     };
-    let outcome = open(&cache_path, &grammar_hash).map_err(|e| e.to_string())?;
+    let outcome = open(&cache_path, grammar_hash).map_err(|e| e.to_string())?;
     if frozen && outcome.wiped {
         return Err(format!(
             "stats manifest requires an initially empty cache: {}",
@@ -865,13 +925,14 @@ fn prepare_batch_stats_hc_inner(
     Ok(BatchStatsCache {
         cache: Some(outcome.cache),
         buffer: None,
-        run: stats_run_metadata(grammar_path, &grammar_hash, &options)?,
+        replay: None,
+        run: stats_run_metadata(grammar_path, grammar_hash, &options)?,
         last_run_id: None,
         analyzed: 0,
         elapsed_ns: 0,
         prune_totals: pg_rules::stats::PruneCounters::default(),
         observations: Vec::new(),
-        grammar_hash,
+        grammar_hash: grammar_hash.to_string(),
         existing_words: existing,
         skipped,
         options,
@@ -1158,8 +1219,10 @@ pub(crate) fn run_batch_stats_hc(
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
 ) -> Result<pg_rules::stats::PruneCounters, String> {
+    let xml = std::fs::read(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
     let mut prepared = prepare_batch_stats_hc(
         grammar_path,
+        &sha256_hex(&xml),
         words,
         work_cap,
         Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
