@@ -138,6 +138,7 @@ fn default_writer_remains_byte_identical_with_fixed_elapsed() {
                     guess,
                     work_columns: false,
                     cost_column: false,
+                    trace_rejections: false,
                 },
                 &outcome,
             ),

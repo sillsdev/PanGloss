@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- HC rejection diagnostics match GUID selectors against ordinary parse results and retain bounded lineage for terminal decisions and deduplication. The [v1 format](docs/formats/rejection-trace-v1.md) covers split morphs, merged senses, interrupted searches, independent capture limits, and the unavailable cost marker in traced batches (part of sillsdev/motif#277).
+
 ## 0.25.0
 
 Released 2026-11-18.

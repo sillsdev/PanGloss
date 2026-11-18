@@ -72,6 +72,9 @@ pub struct MorphRecord {
     pub allomorph: AllomorphId,
     pub morpheme: MorphemeId,
     pub order: u32,
+    /// Diagnostic application identity within the word. The primary root is zero, and
+    /// separate positioned runs of one application keep the same identity.
+    pub observation_occurrence: u16,
     /// The same-rule allomorph indices that successfully
     /// applied *before* this one within the same `SynthesisAffixProcessRule.Apply` loop — C#'s
     /// per-morphID `Word._disjunctiveAllomorphIndices` entry (`appliedAllomorphIndices`,
@@ -215,6 +218,7 @@ impl MorphRecord {
             allomorph,
             morpheme,
             order,
+            observation_occurrence: 0,
             passed_over: None,
             status: MorphStatus::Real,
             runtime_root: None,
@@ -689,11 +693,28 @@ impl Word {
     ///   root applied to the identical shape) instead of re-running the lexicon, so this stays a pure
     ///   `Word` method with no grammar handle.
     pub fn expand_alternatives(&self) -> Vec<Word> {
+        self.expand_alternatives_impl(None)
+    }
+
+    pub fn expand_alternatives_observed(
+        &self,
+        recorder: &dyn crate::observations::Recorder,
+    ) -> Vec<Word> {
+        self.expand_alternatives_impl(Some(recorder))
+    }
+
+    fn expand_alternatives_impl(
+        &self,
+        recorder: Option<&dyn crate::observations::Recorder>,
+    ) -> Vec<Word> {
         if !pg_fst::work::consume() {
             return Vec::new();
         }
         let mut out: Vec<Word> = Vec::new();
-        let originals: Option<Vec<Word>> = self.source.as_ref().map(|s| s.expand_alternatives());
+        let originals: Option<Vec<Word>> = self
+            .source
+            .as_ref()
+            .map(|s| s.expand_alternatives_impl(recorder));
         match &originals {
             // The general case: the source fanned out to >= 2 originals, so this word's delta must be replayed onto each of them.
             Some(o) if o.len() >= 2 => {
@@ -742,6 +763,9 @@ impl Word {
                         alt.set_root_runtime_id(self.root_runtime_id().map(str::to_owned));
                         // The guessed-root payload rides along with root_allomorph: both change together at the exact same site, never observable in isolation.
                     }
+                    if let Some(recorder) = recorder {
+                        alt.trace = recorder.advance(original.trace);
+                    }
                     out.push(alt);
                 }
             }
@@ -750,7 +774,7 @@ impl Word {
         }
         // Local alternatives (cs:530-531): every word folded into this one by the merge expands too.
         for alt in self.alternatives.iter() {
-            out.extend(alt.word(self).expand_alternatives());
+            out.extend(alt.word(self).expand_alternatives_impl(recorder));
             if pg_fst::work::stopped() {
                 return Vec::new();
             }

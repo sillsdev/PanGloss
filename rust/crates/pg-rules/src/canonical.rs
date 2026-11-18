@@ -70,6 +70,13 @@ impl Canonicals {
         }
     }
 
+    pub(crate) fn trace_at(&self, at: usize) -> Option<crate::trace::TraceHandle> {
+        match &self.words[at] {
+            Stored::Delta(delta) => delta.fields.trace(&self.bases[delta.base as usize]),
+            Stored::Whole(w) => w.trace,
+        }
+    }
+
     /// The key fields of the word at `at`, read in place.
     pub(crate) fn key_fields(&self, at: usize) -> KeyFields<'_> {
         match &self.words[at] {
@@ -188,6 +195,24 @@ impl Canonicals {
 
     /// Adds the words of `other`, the set of one analysis, whose key this set does not hold, in `other`'s order; the first word wins a key. With `merge_phonological_rules`, a word whose key is held adds its applied phonological rules to the held word's.
     pub fn absorb(&mut self, other: Canonicals, merge_phonological_rules: bool) {
+        self.absorb_impl(other, merge_phonological_rules, None);
+    }
+
+    pub fn absorb_observed(
+        &mut self,
+        other: Canonicals,
+        merge_phonological_rules: bool,
+        recorder: &dyn crate::observations::Recorder,
+    ) {
+        self.absorb_impl(other, merge_phonological_rules, Some(recorder));
+    }
+
+    fn absorb_impl(
+        &mut self,
+        other: Canonicals,
+        merge_phonological_rules: bool,
+        recorder: Option<&dyn crate::observations::Recorder>,
+    ) {
         let Canonicals {
             bases,
             words,
@@ -211,6 +236,9 @@ impl Canonicals {
             let key = WordKey::of(&fields);
             match self.position(&key) {
                 Some(at) => {
+                    if let Some(recorder) = recorder {
+                        recorder.merged(&self.to_word(&stored), self.trace_at(at), true);
+                    }
                     if merge_phonological_rules {
                         let rules = fields.rest.applied_phonological_rules().to_vec();
                         self.merge_phonological_rules(at, &rules);

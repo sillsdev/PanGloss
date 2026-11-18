@@ -10,6 +10,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod evidence;
+mod lineage;
+mod target;
 use evidence::{Identity, Recorder};
 
 pub(crate) const ERROR_PREFIX: &str = "PANGLOSS_DIAGNOSTIC_ERROR ";
@@ -19,6 +21,7 @@ const DEFAULT_DEPTH: usize = 32;
 const DEFAULT_EVENTS: usize = 128;
 const DEFAULT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PATHS: usize = 64;
+const MAX_DEPTH: usize = 256;
 const MAX_EVENTS: usize = 4096;
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const ROW_CONTROL_BYTES: usize = 3072;
@@ -38,7 +41,12 @@ pub(crate) const FLAGS: &[crate::surface::FlagSpec] = &[
     crate::surface::FlagSpec {
         name: "--trace-max-paths",
         takes_value: true,
-        summary: "maximum retained local witnesses per row (default 16)",
+        summary: "maximum retained witnesses per row (default 16)",
+    },
+    crate::surface::FlagSpec {
+        name: "--trace-max-depth",
+        takes_value: true,
+        summary: "maximum retained lineage edges per witness (default 32)",
     },
     crate::surface::FlagSpec {
         name: "--trace-max-events",
@@ -57,17 +65,18 @@ pub(crate) fn describe() -> Value {
         "schemaVersion": SCHEMA_VERSION,
         "operations": ["parse", "batch"],
         "engine": "hc",
-        "modes": ["observations"],
+        "modes": ["lineage"],
         "prefilter": ["off"],
-        "selectors": [],
-        "maxFeaturePathDepth": 0,
-        "projections": ["parse_outputs", "authored_morphs"],
+        "selectors": ["authored_morphs", "structural_zero", "syntactic_features"],
+        "batchCostColumn": "unavailable_when_tracing",
+        "maxFeaturePathDepth": target::MAX_FEATURE_DEPTH,
+        "projections": ["parse_outputs", "authored_morphs", "syntactic_features"],
         "eventTuples": evidence::TUPLES,
         "options": FLAGS.iter().map(|flag| flag.name).collect::<Vec<_>>(),
         "unsupportedCombinations": ["legacy_trace", "fst", "prefilter", "stats", "cache", "stats_manifest"],
         "limits": {
             "maxPaths": {"min": 1, "default": DEFAULT_PATHS, "max": MAX_PATHS},
-            "maxDepth": {"min": 1, "default": DEFAULT_DEPTH, "max": 256, "supported": false},
+            "maxDepth": {"min": 1, "default": DEFAULT_DEPTH, "max": MAX_DEPTH, "supported": true},
             "maxEvents": {"min": 1, "default": DEFAULT_EVENTS, "max": MAX_EVENTS},
             "maxBytes": {"min": 1024, "default": DEFAULT_BYTES, "max": MAX_BYTES},
             "rowControlBytes": ROW_CONTROL_BYTES,
@@ -249,7 +258,6 @@ impl MorphSelector {
 
 impl FeatureSelector {
     fn valid(&self) -> bool {
-        let _domain = &self.domain;
         let _relation = &self.relation;
         let distinct = self.value_guids.iter().collect::<BTreeSet<_>>();
         !self.feature_path_guids.is_empty()
@@ -269,6 +277,7 @@ pub(crate) struct Options<'a> {
     request_path: Option<PathBuf>,
     request: Request,
     paths: usize,
+    depth: usize,
     events: usize,
     bytes: usize,
 }
@@ -326,12 +335,6 @@ pub(crate) fn with_options<T>(
                 "trace options require --trace-rejections <file>",
             )
         })?;
-    if flags.contains_key("--trace-max-depth") {
-        return Err(error(
-            "unsupported",
-            "--trace-max-depth requires lineage coverage",
-        ));
-    }
     let cap = |flag: &str, default, min, max| {
         flags.get(flag).map_or(Ok(default), |value| {
             value
@@ -391,6 +394,7 @@ pub(crate) fn with_options<T>(
             request_path,
             request,
             paths: cap("--trace-max-paths", DEFAULT_PATHS, 1, MAX_PATHS)?,
+            depth: cap("--trace-max-depth", DEFAULT_DEPTH, 1, MAX_DEPTH)?,
             events: cap("--trace-max-events", DEFAULT_EVENTS, 1, MAX_EVENTS)?,
             bytes: cap("--trace-max-bytes", DEFAULT_BYTES, 1024, MAX_BYTES)?,
         }),
@@ -519,6 +523,7 @@ pub(crate) struct Run<'a> {
     identity: Identity<'a>,
     targets: BTreeMap<usize, RowRequest>,
     paths: usize,
+    depth: usize,
     events: usize,
     bytes: usize,
     start: usize,
@@ -533,6 +538,7 @@ pub(crate) struct Run<'a> {
 pub(crate) struct Row {
     ordinal: usize,
     evidence: Vec<u8>,
+    target: Value,
     status: Status,
     stops: Vec<&'static str>,
     work: usize,
@@ -567,6 +573,7 @@ struct Tally {
     bytes: usize,
     paths_cut: bool,
     events_cut: bool,
+    depth_cut: bool,
     bytes_cut: bool,
     omitted_paths: usize,
     omitted_events: usize,
@@ -579,6 +586,7 @@ impl Tally {
         self.bytes += other.bytes;
         self.paths_cut |= other.paths_cut;
         self.events_cut |= other.events_cut;
+        self.depth_cut |= other.depth_cut;
         self.bytes_cut |= other.bytes_cut;
         self.omitted_paths = self.omitted_paths.saturating_add(other.omitted_paths);
         self.omitted_events = self.omitted_events.saturating_add(other.omitted_events);
@@ -590,6 +598,7 @@ impl Tally {
         let count = |value| json!({"value": value, "accuracy": "exact"});
         let truncated: Vec<_> = [
             (self.paths_cut, "paths"),
+            (self.depth_cut, "depth"),
             (self.events_cut, "events"),
             (self.bytes_cut, "bytes"),
         ]
@@ -677,6 +686,7 @@ impl<'a> Run<'a> {
                 .map(|row| (row.row, row))
                 .collect(),
             paths: options.paths,
+            depth: options.depth,
             events: options.events,
             bytes: options.bytes,
             start,
@@ -689,11 +699,11 @@ impl<'a> Run<'a> {
         };
         let header = json!({
             "type": "header", "schemaVersion": SCHEMA_VERSION, "operation": "parse",
-            "mode": "observations", "engine": "hc",
+            "mode": "lineage", "engine": "hc",
             "parserVersion": env!("CARGO_PKG_VERSION"), "parserBuild": env!("PANGLOSS_BUILD_REVISION"),
             "grammar": {"hash": hash, "semantics": semantics, "sourceKind": source_kind},
             "searchOptions": search.json(),
-            "captureLimits": {"maxPaths": run.paths, "maxDepth": null, "maxEvents": run.events, "maxBytes": run.bytes},
+            "captureLimits": {"maxPaths": run.paths, "maxDepth": run.depth, "maxEvents": run.events, "maxBytes": run.bytes},
             "scope": {
                 "startRow": start, "sourceRowCount": scope.row_count, "requestedRowCount": row_count,
                 "passId": options.request.pass_id, "inputSha256": crate::stats_manifest::sha256_hex(scope.source.as_bytes()),
@@ -735,12 +745,18 @@ impl<'a> Run<'a> {
         // Reserve deterministic, disjoint portions of the invocation budget in input order.
         let allowance =
             self.bytes / self.row_count + usize::from(relative < self.bytes % self.row_count);
-        let mut recorder =
-            Recorder::new(&self.identity, ordinal, self.paths, self.events, allowance);
-        let request_id = self
-            .targets
-            .get(&ordinal)
-            .and_then(|row| row.request_id.as_deref());
+        let request = self.targets.get(&ordinal);
+        let request_id = request.and_then(|row| row.request_id.as_deref());
+        let selector = request.and_then(|row| row.selector.as_ref());
+        let mut recorder = Recorder::new(
+            &self.identity,
+            ordinal,
+            self.paths,
+            self.depth,
+            self.events,
+            allowance,
+            selector,
+        );
         recorder.input(word, request_id);
         let (outcome, work_limited) = morpher.parse_word_observed(word, opts, &recorder);
         let evidence = recorder.complete(&outcome, work_limited);
@@ -760,15 +776,8 @@ impl<'a> Run<'a> {
             .write_all(&row.evidence)
             .map_err(io_error)?;
         let request = self.targets.get(&row.ordinal);
-        let target = if request.is_some_and(|r| r.selector.is_some()) {
-            json!({"status": "unknown", "membership": "unknown", "coverage": "not_assessed",
-                "limitations": ["selector_unassessed"], "error": {"code": "unsupported_selector"}})
-        } else {
-            json!({"status": "not_requested", "membership": "not_requested", "coverage": "not_assessed",
-                "limitations": [], "error": null})
-        };
         let mut capture = row.tally.json();
-        capture["coverage"] = json!("observations");
+        capture["coverage"] = json!("lineage");
         let complete = json!({
             "type": "word_end", "row": row.ordinal,
             "requestId": request.and_then(|r| r.request_id.as_deref()),
@@ -777,7 +786,7 @@ impl<'a> Run<'a> {
                 "outputCount": row.outputs, "outputCensus": if matches!(row.status, Status::Stopped) {"partial"} else {"complete"},
                 "error": null
             },
-            "capture": capture, "target": target
+            "capture": capture, "target": row.target
         });
         self.write_control(complete, ROW_CONTROL_BYTES)?;
         self.processed_rows += 1;
@@ -819,7 +828,7 @@ impl<'a> Run<'a> {
         let mut summary = format!(
             "rejection trace: {} complete, {} stopped, {} invalid, {} refused; capture truncated={}",
             self.statuses[0], self.statuses[1], self.statuses[2], self.statuses[3],
-            self.totals.paths_cut || self.totals.events_cut || self.totals.bytes_cut,
+            self.totals.paths_cut || self.totals.depth_cut || self.totals.events_cut || self.totals.bytes_cut,
         );
         for (reason, count) in reasons {
             let entry = format!(" {reason}={count}");
@@ -861,7 +870,7 @@ mod tests {
         ] {
             capture[key] = json!({"value": wide, "accuracy": "lowerBound"});
         }
-        capture["coverage"] = json!("observations");
+        capture["coverage"] = json!("lineage");
         capture["truncatedBy"] = json!(["paths", "depth", "events", "bytes"]);
         let word_end = json!({
             "type": "word_end", "row": wide, "requestId": request_id,
@@ -884,7 +893,7 @@ mod tests {
         let digest = "a".repeat(64);
         let header = json!({
             "type": "header", "schemaVersion": SCHEMA_VERSION, "operation": "generate",
-            "mode": "observations", "engine": "hc", "parserVersion": "\"".repeat(128),
+            "mode": "lineage", "engine": "hc", "parserVersion": "\"".repeat(128),
             "parserBuild": "\"".repeat(128),
             "grammar": {"hash": digest, "semantics": "snapshot-semantic-sha256-v1", "sourceKind": "snapshot"},
             "searchOptions": {"guessRoots": false, "alwaysEnforceFinalTemplates": false, "prefilter": "auto",

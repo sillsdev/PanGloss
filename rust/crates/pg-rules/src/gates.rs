@@ -1,6 +1,9 @@
 //! Feature-gate observations keep admission in the predicate owner and aggregate by compact IDs.
 
+use crate::observations::{Decision, MprGateOwner, Recorder};
 use crate::stats::{ObjectKind, StatsCollector};
+use crate::trace::FailureReason;
+use crate::word::Word;
 use pg_grammar_model::model::{Grammar, MprSet};
 
 /// Identity of a declared predicate, including polarity and the comparison mechanism.
@@ -48,14 +51,54 @@ pub(crate) fn mpr_reason(
     have: &MprSet,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
 ) -> Option<crate::trace::FailureReason> {
-    use crate::trace::FailureReason;
-    if !mpr_check(g, required, have, false, owner) {
+    mpr_reason_with(|is_excluded| {
+        let test = if is_excluded { excluded } else { required };
+        mpr_check(g, test, have, is_excluded, owner)
+    })
+}
+
+fn mpr_reason_with(mut check: impl FnMut(bool) -> bool) -> Option<FailureReason> {
+    if !check(false) {
         Some(FailureReason::RequiredMprFeatures)
-    } else if !mpr_check(g, excluded, have, true, owner) {
+    } else if !check(true) {
         Some(FailureReason::ExcludedMprFeatures)
     } else {
         None
     }
+}
+
+/// Use the same short-circuit order, with the failed bucket reported at its evaluator.
+pub(crate) fn mpr_reason_recorded(
+    g: &Grammar,
+    required: &MprSet,
+    excluded: &MprSet,
+    word: &Word,
+    stats_owner: Option<(&StatsCollector, ObjectKind, u32)>,
+    recorder: &dyn Recorder,
+    owner: MprGateOwner,
+) -> Option<FailureReason> {
+    mpr_reason_with(|is_excluded| {
+        let tested = if is_excluded { excluded } else { required };
+        mpr_check_observed(
+            g,
+            tested,
+            &word.mpr,
+            is_excluded,
+            stats_owner,
+            |group, bucket| {
+                recorder.record_at(
+                    word,
+                    Decision::MprGate {
+                        owner,
+                        tested: bucket,
+                        actual: &word.mpr,
+                        excluded: is_excluded,
+                        group,
+                    },
+                );
+            },
+        )
+    })
 }
 
 /// Evaluate the owning MPR predicate and observe its evaluated buckets, including lookup replay.
@@ -66,26 +109,43 @@ pub fn mpr_check(
     excluded: bool,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
 ) -> bool {
-    let Some((stats, kind, object)) = owner else {
+    if owner.is_none() {
         return if excluded {
             pg_grammar_model::model::mpr_excluded_ok(&g.mpr_groups, test, have)
         } else {
             pg_grammar_model::model::mpr_required_ok(&g.mpr_groups, test, have)
         };
-    };
-    pg_grammar_model::model::mpr_match_observed(
+    }
+    mpr_check_observed(g, test, have, excluded, owner, |_, _| {})
+}
+
+/// Observe the failing bucket, if any, at the same short-circuit used for admission.
+pub fn mpr_check_observed(
+    g: &Grammar,
+    test: &MprSet,
+    have: &MprSet,
+    excluded: bool,
+    owner: Option<(&StatsCollector, ObjectKind, u32)>,
+    mut observe: impl FnMut(Option<usize>, &MprSet),
+) -> bool {
+    pg_grammar_model::model::mpr_match_grouped_observed(
         &g.mpr_groups,
         test,
         have,
         excluded,
-        |bucket, blocked| {
-            for id in bucket.iter() {
-                stats.record_gate(
-                    kind,
-                    object,
-                    GateFeature::Mpr(id.0, excluded),
-                    !blocked.contains(id),
-                );
+        |group, bucket, blocked| {
+            if let Some((stats, kind, object)) = owner {
+                for id in bucket.iter() {
+                    stats.record_gate(
+                        kind,
+                        object,
+                        GateFeature::Mpr(id.0, excluded),
+                        !blocked.contains(id),
+                    );
+                }
+            }
+            if !blocked.is_empty() {
+                observe(group, &bucket);
             }
         },
     )

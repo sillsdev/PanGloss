@@ -516,7 +516,7 @@ fn print_usage_and_fail() -> ExitCode {
          --cost-column (`batch`) appends `work_steps`, then each word's fixed-weight parse cost, as the last fields; off by\n\
          default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
          ok in both, reports the rest, and says inconclusive when a status changed. Use the total;\n\
-         per-word costs repeat exactly only with --threads 1 (docs/design/parse-cost.md).\n\
+         per-word costs repeat exactly only with --threads 1 (docs/design/parse-cost.md). With --trace-rejections the cost is `-`.\n\
          --prefilter on (`batch`, needs the foma-tools build feature) is a verification and measurement mode: it skips the\n\
          warm-up, calibration, budget and minimum batch length, runs every stage that is valid for the grammar on every\n\
          word (a stage that is not valid is off with its reason, as under auto), pays the whole construction whatever the\n\
@@ -1291,8 +1291,12 @@ struct BatchRowTail {
     guessed: Option<bool>,
     /// `Some(work_steps)` only when `--work-columns` was passed.
     work_steps: Option<usize>,
-    /// `Some(cost)` only when `--cost-column` was passed.
-    cost: Option<u64>,
+    cost: Option<BatchCost>,
+}
+
+enum BatchCost {
+    Measured(u64),
+    TraceInstrumented,
 }
 
 impl BatchRowTail {
@@ -1307,10 +1311,16 @@ impl BatchRowTail {
             guessed: flags.guess.then_some(outcome.guessed),
             work_steps: (flags.work_columns || flags.cost_column).then_some(outcome.work_steps),
             cost: flags.cost_column.then(|| {
-                outcome
-                    .cost
-                    .expect("--cost-column turned cost measurement on before parsing")
-                    .cost()
+                if flags.trace_rejections {
+                    BatchCost::TraceInstrumented
+                } else {
+                    BatchCost::Measured(
+                        outcome
+                            .cost
+                            .expect("--cost-column turned cost measurement on before parsing")
+                            .cost(),
+                    )
+                }
             }),
         }
     }
@@ -1324,6 +1334,7 @@ struct BatchRowFlags {
     guess: bool,
     work_columns: bool,
     cost_column: bool,
+    trace_rejections: bool,
 }
 
 /// Writes one `idx word elapsed_ms status signature [guessed] [work_steps] [cost]` row; see `docs/formats/batch-tsv.md`.
@@ -1349,8 +1360,10 @@ fn write_batch_row<W: Write>(
     if let Some(work_steps) = tail.work_steps {
         write!(w, "\t{work_steps}")?;
     }
-    if let Some(cost) = tail.cost {
-        write!(w, "\t{cost}")?;
+    match tail.cost {
+        Some(BatchCost::Measured(cost)) => write!(w, "\t{cost}")?,
+        Some(BatchCost::TraceInstrumented) => write!(w, "\t-")?,
+        None => {}
     }
     writeln!(w)
 }
@@ -1797,7 +1810,9 @@ fn run_batch_impl(
         return Err("--partials requires --prefilter off: prefilter rejection skips the parser's diagnostic gates".into());
     }
     // The gate prices parses in full parser work, so `--prefilter auto` and `on` meter the batch with or without the column.
-    if cost_column || prefilter_mode != batch_prefilter::PrefilterMode::Off {
+    if (cost_column && diagnostic.is_none())
+        || prefilter_mode != batch_prefilter::PrefilterMode::Off
+    {
         pg_cost::enable().map_err(|e| match prefilter_mode {
             batch_prefilter::PrefilterMode::Off => e.to_string(),
             mode if !cost_column => format!("--prefilter {} cannot run: {e}", mode.name()),
@@ -2009,6 +2024,7 @@ fn run_batch_impl(
         guess: guess_arg == Some(true),
         work_columns,
         cost_column,
+        trace_rejections: diagnostic_run.is_some(),
     };
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.

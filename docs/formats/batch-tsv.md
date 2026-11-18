@@ -36,7 +36,7 @@ idx  word  elapsed_ms  status  signature  [guessed]  [partials]  [completion]  [
 | `partials` | JSON array of up to K rejection summaries; present only with `--partials=K` (1..3). See below |
 | `completion` | JSON object present only with `--engine=hc\|fst`: `engine`, `capped`, `timedOut`, `captureCapped`, `wordMemCapped`, `invalidShape`. Every flag is a boolean. Follows partials and precedes work/cost columns |
 | `work_steps` | present only with `--work-columns`. The word's work: the total of work steps it reserved, across analysis, the inner matchers and confirmation. `--work-cap` bounds the analysis; confirmation may spend one sixteenth of the cap more (none under a cap of 16), so `work_steps` never exceeds the cap plus one sixteenth |
-| `cost` | present only with `--cost-column`, which also writes `work_steps` before it. The word's fixed-weight parse cost; see `docs/design/parse-cost.md`. Refused together with `--stats` |
+| `cost` | present only with `--cost-column`, which also writes `work_steps` before it. The word's fixed-weight parse cost, or `-` with `--trace-rejections` because diagnostic capture changes the measured allocation. See `docs/design/parse-cost.md`. Refused together with `--stats` |
 
 When present, `cost` is always the last field, `work_steps` comes just before it, and every
 other column keeps its default index, including `guessed` at index 5. With `--work-columns` alone a row

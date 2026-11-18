@@ -958,19 +958,19 @@ fn mpr_group_buckets<'a>(
     test: &'a MprSet,
 ) -> (
     MprSet,
-    impl Iterator<Item = (MprGroupMatchType, MprSet)> + 'a,
+    impl Iterator<Item = (usize, MprGroupMatchType, MprSet)> + 'a,
 ) {
     let ungrouped = groups.iter().fold(test.clone(), |remaining, group| {
         remaining.difference(&group.members)
     });
     let mut owned = MprSet::EMPTY;
-    let buckets = groups.iter().filter_map(move |group| {
+    let buckets = groups.iter().enumerate().filter_map(move |(index, group)| {
         let bucket = test.intersection(&group.members).difference(&owned);
         if bucket.is_empty() {
             None
         } else {
             owned = owned.union(&bucket);
-            Some((group.match_type, bucket))
+            Some((index, group.match_type, bucket))
         }
     });
     (ungrouped, buckets)
@@ -983,14 +983,26 @@ fn mpr_group_buckets<'a>(
 /// distinct group actually referenced) is ANDed together, matching C#'s `foreach` loop returning
 /// `false` on the first failing group.
 pub fn mpr_required_ok(groups: &[MprGroup], required: &MprSet, have: &MprSet) -> bool {
-    mpr_match(groups, required, have, false, None::<fn(MprSet, MprSet)>)
+    mpr_match(
+        groups,
+        required,
+        have,
+        false,
+        None::<fn(Option<usize>, MprSet, MprSet)>,
+    )
 }
 
 /// C# `MprFeatureSet.IsMatchExcluded` (`MprFeatureSet.cs:72-96`): the dual of
 /// `mpr_required_ok` — ungrouped features and `All`-type group members must ALL be absent; an
 /// `Any`-type group only needs one member absent (fails only when every member is present).
 pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: &MprSet, have: &MprSet) -> bool {
-    mpr_match(groups, excluded, have, true, None::<fn(MprSet, MprSet)>)
+    mpr_match(
+        groups,
+        excluded,
+        have,
+        true,
+        None::<fn(Option<usize>, MprSet, MprSet)>,
+    )
 }
 
 /// Observe only evaluated buckets. For an All bucket, `blocked` contains the failing members;
@@ -1000,7 +1012,20 @@ pub fn mpr_match_observed(
     test: &MprSet,
     have: &MprSet,
     excluded: bool,
-    observe: impl FnMut(MprSet, MprSet),
+    mut observe: impl FnMut(MprSet, MprSet),
+) -> bool {
+    mpr_match_grouped_observed(groups, test, have, excluded, |_, bucket, blocked| {
+        observe(bucket, blocked);
+    })
+}
+
+/// Report each evaluated bucket with the index of its owning group, or `None` for ungrouped features.
+pub fn mpr_match_grouped_observed(
+    groups: &[MprGroup],
+    test: &MprSet,
+    have: &MprSet,
+    excluded: bool,
+    observe: impl FnMut(Option<usize>, MprSet, MprSet),
 ) -> bool {
     mpr_match(groups, test, have, excluded, Some(observe))
 }
@@ -1010,13 +1035,13 @@ fn mpr_match(
     test: &MprSet,
     have: &MprSet,
     excluded: bool,
-    mut observe: Option<impl FnMut(MprSet, MprSet)>,
+    mut observe: Option<impl FnMut(Option<usize>, MprSet, MprSet)>,
 ) -> bool {
     if test.is_empty() {
         return true;
     }
     let (ungrouped, mut buckets) = mpr_group_buckets(groups, test);
-    let mut evaluate = |mt, bucket: MprSet| {
+    let mut evaluate = |group, mt, bucket: MprSet| {
         let passed = match (mt, excluded) {
             (MprGroupMatchType::All, false) => bucket.is_subset_of(have),
             (MprGroupMatchType::All, true) => !bucket.overlaps(have),
@@ -1033,14 +1058,14 @@ fn mpr_match(
                     (MprGroupMatchType::Any, _) => bucket.clone(),
                 }
             };
-            observe(bucket, blocked);
+            observe(group, bucket, blocked);
         }
         passed
     };
-    if !evaluate(MprGroupMatchType::All, ungrouped) {
+    if !evaluate(None, MprGroupMatchType::All, ungrouped) {
         return false;
     }
-    buckets.all(|(mt, bucket)| evaluate(mt, bucket))
+    buckets.all(|(index, mt, bucket)| evaluate(Some(index), mt, bucket))
 }
 
 /// C# `MprFeatureSet.AddOutput` (`MprFeatureSet.cs:29-44`): group-aware MPR output accumulation.

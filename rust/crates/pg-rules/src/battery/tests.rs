@@ -185,7 +185,7 @@ fn a_battery_set_keeps_what_a_word_set_keeps_in_the_same_order() {
     let mut battery = BatterySet::new(&input);
     let mut words = WordSet::default();
     for w in &arrivals {
-        battery.insert(w);
+        battery.insert(w, None);
         words.insert(w.clone());
     }
     assert_eq!(battery.len(), words.len());

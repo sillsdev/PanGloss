@@ -29,6 +29,7 @@ use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeFlags, NodeKind, Shape, ShapeB
 use crate::bridge::{
     pattern_var_occurrences, AgreementNode, PatternBridge, StrRepMatcher, VarOccur, UNCONSTRAINED,
 };
+use crate::observations::{Decision, MprGateOwner, Recorder};
 use crate::stats::PRuleStatsCtx;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::Word;
@@ -1588,7 +1589,7 @@ pub fn subrule_applicable(
     syn_fs: &FeatureStruct,
     mpr: &MprSet,
 ) -> bool {
-    subrule_gate_reason(g, sr, syn_fs, mpr, None).is_none()
+    subrule_gate_reason(g, sr, syn_fs, mpr, None, None).is_none()
 }
 
 /// The POS half of `subrule_applicable`: vacuously satisfied unless both sides are present, in which case they must share at least one symbol; the mask argument is unused on that arm, hence the `0`.
@@ -1669,6 +1670,12 @@ fn prepare_synthesis_subrule(
     }
 }
 
+struct RewriteGateObserver<'a> {
+    recorder: &'a dyn Recorder,
+    rule: PRuleId,
+    word: &'a Word,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn synthesize_sites(
     g: &Grammar,
@@ -1681,11 +1688,13 @@ fn synthesize_sites(
     mpr: &MprSet,
     probe: bool,
     stats: Option<PRuleStatsCtx>,
+    observation: Option<&RewriteGateObserver<'_>>,
 ) -> Vec<SubruleOutcome> {
     let mut outcomes = Vec::with_capacity(rule.subrules.len());
     let mut eligible = Vec::new();
     for (index, sr) in rule.subrules.iter().enumerate() {
-        let reason = subrule_gate_reason(g, sr, syn_fs, mpr, stats);
+        let reason =
+            subrule_gate_reason(g, sr, syn_fs, mpr, stats, observation.map(|o| (o, index)));
         outcomes.push(SubruleOutcome::NotApplied(
             reason.unwrap_or(FailureReason::Pattern),
         ));
@@ -2071,6 +2080,7 @@ pub fn synthesize_with_mpr(
         mpr,
         false,
         None,
+        None,
     );
     shape_for_outcomes(&ms, &outcomes)
 }
@@ -2115,6 +2125,7 @@ pub(crate) fn synthesize_with_mpr_cached_stats(
         mpr,
         false,
         stats,
+        None,
     );
     shape_for_outcomes(&ms, &outcomes)
 }
@@ -2135,6 +2146,7 @@ fn subrule_gate_reason(
     syn_fs: &FeatureStruct,
     mpr: &MprSet,
     stats: Option<PRuleStatsCtx>,
+    observation: Option<(&RewriteGateObserver<'_>, usize)>,
 ) -> Option<FailureReason> {
     let pos_ok = required_pos_ok(g, &sr.required_pos, syn_fs);
     if let (Some(ctx), Some(pos)) = (stats, sr.required_pos) {
@@ -2148,13 +2160,23 @@ fn subrule_gate_reason(
     if !pos_ok {
         return Some(FailureReason::RequiredSyntacticFeatureStruct);
     }
-    crate::gates::mpr_reason(
-        g,
-        &sr.required_mpr,
-        &sr.excluded_mpr,
-        mpr,
-        stats.map(|ctx| (ctx.stats, crate::stats::ObjectKind::PhonRule, ctx.id.0)),
-    )
+    let stats_owner = stats.map(|ctx| (ctx.stats, crate::stats::ObjectKind::PhonRule, ctx.id.0));
+    if let Some((observation, subrule)) = observation {
+        crate::gates::mpr_reason_recorded(
+            g,
+            &sr.required_mpr,
+            &sr.excluded_mpr,
+            observation.word,
+            stats_owner,
+            observation.recorder,
+            MprGateOwner::RewriteSubrule {
+                rule: observation.rule,
+                subrule,
+            },
+        )
+    } else {
+        crate::gates::mpr_reason(g, &sr.required_mpr, &sr.excluded_mpr, mpr, stats_owner)
+    }
 }
 
 /// Fires trace events for every subrule in index order, stopping at the first applied one, passing the SAME final-state `out_word` snapshot to every call — a verified C# quirk: even a failed subrule reports the rule's end state, not the state when it was tried.
@@ -2216,6 +2238,7 @@ pub fn synthesize_with_mpr_traced(
         mpr,
         false,
         None,
+        None,
     );
     let result = shape_for_outcomes(&ms, &outcomes);
     let mut out_word = Word::new(
@@ -2257,7 +2280,8 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
     parent: TraceHandle,
     stats: Option<PRuleStatsCtx>,
 ) -> Vec<Shape> {
-    if !trace.is_tracing() {
+    let mode = trace.mode();
+    if matches!(mode, crate::trace::TraceMode::Off) {
         return synthesize_with_mpr_cached_stats(
             g,
             pid,
@@ -2273,6 +2297,11 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::for_rewrite(g, table, &input.shape);
     let pc = cache.prule_rewrite(pid);
+    let observation = mode.recorder().map(|recorder| RewriteGateObserver {
+        recorder,
+        rule: pid,
+        word: input,
+    });
     let outcomes = synthesize_sites(
         g,
         table,
@@ -2284,8 +2313,24 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
         &input.mpr,
         false,
         stats,
+        observation.as_ref(),
     );
     let result = shape_for_outcomes(&ms, &outcomes);
+    if let Some(observation) = observation {
+        if result.is_empty()
+            && pg_fst::work::active_budget()
+                .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+        {
+            observation.recorder.record_at(
+                input,
+                Decision::RewriteNoOutput {
+                    rule: pid,
+                    analysis: false,
+                },
+            );
+        }
+        return result;
+    }
     let mut out_word = input.clone();
     out_word.shape = result
         .first()
@@ -3806,6 +3851,7 @@ pub(crate) fn probe_apply_rule_cached(
         syn_fs,
         mpr,
         true,
+        None,
         None,
     );
     if outcomes

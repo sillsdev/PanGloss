@@ -36,9 +36,10 @@ use pg_grammar_model::model::{
 use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge, StrRepMatcher};
+use crate::observations::{Decision, MprGateOwner, Recorder};
 use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
 use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvocationRole};
-use crate::trace::{FailureReason, TraceHandle, TraceSink};
+use crate::trace::{FailureReason, TraceHandle, TraceMode, TraceSink};
 use crate::word::{MorphGroup, MorphLayout, MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -354,6 +355,30 @@ fn mpr_gate_reason(
     )
 }
 
+fn mpr_gate_reason_traced(
+    g: &Grammar,
+    required: &pg_grammar_model::model::MprSet,
+    excluded: &pg_grammar_model::model::MprSet,
+    word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+    mode: TraceMode<'_>,
+    owner: MprGateOwner,
+) -> Option<FailureReason> {
+    if let Some(recorder) = mode.recorder() {
+        crate::gates::mpr_reason_recorded(
+            g,
+            required,
+            excluded,
+            word,
+            mstats.map(|c| (c.stats, ObjectKind::MorphRule, c.id.0)),
+            recorder,
+            owner,
+        )
+    } else {
+        mpr_gate_reason(g, required, excluded, &word.mpr, mstats)
+    }
+}
+
 fn capture_mpr_failure(
     trace: &dyn TraceSink,
     event: TraceHandle,
@@ -428,7 +453,7 @@ pub(crate) fn analyze_cached(
         MorphRuleDef::AffixProcess(def) => {
             with_mrule_stats!(
                 mstats,
-                ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+                ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies, None)
             )
         }
         MorphRuleDef::Compounding(def) => {
@@ -465,7 +490,7 @@ pub(crate) fn analyze_cached_with_root_filter(
         MorphRuleDef::AffixProcess(def) => {
             with_mrule_stats!(
                 mstats,
-                ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+                ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies, None)
             )
         }
         MorphRuleDef::Compounding(def) => {
@@ -539,7 +564,22 @@ pub(crate) fn analyze_cached_traced(
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    if !trace.is_tracing() {
+    let mode = trace.mode();
+    if let (Some(recorder), MorphRuleDef::AffixProcess(def)) = (mode.recorder(), rule) {
+        return with_mrule_stats!(
+            mstats,
+            ana_affix_cached(
+                g,
+                word,
+                def,
+                cache,
+                mstats,
+                prune_disagreeing_copies,
+                Some(recorder)
+            )
+        );
+    }
+    if !mode.is_tree() {
         return analyze_cached(g, mrid, word, rule, cache, mstats, prune_disagreeing_copies);
     }
     match rule {
@@ -715,6 +755,7 @@ fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
                 &node_of,
                 &new_syn,
                 prune_disagreeing_copies,
+                None,
             )
         };
         for mut w in matches {
@@ -1399,6 +1440,7 @@ struct SourceMorphs<'a> {
     head_source: bool,
     first_fallback: bool,
     transfer_descendants: bool,
+    occurrence_offset: u16,
 }
 
 fn append_source_groups(
@@ -1428,6 +1470,9 @@ fn append_source_groups(
             for (run_index, &(start, len)) in runs.iter().enumerate() {
                 let mut record = input.clone();
                 record.order = start;
+                record.observation_occurrence = record
+                    .observation_occurrence
+                    .saturating_add(source.occurrence_offset);
                 record.status = MorphStatus::Real;
                 let children = if run_index == primary && source.transfer_descendants {
                     transfer_children(source.word, group, start)
@@ -1481,6 +1526,16 @@ fn attribute_morphs(
     let mut pending = Vec::new();
     let mut output_owners = vec![None; out.len()];
 
+    let next_occurrence = if head.trace.is_some_and(TraceHandle::is_observation) {
+        head.morphs
+            .iter()
+            .map(|record| record.observation_occurrence)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+    } else {
+        0
+    };
     let affix_positions: Vec<u32> = out
         .iter()
         .enumerate()
@@ -1502,6 +1557,7 @@ fn attribute_morphs(
                     allomorph,
                     morpheme,
                     order: start,
+                    observation_occurrence: next_occurrence,
                     passed_over: Some(passed.into()),
                     status: MorphStatus::Real,
                     runtime_root: None,
@@ -1527,6 +1583,7 @@ fn attribute_morphs(
             head_source: true,
             first_fallback: affix.is_some() && affix_primary.is_none(),
             transfer_descendants: affix.is_some(),
+            occurrence_offset: 0,
         },
         affix_primary,
         &mut pending,
@@ -1541,6 +1598,7 @@ fn attribute_morphs(
                 head_source: false,
                 first_fallback: false,
                 transfer_descendants: false,
+                occurrence_offset: next_occurrence,
             },
             None,
             &mut pending,
@@ -1558,6 +1616,7 @@ fn attribute_morphs(
                     allomorph,
                     morpheme,
                     order,
+                    observation_occurrence: next_occurrence,
                     passed_over: Some(passed.into()),
                     status: MorphStatus::Floating,
                     runtime_root: None,
@@ -2021,6 +2080,7 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mode = trace.mode();
     let mstats = if COLLECT_STATS { mstats } else { None };
     macro_rules! not_applied {
         ($reason:expr) => {{
@@ -2030,8 +2090,28 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
                     crate::partials::RejectingObject::Rule(mrid),
                 );
             }
-            if trace.is_tracing() {
-                trace.morphological_rule_not_applied(parent, mrid, -1, word, $reason);
+            let reason = $reason;
+            match mode {
+                TraceMode::Tree => {
+                    trace.morphological_rule_not_applied(parent, mrid, -1, word, reason);
+                }
+                TraceMode::Observe(recorder) => {
+                    let after_final = match reason {
+                        FailureReason::NonPartialRuleProhibitedAfterFinalTemplate => Some(true),
+                        FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate => Some(false),
+                        _ => None,
+                    };
+                    if let Some(after_final) = after_final {
+                        recorder.record_at(
+                            word,
+                            Decision::FinalTemplatePolicy {
+                                rule: mrid,
+                                after_final,
+                            },
+                        );
+                    }
+                }
+                TraceMode::Off => {}
             }
             record_mrule_none_residual(mstats, word.shape.len() as u64);
             return Vec::new();
@@ -2087,16 +2167,22 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) =
-            mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats)
-        {
+        if let Some(reason) = mpr_gate_reason_traced(
+            g,
+            &allo.required_mpr,
+            &allo.excluded_mpr,
+            word,
+            mstats,
+            mode,
+            MprGateOwner::Allomorph(allo.id),
+        ) {
             if word.collect_partials() {
                 crate::partials::record(
                     crate::partials::FailureKind::AffixGate,
                     crate::partials::RejectingObject::Allomorph(allo.id),
                 );
             }
-            if trace.is_tracing() {
+            if mode.is_tree() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 capture_mpr_failure(
@@ -2141,12 +2227,12 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
         match matched {
             Some(mut w) => {
                 if recorded.is_none_or(|id| id == allo.id) {
-                    if trace.is_tracing() {
+                    if mode.is_tree() {
                         w.trace =
                             Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
                     }
                     output.push(w);
-                } else if trace.is_tracing() {
+                } else if mode.is_tree() {
                     trace.morphological_rule_not_applied(
                         parent,
                         mrid,
@@ -2169,7 +2255,7 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
                 }
             }
             None => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     trace.morphological_rule_not_applied(
                         parent,
                         mrid,
@@ -2177,6 +2263,19 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
                         word,
                         FailureReason::Pattern,
                     );
+                } else if let Some(recorder) = mode.recorder() {
+                    if pg_fst::work::active_budget()
+                        .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+                    {
+                        recorder.record_at(
+                            word,
+                            Decision::MorphPatternNoMatch {
+                                allomorph: allo.id,
+                                table,
+                                analysis: false,
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -2307,9 +2406,10 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
+    let mode = trace.mode();
     let mstats = if COLLECT_STATS { mstats } else { None };
     if word.applied_realizational_rules().contains(&rule.morpheme) {
-        if trace.is_tracing() {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
@@ -2353,7 +2453,7 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
     let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word);
     record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
     let Some(new_syn) = new_syn else {
-        if trace.is_tracing() {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
@@ -2381,16 +2481,22 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) =
-            mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats)
-        {
+        if let Some(reason) = mpr_gate_reason_traced(
+            g,
+            &allo.required_mpr,
+            &allo.excluded_mpr,
+            word,
+            mstats,
+            mode,
+            MprGateOwner::Allomorph(allo.id),
+        ) {
             if word.collect_partials() {
                 crate::partials::record(
                     crate::partials::FailureKind::AffixGate,
                     crate::partials::RejectingObject::Rule(mrid),
                 );
             }
-            if trace.is_tracing() {
+            if mode.is_tree() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 capture_mpr_failure(
@@ -2435,7 +2541,7 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
         match matched {
             Some(mut w) => {
                 w.applied_realizational_rules_mut().push(rule.morpheme);
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
                 }
                 output.push(w);
@@ -2452,7 +2558,7 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
                 }
             }
             None => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     trace.morphological_rule_not_applied(
                         parent,
                         mrid,
@@ -2460,6 +2566,19 @@ fn synth_realizational_cached<const COLLECT_STATS: bool>(
                         word,
                         FailureReason::Pattern,
                     );
+                } else if let Some(recorder) = mode.recorder() {
+                    if pg_fst::work::active_budget()
+                        .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+                    {
+                        recorder.record_at(
+                            word,
+                            Decision::MorphPatternNoMatch {
+                                allomorph: allo.id,
+                                table,
+                                analysis: false,
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -3172,6 +3291,7 @@ fn ana_affix<const COLLECT_STATS: bool>(
             &node_of,
             &new_syn,
             prune_disagreeing_copies,
+            None,
         ));
         let n = (output.len() - before) as u64;
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -3188,6 +3308,7 @@ fn ana_affix_cached<const COLLECT_STATS: bool>(
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
+    recorder: Option<&dyn Recorder>,
 ) -> Vec<Word> {
     let mstats = if COLLECT_STATS { mstats } else { None };
     let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
@@ -3210,6 +3331,16 @@ fn ana_affix_cached<const COLLECT_STATS: bool>(
         };
         if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
             record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
+            if let Some(recorder) = recorder {
+                recorder.record_at(
+                    word,
+                    Decision::MorphPatternNoMatch {
+                        allomorph: allo.id,
+                        table,
+                        analysis: true,
+                    },
+                );
+            }
             continue;
         }
         let before = output.len();
@@ -3226,6 +3357,7 @@ fn ana_affix_cached<const COLLECT_STATS: bool>(
             &node_of,
             &new_syn,
             prune_disagreeing_copies,
+            recorder,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
@@ -3446,6 +3578,7 @@ fn ana_allomorph_matches(
     node_of: &[usize],
     carry: impl Fn(&mut Word),
     prune_disagreeing_copies: bool,
+    recorder: Option<&dyn Recorder>,
 ) -> Vec<Word> {
     // Named once, and only for an allomorph that matches at all: most never do.
     let mut parts: Option<Vec<(String, &Pattern)>> = None;
@@ -3464,6 +3597,21 @@ fn ana_allomorph_matches(
         transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
     }
     let matches = transduce.all_matches();
+    if let Some(recorder) = recorder {
+        if matches.is_empty()
+            && pg_fst::work::active_budget()
+                .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+        {
+            recorder.record_at(
+                word,
+                Decision::MorphPatternNoMatch {
+                    allomorph: allo.id,
+                    table,
+                    analysis: true,
+                },
+            );
+        }
+    }
     for result in matches {
         if !pg_fst::work::consume() {
             return Vec::new();
@@ -3511,6 +3659,7 @@ fn ana_affix_allomorph(
     node_of: &[usize],
     new_syn: &FeatureStruct,
     prune_disagreeing_copies: bool,
+    recorder: Option<&dyn Recorder>,
 ) -> Vec<Word> {
     ana_allomorph_matches(
         g,
@@ -3526,6 +3675,7 @@ fn ana_affix_allomorph(
             w.analysis_allomorph = Some(allo.id);
         },
         prune_disagreeing_copies,
+        recorder,
     )
 }
 
@@ -3672,6 +3822,7 @@ fn ana_realizational_allomorph(
         node_of,
         |w| w.real_fs = real_fs.clone(),
         prune_disagreeing_copies,
+        None,
     )
 }
 
@@ -3874,6 +4025,7 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mode = trace.mode();
     let mstats = if COLLECT_STATS { mstats } else { None };
     let Some(nh) = word.current_non_head().cloned() else {
         if word.collect_partials() {
@@ -3886,7 +4038,7 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
         return Vec::new();
     };
     if !observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &nh.syn_fs) {
-        if trace.is_tracing() {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
@@ -3907,7 +4059,7 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
     let new_syn = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word);
     record_syn_gate(g, mstats, rule.head_required_syn_fs, new_syn.is_some());
     let Some(new_syn) = new_syn else {
-        if trace.is_tracing() {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
@@ -3926,13 +4078,21 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
         return Vec::new();
     };
     if final_template_prohibits(ordinary_invocation(role), word, false, policy) {
-        if trace.is_tracing() {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
                 -1,
                 word,
                 FailureReason::NonPartialRuleProhibitedAfterFinalTemplate,
+            );
+        } else if let Some(recorder) = mode.recorder() {
+            recorder.record_at(
+                word,
+                Decision::FinalTemplatePolicy {
+                    rule: mrid,
+                    after_final: true,
+                },
             );
         }
         if word.collect_partials() {
@@ -3945,7 +4105,7 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
         return Vec::new();
     }
     if !compound_gate(mstats, &rule.head_prod_restrictions_mpr, &word.mpr) {
-        if trace.is_tracing() {
+        if mode.is_tree() {
             let event = trace.compounding_rule_not_applied(
                 parent,
                 mrid,
@@ -3981,16 +4141,25 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) =
-            mpr_gate_reason(g, &sr.required_mpr, &sr.excluded_mpr, &word.mpr, mstats)
-        {
+        if let Some(reason) = mpr_gate_reason_traced(
+            g,
+            &sr.required_mpr,
+            &sr.excluded_mpr,
+            word,
+            mstats,
+            mode,
+            MprGateOwner::CompoundSubrule {
+                rule: mrid,
+                subrule: i,
+            },
+        ) {
             if word.collect_partials() {
                 crate::partials::record(
                     crate::partials::FailureKind::AffixGate,
                     crate::partials::RejectingObject::Rule(mrid),
                 );
             }
-            if trace.is_tracing() {
+            if mode.is_tree() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 capture_mpr_failure(
@@ -4038,14 +4207,14 @@ fn synth_compound_cached<const COLLECT_STATS: bool>(
         );
         match matched {
             Ok(mut w) => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
                 }
                 output.push(w);
                 break;
             }
             Err(reason) => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 }
             }

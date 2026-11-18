@@ -127,6 +127,7 @@ pub(crate) fn run(args: Args<'_>) -> Result<(), String> {
         guess: false,
         work_columns: false,
         cost_column: false,
+        trace_rejections: false,
     };
     let parse_started = Instant::now();
     if args.phase_marks {

@@ -1033,6 +1033,9 @@ impl<'g> Morpher<'g> {
             input.trace = Some(h);
             h
         } else {
+            if let Some(recorder) = recorder {
+                input.trace = recorder.advance(None);
+            }
             TraceHandle::DUMMY
         };
 
@@ -1141,7 +1144,11 @@ impl<'g> Morpher<'g> {
                     continue;
                 }
                 // With stats, a word another candidate already gave adds its applied phonological rules to the held word's.
-                outputs.absorb(res.words, stats.is_some());
+                if let Some(recorder) = recorder {
+                    outputs.absorb_observed(res.words, stats.is_some(), recorder);
+                } else {
+                    outputs.absorb(res.words, stats.is_some());
+                }
             }
             if outputs.is_empty() {
                 break;
@@ -1233,7 +1240,10 @@ impl<'g> Morpher<'g> {
                         break;
                     }
                     // Recovers the shape-equivalent candidates `merge_equivalent` folded away; skipping this loses real analyses whenever merging is on (the default).
-                    let expanded = syn_word.expand_alternatives();
+                    let expanded = recorder.map_or_else(
+                        || syn_word.expand_alternatives(),
+                        |recorder| syn_word.expand_alternatives_observed(recorder),
+                    );
                     alt_yield::record_expansion(expanded.len());
                     for alt in expanded {
                         if opts.partials != 0 {
@@ -1253,6 +1263,9 @@ impl<'g> Morpher<'g> {
                                 .as_ref()
                                 .is_some_and(|replay| !replay.is_feasible(g, &alt, stats, recorder))
                         {
+                            if let Some(recorder) = recorder {
+                                recorder.unobserved_terminal(&alt);
+                            }
                             continue;
                         }
                         for vw in self.synthesis_pipeline_selected_with_policy(
@@ -1291,7 +1304,7 @@ impl<'g> Morpher<'g> {
                                 }
                             }
                             aw_matched = true;
-                            insert_candidate(&mut matches, vw, stats.is_some());
+                            insert_candidate(&mut matches, vw, stats.is_some(), recorder);
                         }
                     }
                 }
@@ -1350,7 +1363,10 @@ impl<'g> Morpher<'g> {
                         ) {
                             break;
                         }
-                        let expanded = synthesis_word.expand_alternatives();
+                        let expanded = recorder.map_or_else(
+                            || synthesis_word.expand_alternatives(),
+                            |recorder| synthesis_word.expand_alternatives_observed(recorder),
+                        );
                         alt_yield::record_expansion(expanded.len());
                         for alt in expanded {
                             if opts.partials != 0 {
@@ -1410,8 +1426,12 @@ impl<'g> Morpher<'g> {
         // Both `analyses` and `structured` follow `ordered_matches`: deterministic first-seen order (C# `HashSet<Word>` semantics at MaxDegreeOfParallelism 1; its parallel path has no defined order), or descending morph count for guesses (#64).
         let mut analyses: Vec<(String, String)> = Vec::with_capacity(ordered_matches.len());
         let mut structured: Vec<WordAnalysis> = Vec::with_capacity(ordered_matches.len());
-        for w in &ordered_matches {
-            analyses.push((self.morpheme_join(w), self.surface_of(w)));
+        for (output, w) in ordered_matches.iter().enumerate() {
+            let analysis = (self.morpheme_join(w), self.surface_of(w));
+            if let Some(recorder) = recorder {
+                recorder.accepted(w, output, &analysis.1);
+            }
+            analyses.push(analysis);
             structured.push(self.structured_analysis(w, guessed));
         }
 
@@ -1541,7 +1561,15 @@ impl<'g> Morpher<'g> {
                     let synthesis = trace.synthesize_word(node_parent, &trace_word);
                     trace.failed(synthesis, &trace_word, FailureReason::LexicalLookupFeatures);
                 } else if let Some(recorder) = recorder {
-                    recorder.record(Decision::LookupFeatures { entry: le });
+                    recorder.record_at(
+                        aw,
+                        Decision::LookupFeatures {
+                            entry: le,
+                            candidate: allo.id,
+                            required: g.fs_interner.get(entry.syn_fs),
+                            actual: &aw.syn_fs,
+                        },
+                    );
                 }
                 continue;
             }
@@ -1553,6 +1581,9 @@ impl<'g> Morpher<'g> {
             let mut nw = aw.clone_without_alternatives();
             nw.source = Some(Rc::new(aw.clone()));
             self.set_root_allomorph(&mut nw, le, allo.id, &allo.shape.text);
+            if let Some(recorder) = recorder {
+                nw.trace = recorder.advance(aw.trace);
+            }
             out.push(nw);
         }
         for root in matched {
@@ -1611,16 +1642,19 @@ impl<'g> Morpher<'g> {
         }
         if let Some(recorder) = recorder {
             if !budget.search_stopped() {
-                recorder.record(Decision::LookupCompleted {
-                    stratum: aw.stratum,
-                    materialized: out.len(),
-                    root: if out.len() == 1 {
-                        out[0].root_allomorph
-                    } else {
-                        None
+                recorder.record_at(
+                    aw,
+                    Decision::LookupCompleted {
+                        stratum: aw.stratum,
+                        materialized: out.len(),
+                        root: if out.len() == 1 {
+                            out[0].root_allomorph
+                        } else {
+                            None
+                        },
+                        no_matches,
                     },
-                    no_matches,
-                });
+                );
             }
         }
         out
@@ -1834,6 +1868,7 @@ impl<'g> Morpher<'g> {
         let n = g.strata.len();
         let mut cur: WordSet = WordSet::default();
         cur.insert(syn_word);
+        let recorder = trace.mode().recorder();
         for s in 0..n {
             if cur.is_empty() {
                 break; // PipelineRuleCascade stops once the working set empties (cs:20).
@@ -1871,7 +1906,11 @@ impl<'g> Morpher<'g> {
                     if work_budget.is_some_and(|budget| !budget.admit_candidate()) {
                         return Vec::new();
                     }
-                    next.insert(o);
+                    if let Some(recorder) = recorder {
+                        insert_candidate(&mut next, o, false, Some(recorder));
+                    } else {
+                        next.insert(o);
+                    }
                 }
             }
             cur = next;
@@ -1916,10 +1955,13 @@ impl<'g> Morpher<'g> {
                     trace.failed(parent, w, FailureReason::PartialParse);
                 }
             } else if let Some(recorder) = trace_mode.recorder() {
-                recorder.record(Decision::RemainingAnalyzedRules {
-                    stratum: w.stratum,
-                    remaining: w.mrule_app_index as usize + 1,
-                });
+                recorder.record_at(
+                    w,
+                    Decision::RemainingAnalyzedRules {
+                        stratum: w.stratum,
+                        remaining: w.mrule_app_index as usize + 1,
+                    },
+                );
             }
             return false;
         }
@@ -1931,7 +1973,9 @@ impl<'g> Morpher<'g> {
                         pg_rules::partials::RejectingObject::Stratum(w.stratum),
                     );
                 }
-                if trace.is_tracing() {
+                if let Some(recorder) = trace.mode().recorder() {
+                    recorder.unobserved_terminal(w);
+                } else if trace.is_tracing() {
                     let event = trace.failed(parent, w, FailureReason::ObligatorySyntacticFeatures);
                     if trace.captures_failure_context() {
                         trace.set_failure_context(
@@ -2006,15 +2050,21 @@ impl<'g> Morpher<'g> {
                 }
             }
         } else if !ok {
-            if let Some(recorder) = trace_mode.recorder() {
-                recorder.record(Decision::SurfaceMismatch {
-                    table: g.strata[n - 1].table,
-                    requested: word,
-                    morphs: &w.morphs,
-                    built: &|limit| {
-                        surface::to_regex_display_bounded(surface_table, &w.shape, limit)
+            if let Some(recorder) = trace_mode.recorder().filter(|_| {
+                pg_fst::work::active_budget()
+                    .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+            }) {
+                recorder.record_terminal(
+                    w,
+                    Decision::SurfaceMismatch {
+                        table: g.strata[n - 1].table,
+                        requested: word,
+                        morphs: &w.morphs,
+                        built: &|limit| {
+                            surface::to_regex_display_bounded(surface_table, &w.shape, limit)
+                        },
                     },
-                });
+                );
             }
         }
         ok
@@ -2867,8 +2917,23 @@ impl<'g> Morpher<'g> {
     }
 }
 
-fn insert_candidate(candidates: &mut WordSet, candidate: Word, collect_stats: bool) {
+fn insert_candidate(
+    candidates: &mut WordSet,
+    candidate: Word,
+    collect_stats: bool,
+    recorder: Option<&dyn pg_rules::observations::Recorder>,
+) {
     let key = candidate.dedup_key();
+    if let Some(recorder) = recorder {
+        let Some(at) = candidates.position(&key) else {
+            candidates.insert_with(key, || candidate);
+            return;
+        };
+        recorder.merged(&candidate, candidates.get(at).trace, false);
+        if !collect_stats {
+            return;
+        }
+    }
     let Some(at) = candidates.position(&key).filter(|_| collect_stats) else {
         candidates.insert_with(key, || candidate);
         return;
