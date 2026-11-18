@@ -5,6 +5,7 @@
 
   Checks, each named in the summary with its duration, or SKIPPED with the reason:
     clippy        `pg.ps1 -Mode check` (rustfmt, comment hygiene, CI's clippy). Always.
+    source-guards the complete pg-cli source_guards Cargo target, also discovered by CI. Always.
     stats-manifest real CLI import/batch/facts round trips and stats replay. Always.
     tool-tests    every rust/tools/tests/*.tests.ps1, in parallel, as CI's Windows job runs them.
                   Always; overlaps the cargo checks below.
@@ -281,6 +282,14 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $check = Invoke-PrelandPg -PgArgs @('-Mode', 'check')
 Add-Result 'clippy' $(if ($check.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "pg.ps1 -Mode check exit $($check.ExitCode)" (Get-SlotWaitSeconds $check.Lines)
 $compiles = ($check.ExitCode -eq 0)
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if ($compiles) {
+    $guards = Invoke-PrelandPg -PgArgs @('-Mode', 'test', '-Package', 'pg-cli', '-TestTarget', 'source_guards')
+    Add-Result 'source-guards' $(if ($guards.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "CI source and dependency guards exit $($guards.ExitCode)" (Get-SlotWaitSeconds $guards.Lines)
+} else {
+    Add-Result 'source-guards' 'FAIL' 0 'not attempted: clippy failed'
+}
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
 if ($compiles) {

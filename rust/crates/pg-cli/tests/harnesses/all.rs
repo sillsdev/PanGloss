@@ -1,8 +1,6 @@
 // Included test files share support modules (`mod common;`), so each is loaded once per includer.
 #![allow(clippy::duplicate_mod)]
 
-#[path = "../agent_docs_resolve_gate.rs"]
-mod agent_docs_resolve_gate;
 #[path = "../analyze_text_cli.rs"]
 mod analyze_text_cli;
 #[path = "../authored_generate_request.rs"]
@@ -19,10 +17,6 @@ mod cost_cli;
 mod cost_measurement;
 #[path = "../developer_flags_contract.rs"]
 mod developer_flags_contract;
-#[path = "../divergence_catalogue_gate.rs"]
-mod divergence_catalogue_gate;
-#[path = "../fixture_pins_never_self_skip.rs"]
-mod fixture_pins_never_self_skip;
 #[cfg(feature = "foma-tools")]
 #[path = "../four_grammar_recipe_evidence.rs"]
 mod four_grammar_recipe_evidence;
@@ -46,14 +40,9 @@ mod inferred_segment_engine_parity_gate;
 mod recipe_optimize_continuation;
 #[path = "../serve_protocol.rs"]
 mod serve_protocol;
-#[path = "../skills_never_instruct_bare_cargo.rs"]
-mod skills_never_instruct_bare_cargo;
 #[cfg(target_os = "linux")]
 #[path = "../stats_memory.rs"]
 mod stats_memory;
-
-#[path = "../default_dependency_closure.rs"]
-mod default_dependency_closure;
 
 #[path = "../underdefined_measurement_integrity_gate.rs"]
 mod underdefined_measurement_integrity_gate;
