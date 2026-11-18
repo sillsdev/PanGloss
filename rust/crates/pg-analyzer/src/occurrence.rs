@@ -4,9 +4,10 @@ use crate::alternatives::{generate, part_span};
 use crate::dictionary::{DictionaryPack, Verdict};
 use crate::text::{
     CheckStatus, EvidenceKind, LanguagePack, LimitReason, OccurrenceOutcome, OccurrenceResult,
-    PackCheck, Part, Reading, ReadingKind, Span,
+    PackCheck, Part, Reading, ReadingKind, Span, SplitSupport,
 };
 use pg_parse::{ParseOptions, ParseOutcome};
+use std::collections::BTreeMap;
 
 pub(crate) fn check_occurrence(
     packs: &[LanguagePack<'_>],
@@ -28,6 +29,7 @@ pub(crate) fn check_occurrence(
         kind: ReadingKind::Primary,
         analysed: checks.iter().any(|c| c.status == CheckStatus::Valid),
         parts: vec![part(occurrence.text.clone(), span.clone(), checks.clone())],
+        grammar_support: BTreeMap::new(),
     };
     let mut limits = Vec::new();
     let mut alternatives = Vec::new();
@@ -50,10 +52,36 @@ pub(crate) fn check_occurrence(
                 })
                 .collect::<Vec<_>>();
             let analysed = parts.iter().all(|p| !p.valid_languages.is_empty());
+            let grammar_support = if analysed {
+                packs
+                    .iter()
+                    .map(|pack| {
+                        let supported = parts
+                            .iter()
+                            .filter(|p| {
+                                p.checks.iter().any(|c| {
+                                    c.language == pack.language
+                                        && c.evidence_kind == EvidenceKind::LanguagePackAnalysis
+                                        && c.status == CheckStatus::Valid
+                                })
+                            })
+                            .count();
+                        let support = match supported {
+                            0 => SplitSupport::AllContact,
+                            n if n == parts.len() => SplitSupport::VernacularOnly,
+                            _ => SplitSupport::Mixed,
+                        };
+                        (pack.language.clone(), support)
+                    })
+                    .collect()
+            } else {
+                BTreeMap::new()
+            };
             alternatives.push(Reading {
                 kind: ReadingKind::Alternative,
                 parts,
                 analysed,
+                grammar_support,
             });
         }
         // Stable: generation order is kept inside each group.
@@ -63,6 +91,8 @@ pub(crate) fn check_occurrence(
     readings.extend(alternatives);
 
     let primary_analysed = readings[0].analysed;
+    let alternative_only_win = Reading::alternative_only_win(&readings);
+    let analysed = primary_analysed || alternative_only_win;
     let mut valid: Vec<(usize, &str)> = readings
         .iter()
         .filter(|r| r.analysed)
@@ -79,14 +109,18 @@ pub(crate) fn check_occurrence(
             valid_languages.push(language.to_owned());
         }
     }
-    // Primary-split rejections only; valid wins per language and an alternative-only win hides them.
+    // Apply Q6′ and prefer a joined grammar miss to a different language's spelling flag.
     let mut misspelled_languages: Vec<String> = Vec::new();
-    if primary_analysed || !readings.iter().any(|r| r.analysed) {
-        for check in readings[0].parts[0].checks.iter() {
+    if !alternative_only_win {
+        for check in &checks {
             let language = &check.language;
             if check.status == CheckStatus::Misspelled
                 && !valid_languages.contains(language)
                 && !misspelled_languages.contains(language)
+                && (primary_analysed
+                    || !checks.iter().any(|grammar| {
+                        grammar.is_completed_grammar_miss() && grammar.language != *language
+                    }))
             {
                 misspelled_languages.push(language.clone());
             }
@@ -101,7 +135,7 @@ pub(crate) fn check_occurrence(
             c.evidence_kind == EvidenceKind::LanguagePackAnalysis
                 && c.status == CheckStatus::Incomplete
         });
-    let outcome = if readings.iter().any(|r| r.analysed) {
+    let outcome = if analysed {
         OccurrenceOutcome::Valid
     } else if checks.is_empty() || checks.iter().any(|c| c.status == CheckStatus::Unattempted) {
         OccurrenceOutcome::Unattempted
@@ -193,6 +227,7 @@ fn unattempted(resource: usize, language: &str, evidence_kind: EvidenceKind) -> 
         analyses: 0,
         limits: Vec::new(),
         suggestions: Vec::new(),
+        suggestion_methods: Vec::new(),
         unattempted_reason: Some("occurrence_limit".into()),
     }
 }
@@ -205,18 +240,25 @@ fn dictionary_check(
     suggest: Option<usize>,
 ) -> PackCheck {
     use EvidenceKind::{DictionaryAcceptance as Spelling, WordListMembership as Listed};
-    let (evidence_kind, status, suggestions, limits) = match pack.check(word, suggest) {
+    let (evidence_kind, status, corrections, limits) = match pack.check(word, suggest) {
         Verdict::Accepted => (Spelling, CheckStatus::Valid, Vec::new(), Vec::new()),
         Verdict::Listed => (Listed, CheckStatus::Valid, Vec::new(), Vec::new()),
-        Verdict::Misspelled(s) => (Spelling, CheckStatus::Misspelled, s, Vec::new()),
+        Verdict::Rejected(corrections) => {
+            let status = if corrections.is_empty() {
+                CheckStatus::NoAnalysis
+            } else {
+                CheckStatus::Misspelled
+            };
+            (Spelling, status, corrections, Vec::new())
+        }
         Verdict::SuggestionsCapped => (
             Spelling,
             CheckStatus::Incomplete,
             Vec::new(),
             vec![LimitReason::SuggestionsCapped],
         ),
-        Verdict::Unknown => (Spelling, CheckStatus::NoAnalysis, Vec::new(), Vec::new()),
     };
+    let (suggestions, suggestion_methods) = corrections.into_iter().unzip();
     PackCheck {
         resource,
         language: pack.identity.language.clone(),
@@ -225,6 +267,7 @@ fn dictionary_check(
         analyses: 0,
         limits,
         suggestions,
+        suggestion_methods,
         unattempted_reason: None,
     }
 }
@@ -248,6 +291,7 @@ fn run_check(resource: usize, pack: &LanguagePack<'_>, word: &str) -> PackCheck 
         analyses,
         limits,
         suggestions: Vec::new(),
+        suggestion_methods: Vec::new(),
         unattempted_reason: None,
     }
 }

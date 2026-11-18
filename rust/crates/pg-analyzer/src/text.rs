@@ -8,10 +8,10 @@ use crate::statistics::{summarize, Statistics};
 use crate::{analyze, ProfileInput, SegmentationProfile, StyledRun};
 use pg_parse::Morpher;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Schema identifier written to every result.
-pub const SCHEMA: &str = "pangloss-text-analysis/v1";
+pub const SCHEMA: &str = "pangloss-text-analysis/v2";
 
 /// A loaded grammar and the identity its evidence is attributed to.
 pub struct LanguagePack<'a> {
@@ -74,6 +74,9 @@ pub struct ResourceIdentity {
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub licence: Option<String>,
+    /// Edit-distance bound for classifying suggestions, present for Dictionary packs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_edit_distance: Option<usize>,
 }
 
 /// Half-open source range in each explicit unit.
@@ -114,14 +117,26 @@ pub enum LimitReason {
 pub enum CheckStatus {
     /// The pack analysed the Wordform.
     Valid,
-    /// The search finished and found nothing.
+    /// The check completed without acceptance or a correction suggestion.
     NoAnalysis,
     /// The search did not finish and found nothing; this is not a failure.
     Incomplete,
     /// The check was never run.
     Unattempted,
-    /// A Dictionary pack rejected the Wordform and offered suggestions. Not valid.
+    /// A Dictionary pack rejected the Wordform and offered a correction suggestion.
     Misspelled,
+}
+
+/// How a Dictionary pack produced an individual correction suggestion.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionMethod {
+    /// Available without n-gram fallback and within the configured edit-distance bound.
+    EditDistance,
+    /// Available without n-gram fallback and beyond the configured edit-distance bound.
+    HunspellRule,
+    /// Available only with n-gram fallback enabled.
+    NgramFallback,
 }
 
 /// One pack's evidence about one Occurrence.
@@ -136,12 +151,22 @@ pub struct PackCheck {
     pub analyses: usize,
     /// Limits that stopped the search; a valid check can still carry them.
     pub limits: Vec<LimitReason>,
-    /// Correction suggestions behind a misspelled status. They never replace the text.
+    /// Correction suggestions from this pack in suggestion order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub suggestions: Vec<String>,
+    /// One method per suggestion, in the same order. Empty on older saved results.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggestion_methods: Vec<SuggestionMethod>,
     /// Why an unattempted check never ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unattempted_reason: Option<String>,
+}
+
+impl PackCheck {
+    pub(crate) fn is_completed_grammar_miss(&self) -> bool {
+        self.evidence_kind == EvidenceKind::LanguagePackAnalysis
+            && self.status == CheckStatus::NoAnalysis
+    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -149,9 +174,9 @@ pub struct PackCheck {
 pub enum OccurrenceOutcome {
     /// At least one pack analysed it.
     Valid,
-    /// No reading is analysed, and a Dictionary pack rejected the primary split with suggestions.
+    /// No reading is analysed and an eligible Dictionary pack supplied a correction suggestion.
     Misspelled,
-    /// Every check ran to completion and none analysed it.
+    /// Completed checks gave neither acceptance nor an eligible spelling flag.
     NoAnalysis,
     /// No pack analysed it and at least one search did not finish.
     Incomplete,
@@ -166,6 +191,15 @@ pub enum ReadingKind {
     Primary,
     /// A Segmentation alternative.
     Alternative,
+}
+
+/// How many parts of an analysed alternative are accepted by the named grammar.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SplitSupport {
+    VernacularOnly,
+    Mixed,
+    AllContact,
 }
 
 /// One part of a reading: a piece of the Occurrence and every pack's evidence about it.
@@ -185,6 +219,19 @@ pub struct Reading {
     pub parts: Vec<Part>,
     /// The primary reading when a pack analysed it; an alternative when every part is analysed.
     pub analysed: bool,
+    /// Present on analysed alternatives, keyed by the language code of each loaded grammar.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub grammar_support: BTreeMap<String, SplitSupport>,
+}
+
+impl Reading {
+    pub(crate) fn alternative_only_win(readings: &[Self]) -> bool {
+        readings
+            .split_first()
+            .is_some_and(|(primary, alternatives)| {
+                !primary.analysed && alternatives.iter().any(|r| r.analysed)
+            })
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -194,10 +241,10 @@ pub struct OccurrenceResult {
     pub outcome: OccurrenceOutcome,
     /// Language codes of the packs that analysed any analysed reading, in pack order.
     pub valid_languages: Vec<String>,
-    /// Dictionary languages that rejected the primary split with suggestions; never a valid one.
+    /// Languages with an eligible primary spelling flag after applying grammar and Q6′ rules.
     #[serde(default)]
     pub misspelled_languages: Vec<String>,
-    /// The primary reading's checks.
+    /// The actual per-pack checks on the joined Wordform, independently of the occurrence outcome.
     pub checks: Vec<PackCheck>,
     /// Primary first, then alternatives with every part analysed, then the rest.
     #[serde(default)]
@@ -300,6 +347,7 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         language: None,
         version: None,
         licence: None,
+        max_edit_distance: None,
     }];
     resources.extend(request.packs.iter().map(|p| ResourceIdentity {
         kind: ResourceKind::LanguagePack,
@@ -308,6 +356,7 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         language: Some(p.language.clone()),
         version: None,
         licence: None,
+        max_edit_distance: None,
     }));
     resources.extend(request.dictionaries.iter().map(|d| ResourceIdentity {
         kind: ResourceKind::DictionaryPack,
@@ -316,6 +365,7 @@ pub fn analyze_text(request: &TextRequest<'_>) -> Result<TextAnalysis, String> {
         language: Some(d.identity.language.clone()),
         version: Some(d.identity.version.clone()),
         licence: Some(d.identity.licence.clone()),
+        max_edit_distance: Some(d.max_edit_distance),
     }));
     let corpus = summarize(results.iter().flat_map(|t| t.occurrences.iter()));
     let detection = detect(

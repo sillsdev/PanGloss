@@ -1,6 +1,7 @@
 //! Dictionary packs: Hunspell evidence behind a PanGloss interface; no Spellbook type escapes.
 
 use crate::detect::NgramProfile;
+use crate::text::SuggestionMethod;
 use spellbook::Dictionary;
 use std::collections::BTreeSet;
 
@@ -20,6 +21,7 @@ pub struct DictionaryPack {
     hunspell: Dictionary,
     word_list: BTreeSet<String>,
     pub(crate) ngrams: NgramProfile,
+    pub(crate) max_edit_distance: usize,
 }
 
 /// What one pack says about one Wordform.
@@ -27,12 +29,10 @@ pub(crate) enum Verdict {
     Accepted,
     /// In the pack's word list; the Hunspell dictionary did not accept it.
     Listed,
-    /// Hunspell rejected it and offered corrections.
-    Misspelled(Vec<String>),
+    /// No acceptance, with any correction candidates and their methods.
+    Rejected(Vec<(String, SuggestionMethod)>),
     /// Rejected, and the suggestion search was not run because the word is over the bound.
     SuggestionsCapped,
-    /// Rejected without corrections: a miss alone, which is no misspelling.
-    Unknown,
 }
 
 impl DictionaryPack {
@@ -59,7 +59,14 @@ impl DictionaryPack {
             hunspell,
             word_list: BTreeSet::new(),
             ngrams,
+            max_edit_distance: 2,
         })
+    }
+
+    /// Set the maximum Unicode scalar edit distance for classifying a suggestion as a bounded edit (default 2).
+    pub fn with_max_edit_distance(mut self, max_edit_distance: usize) -> Self {
+        self.max_edit_distance = max_edit_distance;
+        self
     }
 
     /// Add word-list membership evidence. A word missing from the list is never rejected for it.
@@ -85,7 +92,7 @@ impl DictionaryPack {
             return Verdict::Listed;
         }
         let Some(max_chars) = suggestions else {
-            return Verdict::Unknown;
+            return Verdict::Rejected(Vec::new());
         };
         if word.chars().count() > max_chars {
             return Verdict::SuggestionsCapped;
@@ -94,11 +101,44 @@ impl DictionaryPack {
         self.hunspell.suggest(word, &mut found);
         found.retain(|s| s != word);
         if found.is_empty() {
-            Verdict::Unknown
-        } else {
-            Verdict::Misspelled(found)
+            return Verdict::Rejected(Vec::new());
+        }
+        let mut without_fallback = Vec::new();
+        self.hunspell
+            .suggester()
+            .with_ngram_suggestions(false)
+            .suggest(word, &mut without_fallback);
+        Verdict::Rejected(
+            found
+                .into_iter()
+                .map(|candidate| {
+                    let method = if !without_fallback.contains(&candidate) {
+                        SuggestionMethod::NgramFallback
+                    } else if edit_distance(word, &candidate) <= self.max_edit_distance {
+                        SuggestionMethod::EditDistance
+                    } else {
+                        SuggestionMethod::HunspellRule
+                    };
+                    (candidate, method)
+                })
+                .collect(),
+        )
+    }
+}
+
+fn edit_distance(word: &str, candidate: &str) -> usize {
+    let candidate: Vec<char> = candidate.chars().collect();
+    let mut row: Vec<usize> = (0..=candidate.len()).collect();
+    for (i, left) in word.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, &right) in candidate.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (diagonal + usize::from(left != right)).min(1 + above.min(row[j]));
+            diagonal = above;
         }
     }
+    row[candidate.len()]
 }
 
 /// Stems of a `.dic` body, tolerating a BOM, a missing count line and `\/` inside a stem.

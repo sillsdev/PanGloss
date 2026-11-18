@@ -2,15 +2,15 @@
 
 use pg_analyzer::{
     analyze_text, AnalyzeOptions, CheckStatus, DictionaryIdentity, DictionaryPack, EvidenceKind,
-    LanguagePack, LimitReason, OccurrenceOutcome, ProfileInput, ResourceKind, TextAnalysis,
-    TextInput, TextRequest,
+    LanguagePack, LimitReason, OccurrenceOutcome, ProfileInput, ResourceKind, SplitSupport,
+    SuggestionMethod, TextAnalysis, TextInput, TextRequest,
 };
 use pg_parse::Morpher;
 
 const GRAMMAR: &str = include_str!("../../pg-cli/tests/data/trace-family.xml");
 const LDML: &str =
     "<ldml><characters><exemplarCharacters>[a-z]</exemplarCharacters></characters></ldml>";
-const AFF: &str = "SET UTF-8\nTRY esianrtolcdugmphbyfvkwzx\n";
+const AFF: &str = "SET UTF-8\nTRY esianrtolcdugmphbyfvkwzx\nBREAK 0\n";
 const DIC: &str = "4\nthe\nword\nkibes\nlist\n";
 
 fn english() -> DictionaryPack {
@@ -45,7 +45,11 @@ fn run_with(
     text: &str,
     options: AnalyzeOptions,
 ) -> TextAnalysis {
-    let grammar = pg_grammar::load(GRAMMAR).unwrap();
+    let grammar = GRAMMAR.replace(
+        "<SegmentDefinitions>",
+        "<SegmentDefinitions><SegmentDefinition id=\"cDash\"><Representations><Representation>-</Representation></Representations></SegmentDefinition>",
+    );
+    let grammar = pg_grammar::load(&grammar).unwrap();
     let morpher = Morpher::new(&grammar, work_cap);
     let packs: Vec<LanguagePack<'_>> = grammars
         .iter()
@@ -98,6 +102,7 @@ fn misspelling_carries_suggestions_but_is_not_valid_and_leaves_text_alone() {
     let check = &occurrence.checks[0];
     assert_eq!(check.status, CheckStatus::Misspelled);
     assert!(check.suggestions.contains(&"the".to_owned()));
+    assert_eq!(check.suggestion_methods, [SuggestionMethod::EditDistance]);
     let stats = &result.corpus;
     assert_eq!(stats.valid.occurrences, 0);
     assert_eq!(
@@ -142,19 +147,23 @@ fn vernacular_parse_stays_visible_when_a_dictionary_also_accepts() {
 }
 
 /// English whose only near neighbour of "vem" is "vet" (the grammar parses "vem" as `xx`).
-fn english_with_vet(language: &str) -> DictionaryPack {
+fn dictionary(language: &str, dic: &str) -> DictionaryPack {
     DictionaryPack::new(
         DictionaryIdentity {
             language: language.into(),
-            source_id: format!("{language}_vet"),
+            source_id: format!("{language}_synthetic"),
             source_sha256: "cd".repeat(32),
             version: "1".into(),
             licence: "MIT".into(),
         },
         AFF,
-        "2\nvet\nthe\n",
+        dic,
     )
     .unwrap()
+}
+
+fn english_with_vet(language: &str) -> DictionaryPack {
+    dictionary(language, "2\nvet\nthe\n")
 }
 
 #[test]
@@ -228,17 +237,33 @@ fn a_suggestion_search_over_the_bound_is_incomplete_never_silently_empty() {
 }
 
 #[test]
-fn misspelled_languages_is_optional_when_reading_older_json() {
-    let result = run(&[], &[english()], "the", AnalyzeOptions::default());
+fn new_evidence_fields_are_optional_when_reading_older_json() {
+    let result = run(&[], &[english()], "teh", AnalyzeOptions::default());
     let mut value = serde_json::to_value(&result).unwrap();
-    value["texts"][0]["occurrences"][0]
+    value["schema"] = "pangloss-text-analysis/v1".into();
+    let occurrence = &mut value["texts"][0]["occurrences"][0];
+    occurrence
         .as_object_mut()
         .unwrap()
         .remove("misspelled_languages");
+    occurrence["checks"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("suggestion_methods");
+    occurrence["readings"][0]["parts"][0]["checks"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("suggestion_methods");
+    value["resources"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("max_edit_distance");
     let parsed: TextAnalysis = serde_json::from_value(value).unwrap();
-    assert!(parsed.texts[0].occurrences[0]
-        .misspelled_languages
-        .is_empty());
+    let occurrence = &parsed.texts[0].occurrences[0];
+    assert!(occurrence.misspelled_languages.is_empty());
+    assert!(occurrence.checks[0].suggestion_methods.is_empty());
+    assert_eq!(occurrence.checks[0].suggestions, ["the"]);
+    assert_eq!(parsed.resources[1].max_edit_distance, None);
 }
 
 #[test]
@@ -336,11 +361,245 @@ fn an_unfinished_grammar_search_outranks_a_misspelling() {
     assert_eq!(result.corpus.incomplete.occurrences, 1);
 }
 
+#[test]
+fn a_contact_edit_cannot_relabel_a_completed_grammar_miss() {
+    let result = run(
+        &["xx"],
+        &[english_with_vet("en")],
+        "ves",
+        AnalyzeOptions::default(),
+    );
+    let occurrence = &result.texts[0].occurrences[0];
+    assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+    assert_eq!(occurrence.checks[1].status, CheckStatus::Misspelled);
+    assert_eq!(occurrence.checks[1].suggestions, ["vet"]);
+    assert_eq!(
+        occurrence.checks[1].suggestion_methods,
+        [SuggestionMethod::EditDistance]
+    );
+    assert_eq!(occurrence.checks[1].resource, 2);
+    assert_eq!(occurrence.outcome, OccurrenceOutcome::NoAnalysis);
+    assert!(occurrence.misspelled_languages.is_empty());
+    assert_eq!(result.corpus.languages["xx"].no_analysis.occurrences, 1);
+    assert_eq!(result.corpus.languages["en"].misspelled.occurrences, 1);
+    assert_eq!(result.corpus.languages["en"].no_analysis.occurrences, 0);
+}
+
+#[test]
+fn bounded_same_language_spelling_evidence_keeps_the_grammar_check() {
+    let result = run(
+        &["xx"],
+        &[english_with_vet("xx")],
+        "ves",
+        AnalyzeOptions::default(),
+    );
+    let occurrence = &result.texts[0].occurrences[0];
+    assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+    assert_eq!(occurrence.outcome, OccurrenceOutcome::Misspelled);
+    assert_eq!(occurrence.misspelled_languages, ["xx"]);
+}
+
+#[test]
+fn ngram_fallback_flags_the_pack_and_respects_a_competing_grammar_miss() {
+    for grammars in [&[][..], &["xx"][..]] {
+        let result = run(
+            grammars,
+            &[dictionary("en", "1\nzenticca\n").with_max_edit_distance(8)],
+            "zentimmo",
+            AnalyzeOptions::default(),
+        );
+        let occurrence = &result.texts[0].occurrences[0];
+        let check = occurrence.checks.last().unwrap();
+        assert_eq!(check.status, CheckStatus::Misspelled);
+        assert_eq!(check.suggestions, ["zenticca"]);
+        assert_eq!(check.suggestion_methods, [SuggestionMethod::NgramFallback]);
+        assert_eq!(
+            result.resources[check.resource].language.as_deref(),
+            Some("en")
+        );
+        let en = &result.corpus.languages["en"];
+        assert_eq!(en.misspelled.occurrences, 1);
+        assert_eq!(en.no_analysis.occurrences, 0);
+        if grammars.is_empty() {
+            assert_eq!(occurrence.outcome, OccurrenceOutcome::Misspelled);
+            assert_eq!(occurrence.misspelled_languages, ["en"]);
+        } else {
+            assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+            assert_eq!(occurrence.outcome, OccurrenceOutcome::NoAnalysis);
+            assert!(occurrence.misspelled_languages.is_empty());
+        }
+    }
+}
+
+#[test]
+fn an_over_bound_correction_flags_the_pack_and_respects_a_competing_grammar_miss() {
+    for grammars in [&[][..], &["xx"][..]] {
+        let result = run(
+            grammars,
+            &[english_with_vet("en").with_max_edit_distance(0)],
+            "ves",
+            AnalyzeOptions::default(),
+        );
+        let occurrence = &result.texts[0].occurrences[0];
+        let check = occurrence.checks.last().unwrap();
+        assert_eq!(check.status, CheckStatus::Misspelled);
+        assert_eq!(check.suggestions, ["vet"]);
+        assert_eq!(check.suggestion_methods, [SuggestionMethod::HunspellRule]);
+        assert_eq!(result.resources[check.resource].max_edit_distance, Some(0));
+        let en = &result.corpus.languages["en"];
+        assert_eq!(en.misspelled.occurrences, 1);
+        assert_eq!(en.no_analysis.occurrences, 0);
+        if grammars.is_empty() {
+            assert_eq!(occurrence.outcome, OccurrenceOutcome::Misspelled);
+            assert_eq!(occurrence.misspelled_languages, ["en"]);
+        } else {
+            assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+            assert_eq!(occurrence.outcome, OccurrenceOutcome::NoAnalysis);
+            assert!(occurrence.misspelled_languages.is_empty());
+        }
+    }
+}
+
 const LDML_JOINING: &str = "<ldml><characters><exemplarCharacters>[a-z \\u0027 \\-]</exemplarCharacters></characters></ldml>";
 
 #[test]
+fn a_mixed_split_keeps_a_completed_joined_grammar_miss() {
+    let result = run_with(
+        LDML_JOINING,
+        5_000_000,
+        &["xx"],
+        &[english_with_vet("en")],
+        "vem-vet vem-vet",
+        AnalyzeOptions::default(),
+    );
+    let occurrence = &result.texts[0].occurrences[0];
+    assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+    assert_eq!(occurrence.outcome, OccurrenceOutcome::Valid);
+    assert_eq!(occurrence.valid_languages, ["xx", "en"]);
+    assert!(occurrence.misspelled_languages.is_empty());
+    assert_eq!(
+        occurrence.readings[1].grammar_support["xx"],
+        SplitSupport::Mixed
+    );
+    assert_eq!(result.corpus.ambiguous.occurrences, 0);
+    let xx = &result.corpus.languages["xx"];
+    assert_eq!(xx.valid.occurrences, 2);
+    assert_eq!(
+        (xx.no_analysis.occurrences, xx.no_analysis.wordforms),
+        (2, 1)
+    );
+}
+
+#[test]
+fn a_mixed_split_keeps_the_joined_miss_alongside_a_vernacular_only_split() {
+    let result = run_with(
+        LDML_JOINING,
+        5_000_000,
+        &["xx"],
+        &[dictionary("en", "1\nvem-\n")],
+        "vem-kib",
+        AnalyzeOptions::default(),
+    );
+    let occurrence = &result.texts[0].occurrences[0];
+    assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+    assert_eq!(occurrence.outcome, OccurrenceOutcome::Valid);
+    let support: Vec<_> = occurrence
+        .readings
+        .iter()
+        .filter_map(|reading| reading.grammar_support.get("xx").copied())
+        .collect();
+    assert_eq!(support, [SplitSupport::Mixed, SplitSupport::VernacularOnly]);
+    let xx = &result.corpus.languages["xx"];
+    assert_eq!(xx.valid.occurrences, 1);
+    assert_eq!(
+        (xx.no_analysis.occurrences, xx.no_analysis.wordforms),
+        (1, 1)
+    );
+}
+
+#[test]
+fn a_contact_only_split_suppresses_a_same_language_edit_flag() {
+    let result = run_with(
+        LDML_JOINING,
+        5_000_000,
+        &["xx"],
+        &[
+            dictionary("xx", "1\nvetves\n"),
+            dictionary("en", "2\nvet\nves\n"),
+        ],
+        "vet-ves",
+        AnalyzeOptions::default(),
+    );
+    let occurrence = &result.texts[0].occurrences[0];
+    assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+    let check = &occurrence.checks[1];
+    assert_eq!(check.status, CheckStatus::Misspelled);
+    assert!(check
+        .suggestions
+        .iter()
+        .zip(&check.suggestion_methods)
+        .any(|(candidate, method)| candidate == "vetves"
+            && *method == SuggestionMethod::EditDistance));
+    assert_eq!(occurrence.outcome, OccurrenceOutcome::Valid);
+    assert_eq!(occurrence.valid_languages, ["en"]);
+    assert_eq!(
+        occurrence.readings[1].grammar_support["xx"],
+        SplitSupport::AllContact
+    );
+    assert!(occurrence.misspelled_languages.is_empty());
+    let xx = &result.corpus.languages["xx"];
+    assert_eq!(xx.misspelled.occurrences, 0);
+    assert_eq!(xx.no_analysis.occurrences, 1);
+}
+
+#[test]
+fn an_all_contact_split_keeps_a_completed_joined_grammar_miss() {
+    for dictionary_language in ["en", "xx"] {
+        let result = run_with(
+            LDML_JOINING,
+            5_000_000,
+            &["xx"],
+            &[dictionary(dictionary_language, "2\nvet\nves\n")],
+            "vet-ves",
+            AnalyzeOptions::default(),
+        );
+        let occurrence = &result.texts[0].occurrences[0];
+        assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+        assert_eq!(occurrence.outcome, OccurrenceOutcome::Valid);
+        assert_eq!(occurrence.valid_languages, [dictionary_language]);
+        assert!(occurrence.misspelled_languages.is_empty());
+        assert_eq!(
+            occurrence.readings[1].grammar_support["xx"],
+            SplitSupport::AllContact
+        );
+        assert_eq!(result.corpus.languages["xx"].no_analysis.occurrences, 1);
+    }
+}
+
+#[test]
+fn an_all_contact_split_keeps_an_incomplete_grammar_check_out_of_the_miss_count() {
+    let result = run_with(
+        LDML_JOINING,
+        5_000_000,
+        &["xx"],
+        &[dictionary("xx", "2\nvet\nxet\n")],
+        "vet-xet",
+        AnalyzeOptions::default(),
+    );
+    let occurrence = &result.texts[0].occurrences[0];
+    assert_eq!(occurrence.checks[0].status, CheckStatus::Incomplete);
+    assert_eq!(occurrence.checks[0].limits, [LimitReason::InvalidShape]);
+    assert_eq!(occurrence.outcome, OccurrenceOutcome::Valid);
+    assert_eq!(
+        occurrence.readings[1].grammar_support["xx"],
+        SplitSupport::AllContact
+    );
+    assert_eq!(result.corpus.languages["xx"].no_analysis.occurrences, 0);
+}
+
+#[test]
 fn an_alternative_only_win_hides_primary_misspellings_and_misses() {
-    let dictionary = || english_with_vet("en");
+    let dictionary = || dictionary("en", "2\nkibvem\nvet\n");
     let setup = run_with(
         LDML_JOINING,
         5_000_000,
@@ -365,6 +624,11 @@ fn an_alternative_only_win_hides_primary_misspellings_and_misses() {
     );
     let occurrence = &result.texts[0].occurrences[0];
     assert_eq!(occurrence.outcome, OccurrenceOutcome::Valid);
+    assert_eq!(occurrence.checks[0].status, CheckStatus::NoAnalysis);
+    assert_eq!(
+        occurrence.readings[1].grammar_support["xx"],
+        SplitSupport::VernacularOnly
+    );
     assert_eq!(occurrence.valid_languages, ["xx"]);
     assert!(occurrence.misspelled_languages.is_empty());
     let stats = &result.corpus;

@@ -166,6 +166,7 @@ struct DictionaryManifest {
     /// A newline-separated word list, relative to the manifest.
     #[serde(default)]
     word_list: Option<String>,
+    max_edit_distance: Option<usize>,
 }
 
 /// Loads `<prefix>.aff`, `.dic` and `.pgdict.json`; the identity hash covers all pack bytes.
@@ -202,8 +203,10 @@ fn load_dictionary(language: &str, prefix: &str) -> Result<DictionaryPack, Strin
         version: manifest.version,
         licence: manifest.licence,
     };
-    Ok(
-        DictionaryPack::new(identity, &text(aff, &aff_path)?, &text(dic, &dic_path)?)?
-            .with_word_list(words),
-    )
+    let pack = DictionaryPack::new(identity, &text(aff, &aff_path)?, &text(dic, &dic_path)?)?
+        .with_word_list(words);
+    Ok(match manifest.max_edit_distance {
+        Some(bound) => pack.with_max_edit_distance(bound),
+        None => pack,
+    })
 }
