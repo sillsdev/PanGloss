@@ -34,6 +34,40 @@ Test-Case 'the scoreboard closure reaches the crates the gate observes and not u
     Assert-False ($closure -contains 'rust/crates/pg-cli/') 'pg-cli is not observed by the scoreboard gate'
 }
 
+Test-Case 'a change to any crate pg-cli depends on runs the pg-cli gates; an unrelated change does not (#351)' {
+    $rust = (Resolve-Path "$PSScriptRoot\..\..").Path
+    $repo = (Resolve-Path "$rust\..").Path
+    $closure = @($script:PgCliGatePackages | ForEach-Object { Get-WorkspaceCrateClosure -RustRoot $rust -RepoRoot $repo -Package $_ } | Sort-Object -Unique)
+    foreach ($crate in 'pg-cli', 'pg-foma', 'pg-foma-runtime', 'pg-foma-backend', 'pg-rules', 'pg-parse') {
+        Assert-Contains $closure "rust/crates/$crate/" "pg-cli closure must contain $crate"
+    }
+    Assert-False ($closure -contains 'rust/crates/pg-wasm/') 'a crate pg-cli does not depend on must not trigger the gates'
+    $dep = Get-PrelandGateDecision -ChangedPaths @('rust/crates/pg-foma/src/lib.rs') -Roots $closure
+    Assert-True $dep.Run 'a pg-foma-only diff must run the pg-cli gates'
+    foreach ($input in $script:PgCliGateInputs) {
+        $probe = if ($input.EndsWith('/')) { "${input}x" } else { $input }
+        Assert-True (Get-PrelandGateDecision -ChangedPaths @($probe) -Roots ($closure + $script:PgCliGateInputs)).Run "pg-cli reads $input, so changing it must run the gates"
+        $onDisk = Join-Path $repo $input.TrimEnd('/')
+        if ($input -ne 'samples/data/') { Assert-True (Test-Path $onDisk) "trigger input $input no longer exists; update PgCliGateInputs" }
+    }
+    $docs = Get-PrelandGateDecision -ChangedPaths @('docs/notes.md', 'CHANGELOG.md') -Roots $closure
+    Assert-False $docs.Run 'a docs-only diff must stay cheap'
+}
+
+Test-Case 'the pg-cli gate runs with the features and nextest profile of CI FST job' {
+    $workflow = Get-Content -Raw (Join-Path $PSScriptRoot '..\..\..\.github\workflows\rust-gates.yml')
+    $fst = [regex]::Match($workflow, '(?s)FST nextest \(ci profile\).*?run: >-\s*(.*?)\s*-\s+name:').Groups[1].Value
+    Assert-True ($fst -match '--profile ci' -and $fst -match '--cargo-profile pg-test-opt' -and $fst -match '--locked' -and $fst -match '-p pg-foma -p pg-foma-runtime -p pg-foma-backend -p pg-cli') 'CI FST job shape changed; update the preland pg-cli gate'
+    Assert-True ($fst -match '--features pg-cli/foma-tools') 'CI FST job features changed; update the preland pg-cli gate'
+    $a = $script:PgCliGateArgs -join ' '
+    Assert-Equal '-Mode test --package=pg-foma --package=pg-foma-runtime --package=pg-foma-backend --package=pg-cli --features pg-cli/foma-tools --profile ci' $a
+    Assert-True ($workflow -match '(?s)FST doctests.*?--locked.*?-p pg-foma -p pg-foma-runtime -p pg-foma-backend -p pg-cli --features pg-cli/foma-tools') 'CI FST doctest step changed; update the preland pg-cli gate'
+    $pg = Get-Content -Raw (Join-Path $PSScriptRoot '..\pg.ps1')
+    Assert-True ($pg.Contains("PANGLOSS_CONFORMANCE_SCOPE = $claimedScope") -and $pg.Contains("'--locked'") -or (Get-Content -Raw (Join-Path $PSScriptRoot '..\_common.ps1')).Contains("'--locked'")) 'pg.ps1 must still supply --locked and the conformance scope'
+    $plan = @(Get-PrelandPlan -Gates @([PSCustomObject]@{ Check = 'pg-cli-gates'; Run = $true; Reason = 'changed: rust/crates/pg-foma/src/lib.rs'; PgArgs = $script:PgCliGateArgs }))
+    Assert-True ($plan[0] -match 'RUN' -and $plan[0] -match '--features pg-cli/foma-tools') 'the plan must list the foma-tools gate'
+}
+
 $known = @('edge-cases/simultaneous-epenthesis-cascade')
 $passing = @("discovered 2 fixture(s) under 'test'", "[PASS] edge-cases/a (1ms)", "[FAIL] edge-cases/simultaneous-epenthesis-cascade (3ms) expected crash", 'totals: 1 passed, 1 failed, 0 skipped (of 2 attempted)')
 
