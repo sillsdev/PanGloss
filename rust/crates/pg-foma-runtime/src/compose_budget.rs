@@ -110,6 +110,11 @@ pub enum ApplyDimension {
     DecodedPaths,
     /// `ApplyBudget::candidate_cap`: distinct `(morphemes, root_index)` candidate count.
     Candidates,
+    /// `ApplyBudget::normalization_cap`: cumulative alternatives the repeat-ambiguity relation
+    /// (`crate::tags::visit_candidate_superset`) offered beyond the legacy candidate of each path,
+    /// counted before deduplication so that many raw paths revisiting the same alternatives are
+    /// bounded too.
+    NormalizedCandidates,
 }
 
 impl ApplyDimension {
@@ -117,6 +122,7 @@ impl ApplyDimension {
         match self {
             ApplyDimension::DecodedPaths => "decoded apply_up paths",
             ApplyDimension::Candidates => "distinct candidates",
+            ApplyDimension::NormalizedCandidates => "repeat-normalization alternatives",
         }
     }
 }
@@ -148,6 +154,7 @@ pub enum ApplyOutcome<T> {
 pub struct ApplyBudget {
     path_cap: Option<usize>,
     candidate_cap: Option<usize>,
+    normalization_cap: Option<usize>,
 }
 
 impl ApplyBudget {
@@ -158,6 +165,7 @@ impl ApplyBudget {
         ApplyBudget {
             path_cap: apply_path_budget_from_env(),
             candidate_cap: apply_candidate_budget_from_env(),
+            normalization_cap: apply_candidate_budget_from_env(),
         }
     }
 
@@ -169,6 +177,7 @@ impl ApplyBudget {
         ApplyBudget {
             path_cap,
             candidate_cap,
+            normalization_cap: candidate_cap,
         }
     }
 
@@ -178,6 +187,7 @@ impl ApplyBudget {
         ApplyBudget {
             path_cap: None,
             candidate_cap: None,
+            normalization_cap: None,
         }
     }
 
@@ -193,6 +203,32 @@ impl ApplyBudget {
     /// The effective distinct-candidate cap, or `None` for unbounded.
     pub fn candidate_cap(&self) -> Option<usize> {
         self.candidate_cap
+    }
+
+    /// The effective repeat-normalization allowance, or `None` for unbounded. It is the existing
+    /// distinct-candidate allowance applied to a second count, never a separate or larger limit:
+    /// every constructor derives it from `candidate_cap`.
+    pub fn normalization_cap(&self) -> Option<usize> {
+        self.normalization_cap
+    }
+
+    /// This budget less what one cumulative word has already spent, so that direct proposal and
+    /// every peeled proposal draw on a single allowance for each dimension.
+    pub fn remaining(
+        &self,
+        used_paths: usize,
+        used_candidates: usize,
+        used_normalized: usize,
+    ) -> Self {
+        ApplyBudget {
+            path_cap: self.path_cap.map(|limit| limit.saturating_sub(used_paths)),
+            candidate_cap: self
+                .candidate_cap
+                .map(|limit| limit.saturating_sub(used_candidates)),
+            normalization_cap: self
+                .normalization_cap
+                .map(|limit| limit.saturating_sub(used_normalized)),
+        }
     }
 }
 

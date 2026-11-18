@@ -143,9 +143,42 @@ fn apply_dimension_label_is_stable_and_distinct() {
         "decoded apply_up paths"
     );
     assert_eq!(ApplyDimension::Candidates.label(), "distinct candidates");
+    assert_eq!(
+        ApplyDimension::NormalizedCandidates.label(),
+        "repeat-normalization alternatives"
+    );
     assert_ne!(
         ApplyDimension::DecodedPaths.label(),
         ApplyDimension::Candidates.label()
+    );
+    assert_ne!(
+        ApplyDimension::Candidates.label(),
+        ApplyDimension::NormalizedCandidates.label()
+    );
+}
+
+#[test]
+fn normalization_allowance_follows_the_candidate_allowance_and_narrows_with_it() {
+    let budget = ApplyBudget::with_caps(Some(10), Some(20));
+    assert_eq!(budget.normalization_cap(), Some(20));
+    let narrowed = budget.remaining(4, 5, 7);
+    assert_eq!(narrowed.path_cap(), Some(6));
+    assert_eq!(narrowed.candidate_cap(), Some(15));
+    assert_eq!(narrowed.normalization_cap(), Some(13));
+    let spent = budget.remaining(99, 99, 99);
+    assert_eq!(
+        (
+            spent.path_cap(),
+            spent.candidate_cap(),
+            spent.normalization_cap()
+        ),
+        (Some(0), Some(0), Some(0))
+    );
+    assert_eq!(
+        ApplyBudget::unbounded()
+            .remaining(9, 9, 9)
+            .normalization_cap(),
+        None
     );
 }
 

@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- FST proposal recovers identities lost by repeat normalization: tag paths that repeat a morpheme (two allomorphs of one entry, a reused or alternative affix allomorph, a root separated by other tags) now propose every tag-preserving merge, so HC confirmation keeps the parser's multi-occurrence identities that were previously erased. The extra alternatives are counted against the existing candidate allowance as a named `repeat-normalization alternatives` dimension; no default limit changes and the compound spelling refusal is unchanged (part of #136).
+
 ## 0.24.0
 
 Released 2026-11-18.

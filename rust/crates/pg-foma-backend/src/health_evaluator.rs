@@ -231,7 +231,9 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
 fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
     let metric = match trip.dimension {
         ApplyDimension::DecodedPaths => Metric::ProposalPathCount,
-        ApplyDimension::Candidates => Metric::ProposalCandidateCount,
+        ApplyDimension::Candidates | ApplyDimension::NormalizedCandidates => {
+            Metric::ProposalCandidateCount
+        }
     };
     HealthFinding::new(
         FindingCode::ResourceBudgetReached,

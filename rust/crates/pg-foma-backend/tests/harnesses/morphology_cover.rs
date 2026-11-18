@@ -7,6 +7,8 @@ mod circumfix_candidate_selection;
 mod circumfix_cross_product_and_infix_drop_candidate_selection;
 #[path = "../closure_unbounded_realizational.rs"]
 mod closure_unbounded_realizational;
+#[path = "../compound_identity_recovery.rs"]
+mod compound_identity_recovery;
 #[path = "../cover_bistratal_overlapping_segment_representation.rs"]
 mod cover_bistratal_overlapping_segment_representation;
 #[path = "../cover_compounding.rs"]

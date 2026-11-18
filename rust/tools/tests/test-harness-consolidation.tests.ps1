@@ -62,7 +62,7 @@ $crateSpecs = @(
             'candidate_filter_fixture_weight.rs', 'candidate_filter_model_check.rs',
             'candidate_filter_shadow_gate.rs', 'circumfix_candidate_selection.rs',
             'circumfix_cross_product_and_infix_drop_candidate_selection.rs',
-            'closure_unbounded_realizational.rs', 'conformance_coverage_gate.rs',
+            'closure_unbounded_realizational.rs', 'compound_identity_recovery.rs', 'conformance_coverage_gate.rs',
             'cover_bistratal_overlapping_segment_representation.rs', 'cover_compounding.rs',
             'cover_compounding_recursive_depth_bound.rs', 'cover_mpr_groups.rs', 'cover_multiple_application_chain.rs',
             'cover_realizational_morphology_constraints.rs',
