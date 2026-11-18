@@ -7,6 +7,8 @@ mod agent_docs_resolve_gate;
 mod analyze_text_cli;
 #[path = "../authored_generate_request.rs"]
 mod authored_generate_request;
+#[path = "../batch_engine.rs"]
+mod batch_engine;
 #[path = "../build_context_provenance.rs"]
 mod build_context_provenance;
 #[path = "../compile_errors_contract.rs"]

@@ -366,9 +366,10 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
         cost: None,
     };
     let mut encoded = Vec::new();
-    write_parse_analysis_row(&mut encoded, 0, "kat", 12, &outcome, &grammar)
+    write_parse_analysis_row(&mut encoded, 0, "kat", 12, &outcome, &grammar, None)
         .expect("serialize mixed-bound outcome");
     let row: serde_json::Value = serde_json::from_slice(&encoded).expect("valid row");
+    assert!(row.get("completion").is_none());
     assert_eq!(row["capped"], true);
     assert_eq!(row["timedOut"], true);
 }

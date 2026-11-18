@@ -60,20 +60,15 @@ grammar ──emit lexc──► foma compile ──► proposing FST          (
 word ──FST propose──► candidate morpheme sequences ──HC confirm──► analyses
 ```
 
-Two engines exist and produce identical output, but the `pangloss` CLI does not expose a flag
-to choose between them:
+Two analysis engines exist:
 
 - The propose-and-confirm FST path (`pg_foma::composite::FomaAnalyzer`) described above is the
-  performance path and the target of ongoing optimization. From the CLI it is reached only
-  through `fst-health` (grammar-only characterization) and `make-report` (a readiness report
-  over an already-built artifact); running a word batch or a single parse through it requires
-  the Rust API shown below — there is no `--engine` flag.
-- `pangloss batch`, `pangloss parse`, and `pangloss generate` always run the full HermitCrab
-  search engine, ported line-for-line from C#. It serves as the oracle the FST path is verified
-  against, and as the trace-capable engine (`--trace` works only here).
-
-Both engines pass the same conformance suite (14 fixtures, plus one documented known
-divergence shared by both).
+  performance path and the target of ongoing optimization. `batch --engine=fst` selects it
+  explicitly in a `foma-tools` build. The compiler owns admission; refused grammars exit without
+  fallback. `fst-health` and `make-report` provide grammar characterization and readiness reports.
+- `pangloss batch` defaults to the full HermitCrab search engine, ported line-for-line from C#.
+  `pangloss parse`, `serve`, and `generate` also use HC. It serves as the reference the FST path
+  is verified against, and as the trace-capable engine (`--trace` works only here).
 
 ## Ingesting a grammar
 
@@ -118,14 +113,28 @@ conformance gate that checks the fwdata pipeline's parses against the legacy XML
 
 ## Building and running the FST
 
-The proposing FST is **compiled automatically at grammar load** when `FomaAnalyzer::new` is
+The proposing FST is **compiled at grammar load** when `compile_analyzer` is
 called from Rust — the emitter turns the grammar's lexicon, morphotactics, and (pre-expanded)
 phonology into foma lexc source and compiles it in-process with a pure-Rust foma
 (no external binaries, no artifacts to manage). Compile time is interactive-scale:
-milliseconds to a few seconds on the reference grammars. The `pangloss` CLI has no flag to
-route a word batch or a single parse through this path; see the Rust API below for that, and
-`fst-health`/`make-report` for grammar-level reports and `fst-verify` below for
-per-word comparisons of the two pipelines.
+milliseconds to a few seconds on the reference grammars. A `foma-tools` build can route a batch
+through the FST with explicit engine selection:
+
+**FST mode has no per-word deadline or process RSS bound. Use an external watchdog with a
+deadline and process memory ceiling.** Proposal caps do not contain confirmation; a word can
+stall the batch or exhaust memory. Supervise each word in a child process when per-word
+containment is required, and report killed words as incomplete.
+
+```text
+pangloss batch grammar.xml words.txt out.tsv --engine=fst --threads 1 --work-cap unbounded --word-mem-cap-mib 0 --capture-cap-mib unbounded --guess=false
+```
+
+This path refuses unadmitted grammars without fallback and appends engine/completion metadata.
+The HC controls above must be explicitly disabled because the FST cannot report their stops.
+FST proposal limits remain active. See [the batch contract](docs/formats/batch-tsv.md#engine-selection)
+for supported options and containment limits. Binaries built without `foma-tools` give
+an explicit feature error. Release builds already enable `foma-tools`.
+`fst-health`/`make-report` provide grammar characterization and readiness reports.
 
 Compare complete FST analysis sets with plain HC-Rust search on every word
 (build with `foma-tools`):
@@ -199,7 +208,7 @@ From Rust, the same path is `pg_foma::composite::FomaAnalyzer`:
 
 ```rust
 let grammar = pg_grammar::load(&xml)?;                  // or compile_project(&snapshot)
-let mut analyzer = FomaAnalyzer::new(&grammar)?;        // emits lexc + compiles the FST
+let mut analyzer = pg_foma::composite::compile_analyzer(&grammar)?;
 let outcome = analyzer.analyze_word("kufuna");          // propose + confirm
 let outcomes = analyzer.analyze_words(&words);          // parallel confirm across words
 ```

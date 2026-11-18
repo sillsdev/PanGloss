@@ -132,7 +132,12 @@ mod compile_failure;
 #[cfg(feature = "cost-calibration")]
 mod cost_calibrate;
 mod cost_compare;
+mod engine;
 mod facts_cmd;
+#[cfg(feature = "foma-tools")]
+mod fst_batch;
+#[cfg(feature = "foma-tools")]
+mod fst_engine;
 mod generate_request;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 #[cfg(feature = "foma-tools")]
@@ -218,6 +223,8 @@ struct ParseAnalysisBatchRow {
     invalid_shape: bool,
     analyses: Vec<ParseAnalysis>,
     unavailable: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completion: Option<engine::Completion>,
 }
 
 fn projected_analyses(
@@ -245,6 +252,7 @@ fn write_parse_analysis_row<W: Write>(
     elapsed_ms: u128,
     outcome: &pg_parse::ParseOutcome,
     grammar: &Grammar,
+    engine: Option<engine::Engine>,
 ) -> std::io::Result<()> {
     let (analyses, unavailable) = projected_analyses(outcome, grammar);
     let row = ParseAnalysisBatchRow {
@@ -257,6 +265,7 @@ fn write_parse_analysis_row<W: Write>(
         invalid_shape: outcome.invalid_shape,
         analyses,
         unavailable,
+        completion: engine.map(|engine| engine::Completion::new(engine, outcome)),
     };
     serde_json::to_writer(&mut *w, &row)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -458,7 +467,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -481,6 +490,12 @@ fn print_usage_and_fail() -> ExitCode {
          FieldWorks project file (.fwdata/.fwbackup, imported in-memory and compiled on the fly).\n\
          In a generate request, the morphemes array is generation order, not surface order.\n\
          See docs/generation.md.\n\
+         \n\
+         --engine hc|fst (`batch`, default hc) adds JSON completion metadata; fst requires foma-tools,\n\
+         --threads 1 --work-cap unbounded --word-mem-cap-mib 0 --capture-cap-mib unbounded --guess=false.\n\
+         FST has no per-word deadline or process RSS bound: use an external watchdog with a deadline\n\
+         and memory ceiling. Proposal caps do not contain confirmation; no implicit HC fallback.\n\
+         See docs/formats/batch-tsv.md for unsupported controls.\n\
          \n\
          --guess (`batch`/`parse`/`serve`): a word whose normal analysis is empty is retried\n\
          via the lexical-pattern guesser (docs/p11-guesser-api-design.md). A FieldWorks project\n\
@@ -1150,6 +1165,7 @@ pub(crate) const BATCH_TSV_VERSION: u32 = 5;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
+    completion: Option<engine::Completion>,
     partials: Option<String>,
     /// `Some(guessed)` only when `--guess` or `--guess=true` was passed, never for a project's own `GuessRoots`.
     guessed: Option<bool>,
@@ -1162,6 +1178,9 @@ struct BatchRowTail {
 impl BatchRowTail {
     fn new(flags: BatchRowFlags, outcome: &pg_parse::ParseOutcome) -> Self {
         Self {
+            completion: flags
+                .engine
+                .map(|engine| engine::Completion::new(engine, outcome)),
             partials: flags
                 .partials
                 .then(|| serde_json::to_string(&outcome.partials).expect("partial serialization")),
@@ -1180,6 +1199,7 @@ impl BatchRowTail {
 /// The batch flags that add optional TSV columns.
 #[derive(Clone, Copy)]
 struct BatchRowFlags {
+    engine: Option<engine::Engine>,
     partials: bool,
     guess: bool,
     work_columns: bool,
@@ -1202,6 +1222,9 @@ fn write_batch_row<W: Write>(
     }
     if let Some(partials) = tail.partials {
         write!(w, "\t{partials}")?;
+    }
+    if let Some(completion) = tail.completion {
+        write!(w, "\t{}", serde_json::to_string(&completion)?)?;
     }
     if let Some(work_steps) = tail.work_steps {
         write!(w, "\t{work_steps}")?;
@@ -1384,6 +1407,7 @@ fn run_batch_with_counter(
     parse_counter: &BatchParseCounter,
 ) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
+    let mut engine = None;
     let mut work_cap: WorkCap = DEFAULT_WORK_CAP;
     let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
     // --capture-cap-mib: ceiling on matcher capture state one word may hold at once; None = unbounded.
@@ -1422,6 +1446,14 @@ fn run_batch_with_counter(
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--engine" => {
+                engine = Some(engine::Engine::parse(
+                    it.next().ok_or("--engine requires a value")?,
+                )?);
+            }
+            s if s.starts_with("--engine=") => {
+                engine = Some(engine::Engine::parse(&s["--engine=".len()..])?);
+            }
             "--partials" => {
                 partials = parse_partials(it.next().ok_or("--partials requires a value")?)?;
             }
@@ -1543,10 +1575,34 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
+    if engine == Some(engine::Engine::Fst) {
+        #[cfg(feature = "foma-tools")]
+        {
+            fst_batch::validate(args, work_cap, word_mem_cap, capture_cap, threads)?;
+            if prefilter_mode != batch_prefilter::PrefilterMode::Off {
+                return Err("--engine=fst requires --prefilter off".into());
+            }
+            if guess_arg == Some(true) {
+                return Err("--engine=fst cannot honour --guess; pass --guess=false".into());
+            }
+            return fst_batch::run(fst_batch::Args {
+                grammar_path,
+                words_path,
+                out_path,
+                analyses_path: analyses_path_arg.as_deref(),
+                start_idx,
+                flush_each_word,
+                phase_marks,
+                guess_arg,
+            });
+        }
+        #[cfg(not(feature = "foma-tools"))]
+        unreachable!("engine parsing rejects feature-off FST requests");
+    }
     batch_prefilter::check(
         prefilter_mode,
         &batch_prefilter::SearchDependent {
@@ -1734,12 +1790,14 @@ fn run_batch_with_counter(
         .with_always_enforce_final_templates(always_enforce_final_templates)
         .with_guess_roots(guess);
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
+    let timing_engine = if engine.is_some() { "hc" } else { "default" };
     eprintln!(
-        "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
+        "LOADTIME\tengine={timing_engine}\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
         grammar_load_ms + morpher_build_ms
     );
     let opts = morpher.project_parse_options().with_partials(partials);
     let row_flags = BatchRowFlags {
+        engine,
         partials: partials != 0,
         guess: guess_arg == Some(true),
         work_columns,
@@ -2047,8 +2105,10 @@ fn run_batch_with_counter(
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
-                write_parse_analysis_row(analyses_w, i, word, elapsed_ms, &outcome, &grammar)
-                    .map_err(|e| e.to_string())?;
+                write_parse_analysis_row(
+                    analyses_w, i, word, elapsed_ms, &outcome, &grammar, engine,
+                )
+                .map_err(|e| e.to_string())?;
             }
             if flush_each_word {
                 w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
@@ -2139,8 +2199,10 @@ fn run_batch_with_counter(
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
-                write_parse_analysis_row(analyses_w, i, word, elapsed_ms, &r.outcome, &grammar)
-                    .map_err(|e| e.to_string())?;
+                write_parse_analysis_row(
+                    analyses_w, i, word, elapsed_ms, &r.outcome, &grammar, engine,
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
     }
@@ -2150,7 +2212,7 @@ fn run_batch_with_counter(
         analyses_w.flush().map_err(|e| e.to_string())?;
     }
 
-    eprintln!("PARSEELAPSED\tengine=default\telapsed_ms={parse_elapsed_ms:.3}");
+    eprintln!("PARSEELAPSED\tengine={timing_engine}\telapsed_ms={parse_elapsed_ms:.3}");
     if let Some(prefilter) = &prefilter {
         eprintln!("PREFILTER-TOTAL\t{}", prefilter.total_line());
     }

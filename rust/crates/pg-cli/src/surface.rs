@@ -285,6 +285,11 @@ const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
 ];
 
 const BATCH_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--engine",
+        takes_value: true,
+        summary: "hc|fst (default hc); adds JSON completion metadata; fst needs foma-tools, --threads 1, --work-cap unbounded, --word-mem-cap-mib 0 and --capture-cap-mib unbounded; no fallback; FST has no per-word deadline or process RSS bound: use an external watchdog with a deadline and memory ceiling",
+    },
     FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded); writes MEMCAP when reached" },
     FlagSpec {
         name: "--work-cap",
