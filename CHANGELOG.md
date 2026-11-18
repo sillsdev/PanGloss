@@ -5,6 +5,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- HC batch stats overlaps parsing with bounded reusable cache writes, uses a smaller temporary spool encoding, and streams the frozen model fingerprint. Recorded counters, cache schemas, and manifest fields retain their existing contracts.
 - `pangloss parse` and `pangloss batch` can publish bounded HC rejection observations and accepted output identities with `--trace-rejections`. The opt-in [JSONL artifact](docs/formats/rejection-trace-v1.md) records owner decisions, output counts, search stops, and capture omissions (part of sillsdev/motif#277).
 
 - Preland runs the package set of CI's `FST nextest (ci profile)` and doctest steps (pg-foma, pg-foma-runtime, pg-foma-backend and pg-cli with `--features pg-cli/foma-tools`, nextest `ci` profile) whenever the diff touches those crates' dependency closures, the data pg-cli's tests read, or shared build inputs, so a dependency change can no longer pass preland and fail `inferred_segment_engine_parity_gate` in CI; `preland.ps1 -Plan` prints each gate's decision without running anything (#351; follows #336, #348).

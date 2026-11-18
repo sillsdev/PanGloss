@@ -146,6 +146,32 @@ fn assert_same_rows(baseline: &StatsCache, streamed: &StatsCache) {
 }
 
 #[test]
+fn buffered_run_replays_oversized_and_escaped_records_in_order() {
+    let open = || {
+        StatsCache::open_on_version(
+            Connection::open_in_memory().unwrap(),
+            "hash-a",
+            schema::SCHEMA_VERSION,
+        )
+        .unwrap()
+        .cache
+    };
+    let mut large = sample_word("large");
+    large.facts[0].object_key = "large-rule".into();
+    large.facts[0].object_label = "escaped \"label\"\nβ\t".repeat(70_000);
+    let words = [sample_word("before"), large, sample_word("after\nβ")];
+    let mut direct = open();
+    direct.flush(&sample_run(), &words).unwrap();
+
+    let mut buffer = StatsRunBuffer::with_capacity(1);
+    for word in &words {
+        buffer.write_word(word).unwrap();
+    }
+    let (buffered, _) = buffer.flush(open(), &sample_run()).unwrap();
+    assert_same_rows(&direct, &buffered);
+}
+
+#[test]
 fn buffered_runs_discard_abandoned_poisoned_and_rejected_observations() {
     let dir = TempDir::new("stats-buffer-rollback");
     let path = dir.path().join("stats.sqlite");
@@ -158,7 +184,14 @@ fn buffered_runs_discard_abandoned_poisoned_and_rejected_observations() {
             .unwrap();
         let mut replacement = sample_word("apu");
         replacement.passes = 99;
-        for failure in ["abandon", "poison", "record", "elapsed", "decode"] {
+        for failure in [
+            "abandon",
+            "poison",
+            "record",
+            "elapsed",
+            "decode",
+            "oversized decode",
+        ] {
             let mut buffer = StatsRunBuffer::with_capacity(capacity);
             buffer.write_word(&replacement).unwrap();
             match failure {
@@ -203,7 +236,11 @@ fn buffered_runs_discard_abandoned_poisoned_and_rejected_observations() {
                         })
                     ));
                 }
-                "decode" => {
+                "decode" | "oversized decode" => {
+                    if failure == "oversized decode" {
+                        buffer.records.write_all(b"{").unwrap();
+                        buffer.records.write_all(&vec![b' '; 1 << 20]).unwrap();
+                    }
                     buffer.records.write_all(b"{invalid").unwrap();
                     assert!(matches!(
                         buffer.flush(cache, &sample_run()),

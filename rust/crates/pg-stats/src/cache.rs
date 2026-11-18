@@ -3,11 +3,13 @@
 //! Read queries live in `crate::report`; this module only knows how to get bytes in.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{BufReader, BufWriter, Seek, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, Write};
 use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use serde::Serialize;
+use serde_json::ser::{CharEscape, CompactFormatter, Formatter};
 
 use crate::error::StatsError;
 use crate::model::{
@@ -17,6 +19,8 @@ use crate::model::{
 use crate::schema;
 use crate::util::to_i64;
 use crate::work_cap::WorkCap;
+
+const STATS_RECORD_READ_LIMIT: usize = 1024 * 1024;
 
 /// An open stats cache: one SQLite connection, WAL mode, a caller-chosen busy timeout.
 pub struct StatsCache {
@@ -40,7 +44,8 @@ impl Default for StatsRunBuffer {
 }
 
 impl StatsRunBuffer {
-    fn with_capacity(bytes: usize) -> Self {
+    /// Spills encoded observations after `bytes` in memory.
+    pub fn with_capacity(bytes: usize) -> Self {
         Self {
             records: BufWriter::new(tempfile::spooled_tempfile(bytes)),
             failed: false,
@@ -52,7 +57,10 @@ impl StatsRunBuffer {
             return Err(StatsError::RunWriteFailed);
         }
         self.failed = true;
-        serde_json::to_writer(&mut self.records, word)?;
+        word.serialize(&mut serde_json::Serializer::with_formatter(
+            &mut self.records,
+            StatsSpoolFormatter::default(),
+        ))?;
         self.records.write_all(b"\n")?;
         self.failed = false;
         Ok(())
@@ -70,14 +78,166 @@ impl StatsRunBuffer {
         self.records.flush()?;
         let mut records = self.records.into_inner().map_err(|e| e.into_error())?;
         records.rewind()?;
+        let spilled = records.is_rolled();
+        let mut records = StatsSpoolReader {
+            records: BufReader::new(records),
+            line: Vec::with_capacity(STATS_RECORD_READ_LIMIT),
+        };
         let mut writer = cache.into_run(run)?;
-        for word in
-            serde_json::Deserializer::from_reader(BufReader::new(records)).into_iter::<WordRecord>()
-        {
-            writer.write_word(&word?)?;
+        if spilled {
+            return replay_spilled_spool(records, writer);
+        }
+        while let Some(word) = records.read_word()? {
+            writer.write_word(&word)?;
         }
         writer.finish()
     }
+}
+
+struct StatsSpoolReader {
+    records: BufReader<tempfile::SpooledTempFile>,
+    line: Vec<u8>,
+}
+
+impl StatsSpoolReader {
+    fn read_word(&mut self) -> Result<Option<WordRecord>, StatsError> {
+        self.line.clear();
+        let read = self
+            .records
+            .by_ref()
+            .take(STATS_RECORD_READ_LIMIT as u64)
+            .read_until(b'\n', &mut self.line)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        let word = if read == STATS_RECORD_READ_LIMIT && !self.line.ends_with(b"\n") {
+            // Stream an oversized record so scratch space is bounded by the read limit.
+            self.records
+                .seek_relative(-(STATS_RECORD_READ_LIMIT as i64))?;
+            read_oversized_word(&mut self.records)?
+        } else {
+            serde_json::from_slice(&self.line)?
+        };
+        Ok(Some(word))
+    }
+}
+
+fn replay_spilled_spool(
+    mut records: StatsSpoolReader,
+    mut writer: StatsRunWriter,
+) -> Result<(StatsCache, i64), StatsError> {
+    std::thread::scope(|scope| {
+        let (send, receive) = std::sync::mpsc::sync_channel(0);
+        let decoder = std::thread::Builder::new()
+            .name("stats-spool-read".into())
+            .spawn_scoped(scope, move || -> Result<(), StatsError> {
+                while let Some(word) = records.read_word()? {
+                    if send.send(word).is_err() {
+                        break;
+                    }
+                }
+                Ok(())
+            })?;
+        for word in receive {
+            writer.write_word(&word)?;
+        }
+        decoder
+            .join()
+            .map_err(|_| io::Error::other("stats spool decoder panicked"))??;
+        writer.finish()
+    })
+}
+
+// Spool records contain only fixed-field structs and derive positional deserialization. Omit repeated keys in this private format.
+#[derive(Default)]
+struct StatsSpoolFormatter {
+    in_key: bool,
+}
+
+impl Formatter for StatsSpoolFormatter {
+    fn begin_object<W: ?Sized + Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        self.begin_array(writer)
+    }
+
+    fn end_object<W: ?Sized + Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        self.end_array(writer)
+    }
+
+    fn begin_object_key<W: ?Sized + Write>(
+        &mut self,
+        writer: &mut W,
+        first: bool,
+    ) -> io::Result<()> {
+        self.in_key = true;
+        self.begin_array_value(writer, first)
+    }
+
+    fn end_object_key<W: ?Sized + Write>(&mut self, _: &mut W) -> io::Result<()> {
+        self.in_key = false;
+        Ok(())
+    }
+
+    fn begin_object_value<W: ?Sized + Write>(&mut self, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn begin_string<W: ?Sized + Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        if self.in_key {
+            return Ok(());
+        }
+        CompactFormatter.begin_string(writer)
+    }
+
+    fn end_string<W: ?Sized + Write>(&mut self, writer: &mut W) -> io::Result<()> {
+        if self.in_key {
+            return Ok(());
+        }
+        CompactFormatter.end_string(writer)
+    }
+
+    fn write_string_fragment<W: ?Sized + Write>(
+        &mut self,
+        writer: &mut W,
+        fragment: &str,
+    ) -> io::Result<()> {
+        if self.in_key {
+            return Ok(());
+        }
+        CompactFormatter.write_string_fragment(writer, fragment)
+    }
+
+    fn write_char_escape<W: ?Sized + Write>(
+        &mut self,
+        writer: &mut W,
+        escape: CharEscape,
+    ) -> io::Result<()> {
+        if self.in_key {
+            return Ok(());
+        }
+        CompactFormatter.write_char_escape(writer, escape)
+    }
+}
+
+fn read_oversized_word(records: &mut impl Read) -> Result<WordRecord, StatsError> {
+    let word = serde_json::Deserializer::from_reader(&mut *records)
+        .into_iter::<WordRecord>()
+        .next()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "missing buffered stats record",
+            )
+        })??;
+    let mut separator = [0];
+    records.read_exact(&mut separator)?;
+    if separator[0] != b'\n' {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "missing newline after buffered stats record",
+        )
+        .into());
+    }
+    Ok(word)
 }
 
 /// Owns one uncommitted run. Successful completion returns the cache for its next run.
@@ -256,16 +416,20 @@ fn write_word(
     )?;
     execute_cached(conn, "DELETE FROM gate_fact WHERE word_id = ?1", [word_id])?;
 
-    if schema_version == schema::COMPACT_SCHEMA_VERSION {
-        for fact in compact_facts(&word.facts)? {
-            write_fact(conn, interner, word_id, &fact, true)?;
-        }
+    let compact = schema_version == schema::COMPACT_SCHEMA_VERSION;
+    let compacted;
+    let facts = if compact {
+        compacted = compact_facts(&word.facts)?;
+        &compacted
     } else {
-        for fact in &word.facts {
-            write_fact(conn, interner, word_id, fact, false)?;
-        }
+        &word.facts
+    };
+    let mut fact_insert = prepare_fact_insert(conn, compact)?;
+    for fact in facts {
+        write_fact(conn, interner, word_id, fact, &mut fact_insert)?;
     }
     if let Some(gates) = &word.gates {
+        let mut gate_insert = conn.prepare_cached("INSERT INTO gate_fact VALUES (?1,?2,?3,?4,?5) ON CONFLICT(word_id,object_id,feature_id) DO UPDATE SET passed=passed+excluded.passed, blocked=blocked+excluded.blocked")?;
         for gate in gates {
             let object_id = interner.object(
                 conn,
@@ -276,7 +440,13 @@ fn write_word(
                 gate.morpheme.as_ref(),
             )?;
             let feature_id = interner.feature(conn, gate)?;
-            execute_cached(conn, "INSERT INTO gate_fact VALUES (?1,?2,?3,?4,?5) ON CONFLICT(word_id,object_id,feature_id) DO UPDATE SET passed=passed+excluded.passed, blocked=blocked+excluded.blocked", params![word_id, object_id, feature_id, to_i64("gate.passed", gate.passed)?, to_i64("gate.blocked", gate.blocked)?])?;
+            gate_insert.execute(params![
+                word_id,
+                object_id,
+                feature_id,
+                to_i64("gate.passed", gate.passed)?,
+                to_i64("gate.blocked", gate.blocked)?,
+            ])?;
         }
     }
     Ok(())
@@ -866,7 +1036,7 @@ fn write_fact(
     interner: &mut Interner,
     word_id: i64,
     fact: &FactRecord,
-    compact: bool,
+    insert: &mut rusqlite::Statement<'_>,
 ) -> Result<(), StatsError> {
     let object_id = interner.object(
         tx,
@@ -884,6 +1054,29 @@ fn write_fact(
         Some(locator) => interner.locator(tx, LocatorTable::Allomorph, locator)?,
         None => 0,
     };
+    insert.execute(params![
+        word_id,
+        object_id,
+        stratum_id,
+        allomorph_id,
+        fact.direction.as_str(),
+        to_i64("attempts", fact.attempts)?,
+        to_i64("work", fact.work)?,
+        to_i64("outputs", fact.outputs)?,
+        to_i64("not_applied", fact.not_applied)?,
+        to_i64("no_root", fact.no_root)?,
+        to_i64("surface_mismatch", fact.surface_mismatch)?,
+        to_i64("uses", fact.uses)?,
+        to_i64("self_time_ns", fact.self_time_ns)?,
+        to_i64("work_steps", fact.work_steps)?,
+    ])?;
+    Ok(())
+}
+
+fn prepare_fact_insert(
+    conn: &Connection,
+    compact: bool,
+) -> Result<rusqlite::CachedStatement<'_>, StatsError> {
     let sql = "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns, work_steps)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
          ON CONFLICT(word_id, object_id, stratum_id, allomorph_id, direction) DO UPDATE SET
@@ -906,27 +1099,7 @@ fn write_fact(
     } else {
         sql
     };
-    execute_cached(
-        tx,
-        sql,
-        params![
-            word_id,
-            object_id,
-            stratum_id,
-            allomorph_id,
-            fact.direction.as_str(),
-            to_i64("attempts", fact.attempts)?,
-            to_i64("work", fact.work)?,
-            to_i64("outputs", fact.outputs)?,
-            to_i64("not_applied", fact.not_applied)?,
-            to_i64("no_root", fact.no_root)?,
-            to_i64("surface_mismatch", fact.surface_mismatch)?,
-            to_i64("uses", fact.uses)?,
-            to_i64("self_time_ns", fact.self_time_ns)?,
-            to_i64("work_steps", fact.work_steps)?,
-        ],
-    )?;
-    Ok(())
+    Ok(conn.prepare_cached(sql)?)
 }
 
 /// The stored work cap of any run in `run` that differs from `requested_storage`, if any.

@@ -122,3 +122,46 @@ fn a_parsed_snapshot_value_fails_where_its_text_fails() {
             .to_string()
     );
 }
+
+#[test]
+fn streamed_model_fingerprints_match_the_materialized_preimage() {
+    let snapshot = serde_json::json!({
+        "z": ["é💡", "\"\\\n\r\t\u{0000}\u{001f}", i64::MIN, u64::MAX],
+        "\u{e000}": true,
+        "\u{10000}": null,
+        "a": "é\"".repeat(10_000),
+    });
+    let snapshot_json = serde_json::to_string_pretty(&snapshot).unwrap();
+    let compiler = "compiler\"\\💡";
+    for (kind, source, canonical) in [
+        (
+            SourceKind::Snapshot,
+            snapshot_json.as_str(),
+            jcs::canonicalize(&snapshot).unwrap(),
+        ),
+        (
+            SourceKind::Snapshot,
+            "{\r\ninvalid\r",
+            "{\ninvalid\n".into(),
+        ),
+        (
+            SourceKind::HcXml,
+            "<A \"\\\r\né\"/>",
+            "<A \"\\\né\"/>".into(),
+        ),
+    ] {
+        let preimage = jcs::canonicalize(&serde_json::json!({
+            "projection": MODEL_PROJECTION,
+            "value": {
+                "sourceKind": kind.as_str(),
+                "canonicalSource": canonical,
+                "compilerVersion": compiler,
+            },
+        }))
+        .unwrap();
+        assert_eq!(
+            model_fingerprint(kind, source, compiler).unwrap(),
+            sha256_bytes(preimage.as_bytes())
+        );
+    }
+}
