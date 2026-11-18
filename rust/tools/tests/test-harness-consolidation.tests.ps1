@@ -143,8 +143,8 @@ $crateSpecs = @(
     @{
         Name = 'pg-cli'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-cli'
-        MinTargets = 3
-        MaxTargets = 3
+        MinTargets = 4
+        MaxTargets = 4
         ExpectedSourceNames = @(
             'stats_manifest_roundtrip.rs',
             'analyze_text_cli.rs', 'authored_generate_request.rs', 'batch_engine.rs', 'facts_command.rs', 'frozen_batch_hard_links.rs', 'stats_memory.rs', 'reserved_word_boundary.rs', 'slotted_suffix_left_environment.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
